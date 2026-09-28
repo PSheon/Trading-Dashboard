@@ -21,14 +21,23 @@ npm run sw -- add-wallets wallets.txt --via public_leaderboard   # one address p
 npm run sw -- fetch        # Helius history for wallets that are due (new: 180-day backfill)
 npm run sw -- ingest       # raw → trades, token_transfers → FIFO lots, positions
 npm run sw -- repair       # fetch token-account history for mints that do not reconcile
-npm run sw -- snapshot     # wallet_metrics_daily for today (as_of_date = today 00:00 UTC)
-npm run sw -- snapshot --from 2026-06-01 --to 2026-09-28   # backfill snapshots
+npm run sw -- tokens       # token creation / graduation times from Dune
+npm run sw -- snapshot     # bring wallet_metrics_daily up to date: stale wallets, missing days
+npm run sw -- snapshot --from 2026-06-01 --to 2026-09-28   # recompute whole days
+npm run sw -- verify --all # every stored day must equal a recompute
 npm run sw -- reconcile --sample 50                        # derived vs on-chain balances
-npm run sw -- daily        # all of the above for wallets that are due
+npm run sw -- check        # integrity checks; exits 1 on failure
+npm run sw -- daily        # all of the above, in order, for wallets that are due
 ```
 
 Code lives in `src/lib` (pipeline), `src/cli` (the `sw` command) and
-`src/app` + `src/components` (the dashboard).
+`src/app` + `src/components` (the dashboard). Settings are listed in
+[.env.example](.env.example).
+
+Writes take a lock on the warehouse, so the CLI and the server can run at
+the same time. Stored snapshots are kept equal to a recompute: any change to
+a wallet's past rows marks its later days stale and the next `snapshot` (or
+`daily`) recomputes exactly those.
 
 Data lives under `data/` (git-ignored):
 
@@ -41,11 +50,13 @@ Data lives under `data/` (git-ignored):
 | `warehouse/wallet_metrics_daily/as_of_date=*.parquet` | Point-in-time snapshots |
 | `warehouse/wallets.parquet` | Registry; wallets are never removed |
 | `warehouse/token_accounts.parquet` | How far repair has fetched each token account |
+| `warehouse/tokens.parquet` | Token creation / graduation times (from Dune) |
+| `warehouse/snapshot_dirty.parquet` | Wallets whose stored snapshots are stale; empty after a run |
 | `warehouse/reconciliation.parquet` | Balance checks |
 | `manual.sqlite` | Notes |
 
 Everything under `warehouse/` except `wallets.parquet` can be rebuilt from
-`raw/` with `ingest` and `snapshot --from … --to …`. `wallets.parquet` (when
+`raw/` with `ingest`, `tokens` and `snapshot`. `wallets.parquet` (when
 each wallet was discovered) and `manual.sqlite` (notes) cannot; back them up.
 
 ## Dashboard

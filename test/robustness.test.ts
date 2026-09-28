@@ -187,3 +187,26 @@ describe("adaptive throttle", () => {
     expect([h.rateLimited, h.requests]).toEqual([2, 3]);
   });
 });
+
+describe("request timeout", () => {
+  it("gives up on a request that never answers and moves on to the next wallet", async () => {
+    const { wh, rawDir } = setup();
+    await addWallets(wh, [W, OTHER_W], { via: "manual", now: T - DAY });
+    const h = new HeliusClient("k", {
+      fetch: ((_u: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        if (body.address === OTHER_W) {
+          // Hangs until aborted, like a dead connection.
+          return new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
+        }
+        return Promise.resolve(ok({ data: [result] }));
+      }) as typeof fetch,
+      minIntervalMs: 0,
+      backoffMs: 0,
+      timeoutMs: 20,
+    });
+    const r = await fetchWallets(wh, h, rawDir, [OTHER_W, W], { now: T, stamp: "s", concurrency: 2 });
+    expect(Object.keys(r.fetched)).toEqual([W]);
+    expect(r.errors.map((e) => e.wallet)).toEqual([OTHER_W]);
+  });
+});

@@ -69,6 +69,7 @@ export class HeliusClient {
     private readonly apiKey: string,
     private readonly opts: {
       fetch?: Fetch;
+      timeoutMs?: number;
       /** Overrides both limits (tests). */
       minIntervalMs?: number;
       rpcRps?: number;
@@ -97,7 +98,7 @@ export class HeliusClient {
           this.opts.fetch ?? fetch,
           url,
           { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
-          { attempts: 1 },
+          { attempts: 1, timeoutMs: this.opts.timeoutMs },
         );
         throttle.recover();
         return out;

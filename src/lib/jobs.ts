@@ -27,7 +27,7 @@ export const BACKFILL_DAYS = 180;
 // skipped; ingest drops the duplicates.
 const OVERLAP_SECONDS = 600;
 // A batch's trades are held in memory as objects; keep it modest.
-const INGEST_BATCH = 50;
+const INGEST_BATCH = 10;
 export const DEFAULT_CREDIT_BUDGET = 200_000;
 const FETCH_CONCURRENCY = 4;
 
@@ -349,7 +349,9 @@ export async function daily(
   const toIngest = pendingIngest(await loadWallets(wh));
   const ingested = await ingestWallets(wh, rawDir, toIngest, opts.now);
 
-  const repaired = Object.keys(fetch.fetched);
+  // Everything ingested this run gets repaired and may be reconciled, including
+  // wallets an interrupted run fetched but never got to.
+  const repaired = toIngest;
   const repair = await repairWallets(wh, helius, rawDir, repaired, {
     now: opts.now,
     stamp,

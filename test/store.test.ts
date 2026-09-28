@@ -51,3 +51,18 @@ describe("Warehouse", () => {
     expect([m.as_of_date, m.trade_count]).toEqual(["2026-09-28", 3]);
   });
 });
+
+describe("schema evolution", () => {
+  it("reads files written before a column existed, with NULL for it", async () => {
+    const { queryRows } = await import("../src/lib/db");
+    const wh = tmpWarehouse();
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(wh.root, { recursive: true });
+    // An old wallets file: no last_ingested_at, plus a column the schema dropped.
+    await queryRows(
+      `COPY (SELECT 'A' AS address, 1 AS first_seen_at, 'manual' AS discovered_via, 'x' AS gone) TO '${wh.path("wallets")}' (FORMAT parquet)`,
+    );
+    const [w] = await wh.read<Record<string, unknown>>("wallets");
+    expect([w.address, w.first_seen_at, w.last_ingested_at, "gone" in w]).toEqual(["A", 1, null, false]);
+  });
+});

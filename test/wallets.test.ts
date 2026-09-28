@@ -38,7 +38,7 @@ describe("wallet registry", () => {
   it("fetches active wallets daily and dormant ones weekly", () => {
     const w = (address: string, cursor: number | null, fetched: number | null): WalletRow => ({
       address, first_seen_at: 0, discovered_via: "manual", discovered_from_token: null, funnel_run_id: null,
-      fetch_cursor_time: cursor, last_fetched_at: fetched, history_from: null,
+      fetch_cursor_time: cursor, last_fetched_at: fetched, last_ingested_at: null, history_from: null,
     });
     const reg = [
       w("new", null, null),

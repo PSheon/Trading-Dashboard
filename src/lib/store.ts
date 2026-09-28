@@ -12,6 +12,7 @@ import path from "node:path";
 import type { DuckDBConnection } from "@duckdb/node-api";
 
 import { lit, litList, queryRows, type Row, withConnection } from "./db";
+import { withWriteLock } from "./lock";
 
 // Column kinds and how they cross between DuckDB and TypeScript.
 //   big: BIGINT ↔ bigint (raw token amounts, lamports: may exceed 2^53)
@@ -38,6 +39,7 @@ export const SCHEMAS = {
     funnel_run_id: "str",
     fetch_cursor_time: "int", // newest block time fetched so far
     last_fetched_at: "int",
+    last_ingested_at: "int", // behind last_fetched_at: raw fetched but not yet ingested
     history_from: "int", // start of the first backfill; nothing older is held
   },
   tokens: {
@@ -48,6 +50,8 @@ export const SCHEMAS = {
     create_slot: "int",
     graduated_at: "int",
     migration_venue: "str",
+    source: "str", // where created_at / graduated_at came from
+    checked_at: "int", // last time the source was asked
   },
   trades: {
     tx_sig: "str",
@@ -141,6 +145,11 @@ export const SCHEMAS = {
     cursor_time: "int",
     last_fetched_at: "int",
   },
+  snapshot_dirty: {
+    // Stored snapshots of this wallet for days after changed_from are stale.
+    wallet: "str",
+    changed_from: "int",
+  },
   reconciliation: {
     wallet: "str",
     mint: "str",
@@ -164,6 +173,8 @@ const SORT_KEY: Partial<Record<Table, string[]>> = {
   lots: ["wallet", "mint", "lot_seq"],
   positions: ["wallet", "mint", "position_seq"],
   token_accounts: ["wallet", "mint", "pubkey"],
+  snapshot_dirty: ["wallet"],
+  tokens: ["mint"],
   wallets: ["first_seen_at", "address"],
   wallet_metrics_daily: ["wallet"],
   reconciliation: ["checked_at", "wallet", "mint"],
@@ -174,6 +185,17 @@ function projection(schema: Schema, prefix = ""): string {
   return Object.entries(schema)
     .map(([c, k]) => `CAST(${prefix}"${c}" AS ${SQL_TYPE[k]}) AS "${c}"`)
     .join(", ");
+}
+
+/**
+ * Parquet files read as the schema says. Files written before a column was
+ * added lack it; unioning by name with an empty relation that has every
+ * column fills those with NULL instead of failing, and columns the schema no
+ * longer has are dropped by the projection.
+ */
+function fileRelation(files: readonly string[], schema: Schema): string {
+  const read = `SELECT * FROM read_parquet([${litList(files)}], union_by_name=true)`;
+  return `(SELECT ${projection(schema)} FROM (SELECT * FROM ${emptyRelation(schema)} UNION ALL BY NAME ${read}))`;
 }
 
 /** An empty relation with the schema's columns. */
@@ -243,6 +265,11 @@ async function copyAtomic(c: DuckDBConnection, select: string, target: string): 
 export class Warehouse {
   constructor(readonly root: string) {}
 
+  /** Run a read-modify-write under the warehouse's write lock. */
+  locked<T>(fn: () => Promise<T>): Promise<T> {
+    return withWriteLock(this.root, fn);
+  }
+
   path(table: Table): string {
     return MONTHLY.has(table) || DAILY.has(table)
       ? path.join(this.root, table)
@@ -267,7 +294,7 @@ export class Warehouse {
     const files = this.files(table);
     const schema = SCHEMAS[table];
     if (!files.length) return emptyRelation(schema);
-    return `(SELECT ${projection(schema)} FROM read_parquet([${litList(files)}], union_by_name=true))`;
+    return fileRelation(files, schema);
   }
 
   async read<T = Row>(table: Table, where = "true", orderBy?: string): Promise<T[]> {
@@ -295,6 +322,21 @@ export class Warehouse {
       await copyAtomic(c, `SELECT * FROM ${t} ${orderClause(table)}`, target);
     });
     return target;
+  }
+
+  /** Replace these wallets' rows in one day of a daily table. */
+  async replaceWalletsInDay(table: Table, day: string, wallets: readonly string[], rows: readonly Row[]): Promise<void> {
+    if (!DAILY.has(table)) throw new Error(`${table} is not daily`);
+    const schema = SCHEMAS[table];
+    const target = path.join(this.path(table), `as_of_date=${day}.parquet`);
+    const old = existsSync(target)
+      ? fileRelation([target], schema)
+      : emptyRelation(schema);
+    await withConnection(async (c) => {
+      const incoming = await loadRows(c, rows, schema);
+      const select = `SELECT * FROM ${old} WHERE "wallet" NOT IN (${litList(wallets)}) UNION ALL SELECT * FROM ${incoming} ${orderClause(table)}`;
+      await copyAtomic(c, select, target);
+    });
   }
 
   days(table: Table): string[] {
@@ -325,7 +367,7 @@ export class Warehouse {
       for (const m of [...new Set([...existing.keys(), ...newMonths])].sort()) {
         const file = existing.get(m);
         const old = file
-          ? `(SELECT ${projection(schema)} FROM read_parquet(${lit(file)}, union_by_name=true))`
+          ? fileRelation([file], schema)
           : emptyRelation(schema);
         const [{ total, kept }] = await queryRows(
           `SELECT count(*) AS total, count(*) FILTER (WHERE ${keep}) AS kept FROM ${old}`,

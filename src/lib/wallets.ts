@@ -2,7 +2,9 @@
 //
 // Dropping dead wallets would put survivorship bias straight into the data, so
 // every save checks that no address that was there before has gone missing, and
-// that nobody's `first_seen_at` has moved.
+// that nobody's `first_seen_at` has moved. Every change is a read-modify-write
+// under the warehouse write lock, so a wallet added from the page while the
+// daily job moves cursors is not overwritten.
 
 import type { Warehouse } from "./store";
 
@@ -22,6 +24,7 @@ export interface WalletRow {
   funnel_run_id: string | null;
   fetch_cursor_time: number | null;
   last_fetched_at: number | null;
+  last_ingested_at: number | null;
   history_from: number | null;
 }
 
@@ -31,6 +34,7 @@ export function loadWallets(wh: Warehouse): Promise<WalletRow[]> {
   return wh.read<WalletRow>("wallets");
 }
 
+/** Write the registry, refusing any change that loses a wallet or moves first_seen_at. */
 export async function saveWallets(wh: Warehouse, before: readonly WalletRow[], after: readonly WalletRow[]) {
   const next = new Map(after.map((w) => [w.address, w]));
   const lost = before.filter((w) => !next.has(w.address)).map((w) => w.address);
@@ -42,27 +46,39 @@ export async function saveWallets(wh: Warehouse, before: readonly WalletRow[], a
   await wh.write("wallets", [...after] as unknown as Record<string, unknown>[]);
 }
 
+/** Apply `change` to the registry as read inside the write lock. */
+function update(wh: Warehouse, change: (before: WalletRow[]) => WalletRow[]): Promise<void> {
+  return wh.locked(async () => {
+    const before = await loadWallets(wh);
+    await saveWallets(wh, before, change(before));
+  });
+}
+
 /** Register addresses not yet known. Known ones are left exactly as they are. */
 export async function addWallets(
   wh: Warehouse,
   addresses: readonly string[],
   opts: { via: string; now: number; fromToken?: string | null; funnelRunId?: string | null },
 ): Promise<string[]> {
-  const before = await loadWallets(wh);
-  const known = new Set(before.map((w) => w.address));
-  const fresh = [...new Set(addresses)].filter((a) => !known.has(a));
-  if (!fresh.length) return [];
-  const added: WalletRow[] = fresh.map((address) => ({
-    address,
-    first_seen_at: opts.now,
-    discovered_via: opts.via,
-    discovered_from_token: opts.fromToken ?? null,
-    funnel_run_id: opts.funnelRunId ?? null,
-    fetch_cursor_time: null,
-    last_fetched_at: null,
-    history_from: null,
-  }));
-  await saveWallets(wh, before, [...before, ...added]);
+  let fresh: string[] = [];
+  await update(wh, (before) => {
+    const known = new Set(before.map((w) => w.address));
+    fresh = [...new Set(addresses)].filter((a) => !known.has(a));
+    return [
+      ...before,
+      ...fresh.map((address) => ({
+        address,
+        first_seen_at: opts.now,
+        discovered_via: opts.via,
+        discovered_from_token: opts.fromToken ?? null,
+        funnel_run_id: opts.funnelRunId ?? null,
+        fetch_cursor_time: null,
+        last_fetched_at: null,
+        last_ingested_at: null,
+        history_from: null,
+      })),
+    ];
+  });
   return fresh;
 }
 
@@ -70,23 +86,36 @@ const maxN = (a: number | null, b: number | null) => (a === null ? b : b === nul
 const minN = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b));
 
 /** Store {address: [newest block time seen, fetched at, fetched from]}. */
-export async function recordFetch(
+export function recordFetch(
   wh: Warehouse,
   fetched: Record<string, [newest: number | null, fetchedAt: number, from: number | null]>,
 ): Promise<void> {
-  const before = await loadWallets(wh);
-  const after = before.map((w) => {
-    const f = fetched[w.address];
-    if (!f) return w;
-    return {
-      ...w,
-      // A fetch that saw nothing new keeps the old cursor.
-      fetch_cursor_time: maxN(w.fetch_cursor_time, f[0]),
-      last_fetched_at: f[1],
-      history_from: minN(w.history_from, f[2]),
-    };
-  });
-  await saveWallets(wh, before, after);
+  return update(wh, (before) =>
+    before.map((w) => {
+      const f = fetched[w.address];
+      if (!f) return w;
+      return {
+        ...w,
+        // A fetch that saw nothing new keeps the old cursor.
+        fetch_cursor_time: maxN(w.fetch_cursor_time, f[0]),
+        last_fetched_at: f[1],
+        history_from: minN(w.history_from, f[2]),
+      };
+    }),
+  );
+}
+
+/** Record that these wallets were ingested by the run whose clock reads `at`. */
+export function markIngested(wh: Warehouse, addresses: readonly string[], at: number): Promise<void> {
+  const set = new Set(addresses);
+  return update(wh, (before) => before.map((w) => (set.has(w.address) ? { ...w, last_ingested_at: at } : w)));
+}
+
+/** Wallets with raw data fetched after their last ingest, e.g. a job stopped in between. */
+export function pendingIngest(registry: readonly WalletRow[]): string[] {
+  return registry
+    .filter((w) => w.last_fetched_at !== null && (w.last_ingested_at === null || w.last_fetched_at > w.last_ingested_at))
+    .map((w) => w.address);
 }
 
 /** Wallets whose next fetch is due: never fetched, active daily, dormant weekly. */

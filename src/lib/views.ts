@@ -20,7 +20,7 @@ export function listDates(): string[] {
 /** Every registered wallet, with that day's metrics where it has them. */
 export async function walletList(
   asOf?: string,
-): Promise<{ asOfDate: string | null; rows: WalletListRow[]; now: number }> {
+): Promise<{ asOfDate: string | null; rows: WalletListRow[]; now: number; dataUpdatedAt: number | null }> {
   const { ctx, notes } = server();
   const days = listDates();
   const day = asOf && days.includes(asOf) ? asOf : (days[0] ?? null);
@@ -42,7 +42,14 @@ export async function walletList(
     };
   });
   // Read once here so the server render and hydration format times alike.
-  return { asOfDate: day, rows, now: Math.floor(Date.now() / 1000) };
+  // The page only sees its own job runs; the registry shows any run's last ingest.
+  const ingested = registry.map((w) => w.last_ingested_at).filter((t): t is number => t !== null);
+  return {
+    asOfDate: day,
+    rows,
+    now: Math.floor(Date.now() / 1000),
+    dataUpdatedAt: ingested.length ? Math.max(...ingested) : null,
+  };
 }
 
 export interface PositionView {

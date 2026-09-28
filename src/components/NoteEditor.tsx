@@ -8,8 +8,9 @@ import { NOTE_MAX_CHARS } from "@/lib/universe";
 export function NoteEditor({ address, initial }: { address: string; initial: string }) {
   const [status, setStatus] = useState("");
   return (
-    <div className="controls" style={{ margin: 0 }}>
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
       <input
+        aria-label="Note on this wallet"
         style={{ flex: 1, minWidth: 240 }}
         defaultValue={initial}
         placeholder="Your note on this wallet"

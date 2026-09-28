@@ -13,6 +13,15 @@ export interface ChartSeries {
   color: string; // a CSS color or var(--series-n)
   points: ChartPoint[];
   line?: boolean;
+  // A second channel besides color, so series stay apart for colorblind readers.
+  shape?: "circle" | "up" | "down";
+}
+
+/** SVG path for a marker of radius r centred on (x, y). */
+function markerPath(shape: ChartSeries["shape"], x: number, y: number, r: number): string {
+  if (shape === "up") return `M${x},${y - r * 1.2}L${x + r * 1.1},${y + r * 0.8}L${x - r * 1.1},${y + r * 0.8}Z`;
+  if (shape === "down") return `M${x},${y + r * 1.2}L${x + r * 1.1},${y - r * 0.8}L${x - r * 1.1},${y - r * 0.8}Z`;
+  return `M${x - r},${y}a${r},${r} 0 1,0 ${r * 2},0a${r},${r} 0 1,0 ${-r * 2},0`;
 }
 
 export interface ChartOptions {
@@ -85,9 +94,9 @@ export function drawChart(container: HTMLElement, opts: ChartOptions): void {
     const legend = div("legend");
     for (const s of series) {
       const item = document.createElement("span");
-      const dot = document.createElement("i");
-      dot.style.background = s.color;
-      item.append(dot, s.name);
+      const icon = svg("svg", { viewBox: "0 0 12 12" });
+      icon.append(svg("path", { d: markerPath(s.shape, 6, 6, 4.5), fill: s.color }));
+      item.append(icon, s.name);
       legend.append(item);
     }
     container.append(legend);
@@ -140,8 +149,9 @@ export function drawChart(container: HTMLElement, opts: ChartOptions): void {
       }));
     }
     for (const p of ps) {
-      root.append(svg("circle", {
-        cx: X(p.x), cy: Y(p.y), r: s.line ? 3 : 4, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2,
+      root.append(svg("path", {
+        d: markerPath(s.shape, X(p.x), Y(p.y), s.line ? 3 : 4.5),
+        fill: s.color, stroke: "var(--surface)", "stroke-width": 1.5,
       }));
       marks.push({ p, s, cx: X(p.x), cy: Y(p.y) });
     }

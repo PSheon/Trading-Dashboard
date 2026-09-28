@@ -7,6 +7,7 @@ import type { Metrics } from "@/lib/metrics";
 import type { TradeView } from "@/lib/views";
 
 import { Chart } from "./Chart";
+import { Icon } from "./Icon";
 
 const METRICS: Record<string, { label: string; fmt: (v: number) => string }> = {
   realized_pnl_sol: { label: "Realized PnL (SOL)", fmt: (v) => num(v) },
@@ -37,8 +38,8 @@ export function WalletCharts({ trades, metrics }: { trades: TradeView[]; metrics
     });
     return {
       series: [
-        { name: "Buy", color: "var(--series-1)", points: pick.filter((t) => t.side === "buy").map(point) },
-        { name: "Sell", color: "var(--series-2)", points: pick.filter((t) => t.side === "sell").map(point) },
+        { name: "Buy", color: "var(--series-1)", shape: "up" as const, points: pick.filter((t) => t.side === "buy").map(point) },
+        { name: "Sell", color: "var(--series-2)", shape: "down" as const, points: pick.filter((t) => t.side === "sell").map(point) },
       ],
       log: true,
       xFormat: (v: number, full: boolean, step: number) =>
@@ -53,7 +54,7 @@ export function WalletCharts({ trades, metrics }: { trades: TradeView[]; metrics
     return {
       series: [{
         name: m.label,
-        color: "var(--series-1)",
+        color: "var(--series-line)",
         line: true,
         points: metrics.map((r) => ({
           x: Date.parse(`${r.as_of_date}T00:00:00Z`) / 1000,
@@ -70,32 +71,39 @@ export function WalletCharts({ trades, metrics }: { trades: TradeView[]; metrics
   return (
     <div className="row">
       <div className="card">
-        <h2>Trades on one token</h2>
-        <div className="controls">
-          <label className="field">Token
+        <div className="card-head">
+          <h2>Fills on one token</h2>
+          <label className="field">
+            <span>Token</span>
             <select value={mint} onChange={(e) => setMint(e.target.value)}>
               {mints.map(([m, n]) => <option key={m} value={m}>{short(m)} · {n} trades</option>)}
             </select>
           </label>
-          {mint && <a href={links.solscanToken(mint)} target="_blank" rel="noreferrer" className="status">Solscan ↗</a>}
         </div>
         <Chart options={priceOpts} />
-        <p className="status">
+        <p className="footnote">
+          {mint && (
+            <a href={links.solscanToken(mint)} target="_blank" rel="noreferrer">
+              Token on Solscan <Icon name="external" size={12} />
+            </a>
+          )}{" "}
+          
           Price in SOL per token at each of this wallet&apos;s trades, log scale. It is the wallet&apos;s own fill
           prices, not the token&apos;s full price history.
         </p>
       </div>
       <div className="card">
-        <h2>Metric over time</h2>
-        <div className="controls">
-          <label className="field">Metric
+        <div className="card-head">
+          <h2>Metric over time</h2>
+          <label className="field">
+            <span>Metric</span>
             <select value={metric} onChange={(e) => setMetric(e.target.value)}>
               {Object.entries(METRICS).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
             </select>
           </label>
         </div>
         <Chart options={metricOpts} />
-        <p className="status">One point per daily snapshot, each computed only from data before that day.</p>
+        <p className="footnote">One point per daily snapshot, each computed only from data before that day.</p>
       </div>
     </div>
   );

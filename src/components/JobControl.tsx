@@ -7,7 +7,9 @@ import { getJobState, runDailyJob } from "@/app/actions";
 import { ago, time } from "@/lib/format";
 import type { JobState } from "@/lib/runner";
 
-export function JobControl({ initial, now }: { initial: JobState; now: number }) {
+import { Icon } from "./Icon";
+
+export function JobControl({ initial, now, dataUpdatedAt }: { initial: JobState; now: number; dataUpdatedAt: number | null }) {
   const router = useRouter();
   const [state, setState] = useState(initial);
 
@@ -27,19 +29,30 @@ export function JobControl({ initial, now }: { initial: JobState; now: number })
   }, [state.running, poll]);
 
   let text = state.running
-    ? `Running since ${time(state.started_at)} UTC…`
+    ? `Running since ${time(state.started_at).slice(11)} UTC`
     : state.finished_at
       ? `Last run ${ago(state.finished_at, now)}`
-      : "";
+      : dataUpdatedAt
+        ? `Data updated ${ago(dataUpdatedAt, now)}`
+        : "Not run yet";
   if (state.error) text += " · failed";
-  if (state.next_scheduled_at) text += ` · next ${time(state.next_scheduled_at)} UTC`;
+  if (!state.running && state.next_scheduled_at) text += ` · next ${time(state.next_scheduled_at).slice(5)} UTC`;
+  const tone = state.running ? "busy" : state.error ? "error" : "";
 
   return (
     <>
-      <span className={`status ${state.error ? "error" : ""}`} title={state.error ?? (state.result ? JSON.stringify(state.result, null, 1) : "")}>
-        {text}
+      <span
+        className={`pill ${tone}`}
+        role="status"
+        title={state.error ?? (state.result ? JSON.stringify(state.result, null, 1) : "")}
+      >
+        <Icon name={state.running ? "loader" : state.error ? "alert" : "clock"} size={14} />
+        <span className="hide-sm">{text}</span>
+        <span className="sr-only sm-only">{text}</span>
       </span>
       <button
+        className="primary"
+        aria-label="Run daily job"
         disabled={state.running}
         onClick={async () => {
           const r = await runDailyJob();
@@ -47,7 +60,8 @@ export function JobControl({ initial, now }: { initial: JobState; now: number })
           if (!r.started) alert("A run is already in progress.");
         }}
       >
-        Run daily job
+        <Icon name="play" size={14} />
+        <span className="hide-sm">Run daily job</span>
       </button>
     </>
   );

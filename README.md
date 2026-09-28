@@ -96,3 +96,11 @@ replica: the job and the page share the volume.
 
 On a fresh deploy, add wallets on the page and press **Run daily job**; the
 first run backfills 180 days for each.
+
+## Stage
+
+R0 (data you can trust) is mostly done: the Helius pipeline, reconciliation and
+point-in-time snapshots run on 55 wallets. Next: point-in-time funnel replay
+(R1) and the follow-trade backtest (R2). The dashboard is frozen as a
+read-only view and deployment is paused until the backtest says the approach
+works; see the spec for scope.

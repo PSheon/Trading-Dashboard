@@ -62,7 +62,8 @@ export const SCHEMAS = {
     decimals: "int",
     quote_mint: "str",
     quote_amount_raw: "big",
-    sol_lamports: "big", // null when the quote was a stablecoin
+    sol_lamports: "big", // null when a stablecoin quote has no SOL/USD price yet
+    sol_source: "str", // swap (SOL leg) | usd (stablecoin converted at the minute's SOL/USD)
     fee_lamports: "big",
     rent_lamports: "big",
     price_sol: "float",
@@ -145,6 +146,10 @@ export const SCHEMAS = {
     cursor_time: "int",
     last_fetched_at: "int",
   },
+  sol_usd: {
+    minute: "int", // unix seconds, start of the minute
+    price: "float", // USD per SOL
+  },
   funnel_runs: {
     run_id: "str",
     run_at: "int",
@@ -202,6 +207,7 @@ const SORT_KEY: Partial<Record<Table, string[]>> = {
   positions: ["wallet", "mint", "position_seq"],
   token_accounts: ["wallet", "mint", "pubkey"],
   snapshot_dirty: ["wallet"],
+  sol_usd: ["minute"],
   funnel_runs: ["run_at"],
   funnel_tokens: ["run_id", "mint"],
   funnel_wallets: ["run_id", "rank"],

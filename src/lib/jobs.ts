@@ -7,8 +7,9 @@
 // CLI can act at the same time without losing updates.
 
 import { runChecks } from "./check";
+import { loadSolUsd, syncSolUsd, walletsToConvert } from "./prices";
 import { Progress } from "./progress";
-import { TOKEN_PROGRAMS } from "./constants";
+import { STABLE_MINTS, TOKEN_PROGRAMS } from "./constants";
 import { litList } from "./db";
 import type { DuneClient } from "./dune";
 import { build } from "./fifo";
@@ -164,6 +165,7 @@ export async function ingestWallets(
 ) {
   const counts = { trades: 0, token_transfers: 0, lots: 0, positions: 0, stale_wallets: 0 };
   const errors: JobError[] = [];
+  const solUsd = wh.files("sol_usd").length ? await loadSolUsd(wh) : null;
   for (let i = 0; i < addresses.length; i += INGEST_BATCH) {
     await wh.locked(async () => {
       const trades: TradeRow[] = [];
@@ -173,7 +175,7 @@ export async function ingestWallets(
       const batch: string[] = [];
       for (const a of addresses.slice(i, i + INGEST_BATCH)) {
         try {
-          const parsed = await parseWallet(rawDir, a, now);
+          const parsed = await parseWallet(rawDir, a, now, solUsd);
           trades.push(...parsed.trades);
           transfers.push(...parsed.transfers);
           batch.push(a);
@@ -420,8 +422,23 @@ async function dailySteps(
   });
   errors.push(...fetch.errors);
 
-  // This run's fetches plus anything an earlier, interrupted run fetched.
-  const toIngest = pendingIngest(await loadWallets(wh));
+  // SOL/USD first, so stablecoin-quoted trades convert as they are ingested.
+  if (opts.dune) {
+    progress.step("prices", 0, "syncing SOL/USD by the minute");
+    try {
+      const r = await syncSolUsd(wh, opts.dune, { now: opts.now });
+      progress.event("prices", `${r.fetched} minutes fetched, ${r.minutes} held`);
+    } catch (e) {
+      errors.push({ step: "prices", wallet: null, message: message(e) });
+      progress.error(`prices: ${message(e)}`);
+    }
+  }
+
+  // This run's fetches, anything an earlier, interrupted run fetched, and
+  // wallets whose stablecoin trades a newly known price can now convert.
+  const toIngest = [
+    ...new Set([...pendingIngest(await loadWallets(wh)), ...(await walletsToConvert(wh, [...STABLE_MINTS]))]),
+  ];
   progress.step("ingest", toIngest.length, `ingesting ${toIngest.length} wallets`);
   const ingested = await ingestWallets(wh, rawDir, toIngest, opts.now, progress);
   errors.push(...ingested.errors);

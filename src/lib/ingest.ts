@@ -7,13 +7,14 @@
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import { WSOL_MINT } from "./constants";
+import { STABLE_MINTS, WSOL_MINT } from "./constants";
 import { rawTransaction } from "./helius";
 import { counterparty, walletDeltas } from "./normalize";
+import type { SolUsd } from "./prices";
 import { readRaw } from "./rawStore";
 import type { HistoryPage, RawTransaction } from "./solana";
 
-export const PARSER_VERSION = 1;
+export const PARSER_VERSION = 2; // 2: a stablecoin leg worth more than the SOL leg is the quote
 // A SOL leg this small moves the implied price a lot with each lamport of fee
 // or rounding, so its price is marked low confidence.
 const LOW_CONFIDENCE_LAMPORTS = 10_000_000n; // 0.01 SOL
@@ -68,10 +69,11 @@ export interface TradeRow {
   quote_mint: string;
   quote_amount_raw: bigint;
   sol_lamports: bigint | null;
+  sol_source: "swap" | "usd" | null;
   fee_lamports: bigint;
   rent_lamports: bigint;
   price_sol: number | null;
-  price_confidence: "low" | "normal" | null;
+  price_confidence: "low" | "normal" | "converted" | null;
   programs: string[];
   slot: number;
   tx_index: number | null;
@@ -102,6 +104,7 @@ export async function parseWallet(
   rawDir: string,
   wallet: string,
   ingestedAt = Math.floor(Date.now() / 1000),
+  solUsd: SolUsd | null = null,
 ): Promise<{ trades: TradeRow[]; transfers: TransferRow[] }> {
   const trades: TradeRow[] = [];
   const transfers: TransferRow[] = [];
@@ -119,7 +122,16 @@ export async function parseWallet(
         ingested_at: ingestedAt,
       };
       if (d.kind === "trade") {
-        const sol = d.quoteMint === WSOL_MINT ? abs(d.quoteAmountRaw!) : null;
+        let sol = d.quoteMint === WSOL_MINT ? abs(d.quoteAmountRaw!) : null;
+        let solSource: TradeRow["sol_source"] = sol === null ? null : "swap";
+        if (sol === null && STABLE_MINTS.has(d.quoteMint!)) {
+          // USDC and USDT both have 6 decimals and are taken at $1.
+          const usdPerSol = d.blockTime === null ? null : (solUsd?.at(d.blockTime) ?? null);
+          if (usdPerSol) {
+            sol = BigInt(Math.round((Number(abs(d.quoteAmountRaw!)) / 1e6 / usdPerSol) * 1e9));
+            solSource = "usd";
+          }
+        }
         const tokens = abs(d.tokenAmountRaw);
         trades.push({
           ...common,
@@ -128,10 +140,12 @@ export async function parseWallet(
           quote_mint: d.quoteMint!,
           quote_amount_raw: abs(d.quoteAmountRaw!),
           sol_lamports: sol,
+          sol_source: solSource,
           fee_lamports: d.feeLamports,
           rent_lamports: d.rentLamports,
           price_sol: sol ? Number(sol) / 1e9 / (Number(tokens) / 10 ** d.decimals) : null,
-          price_confidence: sol === null ? null : sol < LOW_CONFIDENCE_LAMPORTS ? "low" : "normal",
+          price_confidence:
+            sol === null ? null : solSource === "usd" ? "converted" : sol < LOW_CONFIDENCE_LAMPORTS ? "low" : "normal",
           programs,
         });
       } else {

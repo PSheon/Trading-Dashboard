@@ -10,6 +10,9 @@ import { BACKFILL_DAYS, daily, dayOf, fetchWallets, ingestWallets, reconcileWall
 import { summarize } from "../lib/reconcile";
 import { dayRange, maintainSnapshots, snapshotDay, verifyDay } from "../lib/snapshots";
 import { runFunnel } from "../lib/funnel";
+import { GMGN_DEMO_KEY, GmgnClient } from "../lib/gmgn";
+import { gmgnCheck } from "../lib/gmgnCheck";
+import { syncSolUsd } from "../lib/prices";
 import { pickGolden, VENUES, writeGolden } from "../lib/golden";
 import { Progress } from "../lib/progress";
 import { pnlSheet } from "../lib/reports";
@@ -23,6 +26,7 @@ const HELP = `usage: npm run sw -- <command> [options]
   ingest    [--wallet A ...]                        re-parse raw into trades, transfers, lots, positions
   repair    [--wallet A ...]                        fetch token-account history for unreconciled mints
   tokens                                            sync token creation / graduation times from Dune
+  prices                                            sync SOL/USD by the minute from Dune (converts stablecoin trades on ingest)
   funnel    [--dry-run] [--lookback-days 14] [--min-peak-sol 1000] [--min-wins 2] [--max-wallets 50]
             [--max-trades-per-day 200]              discover wallets from tokens that did well (Dune)
   snapshot  [--date D | --from D --to D]            recompute whole days (default: maintain through today)
@@ -31,6 +35,7 @@ const HELP = `usage: npm run sw -- <command> [options]
   check                                             integrity checks; exits 1 on failure
   golden    [--wallet A ...]                        P1 golden samples: fixtures + a report to confirm by hand
   pnl-sheet --wallet A ...                          P1 per-token PnL table to compare with GMGN by hand
+  gmgn-check [--wallet A ...] [--sample 10] [--cached]  R0: our trades against GMGN's reading → docs/r0-gmgn-check.md
   daily     [--reconcile-sample 20]                 everything above, in order, for wallets that are due`;
 
 const json = (v: unknown) =>
@@ -58,6 +63,7 @@ async function main(argv: string[]): Promise<void> {
       from: { type: "string" },
       to: { type: "string" },
       sample: { type: "string" },
+      cached: { type: "boolean" },
       "reconcile-sample": { type: "string" },
       all: { type: "boolean" },
       "dry-run": { type: "boolean" },
@@ -102,6 +108,12 @@ async function main(argv: string[]): Promise<void> {
     case "repair":
       json(await repairWallets(ctx.wh, ctx.helius(), ctx.rawDir, await targets(), { now, stamp: stampOf(now), creditBudget: ctx.creditBudget }));
       return;
+    case "prices": {
+      const dune = ctx.dune();
+      if (!dune) throw new Error("DUNE_API_KEY is not set; add it to .env (see .env.example)");
+      json(await syncSolUsd(ctx.wh, dune, { now }));
+      return;
+    }
     case "tokens": {
       const dune = ctx.dune();
       if (!dune) throw new Error("DUNE_API_KEY is not set; add it to .env (see .env.example)");
@@ -173,6 +185,14 @@ async function main(argv: string[]): Promise<void> {
         token_mismatches: cases.filter((c) => !c.token_match).map((c) => c.signature),
         report: "docs/p1-golden.md",
       });
+      return;
+    }
+    case "gmgn-check": {
+      const key = process.env.GMGN_API_KEY || GMGN_DEMO_KEY;
+      if (key === GMGN_DEMO_KEY) console.error("GMGN_API_KEY not set: using GMGN's public demo key (testing only)");
+      const all = (await loadWallets(ctx.wh)).filter((w) => w.last_ingested_at !== null).map((w) => w.address);
+      const picked = values.wallet ?? sample(all, Number(values.sample ?? 10));
+      json(await gmgnCheck(ctx.wh, new GmgnClient(key), ctx.rawDir, picked, { now, stamp: stampOf(now), reportFile: "docs/r0-gmgn-check.md", cached: values.cached }));
       return;
     }
     case "pnl-sheet": {

@@ -8,6 +8,10 @@
 import { JITO_TIP_ACCOUNTS, QUOTE_MINTS, STABLE_MINTS, WSOL_MINT } from "./constants";
 import type { RawTransaction, TokenBalance } from "./solana";
 
+// Above any price SOL has traded at. A stablecoin leg worth more than the SOL
+// leg at this price is the real quote, and the SOL is a relayer's fee or rent.
+const MAX_USD_PER_SOL = 1000n;
+
 export type DeltaKind =
   // the token moved one way and SOL or a stablecoin moved the other way
   | "trade"
@@ -70,6 +74,8 @@ export function counterparty(raw: RawTransaction, wallet: string, mint: string, 
   }
   return best ? best[0] : null;
 }
+
+const abs = (v: bigint) => (v < 0n ? -v : v);
 
 export function walletDeltas(raw: RawTransaction, wallet: string): Delta[] {
   const meta = raw.meta;
@@ -148,12 +154,15 @@ export function walletDeltas(raw: RawTransaction, wallet: string): Delta[] {
   if (movers.length === 0) return [];
 
   const [[mint, amount]] = movers;
-  // SOL first: a route through a stablecoin that ends in SOL is still a SOL trade.
-  for (const quoteMint of [WSOL_MINT, ...[...STABLE_MINTS].sort()]) {
-    const q = quotes.get(quoteMint) ?? 0n;
-    if (q !== 0n && q > 0n !== amount > 0n) {
-      return [row(mint, amount, "trade", amount > 0n ? "buy" : "sell", quoteMint, q)];
-    }
-  }
-  return [row(mint, amount, "transfer")];
+  const opposite = [WSOL_MINT, ...[...STABLE_MINTS].sort()]
+    .map((m) => [m, quotes.get(m) ?? 0n] as const)
+    .filter(([, q]) => q !== 0n && q > 0n !== amount > 0n);
+  if (!opposite.length) return [row(mint, amount, "transfer")];
+  // SOL first: a route through a stablecoin that ends in SOL is still a SOL
+  // trade. Unless the stablecoin leg is worth more (both have 6 decimals of a
+  // dollar; lamports are 9 decimals of a SOL).
+  let [quoteMint, q] = opposite[0];
+  const stable = opposite.find(([m]) => m !== WSOL_MINT);
+  if (quoteMint === WSOL_MINT && stable && abs(stable[1]) * 1000n > abs(q) * MAX_USD_PER_SOL) [quoteMint, q] = stable;
+  return [row(mint, amount, "trade", amount > 0n ? "buy" : "sell", quoteMint, q)];
 }

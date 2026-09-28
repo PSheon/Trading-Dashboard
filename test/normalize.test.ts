@@ -134,6 +134,31 @@ describe("walletDeltas", () => {
     expect([d.kind, d.side, d.quoteMint, d.quoteAmountRaw]).toEqual(["trade", "buy", USDC_MINT, -20_000_000n]);
   });
 
+  it("takes the stablecoin as the quote when the SOL leg is only a relayer's fee", () => {
+    // A relayer pays the network fee; the wallet pays it 0.00055 SOL and 100 USDC for the token.
+    const raw = tx({
+      keys: [OTHER, W, ATA, USDC_ACC, POOL],
+      pre: [SOL, SOL, RENT, RENT, 0],
+      post: [SOL - FEE + 550_840, SOL - 550_840, RENT, RENT, 0],
+      preTok: [tb(2, MINT, W, 0), tb(3, USDC_MINT, W, 150_000_000)],
+      postTok: [tb(2, MINT, W, 1000), tb(3, USDC_MINT, W, 50_000_000)],
+    });
+    const [d] = walletDeltas(raw, W);
+    expect([d.kind, d.side, d.quoteMint, d.quoteAmountRaw]).toEqual(["trade", "buy", USDC_MINT, -100_000_000n]);
+  });
+
+  it("keeps SOL as the quote when a stablecoin leg is only route dust", () => {
+    const raw = tx({
+      keys: [W, ATA, USDC_ACC, POOL],
+      pre: [SOL, RENT, RENT, 0],
+      post: [SOL - FEE + 1_000_000_000, RENT, RENT, 0],
+      preTok: [tb(1, MINT, W, 1000), tb(2, USDC_MINT, W, 0)],
+      postTok: [tb(1, MINT, W, 0), tb(2, USDC_MINT, W, 10_000)],
+    });
+    const [d] = walletDeltas(raw, W);
+    expect([d.kind, d.side, d.quoteMint, d.quoteAmountRaw]).toEqual(["trade", "sell", WSOL_MINT, 1_000_000_000n]);
+  });
+
   it("marks two non-quote mints in one transaction as complex", () => {
     const raw = tx({
       keys: [W, ATA, ATA_B, POOL],

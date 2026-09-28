@@ -53,6 +53,25 @@ class HeliusClient:
                 return
             body = {**body, "paginationToken": token}
 
+    def token_balances(self, owner: str, program_ids: tuple[str, ...]) -> dict[str, int]:
+        """Current raw balance per mint across the owner's token accounts."""
+        out: dict[str, int] = {}
+        for program_id in program_ids:
+            body = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getTokenAccountsByOwner",
+                "params": [owner, {"programId": program_id}, {"encoding": "jsonParsed"}],
+            }
+            resp = self._post("/", body, RPC_CREDITS)
+            if "error" in resp:
+                raise RuntimeError(f"getTokenAccountsByOwner {owner}: {resp['error']}")
+            for acc in resp["result"]["value"]:
+                info = acc["account"]["data"]["parsed"]["info"]
+                mint = info["mint"]
+                out[mint] = out.get(mint, 0) + int(info["tokenAmount"]["amount"])
+        return out
+
     def get_transaction(self, signature: str) -> dict | None:
         body = {
             "jsonrpc": "2.0",

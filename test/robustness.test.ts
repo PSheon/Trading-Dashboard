@@ -146,3 +146,29 @@ describe("concurrent fetching", () => {
     expect(Object.values(r.fetched).every((f) => f.credits === 10)).toBe(true);
   });
 });
+
+describe("rate limits", () => {
+  it("spaces Parsed Events calls on their own limit, apart from plain RPC", async () => {
+    const calls: { kind: string; at: number }[] = [];
+    const h = new HeliusClient("k", {
+      fetch: (async (u: string | URL | Request) => {
+        calls.push({ kind: String(u).includes("parsed-events") ? "enhanced" : "rpc", at: Date.now() });
+        return String(u).includes("parsed-events") ? ok({ data: [result] }) : ok({ result: null });
+      }) as typeof fetch,
+      enhancedRps: 10, // ~120 ms apart
+      rpcRps: 1000,
+      backoffMs: 0,
+    });
+    await Promise.all([
+      (async () => {
+        for (const w of [W, OTHER_W, W]) for await (const _ of h.transactionHistory(w)) void _;
+      })(),
+      Promise.all(["a", "b", "c"].map((s) => h.getTransaction(s))),
+    ]);
+    const enhanced = calls.filter((c) => c.kind === "enhanced").map((c) => c.at);
+    expect(Math.min(...enhanced.slice(1).map((t, i) => t - enhanced[i]))).toBeGreaterThanOrEqual(115);
+    // RPC calls are not held up behind the slower enhanced queue.
+    const rpc = calls.filter((c) => c.kind === "rpc").map((c) => c.at);
+    expect(Math.max(...rpc) - enhanced[0]).toBeLessThan(100);
+  });
+});

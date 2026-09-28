@@ -14,27 +14,57 @@ export interface TokenAccount {
   amount: bigint;
 }
 
-export class HeliusClient {
-  credits = 0;
-  requests = 0;
-  // Requests queue here so concurrent callers still keep the minimum spacing.
+/** Spaces requests to one endpoint group; concurrent callers queue in order. */
+class Throttle {
   private gate: Promise<void> = Promise.resolve();
   private last = 0;
 
-  constructor(
-    private readonly apiKey: string,
-    private readonly opts: { fetch?: Fetch; minIntervalMs?: number; backoffMs?: number } = {},
-  ) {}
+  constructor(private readonly intervalMs: number) {}
 
-  private async post<T>(pathname: string, body: unknown, credits: number): Promise<T> {
-    // The free plan allows 10 requests per second.
+  wait(): Promise<void> {
     const turn = this.gate.then(async () => {
-      const wait = (this.opts.minIntervalMs ?? 120) - (Date.now() - this.last);
+      const wait = this.intervalMs - (Date.now() - this.last);
       if (wait > 0) await sleep(wait);
       this.last = Date.now();
     });
     this.gate = turn;
-    await turn;
+    return turn;
+  }
+}
+
+// Helius limits per plan (free: 10 rps for RPC, 2 rps for DAS & enhanced APIs,
+// which include Parsed Events). A little under the limit leaves room for skew.
+const rpsInterval = (rps: number) => Math.ceil(1000 / rps) + 20;
+const envRps = (name: string, fallback: number) => {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+};
+
+export class HeliusClient {
+  credits = 0;
+  requests = 0;
+  private readonly throttles: Record<"rpc" | "enhanced", Throttle>;
+
+  constructor(
+    private readonly apiKey: string,
+    private readonly opts: {
+      fetch?: Fetch;
+      /** Overrides both limits (tests). */
+      minIntervalMs?: number;
+      rpcRps?: number;
+      enhancedRps?: number;
+      backoffMs?: number;
+    } = {},
+  ) {
+    const interval = (rps: number) => opts.minIntervalMs ?? rpsInterval(rps);
+    this.throttles = {
+      rpc: new Throttle(interval(opts.rpcRps ?? envRps("HELIUS_RPC_RPS", 10))),
+      enhanced: new Throttle(interval(opts.enhancedRps ?? envRps("HELIUS_ENHANCED_RPS", 2))),
+    };
+  }
+
+  private async post<T>(pathname: string, body: unknown, credits: number, group: "rpc" | "enhanced"): Promise<T> {
+    await this.throttles[group].wait();
     this.requests += 1;
     this.credits += credits;
     const url = `${BASE_URL}${pathname}?api-key=${encodeURIComponent(this.apiKey)}`;
@@ -62,6 +92,7 @@ export class HeliusClient {
         "/v1/parsed-events/transaction-history",
         body,
         PARSED_EVENTS_CREDITS,
+        "enhanced",
       );
       yield { request: { ...body }, response };
       if (!response.paginationToken) return;
@@ -81,6 +112,7 @@ export class HeliusClient {
         params: [signature, { encoding: "json", maxSupportedTransactionVersion: 0, commitment: "confirmed" }],
       },
       RPC_CREDITS,
+      "rpc",
     );
     if (resp.error) throw new Error(`getTransaction ${signature}: ${JSON.stringify(resp.error)}`);
     return resp.result ?? null;
@@ -102,6 +134,7 @@ export class HeliusClient {
           params: [owner, { programId }, { encoding: "jsonParsed" }],
         },
         RPC_CREDITS,
+        "rpc",
       );
       if (resp.error || !resp.result) {
         throw new Error(`getTokenAccountsByOwner ${owner}: ${JSON.stringify(resp.error)}`);

@@ -6,6 +6,7 @@ import type { HistoryPage, ParsedResult, RawTransaction } from "./solana";
 const BASE_URL = "https://mainnet.helius-rpc.com";
 export const PARSED_EVENTS_CREDITS = 10;
 export const RPC_CREDITS = 1;
+const MAX_EMPTY_PAGES = 20;
 
 export interface TokenAccount {
   pubkey: string | null;
@@ -46,6 +47,10 @@ export class HeliusClient {
   ): AsyncGenerator<{ request: Record<string, unknown>; response: HistoryPage }> {
     let body: Record<string, unknown> = { address, limit: 100, includeRawTransaction: includeRaw };
     if (timeGte != null) body.time = { gte: timeGte };
+    // The token, not the page size, says whether there is more: a filtered page
+    // can come back empty mid-history. A long run of empty pages is a guard
+    // against paging forever, not a normal end.
+    let empty = 0;
     for (;;) {
       const response = await this.post<HistoryPage>(
         "/v1/parsed-events/transaction-history",
@@ -53,7 +58,9 @@ export class HeliusClient {
         PARSED_EVENTS_CREDITS,
       );
       yield { request: { ...body }, response };
-      if (!response.paginationToken || !response.data?.length) return;
+      if (!response.paginationToken) return;
+      empty = response.data?.length ? 0 : empty + 1;
+      if (empty >= MAX_EMPTY_PAGES) throw new Error(`${address}: ${empty} empty pages in a row, stopping`);
       body = { ...body, paginationToken: response.paginationToken };
     }
   }

@@ -4,12 +4,12 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
+import { runChecks } from "../lib/check";
 import { context } from "../lib/context";
-import {
-  BACKFILL_DAYS, daily, dayOf, fetchWallets, ingestWallets, reconcileWallets, repairWallets, snapshot,
-  snapshotRange, stampOf,
-} from "../lib/jobs";
+import { BACKFILL_DAYS, daily, dayOf, fetchWallets, ingestWallets, reconcileWallets, repairWallets, sample, stampOf } from "../lib/jobs";
 import { summarize } from "../lib/reconcile";
+import { dayRange, maintainSnapshots, snapshotDay, verifyDay } from "../lib/snapshots";
+import { syncTokens } from "../lib/tokens";
 import { addWallets, dueWallets, loadWallets, VIA } from "../lib/wallets";
 
 const HELP = `usage: npm run sw -- <command> [options]
@@ -18,9 +18,12 @@ const HELP = `usage: npm run sw -- <command> [options]
   fetch     [--wallet A ...] [--backfill-days 180]   pull new history (default: wallets that are due)
   ingest    [--wallet A ...]                        re-parse raw into trades, transfers, lots, positions
   repair    [--wallet A ...]                        fetch token-account history for unreconciled mints
-  snapshot  [--date D | --from D --to D]            write wallet_metrics_daily (default: today UTC)
+  tokens                                            sync token creation / graduation times from Dune
+  snapshot  [--date D | --from D --to D]            recompute whole days (default: maintain through today)
+  verify    [--date D | --all]                      recompute stored days and compare (default: a random day)
   reconcile [--wallet A ...] [--sample 20]          compare derived balances with the chain
-  daily     [--reconcile-sample 20]                 fetch, ingest, repair, snapshot today, reconcile`;
+  check                                             integrity checks; exits 1 on failure
+  daily     [--reconcile-sample 20]                 everything above, in order, for wallets that are due`;
 
 const json = (v: unknown) =>
   console.log(JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x), 2));
@@ -48,6 +51,7 @@ async function main(argv: string[]): Promise<void> {
       to: { type: "string" },
       sample: { type: "string" },
       "reconcile-sample": { type: "string" },
+      all: { type: "boolean" },
     },
   });
   const ctx = context();
@@ -68,45 +72,70 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "fetch": {
-      const helius = ctx.helius();
       const wallets = values.wallet ?? dueWallets(await loadWallets(ctx.wh), now);
-      const result = await fetchWallets(ctx.wh, helius, ctx.rawDir, wallets, {
+      const r = await fetchWallets(ctx.wh, ctx.helius(), ctx.rawDir, wallets, {
         now,
         stamp: stampOf(now),
         backfillDays: Number(values["backfill-days"] ?? BACKFILL_DAYS),
+        creditBudget: ctx.creditBudget,
       });
-      json({ wallets: Object.keys(result).length, credits: helius.credits });
+      json({ fetched: Object.keys(r.fetched).length, skipped: r.skipped.length, errors: r.errors, credits: r.credits });
       return;
     }
     case "ingest":
       json(await ingestWallets(ctx.wh, ctx.rawDir, await targets(), now));
       return;
     case "repair":
-      json(await repairWallets(ctx.wh, ctx.helius(), ctx.rawDir, await targets(), { now, stamp: stampOf(now) }));
+      json(await repairWallets(ctx.wh, ctx.helius(), ctx.rawDir, await targets(), { now, stamp: stampOf(now), creditBudget: ctx.creditBudget }));
       return;
+    case "tokens": {
+      const dune = ctx.dune();
+      if (!dune) throw new Error("DUNE_API_KEY is not set; add it to .env (see .env.example)");
+      json(await syncTokens(ctx.wh, dune, { now }));
+      return;
+    }
     case "snapshot": {
-      if (values.from || values.to) {
-        if (!values.from || !values.to) throw new Error("--from and --to go together");
-        for (const [day, n] of Object.entries(await snapshotRange(ctx.wh, values.from, values.to))) {
-          console.log(`${day}: ${n} wallets`);
-        }
+      if (values.from || values.to || values.date) {
+        const days = values.date ? [values.date] : values.from && values.to ? dayRange(values.from, values.to) : null;
+        if (!days) throw new Error("--from and --to go together");
+        for (const day of days) console.log(`${day}: ${await snapshotDay(ctx.wh, day)} wallets`);
       } else {
-        const day = values.date ?? dayOf(now);
-        console.log(`${day}: ${await snapshot(ctx.wh, day)} wallets`);
+        json(await maintainSnapshots(ctx.wh, dayOf(now)));
       }
+      return;
+    }
+    case "verify": {
+      const stored = ctx.wh.days("wallet_metrics_daily");
+      const days = values.all ? stored : [values.date ?? sample(stored, 1)[0]].filter(Boolean);
+      if (!days.length) throw new Error("no stored snapshots");
+      const bad = [];
+      for (const day of days) {
+        const r = await verifyDay(ctx.wh, day);
+        if (r.mismatched.length) bad.push(r);
+      }
+      json({ days: days.length, mismatched_days: bad.length, first: bad.slice(0, 3) });
+      if (bad.length) process.exitCode = 1;
       return;
     }
     case "reconcile": {
       const all = values.wallet ?? (await registered());
-      const n = Number(values.sample ?? 20);
-      const picked = values.wallet ? all : [...all].sort(() => Math.random() - 0.5).slice(0, n);
-      json(summarize(await reconcileWallets(ctx.wh, ctx.helius(), picked, now)));
+      const picked = values.wallet ? all : sample(all, Number(values.sample ?? 20));
+      const r = await reconcileWallets(ctx.wh, ctx.helius(), picked, now);
+      json({ ...summarize(r.rows), errors: r.errors });
+      return;
+    }
+    case "check": {
+      const r = await runChecks(ctx.wh);
+      for (const c of r.checks) console.log(`${c.ok ? "ok  " : "FAIL"} ${c.name}: ${c.detail}`);
+      if (!r.ok) process.exitCode = 1;
       return;
     }
     case "daily":
       json(
         await daily(ctx.wh, ctx.helius(), ctx.rawDir, {
           now,
+          dune: ctx.dune(),
+          creditBudget: ctx.creditBudget,
           reconcileSample: Number(values["reconcile-sample"] ?? 20),
         }),
       );

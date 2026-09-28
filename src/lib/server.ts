@@ -21,7 +21,11 @@ export function server(): ServerState {
       ctx,
       notes: notesFor(ctx),
       runner: new JobRunner(() =>
-        daily(ctx.wh, ctx.helius(), ctx.rawDir, { now: Math.floor(Date.now() / 1000) }),
+        daily(ctx.wh, ctx.helius(), ctx.rawDir, {
+          now: Math.floor(Date.now() / 1000),
+          dune: ctx.dune(),
+          creditBudget: ctx.creditBudget,
+        }),
       ),
     };
   }

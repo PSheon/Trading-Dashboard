@@ -5,9 +5,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { HeliusClient } from "../src/lib/helius";
-import {
-  BACKFILL_DAYS, fetchWallets, ingestWallets, reconcileWallets, repairWallets, snapshot,
-} from "../src/lib/jobs";
+import { BACKFILL_DAYS, fetchWallets, ingestWallets, reconcileWallets, repairWallets } from "../src/lib/jobs";
+import { snapshotDay as snapshot } from "../src/lib/snapshots";
 import { bound } from "../src/lib/metrics";
 import type { RawTransaction } from "../src/lib/solana";
 import { Warehouse } from "../src/lib/store";
@@ -97,7 +96,7 @@ describe("pipeline", () => {
     expect(await wh.read("token_transfers")).toHaveLength(1);
     expect(await wh.read("positions")).toHaveLength(2); // the round trip, and the gift still held
 
-    const rows = await reconcileWallets(wh, helius, [W], T + DAY);
+    const { rows } = await reconcileWallets(wh, helius, [W], T + DAY);
     expect(rows.map((r) => [r.mint, r.derived_balance_raw, r.onchain_balance_raw])).toEqual([[MINT, 10n, 10n]]);
     expect(await wh.read("reconciliation")).toHaveLength(1);
   });

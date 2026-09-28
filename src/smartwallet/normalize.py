@@ -43,6 +43,27 @@ def account_keys(raw: dict) -> list[str]:
     return [*keys, *loaded.get("writable", []), *loaded.get("readonly", [])]
 
 
+def owner_deltas(raw: dict, mint: str) -> dict[str, int]:
+    """Net change of `mint` per owner across the whole transaction."""
+    meta = raw["meta"]
+    out: dict[str, int] = defaultdict(int)
+    for sign, balances in ((-1, meta.get("preTokenBalances")), (1, meta.get("postTokenBalances"))):
+        for b in balances or []:
+            if b["mint"] == mint and b.get("owner"):
+                out[b["owner"]] += sign * int(b["uiTokenAmount"]["amount"])
+    return {owner: d for owner, d in out.items() if d != 0}
+
+
+def counterparty(raw: dict, wallet: str, mint: str, amount: int) -> str | None:
+    """The owner whose change of `mint` is largest in the opposite direction."""
+    others = [
+        (o, d)
+        for o, d in owner_deltas(raw, mint).items()
+        if o != wallet and (d > 0) != (amount > 0)
+    ]
+    return max(others, key=lambda od: (abs(od[1]), od[0]))[0] if others else None
+
+
 def wallet_deltas(raw: dict, wallet: str) -> list[Delta]:
     meta = raw["meta"]
     if meta.get("err") is not None:

@@ -2,13 +2,16 @@
 //
 // created_at   = the first bonding-curve trade (the dev buy shares the create
 //                transaction; without one it is seconds late)
-// graduated_at = the first PumpSwap trade at or after the last curve trade
-//                (migration opens the pool; the curve's last trade is the fill)
+// graduated_at = the first PumpSwap trade at or after the last curve trade,
+//                if it comes within MIGRATION_SECONDS of it (migration opens the
+//                pool at once; a pool opened later on an abandoned curve is not
+//                a graduation)
 //
 // A first curve trade within a day of the query window's start may be the
 // window cutting it off, so that creation time is recorded as unknown.
 
 import { litList, queryRows } from "./db";
+import { MIGRATION_SECONDS } from "./funnel";
 import type { DuneClient } from "./dune";
 import { markDirty } from "./snapshots";
 import type { Warehouse } from "./store";
@@ -48,6 +51,7 @@ SELECT c.mint,
        to_unixtime(min(l.block_time)) AS graduated_at
 FROM curve c
 LEFT JOIN legs l ON l.mint = c.mint AND l.project = 'pumpswap' AND l.block_time >= c.last_curve
+                 AND l.block_time <= c.last_curve + interval '${MIGRATION_SECONDS}' second
 GROUP BY c.mint, c.first_curve`;
 }
 

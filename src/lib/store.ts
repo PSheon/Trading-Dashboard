@@ -145,6 +145,34 @@ export const SCHEMAS = {
     cursor_time: "int",
     last_fetched_at: "int",
   },
+  funnel_runs: {
+    run_id: "str",
+    run_at: "int",
+    execution_id: "str", // the Dune execution, to look the query up later
+    params: "str", // JSON of the funnel parameters
+    graduated: "int",
+    winners: "int",
+    wallets: "int",
+  },
+  funnel_tokens: {
+    // Tokens a run selected; peak is as of the run, never later.
+    run_id: "str",
+    mint: "str",
+    created_at: "int",
+    graduated_at: "int",
+    peak_at: "int",
+    peak_mcap_sol: "float",
+  },
+  funnel_wallets: {
+    // Wallets a run ranked, and why.
+    run_id: "str",
+    wallet: "str",
+    rank: "int",
+    wins: "int",
+    pnl_sol: "float",
+    pump_trades: "int",
+    first_token: "str",
+  },
   snapshot_dirty: {
     // Stored snapshots of this wallet for days after changed_from are stale.
     wallet: "str",
@@ -174,6 +202,9 @@ const SORT_KEY: Partial<Record<Table, string[]>> = {
   positions: ["wallet", "mint", "position_seq"],
   token_accounts: ["wallet", "mint", "pubkey"],
   snapshot_dirty: ["wallet"],
+  funnel_runs: ["run_at"],
+  funnel_tokens: ["run_id", "mint"],
+  funnel_wallets: ["run_id", "rank"],
   tokens: ["mint"],
   wallets: ["first_seen_at", "address"],
   wallet_metrics_daily: ["wallet"],

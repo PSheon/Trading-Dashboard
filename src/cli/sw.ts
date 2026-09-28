@@ -9,6 +9,9 @@ import { context } from "../lib/context";
 import { BACKFILL_DAYS, daily, dayOf, fetchWallets, ingestWallets, reconcileWallets, repairWallets, sample, stampOf } from "../lib/jobs";
 import { summarize } from "../lib/reconcile";
 import { dayRange, maintainSnapshots, snapshotDay, verifyDay } from "../lib/snapshots";
+import { runFunnel } from "../lib/funnel";
+import { pickGolden, VENUES, writeGolden } from "../lib/golden";
+import { pnlSheet } from "../lib/reports";
 import { syncTokens } from "../lib/tokens";
 import { addWallets, dueWallets, loadWallets, VIA } from "../lib/wallets";
 
@@ -19,10 +22,14 @@ const HELP = `usage: npm run sw -- <command> [options]
   ingest    [--wallet A ...]                        re-parse raw into trades, transfers, lots, positions
   repair    [--wallet A ...]                        fetch token-account history for unreconciled mints
   tokens                                            sync token creation / graduation times from Dune
+  funnel    [--dry-run] [--lookback-days 14] [--min-peak-sol 1000] [--min-wins 2] [--max-wallets 50]
+            [--max-trades-per-day 200]              discover wallets from tokens that did well (Dune)
   snapshot  [--date D | --from D --to D]            recompute whole days (default: maintain through today)
   verify    [--date D | --all]                      recompute stored days and compare (default: a random day)
   reconcile [--wallet A ...] [--sample 20]          compare derived balances with the chain
   check                                             integrity checks; exits 1 on failure
+  golden    [--wallet A ...]                        P1 golden samples: fixtures + a report to confirm by hand
+  pnl-sheet --wallet A ...                          P1 per-token PnL table to compare with GMGN by hand
   daily     [--reconcile-sample 20]                 everything above, in order, for wallets that are due`;
 
 const json = (v: unknown) =>
@@ -52,6 +59,12 @@ async function main(argv: string[]): Promise<void> {
       sample: { type: "string" },
       "reconcile-sample": { type: "string" },
       all: { type: "boolean" },
+      "dry-run": { type: "boolean" },
+      "lookback-days": { type: "string" },
+      "min-peak-sol": { type: "string" },
+      "min-wins": { type: "string" },
+      "max-wallets": { type: "string" },
+      "max-trades-per-day": { type: "string" },
     },
   });
   const ctx = context();
@@ -94,6 +107,32 @@ async function main(argv: string[]): Promise<void> {
       json(await syncTokens(ctx.wh, dune, { now }));
       return;
     }
+    case "funnel": {
+      const dune = ctx.dune();
+      if (!dune) throw new Error("DUNE_API_KEY is not set; add it to .env (see .env.example)");
+      const num = (k: keyof typeof values) => (values[k] === undefined ? undefined : Number(values[k]));
+      const params = Object.fromEntries(
+        Object.entries({
+          lookbackDays: num("lookback-days"),
+          minPeakMcapSol: num("min-peak-sol"),
+          minWins: num("min-wins"),
+          maxWallets: num("max-wallets"),
+          maxTradesPerDay: num("max-trades-per-day"),
+        }).filter(([, v]) => v !== undefined),
+      );
+      const r = await runFunnel(ctx.wh, dune, { now, params, dryRun: values["dry-run"] });
+      json({
+        run_id: r.run_id,
+        execution_id: r.execution_id,
+        params: r.params,
+        stats: r.stats,
+        top_tokens: r.tokens.slice(0, 10),
+        wallets: r.wallets.length,
+        top_wallets: r.wallets.slice(0, 10),
+        added: r.added.length,
+      });
+      return;
+    }
     case "snapshot": {
       if (values.from || values.to || values.date) {
         const days = values.date ? [values.date] : values.from && values.to ? dayRange(values.from, values.to) : null;
@@ -122,6 +161,22 @@ async function main(argv: string[]): Promise<void> {
       const picked = values.wallet ? all : sample(all, Number(values.sample ?? 20));
       const r = await reconcileWallets(ctx.wh, ctx.helius(), picked, now);
       json({ ...summarize(r.rows), errors: r.errors });
+      return;
+    }
+    case "golden": {
+      const cases = pickGolden(ctx.rawDir, await targets());
+      writeGolden(cases, "test/golden", "docs/p1-golden.md");
+      json({
+        cases: cases.length,
+        by_venue: Object.fromEntries(Object.keys(VENUES).map((v) => [v, cases.filter((c) => c.venue === v).length])),
+        token_mismatches: cases.filter((c) => !c.token_match).map((c) => c.signature),
+        report: "docs/p1-golden.md",
+      });
+      return;
+    }
+    case "pnl-sheet": {
+      if (!values.wallet?.length) throw new Error("pass the wallets to compare with --wallet");
+      json(await pnlSheet(ctx.wh, values.wallet, "docs/p1-gmgn.md"));
       return;
     }
     case "check": {

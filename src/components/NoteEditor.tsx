@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { saveNote } from "@/app/actions";
+import { NOTE_MAX_CHARS } from "@/lib/universe";
 
 export function NoteEditor({ address, initial }: { address: string; initial: string }) {
   const [status, setStatus] = useState("");
@@ -12,6 +13,7 @@ export function NoteEditor({ address, initial }: { address: string; initial: str
         style={{ flex: 1, minWidth: 240 }}
         defaultValue={initial}
         placeholder="Your note on this wallet"
+        maxLength={NOTE_MAX_CHARS}
         onChange={() => setStatus("")}
         onBlur={async (e) => {
           const res = await saveNote(address, e.target.value);

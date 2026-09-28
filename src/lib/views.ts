@@ -4,12 +4,14 @@
 import { lit } from "./db";
 import type { Metrics } from "./metrics";
 import { server } from "./server";
+import { discoveredLater } from "./universe";
 import { loadWallets, type WalletRow } from "./wallets";
 
 const SOL = 1e9;
 const toSol = (v: bigint | null) => (v === null ? null : Number(v) / SOL);
 
-export type WalletListRow = WalletRow & Partial<Omit<Metrics, "wallet" | "as_of_date">> & { note: string };
+export type WalletListRow = WalletRow &
+  Partial<Omit<Metrics, "wallet" | "as_of_date">> & { note: string; discovered_later: boolean };
 
 export function listDates(): string[] {
   return server().ctx.wh.days("wallet_metrics_daily").sort().reverse();
@@ -32,7 +34,12 @@ export async function walletList(
     const m: Partial<Metrics> = { ...byWallet.get(w.address) };
     delete m.wallet;
     delete m.as_of_date;
-    return { ...w, ...m, note: allNotes.get(w.address)?.note ?? "" };
+    return {
+      ...w,
+      ...m,
+      note: allNotes.get(w.address)?.note ?? "",
+      discovered_later: discoveredLater(w.first_seen_at, day, days[0] ?? null),
+    };
   });
   // Read once here so the server render and hydration format times alike.
   return { asOfDate: day, rows, now: Math.floor(Date.now() / 1000) };

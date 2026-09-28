@@ -3,10 +3,16 @@
 
 export const DASH = "–";
 
+// A value that rounds to zero prints without a sign, never as "-0.000".
+function fixed(v: number, digits: number): string {
+  const out = v.toFixed(digits);
+  return /^-0(\.0*)?$/.test(out) ? out.slice(1) : out;
+}
+
 export const sol = (v: number | null | undefined, digits = 3) =>
-  v == null ? DASH : `${v > 0 ? "+" : ""}${v.toFixed(digits)}`;
-export const num = (v: number | null | undefined, digits = 3) => (v == null ? DASH : v.toFixed(digits));
-export const pct = (v: number | null | undefined) => (v == null ? DASH : `${(v * 100).toFixed(1)}%`);
+  v == null ? DASH : `${v > 0 ? "+" : ""}${fixed(v, digits)}`;
+export const num = (v: number | null | undefined, digits = 3) => (v == null ? DASH : fixed(v, digits));
+export const pct = (v: number | null | undefined) => (v == null ? DASH : `${fixed(v * 100, 1)}%`);
 export const int = (v: number | null | undefined) => (v == null ? DASH : v.toLocaleString("en-US"));
 
 export function dur(s: number | null | undefined): string {

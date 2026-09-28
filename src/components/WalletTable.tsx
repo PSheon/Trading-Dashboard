@@ -6,6 +6,7 @@ import { type ReactNode, useMemo, useState } from "react";
 
 import { saveNote } from "@/app/actions";
 import { ago, dur, int, links, num, pct, short, signClass, sol, time } from "@/lib/format";
+import { NOTE_MAX_CHARS } from "@/lib/universe";
 import type { WalletListRow } from "@/lib/views";
 
 const LOW_SAMPLE = 30;
@@ -26,6 +27,7 @@ const COLUMNS: Column[] = [
     render: (r) => (
       <span>
         <Link href={`/wallet/${r.address}`} className="mono">{short(r.address)}</Link>{" "}
+        {r.discovered_later && <span className="muted" title="Discovered after this snapshot">(later) </span>}
         <a href={links.gmgn(r.address)} target="_blank" rel="noreferrer" className="muted" title="GMGN">↗</a>
       </span>
     ),
@@ -57,6 +59,7 @@ function NoteCell({ row }: { row: WalletListRow }) {
       className={`note ${status}`}
       defaultValue={row.note}
       placeholder="…"
+      maxLength={NOTE_MAX_CHARS}
       title={title}
       onChange={() => setStatus("")}
       onBlur={async (e) => {
@@ -81,6 +84,8 @@ export function WalletTable({ rows, now, dates, asOfDate }: { rows: WalletListRo
   const [via, setVia] = useState("");
   const [minTrades, setMinTrades] = useState(0);
   const [activeDays, setActiveDays] = useState(0);
+  const [showLater, setShowLater] = useState(false);
+  const laterCount = rows.filter((r) => r.discovered_later).length;
 
   const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -90,6 +95,7 @@ export function WalletTable({ rows, now, dates, asOfDate }: { rows: WalletListRo
       .filter((r) => !via || r.discovered_via === via)
       .filter((r) => (r.trade_count ?? 0) >= minTrades)
       .filter((r) => !activeDays || (r.last_active_at ?? 0) >= cutoff)
+      .filter((r) => showLater || !r.discovered_later)
       .sort((a, b) => {
         const va = a[sort.key] as number | string | null | undefined;
         const vb = b[sort.key] as number | string | null | undefined;
@@ -98,7 +104,7 @@ export function WalletTable({ rows, now, dates, asOfDate }: { rows: WalletListRo
         if (vb == null) return -1;
         return (va < vb ? -1 : va > vb ? 1 : 0) * sort.dir;
       });
-  }, [rows, q, via, minTrades, activeDays, sort, now]);
+  }, [rows, q, via, minTrades, activeDays, showLater, sort, now]);
 
   return (
     <>
@@ -128,6 +134,12 @@ export function WalletTable({ rows, now, dates, asOfDate }: { rows: WalletListRo
             <option value={30}>30 days</option>
           </select>
         </label>
+        {laterCount > 0 && (
+          <label className="field" title="Wallets discovered after this snapshot were not known on that day">
+            <input type="checkbox" checked={showLater} onChange={(e) => setShowLater(e.target.checked)} />
+            Show {laterCount} discovered later
+          </label>
+        )}
         <span className="status">{visible.length} of {rows.length} wallets</span>
       </div>
       <div className="table-wrap">
@@ -163,6 +175,14 @@ export function WalletTable({ rows, now, dates, asOfDate }: { rows: WalletListRo
             {!rows.length && (
               <tr>
                 <td colSpan={COLUMNS.length} className="left muted">No wallets yet. Add some below, then run the daily job.</td>
+              </tr>
+            )}
+            {rows.length > 0 && !visible.length && (
+              <tr>
+                <td colSpan={COLUMNS.length} className="left muted">
+                  No wallets match
+                  {!showLater && laterCount > 0 ? `; ${laterCount} discovered after this snapshot are hidden` : ""}.
+                </td>
               </tr>
             )}
           </tbody>

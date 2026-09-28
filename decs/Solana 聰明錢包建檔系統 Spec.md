@@ -1,6 +1,6 @@
 # Solana 聰明錢包建檔系統 Spec
 
-Sep 28, 2026 · @Paul · rev 2
+Sep 28, 2026 · @Paul · rev 2.1
 
 ## 目標與非目標
 
@@ -54,7 +54,7 @@ Sep 28, 2026 · @Paul · rev 2
 | 表 | 主鍵 | 主要欄位 | 用途 |
 | --- | --- | --- | --- |
 | `raw_responses` | (source, request_key, fetched_at) | wallet, payload, cursor_before, cursor_after | API 原始回應，不可變，唯一事實來源 |
-| `wallets` | address | first\_seen\_at, discovered\_via, discovered\_from\_token, funnel\_run\_id, entity\_id (nullable, 衍生), fetch\_cursor, last\_fetched\_at, fetch\_tier | 錢包主檔 |
+| `wallets` | address | first\_seen\_at, discovered\_via, discovered\_from\_token, funnel\_run\_id, entity\_id (nullable, 衍生), fetch\_cursor\_time, last\_fetched\_at, history\_from | 錢包主檔；`history_from` 為第一次回補的起點，更早的歷史不在庫內 |
 | `entities` | entity\_id | created\_at, method (funding / co\_slot / manual), confidence | 聚類後的實體，一實體多錢包 |
 | `funding_edges` | (from\_address, to\_address, tx\_sig) | amount\_sol, block\_time, is\_first\_inflow | 錢包間 SOL 轉帳，聚類依據 |
 | `tokens` | mint | created\_at, creator\_address, create\_tx\_sig, create\_slot, graduated\_at, migration\_venue (pumpswap / raydium) | 代幣主檔，含建立與畢業事件 |
@@ -62,9 +62,9 @@ Sep 28, 2026 · @Paul · rev 2
 | `funnel_tokens` | (run\_id, mint) | peak\_mcap\_sol\_as\_of\_run, peak\_at | 該次執行入選的代幣，最高市值以執行時間為上界 |
 | `trades` | (tx\_sig, wallet, mint) | side (buy/sell), token\_amount, sol\_amount, fee\_sol, quote\_mint, venues, block\_time, slot, price\_sol, price\_confidence, parser\_version, ingested\_at | 一筆交易內該錢包在該 mint 上的淨 swap |
 | `token_transfers` | (tx\_sig, wallet, mint, direction) | counterparty, token\_amount, block\_time, slot | 非 swap 的 token 轉入轉出 |
-| `lots` | lot\_id | wallet, mint, buy\_tx\_sig, close\_tx\_sig, buy\_time, close\_time, close\_type (sell / transfer\_out), token\_amount, cost\_sol, proceeds\_sol, realized\_pnl\_sol, hold\_seconds, cost\_unknown | FIFO 配對結果，會計底層 |
-| `positions` | (wallet, mint, position\_seq) | opened\_at, closed\_at, cost\_sol, proceeds\_sol, realized\_pnl\_sol, has\_unknown\_cost | 回合：持倉從 0 到回到 0 為一回合，指標的計數單位 |
-| `wallet_metrics_daily` | (address, as\_of\_date) | 見「評分指標定義」 | point-in-time 快照 |
+| `lots` | (wallet, mint, lot\_seq) | position\_seq, buy\_tx\_sig, close\_tx\_sig, buy\_time, close\_time, close\_type (sell / transfer\_out / dust / null 表示未平倉), token\_amount\_raw, cost\_lamports, proceeds\_lamports, realized\_pnl\_lamports, hold\_seconds, cost\_unknown | FIFO 配對結果，會計底層；金額一律為整數 lamports |
+| `positions` | (wallet, mint, position\_seq) | opened\_at, closed\_at, cost\_lamports, proceeds\_lamports, realized\_pnl\_lamports, lots, has\_unknown\_cost, has\_transfer\_out, complete | 回合：持倉從 0 到回到 0 為一回合，指標的計數單位。`complete` = 已平倉、每個 lot 的成本與所得都已知、沒有轉出 |
+| `wallet_metrics_daily` | (wallet, as\_of\_date) | 見「評分指標定義」 | point-in-time 快照 |
 | `labels` | (address, label, as\_of\_date) | label ∈ {dev, bot, bundler}, rule, evidence | 規則產生的標籤，帶時間戳 |
 | `reconciliation` | (wallet, mint, checked\_at) | derived\_balance, onchain\_balance, diff | 餘額對帳結果 |
 
@@ -79,16 +79,19 @@ Sep 28, 2026 · @Paul · rev 2
 設計要點：
 
 - **交易粒度是 (tx\_sig, wallet, mint) 的淨變化**：聚合器多跳（SOL→USDC→TOKEN）只記一列「花多少 SOL 換到多少 token」。這個定義與資料來源無關，Dune 與 Helius 的 instruction index 語意不同的問題也不會出現。同一筆交易內 token 淨變化為 0 的不入 `trades`，寫入解析日誌。
-- **SOL 計價**：WSOL 視同 SOL；USDC 等其他報價幣依交易時點的 SOL 價格換算，`quote_mint` 保留原幣。`sol_amount` 為 swap 本身的金額，`fee_sol` 另記（priority fee、Jito tip、平台費、ATA rent 淨額）。買入成本與賣出所得都含手續費。
+- **SOL 計價**：WSOL 視同 SOL。`sol_lamports` 為 swap 本身的金額，`fee_lamports` 另記（network fee 含 priority fee，加上 Jito tip），`rent_lamports` 另記 token 帳戶押金（關帳戶時退回，不計入損益）。交易機器人以轉帳收取的手續費留在 swap 金額內，因為它確實是跟單者要付的成本。買入成本與賣出所得都含 `fee_lamports`。
+- **穩定幣計價**：USDC / USDT 計價的交易保留 `quote_mint` 與 `quote_amount_raw`，`sol_lamports` 為 null。第一版尚未接 SOL/USD 價格，這類 lot 的成本或所得未知，所屬回合不算 `complete`；接上價格序列後以交易時點換算。
 - `trades.price_sol` 在解析時計算並固定，不從其他表 join 回來；極低流動性或 swap 金額過小時 `price_confidence` 標低。
 - **FIFO 規則**：
   - 賣出依 FIFO 消耗買入 lot，`close_type = sell`
   - 轉出依 FIFO 消耗 lot，`close_type = transfer_out`，不計 PnL
   - 轉入建立 `cost_unknown = true` 的 lot；之後被賣出時照常配對，但不計入 PnL 指標
   - 賣出量超過持倉（孤兒賣單）時，超出部分建立 `cost_unknown` lot
-  - 持倉低於塵埃門檻 ε 視為歸零，用來切分回合
+  - 同一筆交易內有兩個以上非報價幣變動（token 換 token）時記為 `complex`，各腿比照轉入 / 轉出處理，不硬猜 SOL 價值
+  - 持倉低於塵埃門檻視為歸零，用來切分回合：持倉 ≤ 該回合最高持倉 × ε（初值 0.1%）。剩餘塵埃以所得 0 平倉（`close_type = dust`），其成本計為該回合的損失
+  - 賣出所得未知（穩定幣計價）時，lot 的 `realized_pnl` 為 null，回合不算 `complete`
 - **FIFO 重算單位是 (wallet, mint)**：新資料碰到哪組就整組重算，不做跨組增量。遲到資料的 `block_time` 早於既有 lot 時，增量配對會錯，整組重算就沒有這個問題。
-- 同一 slot 內的排序依 (slot, 區塊內交易序)，取不到交易序時以 tx\_sig 字典序固定，確保可重現。
+- 同一 slot 內的排序依 (slot, 區塊內交易序)，取不到交易序時以 tx\_sig 字典序固定，確保可重現。`getTransaction` 不提供區塊內交易序，所以目前一律用字典序；同 slot 先買後賣的狙擊交易可能被排反而變成孤兒賣單，P1 要量出這類情況的比例。
 - `labels` 與 `manual_labels` 帶 `as_of_date`，因為一個錢包可能後來才變成 bot 或被辨識為 dev，回測時要用當時的標籤。
 - `wallets.entity_id` 是衍生欄位，由自動聚類結果加上 `manual_entity_merges` 重建；人工合併不會因重跑聚類而消失。
 - 未實現部位不入 `positions` 的已平倉統計，需要時從 `lots` 現算，避免快照依賴當下價格。
@@ -127,7 +130,7 @@ Helius Parsed Events ──(回補 180 天 + 每日增量)──▶ raw_response
 
 ## 評分指標定義
 
-每個指標都是 `as_of_date` 之前的 `positions`、`lots`、`trades` 的函數：已平倉部位以 `closed_at < as_of_date` 判斷，`has_unknown_cost` 的回合不計入 PnL 類指標。第一版只存原始指標，不做加權總分；總分的權重要等回測驗證預測力後才定。
+每個指標都是 `as_of_date` 之前的 `positions`、`lots`、`trades` 的函數：已平倉部位以 `closed_at < as_of_date` 判斷，`complete` 為 false 的回合不計入 PnL 類指標，只計入 `unknown_cost_ratio`。第一版只存原始指標，不做加權總分；總分的權重要等回測驗證預測力後才定。
 
 | 指標 | 定義 | 用途 |
 | --- | --- | --- |
@@ -139,7 +142,7 @@ Helius Parsed Events ──(回補 180 天 + 每日增量)──▶ raw_response
 | `pnl_concentration` | 最大單一回合獲利 ÷ 正獲利回合的獲利總和 | 過高代表運氣而非能力 |
 | `median_hold_seconds` | 回合持有時間（首買到清倉）中位數 | 可跟性：低於你的延遲就跟不上 |
 | `median_entry_age_seconds` | 回合首買時間減代幣 created\_at 的中位數；代幣建立時間未知者不計 | 過早代表 dev 或狙擊機器人 |
-| `pre_graduation_ratio` | 首買早於 graduated\_at 的回合佔比 | 是否在資訊優勢期進場 |
+| `pre_graduation_ratio` | 首買早於 graduated\_at 的回合佔比；只認 `as_of_date` 前已發生的畢業，分母為代幣資料已知的回合 | 是否在資訊優勢期進場 |
 | `tx_per_active_hour` | trades 數 ÷ 有交易的小時數 | bot 偵測 |
 | `last_active_at` | 最後一筆 trade 時間 | 活躍度與衰退 |
 | `max_drawdown_sol` | 依平倉時間累積的已實現 PnL 曲線最大回撤 | 風險 |
@@ -151,7 +154,7 @@ Helius Parsed Events ──(回補 180 天 + 每日增量)──▶ raw_response
 - Point-in-time 性質測試：算出 D 日的指標後，插入 `block_time ≥ D` 的假資料再重算，結果必須完全一致。
 - `wallets` 沒有刪除路徑；測試檢查程式碼中不存在對 `wallets` 的 DELETE。
 
-需要參數的地方：樣本數門檻 30、bot 頻率門檻、entry age 下限、塵埃門檻 ε，初值待第一批資料分佈出來後定。
+需要參數的地方：樣本數門檻 30、bot 頻率門檻、entry age 下限、塵埃門檻 ε（程式初值 0.1%），初值待第一批資料分佈出來後定。
 
 ## 標籤與實體聚類
 
@@ -220,8 +223,22 @@ P0 預估 2–3 天，決定 schema 前必做。P1 是全部價值所在，佔�
 - [ ] 漏斗是否納入 pump.fun 之外的 launchpad（Raydium LaunchLab 等）
 - [ ] 快照頻率是否需要細到小時（跟單延遲敏感度分析可能需要）
 - [ ] 詳情頁代幣價格曲線的外部資料源
+- [ ] 同 slot 內交易序的取得方式（區塊資料或 Helius 欄位），或以「先買後賣」作為同 slot 的排序規則
+- [ ] 穩定幣計價交易的 SOL/USD 價格來源
 
 ## 修訂紀錄
+
+**rev 2.1（Sep 28, 2026）**：實作 P1 核心時定下的細節
+
+- `positions` 新增 `has_transfer_out` 與 `complete`，指標改以 `complete` 篩選
+- 金額欄位改為整數 lamports 與 raw token 單位，拆分時餘數往後帶，加總永遠精確
+- `rent_lamports` 與手續費分開，不計入損益；交易機器人以轉帳收取的費用留在 swap 金額內
+- 穩定幣計價交易第一版不換算，所屬回合不算 `complete`
+- `complex`（token 換 token）比照轉入 / 轉出
+- 塵埃門檻定義為回合最高持倉的比例，初值 0.1%
+- `pre_graduation_ratio` 只認 `as_of_date` 前已發生的畢業
+- `wallets` 新增 `history_from`，對帳用來判斷代幣是否整段生命都在抓取範圍內
+- `wallet_metrics_daily` 主鍵欄名改為 `wallet`
 
 **rev 2（Sep 28, 2026）**
 

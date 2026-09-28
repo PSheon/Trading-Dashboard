@@ -44,6 +44,40 @@ Everything under `warehouse/` can be rebuilt from `raw/` with `sw ingest` and
 `sw snapshot --from … --to …`, except `wallets.parquet`, which holds when each
 wallet was discovered.
 
+## Dashboard
+
+```sh
+uv run sw serve              # http://127.0.0.1:8000, no password on localhost
+```
+
+Two pages: the wallet list (every metric, sortable, filterable, snapshot date
+picker, editable notes, add wallets, run the daily job) and a wallet page
+(fill prices per token, metrics over time, round trips, trades). Notes are
+stored in `data/manual.sqlite`, the one file that cannot be rebuilt; back it
+up with `wallets.parquet`.
+
+## Deploy on Railway
+
+The app keeps its data on disk and runs the daily job itself, so it needs one
+always-on service with a persistent volume. Railway fits; Vercel does not
+(no persistent disk, functions stop after 300 s, no background scheduler).
+
+```sh
+railway up                                   # first time: signs in, creates the project, deploys
+railway volume add --mount-path /data        # everything under DATA_DIR=/data persists
+railway variable set APP_PASSWORD=… HELIUS_API_KEY=… DUNE_API_KEY=…
+railway domain                               # public URL
+```
+
+The container runs `sw serve --host 0.0.0.0` with `SCHEDULE_UTC=00:15`, so the
+daily job runs at 00:15 UTC inside the service; no Railway cron is needed. It
+refuses to start without `APP_PASSWORD`, because the page can edit notes and
+start jobs that spend Helius credits. The browser asks for it (any username).
+Keep one replica: the job and the page share the volume.
+
+On a fresh deploy, add wallets on the page and press **Run daily job**; the
+first run backfills 180 days for each.
+
 ## Stage
 
 P0 is done; results and decisions are in the spec. The P1 pipeline above

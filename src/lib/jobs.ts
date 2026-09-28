@@ -384,5 +384,6 @@ export async function daily(
     check: { ok: check.ok, failed: check.checks.filter((c) => !c.ok) },
     errors,
     credits: helius.credits,
+    rate_limited: helius.rateLimited,
   };
 }

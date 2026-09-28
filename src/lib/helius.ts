@@ -1,6 +1,6 @@
 // Helius Parsed Events API (wallet history) and plain RPC.
 
-import { type Fetch, sendJson, sleep } from "./http";
+import { type Fetch, HttpError, sendJson, sleep } from "./http";
 import type { HistoryPage, ParsedResult, RawTransaction } from "./solana";
 
 const BASE_URL = "https://mainnet.helius-rpc.com";
@@ -14,23 +14,42 @@ export interface TokenAccount {
   amount: bigint;
 }
 
-/** Spaces requests to one endpoint group; concurrent callers queue in order. */
+/**
+ * Spaces requests to one endpoint group; concurrent callers queue in order.
+ * Adaptive: a 429 doubles the spacing (up to MAX_INTERVAL_MS) and every
+ * success eases it back toward the plan's rate, so a limit we did not know
+ * about slows us down instead of failing the wallet.
+ */
 class Throttle {
   private gate: Promise<void> = Promise.resolve();
   private last = 0;
+  private interval: number;
 
-  constructor(private readonly intervalMs: number) {}
+  constructor(private readonly baseMs: number) {
+    this.interval = baseMs;
+  }
 
-  wait(): Promise<void> {
+  wait(extraMs = 0): Promise<void> {
     const turn = this.gate.then(async () => {
-      const wait = this.intervalMs - (Date.now() - this.last);
+      const wait = Math.max(this.interval - (Date.now() - this.last), extraMs);
       if (wait > 0) await sleep(wait);
       this.last = Date.now();
     });
     this.gate = turn;
     return turn;
   }
+
+  slowDown(): void {
+    this.interval = Math.min(this.interval * 2, MAX_INTERVAL_MS);
+  }
+
+  recover(): void {
+    this.interval = Math.max(this.baseMs, Math.floor(this.interval * 0.9));
+  }
 }
+
+const MAX_INTERVAL_MS = 5_000;
+const ATTEMPTS = 8;
 
 // Helius limits per plan (free: 10 rps for RPC, 2 rps for DAS & enhanced APIs,
 // which include Parsed Events). A little under the limit leaves room for skew.
@@ -43,6 +62,7 @@ const envRps = (name: string, fallback: number) => {
 export class HeliusClient {
   credits = 0;
   requests = 0;
+  rateLimited = 0;
   private readonly throttles: Record<"rpc" | "enhanced", Throttle>;
 
   constructor(
@@ -64,16 +84,34 @@ export class HeliusClient {
   }
 
   private async post<T>(pathname: string, body: unknown, credits: number, group: "rpc" | "enhanced"): Promise<T> {
-    await this.throttles[group].wait();
-    this.requests += 1;
-    this.credits += credits;
+    const throttle = this.throttles[group];
     const url = `${BASE_URL}${pathname}?api-key=${encodeURIComponent(this.apiKey)}`;
-    return sendJson<T>(
-      this.opts.fetch ?? fetch,
-      url,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
-      { backoffMs: this.opts.backoffMs },
-    );
+    let extra = 0;
+    for (let attempt = 1; ; attempt++) {
+      // Retries queue again like any request, so they cannot pile on.
+      await throttle.wait(extra);
+      this.requests += 1;
+      this.credits += credits;
+      try {
+        const out = await sendJson<T>(
+          this.opts.fetch ?? fetch,
+          url,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+          { attempts: 1 },
+        );
+        throttle.recover();
+        return out;
+      } catch (e) {
+        const status = e instanceof HttpError ? e.status : 0;
+        const retryable = status === 429 || status >= 500 || status === 0;
+        if (!retryable || attempt >= ATTEMPTS) throw e;
+        if (status === 429) {
+          this.rateLimited += 1;
+          throttle.slowDown();
+        }
+        extra = (this.opts.backoffMs ?? 1000) * Math.min(2 ** (attempt - 1), 8);
+      }
+    }
   }
 
   /** Every page of an address's history, newest first, with the request that produced it. */

@@ -172,3 +172,18 @@ describe("rate limits", () => {
     expect(Math.max(...rpc) - enhanced[0]).toBeLessThan(100);
   });
 });
+
+describe("adaptive throttle", () => {
+  it("slows down on 429 and gets through", async () => {
+    let n = 0;
+    const h = new HeliusClient("k", {
+      fetch: (async () => (++n <= 2 ? new Response("slow down", { status: 429 }) : ok({ data: [result] }))) as typeof fetch,
+      minIntervalMs: 1,
+      backoffMs: 1,
+    });
+    const pages = [];
+    for await (const { response } of h.transactionHistory(W)) pages.push(response);
+    expect(pages).toHaveLength(1);
+    expect([h.rateLimited, h.requests]).toEqual([2, 3]);
+  });
+});

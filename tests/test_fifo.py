@@ -159,3 +159,46 @@ def test_same_input_gives_same_output():
         ev(4, "sell", 6, 9),
     ]
     assert run_fifo("W", "M", events) == run_fifo("W", "M", list(events))
+
+
+def test_events_in_one_slot_follow_block_index_not_signature_order():
+    import polars as pl
+
+    from smartwallet.fifo import build
+    from smartwallet.store import conform, empty
+
+    # The sell's signature sorts first, but the buy came first in the block.
+    trades = conform(
+        pl.DataFrame(
+            [
+                {
+                    "tx_sig": "a-sell",
+                    "wallet": "W",
+                    "mint": "M",
+                    "side": "sell",
+                    "token_amount_raw": 10,
+                    "sol_lamports": 30,
+                    "fee_lamports": 0,
+                    "slot": 7,
+                    "tx_index": 5,
+                    "block_time": 1,
+                },
+                {
+                    "tx_sig": "b-buy",
+                    "wallet": "W",
+                    "mint": "M",
+                    "side": "buy",
+                    "token_amount_raw": 10,
+                    "sol_lamports": 10,
+                    "fee_lamports": 0,
+                    "slot": 7,
+                    "tx_index": 2,
+                    "block_time": 1,
+                },
+            ]
+        ),
+        "trades",
+    )
+    _, positions = build(trades, empty("token_transfers"))
+    [pos] = positions.to_dicts()
+    assert pos["complete"] and pos["realized_pnl_lamports"] == 20

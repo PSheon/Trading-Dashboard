@@ -31,6 +31,7 @@ class Delta:
     fee_lamports: int  # network fee and Jito tip, when this wallet paid them
     rent_lamports: int  # parked in (+) or returned from (-) the wallet's token accounts
     slot: int
+    tx_index: int | None  # position within the block, when the payload has it
     block_time: int | None
 
 
@@ -125,6 +126,7 @@ def wallet_deltas(raw: dict, wallet: str) -> list[Delta]:
             fee_lamports=fee,
             rent_lamports=rent,
             slot=raw["slot"],
+            tx_index=raw.get("transactionIndex"),
             block_time=raw.get("blockTime"),
         )
 

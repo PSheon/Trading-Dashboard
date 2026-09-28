@@ -87,7 +87,7 @@ def _share(total: int | None, piece: int, whole: int) -> int | None:
 def run_fifo(
     wallet: str, mint: str, events: list[Event], *, dust_ratio: float = DUST_RATIO
 ) -> tuple[list[Lot], list[Position]]:
-    """Events must already be in chain order (slot, then tx_sig)."""
+    """Events must already be in chain order (see events_frame)."""
     open_lots: deque[_Open] = deque()
     lots: list[Lot] = []
     positions: list[Position] = []
@@ -226,6 +226,7 @@ def events_frame(trades: pl.DataFrame, transfers: pl.DataFrame) -> pl.DataFrame:
         "mint",
         "tx_sig",
         "slot",
+        "tx_index",
         "block_time",
         kind="side",
         amount=pl.when(pl.col("side") == "buy")
@@ -240,6 +241,7 @@ def events_frame(trades: pl.DataFrame, transfers: pl.DataFrame) -> pl.DataFrame:
         "mint",
         "tx_sig",
         "slot",
+        "tx_index",
         "block_time",
         kind=pl.concat_str(pl.lit("transfer_"), pl.col("direction")),
         amount=pl.when(pl.col("direction") == "in")
@@ -247,7 +249,9 @@ def events_frame(trades: pl.DataFrame, transfers: pl.DataFrame) -> pl.DataFrame:
         .otherwise(-pl.col("token_amount_raw")),
         sol=pl.lit(None, dtype=pl.Int64),
     )
-    return pl.concat([t, x]).sort("wallet", "mint", "slot", "tx_sig")
+    # Chain order: slot, then position in the block; tx_sig only breaks ties when
+    # the index is missing, so the order is at least reproducible.
+    return pl.concat([t, x]).sort("wallet", "mint", "slot", "tx_index", "tx_sig", nulls_last=True)
 
 
 def build(trades: pl.DataFrame, transfers: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:

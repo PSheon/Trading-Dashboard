@@ -68,6 +68,7 @@ def parse_wallet(raw_dir: Path, wallet: str, *, ingested_at: int | None = None):
                 "mint": d.mint,
                 "decimals": d.decimals,
                 "slot": d.slot,
+                "tx_index": d.tx_index,
                 "block_time": d.block_time,
                 "parser_version": PARSER_VERSION,
                 "ingested_at": ingested_at,

@@ -4,12 +4,15 @@
 # local data: raw API responses, parquet, duckdb, sqlite
 data/
 
-# python
-__pycache__/
-*.pyc
-.venv/
-.pytest_cache/
-.ruff_cache/
-
 # os / editor
 .DS_Store
+
+# node / next.js
+/node_modules
+/.next/
+/out/
+/coverage
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+.env*.local

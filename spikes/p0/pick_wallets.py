@@ -14,9 +14,9 @@ from smartwallet.constants import WSOL_MINT
 from smartwallet.sources.dune import DuneClient
 
 VENUES_SQL = """
-SELECT project, version, count(*) AS trades
+SELECT project, version, count(*) AS trades, max(block_time) AS latest
 FROM dex_solana.trades
-WHERE block_time >= now() - interval '1' hour
+WHERE block_time >= now() - interval '2' day
 GROUP BY 1, 2
 ORDER BY trades DESC
 """

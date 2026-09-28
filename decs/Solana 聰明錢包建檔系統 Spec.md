@@ -1,6 +1,6 @@
 # Solana 聰明錢包建檔系統 Spec
 
-Sep 28, 2026 · @Paul · rev 2.2
+Sep 28, 2026 · @Paul · rev 2.3
 
 ## 目標與非目標
 
@@ -125,7 +125,7 @@ Helius Parsed Events ──(回補 180 天 + 每日增量)──▶ raw_response
 - **快照**：每日 UTC 00:00 後、當日抓取與解析完成才執行，對每個錢包計算 `as_of_date` 之前的指標。快照是 `block_time` 的純函式，存檔等同快取，可隨時回補或重算歷史日期；`trades.ingested_at` 另外保留，用於追查遲到資料。
 - **對帳**：每日抽樣錢包，比較 (wallet, mint) 由 trades 與 transfers 推算的餘額和鏈上實際餘額，結果寫入 `reconciliation`。對不上代表漏資料（場所遺漏或轉帳遺漏）。
 - **儲存**：原始回應以 JSONL / Parquet 按抓取日落地；`trades` 以 Parquet 按月分割；衍生表輸出為 Parquet，寫入時先寫暫存檔再原子性 rename。查詢端用 in-memory DuckDB 讀 Parquet，排程寫入與 UI 讀取不互相鎖定。人工資料存 SQLite。不需要 Postgres。
-- **語言**：Python + Polars + DuckDB，依賴管理用 uv，排程用 cron，不引入 Airflow。
+- **語言**：全部 TypeScript（Node 22+）。資料處理用 DuckDB（`@duckdb/node-api`）當 Parquet 的查詢引擎，金額一律 `bigint`；人工資料用 Node 內建的 `node:sqlite`。每日 job 由 Next.js 伺服器在啟動時排程（`instrumentation.ts`），不需要另外的 cron，也不引入 Airflow；手動操作用 `npm run sw -- <command>`。
 
 備案：若 Phase 0 算出 Helius 回補成本過高，改由 Dune 回補歷史，但必須有 7 天兩來源重疊的窗口逐筆比對，差異可解釋後才可上線。
 
@@ -184,7 +184,7 @@ Helius Parsed Events ──(回補 180 天 + 每日增量)──▶ raw_response
 
 **錢包詳情**：交易時間線（買賣點依時間與成交價繪製）、回合與 lots 清單、指標隨時間的變化曲線、同實體的其他地址、資金來源圖。代幣完整價格曲線需要外部 OHLCV 資料源，第一版不做。
 
-技術：Streamlit，in-memory DuckDB 唯讀讀取 Parquet，備註寫入 SQLite；不投入設計。Streamlit 不夠用時才拆 FastAPI 加前端。
+技術：Next.js（App Router，TypeScript）。頁面是 Server Components，直接經 DuckDB 讀 Parquet；排序、篩選、圖表與表單是 Client Components；備註、新增錢包、觸發 job 走 Server Actions。設定 `APP_PASSWORD` 時以 HTTP Basic 保護全站（`proxy.ts`），production 未設密碼則拒絕啟動。部署為 Railway 單一服務加一個 volume。不投入設計。
 
 ## MVP 切分與里程碑
 
@@ -217,7 +217,7 @@ P0 預估 2–3 天，決定 schema 前必做。P1 是全部價值所在，佔�
 
 - 交易粒度確定為 (tx\_sig, wallet, mint) 的餘額淨變化
 - 錢包歷史只走 Helius Parsed Events；Dune 只負責漏斗與代幣主檔
-- 新增修補步驟（`sw repair`，排在每日入庫之後）：查錢包目前的 token 帳戶，對帳不一致的 mint 才抓該 token 帳戶的歷史，並以游標避免重複抓取。付費替代方案是 Helius `getTransactionsForAddress` 加 `tokenAccounts: balanceChanged`（每次 100 credits，限付費方案），一次涵蓋錢包與所有 token 帳戶
+- 新增修補步驟（`npm run sw -- repair`，排在每日入庫之後）：查錢包目前的 token 帳戶，對帳不一致的 mint 才抓該 token 帳戶的歷史，並以游標避免重複抓取。付費替代方案是 Helius `getTransactionsForAddress` 加 `tokenAccounts: balanceChanged`（每次 100 credits，限付費方案），一次涵蓋錢包與所有 token 帳戶
 - 5 個錢包只是驗證來源；P1 驗收仍需 50 個錢包、黃金樣本與 GMGN 比對
 
 驗證分數預測力（IC、衰減曲線）不在本 spec 範圍，是下一個 spec 的第一節；該 spec 的回測必須遵守原則 5。
@@ -249,6 +249,12 @@ P0 預估 2–3 天，決定 schema 前必做。P1 是全部價值所在，佔�
 - [ ] 穩定幣計價交易的 SOL/USD 價格來源
 
 ## 修訂紀錄
+
+**rev 2.3（Sep 28, 2026）**：全部改寫為 TypeScript
+
+- 資料管線、CLI、網頁全部改用 TypeScript；前端改為 Next.js，部署為 Railway 單一服務
+- 資料格式不變（raw JSONL.gz、Parquet 倉儲、SQLite 備註）；改寫後以 P0 的 5 個錢包驗證，trades、token_transfers、lots、positions 與 Python 版逐列相同，指標差距在 2×10⁻¹⁶ 以內
+- 負數金額的拆分改為向下取整（與原 Python 版一致），加總不變
 
 **rev 2.2（Sep 28, 2026）**：P0 結果與決策，新增修補步驟與 `token_accounts` 表
 

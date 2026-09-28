@@ -8,7 +8,7 @@
 // Sums are taken in integer lamports and converted at the end, so recomputing a
 // day gives the same bits regardless of row order.
 
-import { lit, queryRows } from "./db";
+import { lit, litList, queryRows } from "./db";
 import { fromDb, SCHEMAS } from "./store";
 
 export interface Metrics {
@@ -48,14 +48,21 @@ export const tokensKnownAsOf = (tokens: string, asOf: number) =>
 
 const NO_TOKENS = "(SELECT NULL::VARCHAR AS mint, NULL::BIGINT AS created_at, NULL::BIGINT AS graduated_at WHERE false)";
 
-/** One row per wallet with at least one trade before `asOfDate`. */
+const onlyWallets = (relation: string, wallets: readonly string[] | undefined) =>
+  wallets ? `(SELECT * FROM ${relation} WHERE wallet IN (${litList(wallets)}))` : relation;
+
+/**
+ * One row per wallet with at least one trade before `asOfDate`; with
+ * `wallets`, only those. A wallet's metrics depend on its own rows alone, so
+ * computing a subset gives the same rows as computing everyone.
+ */
 export async function compute(
   asOfDate: string,
-  inputs: { trades: string; positions: string; tokens?: string | null },
+  inputs: { trades: string; positions: string; tokens?: string | null; wallets?: readonly string[] },
 ): Promise<Metrics[]> {
   const asOf = bound(asOfDate);
-  const t = tradesAsOf(inputs.trades, asOf);
-  const closed = positionsClosedAsOf(inputs.positions, asOf);
+  const t = tradesAsOf(onlyWallets(inputs.trades, inputs.wallets), asOf);
+  const closed = positionsClosedAsOf(onlyWallets(inputs.positions, inputs.wallets), asOf);
   const tokens = inputs.tokens ? tokensKnownAsOf(inputs.tokens, asOf) : NO_TOKENS;
   const order = "PARTITION BY wallet ORDER BY closed_at, mint, position_seq ROWS UNBOUNDED PRECEDING";
   const ratio = (num: string, den: string) => `CASE WHEN (${den}) > 0 THEN (${num}) / (${den}) END`;

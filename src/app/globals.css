@@ -273,3 +273,15 @@ td input.note.failed { border-color: var(--down); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ---- activity --------------------------------------------------------- */
+.progress { margin: 0 0 12px; }
+.progress-label { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-2); margin-bottom: 6px; }
+.progress-track { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.progress-bar { height: 100%; border-radius: 999px; background: var(--accent); transition: width 300ms; }
+.progress-bar[data-indeterminate] { animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 12.5px; }
+.log li { display: grid; grid-template-columns: 64px auto 1fr; align-items: center; gap: 10px; color: var(--text-2); }
+.log li.error { color: var(--down); }
+.log li > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

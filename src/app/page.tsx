@@ -1,8 +1,10 @@
+import { ActivityPanel } from "@/components/ActivityPanel";
 import { AddWallets } from "@/components/AddWallets";
 import { AppBar } from "@/components/AppBar";
 import { JobControl } from "@/components/JobControl";
 import { WalletTable } from "@/components/WalletTable";
 import { int, pct } from "@/lib/format";
+import { readActivity } from "@/lib/progress";
 import { server } from "@/lib/server";
 import { listDates, walletList, type WalletListRow } from "@/lib/views";
 
@@ -44,10 +46,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
   const { as_of } = await searchParams;
   const { asOfDate, rows, now, dataUpdatedAt } = await walletList(as_of);
   const dates = listDates();
+  const activity = readActivity(server().ctx.settings.dataDir);
   return (
     <>
       <AppBar>
-        <JobControl initial={{ ...server().runner.state }} now={now} dataUpdatedAt={dataUpdatedAt} />
+        <JobControl initial={{ ...server().runner.state }} initialActivity={activity} now={now} dataUpdatedAt={dataUpdatedAt} />
       </AppBar>
       <main>
         <div className="page-head">
@@ -61,6 +64,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
           </div>
         </div>
         <Kpis rows={rows} />
+        <ActivityPanel initial={activity} now={now} />
         <WalletTable rows={rows} now={now} dates={dates} asOfDate={asOfDate} />
         <AddWallets />
       </main>

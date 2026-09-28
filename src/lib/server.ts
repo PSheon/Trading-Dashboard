@@ -4,6 +4,7 @@
 import { type Context, context, notesFor } from "./context";
 import { daily } from "./jobs";
 import type { Notes } from "./notes";
+import { Progress } from "./progress";
 import { JobRunner } from "./runner";
 
 interface ServerState {
@@ -25,6 +26,7 @@ export function server(): ServerState {
           now: Math.floor(Date.now() / 1000),
           dune: ctx.dune(),
           creditBudget: ctx.creditBudget,
+          progress: new Progress(ctx.settings.dataDir, "web"),
         }),
       ),
     };

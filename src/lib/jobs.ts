@@ -7,6 +7,7 @@
 // CLI can act at the same time without losing updates.
 
 import { runChecks } from "./check";
+import { Progress } from "./progress";
 import { TOKEN_PROGRAMS } from "./constants";
 import { litList } from "./db";
 import type { DuneClient } from "./dune";
@@ -63,8 +64,10 @@ export async function fetchWallets(
     creditBudget?: number;
     concurrency?: number;
     maxPages?: number;
+    progress?: Progress;
   },
 ) {
+  const progress = opts.progress ?? Progress.silent();
   const cursors = new Map((await loadWallets(wh)).map((w) => [w.address, w.fetch_cursor_time]));
   const budget = opts.creditBudget ?? DEFAULT_CREDIT_BUDGET;
   const start = helius.credits;
@@ -122,7 +125,9 @@ export async function fetchWallets(
       // Saved per wallet, so a crash halfway keeps what was already fetched.
       await recordFetch(wh, { [address]: [newest, opts.now, truncated ? oldest : since] });
       fetched[address] = { txs, refetched: unreadable.length, credits, truncated };
+      progress.tick(`${address.slice(0, 6)}…: ${txs} transactions${truncated ? " (capped)" : ""}`);
     } catch (e) {
+      progress.error(`${address.slice(0, 6)}…: ${message(e)}`);
       // Pages already appended stay in raw; the cursor stays put, so the next
       // run fetches the same window again and ingest drops the duplicates.
       errors.push({ step: "fetch", wallet: address, message: message(e) });
@@ -150,7 +155,13 @@ const transferSig = (x: TransferRow) =>
  * positions. Rows that changed mark the wallet's later snapshots stale; the
  * wallet counts as ingested only once all four tables are written.
  */
-export async function ingestWallets(wh: Warehouse, rawDir: string, addresses: readonly string[], now: number) {
+export async function ingestWallets(
+  wh: Warehouse,
+  rawDir: string,
+  addresses: readonly string[],
+  now: number,
+  progress: Progress = Progress.silent(),
+) {
   const counts = { trades: 0, token_transfers: 0, lots: 0, positions: 0, stale_wallets: 0 };
   const errors: JobError[] = [];
   for (let i = 0; i < addresses.length; i += INGEST_BATCH) {
@@ -166,8 +177,10 @@ export async function ingestWallets(wh: Warehouse, rawDir: string, addresses: re
           trades.push(...parsed.trades);
           transfers.push(...parsed.transfers);
           batch.push(a);
+          progress.tick();
         } catch (e) {
           errors.push({ step: "ingest", wallet: a, message: message(e) });
+          progress.error(`${a.slice(0, 6)}…: ${message(e)}`);
         }
       }
       if (!batch.length) return;
@@ -366,43 +379,89 @@ export async function daily(
   wh: Warehouse,
   helius: HeliusClient,
   rawDir: string,
+  opts: {
+    now: number;
+    dune?: DuneClient | null;
+    reconcileSample?: number;
+    creditBudget?: number;
+    progress?: Progress;
+  },
+) {
+  const progress = opts.progress ?? Progress.silent();
+  try {
+    const result = await dailySteps(wh, helius, rawDir, opts, progress);
+    progress.finish(
+      result.errors.length ? "failed" : "ok",
+      `finished: ${result.fetched} fetched, ${result.ingested.wallets} ingested, ${result.errors.length} errors`,
+    );
+    return result;
+  } catch (e) {
+    progress.finish("failed", message(e));
+    throw e;
+  }
+}
+
+async function dailySteps(
+  wh: Warehouse,
+  helius: HeliusClient,
+  rawDir: string,
   opts: { now: number; dune?: DuneClient | null; reconcileSample?: number; creditBudget?: number },
+  progress: Progress,
 ) {
   const stamp = stampOf(opts.now);
   const errors: JobError[] = [];
   const due = dueWallets(await loadWallets(wh), opts.now);
-  const fetch = await fetchWallets(wh, helius, rawDir, due, { now: opts.now, stamp, creditBudget: opts.creditBudget });
+  progress.step("fetch", due.length, `fetching ${due.length} due wallets`);
+  const fetch = await fetchWallets(wh, helius, rawDir, due, {
+    now: opts.now,
+    stamp,
+    creditBudget: opts.creditBudget,
+    progress,
+  });
   errors.push(...fetch.errors);
 
   // This run's fetches plus anything an earlier, interrupted run fetched.
   const toIngest = pendingIngest(await loadWallets(wh));
-  const ingested = await ingestWallets(wh, rawDir, toIngest, opts.now);
+  progress.step("ingest", toIngest.length, `ingesting ${toIngest.length} wallets`);
+  const ingested = await ingestWallets(wh, rawDir, toIngest, opts.now, progress);
   errors.push(...ingested.errors);
 
   // Everything ingested this run gets repaired and may be reconciled, including
   // wallets an interrupted run fetched but never got to.
   const repaired = toIngest;
+  progress.step("repair", repaired.length, `checking ${repaired.length} wallets' token accounts`);
   const repair = await repairWallets(wh, helius, rawDir, repaired, {
     now: opts.now,
     stamp,
     creditBudget: (opts.creditBudget ?? DEFAULT_CREDIT_BUDGET) - fetch.credits,
   });
   errors.push(...repair.errors);
+  progress.event("repair", `${repair.mints_mismatched} mints mismatched, ${repair.token_accounts_fetched} token accounts fetched`);
 
   let tokens: Awaited<ReturnType<typeof syncTokens>> | null = null;
   if (opts.dune) {
+    progress.step("tokens", 0, "syncing token creation and graduation times");
     try {
       tokens = await syncTokens(wh, opts.dune, { now: opts.now });
+      progress.event("tokens", `${tokens.asked} asked, ${tokens.found} found`);
     } catch (e) {
       errors.push({ step: "tokens", wallet: null, message: message(e) });
+      progress.error(`tokens: ${message(e)}`);
     }
   }
 
+  progress.step("snapshots", 0, "bringing snapshots up to date");
   const snapshots = await maintainSnapshots(wh, dayOf(opts.now));
+  progress.event("snapshots", `${snapshots.filled_days} days filled, ${snapshots.updated_days} updated for ${snapshots.stale_wallets} stale wallets`);
   const checked = sample(repaired, opts.reconcileSample ?? 20);
+  progress.step("reconcile", checked.length, `reconciling ${checked.length} wallets`);
   const recon = await reconcileWallets(wh, helius, checked, opts.now);
   errors.push(...recon.errors);
+  const summary = summarize(recon.rows);
+  progress.event("reconcile", `${summary.rows} rows, match ${((summary.match_rate ?? 0) * 100).toFixed(1)}%`);
+  progress.step("check", 0, "integrity checks");
   const check = await runChecks(wh);
+  for (const c of check.checks.filter((x) => !x.ok)) progress.error(`check ${c.name}: ${c.detail}`);
   return {
     as_of_date: dayOf(opts.now),
     due: due.length,
@@ -412,7 +471,7 @@ export async function daily(
     repair: { ...repair, errors: repair.errors.length },
     tokens,
     snapshots,
-    reconcile: summarize(recon.rows),
+    reconcile: summary,
     check: { ok: check.ok, failed: check.checks.filter((c) => !c.ok) },
     errors,
     credits: helius.credits,

@@ -11,6 +11,7 @@ import { summarize } from "../lib/reconcile";
 import { dayRange, maintainSnapshots, snapshotDay, verifyDay } from "../lib/snapshots";
 import { runFunnel } from "../lib/funnel";
 import { pickGolden, VENUES, writeGolden } from "../lib/golden";
+import { Progress } from "../lib/progress";
 import { pnlSheet } from "../lib/reports";
 import { syncTokens } from "../lib/tokens";
 import { addWallets, dueWallets, loadWallets, VIA } from "../lib/wallets";
@@ -192,6 +193,7 @@ async function main(argv: string[]): Promise<void> {
           dune: ctx.dune(),
           creditBudget: ctx.creditBudget,
           reconcileSample: Number(values["reconcile-sample"] ?? 20),
+          progress: new Progress(ctx.settings.dataDir, "cli"),
         }),
       );
       return;

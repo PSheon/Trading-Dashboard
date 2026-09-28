@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { type Activity, readActivity } from "@/lib/progress";
 import type { JobState } from "@/lib/runner";
 import { server } from "@/lib/server";
 import { ADD_MAX_ADDRESSES, NOTE_MAX_CHARS } from "@/lib/universe";
@@ -41,4 +42,9 @@ export async function runDailyJob(): Promise<{ started: boolean; state: JobState
 
 export async function getJobState(): Promise<JobState> {
   return { ...server().runner.state };
+}
+
+/** The latest run's progress, whoever started it (page, schedule or CLI). */
+export async function getActivity(): Promise<Activity | null> {
+  return readActivity(server().ctx.settings.dataDir);
 }

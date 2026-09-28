@@ -30,7 +30,7 @@ describe("proxy", () => {
 
 describe("client bundle", () => {
   it("client components import nothing server-side from lib", () => {
-    const allowed = new Set(["@/lib/format", "@/lib/universe"]);
+    const allowed = new Set(["@/lib/format", "@/lib/universe", "@/lib/activity"]);
     const files = [
       ...readdirSync("src/components").map((f) => path.join("src/components", f)),
       "src/app/page.tsx",

@@ -164,7 +164,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "golden": {
-      const cases = pickGolden(ctx.rawDir, await targets());
+      const cases = await pickGolden(ctx.rawDir, await targets());
       writeGolden(cases, "test/golden", "docs/p1-golden.md");
       json({
         cases: cases.length,

@@ -210,3 +210,42 @@ describe("request timeout", () => {
     expect(r.errors.map((e) => e.wallet)).toEqual([OTHER_W]);
   });
 });
+
+describe("ingest isolation", () => {
+  it("skips a wallet whose raw files cannot be read and ingests the rest", async () => {
+    const { wh, rawDir } = setup();
+    await addWallets(wh, [W, OTHER_W], { via: "manual", now: T - DAY });
+    const h = client(() => ok({ data: [result] }));
+    await fetchWallets(wh, h, rawDir, [W], { now: T, stamp: "s" });
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const bad = path.join(rawDir, "helius", "transaction-history", OTHER_W);
+    mkdirSync(bad, { recursive: true });
+    writeFileSync(path.join(bad, "s.jsonl.gz"), "not gzip");
+    const { ingestWallets } = await import("../src/lib/jobs");
+    const r = await ingestWallets(wh, rawDir, [OTHER_W, W], T);
+    expect(r.errors.map((e) => [e.step, e.wallet])).toEqual([["ingest", OTHER_W]]);
+    expect(r.trades).toBe(1);
+    const reg = new Map((await loadWallets(wh)).map((w) => [w.address, w]));
+    expect([reg.get(W)!.last_ingested_at, reg.get(OTHER_W)!.last_ingested_at]).toEqual([T, null]);
+  });
+});
+
+describe("backfill cap", () => {
+  it("stops a first backfill at the page cap and starts history at the oldest page", async () => {
+    const { wh, rawDir } = setup();
+    await addWallets(wh, [W], { via: "manual", now: T - DAY });
+    let page = 0;
+    const h = client(() => {
+      page += 1;
+      const t = T - page * 3600;
+      return ok({
+        data: [{ ...result, signature: `s${page}`, parsed: { slot: t, blockTime: t }, rawTransaction: { ...BUY, blockTime: t } }],
+        paginationToken: `p${page}`,
+      });
+    });
+    const r = await fetchWallets(wh, h, rawDir, [W], { now: T, stamp: "s", maxPages: 3 });
+    expect(r.fetched[W].truncated).toBe(true);
+    const [w] = await loadWallets(wh);
+    expect([w.fetch_cursor_time, w.history_from]).toEqual([T - 3600, T - 3 * 3600]);
+  });
+});

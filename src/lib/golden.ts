@@ -47,14 +47,14 @@ function summaryOf(result: Record<string, unknown>): SwapSummary | null {
 }
 
 /** Walk a wallet's raw pages and collect single-hop swaps on one venue. */
-function* candidates(rawDir: string, wallet: string, venue: Venue): Generator<GoldenCase> {
+async function* candidates(rawDir: string, wallet: string, venue: Venue): AsyncGenerator<GoldenCase> {
   const program = VENUES[venue];
   const dir = historyDir(rawDir, wallet);
   if (!existsSync(dir)) return;
   // Overlapping fetches store the same transaction more than once.
   const seen = new Set<string>();
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".jsonl.gz") && !f.includes("token-account")).sort()) {
-    for (const record of readRaw<unknown, HistoryPage>(path.join(dir, file))) {
+    for await (const record of readRaw<unknown, HistoryPage>(path.join(dir, file))) {
       for (const result of record.response.data ?? []) {
         if (seen.has(result.signature)) continue;
         seen.add(result.signature);
@@ -97,10 +97,12 @@ function* candidates(rawDir: string, wallet: string, venue: Venue): Generator<Go
 }
 
 /** Up to `perVenue` cases per venue, spread across wallets, in a stable order. */
-export function pickGolden(rawDir: string, wallets: readonly string[], perVenue = 10): GoldenCase[] {
+export async function pickGolden(rawDir: string, wallets: readonly string[], perVenue = 10): Promise<GoldenCase[]> {
   const out: GoldenCase[] = [];
   for (const venue of Object.keys(VENUES) as Venue[]) {
-    const pools = wallets.map((w) => [...candidates(rawDir, w, venue)].sort((a, b) => (a.signature < b.signature ? -1 : 1)));
+    const pools = await Promise.all(
+      wallets.map(async (w) => (await Array.fromAsync(candidates(rawDir, w, venue))).sort((a, b) => (a.signature < b.signature ? -1 : 1))),
+    );
     const picked: GoldenCase[] = [];
     // Round-robin over wallets so one busy wallet does not fill the sample.
     for (let i = 0; picked.length < perVenue && pools.some((p) => p.length > i); i++) {

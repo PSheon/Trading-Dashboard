@@ -30,6 +30,9 @@ const OVERLAP_SECONDS = 600;
 const INGEST_BATCH = 10;
 export const DEFAULT_CREDIT_BUDGET = 200_000;
 const FETCH_CONCURRENCY = 4;
+// 50,000 transactions in the backfill window is a bot, not a trader to follow;
+// history then starts at the oldest page fetched.
+export const MAX_BACKFILL_PAGES = 500;
 
 export interface JobError {
   step: string;
@@ -53,12 +56,19 @@ export async function fetchWallets(
   helius: HeliusClient,
   rawDir: string,
   addresses: readonly string[],
-  opts: { now: number; stamp: string; backfillDays?: number; creditBudget?: number; concurrency?: number },
+  opts: {
+    now: number;
+    stamp: string;
+    backfillDays?: number;
+    creditBudget?: number;
+    concurrency?: number;
+    maxPages?: number;
+  },
 ) {
   const cursors = new Map((await loadWallets(wh)).map((w) => [w.address, w.fetch_cursor_time]));
   const budget = opts.creditBudget ?? DEFAULT_CREDIT_BUDGET;
   const start = helius.credits;
-  const fetched: Record<string, { txs: number; refetched: number; credits: number }> = {};
+  const fetched: Record<string, { txs: number; refetched: number; credits: number; truncated: boolean }> = {};
   const errors: JobError[] = [];
   const skipped: string[] = [];
   // The budget is checked before each wallet starts, so it can be overshot by
@@ -73,10 +83,14 @@ export async function fetchWallets(
     let credits = 0;
     try {
       let newest: number | null = null;
+      let oldest: number | null = null;
+      let pages = 0;
+      let truncated = false;
       let txs = 0;
       const unreadable: string[] = [];
       for await (const { request, response } of helius.transactionHistory(address, { timeGte: since })) {
         credits += PARSED_EVENTS_CREDITS;
+        pages += 1;
         appendRaw(`${historyDir(rawDir, address)}/${opts.stamp}.jsonl.gz`, {
           source: "helius-parsed-events",
           requestKey: `transaction-history:${address}`,
@@ -87,7 +101,13 @@ export async function fetchWallets(
           txs += 1;
           const bt = result.parsed?.blockTime;
           if (bt != null && (newest === null || bt > newest)) newest = bt;
+          if (bt != null && (oldest === null || bt < oldest)) oldest = bt;
           if (!rawTransaction(result)) unreadable.push(result.signature);
+        }
+        // Only a first backfill is capped; an incremental fetch covers a day.
+        if (cursor === null && pages >= (opts.maxPages ?? MAX_BACKFILL_PAGES) && response.paginationToken) {
+          truncated = true;
+          break;
         }
       }
       for (const sig of unreadable) {
@@ -100,8 +120,8 @@ export async function fetchWallets(
         });
       }
       // Saved per wallet, so a crash halfway keeps what was already fetched.
-      await recordFetch(wh, { [address]: [newest, opts.now, since] });
-      fetched[address] = { txs, refetched: unreadable.length, credits };
+      await recordFetch(wh, { [address]: [newest, opts.now, truncated ? oldest : since] });
+      fetched[address] = { txs, refetched: unreadable.length, credits, truncated };
     } catch (e) {
       // Pages already appended stay in raw; the cursor stays put, so the next
       // run fetches the same window again and ingest drops the duplicates.
@@ -132,16 +152,25 @@ const transferSig = (x: TransferRow) =>
  */
 export async function ingestWallets(wh: Warehouse, rawDir: string, addresses: readonly string[], now: number) {
   const counts = { trades: 0, token_transfers: 0, lots: 0, positions: 0, stale_wallets: 0 };
+  const errors: JobError[] = [];
   for (let i = 0; i < addresses.length; i += INGEST_BATCH) {
-    const batch = addresses.slice(i, i + INGEST_BATCH);
     await wh.locked(async () => {
       const trades: TradeRow[] = [];
       const transfers: TransferRow[] = [];
-      for (const a of batch) {
-        const parsed = parseWallet(rawDir, a, now);
-        trades.push(...parsed.trades);
-        transfers.push(...parsed.transfers);
+      // A wallet whose raw files cannot be parsed is left out of the batch:
+      // its old rows stay, it is not marked ingested, and the next run retries.
+      const batch: string[] = [];
+      for (const a of addresses.slice(i, i + INGEST_BATCH)) {
+        try {
+          const parsed = await parseWallet(rawDir, a, now);
+          trades.push(...parsed.trades);
+          transfers.push(...parsed.transfers);
+          batch.push(a);
+        } catch (e) {
+          errors.push({ step: "ingest", wallet: a, message: message(e) });
+        }
       }
+      if (!batch.length) return;
       const where = `wallet IN (${litList(batch)})`;
       const [oldTrades, oldTransfers] = await Promise.all([
         wh.read<TradeRow>("trades", where),
@@ -162,7 +191,7 @@ export async function ingestWallets(wh: Warehouse, rawDir: string, addresses: re
       counts.stale_wallets += stale.size;
     });
   }
-  return counts;
+  return { ...counts, errors };
 }
 
 async function derivedFor(wh: Warehouse, addresses: readonly string[]) {
@@ -175,9 +204,9 @@ async function derivedFor(wh: Warehouse, addresses: readonly string[]) {
 }
 
 /** {mint: token account addresses} the wallet has owned in transactions we hold. */
-function tokenAccountsSeen(rawDir: string, wallet: string): Map<string, Set<string>> {
+async function tokenAccountsSeen(rawDir: string, wallet: string): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
-  for (const { raw } of rawTransactions(rawDir, wallet)) {
+  for await (const { raw } of rawTransactions(rawDir, wallet)) {
     const keys = accountKeys(raw);
     for (const b of [...(raw.meta.preTokenBalances ?? []), ...(raw.meta.postTokenBalances ?? [])]) {
       if (b.owner === wallet && b.accountIndex < keys.length) {
@@ -238,7 +267,7 @@ export async function repairWallets(
       mismatched += bad.size;
       const targets = new Map<string, string>();
       for (const acc of accounts) if (bad.has(acc.mint) && acc.pubkey) targets.set(acc.pubkey, acc.mint);
-      for (const [mint, pubkeys] of tokenAccountsSeen(rawDir, a)) {
+      for (const [mint, pubkeys] of await tokenAccountsSeen(rawDir, a)) {
         if (bad.has(mint)) for (const p of pubkeys) targets.set(p, mint);
       }
       for (const [pubkey, mint] of [...targets].sort()) {
@@ -279,7 +308,7 @@ export async function repairWallets(
       await wh.write("token_accounts", asRows([...current.values()]));
     });
   }
-  if (touched.length) await ingestWallets(wh, rawDir, touched, opts.now);
+  if (touched.length) errors.push(...(await ingestWallets(wh, rawDir, touched, opts.now)).errors);
   return {
     wallets_repaired: touched.length,
     mints_mismatched: mismatched,
@@ -348,6 +377,7 @@ export async function daily(
   // This run's fetches plus anything an earlier, interrupted run fetched.
   const toIngest = pendingIngest(await loadWallets(wh));
   const ingested = await ingestWallets(wh, rawDir, toIngest, opts.now);
+  errors.push(...ingested.errors);
 
   // Everything ingested this run gets repaired and may be reconciled, including
   // wallets an interrupted run fetched but never got to.
@@ -378,7 +408,7 @@ export async function daily(
     due: due.length,
     fetched: Object.keys(fetch.fetched).length,
     skipped_for_budget: fetch.skipped.length,
-    ingested: { wallets: toIngest.length, ...ingested },
+    ingested: { wallets: toIngest.length, ...ingested, errors: ingested.errors.length },
     repair: { ...repair, errors: repair.errors.length },
     tokens,
     snapshots,

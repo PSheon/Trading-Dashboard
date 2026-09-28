@@ -31,19 +31,19 @@ function gzFiles(dir: string): string[] {
 }
 
 /** Each distinct transaction we hold for a wallet, with the programs it touched. */
-export function* rawTransactions(
+export async function* rawTransactions(
   rawDir: string,
   wallet: string,
-): Generator<{ sig: string; raw: RawTransaction; programs: string[] }> {
+): AsyncGenerator<{ sig: string; raw: RawTransaction; programs: string[] }> {
   const rpc = new Map<string, RawTransaction>();
   for (const file of gzFiles(rpcDir(rawDir, wallet))) {
-    for (const r of readRaw<{ signature: string }, RawTransaction | null>(file)) {
+    for await (const r of readRaw<{ signature: string }, RawTransaction | null>(file)) {
       if (r.response) rpc.set(r.request.signature, r.response);
     }
   }
   const seen = new Set<string>();
   for (const file of gzFiles(historyDir(rawDir, wallet))) {
-    for (const record of readRaw<unknown, HistoryPage>(file)) {
+    for await (const record of readRaw<unknown, HistoryPage>(file)) {
       for (const result of record.response.data ?? []) {
         if (seen.has(result.signature)) continue;
         const raw = rawTransaction(result) ?? rpc.get(result.signature);
@@ -98,14 +98,14 @@ export interface TransferRow {
 
 const abs = (v: bigint) => (v < 0n ? -v : v);
 
-export function parseWallet(
+export async function parseWallet(
   rawDir: string,
   wallet: string,
   ingestedAt = Math.floor(Date.now() / 1000),
-): { trades: TradeRow[]; transfers: TransferRow[] } {
+): Promise<{ trades: TradeRow[]; transfers: TransferRow[] }> {
   const trades: TradeRow[] = [];
   const transfers: TransferRow[] = [];
-  for (const { raw, programs } of rawTransactions(rawDir, wallet)) {
+  for await (const { raw, programs } of rawTransactions(rawDir, wallet)) {
     for (const d of walletDeltas(raw, wallet)) {
       const common = {
         tx_sig: d.txSig,

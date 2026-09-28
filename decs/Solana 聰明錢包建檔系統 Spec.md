@@ -1,6 +1,6 @@
 # Solana 聰明錢包建檔系統 Spec
 
-Sep 28, 2026 · @Paul · rev 2.1
+Sep 28, 2026 · @Paul · rev 2.2
 
 ## 目標與非目標
 
@@ -66,6 +66,7 @@ Sep 28, 2026 · @Paul · rev 2.1
 | `positions` | (wallet, mint, position\_seq) | opened\_at, closed\_at, cost\_lamports, proceeds\_lamports, realized\_pnl\_lamports, lots, has\_unknown\_cost, has\_transfer\_out, complete | 回合：持倉從 0 到回到 0 為一回合，指標的計數單位。`complete` = 已平倉、每個 lot 的成本與所得都已知、沒有轉出 |
 | `wallet_metrics_daily` | (wallet, as\_of\_date) | 見「評分指標定義」 | point-in-time 快照 |
 | `labels` | (address, label, as\_of\_date) | label ∈ {dev, bot, bundler}, rule, evidence | 規則產生的標籤，帶時間戳 |
+| `token_accounts` | (wallet, pubkey) | mint, cursor\_time, last\_fetched\_at | 修補抓過的 token 帳戶與進度 |
 | `reconciliation` | (wallet, mint, checked\_at) | derived\_balance, onchain\_balance, diff | 餘額對帳結果 |
 
 人工資料（SQLite，不可重建，需備份）：
@@ -198,6 +199,27 @@ Helius Parsed Events ──(回補 180 天 + 每日增量)──▶ raw_response
 
 P0 預估 2–3 天，決定 schema 前必做。P1 是全部價值所在，佔工時七成以上。
 
+### P0 結果（Sep 28, 2026）
+
+樣本：Dune 隨機抽 5 個近 3 天同時在 bonding curve 與 PumpSwap 交易、20–300 筆交易的錢包。Helius 抓 180 天，與 Dune 最近 30 天逐筆比對。報告在 `data/p0/report.md`。
+
+| 項目 | 結果 |
+| --- | --- |
+| 覆蓋 | (tx, wallet, mint) 交易 1,259 列，兩邊都有 92.1%。Helius 獨有 45 列：Dune 沒解碼的路由（OKX、swap orchestrator 等）與 Dune 約 2 小時的資料延遲。Dune 獨有 55 列：多跳路由的中間 token 被記在交易者名下、淨額後留下殘值，錢包實際上沒碰過 |
+| token 數量 | 配對上的列 97.1% 完全一致；其餘幾乎都是 1% 以 token 收取的費用（比例 1.0101），Helius 記的是錢包實際收到的量 |
+| SOL 金額 | 非交易機器人的交易 88% 在 1% 內；經 Axiom 的交易一律差約 2.4%，即機器人費用，依設計算進成本 |
+| 場所 | 5 個錢包 30 天內用到 14 個 Dune project：PumpSwap 76%、bonding curve 16%、其他（Raydium LaunchLab、Meteora、Raydium、Orca 等）8%。證實錢包交易序列必須不限場所 |
+| 遺漏 | **以錢包地址查歷史會漏掉只碰到其 token 帳戶的交易**（例如轉入既有 token 帳戶；其中一個帳戶 189 筆有 180 筆不在錢包歷史）。修補後餘額對帳 809/809 一致 |
+| 同 slot 排序 | Parsed Events 的原始交易帶 `transactionIndex`，已用於排序，此開放問題關閉 |
+| 成本 | 回補平均每錢包 124 credits（20–390）；每日增量以 1,000 個錢包估每月約 30 萬 credits；首次修補 5 個錢包 320 credits。免費方案（每月 100 萬）足夠第一版 |
+
+決策：
+
+- 交易粒度確定為 (tx\_sig, wallet, mint) 的餘額淨變化
+- 錢包歷史只走 Helius Parsed Events；Dune 只負責漏斗與代幣主檔
+- 新增修補步驟（`sw repair`，排在每日入庫之後）：查錢包目前的 token 帳戶，對帳不一致的 mint 才抓該 token 帳戶的歷史，並以游標避免重複抓取。付費替代方案是 Helius `getTransactionsForAddress` 加 `tokenAccounts: balanceChanged`（每次 100 credits，限付費方案），一次涵蓋錢包與所有 token 帳戶
+- 5 個錢包只是驗證來源；P1 驗收仍需 50 個錢包、黃金樣本與 GMGN 比對
+
 驗證分數預測力（IC、衰減曲線）不在本 spec 範圍，是下一個 spec 的第一節；該 spec 的回測必須遵守原則 5。
 
 ## 風險、成本與開放問題
@@ -223,10 +245,12 @@ P0 預估 2–3 天，決定 schema 前必做。P1 是全部價值所在，佔�
 - [ ] 漏斗是否納入 pump.fun 之外的 launchpad（Raydium LaunchLab 等）
 - [ ] 快照頻率是否需要細到小時（跟單延遲敏感度分析可能需要）
 - [ ] 詳情頁代幣價格曲線的外部資料源
-- [ ] 同 slot 內交易序的取得方式（區塊資料或 Helius 欄位），或以「先買後賣」作為同 slot 的排序規則
+- [x] 同 slot 內交易序：Parsed Events 原始交易的 `transactionIndex`
 - [ ] 穩定幣計價交易的 SOL/USD 價格來源
 
 ## 修訂紀錄
+
+**rev 2.2（Sep 28, 2026）**：P0 結果與決策，新增修補步驟與 `token_accounts` 表
 
 **rev 2.1（Sep 28, 2026）**：實作 P1 核心時定下的細節
 

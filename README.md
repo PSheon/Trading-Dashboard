@@ -17,10 +17,11 @@ uv run sw fetch        # Helius history for wallets that are due (new: 180-day b
 uv run sw ingest       # raw → trades, token_transfers → FIFO lots, positions
 uv run sw snapshot     # wallet_metrics_daily for today (as_of_date = today 00:00 UTC)
 uv run sw snapshot --from 2026-06-01 --to 2026-09-28   # backfill snapshots
+uv run sw repair       # fetch token-account history for mints that do not reconcile
 uv run sw reconcile --sample 50                        # derived vs on-chain balances
 ```
 
-`sw daily` runs fetch, ingest, snapshot and a reconcile sample in one go. Cron,
+`sw daily` runs fetch, ingest, repair, snapshot and a reconcile sample in one go. Cron,
 once a day shortly after 00:00 UTC:
 
 ```cron
@@ -45,5 +46,5 @@ wallet was discovered.
 
 ## Stage
 
-P0 source verification: [spikes/p0](spikes/p0/README.md). The P1 pipeline above
-is built and tested against synthetic data; it has not seen real data yet.
+P0 is done; results and decisions are in the spec. The P1 pipeline above
+has run on 5 real wallets (balances reconcile 809/809); P1 acceptance needs 50.

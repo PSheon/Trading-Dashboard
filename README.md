@@ -28,6 +28,10 @@ npm run sw -- verify --all # every stored day must equal a recompute
 npm run sw -- reconcile --sample 50                        # derived vs on-chain balances
 npm run sw -- check        # integrity checks; exits 1 on failure
 npm run sw -- daily        # all of the above, in order, for wallets that are due
+npm run sw -- funnel --dry-run             # discover candidate wallets from tokens that did well (Dune)
+npm run sw -- funnel --max-wallets 50      # … and register them (via token_funnel)
+npm run sw -- golden                       # P1 golden samples → test/golden, docs/p1-golden.md
+npm run sw -- pnl-sheet --wallet A --wallet B   # P1 per-token PnL → docs/p1-gmgn.md
 ```
 
 Code lives in `src/lib` (pipeline), `src/cli` (the `sw` command) and
@@ -52,6 +56,7 @@ Data lives under `data/` (git-ignored):
 | `warehouse/token_accounts.parquet` | How far repair has fetched each token account |
 | `warehouse/tokens.parquet` | Token creation / graduation times (from Dune) |
 | `warehouse/snapshot_dirty.parquet` | Wallets whose stored snapshots are stale; empty after a run |
+| `warehouse/funnel_*.parquet` | Each funnel run: parameters, selected tokens, ranked wallets |
 | `warehouse/reconciliation.parquet` | Balance checks |
 | `manual.sqlite` | Notes |
 

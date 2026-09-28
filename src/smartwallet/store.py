@@ -52,6 +52,7 @@ SCHEMAS: dict[str, dict[str, pl.DataType]] = {
         "price_confidence": Str,
         "programs": pl.List(Str),
         "slot": Int,
+        "tx_index": Int,  # order within the slot
         "block_time": Int,
         "parser_version": Int,
         "ingested_at": Int,
@@ -66,6 +67,7 @@ SCHEMAS: dict[str, dict[str, pl.DataType]] = {
         "decimals": Int,
         "counterparty": Str,
         "slot": Int,
+        "tx_index": Int,  # order within the slot
         "block_time": Int,
         "parser_version": Int,
         "ingested_at": Int,
@@ -100,6 +102,14 @@ SCHEMAS: dict[str, dict[str, pl.DataType]] = {
         "has_unknown_cost": Bool,
         "has_transfer_out": Bool,
         "complete": Bool,
+    },
+    "token_accounts": {
+        # Token accounts whose own history repair has fetched, and how far.
+        "wallet": Str,
+        "mint": Str,
+        "pubkey": Str,
+        "cursor_time": Int,
+        "last_fetched_at": Int,
     },
     "reconciliation": {
         "wallet": Str,
@@ -215,9 +225,11 @@ def _month() -> pl.Expr:
 
 def _sort_key(table: str) -> list[str]:
     if table in MONTHLY:
-        return ["wallet", "slot", "tx_sig", "mint"]
+        return ["wallet", "slot", "tx_index", "tx_sig", "mint"]
     if table == "lots":
         return ["wallet", "mint", "lot_seq"]
     if table == "positions":
         return ["wallet", "mint", "position_seq"]
+    if table == "token_accounts":
+        return ["wallet", "mint", "pubkey"]
     return ["wallet", "mint"]

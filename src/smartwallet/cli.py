@@ -49,7 +49,10 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--wallet", action="append")
     r.add_argument("--sample", type=int, default=20)
 
-    d = sub.add_parser("daily", help="fetch due wallets, ingest them, snapshot today, reconcile")
+    rp = sub.add_parser("repair", help="fetch token-account history for unreconciled mints")
+    rp.add_argument("--wallet", action="append")
+
+    d = sub.add_parser("daily", help="fetch, ingest, repair, snapshot today, reconcile a sample")
     d.add_argument("--reconcile-sample", type=int, default=20)
 
     args = p.parse_args(argv)
@@ -102,27 +105,16 @@ def main(argv: list[str] | None = None) -> None:
         rows = jobs.reconcile_wallets(wh, helius(), targets, now=now)
         print(json.dumps(reconcile.summary(rows), indent=2))
 
-    elif args.cmd == "daily":
-        h = helius()
-        due = wallets.due(wallets.load(wh), now)
+    elif args.cmd == "repair":
         stamp = datetime.fromtimestamp(now, UTC).strftime("%Y%m%dT%H%M%SZ")
-        jobs.fetch(wh, h, raw_dir, due, now=now, stamp=stamp)
-        counts = jobs.ingest(wh, raw_dir, due, now=now)
-        snapped = jobs.snapshot(wh, _today())
-        checked = _sample(due, args.reconcile_sample)
-        recon = reconcile.summary(jobs.reconcile_wallets(wh, h, checked, now=now))
-        print(
-            json.dumps(
-                {
-                    "fetched": len(due),
-                    "ingested": counts,
-                    "snapshot_wallets": snapped,
-                    "reconcile": recon,
-                    "credits": h.credits_used,
-                },
-                indent=2,
-            )
+        result = jobs.repair(
+            wh, helius(), raw_dir, args.wallet or registered(), now=now, stamp=stamp
         )
+        print(json.dumps(result, indent=2))
+
+    elif args.cmd == "daily":
+        result = jobs.daily(wh, helius(), raw_dir, now=now, reconcile_sample=args.reconcile_sample)
+        print(json.dumps(result, indent=2, default=str))
 
 
 def _sample(addresses: list[str], n: int) -> list[str]:

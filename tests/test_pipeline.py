@@ -155,3 +155,53 @@ def test_snapshot_is_reproducible_bit_for_bit(tmp_path, helius):
     jobs.snapshot(wh, AS_OF)
     assert wh.read("wallet_metrics_daily").equals(first)
     assert isinstance(first["realized_pnl_sol"].dtype, pl.Float64)
+
+
+def test_repair_pulls_transfers_that_only_touch_a_token_account(tmp_path):
+    calls = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        if request.url.path.endswith("/transaction-history"):
+            calls.append(body["address"])
+            # The gift never shows up in the wallet's own history, only the account's.
+            data = [result(SELL), result(BUY)] if body["address"] == W else [result(GIFT)]
+            return httpx.Response(200, json={"data": data})
+        if body["method"] == "getTokenAccountsByOwner":
+            accounts = []
+            if body["params"][1]["programId"].startswith("Tokenkeg"):
+                accounts = [
+                    {
+                        "pubkey": ATA,
+                        "account": {
+                            "data": {
+                                "parsed": {"info": {"mint": MINT, "tokenAmount": {"amount": "10"}}}
+                            }
+                        },
+                    }
+                ]
+            return httpx.Response(200, json={"result": {"value": accounts}})
+        raise AssertionError(body)
+
+    helius = HeliusClient(
+        "k", http=httpx.Client(transport=httpx.MockTransport(handler)), min_interval=0
+    )
+    wh = Warehouse(tmp_path / "warehouse")
+    raw_dir = tmp_path / "raw"
+    wallets.add(wh, [W], discovered_via="manual", now=T - DAY)
+    jobs.fetch(wh, helius, raw_dir, [W], now=T, stamp="run1")
+    jobs.ingest(wh, raw_dir, [W], now=T)
+    assert wh.read("token_transfers").is_empty()
+
+    result_ = jobs.repair(wh, helius, raw_dir, [W], now=T, stamp="run1")
+    assert result_["mints_mismatched"] == 1 and result_["token_accounts_fetched"] == 1
+    assert calls == [W, ATA]
+    [gift] = wh.read("token_transfers").to_dicts()
+    assert (gift["tx_sig"], gift["direction"]) == ("gift", "in")
+    [state] = wh.read("token_accounts").to_dicts()
+    assert (state["pubkey"], state["cursor_time"]) == (ATA, T - 1800)
+
+    # Reconciled now, so a second repair fetches nothing.
+    again = jobs.repair(wh, helius, raw_dir, [W], now=T + 60, stamp="run2")
+    assert again["token_accounts_fetched"] == 0
+    assert calls == [W, ATA]

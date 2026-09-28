@@ -56,6 +56,13 @@ class HeliusClient:
     def token_balances(self, owner: str, program_ids: tuple[str, ...]) -> dict[str, int]:
         """Current raw balance per mint across the owner's token accounts."""
         out: dict[str, int] = {}
+        for acc in self.token_accounts(owner, program_ids):
+            out[acc["mint"]] = out.get(acc["mint"], 0) + acc["amount"]
+        return out
+
+    def token_accounts(self, owner: str, program_ids: tuple[str, ...]) -> list[dict]:
+        """The owner's token accounts now: [{pubkey, mint, amount}]."""
+        out: list[dict] = []
         for program_id in program_ids:
             body = {
                 "jsonrpc": "2.0",
@@ -68,8 +75,13 @@ class HeliusClient:
                 raise RuntimeError(f"getTokenAccountsByOwner {owner}: {resp['error']}")
             for acc in resp["result"]["value"]:
                 info = acc["account"]["data"]["parsed"]["info"]
-                mint = info["mint"]
-                out[mint] = out.get(mint, 0) + int(info["tokenAmount"]["amount"])
+                out.append(
+                    {
+                        "pubkey": acc.get("pubkey"),
+                        "mint": info["mint"],
+                        "amount": int(info["tokenAmount"]["amount"]),
+                    }
+                )
         return out
 
     def get_transaction(self, signature: str) -> dict | None:

@@ -6,7 +6,7 @@
 
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { constants, gunzipSync, gzipSync } from "node:zlib";
 
 export interface RawRecord<Req = unknown, Res = unknown> {
   source: string;
@@ -31,9 +31,16 @@ export function appendRaw(
   appendFileSync(file, gzipSync(JSON.stringify(line) + "\n"));
 }
 
+/**
+ * Every complete record in the file. A process killed mid-append can leave a
+ * truncated last member; everything before it is still read, and the partial
+ * record is dropped (the next fetch covers that window again).
+ */
 export function* readRaw<Req = unknown, Res = unknown>(file: string): Generator<RawRecord<Req, Res>> {
-  const text = gunzipSync(readFileSync(file)).toString("utf8");
-  for (const line of text.split("\n")) {
+  const text = gunzipSync(readFileSync(file), { finishFlush: constants.Z_SYNC_FLUSH }).toString("utf8");
+  const lines = text.split("\n");
+  const complete = text.endsWith("\n") ? lines : lines.slice(0, -1);
+  for (const line of complete) {
     if (line) yield JSON.parse(line) as RawRecord<Req, Res>;
   }
 }

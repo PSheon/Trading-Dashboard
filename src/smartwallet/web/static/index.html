@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Wallets</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Smart wallets</h1>
+    <label class="field">Snapshot
+      <select id="as-of"></select>
+    </label>
+    <span class="spacer"></span>
+    <span id="job-status" class="status"></span>
+    <button id="run-job">Run daily job</button>
+  </header>
+  <main>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Search address or note">
+      <label class="field">Source
+        <select id="via">
+          <option value="">All</option>
+          <option value="token_funnel">token_funnel</option>
+          <option value="public_leaderboard">public_leaderboard</option>
+          <option value="manual">manual</option>
+        </select>
+      </label>
+      <label class="field">Min trades
+        <input id="min-trades" type="number" min="0" value="0" style="width:72px">
+      </label>
+      <label class="field">Active within
+        <select id="active">
+          <option value="">Any time</option>
+          <option value="1">1 day</option>
+          <option value="7">7 days</option>
+          <option value="30">30 days</option>
+        </select>
+      </label>
+      <span id="count" class="status"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="head"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="status">Rows with fewer than 30 closed round trips are greyed out: too few to trust.</p>
+
+    <details class="card">
+      <summary>Add wallets</summary>
+      <form id="add-form" style="margin-top:10px">
+        <textarea id="add-addresses" rows="4" placeholder="Addresses, one per line or separated by spaces"></textarea>
+        <div class="controls" style="margin-top:8px">
+          <label class="field">Source
+            <select id="add-via">
+              <option value="manual">manual</option>
+              <option value="public_leaderboard">public_leaderboard</option>
+              <option value="token_funnel">token_funnel</option>
+            </select>
+          </label>
+          <button class="primary" type="submit">Add</button>
+          <span id="add-status" class="status"></span>
+        </div>
+      </form>
+    </details>
+  </main>
+  <script type="module" src="/static/index.js"></script>
+</body>
+</html>

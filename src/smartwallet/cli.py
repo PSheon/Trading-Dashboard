@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import random
 import time
 from datetime import UTC, date, datetime
@@ -12,6 +13,7 @@ from .sources.helius import HeliusClient
 from .store import Warehouse
 
 VIA = ("token_funnel", "public_leaderboard", "manual")
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
 def read_addresses(path: Path) -> list[str]:
@@ -54,6 +56,10 @@ def main(argv: list[str] | None = None) -> None:
 
     d = sub.add_parser("daily", help="fetch, ingest, repair, snapshot today, reconcile a sample")
     d.add_argument("--reconcile-sample", type=int, default=20)
+
+    sv = sub.add_parser("serve", help="run the dashboard")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
 
     args = p.parse_args(argv)
     settings = config.load()
@@ -111,6 +117,16 @@ def main(argv: list[str] | None = None) -> None:
             wh, helius(), raw_dir, args.wallet or registered(), now=now, stamp=stamp
         )
         print(json.dumps(result, indent=2))
+
+    elif args.cmd == "serve":
+        if args.host not in LOOPBACK and not os.getenv("APP_PASSWORD"):
+            raise SystemExit("set APP_PASSWORD before serving beyond localhost")
+        import uvicorn
+
+        from .web.app import create_app
+
+        app = create_app(settings, schedule_utc=os.getenv("SCHEDULE_UTC") or None)
+        uvicorn.run(app, host=args.host, port=args.port, proxy_headers=True)
 
     elif args.cmd == "daily":
         result = jobs.daily(wh, helius(), raw_dir, now=now, reconcile_sample=args.reconcile_sample)

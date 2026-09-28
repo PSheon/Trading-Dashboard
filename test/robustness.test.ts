@@ -76,7 +76,8 @@ describe("job robustness", () => {
     const { wh, rawDir } = setup();
     await addWallets(wh, [W, OTHER_W], { via: "manual", now: T - DAY });
     const h = client(() => ok({ data: [result] }));
-    const r = await fetchWallets(wh, h, rawDir, [W, OTHER_W], { now: T, stamp: "s", creditBudget: 10 });
+    // One at a time: with concurrency the cap is soft by the wallets already in flight.
+    const r = await fetchWallets(wh, h, rawDir, [W, OTHER_W], { now: T, stamp: "s", creditBudget: 10, concurrency: 1 });
     expect([Object.keys(r.fetched), r.skipped]).toEqual([[W], [OTHER_W]]);
   });
 
@@ -118,5 +119,30 @@ describe("principle 5 on the page", () => {
     expect(discoveredLater(bound(d) + 1, d, "2026-03-05")).toBe(true);
     expect(discoveredLater(bound(d), d, "2026-03-05")).toBe(false);
     expect(discoveredLater(bound(d) + DAY, "2026-03-05", "2026-03-05")).toBe(false);
+  });
+});
+
+describe("concurrent fetching", () => {
+  it("fetches several wallets side by side and keeps the request spacing", async () => {
+    const { wh, rawDir } = setup();
+    const wallets = [W, OTHER_W, "Wallet3333333333333333333333333333333333333", "Wallet4444444444444444444444444444444444444"];
+    await addWallets(wh, wallets, { via: "manual", now: T - DAY });
+    const times: number[] = [];
+    const h = new HeliusClient("k", {
+      fetch: (async () => {
+        times.push(Date.now());
+        await new Promise((r) => setTimeout(r, 30)); // network latency
+        return ok({ data: [result] });
+      }) as typeof fetch,
+      minIntervalMs: 10,
+      backoffMs: 0,
+    });
+    const r = await fetchWallets(wh, h, rawDir, wallets, { now: T, stamp: "s", concurrency: 4 });
+    expect(Object.keys(r.fetched).sort()).toEqual([...wallets].sort());
+    const gaps = times.slice(1).map((t, i) => t - times[i]);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(9);
+    // Four wallets with 30 ms latency each finish well under 4 × 30 ms when overlapped.
+    expect(times.at(-1)! - times[0]).toBeLessThan(90);
+    expect(Object.values(r.fetched).every((f) => f.credits === 10)).toBe(true);
   });
 });

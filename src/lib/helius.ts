@@ -17,6 +17,8 @@ export interface TokenAccount {
 export class HeliusClient {
   credits = 0;
   requests = 0;
+  // Requests queue here so concurrent callers still keep the minimum spacing.
+  private gate: Promise<void> = Promise.resolve();
   private last = 0;
 
   constructor(
@@ -26,9 +28,13 @@ export class HeliusClient {
 
   private async post<T>(pathname: string, body: unknown, credits: number): Promise<T> {
     // The free plan allows 10 requests per second.
-    const wait = (this.opts.minIntervalMs ?? 120) - (Date.now() - this.last);
-    if (wait > 0) await sleep(wait);
-    this.last = Date.now();
+    const turn = this.gate.then(async () => {
+      const wait = (this.opts.minIntervalMs ?? 120) - (Date.now() - this.last);
+      if (wait > 0) await sleep(wait);
+      this.last = Date.now();
+    });
+    this.gate = turn;
+    await turn;
     this.requests += 1;
     this.credits += credits;
     const url = `${BASE_URL}${pathname}?api-key=${encodeURIComponent(this.apiKey)}`;

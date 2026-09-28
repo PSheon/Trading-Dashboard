@@ -11,7 +11,7 @@ import { TOKEN_PROGRAMS } from "./constants";
 import { litList } from "./db";
 import type { DuneClient } from "./dune";
 import { build } from "./fifo";
-import { type HeliusClient, rawTransaction } from "./helius";
+import { type HeliusClient, PARSED_EVENTS_CREDITS, RPC_CREDITS, rawTransaction } from "./helius";
 import { historyDir, parseWallet, rawTransactions, rpcDir, type TradeRow, type TransferRow } from "./ingest";
 import { accountKeys } from "./normalize";
 import { appendRaw } from "./rawStore";
@@ -29,6 +29,7 @@ const OVERLAP_SECONDS = 600;
 // A batch's trades are held in memory as objects; keep it modest.
 const INGEST_BATCH = 50;
 export const DEFAULT_CREDIT_BUDGET = 200_000;
+const FETCH_CONCURRENCY = 4;
 
 export interface JobError {
   step: string;
@@ -52,7 +53,7 @@ export async function fetchWallets(
   helius: HeliusClient,
   rawDir: string,
   addresses: readonly string[],
-  opts: { now: number; stamp: string; backfillDays?: number; creditBudget?: number },
+  opts: { now: number; stamp: string; backfillDays?: number; creditBudget?: number; concurrency?: number },
 ) {
   const cursors = new Map((await loadWallets(wh)).map((w) => [w.address, w.fetch_cursor_time]));
   const budget = opts.creditBudget ?? DEFAULT_CREDIT_BUDGET;
@@ -60,19 +61,22 @@ export async function fetchWallets(
   const fetched: Record<string, { txs: number; refetched: number; credits: number }> = {};
   const errors: JobError[] = [];
   const skipped: string[] = [];
-  for (const address of addresses) {
+  // The budget is checked before each wallet starts, so it can be overshot by
+  // the wallets already in flight; stopping one halfway would waste its pages.
+  const one = async (address: string) => {
     if (helius.credits - start >= budget) {
       skipped.push(address); // still due next run
-      continue;
+      return;
     }
     const cursor = cursors.get(address) ?? null;
     const since = cursor !== null ? cursor - OVERLAP_SECONDS : opts.now - (opts.backfillDays ?? BACKFILL_DAYS) * DAY;
-    const creditsBefore = helius.credits;
+    let credits = 0;
     try {
       let newest: number | null = null;
       let txs = 0;
       const unreadable: string[] = [];
       for await (const { request, response } of helius.transactionHistory(address, { timeGte: since })) {
+        credits += PARSED_EVENTS_CREDITS;
         appendRaw(`${historyDir(rawDir, address)}/${opts.stamp}.jsonl.gz`, {
           source: "helius-parsed-events",
           requestKey: `transaction-history:${address}`,
@@ -87,6 +91,7 @@ export async function fetchWallets(
         }
       }
       for (const sig of unreadable) {
+        credits += RPC_CREDITS;
         appendRaw(`${rpcDir(rawDir, address)}/${opts.stamp}.jsonl.gz`, {
           source: "helius-rpc",
           requestKey: `getTransaction:${sig}`,
@@ -96,13 +101,20 @@ export async function fetchWallets(
       }
       // Saved per wallet, so a crash halfway keeps what was already fetched.
       await recordFetch(wh, { [address]: [newest, opts.now, since] });
-      fetched[address] = { txs, refetched: unreadable.length, credits: helius.credits - creditsBefore };
+      fetched[address] = { txs, refetched: unreadable.length, credits };
     } catch (e) {
       // Pages already appended stay in raw; the cursor stays put, so the next
       // run fetches the same window again and ingest drops the duplicates.
       errors.push({ step: "fetch", wallet: address, message: message(e) });
     }
-  }
+  };
+  // A few wallets at a time: each page waits on the network, so running them
+  // side by side fills the rate limit that a single wallet leaves idle.
+  let next = 0;
+  const worker = async () => {
+    while (next < addresses.length) await one(addresses[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.max(1, opts.concurrency ?? FETCH_CONCURRENCY) }, worker));
   return { fetched, errors, skipped, credits: helius.credits - start };
 }
 

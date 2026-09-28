@@ -1,9 +1,10 @@
 # Trading Dashboard
 
-Point-in-time Solana smart-wallet profiling, in TypeScript: a data pipeline
-(Helius → raw → Parquet via DuckDB → FIFO → daily snapshots) and a Next.js
-dashboard over it. The design is in
-[decs/Solana 聰明錢包建檔系統 Spec.md](decs/Solana%20聰明錢包建檔系統%20Spec.md).
+Point-in-time research on Solana smart wallets: can wallets known at a date,
+ranked on what was known then, be followed profitably after latency and
+costs? The design is in
+[decs/Solana 聰明錢包研究系統 Spec.md](decs/Solana%20聰明錢包研究系統%20Spec.md);
+the evidence behind each decision is in [decs/決策紀錄.md](decs/決策紀錄.md).
 
 ```sh
 cp .env.example .env    # HELIUS_API_KEY, DUNE_API_KEY

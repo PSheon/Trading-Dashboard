@@ -1,9 +1,5 @@
-import { redirect } from "next/navigation";
+import { HomeView } from "@/components/home/home-view";
 
-/**
- * §9 順序原則: "M1 的 dashboard 只需要一個匯入頁" — the dashboard root sends
- * you straight to it.
- */
-export default function Home() {
-  redirect("/import");
+export default function HomePage() {
+  return <HomeView />;
 }

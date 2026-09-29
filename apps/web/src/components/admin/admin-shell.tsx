@@ -9,16 +9,18 @@ import { EmptyState, PageHeader, Panel, SignInPrompt, Skeleton } from "@/compone
 import { Button } from "@/components/ui/button";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
+import type { Permission } from "@trading-dashboard/shared/contracts";
+import { hasPermission } from "@/lib/permissions";
 import { useAuth, useMe } from "@/lib/auth";
 
-const SECTIONS: { href: string; label: MessageKey }[] = [
-  { href: "/admin", label: "admin.nav.overview" },
-  { href: "/admin/revenue", label: "admin.nav.revenue" },
-  { href: "/admin/users", label: "admin.nav.users" },
-  { href: "/admin/settings", label: "admin.nav.settings" },
-  { href: "/admin/lists", label: "admin.nav.lists" },
-  { href: "/admin/rules", label: "admin.nav.rules" },
-  { href: "/admin/system", label: "admin.nav.system" },
+const SECTIONS: { href: string; label: MessageKey; permission: Permission }[] = [
+  { href: "/admin", label: "admin.nav.overview", permission: "overview.read" },
+  { href: "/admin/revenue", label: "admin.nav.revenue", permission: "revenue.read" },
+  { href: "/admin/users", label: "admin.nav.users", permission: "users.read" },
+  { href: "/admin/settings", label: "admin.nav.settings", permission: "settings.read" },
+  { href: "/admin/lists", label: "admin.nav.lists", permission: "lists.read" },
+  { href: "/admin/rules", label: "admin.nav.rules", permission: "rules.read" },
+  { href: "/admin/system", label: "admin.nav.system", permission: "admin.access" },
 ];
 
 /** Admin area frame: title, sub-navigation, and the role gate (the api
@@ -29,6 +31,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
   const me = useMe();
 
+  const current = SECTIONS.find((section) => section.href === pathname) ?? [...SECTIONS].reverse().find((section) => pathname.startsWith(`${section.href}/`));
+  const allowed = status === "signedIn" && !me.isError && hasPermission(me.data, "admin.access");
+  const pageAllowed = allowed && Boolean(current && hasPermission(me.data, current.permission));
   let body: React.ReactNode;
   if (status === "loading" || (status === "signedIn" && me.isPending)) {
     body = <Skeleton className="h-64 rounded-2xl" />;
@@ -38,7 +43,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <SignInPrompt icon={LogIn} title={t("admin.signInTitle")} body={t("admin.forbidden")} />
       </Panel>
     );
-  } else if (me.data?.role !== "admin") {
+  } else if (!pageAllowed) {
     body = (
       <Panel>
         <EmptyState
@@ -57,7 +62,6 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     body = children;
   }
 
-  const allowed = status === "signedIn" && me.data?.role === "admin";
 
   return (
     <div className="flex flex-col gap-5">
@@ -67,7 +71,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           aria-label={t("admin.title")}
           className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 no-scrollbar md:mx-0 md:px-0"
         >
-          {SECTIONS.map((s) => {
+          {SECTIONS.filter((s) => hasPermission(me.data, s.permission)).map((s) => {
             const active = s.href === "/admin" ? pathname === "/admin" : pathname.startsWith(s.href);
             return (
               <Link

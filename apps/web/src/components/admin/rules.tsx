@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/lib/auth";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AlertRule, UpsertAlertRuleRequest } from "@/lib/contracts";
@@ -11,6 +12,7 @@ import { api, type ApiError } from "@/lib/api";
 /** Default rules (userId null): what admins are alerted on for imported
  * traders. Users set alerts on their favorites instead. */
 export function AdminRules() {
+  const canManage = usePermission("rules.manage");
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const rules = useQuery({
@@ -39,6 +41,7 @@ export function AdminRules() {
             <RuleEditor
               key={`${rule.id}-${JSON.stringify(rule)}`}
               rule={rule}
+              readOnly={!canManage}
               saving={save.isPending && save.variables?.id === rule.id}
               error={save.isError && save.variables?.id === rule.id ? save.error.message : undefined}
               onSave={(patch) =>

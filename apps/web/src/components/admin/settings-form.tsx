@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/lib/auth";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -95,11 +96,13 @@ function FormCard<S extends Section>({
 }) {
   const { t } = useI18n();
   const save = useSaveSection(section);
+  const canSave = usePermission("settings.write");
   const [clientError, setClientError] = useState<string>();
   const dirty = JSON.stringify(value) !== JSON.stringify(original);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!canSave) return;
     const parsed = SCHEMAS[section].safeParse(value);
     if (!parsed.success) {
       setClientError(
@@ -115,7 +118,7 @@ function FormCard<S extends Section>({
     <Panel id={id} className="scroll-mt-24 p-5 md:p-6">
       <form onSubmit={submit} className="flex flex-col gap-5">
         <h2 className="text-base font-bold tracking-tight">{title}</h2>
-        {children}
+        <fieldset disabled={!canSave} className="contents">{children}</fieldset>
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
           {clientError || save.isError ? (
             <p role="alert" className="mr-auto text-xs text-negative">
@@ -129,7 +132,7 @@ function FormCard<S extends Section>({
               {t("admin.settings.saved")}
             </p>
           ) : null}
-          <Button type="submit" disabled={!dirty || save.isPending}>
+          <Button type="submit" disabled={!canSave || !dirty || save.isPending}>
             {save.isPending ? t("common.saving") : t("admin.settings.saveSection")}
           </Button>
         </div>

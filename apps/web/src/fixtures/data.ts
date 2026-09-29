@@ -1,3 +1,4 @@
+import { ROLE_PERMISSIONS } from "@trading-dashboard/shared/contracts";
 /**
  * Fixture data for NEXT_PUBLIC_API_FIXTURES=1, built from real Hyperliquid
  * samples:
@@ -635,6 +636,7 @@ export function fixtureMe(locale: MeResponse["locale"]): MeResponse {
   return {
     id: 1,
     privyUserId: "did:privy:fixture-demo-user",
+    permissions: [...ROLE_PERMISSIONS.admin],
     email: "demo@example.com",
     walletAddress: "0x0000000000000000000000000000000000000000",
     displayName: "Demo",

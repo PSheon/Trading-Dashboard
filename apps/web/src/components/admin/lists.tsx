@@ -1,4 +1,5 @@
 "use client";
+import { usePermission } from "@/lib/auth";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ImportLeaderListResponse, LeaderList } from "@/lib/contracts";
@@ -16,6 +17,7 @@ import { parseCsv } from "@/lib/csv";
 
 /** A1 list import (CSV/JSON, parsed client-side) and A6 list versions. */
 export function AdminLists() {
+  const canImport = usePermission("leaders.import");
   const { t, format } = useI18n();
   const queryClient = useQueryClient();
   const [fileName, setFileName] = useState<string>();
@@ -103,7 +105,7 @@ export function AdminLists() {
           </div>
         ) : null}
         <div className="flex flex-wrap items-center gap-3">
-          <Button disabled={rows.length === 0 || importList.isPending} onClick={() => importList.mutate()}>
+          <Button disabled={!canImport || rows.length === 0 || importList.isPending} onClick={() => importList.mutate()}>
             <FileUp />
             {importList.isPending ? t("admin.importing") : t("admin.importCta")}
           </Button>

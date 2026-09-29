@@ -25,11 +25,13 @@ export function RuleEditor({
   rule,
   onSave,
   saving,
+  readOnly = false,
   error,
 }: {
   rule: AlertRule;
   onSave: (patch: RulePatch) => void;
   saving: boolean;
+  readOnly?: boolean;
   error?: string;
 }) {
   const { t } = useI18n();
@@ -47,6 +49,7 @@ export function RuleEditor({
     [...tiers].sort().join() !== [...rule.tiers].sort().join();
 
   function save() {
+    if (readOnly) return;
     let paramsJson: Record<string, unknown>;
     try {
       paramsJson = JSON.parse(paramsText) as Record<string, unknown>;
@@ -59,7 +62,7 @@ export function RuleEditor({
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl bg-raised/60 p-4">
+    <fieldset disabled={readOnly} aria-label={rule.kind} className="flex flex-col gap-4 rounded-2xl bg-raised/60 p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="rounded-lg bg-background px-2 py-1 font-mono text-sm font-bold text-primary">{rule.kind}</span>
@@ -136,10 +139,10 @@ export function RuleEditor({
 
       <div className="flex items-center justify-end gap-3">
         {error ? <p className="mr-auto text-xs text-negative">{error}</p> : null}
-        <Button size="sm" disabled={!dirty || saving} onClick={save}>
+        <Button size="sm" disabled={readOnly || !dirty || saving} onClick={save}>
           {saving ? t("common.saving") : t("common.save")}
         </Button>
       </div>
-    </div>
+    </fieldset>
   );
 }

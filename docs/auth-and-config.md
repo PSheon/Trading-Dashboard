@@ -72,8 +72,13 @@ this does not cancel in-flight business operations or revoke a Privy session.
 Privy verification itself is cached for at most 30 seconds and never past token
 expiry. Workers still use the supported single-replica topology.
 
-Role-change audit events, frontend effective permissions and dynamic custom
-roles are follow-up work. Never rely on UI visibility for access.
+GET/PATCH /me returns effective `permissions` from the same role catalog as
+API guards. The frontend gates admin routes, navigation and write controls by
+permissions, fails closed on missing/failed profile data, and refreshes /me every
+30 seconds while active. Its display may lag a role edit until refresh; the API
+still checks each request. Deploy the API contract before this frontend version.
+Role-change audit events and dynamic custom roles are follow-up work. Never
+rely on UI visibility for access.
 
 ## Startup validation
 

@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import { users } from "@trading-dashboard/shared/database";
-import { type MeResponse, type PatchMeRequest } from "@trading-dashboard/shared/contracts";
+import { ROLE_PERMISSIONS, type MeResponse, type PatchMeRequest } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -16,6 +16,7 @@ function toMe(row: UserRow): MeResponse {
     walletAddress: row.walletAddress,
     displayName: row.displayName,
     role: row.role,
+    permissions: [...ROLE_PERMISSIONS[row.role]],
     locale: row.locale,
     createdAt: row.createdAt,
   };

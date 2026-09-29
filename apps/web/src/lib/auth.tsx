@@ -1,5 +1,7 @@
 "use client";
 
+import type { Permission } from "@trading-dashboard/shared/contracts";
+import { hasPermission } from "@/lib/permissions";
 import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
 import { useQuery } from "@tanstack/react-query";
 import type { MeResponse } from "@/lib/contracts";
@@ -51,14 +53,19 @@ export function useMe() {
     queryKey: ["me"],
     queryFn: () => api.get<MeResponse>("/me"),
     enabled: status === "signedIn",
-    staleTime: 60_000,
-    refetchInterval: false,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
 }
 
+export function usePermission(permission: Permission): boolean {
+  const { status } = useAuth();
+  const me = useMe();
+  return status === "signedIn" && !me.isError && hasPermission(me.data, permission);
+}
+
 export function useIsAdmin(): boolean {
-  const { data } = useMe();
-  return data?.role === "admin";
+  return usePermission("admin.access");
 }
 
 // --- Privy ------------------------------------------------------------------

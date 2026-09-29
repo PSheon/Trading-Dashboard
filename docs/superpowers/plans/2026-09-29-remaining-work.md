@@ -85,3 +85,8 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 - Task 25 full gate: 42 API files / 477 tests passed; API typecheck/build/lint passed. Real HTTP probe verifies forged forwarded IP cannot bypass the default limiter and v1 429 retains Retry-After.
 
 - Task 26: every cached or freshly resolved human caller rechecks persisted role/disabled state. Profile-fetch completion is followed by another DB authorization read; protected routes fail closed on DB errors. Two new revocation tests failed before implementation; targeted auth/admin tests passed 55/55 afterward. Added a deterministic disable-during-profile-lookup regression. This guarantees freshness at the authorization read, not cancellation of business operations already admitted before a concurrent commit, and does not claim provider-side Privy session revocation.
+
+- Task 26 final targeted gate: auth/admin tests 56/56, including disable while profile lookup is paused; API typecheck passed.
+- Task 27: /me returns effective permissions from the shared catalog; frontend navigation, route content and administrative write controls consume them, deny absent/error states, and refresh /me every 30 seconds. Existing role remains for display, not authorization inference. API-before-web rollout is documented; no dynamic custom-role model is introduced.
+
+- Tasks 26–27 combined gate: 42 API files / 479 tests and web 13 tests passed; mounted AdminShell tests cover effective grants, hidden navigation and stale-data denial on errors. API/web typecheck and lint, shared/API builds and web webpack production build passed; HTTP docs freshness passed.

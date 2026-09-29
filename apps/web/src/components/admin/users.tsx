@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
-import { useMe } from "@/lib/auth";
+import { useMe, usePermission } from "@/lib/auth";
 import { truncateAddress } from "@/lib/format";
 
 const PAGE = 20;
@@ -22,6 +22,7 @@ export function AdminUsers() {
   const { t, format } = useI18n();
   const queryClient = useQueryClient();
   const { data: me } = useMe();
+  const canManage = usePermission("users.manage");
   const [query, setQuery] = useState("");
   const [q, setQ] = useState("");
   const [role, setRole] = useState<UserRole | "">("");
@@ -131,7 +132,7 @@ export function AdminUsers() {
                     <Button
                       variant="secondary"
                       size="xs"
-                      disabled={self || busy}
+                      disabled={!canManage || self || busy}
                       onClick={() => update.mutate({ id: u.id, patch: { role: u.role === "admin" ? "user" : "admin" } })}
                     >
                       {u.role === "admin" ? t("admin.users.makeUser") : t("admin.users.makeAdmin")}
@@ -139,7 +140,7 @@ export function AdminUsers() {
                     <Button
                       variant={u.disabled ? "secondary" : "destructive"}
                       size="xs"
-                      disabled={self || busy}
+                      disabled={!canManage || self || busy}
                       onClick={() => update.mutate({ id: u.id, patch: { disabled: !u.disabled } })}
                     >
                       {u.disabled ? t("admin.users.enable") : t("admin.users.disable")}

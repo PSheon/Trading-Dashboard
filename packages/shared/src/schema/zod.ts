@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { PERMISSIONS } from "../permissions.js";
 
 export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 
@@ -404,6 +405,7 @@ export type LocaleInput = z.infer<typeof localeSchema>;
 export const meResponseSchema = z.object({
   id: z.number().int(),
   privyUserId: z.string(),
+  permissions: z.array(z.enum(PERMISSIONS)),
   email: z.string().nullable(),
   walletAddress: z.string().nullable(),
   displayName: z.string().nullable(),

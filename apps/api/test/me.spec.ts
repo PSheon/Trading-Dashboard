@@ -97,6 +97,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   it("serves validated v1 profile and favorite DTOs with string timestamps", async () => {
     const me = await alice.get("/me").set("x-api-contract", "1").expect(200);
     expect(typeof me.body.data.createdAt).toBe("string");
+    expect(me.body.data.permissions).toEqual([]);
     const favorite = await alice.put(`/me/favorites/${ADDR}`).set("x-api-contract", "1").expect(200);
     expect(favorite.body.data.address).toBe(ADDR);
     const list = await alice.get("/me/favorites").set("x-api-contract", "1").expect(200);

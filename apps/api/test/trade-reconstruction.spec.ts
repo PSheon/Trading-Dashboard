@@ -50,7 +50,7 @@ function fill(
 }
 
 describe("round-trip reconstruction", () => {
-  it("open, add, reduce, close: weighted prices, Σ closedPnl, fees, max size, hold", () => {
+  it("open, add, reduce, close: size, weighted prices, Σ closedPnl, fees, hold", () => {
     const trades = reconstructTrades(ME, [
       fill(0, 1, 100, T0),
       fill(1, 1, 110, T0 + MIN),
@@ -63,9 +63,9 @@ describe("round-trip reconstruction", () => {
     expect(entryPx(t)).toBe(105);
     expect(exitPx(t)).toBe(125);
     expect(netPnl(t)).toBe(36);
-    expect(t.maxNotional).toBe(220);
     const dto = toRoundTrip(t, T0 + HOUR);
-    expect(dto).toMatchObject({ status: "closed", maxSize: 2, volume: 460, holdSeconds: 180, funding: null, netPnl: 36 });
+    // CopyDog: notional = size × (entry + exit); a coin's volume = size × entry.
+    expect(dto).toMatchObject({ status: "closed", size: 2, notional: 460, volume: 210, holdSeconds: 180, funding: null, netPnl: 36, partial: false });
   });
 
   it("a flip closes the old side and opens the new one on the same fill", () => {
@@ -73,10 +73,10 @@ describe("round-trip reconstruction", () => {
     const trades = reconstructTrades(ME, [fill(0, 2, 100, T0), flip, fill(-3, 3, 80, T0 + 2 * HOUR, { closedPnl: "30" })]);
     expect(trades).toHaveLength(2);
     const [long, short] = trades;
-    // 2 of the flip's 5 close the long, with 2/5 of its fee and all its closedPnl.
-    expect(long).toMatchObject({ side: "long", exitTime: T0 + HOUR, realizedPnl: -20, fees: 1 + 2, exitSz: 2 });
-    expect(short).toMatchObject({ side: "short", openTid: BigInt(flip.tid), entryTime: T0 + HOUR, entrySz: 3, realizedPnl: 30 });
-    expect(short.fees).toBeCloseTo(3 + 1);
+    // 2 of the flip's 5 close the long, which keeps its whole fee and
+    // closedPnl (as CopyDog books a flip).
+    expect(long).toMatchObject({ side: "long", exitTime: T0 + HOUR, realizedPnl: -20, fees: 1 + 5, exitSz: 2 });
+    expect(short).toMatchObject({ side: "short", openTid: BigInt(flip.tid), entryTime: T0 + HOUR, entrySz: 3, realizedPnl: 30, fees: 1 });
     expect(entryPx(short)).toBe(90);
     expect(short.exitTime).toBe(T0 + 2 * HOUR);
   });
@@ -118,19 +118,38 @@ describe("round-trip reconstruction", () => {
     ]);
   });
 
-  it("history that starts mid-position is skipped until flat; a flip out of it opens a trade", () => {
+  it("history that starts mid-position gives a partial trade priced from its first closing fill", () => {
     const trades = reconstructTrades(ME, [
-      fill(5, -5, 100, T0, { closedPnl: "50" }), // closes a trade opened before coverage
-      fill(0, 1, 100, T0 + HOUR),
-      fill(1, -1, 101, T0 + 2 * HOUR),
-      { ...fill(2, -3, 99, T0), coin: "ETH" }, // flip from an unseen long
+      // Long 2 from before our history, 1 added at 110, all closed at 120
+      // for +40: the average entry was 120 − 40/3, so the unseen 2 cost 105.
+      fill(2, 1, 110, T0),
+      fill(3, -3, 120, T0 + HOUR, { closedPnl: "40" }),
+      fill(0, 1, 100, T0 + 2 * HOUR),
+      // A flip out of an unseen short: the closing part is a partial trade.
+      { ...fill(-2, 3, 99, T0, { closedPnl: "-4" }), coin: "ETH" },
     ]);
-    expect(trades.map((t) => [t.coin, t.side, t.entryTime])).toEqual([
-      ["ETH", "short", T0],
-      ["BTC", "long", T0 + HOUR],
+    const find = (coin: string, side: string) => trades.find((t) => t.coin === coin && t.side === side && t.entryTime === T0)!;
+    expect(trades.map((t) => `${t.coin} ${t.side} ${t.entryTime - T0} ${t.exitTime !== null}`).sort()).toEqual([
+      "BTC long 0 true",
+      `BTC long ${2 * HOUR} false`,
+      "ETH long 0 false",
+      "ETH short 0 true",
     ]);
+    const partial = find("BTC", "long");
+    const btc = toRoundTrip(partial, T0 + 3 * HOUR);
+    expect(btc).toMatchObject({ partial: true, entryApprox: false, size: 3, exitPx: 120, realizedPnl: 40 });
+    expect(btc.entryPx).toBeCloseTo(120 - 40 / 3);
+    expect(partial.prePx).toBeCloseTo(105);
+    // Short: entry = 99 + (−4)/2; its id stays apart from the long it
+    // flipped into on the same fill.
+    const short = find("ETH", "short");
+    expect(toRoundTrip(short, T0).entryPx).toBeCloseTo(97);
+    expect(short.openTid).toBe(-find("ETH", "long").openTid);
+
+    // Not closed from yet: the entry covers only the fills we hold.
     const open = new Map<string, Trade>();
-    expect(applyFills(ME, open, [fill(5, -5, 100, T0)]).skipped).toBe(1);
+    applyFills(ME, open, [fill(5, 1, 50, T0)]);
+    expect(toRoundTrip(open.get("BTC")!, T0)).toMatchObject({ partial: true, entryApprox: true, entryPx: 50, size: 6 });
   });
 
   it("continues open trades incrementally, and drops one whose next fill doesn't fit", () => {
@@ -175,8 +194,8 @@ function trip(netPnl: number, holdSeconds: number, exitAgoMs: number | null, coi
     exitTime: exitAgoMs === null ? null : new Date(now - exitAgoMs),
     entryPx: 1,
     exitPx: 1,
-    maxSize: 1,
-    maxNotional: volume / 2,
+    size: 1,
+    notional: volume * 2,
     volume,
     holdSeconds,
     realizedPnl: netPnl + 1,
@@ -186,6 +205,8 @@ function trip(netPnl: number, holdSeconds: number, exitAgoMs: number | null, coi
     liquidated: false,
     twap: false,
     fills: 2,
+    partial: false,
+    entryApprox: false,
   };
 }
 
@@ -208,10 +229,11 @@ describe("trade metrics and classification", () => {
     expect(all.avgHoldSeconds).toBeCloseTo((60 + 120 + 600 + 3600 + 30) / 5);
     expect(all.best.map((t) => t.netPnl)).toEqual([300, 100]);
     expect(all.worst.map((t) => t.netPnl)).toEqual([-50, -25]);
-    expect(all.topCoins.map((c) => [c.coin, c.volume, c.trades, c.wins])).toEqual([
-      ["BTC", 10000, 2, 2],
-      ["ETH", 3010, 2, 0],
-      ["SOL", 100, 1, 0],
+    // CopyDog's byAsset: by net PnL.
+    expect(all.coins).toEqual([
+      { coin: "BTC", trades: 2, wins: 2, losses: 0, volume: 10000, netPnl: 400, winRate: 1 },
+      { coin: "SOL", trades: 1, wins: 0, losses: 1, volume: 100, netPnl: -25, winRate: 0 },
+      { coin: "ETH", trades: 2, wins: 0, losses: 1, volume: 3010, netPnl: -50, winRate: 0 },
     ]);
     expect(summarize(trades, "30d", T0)).toMatchObject({ trades: 4, wins: 2, winRate: 0.5 });
     expect(summarize(trades, "7d", T0)).toMatchObject({ trades: 3, wins: 1, losses: 1 });
@@ -232,16 +254,14 @@ describe("trade metrics and classification", () => {
     expect(tradingStyle(14 * 86400)).toBe("position");
   });
 
-  it("PnL tiers on all-time PnL, with ±$100 break even", () => {
-    expect([2e6, 1e6, 999_999, 1e5, 150, 100, 99.9, 0, -99.9, -100, -1e5 + 1, -1e5, -1e6 + 1, -1e6, -5e6].map(pnlTier)).toEqual([
+  it("PnL tiers on all-time PnL: CopyDog's bands, break even exactly 0", () => {
+    expect([2e6, 1e6, 999_999, 1e5, 99_999, 0.01, 0, -0.01, -99_999, -1e5, -1e6 + 1, -1e6, -5e6].map(pnlTier)).toEqual([
       "extremely_profitable",
       "extremely_profitable",
       "very_profitable",
       "very_profitable",
       "profitable",
       "profitable",
-      "break_even",
-      "break_even",
       "break_even",
       "unprofitable",
       "unprofitable",
@@ -253,7 +273,7 @@ describe("trade metrics and classification", () => {
     expect(pnlTier(null)).toBeNull();
   });
 
-  it("size tiers on total account value", () => {
+  it("size tiers on perp account value", () => {
     expect([6e6, 5e6, 4_999_999, 1e6, 1e5, 99_999, 1e4, 9_999, 0].map(sizeTier)).toEqual([
       "apex",
       "apex",

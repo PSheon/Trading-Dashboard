@@ -1,5 +1,5 @@
 {
-  "id": "1433f7e9-a1bf-4ad0-87d7-82ad542a0f27",
+  "id": "b8047ea2-779f-4e55-91d2-128823f5cdad",
   "prevId": "cea4ee25-3255-4c79-8a84-96a54d5ce3af",
   "version": "7",
   "dialect": "postgresql",
@@ -1957,23 +1957,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sort_time": {
+          "name": "sort_time",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
         "position": {
           "name": "position",
           "type": "numeric",
           "primaryKey": false,
           "notNull": true
         },
-        "max_size": {
-          "name": "max_size",
+        "pre_size": {
+          "name": "pre_size",
           "type": "numeric",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'0'"
         },
-        "max_notional": {
-          "name": "max_notional",
+        "pre_px": {
+          "name": "pre_px",
           "type": "numeric",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "entry_sz": {
           "name": "entry_sz",
@@ -2051,8 +2058,8 @@
         }
       },
       "indexes": {
-        "trader_trades_address_entry_idx": {
-          "name": "trader_trades_address_entry_idx",
+        "trader_trades_address_sort_idx": {
+          "name": "trader_trades_address_sort_idx",
           "columns": [
             {
               "expression": "address",
@@ -2061,7 +2068,7 @@
               "nulls": "last"
             },
             {
-              "expression": "entry_time",
+              "expression": "sort_time",
               "isExpression": false,
               "asc": false,
               "nulls": "last"

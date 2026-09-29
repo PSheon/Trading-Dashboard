@@ -26,9 +26,10 @@ function toRow(address: string, t: Trade): typeof traderTrades.$inferInsert {
     side: t.side,
     entryTime: new Date(t.entryTime),
     exitTime: t.exitTime === null ? null : new Date(t.exitTime),
+    sortTime: new Date(t.exitTime ?? t.entryTime),
     position: fromScaled(t.position),
-    maxSize: fromScaled(t.maxSize),
-    maxNotional: String(t.maxNotional),
+    preSize: fromScaled(t.preSize),
+    prePx: t.prePx === null ? null : String(t.prePx),
     entrySz: String(t.entrySz),
     entryNtl: String(t.entryNtl),
     exitSz: String(t.exitSz),
@@ -52,8 +53,8 @@ export function fromRow(r: TradeRow): Trade {
     entryTime: r.entryTime.getTime(),
     exitTime: r.exitTime === null ? null : r.exitTime.getTime(),
     position: toScaled(r.position),
-    maxSize: toScaled(r.maxSize),
-    maxNotional: Number(r.maxNotional),
+    preSize: toScaled(r.preSize),
+    prePx: r.prePx === null ? null : Number(r.prePx),
     entrySz: Number(r.entrySz),
     entryNtl: Number(r.entryNtl),
     exitSz: Number(r.exitSz),
@@ -144,9 +145,10 @@ export class TradeAnalyticsRepository {
           target: [traderTrades.chain, traderTrades.address, traderTrades.openTid],
           set: {
             exitTime: sql`excluded.exit_time`,
+            sortTime: sql`excluded.sort_time`,
             position: sql`excluded.position`,
-            maxSize: sql`excluded.max_size`,
-            maxNotional: sql`excluded.max_notional`,
+            preSize: sql`excluded.pre_size`,
+            prePx: sql`excluded.pre_px`,
             entrySz: sql`excluded.entry_sz`,
             entryNtl: sql`excluded.entry_ntl`,
             exitSz: sql`excluded.exit_sz`,
@@ -183,12 +185,13 @@ export class TradeAnalyticsRepository {
     }
   }
 
-  /** Newest entry first; `cursor` is the last row's (entry ms, openTid). */
+  /** Latest first by exit time (open trades by entry time), as CopyDog
+   * lists them; `cursor` is the last row's (that time, openTid). */
   async page(
     address: string,
     status: "all" | "open" | "closed",
     limit: number,
-    cursor: { entryTime: Date; openTid: bigint } | null,
+    cursor: { sortTime: Date; openTid: bigint } | null,
   ): Promise<Trade[]> {
     const conditions: SQL[] = [mine(address)!];
     if (status === "open") conditions.push(isNull(traderTrades.exitTime));
@@ -196,8 +199,8 @@ export class TradeAnalyticsRepository {
     if (cursor) {
       conditions.push(
         or(
-          lt(traderTrades.entryTime, cursor.entryTime),
-          and(eq(traderTrades.entryTime, cursor.entryTime), lt(traderTrades.openTid, cursor.openTid)),
+          lt(traderTrades.sortTime, cursor.sortTime),
+          and(eq(traderTrades.sortTime, cursor.sortTime), lt(traderTrades.openTid, cursor.openTid)),
         )!,
       );
     }
@@ -205,7 +208,7 @@ export class TradeAnalyticsRepository {
       .select()
       .from(traderTrades)
       .where(and(...conditions))
-      .orderBy(desc(traderTrades.entryTime), desc(traderTrades.openTid))
+      .orderBy(desc(traderTrades.sortTime), desc(traderTrades.openTid))
       .limit(limit);
     return rows.map(fromRow);
   }

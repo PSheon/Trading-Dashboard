@@ -16,7 +16,7 @@ export const wireTraderStatsSchema = s.traderStatsSchema.extend({ updatedAt: iso
 export const wireTradersSchema = s.tradersResponseSchema.extend({ updatedAt: iso.nullable(), items: z.array(wireTraderStatsSchema.extend({ favorite: z.boolean() })) });
 export const wireTraderProfileSchema = s.traderProfileResponseSchema.extend({ stats: wireTraderStatsSchema.nullable(), lastTradeAt: iso.nullable().optional(), fetchedAt: iso });
 export const wireTraderActivitySchema = s.traderActivityResponseSchema.extend({ lastTradeAt: iso.nullable(), fetchedAt: iso });
-export const wireRoundTripSchema = s.roundTripSchema.extend({ id, entryTime: iso, exitTime: iso.nullable() });
+export const wireRoundTripSchema = s.roundTripSchema.extend({ id: z.string().regex(/^-?\d+$/), entryTime: iso, exitTime: iso.nullable() });
 export const wireTradeCoverageSchema = s.tradeCoverageSchema.extend({ from: iso.nullable(), fundingFrom: iso.nullable() });
 export const wireTraderAnalyticsSchema = s.traderAnalyticsResponseSchema.extend({
   summary: s.tradeSummarySchema.extend({ best: z.array(wireRoundTripSchema), worst: z.array(wireRoundTripSchema) }),

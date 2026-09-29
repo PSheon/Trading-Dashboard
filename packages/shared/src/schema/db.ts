@@ -496,17 +496,21 @@ export const traderTrades = pgTable(
   {
     chain: text("chain").notNull().default(CHAIN_DEFAULT),
     address: text("address").notNull(),
-    /** tid of the fill that opened the trade: unique per address. */
+    /** tid of the trade's first fill we hold: unique per address. */
     openTid: bigint("open_tid", { mode: "bigint" }).notNull(),
     coin: text("coin").notNull(),
     side: text("side").$type<"long" | "short">().notNull(),
     entryTime: timestamp("entry_time", { withTimezone: true }).notNull(),
     /** Null while open. */
     exitTime: timestamp("exit_time", { withTimezone: true }),
+    /** Ledger order: exit time, or entry time while open. */
+    sortTime: timestamp("sort_time", { withTimezone: true }).notNull(),
     /** Signed size now (0 once closed); the next refresh continues from it. */
     position: numeric("position").notNull(),
-    maxSize: numeric("max_size").notNull(),
-    maxNotional: numeric("max_notional").notNull(),
+    /** Size already open before the first fill we hold (a partial trade),
+     * and its price once solved from a closing fill. */
+    preSize: numeric("pre_size").notNull().default("0"),
+    prePx: numeric("pre_px"),
     entrySz: numeric("entry_sz").notNull(),
     entryNtl: numeric("entry_ntl").notNull(),
     exitSz: numeric("exit_sz").notNull(),
@@ -523,7 +527,7 @@ export const traderTrades = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.chain, table.address, table.openTid] }),
-    index("trader_trades_address_entry_idx").on(table.address, table.entryTime.desc(), table.openTid.desc()),
+    index("trader_trades_address_sort_idx").on(table.address, table.sortTime.desc(), table.openTid.desc()),
   ],
 );
 

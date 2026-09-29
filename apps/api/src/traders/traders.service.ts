@@ -269,6 +269,13 @@ export class TradersService {
 
   isTracked(address: string) { return this.repository.isTracked(address); }
 
+  /** Hyperliquid's leaderboard all-time PnL, as last imported; null for an
+   * address not on the leaderboard. */
+  async leaderboardAllTimePnl(address: string): Promise<number | null> {
+    const [row] = await this.repository.findStats(address);
+    return row ? toTraderStats(row).pnl.allTime : null;
+  }
+
   // --- GET /traders/:address/portfolio -------------------------------------
 
   async portfolio(address: string, query: PortfolioQuery): Promise<PortfolioResponse> {

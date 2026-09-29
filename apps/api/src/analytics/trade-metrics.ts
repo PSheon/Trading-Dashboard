@@ -9,36 +9,37 @@ import type {
 } from "@trading-dashboard/shared/contracts";
 
 /**
- * Summary metrics and CopyDog-style classification over round trips.
+ * Summary metrics and classification over round trips, reproducing
+ * CopyDog's (its public API: `/traders/:a/summary`, `/trades`,
+ * `/performance`; its bundle for labels). Details and the validation in
+ * docs/trade-analytics.md.
  *
- * Thresholds (documented in docs/trade-analytics.md):
- *
- * - Trading style, on the median hold of every closed trade in coverage.
- *   CopyDog computes it server-side and only publishes descriptions
- *   ("seconds to minutes", "hours, same day", "days to weeks", "weeks or
- *   longer"); the cut-offs below were fitted to 48 of its traders (12 per
- *   style), whose medians fall in 0–8.4 min (scalp), 28 min–23.6 h
- *   (intraday), 25 h–9.9 days (swing) and 14.3–54 days (position).
- * - PnL tier, on Hyperliquid's all-time PnL: CopyDog's bundle labels
- *   ("+$1M+", "+$100K to +$1M", "$0 to +$100K", "$0 to −$100K", "−$100K to
- *   −$1M", "−$1M+"); its break-even band has no label, so ±$100 is ours.
- * - Size tier, on total account value: CopyDog's bundle labels ($5M+,
- *   $1M–5M, $100K–1M, $10K–100K, $0–10K).
+ * - Trade count: closed trades. Win: net PnL (gross − fees) > 0; win rate =
+ *   wins ÷ closed trades. Windows count trades by exit time. Average and
+ *   median hold over closed trades (partial ones from their first held fill).
+ * - Best / worst: closed trades by net PnL (> 0 / < 0), 10 each; the rail
+ *   shows 3. Coins (`byAsset`): trades, wins, losses, volume = Σ size × entry
+ *   price, net PnL; ordered by net PnL, the rail's "most traded" by volume,
+ *   the 表現 tab's by trade count.
+ * - Trading style, on the median hold: CopyDog computes it server-side and
+ *   only publishes descriptions ("seconds to minutes", "hours, same day",
+ *   "days to weeks", "weeks or longer"). The cut-offs were fitted to its
+ *   labels on 48 traders (12 per style): their medians fall in 0–8.4 min
+ *   (scalp), 28 min–23.6 h (intraday), 25 h–9.9 days (swing) and
+ *   14.3–54 days (position); 15 min, 24 h and 14 days separate all 48.
+ * - PnL tier, on Hyperliquid's leaderboard all-time PnL (CopyDog's
+ *   `totalPnl` equals it): bundle labels "+$1M+", "+$100K to +$1M", "$0 to
+ *   +$100K", "$0 to −$100K", "−$100K to −$1M", "−$1M+"; break even is
+ *   exactly $0 (its label has no range).
+ * - Size tier, on perp account value (CopyDog's `accountValue`: a unified
+ *   account holding everything in spot is "small"): bundle labels $5M+,
+ *   $1M–5M, $100K–1M, $10K–100K, $0–10K.
  */
 export const STYLE_MAX_SECONDS = {
   scalp: 15 * 60,
   intraday: 24 * 3600,
   swing: 14 * 86400,
 } as const;
-
-export const PNL_TIER_MIN: ReadonlyArray<[PnlTier, number]> = [
-  ["extremely_profitable", 1_000_000],
-  ["very_profitable", 100_000],
-  ["profitable", 100],
-  ["break_even", -100],
-  ["unprofitable", -100_000],
-  ["very_unprofitable", -1_000_000],
-];
 
 export const SIZE_TIER_MIN: ReadonlyArray<[SizeTier, number]> = [
   ["apex", 5_000_000],
@@ -55,13 +56,15 @@ export function tradingStyle(medianHoldSeconds: number | null): TradingStyle | n
   return "position";
 }
 
-/** Positive bounds are inclusive, negative ones exclusive: break even is
- * −$100 < PnL < +$100, −$100K itself is very unprofitable. */
+/** ≥ $1M, ≥ $100K, > 0, = 0, > −$100K, > −$1M, else rekt. */
 export function pnlTier(pnl: number | null): PnlTier | null {
   if (pnl === null || !Number.isFinite(pnl)) return null;
-  for (const [tier, min] of PNL_TIER_MIN) {
-    if (min < 0 ? pnl > min : pnl >= min) return tier;
-  }
+  if (pnl >= 1_000_000) return "extremely_profitable";
+  if (pnl >= 100_000) return "very_profitable";
+  if (pnl > 0) return "profitable";
+  if (pnl === 0) return "break_even";
+  if (pnl > -100_000) return "unprofitable";
+  if (pnl > -1_000_000) return "very_unprofitable";
   return "rekt";
 }
 
@@ -108,11 +111,13 @@ export function summarize(trades: RoundTrip[], window: TradeWindow, now: number)
   const holds = closed.map((t) => t.holdSeconds);
   const coins = new Map<string, TradeCoin>();
   for (const t of closed) {
-    const c = coins.get(t.coin) ?? { coin: t.coin, volume: 0, trades: 0, wins: 0, netPnl: 0 };
-    c.volume += t.volume;
+    const c = coins.get(t.coin) ?? { coin: t.coin, trades: 0, wins: 0, losses: 0, volume: 0, netPnl: 0, winRate: 0 };
     c.trades += 1;
     if (t.netPnl > 0) c.wins += 1;
+    if (t.netPnl < 0) c.losses += 1;
+    c.volume += t.volume;
     c.netPnl += t.netPnl;
+    c.winRate = c.wins / c.trades;
     coins.set(t.coin, c);
   }
   return {
@@ -130,6 +135,6 @@ export function summarize(trades: RoundTrip[], window: TradeWindow, now: number)
     openTrades: trades.filter((t) => t.status === "open").length,
     best: [...wins].sort((a, b) => b.netPnl - a.netPnl).slice(0, LIST_SIZE),
     worst: [...losses].sort((a, b) => a.netPnl - b.netPnl).slice(0, LIST_SIZE),
-    topCoins: [...coins.values()].sort((a, b) => b.volume - a.volume).slice(0, LIST_SIZE),
+    coins: [...coins.values()].sort((a, b) => b.netPnl - a.netPnl),
   };
 }

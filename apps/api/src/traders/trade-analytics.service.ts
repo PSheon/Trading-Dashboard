@@ -17,6 +17,7 @@ import { pnlTier, sizeTier, summarize, tradingStyle } from "../analytics/trade-m
 import {
   applyFills,
   attributeFunding,
+  isPartial,
   toRoundTrip,
   type FundingEvent,
   type Trade,
@@ -129,7 +130,7 @@ export class TradeAnalyticsService {
   async trades(address: string, query: TraderTradesQuery): Promise<TraderTradesResponse> {
     const row = await this.current(address);
     const [ms, tid] = query.cursor ? query.cursor.split("_") : [];
-    const cursor = query.cursor ? { entryTime: new Date(Number(ms)), openTid: BigInt(tid) } : null;
+    const cursor = query.cursor ? { sortTime: new Date(Number(ms)), openTid: BigInt(tid) } : null;
     const rows = await this.repository.page(address, query.status, query.limit + 1, cursor);
     const now = Date.now();
     const page = rows.slice(0, query.limit);
@@ -137,7 +138,7 @@ export class TradeAnalyticsService {
     return {
       address,
       items: page.map((t) => toRoundTrip(t, now)),
-      nextCursor: rows.length > query.limit && last ? `${last.entryTime}_${last.openTid}` : null,
+      nextCursor: rows.length > query.limit && last ? `${last.exitTime ?? last.entryTime}_${last.openTid}` : null,
       coverage: coverageOf(row),
       computedAt: row.computedAt,
     };
@@ -285,7 +286,7 @@ export class TradeAnalyticsService {
         address,
         source: "tracked" as const,
         coverageFrom: fillsRead.length > 0 ? new Date(Math.min(...fillsRead.map((f) => f.time))) : null,
-        truncated: result.skipped > 0,
+        truncated: trades.some(isPartial),
         fillsRead: fillsRead.length,
         fillCursor: newest.time === null ? null : new Date(newest.time),
         cursorTids: newest.tids,
@@ -352,7 +353,7 @@ export class TradeAnalyticsService {
         address,
         source: "hyperliquid" as const,
         coverageFrom: all.length > 0 ? new Date(Math.min(...all.map((f) => f.time))) : null,
-        truncated: history.truncated || twap.truncated || result.skipped > 0,
+        truncated: history.truncated || twap.truncated || result.touched.some(isPartial),
         fillsRead: all.length,
         fillCursor: cursor.time === null ? new Date(now) : new Date(cursor.time),
         cursorTids: cursor.tids,
@@ -379,12 +380,12 @@ export class TradeAnalyticsService {
       (f) => f.time > since || (f.time === since && !seen.has(String(f.tid))),
     );
     const fundingFrom = state.fundingFrom?.getTime() ?? null;
-    let skipped = 0;
+    let partial = false;
     if (fresh.length > 0) {
       await this.repository.transaction(async (tx) => {
         const open = new Map((await this.repository.openTrades(address, tx)).map((t) => [t.coin, t]));
         const result = applyFills(address, open, fresh, fundingFrom);
-        skipped = result.skipped;
+        partial = result.touched.some(isPartial);
         await this.repository.deleteTrades(tx, address, result.dropped.map((t) => t.openTid));
         await this.repository.upsertTrades(tx, address, result.touched);
       });
@@ -398,7 +399,7 @@ export class TradeAnalyticsService {
         address,
         source: "hyperliquid" as const,
         coverageFrom: state.coverageFrom,
-        truncated: state.truncated || skipped > 0,
+        truncated: state.truncated || partial,
         fillsRead: state.fillsRead + fresh.length,
         fillCursor: newest.time === null ? state.fillCursor : new Date(newest.time),
         cursorTids: newest.time === null ? state.cursorTids : cursorTids,
@@ -408,25 +409,47 @@ export class TradeAnalyticsService {
     };
   }
 
-  /** PnL and size tier from Hyperliquid's portfolio (the page's 60 s
-   * cache). A failure leaves them null rather than failing the trades. */
+  /**
+   * CopyDog's tier inputs: Hyperliquid's leaderboard all-time PnL (ours in
+   * `trader_stats`; the portfolio's all-time PnL for an address not on it)
+   * and the perp account value (the page's cached profile, else one
+   * `clearinghouseState` per dex, 2 weight each). A failure leaves a tier
+   * null rather than failing the trades.
+   */
   private async classify(address: string, cost: Cost): Promise<Omit<TraderClassification, "style">> {
-    try {
-      const cached = this.traders.portfolioCache.peek(address) !== undefined;
-      const raw = await this.traders.rawPortfolio(address);
-      if (!cached) {
-        cost.calls += 1;
-        cost.weight += 20;
-      }
-      const allTime = portfolioSeries(raw, "allTime", "all");
-      const day = portfolioSeries(raw, "day", "all");
-      const allTimePnl = allTime.pnl.at(-1)?.[1] ?? null;
-      const accountValue = day.accountValue.at(-1)?.[1] ?? allTime.accountValue.at(-1)?.[1] ?? null;
-      return { allTimePnl, accountValue, pnlTier: pnlTier(allTimePnl), sizeTier: sizeTier(accountValue) };
-    } catch (error) {
-      this.logger.warn(`Portfolio for ${address} failed: ${(error as Error).message}`);
-      return { allTimePnl: null, accountValue: null, pnlTier: null, sizeTier: null };
+    const [allTimePnl, perpAccountValue] = await Promise.all([
+      this.allTimePnl(address, cost).catch((error: Error) => {
+        this.logger.warn(`All-time PnL for ${address} failed: ${error.message}`);
+        return null;
+      }),
+      this.perpAccountValue(address, cost).catch((error: Error) => {
+        this.logger.warn(`Perp account value for ${address} failed: ${error.message}`);
+        return null;
+      }),
+    ]);
+    return { allTimePnl, perpAccountValue, pnlTier: pnlTier(allTimePnl), sizeTier: sizeTier(perpAccountValue) };
+  }
+
+  private async allTimePnl(address: string, cost: Cost): Promise<number | null> {
+    const board = await this.traders.leaderboardAllTimePnl(address);
+    if (board !== null) return board;
+    const cached = this.traders.portfolioCache.peek(address) !== undefined;
+    const raw = await this.traders.rawPortfolio(address);
+    if (!cached) {
+      cost.calls += 1;
+      cost.weight += 20;
     }
+    return portfolioSeries(raw, "allTime", "all").pnl.at(-1)?.[1] ?? null;
+  }
+
+  private async perpAccountValue(address: string, cost: Cost): Promise<number> {
+    const profile = this.traders.profileCache.peek(address);
+    if (profile) return profile.value.perpEquity;
+    const dexes = await this.traders.perpDexes();
+    const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, RANK)));
+    cost.calls += states.length;
+    cost.weight += 2 * states.length;
+    return states.reduce((sum, state) => sum + (Number(state.marginSummary?.accountValue) || 0), 0);
   }
 
   // --- funding ----------------------------------------------------------------

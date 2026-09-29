@@ -711,8 +711,8 @@ export type TradeWindow = z.infer<typeof tradeWindowSchema>;
 export const tradingStyleSchema = z.enum(["scalp", "intraday", "swing", "position"]);
 export type TradingStyle = z.infer<typeof tradingStyleSchema>;
 
-/** CopyDog's PnL cohorts on all-time PnL: ≥ $1M, ≥ $100K, ≥ $100, within
- * ±$100 (break even), > −$100K, > −$1M, else rekt. */
+/** CopyDog's PnL cohorts on Hyperliquid's leaderboard all-time PnL: ≥ $1M,
+ * ≥ $100K, > $0, $0 (break even), > −$100K, > −$1M, else rekt. */
 export const pnlTierSchema = z.enum([
   "extremely_profitable",
   "very_profitable",
@@ -724,29 +724,33 @@ export const pnlTierSchema = z.enum([
 ]);
 export type PnlTier = z.infer<typeof pnlTierSchema>;
 
-/** CopyDog's size cohorts on total account value: apex ≥ $5M, whale ≥ $1M,
- * large ≥ $100K, medium ≥ $10K, else small. */
+/** CopyDog's size cohorts on perp account value (Σ clearinghouse
+ * `marginSummary.accountValue`, not spot or staking): apex ≥ $5M, whale ≥
+ * $1M, large ≥ $100K, medium ≥ $10K, else small. */
 export const sizeTierSchema = z.enum(["apex", "whale", "large", "medium", "small"]);
 export type SizeTier = z.infer<typeof sizeTierSchema>;
 
 /** One round trip: a coin's position from leaving 0 to returning to 0 (or
  * flipping). Open trips have no exit yet. */
 export const roundTripSchema = z.object({
-  /** The tid of the fill that opened it (unique per address). */
+  /** The tid of its first fill we hold, negative for a partial trade;
+   * unique per address. */
   id: z.string(),
   coin: z.string(),
   side: z.enum(["long", "short"]),
   status: z.enum(["open", "closed"]),
   entryTime: z.coerce.date(),
   exitTime: z.coerce.date().nullable(),
-  /** Volume-weighted over every fill that grew the position. */
+  /** Volume-weighted over every fill that grew the position (a partial
+   * trade's unseen part priced from its first closing fill). */
   entryPx: z.number(),
   /** Volume-weighted over every fill that shrank it; null before any. */
   exitPx: z.number().nullable(),
-  /** Largest absolute position, in coins, and its notional (USD) then. */
-  maxSize: z.number(),
-  maxNotional: z.number(),
-  /** Notional traded in and out (entry + exit legs), USD. */
+  /** Σ every fill that grew the position, in coins (CopyDog's `size`). */
+  size: z.number(),
+  /** size × (entryPx + exitPx), USD: CopyDog's 名義價值 column. */
+  notional: z.number(),
+  /** size × entryPx, USD: what CopyDog sums as a coin's volume. */
   volume: z.number(),
   /** Closed: exit − entry; open: so far. */
   holdSeconds: z.number(),
@@ -763,6 +767,12 @@ export const roundTripSchema = z.object({
   /** Some of its fills were TWAP slices. */
   twap: z.boolean(),
   fills: z.number().int(),
+  /** Already open at the first fill we hold: the real open time is before
+   * `entryTime` (CopyDog shows "before …" and "> duration"). */
+  partial: z.boolean(),
+  /** A partial trade not closed from yet: `entryPx` covers only the fills
+   * we hold (CopyDog's "≈"). */
+  entryApprox: z.boolean(),
 });
 export type RoundTrip = z.infer<typeof roundTripSchema>;
 
@@ -785,12 +795,16 @@ export const tradeCoverageSchema = z.object({
 });
 export type TradeCoverage = z.infer<typeof tradeCoverageSchema>;
 
+/** One coin's closed trades (CopyDog's `byAsset`). */
 export const tradeCoinSchema = z.object({
   coin: z.string(),
-  volume: z.number(),
   trades: z.number().int(),
   wins: z.number().int(),
+  losses: z.number().int(),
+  /** Σ size × entry price. */
+  volume: z.number(),
   netPnl: z.number(),
+  winRate: z.number(),
 });
 export type TradeCoin = z.infer<typeof tradeCoinSchema>;
 
@@ -808,7 +822,7 @@ export const tradeSummarySchema = z.object({
   realizedPnl: z.number(),
   fees: z.number(),
   netPnl: z.number(),
-  /** Entry + exit notional of the window's closed trades. */
+  /** Σ size × entry price of the window's closed trades. */
   volume: z.number(),
   /** Open trades now (not window-dependent). */
   openTrades: z.number().int(),
@@ -816,8 +830,10 @@ export const tradeSummarySchema = z.object({
    * largest loss first. */
   best: z.array(roundTripSchema),
   worst: z.array(roundTripSchema),
-  /** Up to 10 coins by the window's closed-trade volume. */
-  topCoins: z.array(tradeCoinSchema),
+  /** Every coin with a closed trade in the window, by net PnL (highest
+   * first). CopyDog's rail "most traded" sorts these by volume, its 表現
+   * tab by trade count. */
+  coins: z.array(tradeCoinSchema),
 });
 export type TradeSummary = z.infer<typeof tradeSummarySchema>;
 
@@ -825,13 +841,15 @@ export const traderClassificationSchema = z.object({
   /** From the median hold of all closed trades in coverage; null without
    * any. */
   style: tradingStyleSchema.nullable(),
-  /** From `allTimePnl`; null when Hyperliquid's portfolio couldn't be read. */
+  /** From `allTimePnl`; null when it couldn't be read. */
   pnlTier: pnlTierSchema.nullable(),
+  /** From `perpAccountValue`; null when it couldn't be read. */
   sizeTier: sizeTierSchema.nullable(),
-  /** Hyperliquid portfolio all-time PnL (perp + spot). */
+  /** Hyperliquid's leaderboard all-time PnL (what CopyDog tiers on); for an
+   * address not on the leaderboard, its portfolio's all-time PnL. */
   allTimePnl: z.number().nullable(),
-  /** Hyperliquid portfolio total account value. */
-  accountValue: z.number().nullable(),
+  /** Perp account value summed over dexes (CopyDog's `accountValue`). */
+  perpAccountValue: z.number().nullable(),
 });
 export type TraderClassification = z.infer<typeof traderClassificationSchema>;
 
@@ -854,12 +872,12 @@ export const traderAnalyticsResponseSchema = z.object({
 export type TraderAnalyticsResponse = z.infer<typeof traderAnalyticsResponseSchema>;
 
 /** GET /traders/:address/trades?status=&limit=&cursor= — the round-trip
- * ledger, newest entry first. */
+ * ledger, latest first by exit (open trades by entry), as CopyDog sorts. */
 export const traderTradesQuerySchema = z.object({
   status: z.enum(["all", "closed", "open"]).default("all"),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   /** `nextCursor` of the previous page. */
-  cursor: z.string().regex(/^\d+_\d+$/).optional(),
+  cursor: z.string().regex(/^\d+_-?\d+$/).optional(),
 });
 export type TraderTradesQuery = z.infer<typeof traderTradesQuerySchema>;
 

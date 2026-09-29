@@ -11,31 +11,40 @@ import {
 } from "../watcher/action-classifier.js";
 
 /**
- * Round-trip trades from fills, for any address (CopyDog's 交易 tab).
+ * Round-trip trades from fills, for any address, as CopyDog defines them
+ * (its 交易 / 表現 tabs; reverse-engineered from its public API and bundle,
+ * see docs/trade-analytics.md).
  *
  * A trade opens when a coin's position leaves 0 and closes when it returns
  * to 0, or flips: a fill that takes a long through zero into a short closes
  * the long with the part of its size that reaches zero and opens the short
- * with the rest (its fee is split by size; its `closedPnl` all belongs to
+ * with the rest (its fee and `closedPnl` both belong to
  * the closing leg, which is where Hyperliquid books it). Adds and reduces
  * stay inside the trade. Every fill carries `startPosition`, the position
  * right before it, so the boundaries are exact; fills sharing a
  * millisecond are put in execution order by chaining those positions
  * (`executionOrder`, the same rule the action classifier uses).
  *
- * Per trade: volume-weighted entry price (every increasing fill) and exit
- * price (every decreasing fill), the largest position and its notional,
- * realized PnL = Σ `closedPnl` (Hyperliquid's own, before fees), fees = Σ
- * `fee`, net = realized − fees. Funding is added separately
- * (`attributeFunding`). TWAP slices are fills like any other.
+ * Per trade: size = Σ every fill that grew the position; entry price is
+ * their volume-weighted average and exit price that of every fill that
+ * shrank it; gross PnL = Σ `closedPnl` (Hyperliquid's own, before fees);
+ * fees = Σ `fee`; net = gross − fees (a win is net > 0). Funding is added
+ * separately (`attributeFunding`) and isn't in net. TWAP slices are fills
+ * like any other.
  *
- * History that starts mid-position (the address's first fill we have for a
- * coin doesn't start from 0, because older fills are beyond Hyperliquid's
- * retention or our lookback) can't give that trade's entry: its fills are
- * skipped until the position next returns to 0 or flips. A fill that
- * doesn't start where the running trade stands (a fill missing from the
- * data) resyncs to it: a same-side jump just continues, anything else drops
- * the trade rather than guessing.
+ * History that starts mid-position (the first fill we hold for a coin
+ * doesn't start from 0: older fills are beyond Hyperliquid's retention or
+ * the lookback) gives a *partial* trade, as on CopyDog: its entry time is
+ * that first fill ("before …"), the unseen part of its size is the
+ * position before it, and that part's price is solved from the first
+ * closing fill's `closedPnl` (Hyperliquid books closedPnl against the
+ * position's average entry, so the entry price is exact). Until a closing
+ * fill arrives its entry price covers only the fills we hold
+ * (`entryApprox`).
+ *
+ * A fill that doesn't start where the running trade stands (a fill missing
+ * from the data) resyncs to it: a same-side jump just continues, anything
+ * else drops the trade rather than guessing.
  *
  * Reconstruction is incremental: `applyFills` continues from the trades
  * still open after the previous batch, so a refresh only reads new fills.
@@ -44,7 +53,8 @@ export type TradeSide = "long" | "short";
 
 export interface Trade {
   coin: string;
-  /** tid of the fill that opened it; unique per address. */
+  /** tid of the trade's first fill we hold (negated for a partial trade);
+   * unique per address. */
   openTid: bigint;
   side: TradeSide;
   entryTime: number;
@@ -52,9 +62,13 @@ export interface Trade {
   exitTime: number | null;
   /** Signed size now, scaled (`toScaled`); 0n once closed. */
   position: bigint;
-  /** Largest |position|, scaled. */
-  maxSize: bigint;
-  maxNotional: number;
+  /** Size already open before the first fill we hold (partial trades),
+   * scaled; 0n for a trade we saw open. */
+  preSize: bigint;
+  /** Price of `preSize`, solved at the first closing fill; null before. */
+  prePx: number | null;
+  /** Σ size and notional of the fills that grew the position (with
+   * `preSize` at `prePx` folded in once known). */
   entrySz: number;
   entryNtl: number;
   exitSz: number;
@@ -82,12 +96,27 @@ export function isClosed(trade: Trade): boolean {
   return trade.exitTime !== null;
 }
 
+export function isPartial(trade: Trade): boolean {
+  return trade.preSize > 0n;
+}
+
+/** A partial trade whose unseen part has no price yet. */
+export function isEntryApprox(trade: Trade): boolean {
+  return trade.preSize > 0n && trade.prePx === null;
+}
+
 export function entryPx(trade: Trade): number {
   return trade.entrySz > 0 ? trade.entryNtl / trade.entrySz : 0;
 }
 
 export function exitPx(trade: Trade): number | null {
   return trade.exitSz > 0 ? trade.exitNtl / trade.exitSz : null;
+}
+
+/** CopyDog's size: everything that went in. A partial trade still without
+ * a price for its unseen part counts it at the position it has now. */
+export function tradeSize(trade: Trade): number {
+  return isEntryApprox(trade) ? Math.max(trade.entrySz, toNumber(abs(trade.position))) : trade.entrySz;
 }
 
 export function netPnl(trade: Trade): number {
@@ -99,30 +128,43 @@ export function holdSeconds(trade: Trade, now: number): number {
   return Math.max(0, ((trade.exitTime ?? now) - trade.entryTime) / 1000);
 }
 
-function openTrade(fill: HlUserFill, size: bigint, fee: number, address: string, fundingFrom: number | null): Trade {
-  const px = num(fill.px);
-  const sz = toNumber(abs(size));
+function newTrade(fill: HlUserFill, position: bigint, preSize: bigint, fundingFrom: number | null): Trade {
   return {
     coin: fill.coin,
-    openTid: BigInt(fill.tid),
-    side: size > 0n ? "long" : "short",
+    // A partial trade's first held fill can also open the next trade (a
+    // flip): partial trades take the negative tid so the two stay apart.
+    openTid: preSize > 0n ? -BigInt(fill.tid) : BigInt(fill.tid),
+    side: position > 0n ? "long" : "short",
     entryTime: fill.time,
     exitTime: null,
-    position: size,
-    maxSize: abs(size),
-    maxNotional: sz * px,
-    entrySz: sz,
-    entryNtl: sz * px,
+    position,
+    preSize,
+    prePx: null,
+    entrySz: 0,
+    entryNtl: 0,
     exitSz: 0,
     exitNtl: 0,
     realizedPnl: 0,
-    fees: fee,
+    fees: 0,
     funding: fundingFrom !== null && fill.time >= fundingFrom ? 0 : null,
-    liquidated: liquidates(fill, address),
-    twap: fill.twapId != null,
-    fills: 1,
+    liquidated: false,
+    twap: false,
+    fills: 0,
     lastFillTime: fill.time,
   };
+}
+
+/** A partial trade's first closing fill: solve the unseen part's price
+ * from the average entry implied by `closedPnl` (long: px − pnl/size,
+ * short: px + pnl/size), and fold it into the entry. */
+function priceUnseen(trade: Trade, px: number, closing: number, closedPnl: number): void {
+  if (trade.prePx !== null || trade.preSize === 0n || closing <= 0) return;
+  const average = trade.side === "long" ? px - closedPnl / closing : px + closedPnl / closing;
+  const unseen = toNumber(trade.preSize);
+  const prePx = (average * (unseen + trade.entrySz) - trade.entryNtl) / unseen;
+  trade.prePx = prePx;
+  trade.entrySz += unseen;
+  trade.entryNtl += prePx * unseen;
 }
 
 export interface ApplyResult {
@@ -130,7 +172,7 @@ export interface ApplyResult {
   touched: Trade[];
   /** Trades dropped because the fills around them were inconsistent. */
   dropped: Trade[];
-  /** Fills skipped: before a known open, or without `startPosition`. */
+  /** Fills skipped for lack of `startPosition`. */
   skipped: number;
 }
 
@@ -166,8 +208,10 @@ export function applyFills(
       const start = toScaled(fill.startPosition);
       const delta = signedSize(fill);
       const end = start + delta;
+      if (delta === 0n) continue;
       const px = num(fill.px);
       const fee = num(fill.fee);
+      const closedPnl = num(fill.closedPnl);
       let trade = open.get(coin);
 
       if (trade && trade.position !== start) {
@@ -181,30 +225,17 @@ export function applyFills(
           trade = undefined;
         }
       }
-
       if (!trade) {
-        if (start === 0n) {
-          if (end !== 0n) {
-            const opened = openTrade(fill, end, fee, address, fundingFrom);
-            open.set(coin, opened);
-            touched.set(opened.openTid, opened);
-          }
-        } else if (end !== 0n && sign(end) !== sign(start)) {
-          // Flip out of a position whose entry we never saw: the new side's
-          // trade starts here, with its share of the fee.
-          const opened = openTrade(fill, end, (fee * toNumber(abs(end))) / toNumber(abs(delta)), address, fundingFrom);
-          open.set(coin, opened);
-          touched.set(opened.openTid, opened);
-        } else {
-          skipped += 1;
-        }
-        continue;
+        // Flat before this fill: a new trade. Otherwise the position was
+        // open before the history we hold: a partial trade.
+        trade = newTrade(fill, start === 0n ? end : start, abs(start), fundingFrom);
+        open.set(coin, trade);
       }
 
       touched.set(trade.openTid, trade);
       trade.fills += 1;
       trade.lastFillTime = fill.time;
-      trade.realizedPnl += num(fill.closedPnl);
+      trade.realizedPnl += closedPnl;
       if (liquidates(fill, address)) trade.liquidated = true;
       if (fill.twapId != null) trade.twap = true;
       const size = toNumber(abs(delta));
@@ -215,28 +246,38 @@ export function applyFills(
         if (abs(end) > abs(start)) {
           trade.entrySz += size;
           trade.entryNtl += size * px;
-          if (abs(end) > trade.maxSize) trade.maxSize = abs(end);
-          trade.maxNotional = Math.max(trade.maxNotional, toNumber(abs(end)) * px);
         } else {
+          priceUnseen(trade, px, size, closedPnl);
           trade.exitSz += size;
           trade.exitNtl += size * px;
         }
         continue;
       }
+      if (start === 0n) {
+        // The opening fill of a new trade.
+        trade.fees += fee;
+        trade.entrySz += size;
+        trade.entryNtl += size * px;
+        continue;
+      }
 
-      // Close, or flip: the part of this fill that reaches zero closes.
+      // Close, or flip: the part of this fill that reaches zero closes. A
+      // flip's whole fee stays with the closing trade, as on CopyDog.
       const closing = toNumber(abs(start));
-      const closingFee = end === 0n ? fee : (fee * closing) / size;
-      trade.fees += closingFee;
+      priceUnseen(trade, px, closing, closedPnl);
+      trade.fees += fee;
       trade.exitSz += closing;
       trade.exitNtl += closing * px;
       trade.position = 0n;
       trade.exitTime = fill.time;
       open.delete(coin);
       if (end !== 0n) {
-        const opened = openTrade(fill, end, fee - closingFee, address, fundingFrom);
-        // Liquidation closed the old side; the new side wasn't liquidated.
-        opened.liquidated = false;
+        const opened = newTrade(fill, end, 0n, fundingFrom);
+        const rest = toNumber(abs(end));
+        opened.entrySz = rest;
+        opened.entryNtl = rest * px;
+        opened.fills = 1;
+        opened.twap = fill.twapId != null;
         open.set(coin, opened);
         touched.set(opened.openTid, opened);
       }
@@ -283,6 +324,9 @@ export function attributeFunding(trades: Iterable<Trade>, events: FundingEvent[]
 
 /** The API's view of a trade. Open trades' hold runs until `now`. */
 export function toRoundTrip(trade: Trade, now: number): RoundTrip {
+  const entry = entryPx(trade);
+  const exit = exitPx(trade);
+  const size = tradeSize(trade);
   return {
     id: trade.openTid.toString(),
     coin: trade.coin,
@@ -290,11 +334,11 @@ export function toRoundTrip(trade: Trade, now: number): RoundTrip {
     status: isClosed(trade) ? "closed" : "open",
     entryTime: new Date(trade.entryTime),
     exitTime: trade.exitTime === null ? null : new Date(trade.exitTime),
-    entryPx: entryPx(trade),
-    exitPx: exitPx(trade),
-    maxSize: toNumber(trade.maxSize),
-    maxNotional: trade.maxNotional,
-    volume: trade.entryNtl + trade.exitNtl,
+    entryPx: entry,
+    exitPx: exit,
+    size,
+    notional: size * (entry + (exit ?? 0)),
+    volume: size * entry,
     holdSeconds: holdSeconds(trade, now),
     realizedPnl: trade.realizedPnl,
     fees: trade.fees,
@@ -303,6 +347,8 @@ export function toRoundTrip(trade: Trade, now: number): RoundTrip {
     liquidated: trade.liquidated,
     twap: trade.twap,
     fills: trade.fills,
+    partial: isPartial(trade),
+    entryApprox: isEntryApprox(trade),
   };
 }
 

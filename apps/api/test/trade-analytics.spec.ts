@@ -79,6 +79,7 @@ describe("trade analytics for any address", () => {
     userTwapSliceFillsByTime: vi.fn(async (_address: string, start: number) =>
       history.filter((f) => f.twapId && f.time >= start).map((f) => ({ fill: { ...f, twapId: null }, twapId: f.twapId! })),
     ),
+    clearinghouseState: vi.fn(async () => ({ marginSummary: { accountValue: "1250000" } })),
     userFunding: vi.fn(async (_address: string, start: number) =>
       fundingEvents.filter((e) => e.time >= start).sort((a, b) => a.time - b.time),
     ),
@@ -92,6 +93,9 @@ describe("trade analytics for any address", () => {
     }),
     rawPortfolio: vi.fn(async () => portfolio),
     portfolioCache: { peek: () => undefined },
+    profileCache: { peek: () => undefined },
+    leaderboardAllTimePnl: vi.fn(async (): Promise<number | null> => null),
+    perpDexes: vi.fn(async () => ["", "xyz"]),
   };
 
   beforeAll(async () => {
@@ -155,12 +159,13 @@ describe("trade analytics for any address", () => {
       address: X,
       window: "all",
       summary: { trades: 2, wins: 1, losses: 1, winRate: 0.5, openTrades: 1, netPnl: 8 - 13 },
-      classification: { style: "intraday", pnlTier: "very_unprofitable", sizeTier: "whale", allTimePnl: -150000, accountValue: 2500000 },
+      // PnL from the portfolio (not on the leaderboard); perp value over 2 dexes.
+      classification: { style: "intraday", pnlTier: "very_unprofitable", sizeTier: "whale", allTimePnl: -150000, perpAccountValue: 2500000 },
       coverage: { source: "hyperliquid", truncated: false, fills: 6 },
     });
     expect(res.body.data.summary.best[0]).toMatchObject({ coin: "BTC", netPnl: 8, entryPx: 100, exitPx: 110, status: "closed" });
     expect(res.body.data.summary.worst[0]).toMatchObject({ coin: "ETH", side: "short", twap: true });
-    expect(res.body.data.summary.topCoins.map((c: { coin: string }) => c.coin)).toEqual(["BTC", "ETH"]);
+    expect(res.body.data.summary.coins.map((c: { coin: string }) => c.coin)).toEqual(["BTC", "ETH"]);
     expect(traders.latestFills).toHaveBeenCalledTimes(1);
 
     // Both closed within 7 days.
@@ -215,12 +220,17 @@ describe("trade analytics for any address", () => {
     expect(res.body.coverage.fundingFrom).not.toBeNull();
   });
 
-  it("marks coverage truncated when history starts mid-position", async () => {
+  it("marks coverage truncated when history starts mid-position, and counts the partial trade", async () => {
     history.unshift(fill("DOGE", 100, -100, 0.1, T(60), { closedPnl: "3" }));
+    traders.leaderboardAllTimePnl.mockResolvedValueOnce(2_000_000);
     await service.compute(X, true);
     const res = await get(`/traders/${X}/analytics`).expect(200);
     expect(res.body.coverage).toMatchObject({ truncated: true, fills: 7 });
-    expect(res.body.summary.trades).toBe(2);
+    expect(res.body.summary).toMatchObject({ trades: 3, wins: 2 });
+    expect(res.body.classification).toMatchObject({ allTimePnl: 2_000_000, pnlTier: "extremely_profitable" });
+    const doge = (await get(`/traders/${X}/trades?status=closed`)).body.items.find((t: { coin: string }) => t.coin === "DOGE");
+    expect(doge).toMatchObject({ partial: true, entryApprox: false, size: 100, netPnl: 2 });
+    expect(doge.entryPx).toBeCloseTo(0.07);
   });
 
   it("rebuilds a tracked address from our fills table without reading Hyperliquid's fills", async () => {

@@ -23,9 +23,10 @@ CREATE TABLE "trader_trades" (
 	"side" text NOT NULL,
 	"entry_time" timestamp with time zone NOT NULL,
 	"exit_time" timestamp with time zone,
+	"sort_time" timestamp with time zone NOT NULL,
 	"position" numeric NOT NULL,
-	"max_size" numeric NOT NULL,
-	"max_notional" numeric NOT NULL,
+	"pre_size" numeric DEFAULT '0' NOT NULL,
+	"pre_px" numeric,
 	"entry_sz" numeric NOT NULL,
 	"entry_ntl" numeric NOT NULL,
 	"exit_sz" numeric NOT NULL,
@@ -41,4 +42,4 @@ CREATE TABLE "trader_trades" (
 	CONSTRAINT "trader_trades_chain_address_open_tid_pk" PRIMARY KEY("chain","address","open_tid")
 );
 --> statement-breakpoint
-CREATE INDEX "trader_trades_address_entry_idx" ON "trader_trades" USING btree ("address","entry_time" DESC NULLS LAST,"open_tid" DESC NULLS LAST);
+CREATE INDEX "trader_trades_address_sort_idx" ON "trader_trades" USING btree ("address","sort_time" DESC NULLS LAST,"open_tid" DESC NULLS LAST);

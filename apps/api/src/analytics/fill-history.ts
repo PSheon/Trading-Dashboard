@@ -61,7 +61,10 @@ export async function readRecentHistory(source: FillSource, options: HistoryOpti
   }
 
   let end = Math.min(...latest.map((f) => f.time));
-  let span = Math.max(60_000, options.now - end);
+  // The latest page's own span holds one page of fills: the first window
+  // aims at the same (not at "now − end", which counts idle time since the
+  // last fill and made a first window of a bursty trader tens of pages).
+  let span = Math.max(60_000, Math.max(...latest.map((f) => f.time)) - end);
   let reachedStart = false;
   while (calls < options.maxCalls) {
     if (end <= options.lookbackStart) {
@@ -92,7 +95,8 @@ export async function readRecentHistory(source: FillSource, options: HistoryOpti
     }
     if (!complete) break;
     const length = end - start;
-    span = inWindow === 0 ? length * 8 : Math.min(length * 8, Math.max(60_000, (length * FILL_PAGE) / inWindow));
+    // Aim at 90% of a page, so a window rarely needs a second call.
+    span = inWindow === 0 ? length * 8 : Math.min(length * 8, Math.max(60_000, (length * FILL_PAGE * 0.9) / inWindow));
     end = start;
   }
   if (end <= options.lookbackStart) reachedStart = true;

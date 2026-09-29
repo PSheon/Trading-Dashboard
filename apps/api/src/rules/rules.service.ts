@@ -15,6 +15,7 @@ import {
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { NotifyService } from "../notify/notify.service.js";
+import { SettingsService } from "../settings/settings.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { ACTION_CREATED_EVENT, type ActionCreatedEvent } from "../watcher/action-created.event.js";
 
@@ -37,6 +38,10 @@ const ADDRESS_SCOPE_KINDS_IN_SCOPE: AlertRuleKind[] = ["R1", "R2", "R3"];
  * (`leaders.source = 'import'`). Each recipient's own enabled rules are
  * evaluated, with their own cooldowns, and all of a recipient's matching
  * rules go out as ONE message to that recipient's Telegram channel.
+ *
+ * The admin's `notifications.alertsEnabled` switch turns all of this off:
+ * nothing is evaluated, sent or logged. System messages are unaffected
+ * (NotifyService.sendSystemMessage doesn't come through here).
  */
 @Injectable()
 export class RulesService {
@@ -46,6 +51,7 @@ export class RulesService {
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly watcher: WatcherService,
     private readonly notify: NotifyService,
+    private readonly settings: SettingsService,
   ) {}
 
   @OnEvent(ACTION_CREATED_EVENT)
@@ -59,6 +65,8 @@ export class RulesService {
    * delays another's (sends run concurrently, and NotifyService never
    * throws). Each matching rule still gets its own `alerts` row (N2). */
   async evaluateAction(action: ActionCreatedEvent): Promise<void> {
+    if (!(await this.settings.get("notifications")).alertsEnabled) return;
+
     const leader = await this.getLeader(action.chain, action.address);
     if (!leader) {
       // Shouldn't happen (an action only exists for a watched address) —

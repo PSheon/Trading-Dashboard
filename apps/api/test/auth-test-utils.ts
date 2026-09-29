@@ -8,6 +8,8 @@ import { AuthModule } from "../src/common/auth/auth.module.js";
 import { AuthService } from "../src/common/auth/auth.service.js";
 import { PRIVY_VERIFIER, type PrivyProfile, type PrivyVerifier } from "../src/common/auth/privy-verifier.js";
 import { DRIZZLE_CLIENT } from "../src/db/db.constants.js";
+import { SettingsModule } from "../src/settings/settings.module.js";
+import { SettingsService } from "../src/settings/settings.service.js";
 import type { TestDb } from "./db-test-utils.js";
 
 export interface StubAccount {
@@ -43,13 +45,13 @@ export async function createAuthedApp(opts: {
   controllers?: Type<unknown>[];
   providers?: Parameters<typeof Test.createTestingModule>[0]["providers"];
   imports?: Parameters<typeof Test.createTestingModule>[0]["imports"];
-}): Promise<{ app: INestApplication; auth: AuthService }> {
+}): Promise<{ app: INestApplication; auth: AuthService; settings: SettingsService }> {
   @Global()
   @Module({ providers: [{ provide: DRIZZLE_CLIENT, useValue: opts.db }], exports: [DRIZZLE_CLIENT] })
   class TestDbModule {}
 
   const moduleRef = await Test.createTestingModule({
-    imports: [TestDbModule, AuthModule, ...(opts.imports ?? [])],
+    imports: [TestDbModule, SettingsModule, AuthModule, ...(opts.imports ?? [])],
     controllers: opts.controllers ?? [],
     providers: [{ provide: APP_GUARD, useExisting: AuthGuard }, ...(opts.providers ?? [])],
   })
@@ -63,5 +65,5 @@ export async function createAuthedApp(opts: {
     .getInstance()
     .set("json replacer", (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value));
   await app.init();
-  return { app, auth: app.get(AuthService) };
+  return { app, auth: app.get(AuthService), settings: app.get(SettingsService) };
 }

@@ -18,6 +18,7 @@ import { NotifyService, type RulesFireContext } from "../src/notify/notify.servi
 import type { TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 import { RulesService } from "../src/rules/rules.service.js";
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
+import { SettingsService } from "../src/settings/settings.service.js";
 import type { WatcherService } from "../src/watcher/watcher.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -69,14 +70,17 @@ const noProfile: PrivyVerifier = {
   },
   fetchProfile: async () => null,
 };
-const auth = new AuthService(db, noProfile);
+const settings = new SettingsService(db);
+const auth = new AuthService(db, noProfile, settings);
 let didSeq = 0;
 
 /** A user signed in through the real first-login path (so they own a copy
  * of the default rules), optionally an admin, favoriting ADDRESS, with a
  * Telegram channel. */
 async function signedInUser(opts: { admin?: boolean; favorite?: boolean; chatId?: string } = {}) {
-  const user = await auth.signIn(`did:privy:rules-${++didSeq}`);
+  const result = await auth.signIn(`did:privy:rules-${++didSeq}`);
+  if (result.status !== "ok") throw new Error(`sign-in failed: ${result.status}`);
+  const user = result.user;
   if (opts.admin) await db.update(users).set({ role: "admin" }).where(eq(users.id, user.id));
   if (opts.favorite ?? true) await db.insert(userFavorites).values({ userId: user.id, chain: CHAIN, address: ADDRESS });
   if (opts.chatId) {
@@ -116,7 +120,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
   it("R1 fires on an 'open' whose notional meets min(flatThresholdUsd, equity*pct) — seeded flat=50000, pct=0.10", async () => {
     const { notify, notifyRulesFire } = fakeNotify();
     // equity=1,000,000 -> pct branch = 100,000 > flat 50,000 -> min is 50,000.
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "49999" }));
     expect(notifyRulesFire).not.toHaveBeenCalled();
@@ -132,7 +136,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
   it("R1's equity% branch can be lower than the flat threshold — min(X,Y) semantics, not just X", async () => {
     const { notify, notifyRulesFire } = fakeNotify();
     // equity=100,000 -> pct branch = 10,000, well under flat 50,000 -> min is 10,000.
-    const rules = new RulesService(db, fakeWatcher(100_000), notify);
+    const rules = new RulesService(db, fakeWatcher(100_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "9999" }));
     expect(notifyRulesFire).not.toHaveBeenCalled();
@@ -143,7 +147,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
 
   it("R2 fires on any 'flip' regardless of size, and only on 'flip'", async () => {
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "1" }));
     expect(notifyRulesFire).not.toHaveBeenCalled();
@@ -155,7 +159,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
 
   it("R3 fires on ANY action kind once notional meets min(flatThresholdUsd, equity*pct) — seeded flat=100000, pct=0.20", async () => {
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "reduce", notionalUsd: "99999" }));
     expect(notifyRulesFire).not.toHaveBeenCalled();
@@ -166,7 +170,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
 
   it("sends ONE combined message per recipient when R1 and R3 both match the same 'open'", async () => {
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(10_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(10_000_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
 
@@ -176,7 +180,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
 
   it("falls back to the flat threshold alone when equityUsd is unavailable (no cached poll state yet)", async () => {
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(null), notify);
+    const rules = new RulesService(db, fakeWatcher(null), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "49999" }));
     expect(notifyRulesFire).not.toHaveBeenCalled();
@@ -188,7 +192,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
   it("does not fire a rule scoped to tiers that exclude this leader's current tier", async () => {
     await db.update(alertRules).set({ tiers: ["A"] }).where(eq(alertRules.id, (await ruleOf(userId, "R2")).id));
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "flip" }));
     expect(notifyRulesFire).not.toHaveBeenCalled();
@@ -197,7 +201,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
   it("does not fire a disabled rule", async () => {
     await db.update(alertRules).set({ enabled: false }).where(eq(alertRules.id, (await ruleOf(userId, "R2")).id));
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "flip" }));
     expect(notifyRulesFire).not.toHaveBeenCalled();
@@ -206,7 +210,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
   it("never evaluates the default (ownerless) rules themselves", async () => {
     await db.delete(userFavorites);
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
 
     // Imported leader, no favoriters, no admins: nobody to notify.
     await rules.evaluateAction(await insertAction({ kind: "flip" }));
@@ -219,7 +223,7 @@ describe("RulesService — rule semantics, evaluated on a favoriting user's own 
     await db.update(alertRules).set({ cooldownS: 1 }).where(eq(alertRules.id, r1.id));
 
     const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "60000" }));
     expect(notifyRulesFire).toHaveBeenCalledTimes(1);
@@ -259,7 +263,7 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
     await signedInUser({ favorite: false }); // bystander
 
     const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify).evaluateAction(await insertAction({ kind: "flip" }));
+    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
 
     const byUser = callsByUser(notifyRulesFire);
     expect([...byUser.keys()].sort()).toEqual([favoriter.id, admin.id].sort());
@@ -274,7 +278,7 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
     await signedInUser({ admin: true, favorite: false });
 
     const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify).evaluateAction(await insertAction({ kind: "flip" }));
+    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
 
     expect([...callsByUser(notifyRulesFire).keys()]).toEqual([favoriter.id]);
   });
@@ -284,7 +288,7 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
     const admin = await signedInUser({ admin: true });
 
     const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify).evaluateAction(await insertAction({ kind: "flip" }));
+    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
 
     expect(notifyRulesFire).toHaveBeenCalledTimes(1);
     expect(notifyRulesFire.mock.calls[0][0].recipient.userId).toBe(admin.id);
@@ -297,7 +301,7 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
     await db.update(alertRules).set({ enabled: false }).where(eq(alertRules.id, (await ruleOf(a.id, "R2")).id));
 
     const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify).evaluateAction(await insertAction({ kind: "flip" }));
+    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
 
     expect([...callsByUser(notifyRulesFire).keys()]).toEqual([b.id]);
   });
@@ -318,7 +322,7 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
     });
 
     const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify).evaluateAction(await insertAction({ kind: "flip" }));
+    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
 
     expect([...callsByUser(notifyRulesFire).keys()]).toEqual([b.id]);
   });
@@ -329,7 +333,7 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
     await db.update(notificationChannels).set({ enabled: false });
 
     const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify).evaluateAction(await insertAction({ kind: "flip" }));
+    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
 
     expect(notifyRulesFire.mock.calls[0][0].recipient).toEqual({ userId: user.id, telegramChatId: null });
   });
@@ -352,7 +356,7 @@ describe("RulesService + NotifyService — real sends routed per user (mocked Te
 
     const telegram = { sendMessage: vi.fn(async () => {}) } as unknown as TelegramHttpClient;
     const notify = new NotifyService(db, new RoundTripService(db), telegram);
-    const rules = new RulesService(db, fakeWatcher(10_000_000), notify);
+    const rules = new RulesService(db, fakeWatcher(10_000_000), notify, settings);
 
     // R1 + R3 both match: one message per recipient, one row per rule.
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
@@ -372,6 +376,33 @@ describe("RulesService + NotifyService — real sends routed per user (mocked Te
     expect(new Set(sent.map((r) => r.ruleId))).toEqual(
       new Set([(await ruleOf(withChannel.id, "R1")).id, (await ruleOf(withChannel.id, "R3")).id]),
     );
+  });
+
+  it("alert kill switch (notifications.alertsEnabled=false): no sends, no alert rows; system messages still go out", async () => {
+    await resetWithLeader();
+    await signedInUser({ chatId: "111" });
+    await signedInUser();
+
+    const telegram = { sendMessage: vi.fn(async () => {}) } as unknown as TelegramHttpClient;
+    const notify = new NotifyService(db, new RoundTripService(db), telegram);
+    const rules = new RulesService(db, fakeWatcher(10_000_000), notify, settings);
+
+    await settings.patch({ notifications: { alertsEnabled: false } }, null);
+    try {
+      await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
+      expect(telegram.sendMessage).not.toHaveBeenCalled();
+      expect(await db.select().from(alerts)).toHaveLength(0);
+
+      await notify.sendSystemMessage("feed down");
+      expect(telegram.sendMessage).toHaveBeenCalledWith("env-chat", "feed down");
+    } finally {
+      await settings.patch({ notifications: { alertsEnabled: true } }, null);
+    }
+
+    // Switched back on: the next action alerts again.
+    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
+    expect(telegram.sendMessage).toHaveBeenCalledWith("111", expect.any(String));
+    expect(await db.select().from(alerts)).toHaveLength(4);
   });
 });
 

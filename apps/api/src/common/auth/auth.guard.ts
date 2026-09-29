@@ -10,7 +10,7 @@ import { Reflector } from "@nestjs/core";
 import type { UserRole } from "@trading-dashboard/shared";
 import type { Request } from "express";
 
-import { AuthService } from "./auth.service.js";
+import { AuthService, type AuthOutcome } from "./auth.service.js";
 import { ROLES_KEY, type RequestUser } from "./current-user.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 
@@ -24,9 +24,11 @@ function bearerToken(request: Request): string | undefined {
 /**
  * Global guard (applied in AppModule). Sets `request.user` (see
  * `RequestUser`) and enforces:
- * - `@Public()`: anyone. No token, or one that doesn't verify → anonymous
- *   (a stale token must not block browsing); a valid one → caller attached.
- * - everything else: 401 without a valid caller (service token or Privy).
+ * - `@Public()`: anyone. No token, or one that doesn't give a caller
+ *   (invalid, expired, disabled user, sign-ups closed) → anonymous — a
+ *   stale token must not block browsing; a valid one → caller attached.
+ * - everything else: 401 without a caller, except a new Privy user while
+ *   sign-ups are closed: 403 `{ code: "signups_closed" }`.
  * - `@Roles(...)`: additionally 403 unless the user's role is listed; the
  *   service token counts as admin. `@Roles` wins over `@Public`.
  */
@@ -44,24 +46,29 @@ export class AuthGuard implements CanActivate {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets) ?? false;
     const roles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, targets);
     const needsRole = roles !== undefined && roles.length > 0;
+    const open = isPublic && !needsRole;
 
     const request = context.switchToHttp().getRequest<Request & { user?: RequestUser }>();
     const token = bearerToken(request);
 
-    let user: RequestUser | null = null;
+    let outcome: AuthOutcome = { status: "invalid" };
     if (token) {
       try {
-        user = await this.auth.resolve(token);
+        outcome = await this.auth.authenticate(token);
       } catch (error) {
         // Only infrastructure failures get here (e.g. the database is down
         // while signing a user in). Public data stays reachable.
-        if (!isPublic || needsRole) throw error;
+        if (!open) throw error;
         this.logger.warn(`Treating caller as anonymous on a public route: ${(error as Error).message}`);
       }
     }
+    const user = outcome.status === "user" ? outcome.user : null;
     if (user) request.user = user;
 
-    if (isPublic && !needsRole) return true;
+    if (open) return true;
+    if (outcome.status === "signups_closed") {
+      throw new ForbiddenException({ statusCode: 403, code: "signups_closed", message: "Sign-ups are closed" });
+    }
     if (!user) throw new UnauthorizedException("Sign in required");
     if (needsRole && user.kind === "user" && !roles.includes(user.role)) {
       throw new ForbiddenException(`Requires role: ${roles.join(" or ")}`);

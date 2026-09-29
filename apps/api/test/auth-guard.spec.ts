@@ -5,6 +5,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuthService } from "../src/common/auth/auth.service.js";
+import type { SettingsService } from "../src/settings/settings.service.js";
 import { CurrentUser, Roles, type RequestUser } from "../src/common/auth/current-user.js";
 import { profileFromLinkedAccounts, SdkPrivyVerifier } from "../src/common/auth/privy-verifier.js";
 import { Public } from "../src/common/auth/public.decorator.js";
@@ -59,17 +60,25 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     },
     "boss-token": { privyUserId: "did:privy:boss", profile: { email: "boss@example.com", walletAddress: null } },
     "expired-token": { privyUserId: "did:privy:late", expiresAt: new Date(Date.now() - 1000) },
+    "newbie-token": { privyUserId: "did:privy:newbie", profile: { email: "newbie@example.com", walletAddress: null } },
   });
   let app: INestApplication;
   let auth: AuthService;
+  let settings: SettingsService;
 
   beforeAll(async () => {
-    ({ app, auth } = await createAuthedApp({ db, privy, controllers: [ProbeController, AdminClassController] }));
+    ({ app, auth, settings } = await createAuthedApp({
+      db,
+      privy,
+      controllers: [ProbeController, AdminClassController],
+    }));
   });
 
   beforeEach(async () => {
     await truncateAll(db);
     await new RulesSeedService(db).seedDefaultRules();
+    // The settings cache outlives the truncate: reset it explicitly.
+    await settings.patch({ general: { signupsOpen: true } }, null);
     auth.clearCache();
     privy.verifyAccessToken.mockClear();
     privy.fetchProfile.mockClear();
@@ -232,6 +241,97 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       process.env.BOOTSTRAP_ADMIN_EMAILS = "boss@example.com";
       auth.clearCache();
       await get("/t/admin", "boss-token").expect(403);
+    });
+  });
+
+  describe("disabled users", () => {
+    async function disable(privyUserId: string, at: Date | null = new Date()) {
+      await db.update(users).set({ disabledAt: at }).where(eq(users.privyUserId, privyUserId));
+    }
+
+    it("are treated as signed out: anonymous on @Public, 401 elsewhere, 401 on admin routes", async () => {
+      await get("/t/protected", "boss-token").expect(200);
+      await disable("did:privy:boss");
+      auth.clearCache();
+
+      expect((await get("/t/public", "boss-token").expect(200)).body).toEqual({ user: null });
+      await get("/t/protected", "boss-token").expect(401);
+      await get("/t/admin", "boss-token").expect(401);
+    });
+
+    it("don't get last_login_at bumped", async () => {
+      await get("/t/protected", "alice-token").expect(200);
+      await disable("did:privy:alice");
+      const [before] = await db.select().from(users);
+      auth.clearCache();
+      await new Promise((r) => setTimeout(r, 20));
+      await get("/t/protected", "alice-token").expect(401);
+      const [after] = await db.select().from(users);
+      expect(after.lastLoginAt).toEqual(before.lastLoginAt);
+    });
+
+    it("invalidateUser(id) applies a disable at once; without it the cache holds for at most 30 s", async () => {
+      await get("/t/protected", "alice-token").expect(200);
+      const [alice] = await db.select().from(users);
+      await disable("did:privy:alice");
+
+      // Still cached (≤ 30 s)...
+      await get("/t/protected", "alice-token").expect(200);
+      // ...until the admin stream invalidates the user.
+      auth.invalidateUser(alice.id);
+      await get("/t/protected", "alice-token").expect(401);
+
+      // Re-enabling works the same way (the "disabled" outcome is cached too).
+      await disable("did:privy:alice", null);
+      await get("/t/protected", "alice-token").expect(401);
+      auth.invalidateUser(alice.id);
+      await get("/t/protected", "alice-token").expect(200);
+    });
+
+    it("the cache expires after 30 s even without invalidateUser", async () => {
+      await get("/t/protected", "alice-token").expect(200);
+      await disable("did:privy:alice");
+      const realNow = Date.now;
+      try {
+        Date.now = () => realNow() + 31_000;
+        await get("/t/protected", "alice-token").expect(401);
+      } finally {
+        Date.now = realNow;
+      }
+    });
+  });
+
+  describe("sign-ups closed (settings.general.signupsOpen = false)", () => {
+    beforeEach(async () => {
+      await settings.patch({ general: { signupsOpen: false } }, null);
+    });
+
+    it("a new Privy user: no row created; anonymous on @Public, 403 {code:'signups_closed'} elsewhere", async () => {
+      expect((await get("/t/public", "newbie-token").expect(200)).body).toEqual({ user: null });
+      const res = await get("/t/protected", "newbie-token").expect(403);
+      expect(res.body).toMatchObject({ code: "signups_closed" });
+      await get("/t/admin", "newbie-token").expect(403);
+      expect(await db.select().from(users)).toHaveLength(0);
+    });
+
+    it("existing users are unaffected", async () => {
+      await settings.patch({ general: { signupsOpen: true } }, null);
+      await get("/t/protected", "alice-token").expect(200);
+      await settings.patch({ general: { signupsOpen: false } }, null);
+      auth.clearCache();
+      await get("/t/protected", "alice-token").expect(200);
+    });
+
+    it("a BOOTSTRAP_ADMIN_EMAILS address still signs up (as admin)", async () => {
+      const res = await get("/t/admin", "boss-token").expect(200);
+      expect(res.body.user).toMatchObject({ kind: "user", role: "admin" });
+    });
+
+    it("opening sign-ups again lets the same token in (after the cache window)", async () => {
+      await get("/t/protected", "newbie-token").expect(403);
+      await settings.patch({ general: { signupsOpen: true } }, null);
+      auth.clearCache();
+      await get("/t/protected", "newbie-token").expect(200);
     });
   });
 

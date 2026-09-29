@@ -29,7 +29,8 @@ export async function truncateAll(db: TestDb): Promise<void> {
     TRUNCATE TABLE
       alerts, alert_rules, actions, position_snapshots, equity_snapshots,
       fills, coin_meta, leader_list_items, leader_lists, leaders,
-      notification_channels, user_favorites, users, trader_stats
+      notification_channels, user_favorites, users, trader_stats,
+      app_settings, revenue_snapshots
     RESTART IDENTITY CASCADE
   `);
 }

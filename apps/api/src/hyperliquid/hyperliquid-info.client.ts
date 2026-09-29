@@ -43,8 +43,9 @@ export class HyperliquidInfoClient {
     body: HlInfoRequestBody,
     weight: number,
     priority: RequestPriority = "background",
+    rank?: number,
   ): Promise<T> {
-    await this.budgeter.acquire(weight, priority);
+    await this.budgeter.acquire(weight, priority, rank);
 
     const url = env.hyperliquidApiUrl();
     const res = await fetch(url, {
@@ -89,11 +90,13 @@ export class HyperliquidInfoClient {
     address: string,
     dex?: string,
     priority: RequestPriority = "background",
+    rank?: number,
   ): Promise<HlClearinghouseStateResponse> {
     return this.post<HlClearinghouseStateResponse>(
       dex ? { type: "clearinghouseState", user: address, dex } : { type: "clearinghouseState", user: address },
       WEIGHT_CLEARINGHOUSE_STATE,
       priority,
+      rank,
     );
   }
 
@@ -112,11 +115,13 @@ export class HyperliquidInfoClient {
     startTime: number,
     endTime?: number,
     priority: RequestPriority = "background",
+    rank?: number,
   ): Promise<HlUserFillsByTimeResponse> {
     const result = await this.post<HlUserFillsByTimeResponse>(
       { type: "userFillsByTime", user: address, startTime, endTime },
       WEIGHT_USER_FILLS_BY_TIME_BASE,
       priority,
+      rank,
     );
     const extraWeight = Math.ceil(result.length / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
     this.budgeter.recordAdditionalWeight(extraWeight);

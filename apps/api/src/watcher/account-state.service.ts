@@ -70,12 +70,13 @@ export class AccountStateService {
     address: string,
     priority: RequestPriority,
     extraDexes: Iterable<string> = [],
+    rank?: number,
   ): Promise<AccountState> {
     const wanted = new Set([MAIN_DEX, ...(await this.knownDexes(address)), ...extraDexes]);
     const byDex = new Map<string, HlClearinghouseStateResponse>();
     await Promise.all(
       [...wanted].map(async (dex) => {
-        byDex.set(dex, await this.info.clearinghouseState(address, dex || undefined, priority));
+        byDex.set(dex, await this.info.clearinghouseState(address, dex || undefined, priority, rank));
       }),
     );
     const state = { fetchedAt: new Date(), byDex };

@@ -68,6 +68,22 @@ export default function StatusPage() {
                 value={`${data.requestsLastMinute} requests · ${data.weightLastMinute} weight · queued ${data.queuedRequests.live} live / ${data.queuedRequests.background} background`}
               />
               <Row
+                label="Fills missing from Hyperliquid's API"
+                value={
+                  data.fillsUnavailable.length === 0 ? (
+                    "none"
+                  ) : (
+                    <span className="flex flex-col items-end gap-1">
+                      {data.fillsUnavailable.map((f) => (
+                        <span key={f.address} className="font-mono text-xs">
+                          {f.address.slice(0, 10)}… · {f.missedTrades} trades since {taipei(f.since)}
+                        </span>
+                      ))}
+                    </span>
+                  )
+                }
+              />
+              <Row
                 label="DRY_RUN"
                 value={
                   <Badge variant={data.dryRun ? "outline" : "destructive"}>

@@ -34,6 +34,8 @@ const FEED_START_RETRY_MS = 30_000;
 interface Pending {
   minTime: number;
   tids: Set<bigint>;
+  /** Retry round of the oldest trades in here (0 = first try). */
+  attempt: number;
 }
 
 /**
@@ -55,7 +57,20 @@ interface Pending {
 @Injectable()
 export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(WatcherService.name);
+  /** Trades waiting for the address's next live sync. */
   private readonly pending = new Map<string, Pending>();
+  /** Addresses with a live sync scheduled or running. */
+  private readonly busy = new Set<string>();
+  /** When each address's last live sync started: its budget rank, so the
+   * least recently served address goes first. */
+  private readonly lastServedAt = new Map<string, number>();
+  /** Newest fill time each address's live syncs have already read; the next
+   * live sync needn't reach further back than just before it. */
+  private readonly readThrough = new Map<string, number>();
+  /** Addresses whose feed trades Hyperliquid's info API never returned
+   * (seen live 2026-09-29: an account whose userFills stopped six days
+   * earlier while it kept trading). Cleared when a sync finds them all. */
+  private readonly fillsUnavailable = new Map<string, { missedTrades: number; since: Date; loggedAt: number }>();
   private watchedTimer: ReturnType<typeof setInterval> | undefined;
   private feedRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private running = false;
@@ -128,38 +143,74 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Called by the feed for every trade a watched address is part of. */
   onTrade(address: string, trade: HlWsTrade): void {
-    let entry = this.pending.get(address);
-    if (!entry) {
-      entry = { minTime: trade.time, tids: new Set() };
-      this.pending.set(address, entry);
-      setTimeout(() => {
-        this.pending.delete(address);
-        void this.liveSync(address, entry!.minTime, entry!.tids, 0);
-      }, GROUP_GAP_MS);
-    }
-    entry.minTime = Math.min(entry.minTime, trade.time);
-    entry.tids.add(BigInt(trade.tid));
+    this.enqueue(address, trade.time, [BigInt(trade.tid)], 0, GROUP_GAP_MS);
   }
 
-  private async liveSync(address: string, minTime: number, tids: Set<bigint>, attempt: number): Promise<void> {
-    let missing: bigint[] = [...tids];
+  /**
+   * At most one live sync per address is scheduled or running. Trades that
+   * arrive meanwhile wait in `pending` and go in the next sync, which starts
+   * as soon as the current one ends. So REST weight grows with the number of
+   * active addresses, not with how often they trade: an address filling
+   * every second costs one sync per sync duration, not one per second.
+   */
+  private enqueue(address: string, minTime: number, tids: Iterable<bigint>, attempt: number, delayMs: number): void {
+    const entry = this.pending.get(address) ?? { minTime, tids: new Set<bigint>(), attempt };
+    entry.minTime = Math.min(entry.minTime, minTime);
+    for (const tid of tids) entry.tids.add(tid);
+    entry.attempt = Math.max(entry.attempt, attempt);
+    this.pending.set(address, entry);
+    if (!this.busy.has(address)) {
+      this.busy.add(address);
+      if (delayMs === 0) void this.drain(address);
+      else setTimeout(() => void this.drain(address), delayMs);
+    }
+  }
+
+  private async drain(address: string): Promise<void> {
+    const entry = this.pending.get(address);
+    this.pending.delete(address);
+    if (!entry) {
+      this.busy.delete(address);
+      return;
+    }
+
+    const rank = this.lastServedAt.get(address) ?? 0;
+    this.lastServedAt.set(address, Date.now());
+    // Reach back LIVE_LOOKBACK_MS before the first trade, but not past what
+    // the previous live sync already read (keeps busy addresses cheap).
+    const read = this.readThrough.get(address);
+    const start = Math.min(entry.minTime, Math.max(entry.minTime - LIVE_LOOKBACK_MS, (read ?? 0) - 1000));
+    let missing: bigint[] = [...entry.tids];
     try {
-      const result = await this.fillSync.sync(address, "live", minTime - LIVE_LOOKBACK_MS, tids);
+      const result = await this.fillSync.sync(address, "live", start, entry.tids, rank);
       missing = result.missingTids;
+      if (result.latestFillTime !== null) {
+        this.readThrough.set(address, Math.max(read ?? 0, result.latestFillTime));
+      }
     } catch (error) {
       this.logger.warn(`Live sync failed for ${address}: ${(error as Error).message}`);
     }
-    if (missing.length === 0) return;
-    if (attempt < LIVE_RETRY_DELAYS_MS.length) {
+    if (missing.length === 0) {
+      this.fillsUnavailable.delete(address);
+    } else if (entry.attempt < LIVE_RETRY_DELAYS_MS.length) {
       setTimeout(
-        () => void this.liveSync(address, minTime, new Set(missing), attempt + 1),
-        LIVE_RETRY_DELAYS_MS[attempt],
+        () => this.enqueue(address, entry.minTime, missing, entry.attempt + 1, 0),
+        LIVE_RETRY_DELAYS_MS[entry.attempt],
       );
     } else {
-      this.logger.warn(
-        `${missing.length} trade(s) of ${address} still not in userFillsByTime after retries; the hourly sweep will pick them up`,
-      );
+      const record = this.fillsUnavailable.get(address) ?? { missedTrades: 0, since: new Date(), loggedAt: 0 };
+      record.missedTrades += missing.length;
+      this.fillsUnavailable.set(address, record);
+      if (Date.now() - record.loggedAt > 3600_000) {
+        record.loggedAt = Date.now();
+        this.logger.warn(
+          `Hyperliquid's info API isn't returning fills ${address} made on the trade feed (${record.missedTrades} so far); listed on /health`,
+        );
+      }
     }
+
+    if (this.pending.has(address)) void this.drain(address);
+    else this.busy.delete(address);
   }
 
   /** Re-reads fills since `startTime` for every active address. */
@@ -198,11 +249,21 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     return this.accounts.getEquityUsd(address);
   }
 
-  getHeartbeat(): { feed: TradeFeedStatus; lastFillAt: Date | null; lastSweepAt: Date | null } {
+  getHeartbeat(): {
+    feed: TradeFeedStatus;
+    lastFillAt: Date | null;
+    lastSweepAt: Date | null;
+    fillsUnavailable: Array<{ address: string; missedTrades: number; since: Date }>;
+  } {
     return {
       feed: this.feed.status(),
       lastFillAt: this.fillSync.getLastFillAt(),
       lastSweepAt: this.lastSweepAt,
+      fillsUnavailable: [...this.fillsUnavailable].map(([address, r]) => ({
+        address,
+        missedTrades: r.missedTrades,
+        since: r.since,
+      })),
     };
   }
 }

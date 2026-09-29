@@ -85,8 +85,8 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
 
     const first = await sync.sync(A, "live", t - 10_000);
     expect(first).toMatchObject({ fetched: 2, inserted: 2, actions: 1, missingTids: [] });
-    expect(info.clearinghouseState).toHaveBeenCalledWith(A, undefined, "live");
-    expect(info.userFillsByTime).toHaveBeenCalledWith(A, t - 10_000, undefined, "live");
+    expect(info.clearinghouseState).toHaveBeenCalledWith(A, undefined, "live", undefined);
+    expect(info.userFillsByTime).toHaveBeenCalledWith(A, t - 10_000, undefined, "live", undefined);
 
     const [action] = await db.select().from(actions);
     expect(action).toMatchObject({ kind: "open", side: "long", leverage: "5" });
@@ -122,7 +122,7 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     await sync.sync(A, "backfill", 0);
     expect(await db.select().from(actions)).toHaveLength(2);
     expect(emitted).toHaveLength(0);
-    expect(info.userFillsByTime).toHaveBeenCalledWith(A, 0, undefined, "background");
+    expect(info.userFillsByTime).toHaveBeenCalledWith(A, 0, undefined, "background", undefined);
 
     const recent = Date.now();
     byAddress.get(A)!.push(fill({ time: recent }));
@@ -130,8 +130,17 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     expect(emitted).toHaveLength(1);
   });
 
+  it("inserts more rows than one statement can bind (a high-frequency address)", async () => {
+    // 7,000 adds spaced 2 s apart → 7,000 actions × 10 params > 65,535.
+    const t = Date.now() - 20_000_000;
+    const many = Array.from({ length: 7000 }, (_, i) => fill({ time: t + i * 2000, startPosition: String(i) }));
+    byAddress.set(A, many);
+    const result = await sync.sync(A, "backfill", 0);
+    expect(result).toMatchObject({ inserted: 7000, actions: 7000 });
+  }, 60_000);
+
   it("does not alert on a sweep that finds a fill older than the alert horizon", async () => {
-    byAddress.set(A, [fill({ time: Date.now() - 20 * 60_000 })]);
+    byAddress.set(A, [fill({ time: Date.now() - 5 * 60_000 })]);
     const result = await sync.sync(A, "sweep", 0);
     expect(result.actions).toBe(1);
     expect(emitted).toHaveLength(0);
@@ -165,7 +174,7 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     byAddress.set(A, [fill({ coin: "xyz:TSLA", side: "A", dir: "Open Short", time: Date.now() })]);
 
     await s.sync(A, "live", 0);
-    expect(info.clearinghouseState).toHaveBeenCalledWith(A, "xyz", "live");
+    expect(info.clearinghouseState).toHaveBeenCalledWith(A, "xyz", "live", undefined);
     expect(accounts.getEquityUsd(A)).toBe(1500);
     const [action] = await db.select().from(actions);
     expect(action).toMatchObject({ coin: "xyz:TSLA", kind: "open", side: "short", leverage: "3" });

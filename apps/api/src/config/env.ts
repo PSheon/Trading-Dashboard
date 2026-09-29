@@ -49,5 +49,5 @@ export const env = {
     getIntEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", 840),
   /** Actions older than this are stored but never alerted on (catch-up
    * sweeps find fills late; a stale alert would read as news). */
-  alertMaxActionAgeSeconds: () => getIntEnv("ALERT_MAX_ACTION_AGE_SECONDS", 600),
+  alertMaxActionAgeSeconds: () => getIntEnv("ALERT_MAX_ACTION_AGE_SECONDS", 120),
 };

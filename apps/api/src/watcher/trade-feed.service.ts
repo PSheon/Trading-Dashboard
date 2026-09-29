@@ -12,6 +12,10 @@ const PING_INTERVAL_MS = 30_000;
 /** No message at all (not even a pong) for this long → assume dead. */
 const STALE_AFTER_MS = 90_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
+/** Subscribing replays each market's recent trades, which in a quiet market
+ * can be hours old. Only fresh trades mean "just traded"; anything older is
+ * left to the sweeps, so a (re)connect never raises alerts on old trades. */
+export const MAX_TRADE_AGE_MS = 60_000;
 
 export interface TradeFeedHandlers {
   /** A watched address was one side of `trade`. */
@@ -142,7 +146,9 @@ export class TradeFeedService {
       return;
     }
     if (message.channel !== "trades" || !Array.isArray(message.data)) return;
+    const oldest = Date.now() - MAX_TRADE_AGE_MS;
     for (const trade of message.data as HlWsTrade[]) {
+      if (trade.time < oldest) continue;
       this.lastTradeAt = new Date();
       for (const user of trade.users ?? []) {
         const address = user.toLowerCase();

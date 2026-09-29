@@ -60,9 +60,12 @@ describe("TradeFeedService — against a local WebSocket server", () => {
     await until(() => fake.subscriptions.length === 3);
     expect(fake.subscriptions.sort()).toEqual(["BTC", "ETH", "xyz:TSLA"]);
 
+    const now = Date.now();
     const trades: HlWsTrade[] = [
-      { coin: "BTC", side: "B", px: "1", sz: "1", time: 1, hash: "0x", tid: 7, users: ["0xabc", "0xother"] },
-      { coin: "BTC", side: "B", px: "1", sz: "1", time: 1, hash: "0x", tid: 8, users: ["0xnope", "0xother"] },
+      { coin: "BTC", side: "B", px: "1", sz: "1", time: now, hash: "0x", tid: 7, users: ["0xabc", "0xother"] },
+      { coin: "BTC", side: "B", px: "1", sz: "1", time: now, hash: "0x", tid: 8, users: ["0xnope", "0xother"] },
+      // Replayed on subscribe: too old to mean "just traded".
+      { coin: "BTC", side: "B", px: "1", sz: "1", time: now - 5 * 60_000, hash: "0x", tid: 9, users: ["0xabc", "0xother"] },
     ];
     fake.sockets[0].send(JSON.stringify({ channel: "trades", data: trades }));
     await until(() => seen.length === 1);

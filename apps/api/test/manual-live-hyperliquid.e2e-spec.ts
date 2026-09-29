@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills, leaders } from "@trading-dashboard/shared";
 import { describe, expect, it } from "vitest";
@@ -25,14 +27,15 @@ import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
  * and how long it took from trade time to action. Live activity varies, so
  * it asserts consistency, not volume.
  */
-const RUN_MS = 90_000;
+const RUN_MS = Number(process.env.E2E_RUN_MS ?? 90_000);
 
 describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real Postgres (manual)", () => {
   it("detects live trades of watched addresses through the trades feed", { timeout: RUN_MS + 60_000 }, async () => {
     const db = getTestDb();
     await truncateAll(db);
 
-    const info = new HyperliquidInfoClient(new RequestBudgeterService());
+    const budgeter = new RequestBudgeterService();
+    const info = new HyperliquidInfoClient(budgeter);
     const counts = new Map<string, number>();
     for (const coin of ["BTC", "ETH", "SOL", "HYPE"]) {
       const res = await fetch("https://api.hyperliquid.xyz/info", {
@@ -44,12 +47,35 @@ describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real 
         for (const u of t.users) counts.set(u, (counts.get(u) ?? 0) + 1);
       }
     }
-    const watched = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a]) => a);
+    // E2E_SKIP / E2E_WATCH pick a slice of the ranking: the top ranks are
+    // market makers trading every second (a budget stress test); lower
+    // ranks trade more like the leaders this app is for.
+    const skip = Number(process.env.E2E_SKIP ?? 0);
+    const take = Number(process.env.E2E_WATCH ?? 10);
+    let watched = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(skip, skip + take).map(([a]) => a);
+    if (process.env.E2E_SOURCE === "leaderboard") {
+      // The real use case: the official leaderboard's top traders by monthly
+      // PnL, the same population as a CopyDog top-100 export.
+      const board = (await (await fetch("https://stats-data.hyperliquid.xyz/Mainnet/leaderboard")).json()) as {
+        leaderboardRows: Array<{ ethAddress: string; windowPerformances: Array<[string, { pnl: string }]> }>;
+      };
+      const monthPnl = (r: (typeof board.leaderboardRows)[number]) =>
+        Number(r.windowPerformances.find(([w]) => w === "month")?.[1].pnl ?? 0);
+      watched = board.leaderboardRows
+        .sort((a, b) => monthPnl(b) - monthPnl(a))
+        .slice(skip, skip + take)
+        .map((r) => r.ethAddress.toLowerCase());
+    }
     await db.insert(leaders).values(watched.map((address) => ({ chain: "hyperliquid", address, active: true, tier: "B" as const })));
 
     const events = new EventEmitter2();
     const latencies: number[] = [];
-    events.on(ACTION_CREATED_EVENT, (row: { ts: Date }) => latencies.push(Date.now() - row.ts.getTime()));
+    const firstLatency = new Map<string, number>();
+    events.on(ACTION_CREATED_EVENT, (row: { ts: Date; address: string }) => {
+      const ms = Date.now() - row.ts.getTime();
+      latencies.push(ms);
+      if (!firstLatency.has(row.address)) firstLatency.set(row.address, ms);
+    });
     const accounts = new AccountStateService(info, db);
     const fillSync = new FillSyncService(info, db, accounts, events);
     const feed = new TradeFeedService(info);
@@ -66,7 +92,7 @@ describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real 
     const storedActions = await db.select().from(actions);
     const keys = new Set(storedFills.map((f) => `${f.address}:${f.tid}`));
     const sorted = [...latencies].sort((a, b) => a - b);
-    console.log({
+    const summary = {
       watched: watched.length,
       markets: status.markets,
       sockets: `${status.socketsOpen}/${status.socketsTotal}`,
@@ -75,7 +101,13 @@ describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real 
       alertsEmitted: latencies.length,
       latencyMsP50: sorted[Math.floor(sorted.length / 2)],
       latencyMsMax: sorted[sorted.length - 1],
-    });
+      addressesWithActions: firstLatency.size,
+      firstActionLatencyMs: [...firstLatency.values()].sort((a, b) => a - b),
+      restWeightLastMinute: budgeter.introspect().weightLastMinute,
+    };
+    // Vitest hides console output of passing tests; write it where it can be read.
+    console.log(summary);
+    if (process.env.E2E_SUMMARY_FILE) writeFileSync(process.env.E2E_SUMMARY_FILE, JSON.stringify(summary, null, 2));
 
     expect(status.markets).toBeGreaterThan(100);
     expect(status.socketsOpen).toBe(status.socketsTotal);

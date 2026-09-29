@@ -16,7 +16,7 @@ export class HealthService {
   ) {}
 
   async heartbeat(): Promise<HeartbeatResponse> {
-    const { feed, lastFillAt, lastSweepAt } = this.watcher.getHeartbeat();
+    const { feed, lastFillAt, lastSweepAt, fillsUnavailable } = this.watcher.getHeartbeat();
     const budget = this.budgeter.introspect();
     return {
       feedConnected: feed.socketsTotal > 0 && feed.socketsOpen === feed.socketsTotal,
@@ -31,6 +31,7 @@ export class HealthService {
       requestsLastMinute: budget.requestsLastMinute,
       weightLastMinute: budget.weightLastMinute,
       queuedRequests: this.budgeter.queued(),
+      fillsUnavailable,
       dryRun: env.dryRun(),
       now: new Date(),
     };

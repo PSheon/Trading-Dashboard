@@ -14,7 +14,13 @@ function trade(tid: number, time: number, users: [string, string]): HlWsTrade {
   return { coin: "BTC", side: "B", px: "1", sz: "1", time, hash: "0x", tid, users };
 }
 
-const ok = (missing: bigint[] = []): SyncResult => ({ fetched: 1, inserted: 1, actions: 1, missingTids: missing });
+const ok = (missing: bigint[] = [], latestFillTime: number | null = null): SyncResult => ({
+  fetched: 1,
+  inserted: 1,
+  actions: 1,
+  missingTids: missing,
+  latestFillTime,
+});
 
 describe("WatcherService", () => {
   const db = getTestDb();
@@ -51,8 +57,8 @@ describe("WatcherService", () => {
 
     await vi.advanceTimersByTimeAsync(1000);
     expect(sync).toHaveBeenCalledTimes(2);
-    expect(sync).toHaveBeenCalledWith("0xa", "live", T0 - 10_000, new Set([10n, 11n]));
-    expect(sync).toHaveBeenCalledWith("0xb", "live", T0 + 100 - 10_000, new Set([12n]));
+    expect(sync).toHaveBeenCalledWith("0xa", "live", T0 - 10_000, new Set([10n, 11n]), 0);
+    expect(sync).toHaveBeenCalledWith("0xb", "live", T0 + 100 - 10_000, new Set([12n]), 0);
   });
 
   it("retries trades Hyperliquid hasn't returned yet, then gives up to the sweep", async () => {
@@ -70,6 +76,47 @@ describe("WatcherService", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(sync).toHaveBeenCalledTimes(4);
     expect(sync.mock.calls[3][3]).toEqual(new Set([10n]));
+    expect(watcher.getHeartbeat().fillsUnavailable).toMatchObject([{ address: "0xa", missedTrades: 1 }]);
+
+    // Once a sync finds everything again, the address is off the list.
+    sync.mockResolvedValue(ok());
+    watcher.onTrade("0xa", trade(11, T0 + 90_000, ["0xa", "0xz"]));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(watcher.getHeartbeat().fillsUnavailable).toEqual([]);
+  });
+
+  it("keeps at most one follow-up sync while an address trades continuously", async () => {
+    vi.useFakeTimers();
+    sync.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(ok()), 3000)));
+    for (let i = 0; i < 15; i++) {
+      watcher.onTrade("0xa", trade(100 + i, T0 + i * 200, ["0xa", "0xz"]));
+      await vi.advanceTimersByTimeAsync(200);
+    }
+    // First sync started at 1 s and runs 3 s; everything after it waits for one follow-up.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sync).toHaveBeenCalledTimes(2);
+    const followUp = sync.mock.calls[1][3] as Set<bigint>;
+    expect(followUp.size).toBeGreaterThan(5);
+  });
+
+  it("ranks an address by when it was last served, and reads on from where the last sync stopped", async () => {
+    vi.useFakeTimers({ now: T0 });
+    sync.mockResolvedValue(ok([], T0 + 500));
+    watcher.onTrade("0xa", trade(1, T0, ["0xa", "0xz"]));
+    await vi.advanceTimersByTimeAsync(1000);
+    watcher.onTrade("0xa", trade(2, T0 + 30_000, ["0xa", "0xz"]));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const [first, second] = sync.mock.calls;
+    expect(first[4]).toBe(0); // never served: goes first
+    expect(second[4]).toBe(T0 + 1000); // served at 1 s
+    // 10 s lookback would reach T0+20s; what was already read ends at T0+500.
+    expect(second[2]).toBe(T0 + 30_000 - 10_000);
+    // A trade soon after what was read starts 1 s before the read-through
+    // point (T0+500), not a full 10 s back.
+    watcher.onTrade("0xa", trade(3, T0 + 1_200, ["0xa", "0xz"]));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(sync.mock.calls[2][2]).toBe(T0 - 500);
   });
 
   it("retries after a sync error too", async () => {

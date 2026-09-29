@@ -41,6 +41,9 @@ export type RequestPriority = "live" | "background";
 interface Waiter {
   weight: number;
   resolve: () => void;
+  /** Lower goes first within a lane; ties go in arrival order. */
+  rank: number;
+  seq: number;
 }
 
 @Injectable()
@@ -59,6 +62,7 @@ export class RequestBudgeterService {
   private nextSlotEndsAt = 0;
   private readonly queues: Record<RequestPriority, Waiter[]> = { live: [], background: [] };
   private pumpTimer: ReturnType<typeof setTimeout> | undefined;
+  private seq = 0;
 
   private consecutiveSuccesses = 0;
   private lastRateLimitedAt: number | undefined;
@@ -91,11 +95,15 @@ export class RequestBudgeterService {
 
   /**
    * Resolves once it is this call's turn to go out. `live` waiters are
-   * always released before `background` ones; within a lane, FIFO.
+   * always released before `background` ones. Within a lane the lowest
+   * `rank` goes first (default: arrival order). The watcher ranks a live
+   * sync by when that address was last served, so an address that trades
+   * once an hour isn't stuck behind bots that trade every second.
    */
-  acquire(weight: number, priority: RequestPriority = "background"): Promise<void> {
+  acquire(weight: number, priority: RequestPriority = "background", rank?: number): Promise<void> {
     return new Promise((resolve) => {
-      this.queues[priority].push({ weight, resolve });
+      const seq = this.seq++;
+      this.queues[priority].push({ weight, resolve, rank: rank ?? seq, seq });
       this.pump();
     });
   }
@@ -109,8 +117,14 @@ export class RequestBudgeterService {
     if (this.pumpTimer) return;
     for (;;) {
       const lane = this.queues.live.length > 0 ? this.queues.live : this.queues.background;
-      const next = lane[0];
-      if (!next) return;
+      if (lane.length === 0) return;
+      let index = 0;
+      for (let i = 1; i < lane.length; i++) {
+        const a = lane[i];
+        const b = lane[index];
+        if (a.rank < b.rank || (a.rank === b.rank && a.seq < b.seq)) index = i;
+      }
+      const next = lane[index];
       const now = Date.now();
       if (now < this.nextSlotEndsAt) {
         this.pumpTimer = setTimeout(() => {
@@ -119,7 +133,7 @@ export class RequestBudgeterService {
         }, this.nextSlotEndsAt - now);
         return;
       }
-      lane.shift();
+      lane.splice(index, 1);
       this.nextSlotEndsAt = now + next.weight * this.msPerWeight();
       this.record(now, next.weight);
       next.resolve();

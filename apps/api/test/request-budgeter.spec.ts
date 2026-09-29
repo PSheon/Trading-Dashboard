@@ -84,6 +84,19 @@ describe("RequestBudgeterService (W6)", () => {
     expect(introspect.requestsLastMinute).toBe(1); // the surcharge is not a request
   });
 
+  it("orders waiters within a lane by rank", async () => {
+    process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = "600";
+    const budgeter = new RequestBudgeterService();
+    const order: string[] = [];
+    const first = budgeter.acquire(20, "live", 5).then(() => order.push("first"));
+    await vi.advanceTimersByTimeAsync(0);
+    const busyBot = budgeter.acquire(20, "live", 1_000).then(() => order.push("bot"));
+    const quietWhale = budgeter.acquire(20, "live", 10).then(() => order.push("whale"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    await Promise.all([first, busyBot, quietWhale]);
+    expect(order).toEqual(["first", "whale", "bot"]);
+  });
+
   it("releases live waiters before queued background ones", async () => {
     process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = "600"; // 100 ms per weight
     const budgeter = new RequestBudgeterService();

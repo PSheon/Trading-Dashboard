@@ -324,6 +324,11 @@ export const heartbeatResponseSchema = z.object({
   requestsLastMinute: z.number().int(),
   weightLastMinute: z.number(),
   queuedRequests: z.object({ live: z.number().int(), background: z.number().int() }),
+  /** Watched addresses trading on the feed whose fills the info API doesn't
+   * return; their fills and actions are missing until it does. */
+  fillsUnavailable: z.array(
+    z.object({ address: z.string(), missedTrades: z.number().int(), since: z.coerce.date() }),
+  ),
   dryRun: z.boolean(),
   now: z.coerce.date(),
 });

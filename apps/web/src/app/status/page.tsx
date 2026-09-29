@@ -27,8 +27,7 @@ export default function StatusPage() {
           System status
         </h1>
         <p className="text-sm text-muted-foreground">
-          Polls GET /health every 10s. Backed by real Watcher/Scheduler state
-          once that work lands — for now the api returns honest defaults.
+          Refreshes every 10s from GET /health. Times are Asia/Taipei.
         </p>
       </div>
 
@@ -51,24 +50,22 @@ export default function StatusPage() {
           {data ? (
             <>
               <Row
-                label="Poller alive"
+                label="Trade feed"
                 value={
-                  <Badge variant={data.pollerAlive ? "default" : "secondary"}>
-                    {data.pollerAlive ? "alive" : "not responding"}
+                  <Badge variant={data.feedConnected ? "default" : "destructive"}>
+                    {data.feedConnected
+                      ? `connected · ${data.marketsSubscribed} markets`
+                      : `down${data.feedDisconnectedSince ? ` since ${taipei(data.feedDisconnectedSince)}` : ""} · ${data.feedSocketsOpen}/${data.feedSocketsTotal} sockets`}
                   </Badge>
                 }
               />
+              <Row label="Last trade seen" value={taipei(data.lastTradeAt)} />
+              <Row label="Last fill stored" value={taipei(data.lastFillAt)} />
+              <Row label="Last 5-min snapshot" value={taipei(data.lastSnapshotAt)} />
+              <Row label="Last sweep" value={taipei(data.lastSweepAt)} />
               <Row
-                label="Last fill received"
-                value={
-                  data.lastFillAt
-                    ? new Date(data.lastFillAt).toLocaleString()
-                    : "never"
-                }
-              />
-              <Row
-                label="Requests (last minute)"
-                value={data.requestsLastMinute.toString()}
+                label="REST (last minute)"
+                value={`${data.requestsLastMinute} requests · ${data.weightLastMinute} weight · queued ${data.queuedRequests.live} live / ${data.queuedRequests.background} background`}
               />
               <Row
                 label="DRY_RUN"
@@ -84,6 +81,12 @@ export default function StatusPage() {
       </Card>
     </div>
   );
+}
+
+function taipei(value: Date | string | null): string {
+  return value
+    ? new Date(value).toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+    : "never";
 }
 
 function Row({

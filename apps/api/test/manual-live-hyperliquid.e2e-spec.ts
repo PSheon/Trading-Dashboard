@@ -1,108 +1,88 @@
-import { actions, equitySnapshots, fills, leaders } from "@trading-dashboard/shared";
-import { eq } from "drizzle-orm";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { actions, fills, leaders } from "@trading-dashboard/shared";
 import { describe, expect, it } from "vitest";
 
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
+import { AccountStateService } from "../src/watcher/account-state.service.js";
+import { ACTION_CREATED_EVENT } from "../src/watcher/action-created.event.js";
+import { FillSyncService } from "../src/watcher/fill-sync.service.js";
+import { TradeFeedService } from "../src/watcher/trade-feed.service.js";
 import { WatcherService } from "../src/watcher/watcher.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
 /**
- * MANUAL, NOT part of `pnpm test` (that only ever runs `**\/*.spec.ts` per
- * vitest.config.ts) — this hits the real, live Hyperliquid mainnet API and
- * a real local Postgres, and takes ~25s by design (two poll cycles with a
- * real gap so a high-volume address has a chance to actually trade in
- * between). Run explicitly with:
+ * MANUAL, against live Hyperliquid mainnet and a local Postgres; not part of
+ * `pnpm test`. Run with:
  *
- *   DATABASE_URL=postgres://postgres:postgres@localhost:5432/trading_dashboard_test \
- *     pnpm test:e2e
+ *   RUN_LIVE_HYPERLIQUID_E2E=1 \
+ *   DATABASE_URL=postgres://postgres:postgres@localhost:5433/trading_dashboard_test \
+ *     pnpm --filter @trading-dashboard/api test:e2e
  *
- * Addresses below were confirmed live (2026-09-29) to currently hold open
- * perp positions / have very high recent trading volume via Hyperliquid's
- * public (unofficial) leaderboard endpoint — see the task report for how
- * they were found. This is NOT re-run on every commit: real trading
- * activity is non-deterministic, so assertions here are deliberately loose
- * (the pipeline must not crash and must produce internally-consistent
- * data), not "a delta must occur within N seconds".
+ * Picks the most active addresses from recent BTC/ETH/SOL/HYPE trades as
+ * leaders, runs the real trade feed for 90 s, and checks that every stored
+ * fill is unique per (address, tid), that actions reference stored fills,
+ * and how long it took from trade time to action. Live activity varies, so
+ * it asserts consistency, not volume.
  */
-const LIVE_ADDRESSES = [
-  "0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
-  "0xf5d81a135f756ca16544e53c20fc20643ec3ad53",
-  "0xdf9ea6ec3b7109935ccb4fb267e15ac1fb077ab1",
-];
+const RUN_MS = 90_000;
 
 describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real Postgres (manual)", () => {
-  it("runs two real poll cycles and lands sane rows", async () => {
+  it("detects live trades of watched addresses through the trades feed", { timeout: RUN_MS + 60_000 }, async () => {
     const db = getTestDb();
     await truncateAll(db);
 
-    await db.insert(leaders).values(
-      LIVE_ADDRESSES.map((address) => ({ chain: "hyperliquid" as const, address, active: true, tier: "B" as const })),
-    );
-
-    const budgeter = new RequestBudgeterService();
-    const info = new HyperliquidInfoClient(budgeter);
-    const watcher = new WatcherService(info, db);
-
-    await watcher.runPollCycle();
-    console.log("cycle 1 done, cached states:", watcher.getCachedStates().size);
-
-    await new Promise((resolve) => setTimeout(resolve, 25_000));
-
-    await watcher.runPollCycle();
-    console.log("cycle 2 done");
-
-    const insertedFills = await db.select().from(fills);
-    const insertedActions = await db.select().from(actions);
-    console.log(`fills: ${insertedFills.length}, actions: ${insertedActions.length}`);
-    for (const a of insertedActions) {
-      console.log(" action:", a.address, a.coin, a.kind, a.side, a.notionalUsd, a.avgPx);
+    const info = new HyperliquidInfoClient(new RequestBudgeterService());
+    const counts = new Map<string, number>();
+    for (const coin of ["BTC", "ETH", "SOL", "HYPE"]) {
+      const res = await fetch("https://api.hyperliquid.xyz/info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "recentTrades", coin }),
+      });
+      for (const t of (await res.json()) as Array<{ users: string[] }>) {
+        for (const u of t.users) counts.set(u, (counts.get(u) ?? 0) + 1);
+      }
     }
+    const watched = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a]) => a);
+    await db.insert(leaders).values(watched.map((address) => ({ chain: "hyperliquid", address, active: true, tier: "B" as const })));
 
-    // Sanity, not "activity happened": every cached address has a
-    // real accountValue, and if any fills landed, their (address,coin)
-    // shows up in the cache with a real position.
-    for (const address of LIVE_ADDRESSES) {
-      const cached = watcher.getCachedStates().get(address);
-      expect(cached).toBeDefined();
-      expect(Number(cached!.response.marginSummary.accountValue)).toBeGreaterThanOrEqual(0);
-    }
+    const events = new EventEmitter2();
+    const latencies: number[] = [];
+    events.on(ACTION_CREATED_EVENT, (row: { ts: Date }) => latencies.push(Date.now() - row.ts.getTime()));
+    const accounts = new AccountStateService(info, db);
+    const fillSync = new FillSyncService(info, db, accounts, events);
+    const feed = new TradeFeedService(info);
+    const watcher = new WatcherService(feed, fillSync, accounts, db);
 
-    if (insertedFills.length > 0) {
-      expect(insertedActions.length).toBeGreaterThan(0);
-      const dupTids = new Set(insertedFills.map((f) => f.tid.toString()));
-      expect(dupTids.size).toBe(insertedFills.length); // dedupe held
-    }
+    await watcher.refreshWatched();
+    await feed.start({ onTrade: (a, t) => watcher.onTrade(a, t), onGap: () => {} });
+    await new Promise((r) => setTimeout(r, RUN_MS));
+    const status = feed.status();
+    feed.stop();
+    await new Promise((r) => setTimeout(r, 25_000)); // let in-flight syncs and retries finish
 
-    await closeTestDb();
-  }, 60_000);
-
-  it("writes real position/equity snapshots from the cache (W4 adapted)", async () => {
-    const db = getTestDb();
-    await truncateAll(db);
-    await db.insert(leaders).values({ chain: "hyperliquid", address: LIVE_ADDRESSES[0], active: true, tier: "B" });
-
-    const budgeter = new RequestBudgeterService();
-    const info = new HyperliquidInfoClient(budgeter);
-    const watcher = new WatcherService(info, db);
-    await watcher.runPollCycle();
-
-    const cached = watcher.getCachedStates().get(LIVE_ADDRESSES[0]);
-    expect(cached).toBeDefined();
-
-    await db.insert(equitySnapshots).values({
-      chain: "hyperliquid",
-      address: LIVE_ADDRESSES[0],
-      ts: cached!.fetchedAt,
-      accountValue: cached!.response.marginSummary.accountValue,
-      totalMarginUsed: cached!.response.marginSummary.totalMarginUsed,
-      withdrawable: cached!.response.withdrawable,
+    const storedFills = await db.select().from(fills);
+    const storedActions = await db.select().from(actions);
+    const keys = new Set(storedFills.map((f) => `${f.address}:${f.tid}`));
+    const sorted = [...latencies].sort((a, b) => a - b);
+    console.log({
+      watched: watched.length,
+      markets: status.markets,
+      sockets: `${status.socketsOpen}/${status.socketsTotal}`,
+      fills: storedFills.length,
+      actions: storedActions.length,
+      alertsEmitted: latencies.length,
+      latencyMsP50: sorted[Math.floor(sorted.length / 2)],
+      latencyMsMax: sorted[sorted.length - 1],
     });
 
-    const rows = await db.select().from(equitySnapshots).where(eq(equitySnapshots.address, LIVE_ADDRESSES[0]));
-    expect(rows).toHaveLength(1);
-    expect(Number(rows[0].accountValue)).toBeGreaterThan(0);
-
+    expect(status.markets).toBeGreaterThan(100);
+    expect(status.socketsOpen).toBe(status.socketsTotal);
+    expect(keys.size).toBe(storedFills.length);
+    for (const action of storedActions) {
+      for (const tid of action.fillIds) expect(keys.has(`${action.address}:${tid}`)).toBe(true);
+    }
     await closeTestDb();
-  }, 30_000);
+  });
 });

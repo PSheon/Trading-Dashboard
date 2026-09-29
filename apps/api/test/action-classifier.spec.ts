@@ -1,164 +1,130 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import {
-  classifyFillsIntoActions,
-  isOutOfScopeSpotFill,
-  type PositionStateLookup,
-} from "../src/watcher/action-classifier.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
+import { classifyFills, isOutOfScopeSpotFill, toScaled } from "../src/watcher/action-classifier.js";
 
-let nextTid = 1;
-let nextTime = 1_700_000_000_000;
+const ADDRESS = "0xleader";
+const T0 = 1_790_000_000_000;
 
+let tid = 1;
 function fill(overrides: Partial<HlUserFill>): HlUserFill {
   return {
     coin: "BTC",
-    px: "60000",
+    px: "100",
     sz: "1",
     side: "B",
-    time: nextTime++,
+    time: T0,
+    startPosition: "0",
     dir: "Open Long",
     closedPnl: "0",
-    hash: "0xabc",
+    hash: "0x",
     oid: 1,
     crossed: true,
-    fee: "1",
-    tid: nextTid++,
+    fee: "0",
+    tid: tid++,
     ...overrides,
   };
 }
 
-function alwaysFlat(): PositionStateLookup {
-  return {
-    hadPositionBefore: () => false,
-    leverageBefore: () => null,
-    hasPositionAfter: () => true,
-    leverageAfter: () => 10,
-  };
-}
+const kinds = (fills: HlUserFill[]) =>
+  classifyFills(ADDRESS, fills).map((d) => `${d.coin}:${d.kind}:${d.side}:${d.fillIds.length}`);
 
-describe("classifyFillsIntoActions", () => {
-  it("merges a big order split into 8 fills into a single 'open' action (W3)", () => {
-    const fills = Array.from({ length: 8 }, () =>
-      fill({ dir: "Open Long", coin: "BTC", px: "60000", sz: "1" }),
-    );
-
-    const drafts = classifyFillsIntoActions(fills, alwaysFlat());
-
-    expect(drafts).toHaveLength(1);
-    expect(drafts[0]).toMatchObject({ coin: "BTC", kind: "open", side: "long" });
-    expect(drafts[0].fillIds).toHaveLength(8);
-    expect(Number(drafts[0].notionalUsd)).toBeCloseTo(8 * 60000, 5);
-    expect(Number(drafts[0].avgPx)).toBeCloseTo(60000, 5);
-  });
-
-  it("classifies 'Open Long' as 'add' when a long position already existed", () => {
-    const fills = [fill({ dir: "Open Long" })];
-    const state: PositionStateLookup = {
-      hadPositionBefore: () => true,
-      leverageBefore: () => 5,
-      hasPositionAfter: () => true,
-      leverageAfter: () => 5,
-    };
-
-    const drafts = classifyFillsIntoActions(fills, state);
-    expect(drafts).toHaveLength(1);
-    expect(drafts[0].kind).toBe("add");
-  });
-
-  it("classifies 'Close Long' as 'close' when the position is flat afterwards", () => {
-    const fills = [fill({ dir: "Close Long", px: "61000", sz: "1" })];
-    const state: PositionStateLookup = {
-      hadPositionBefore: () => true,
-      leverageBefore: () => 5,
-      hasPositionAfter: () => false,
-      leverageAfter: () => null,
-    };
-
-    const drafts = classifyFillsIntoActions(fills, state);
-    expect(drafts).toHaveLength(1);
-    expect(drafts[0].kind).toBe("close");
-    expect(drafts[0].leverage).toBe("5"); // falls back to pre-close leverage
-  });
-
-  it("classifies 'Close Long' as 'reduce' when a smaller position remains open", () => {
-    const fills = [fill({ dir: "Close Long", px: "61000", sz: "0.5" })];
-    const state: PositionStateLookup = {
-      hadPositionBefore: () => true,
-      leverageBefore: () => 5,
-      hasPositionAfter: () => true,
-      leverageAfter: () => 5,
-    };
-
-    const drafts = classifyFillsIntoActions(fills, state);
-    expect(drafts[0].kind).toBe("reduce");
-  });
-
-  it("classifies 'Long > Short' as a flip with the resulting side", () => {
-    const fills = [fill({ dir: "Long > Short", px: "60000", sz: "2" })];
-    const drafts = classifyFillsIntoActions(fills, alwaysFlat());
-    expect(drafts[0]).toMatchObject({ kind: "flip", side: "short" });
-  });
-
-  it("walks a multi-run batch through open -> close -> open correctly", () => {
+describe("classifyFills (startPosition-based)", () => {
+  it("merges one order that crossed several resting orders into a single open", () => {
     const fills = [
-      fill({ dir: "Open Long", sz: "1" }),
-      fill({ dir: "Open Long", sz: "1" }),
-      fill({ dir: "Close Long", sz: "2" }), // fully closes
-      fill({ dir: "Open Short", sz: "1" }), // fresh open, opposite side
+      fill({ startPosition: "0", sz: "0.5", px: "100", time: T0 }),
+      fill({ startPosition: "0.5", sz: "0.3", px: "101", time: T0 }),
+      fill({ startPosition: "0.8", sz: "0.2", px: "102", time: T0 + 5 }),
     ];
-    const state: PositionStateLookup = {
-      hadPositionBefore: () => false,
-      leverageBefore: () => null,
-      hasPositionAfter: (coin) => coin === "BTC", // ends with a short open
-      leverageAfter: () => 3,
-    };
-
-    const drafts = classifyFillsIntoActions(fills, state);
-    expect(drafts.map((d) => d.kind)).toEqual(["open", "close", "open"]);
-    expect(drafts[2].side).toBe("short");
+    const [draft] = classifyFills(ADDRESS, fills);
+    expect(kinds(fills)).toEqual(["BTC:open:long:3"]);
+    expect(Number(draft.notionalUsd)).toBeCloseTo(50 + 30.3 + 20.4);
+    expect(Number(draft.avgPx)).toBeCloseTo((50 + 30.3 + 20.4) / 1);
   });
 
-  it("skips spot fills (Buy/Sell/Spot Dust Conversion) — out of §11 market scope", () => {
+  it("calls a first-seen fill on an existing position an add, not an open (restart case)", () => {
+    expect(kinds([fill({ startPosition: "2", sz: "1", side: "B" })])).toEqual(["BTC:add:long:1"]);
+  });
+
+  it("distinguishes reduce from close by where the position ends", () => {
+    expect(kinds([fill({ startPosition: "2", sz: "1", side: "A", dir: "Close Long" })])).toEqual(["BTC:reduce:long:1"]);
+    expect(kinds([fill({ startPosition: "2", sz: "2", side: "A", dir: "Close Long" })])).toEqual(["BTC:close:long:1"]);
+    expect(kinds([fill({ startPosition: "-3", sz: "3", side: "B", dir: "Close Short" })])).toEqual(["BTC:close:short:1"]);
+  });
+
+  it("keeps a partial reduce followed by a re-add as reduce + add, not close + open", () => {
     const fills = [
-      fill({ dir: "Buy", coin: "PURR/USDC" }),
-      fill({ dir: "Sell", coin: "PURR/USDC" }),
-      fill({ dir: "Spot Dust Conversion", coin: "PURR/USDC" }),
-      fill({ dir: "Open Long", coin: "ETH" }),
+      fill({ startPosition: "5", sz: "2", side: "A", time: T0 }),
+      fill({ startPosition: "3", sz: "4", side: "B", time: T0 + 200 }),
     ];
-
-    const drafts = classifyFillsIntoActions(fills, alwaysFlat());
-    expect(drafts).toHaveLength(1);
-    expect(drafts[0].coin).toBe("ETH");
+    expect(kinds(fills)).toEqual(["BTC:reduce:long:1", "BTC:add:long:1"]);
   });
 
-  it("logs and skips an unrecognized dir instead of guessing", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const fills = [fill({ dir: "Something New Hyperliquid Invented" })];
-
-    const drafts = classifyFillsIntoActions(fills, alwaysFlat());
-    expect(drafts).toHaveLength(0);
-    errorSpy.mockRestore();
+  it("classifies a flip in one fill and across several fills of one order", () => {
+    expect(kinds([fill({ startPosition: "1", sz: "3", side: "A", dir: "Long > Short" })])).toEqual(["BTC:flip:short:1"]);
+    const multi = [
+      fill({ startPosition: "1", sz: "1", side: "A", time: T0 }),
+      fill({ startPosition: "0", sz: "2", side: "A", time: T0 + 1 }),
+    ];
+    expect(kinds(multi)).toEqual(["BTC:flip:short:2"]);
   });
 
-  it("isOutOfScopeSpotFill flags both dir-based and coin-name-based spot fills", () => {
-    expect(isOutOfScopeSpotFill(fill({ dir: "Buy", coin: "PURR/USDC" }))).toBe(true);
-    expect(isOutOfScopeSpotFill(fill({ dir: "Open Long", coin: "BTC" }))).toBe(false);
-  });
-
-  it("keeps two coins' runs independent when their fills are interleaved in time", () => {
+  it("splits fills more than a second apart into separate actions", () => {
     const fills = [
-      fill({ coin: "BTC", dir: "Open Long", sz: "1" }),
-      fill({ coin: "ETH", dir: "Open Short", sz: "1" }),
-      fill({ coin: "BTC", dir: "Open Long", sz: "1" }),
-      fill({ coin: "ETH", dir: "Open Short", sz: "1" }),
+      fill({ startPosition: "0", sz: "1", time: T0 }),
+      fill({ startPosition: "1", sz: "1", time: T0 + 2_500 }),
     ];
+    expect(kinds(fills)).toEqual(["BTC:open:long:1", "BTC:add:long:1"]);
+  });
 
-    const drafts = classifyFillsIntoActions(fills, alwaysFlat());
-    expect(drafts).toHaveLength(2);
-    const btc = drafts.find((d) => d.coin === "BTC");
-    const eth = drafts.find((d) => d.coin === "ETH");
-    expect(btc?.fillIds).toHaveLength(2);
-    expect(eth?.fillIds).toHaveLength(2);
+  it("marks fills that liquidate this address as a liquidation of the prior side", () => {
+    const liq = fill({
+      startPosition: "4",
+      sz: "4",
+      side: "A",
+      dir: "Close Long",
+      liquidation: { liquidatedUser: ADDRESS.toUpperCase(), markPx: 90, method: "market" },
+    });
+    expect(kinds([liq])).toEqual(["BTC:liquidation:long:1"]);
+    const asLiquidator = fill({
+      startPosition: "0",
+      sz: "4",
+      side: "B",
+      liquidation: { liquidatedUser: "0xsomeoneelse", markPx: 90, method: "backstop" },
+    });
+    expect(kinds([asLiquidator])).toEqual(["BTC:open:long:1"]);
+  });
+
+  it("handles HIP-3 coins and keeps coins apart", () => {
+    const fills = [
+      fill({ coin: "xyz:TSLA", startPosition: "0", sz: "10", side: "A", time: T0 }),
+      fill({ coin: "BTC", startPosition: "0", sz: "1", side: "B", time: T0 }),
+    ];
+    expect(kinds(fills).sort()).toEqual(["BTC:open:long:1", "xyz:TSLA:open:short:1"]);
+  });
+
+  it("ignores spot fills and skips fills without startPosition", () => {
+    expect(isOutOfScopeSpotFill(fill({ coin: "@107", dir: "Buy" }))).toBe(true);
+    expect(isOutOfScopeSpotFill(fill({ coin: "PURR/USDC", dir: "Sell" }))).toBe(true);
+    expect(isOutOfScopeSpotFill(fill({ coin: "xyz:TSLA" }))).toBe(false);
+    expect(kinds([fill({ coin: "@107", dir: "Buy" })])).toEqual([]);
+    expect(kinds([fill({ startPosition: undefined })])).toEqual([]);
+  });
+
+  it("uses the leverage lookup only for positions still open", () => {
+    const open = classifyFills(ADDRESS, [fill({ startPosition: "0", sz: "1" })], () => 7);
+    const closed = classifyFills(ADDRESS, [fill({ startPosition: "1", sz: "1", side: "A" })], () => 7);
+    expect(open[0].leverage).toBe("7");
+    expect(closed[0].leverage).toBeNull();
+  });
+
+  it("compares sizes exactly (no floating-point residue)", () => {
+    // 0.1 + 0.2 in floats is 0.30000000000000004; closing 0.3 must be a close.
+    const fills = [
+      fill({ startPosition: "0.3", sz: "0.1", side: "A", time: T0 }),
+      fill({ startPosition: "0.2", sz: "0.2", side: "A", time: T0 + 1 }),
+    ];
+    expect(kinds(fills)).toEqual(["BTC:close:long:2"]);
+    expect(toScaled("-0.57719")).toBe(-577190000000n);
   });
 });

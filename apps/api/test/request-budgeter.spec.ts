@@ -81,6 +81,23 @@ describe("RequestBudgeterService (W6)", () => {
 
     const introspect = budgeter.introspect();
     expect(introspect.weightLastMinute).toBe(25);
-    expect(introspect.requestsLastMinute).toBe(2); // two log entries
+    expect(introspect.requestsLastMinute).toBe(1); // the surcharge is not a request
+  });
+
+  it("releases live waiters before queued background ones", async () => {
+    process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = "600"; // 100 ms per weight
+    const budgeter = new RequestBudgeterService();
+    const order: string[] = [];
+    const background = Array.from({ length: 5 }, (_, i) =>
+      budgeter.acquire(20, "background").then(() => order.push(`bg${i}`)),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const live = budgeter.acquire(2, "live").then(() => order.push("live"));
+    expect(budgeter.queued()).toEqual({ live: 1, background: 4 });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await Promise.all([...background, live]);
+    // bg0 was already out; the live call goes next, ahead of bg1..bg4.
+    expect(order).toEqual(["bg0", "live", "bg1", "bg2", "bg3", "bg4"]);
   });
 });

@@ -91,6 +91,22 @@ describe("RoundTripService — real Postgres", () => {
     expect(await service.winRate(ADDRESS, "BTC", at(-1))).toBe(1);
   });
 
+  it("ignores the counterparty's fill that shares a tid with ours", async () => {
+    const openFill = fillRow({ closedPnl: null });
+    const closeFill = fillRow({ closedPnl: "-50" });
+    // The other side of our closing trade: same tid, opposite PnL.
+    const counterparty = { ...closeFill, address: "0xcounterparty", closedPnl: "900" };
+    await db.insert(fills).values([openFill, closeFill, counterparty]);
+    await db.insert(actions).values([
+      actionRow({ kind: "open", side: "long", ts: at(0), fillIds: [openFill.tid] }),
+      actionRow({ kind: "close", side: "long", ts: at(1), fillIds: [closeFill.tid] }),
+    ]);
+
+    const trips = await service.reconstructRoundTrips(ADDRESS, "BTC");
+    expect(trips[0].pnl).toBe(-50);
+    expect(await service.winRate(ADDRESS, "BTC", at(-1))).toBe(0);
+  });
+
   it("sums closed_pnl across every leg (open/add/reduce/close), not only the final closing fill", async () => {
     const openFill = fillRow({ closedPnl: null });
     const addFill = fillRow({ closedPnl: null });

@@ -126,6 +126,20 @@ export class NotifyService {
     await this.insertAlertRows(rules, action, payloadJson, sent ? "sent" : "failed");
   }
 
+  /** Operational message (e.g. §8 feed-down self-alert) to the realtime
+   * chat. Not tied to a rule, so no `alerts` row. Honors DRY_RUN; never
+   * throws. */
+  async sendSystemMessage(text: string): Promise<void> {
+    const chatId = env.telegramChatIdRealtime();
+    if (env.dryRun() || !chatId) {
+      this.logger.warn(`[${env.dryRun() ? "DRY_RUN" : "no chat id"}] system message: ${text}`);
+      return;
+    }
+    if (!(await this.sendWithRetry(chatId, text))) {
+      this.logger.error(`System message could not be delivered: ${text}`);
+    }
+  }
+
   /** N4: up to 3 retries (4 attempts total) with 1s/2s/4s backoff. Returns
    * whether the message was ultimately delivered — never throws. */
   private async sendWithRetry(chatId: string, text: string): Promise<boolean> {

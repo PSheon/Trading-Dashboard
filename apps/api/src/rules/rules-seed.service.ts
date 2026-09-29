@@ -59,7 +59,18 @@ export class RulesSeedService implements OnApplicationBootstrap {
 
   onApplicationBootstrap(): void {
     if (process.env.NODE_ENV === "test") return;
-    void this.seedDefaultRules();
+    void this.seedWithRetry();
+  }
+
+  /** A database that isn't reachable yet at boot must not crash the
+   * process (an unhandled rejection exits Node); keep trying. */
+  private async seedWithRetry(): Promise<void> {
+    try {
+      await this.seedDefaultRules();
+    } catch (error) {
+      this.logger.error(`Seeding default rules failed, retrying in 30s: ${(error as Error).message}`);
+      setTimeout(() => void this.seedWithRetry(), 30_000);
+    }
   }
 
   async seedDefaultRules(): Promise<void> {

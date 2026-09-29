@@ -65,7 +65,14 @@ export class ActionsService {
     const rows = await this.db
       .select()
       .from(fills)
-      .where(and(eq(fills.chain, action.chain), inArray(fills.tid, action.fillIds)))
+      // tid is shared with the counterparty's fill: scope to this address.
+      .where(
+        and(
+          eq(fills.chain, action.chain),
+          eq(fills.address, action.address),
+          inArray(fills.tid, action.fillIds),
+        ),
+      )
       .orderBy(fills.ts);
 
     return rows as unknown as Fill[];

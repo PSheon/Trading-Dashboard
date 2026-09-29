@@ -4,82 +4,61 @@ import { env } from "../config/env.js";
 
 /**
  * Shared request-weight budgeter for every Hyperliquid `info` call (W6,
- * §4.2/§8). All REST call sites — the fast poll loop, delta-triggered
- * `userFillsByTime` fetches, A5 backfill pagination, and any future caller —
- * go through `acquire()` before they hit the network.
+ * §4.2/§8). Every REST call goes through `acquire()` before it hits the
+ * network.
  *
- * ## Why this exists (the math, §8/§11)
+ * Limits (hyperliquid.gitbook.io, rate-limits-and-user-limits): 1200
+ * weight/minute per IP; `clearinghouseState` weighs 2; `userFillsByTime`
+ * weighs 20 plus a surcharge per 20 items returned. The docs don't give the
+ * surcharge multiplier; this codebase assumes +1 per 20 items (so a full
+ * 2000-row page costs 120), which is the common reading.
  *
- * Hyperliquid's real, documented limits (hyperliquid.gitbook.io, verified
- * live 2026-09-29, not from training-data memory):
- *   - 1200 weight/minute per IP, shared across every info+exchange call.
- *   - `clearinghouseState` costs weight 2.
- *   - `userFillsByTime` (an "all other documented info request") costs a
- *     base weight of 20, PLUS an additional weight "per 20 items returned
- *     in the response". The docs page states this surcharge exists but,
- *     verified live by reading the page's own markup, does not spell out
- *     the per-20-items multiplier in that sentence. The standard reading
- *     (matching community/SDK conventions) is +1 weight per 20 items, i.e.
- *     `ceil(itemsReturned / 20)` extra — that is what this codebase assumes.
- *     Worst case (2000 items, the documented per-call cap) that is +100,
- *     i.e. a maxed-out call can cost up to 120 weight, not 20.
- *
- * The original PRD (§5, §8) assumed WS carried all real-time fills and REST
- * was only a 100-address/5-minute reconciliation poll: 100 × 2 × 12/hour =
- * 40 weight/min — trivially under any cap. Paul has approved dropping WS
- * entirely (documented HL limit is 10 unique users per IP across
- * user-specific WS subs, not 100/1000) — REST now carries the *entire*
- * pipeline: the fast poll AND every delta-triggered fill fetch. §8's "stay
- * under 70% of the 1200 cap" figure (840/min) was written for the old
- * 40 weight/min baseline; see `watcher.service.ts` for why 840 is still a
- * defensible cap even though the load composition changed completely —
- * short version: base poll cost is chosen to leave real headroom under 840,
- * and this budgeter's smoothing + backoff is the actual safety net, not the
- * particular cap number.
+ * Load shape: fill discovery comes from the `trades` WS feed, which costs no
+ * REST weight. REST carries (a) a `userFillsByTime` + `clearinghouseState`
+ * burst per address that just traded, (b) the 5-minute snapshots, (c) the
+ * hourly sweep and (d) A5 backfill. Only (a) is latency-sensitive, so it
+ * runs in the `live` lane; everything else is `background`. The default cap
+ * is PRD §8's 70% of 1200.
  *
  * ## Design
  *
- * A GCRA-style ("leaky bucket" / virtual scheduler) rate limiter:
- *   - `effectiveBudgetPerMin` starts at the configured cap and converts to
- *     a steady emission rate (weight/ms). Every unit of weight "costs" a
- *     fixed slice of time; acquiring weight `w` reserves the next `w *
- *     msPerWeight` of that timeline, starting no earlier than `now` and no
- *     earlier than the last reservation's end. That is what spaces calls
- *     out evenly across the window instead of letting 40 calls fire in the
- *     first second and then hard-blocking for the rest of the minute.
- *     Deliberately zero burst allowance: for this codebase's actual load
- *     shape (spread ~100 `clearinghouseState` calls evenly across a poll
- *     cycle, plus delta-triggered `userFillsByTime` calls), maximal
- *     smoothing is the goal, not a compromise — a burst allowance would
- *     just mean the first few calls of every cycle jump ahead for no
- *     benefit.
- *   - A sliding 60s log of `{ts, weight}` entries backs the introspection
- *     surface (`requestsLastMinute`, `weightLastMinute`) the health
- *     endpoint reports — pruned lazily on every call.
- *   - On a real 429, `effectiveBudgetPerMin` is halved (down to a floor of
- *     20% of the configured cap) and recovers by 10% of the configured cap
- *     per sustained success streak of 20 calls — standard adaptive
- *     backoff-and-recover shape, not a hard fail.
- *   - `userFillsByTime`'s item-count surcharge is only known after the
- *     response arrives, so callers `acquire()` the known base weight
- *     up-front (which does the spacing/wait), then report the surcharge
- *     afterwards via `recordAdditionalWeight()`, which extends the
- *     scheduler's timeline for *future* callers without making the
- *     already-completed call wait on itself.
+ * Virtual-time pacing with two priority lanes. Each dispatched call reserves
+ * `weight × msPerWeight` of timeline; the next waiter is released once that
+ * slot has passed, always taking from the `live` queue before `background`.
+ * So a 100-address backfill queued in `background` delays a live fetch by at
+ * most one call's slot, instead of the live fetch waiting behind all of it.
+ * No burst allowance: calls are spread evenly.
+ *
+ * On a real 429 the effective budget halves (floor 20% of the cap) and the
+ * timeline is pushed 2 s out; it recovers by 10% of the cap per 20
+ * consecutive successes. `userFillsByTime`'s surcharge is only known after
+ * the response, so it is added to the timeline afterwards via
+ * `recordAdditionalWeight()`, charging future callers rather than the call
+ * that already happened.
  */
+export type RequestPriority = "live" | "background";
+
+interface Waiter {
+  weight: number;
+  resolve: () => void;
+}
+
 @Injectable()
 export class RequestBudgeterService {
   private readonly logger = new Logger(RequestBudgeterService.name);
 
-  /** {ts: epoch ms, weight} log, trimmed to the trailing 60s on each touch. */
-  private readonly window: { ts: number; weight: number }[] = [];
+  /** Trailing-60s log. `request` is false for post-hoc surcharge entries,
+   * so `requestsLastMinute` counts calls, not log lines. */
+  private readonly window: { ts: number; weight: number; request: boolean }[] = [];
 
   private readonly configuredBudgetPerMin: number;
   private effectiveBudgetPerMin: number;
   private readonly floorBudgetPerMin: number;
 
-  /** GCRA "theoretical arrival time" cursor, in epoch ms. */
+  /** End of the most recently dispatched call's slot, in epoch ms. */
   private nextSlotEndsAt = 0;
+  private readonly queues: Record<RequestPriority, Waiter[]> = { live: [], background: [] };
+  private pumpTimer: ReturnType<typeof setTimeout> | undefined;
 
   private consecutiveSuccesses = 0;
   private lastRateLimitedAt: number | undefined;
@@ -105,42 +84,46 @@ export class RequestBudgeterService {
     }
   }
 
-  private record(ts: number, weight: number): void {
-    this.window.push({ ts, weight });
+  private record(ts: number, weight: number, request = true): void {
+    this.window.push({ ts, weight, request });
     this.prune(Date.now());
   }
 
   /**
-   * Reserves `weight` units of budget, sleeping as needed so calls stay
-   * spaced out over the window rather than bursting. Resolves once it is
-   * safe to actually issue the request.
-   *
-   * Pure virtual-scheduling (GCRA-style, zero burst allowance): each call
-   * is scheduled to start no earlier than `max(now, nextSlotEndsAt)`, and
-   * `nextSlotEndsAt` advances by that call's time-cost. Deliberately no
-   * burst tolerance — for this codebase's use case (pacing ~100
-   * `clearinghouseState` calls per poll cycle, plus delta-triggered
-   * `userFillsByTime` calls) letting a handful of calls jump the queue
-   * buys nothing: the very first poll cycle *should* spread its calls
-   * across the interval rather than firing them all at t=0, so maximal
-   * smoothing is the desired behavior, not a compromise. `record()`
-   * happens once the call actually starts (after any wait), so the
-   * sliding-window introspection reflects real send times.
+   * Resolves once it is this call's turn to go out. `live` waiters are
+   * always released before `background` ones; within a lane, FIFO.
    */
-  async acquire(weight: number): Promise<void> {
-    const now = Date.now();
-    this.prune(now);
+  acquire(weight: number, priority: RequestPriority = "background"): Promise<void> {
+    return new Promise((resolve) => {
+      this.queues[priority].push({ weight, resolve });
+      this.pump();
+    });
+  }
 
-    const cost = weight * this.msPerWeight();
-    const start = Math.max(now, this.nextSlotEndsAt);
-    this.nextSlotEndsAt = start + cost;
+  /** Waiters currently queued per lane (introspection and tests). */
+  queued(): Record<RequestPriority, number> {
+    return { live: this.queues.live.length, background: this.queues.background.length };
+  }
 
-    const waitMs = start - now;
-    if (waitMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
+  private pump(): void {
+    if (this.pumpTimer) return;
+    for (;;) {
+      const lane = this.queues.live.length > 0 ? this.queues.live : this.queues.background;
+      const next = lane[0];
+      if (!next) return;
+      const now = Date.now();
+      if (now < this.nextSlotEndsAt) {
+        this.pumpTimer = setTimeout(() => {
+          this.pumpTimer = undefined;
+          this.pump();
+        }, this.nextSlotEndsAt - now);
+        return;
+      }
+      lane.shift();
+      this.nextSlotEndsAt = now + next.weight * this.msPerWeight();
+      this.record(now, next.weight);
+      next.resolve();
     }
-
-    this.record(start, weight);
   }
 
   /**
@@ -153,7 +136,7 @@ export class RequestBudgeterService {
     if (weight <= 0) return;
     const now = Date.now();
     this.nextSlotEndsAt = Math.max(this.nextSlotEndsAt, now) + weight * this.msPerWeight();
-    this.record(now, weight);
+    this.record(now, weight, false);
   }
 
   /** Call after a successful (non-429) response, for gradual recovery. */
@@ -201,7 +184,7 @@ export class RequestBudgeterService {
   } {
     this.prune(Date.now());
     return {
-      requestsLastMinute: this.window.length,
+      requestsLastMinute: this.window.filter((e) => e.request).length,
       weightLastMinute: this.window.reduce((sum, e) => sum + e.weight, 0),
       effectiveBudgetPerMin: this.effectiveBudgetPerMin,
       configuredBudgetPerMin: this.configuredBudgetPerMin,

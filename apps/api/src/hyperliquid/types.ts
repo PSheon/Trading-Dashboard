@@ -10,10 +10,13 @@
 // ---------------------------------------------------------------------------
 
 export interface HlMetaUniverseAsset {
+  /** Main-dex coins are bare ("BTC"); HIP-3 coins carry their dex prefix
+   * ("xyz:TSLA"). */
   name: string;
   szDecimals: number;
   maxLeverage: number;
   onlyIsolated?: boolean;
+  isDelisted?: boolean;
 }
 
 export interface HlMetaResponse {
@@ -51,12 +54,15 @@ export interface HlClearinghouseStateResponse {
   time: number;
 }
 
+/** Shape per the docs' `WsFill` (same objects as userFillsByTime). */
 export interface HlUserFill {
   coin: string;
   px: string;
   sz: string;
   side: "A" | "B";
   time: number;
+  /** Signed position size right before this fill. Classification uses this;
+   * `dir` is documented as "used for frontend display". */
   startPosition?: string;
   dir: string;
   closedPnl: string;
@@ -64,17 +70,29 @@ export interface HlUserFill {
   oid: number;
   crossed: boolean;
   fee: string;
+  /** Shared by both counterparties of the trade. */
   tid: number;
+  liquidation?: {
+    liquidatedUser?: string;
+    markPx: number;
+    method: "market" | "backstop";
+  };
   feeToken?: string;
+  builderFee?: string;
 }
 
 export type HlUserFillsByTimeResponse = HlUserFill[];
 
+/** `perpDexs`: index 0 is the main dex (returned as null); the rest are
+ * HIP-3 builder dexes whose coins are named "<dex>:<COIN>". */
+export type HlPerpDexsResponse = Array<{ name: string } | null>;
+
 export type HlAllMidsResponse = Record<string, string>;
 
 export type HlInfoRequestBody =
-  | { type: "meta" }
-  | { type: "clearinghouseState"; user: string }
+  | { type: "meta"; dex?: string }
+  | { type: "perpDexs" }
+  | { type: "clearinghouseState"; user: string; dex?: string }
   | {
       type: "userFillsByTime";
       user: string;
@@ -85,39 +103,27 @@ export type HlInfoRequestBody =
 
 // ---------------------------------------------------------------------------
 // WS: wss://api.hyperliquid.xyz/ws
+//
+// Only the per-coin `trades` channel is used. User-specific channels
+// (userFills, userEvents, …) are capped at 10 unique users per IP; `trades`
+// is not user-specific, and every trade names both counterparties.
 // ---------------------------------------------------------------------------
 
-export interface HlWsSubscribeUserFills {
-  method: "subscribe";
-  subscription: { type: "userFills"; user: string };
+export interface HlWsTrade {
+  coin: string;
+  side: "A" | "B";
+  px: string;
+  sz: string;
+  time: number;
+  hash: string;
+  tid: number;
+  /** [buyer, seller], lowercase hex. */
+  users: [string, string];
 }
 
-export interface HlWsSubscribeUserEvents {
-  method: "subscribe";
-  subscription: { type: "userEvents"; user: string };
-}
-
-export type HlWsSubscribeMessage =
-  | HlWsSubscribeUserFills
-  | HlWsSubscribeUserEvents;
-
-export interface HlWsUserFillsEvent {
-  channel: "userFills";
-  data: {
-    user: string;
-    isSnapshot?: boolean;
-    fills: HlUserFill[];
-  };
-}
-
-/**
- * userEvents payload shape varies by event kind (fills, funding,
- * liquidation, ...). Left as `unknown` here — mapping to the official
- * schema is called out in the PRD as "型別需在實作時對照官方 schema" (§4.2 W5).
- */
-export interface HlWsUserEventsEvent {
-  channel: "userEvents";
-  data: unknown;
-}
-
-export type HlWsIncomingMessage = HlWsUserFillsEvent | HlWsUserEventsEvent;
+export type HlWsIncomingMessage =
+  | { channel: "trades"; data: HlWsTrade[] }
+  | { channel: "subscriptionResponse"; data: unknown }
+  | { channel: "pong" }
+  | { channel: "error"; data: string }
+  | { channel: string; data?: unknown };

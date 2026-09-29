@@ -4,12 +4,12 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BackfillService } from "../src/watcher/backfill.service.js";
 import { ImportService } from "../src/import/import.service.js";
-import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
+import type { FillSyncService } from "../src/watcher/fill-sync.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
 describe("ImportService (A1/A2/A5) — real Postgres", () => {
   const db = getTestDb();
-  const backfill = new BackfillService({} as HyperliquidInfoClient, db);
+  const backfill = new BackfillService({} as FillSyncService);
   const triggerSpy = vi.spyOn(backfill, "trigger").mockImplementation(() => {});
   const importService = new ImportService(db, backfill);
 

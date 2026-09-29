@@ -6,57 +6,41 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 const logger = new Logger("ActionClassifier");
 
 /**
- * Hyperliquid `dir` → (category, side) mapping. Verified live against the
- * real API (`userFillsByTime` against a real address, 2026-09-29) — every
- * value in this map was actually observed in a live response, not assumed
- * from memory/training data:
- *   perps: "Open Long", "Open Short", "Close Long", "Close Short",
- *          "Long > Short" (also expect the symmetric "Short > Long")
- *   spot:  "Buy", "Sell", "Spot Dust Conversion"
+ * Fills → `actions` (PRD §4.2 W3).
  *
- * §11 決策紀錄 "市場範圍" restricts this v1 to perps only ("只看 perps，不看
- * spot") — spot dir values are recognized-but-out-of-scope and silently
- * skipped (not an error). Anything NOT in this table is a genuinely
- * unrecognized value: per the task spec, that is logged and skipped rather
- * than guessed at, so a future Hyperliquid schema change fails loud instead
- * of silently mis-classifying.
+ * Every Hyperliquid fill carries `startPosition`, the signed position size
+ * right before it. That alone decides the action kind exactly — no need to
+ * compare polled position snapshots, which went wrong after every restart
+ * (empty memory made every add look like an open) and when a round trip
+ * fitted between two polls.
+ *
+ * Grouping: fills of the same coin, same side (B/A) and same liquidation
+ * status, each within `GROUP_GAP_MS` of the previous one, form one action.
+ * One market order that crosses eight resting orders is eight fills and one
+ * action. The group's kind comes from the position before its first fill
+ * and after its last fill:
+ *
+ *   before = 0, after ≠ 0            → open
+ *   before ≠ 0, after = 0            → close
+ *   signs differ, both ≠ 0           → flip
+ *   same sign, |after| > |before|    → add
+ *   same sign, |after| < |before|    → reduce
+ *   any fill liquidates this address → liquidation
+ *
+ * Side is the position's side: after the action for open/add/flip, before
+ * it for reduce/close/liquidation.
  */
-type DirCategory = "open" | "close" | "flip";
-type Side = "long" | "short";
+export const GROUP_GAP_MS = 1000;
 
-const PERPS_DIR: Record<string, { category: DirCategory; side: Side }> = {
-  "Open Long": { category: "open", side: "long" },
-  "Open Short": { category: "open", side: "short" },
-  "Close Long": { category: "close", side: "long" },
-  "Close Short": { category: "close", side: "short" },
-  "Long > Short": { category: "flip", side: "short" },
-  "Short > Long": { category: "flip", side: "long" },
-};
-
+/** §11 "只看 perps，不看 spot". Spot coins are "@107" or "PURR/USDC"; perps
+ * are "BTC" or, on a HIP-3 dex, "xyz:TSLA". */
 const SPOT_DIRS = new Set(["Buy", "Sell", "Spot Dust Conversion"]);
 
-/** Spot pairs are reported with a coin name like "PURR/USDC" (verified
- * live) — a second, cheap signal alongside the `dir` check below. */
-function looksLikeSpotCoin(coin: string): boolean {
-  return coin.includes("/");
-}
-
-/** True for a fill this v1 (perps-only) should not ingest at all. */
 export function isOutOfScopeSpotFill(fill: HlUserFill): boolean {
-  return SPOT_DIRS.has(fill.dir) || looksLikeSpotCoin(fill.coin);
+  return SPOT_DIRS.has(fill.dir) || fill.coin.includes("/") || fill.coin.startsWith("@");
 }
 
-export interface PositionStateLookup {
-  /** Did this coin have an open position *before* the current poll cycle? */
-  hadPositionBefore(coin: string): boolean;
-  /** Leverage recorded for that pre-cycle position, if any. */
-  leverageBefore(coin: string): number | null;
-  /** Does this coin have an open position *after* the current poll cycle
-   * (i.e. in the freshly-fetched clearinghouseState)? */
-  hasPositionAfter(coin: string): boolean;
-  /** Leverage in that freshly-fetched position, if any. */
-  leverageAfter(coin: string): number | null;
-}
+type Side = "long" | "short";
 
 export interface ActionDraft {
   coin: string;
@@ -69,136 +53,134 @@ export interface ActionDraft {
   ts: Date;
 }
 
-/** JS numbers loses precision above this — Hyperliquid's `tid` is JSON
- * `number`, not a string, so this ceiling is a platform limitation, not a
- * bug here. See `watcher.service.ts` `toFillTid` for the guarded cast. */
-export const MAX_SAFE_TID = Number.MAX_SAFE_INTEGER;
+/** Positions are compared exactly: decimal strings scaled to integers. */
+const SCALE_DIGITS = 12;
 
+export function toScaled(value: string): bigint {
+  const trimmed = value.trim();
+  const negative = trimmed.startsWith("-");
+  const [intPart, fracPart = ""] = (negative ? trimmed.slice(1) : trimmed).split(".");
+  const frac = (fracPart + "0".repeat(SCALE_DIGITS)).slice(0, SCALE_DIGITS);
+  const scaled = BigInt(intPart || "0") * 10n ** BigInt(SCALE_DIGITS) + BigInt(frac || "0");
+  return negative ? -scaled : scaled;
+}
+
+const sign = (v: bigint): -1 | 0 | 1 => (v > 0n ? 1 : v < 0n ? -1 : 0);
+const abs = (v: bigint): bigint => (v < 0n ? -v : v);
+
+export function kindFor(before: bigint, after: bigint): { kind: ActionKind; side: Side } | null {
+  const b = sign(before);
+  const a = sign(after);
+  if (b === 0 && a === 0) return null;
+  if (b === 0) return { kind: "open", side: a > 0 ? "long" : "short" };
+  if (a === 0) return { kind: "close", side: b > 0 ? "long" : "short" };
+  if (a !== b) return { kind: "flip", side: a > 0 ? "long" : "short" };
+  return abs(after) > abs(before)
+    ? { kind: "add", side: a > 0 ? "long" : "short" }
+    : { kind: "reduce", side: a > 0 ? "long" : "short" };
+}
+
+/** Hyperliquid returns `tid` as a JSON number. Values seen so far are
+ * ~1e15, under 2^53; past that, precision is already gone on arrival. */
 function toFillTid(fill: HlUserFill): bigint {
-  if (fill.tid > MAX_SAFE_TID) {
-    logger.warn(
-      `Fill tid ${fill.tid} exceeds Number.MAX_SAFE_INTEGER — precision may already be lost by the time this process received it as JSON (Hyperliquid returns tid as a JSON number, not a string).`,
-    );
+  if (fill.tid > Number.MAX_SAFE_INTEGER) {
+    logger.warn(`Fill tid ${fill.tid} exceeds Number.MAX_SAFE_INTEGER; precision may be lost`);
   }
   return BigInt(fill.tid);
 }
 
-interface DirRun {
-  category: DirCategory;
-  side: Side;
+function liquidates(fill: HlUserFill, address: string): boolean {
+  return fill.liquidation?.liquidatedUser?.toLowerCase() === address.toLowerCase();
+}
+
+interface Group {
+  coin: string;
+  side: "A" | "B";
+  liquidation: boolean;
   fills: HlUserFill[];
 }
 
-/** Merges a time-ordered, single-coin fill sequence into contiguous
- * same-`dir` runs (PRD §4.2 W3: "同地址、同幣、同方向的 fills ... 合併為一個
- * action"). Spot and unrecognized dirs are dropped before this is called. */
-function toRuns(fills: HlUserFill[]): DirRun[] {
-  const runs: DirRun[] = [];
-  for (const fill of fills) {
-    const info = PERPS_DIR[fill.dir];
-    if (!info) continue; // filtered out by caller already; defensive no-op
-    const last = runs[runs.length - 1];
-    if (last && last.category === info.category && last.side === info.side) {
-      last.fills.push(fill);
-    } else {
-      runs.push({ category: info.category, side: info.side, fills: [fill] });
-    }
-  }
-  return runs;
-}
-
-function summarizeRun(fills: HlUserFill[]): { notionalUsd: number; avgPx: number; sz: number } {
-  let notionalUsd = 0;
-  let sz = 0;
-  for (const fill of fills) {
-    const px = Number(fill.px);
-    const s = Number(fill.sz);
-    notionalUsd += px * s;
-    sz += s;
-  }
-  return { notionalUsd, avgPx: sz === 0 ? 0 : notionalUsd / sz, sz };
-}
-
-/**
- * Classifies one address's newly-fetched, perps-only, time-ordered fills
- * into `actions` rows (W3, adapted for polling — see `watcher.service.ts`
- * for how the batch is assembled). Fills for multiple coins may be
- * interleaved in `fills`; grouping happens per-coin, in time order, using
- * the state-machine below to distinguish open/add and close/reduce (`dir`
- * alone conflates these — "Open Long" fires for both a fresh open and
- * scaling into an existing long; disambiguating needs before/after
- * position state, not just the fill stream).
- *
- * Unrecognized `dir` values are logged and skipped (never guessed at) per
- * the task's explicit instruction — a schema change on Hyperliquid's side
- * must fail loud, not silently mis-classify.
- */
-export function classifyFillsIntoActions(
-  fills: HlUserFill[],
-  state: PositionStateLookup,
-): ActionDraft[] {
+function groupFills(address: string, fills: HlUserFill[]): Group[] {
   const byCoin = new Map<string, HlUserFill[]>();
   for (const fill of fills) {
-    if (isOutOfScopeSpotFill(fill)) continue;
-    if (!PERPS_DIR[fill.dir]) {
-      logger.error(
-        `Unrecognized Hyperliquid fill dir "${fill.dir}" (coin=${fill.coin}, tid=${fill.tid}) — skipping this fill rather than guessing its action kind.`,
-      );
-      continue;
-    }
     const list = byCoin.get(fill.coin) ?? [];
     list.push(fill);
     byCoin.set(fill.coin, list);
   }
-
-  const drafts: ActionDraft[] = [];
-
+  const groups: Group[] = [];
   for (const [coin, coinFills] of byCoin) {
-    const sorted = [...coinFills].sort((a, b) => a.time - b.time);
-    const runs = toRuns(sorted);
-    let currentlyHasPosition = state.hadPositionBefore(coin);
-
-    runs.forEach((run, i) => {
-      const isLast = i === runs.length - 1;
-      let kind: ActionKind;
-
-      if (run.category === "open") {
-        kind = currentlyHasPosition ? "add" : "open";
-        currentlyHasPosition = true;
-      } else if (run.category === "close") {
-        if (isLast) {
-          const stillOpen = state.hasPositionAfter(coin);
-          kind = stillOpen ? "reduce" : "close";
-          currentlyHasPosition = stillOpen;
-        } else {
-          // A run after this one exists (open/flip) — the position must
-          // have hit flat for that to make sense.
-          kind = "close";
-          currentlyHasPosition = false;
-        }
+    coinFills.sort((x, y) => x.time - y.time || x.tid - y.tid);
+    let current: Group | undefined;
+    for (const fill of coinFills) {
+      const liquidation = liquidates(fill, address);
+      const last = current?.fills[current.fills.length - 1];
+      if (
+        current &&
+        last &&
+        current.side === fill.side &&
+        current.liquidation === liquidation &&
+        fill.time - last.time <= GROUP_GAP_MS
+      ) {
+        current.fills.push(fill);
       } else {
-        kind = "flip";
-        currentlyHasPosition = true;
+        current = { coin, side: fill.side, liquidation, fills: [fill] };
+        groups.push(current);
       }
+    }
+  }
+  return groups.sort(
+    (x, y) => x.fills[x.fills.length - 1].time - y.fills[y.fills.length - 1].time,
+  );
+}
 
-      const { notionalUsd, avgPx } = summarizeRun(run.fills);
-      const leverage = currentlyHasPosition
-        ? state.leverageAfter(coin)
-        : state.leverageBefore(coin);
-      const lastFill = run.fills[run.fills.length - 1];
+/**
+ * Classifies one address's newly stored perp fills into action drafts.
+ * Spot fills are ignored. A group whose fills lack `startPosition` can't be
+ * classified; it is logged and skipped (the fills themselves are already
+ * stored).
+ */
+export function classifyFills(
+  address: string,
+  fills: HlUserFill[],
+  leverageFor: (coin: string) => number | null = () => null,
+): ActionDraft[] {
+  const drafts: ActionDraft[] = [];
+  for (const group of groupFills(address, fills.filter((f) => !isOutOfScopeSpotFill(f)))) {
+    const first = group.fills[0];
+    if (group.fills.some((f) => f.startPosition === undefined)) {
+      logger.error(
+        `Fill without startPosition (address=${address}, coin=${group.coin}, tid=${first.tid}); action skipped`,
+      );
+      continue;
+    }
+    const before = toScaled(first.startPosition!);
+    let after = before;
+    let notional = 0;
+    let size = 0;
+    for (const fill of group.fills) {
+      const sz = toScaled(fill.sz);
+      after += fill.side === "B" ? sz : -sz;
+      notional += Number(fill.px) * Number(fill.sz);
+      size += Number(fill.sz);
+    }
 
-      drafts.push({
-        coin,
-        kind,
-        side: run.side,
-        notionalUsd: notionalUsd.toString(),
-        avgPx: avgPx.toString(),
-        leverage: leverage === null ? null : leverage.toString(),
-        fillIds: run.fills.map(toFillTid),
-        ts: new Date(lastFill.time),
-      });
+    const shape = kindFor(before, after);
+    if (!shape) continue;
+    const kind: ActionKind = group.liquidation ? "liquidation" : shape.kind;
+    const side: Side = group.liquidation ? (sign(before) > 0 ? "long" : "short") : shape.side;
+    const leverage = sign(after) === 0 ? null : leverageFor(group.coin);
+    const last = group.fills[group.fills.length - 1];
+
+    drafts.push({
+      coin: group.coin,
+      kind,
+      side,
+      notionalUsd: notional.toString(),
+      avgPx: (size === 0 ? 0 : notional / size).toString(),
+      leverage: leverage === null ? null : leverage.toString(),
+      fillIds: group.fills.map(toFillTid),
+      ts: new Date(last.time),
     });
   }
-
   return drafts;
 }

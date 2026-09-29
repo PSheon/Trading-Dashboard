@@ -44,14 +44,10 @@ export const env = {
   hyperliquidWsUrl: () =>
     getEnv("HYPERLIQUID_WS_URL") ?? "wss://api.hyperliquid.xyz/ws",
 
-  /**
-   * W6 request budgeter + polling-only Watcher config. See the arithmetic
-   * in `request-budgeter.service.ts` and `watcher.service.ts` for how these
-   * two defaults were derived — they are not independent knobs, changing
-   * one changes the safety margin the other assumes.
-   */
-  watcherPollIntervalSeconds: () =>
-    getIntEnv("WATCHER_POLL_INTERVAL_SECONDS", 20),
+  /** W6: REST weight per minute, default 70% of Hyperliquid's 1200 (§8). */
   hyperliquidWeightBudgetPerMin: () =>
     getIntEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", 840),
+  /** Actions older than this are stored but never alerted on (catch-up
+   * sweeps find fills late; a stale alert would read as news). */
+  alertMaxActionAgeSeconds: () => getIntEnv("ALERT_MAX_ACTION_AGE_SECONDS", 600),
 };

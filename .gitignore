@@ -28,3 +28,6 @@ pnpm-debug.log*
 
 # playwright / test artifacts (unrelated stray files)
 .playwright-mcp/
+
+# agent worktrees
+.claude/worktrees/

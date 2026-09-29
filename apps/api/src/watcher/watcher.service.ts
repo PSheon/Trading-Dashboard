@@ -4,376 +4,205 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
-  Optional,
 } from "@nestjs/common";
-import { EventEmitter2 } from "@nestjs/event-emitter";
-import { and, desc, eq } from "drizzle-orm";
-import {
-  actions,
-  fills,
-  leaders,
-  CHAIN_DEFAULT,
-} from "@trading-dashboard/shared";
+import { and, eq } from "drizzle-orm";
+import { CHAIN_DEFAULT, leaders } from "@trading-dashboard/shared";
 
-import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
-import type {
-  HlClearinghouseStateResponse,
-  HlUserFill,
-} from "../hyperliquid/types.js";
-import {
-  classifyFillsIntoActions,
-  isOutOfScopeSpotFill,
-  type PositionStateLookup,
-} from "./action-classifier.js";
-import { ACTION_CREATED_EVENT } from "./action-created.event.js";
-import { toFillRow } from "./fill-row.js";
+import type { HlWsTrade } from "../hyperliquid/types.js";
+import { AccountStateService } from "./account-state.service.js";
+import { GROUP_GAP_MS } from "./action-classifier.js";
+import { FillSyncService } from "./fill-sync.service.js";
+import { TradeFeedService, type TradeFeedStatus } from "./trade-feed.service.js";
 
-interface PositionState {
-  szi: number;
-  entryPx: number | null;
-  leverageValue: number | null;
-  marginMode: string | null;
-}
+/** How far before the first seen trade a live sync starts. Trade and fill
+ * times share the exchange clock, so this only needs to catch fills of the
+ * same order that landed just before. */
+const LIVE_LOOKBACK_MS = 10_000;
+/** A trade seen on the feed can take a moment to show up in
+ * `userFillsByTime`; retry these delays before leaving it to the sweep. */
+const LIVE_RETRY_DELAYS_MS = [2_000, 5_000, 15_000];
+/** The hourly sweep re-reads this much history for every address, so any
+ * fill the feed missed is stored within about an hour. */
+export const SWEEP_WINDOW_MS = 75 * 60_000;
+/** Gap catch-up starts this long before the socket went down. */
+const GAP_OVERLAP_MS = 60_000;
+const WATCHED_REFRESH_MS = 15_000;
+const FEED_START_RETRY_MS = 30_000;
 
-export interface CachedClearinghouseState {
-  response: HlClearinghouseStateResponse;
-  fetchedAt: Date;
-}
-
-function toPositionMap(response: HlClearinghouseStateResponse): Map<string, PositionState> {
-  const map = new Map<string, PositionState>();
-  for (const ap of response.assetPositions) {
-    const p = ap.position;
-    const szi = Number(p.szi);
-    if (szi === 0) continue; // Hyperliquid can list a flat position; treat as absent.
-    map.set(p.coin, {
-      szi,
-      entryPx: p.entryPx !== undefined ? Number(p.entryPx) : null,
-      leverageValue: p.leverage?.value ?? null,
-      marginMode: p.leverage?.type ?? null,
-    });
-  }
-  return map;
-}
-
-function positionChanged(before: PositionState | undefined, after: PositionState | undefined): boolean {
-  if (!before && !after) return false;
-  if (!before || !after) return true;
-  return (
-    before.szi !== after.szi ||
-    before.entryPx !== after.entryPx ||
-    before.leverageValue !== after.leverageValue ||
-    before.marginMode !== after.marginMode
-  );
+interface Pending {
+  minTime: number;
+  tids: Set<bigint>;
 }
 
 /**
- * Polling-only replacement for the PRD's original WS-based W1–W4 (§4.2).
- * Locked architecture change (approved 2026-09-29): Hyperliquid's real WS
- * limit is 10 unique users per IP across user-specific subscriptions — not
- * enough for 100 addresses — so this v1 uses REST polling exclusively for
- * everything: fill discovery, action aggregation, and snapshots. The WS
- * client in `hyperliquid-ws.client.ts` is intentionally left unused.
+ * Leader watcher (§4.2 W1–W3).
  *
- * Every poll cycle (§ math in `request-budgeter.service.ts` /
- * `env.ts`):
- *   1. Re-reads `leaders` fresh (active + chain='hyperliquid') — this is
- *      what gives A2/A3 their "within one interval" guarantee for free, no
- *      separate signaling needed.
- *   2. For each address (isolated try/catch — one address's failure never
- *      stops the other 99): fetch clearinghouseState, diff against the
- *      in-memory last-known position map.
- *   3. On any per-coin delta, fetch userFillsByTime for the window since
- *      this address's last successful poll (or since its last known fill,
- *      on the very first poll of a process — see `getWindowStart`), insert
- *      perps fills (deduped on tid), and classify them into `actions` rows.
- *   4. Cache the raw clearinghouseState response so the 5-minute snapshot
- *      job (`scheduler.service.ts`) can write position/equity snapshots
- *      without a second round of API calls (W4 adapted, §11 "儲存維持 5
- *      分鐘一筆").
+ * The `trades` feed reports that a leader traded; the leader's trades within
+ * `GROUP_GAP_MS` are gathered and then one `userFillsByTime` (live priority)
+ * stores the fills and derives actions. Nothing here polls per address:
+ * REST weight is only spent on addresses that actually traded.
+ *
+ * Nothing is lost if the feed is: a socket outage triggers a catch-up sweep
+ * from when it went down, the process start sweeps the last 75 minutes
+ * (covering a deploy), and `SchedulerService` sweeps every address hourly.
+ * Fill storage dedupes, so these overlaps cost weight, never duplicates.
+ *
+ * The watch list is re-read from `leaders` every 15 s (A2: a new address is
+ * watched within a minute; A3: a deactivated one is dropped).
  */
 @Injectable()
 export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(WatcherService.name);
-
-  private readonly lastKnownPositions = new Map<string, Map<string, PositionState>>();
-  private readonly lastPollAt = new Map<string, Date>();
-  private readonly cachedState = new Map<string, CachedClearinghouseState>();
-
-  private lastFillAt: Date | null = null;
+  private readonly pending = new Map<string, Pending>();
+  private watchedTimer: ReturnType<typeof setInterval> | undefined;
+  private feedRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private running = false;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private lastCycleStartedAt: Date | null = null;
-  private lastCycleCompletedAt: Date | null = null;
-  private cyclesCompleted = 0;
+  private lastSweepAt: Date | null = null;
 
   constructor(
-    private readonly info: HyperliquidInfoClient,
+    private readonly feed: TradeFeedService,
+    private readonly fillSync: FillSyncService,
+    private readonly accounts: AccountStateService,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
-    // Optional: existing tests construct this service with just
-    // (info, db) — event emission is a no-op without it rather than a
-    // required 3rd constructor arg everywhere.
-    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
-  /** Auto-starts on real app boot (§8 可用性: "訂閱清單來自 DB，啟動即重建；不
-   * 依賴進程內狀態" — the polling equivalent is "just start polling, the
-   * leader list is re-read every cycle anyway"). Skipped under `test` so
-   * Nest TestingModule-based tests don't accidentally start live polling —
-   * tests that want to exercise the loop call `runPollCycle()`/`start()`
-   * directly with a controlled service instance instead. */
+  /** Starts on app boot; not under `NODE_ENV=test`, where tests drive the
+   * pieces directly. */
   onApplicationBootstrap(): void {
     if (process.env.NODE_ENV === "test") return;
-    this.start();
+    void this.start();
   }
 
   onModuleDestroy(): void {
     this.stop();
   }
 
-  /** Starts the recursive poll loop. Idempotent. */
-  start(): void {
+  async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    this.logger.log(
-      `Watcher starting — poll interval ${env.watcherPollIntervalSeconds()}s, weight budget ${env.hyperliquidWeightBudgetPerMin()}/min`,
-    );
-    this.scheduleNext(0);
+    await this.refreshWatched();
+    this.watchedTimer = setInterval(() => void this.refreshWatched(), WATCHED_REFRESH_MS);
+    await this.startFeed();
+    // Covers whatever happened while the process was down (e.g. a deploy).
+    void this.sweep(Date.now() - SWEEP_WINDOW_MS);
   }
 
   stop(): void {
     this.running = false;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = undefined;
+    clearInterval(this.watchedTimer);
+    clearTimeout(this.feedRetryTimer);
+    this.feed.stop();
+  }
+
+  private async startFeed(): Promise<void> {
+    try {
+      await this.feed.start({
+        onTrade: (address, trade) => this.onTrade(address, trade),
+        onGap: (since) => void this.sweep(since - GAP_OVERLAP_MS),
+      });
+    } catch (error) {
+      this.logger.error(`Trade feed failed to start, retrying in 30s: ${(error as Error).message}`);
+      this.feed.stop();
+      if (this.running) this.feedRetryTimer = setTimeout(() => void this.startFeed(), FEED_START_RETRY_MS);
     }
   }
 
-  private scheduleNext(delayMs: number): void {
-    this.timer = setTimeout(() => {
-      void this.runPollCycle().finally(() => {
-        if (this.running) this.scheduleNext(env.watcherPollIntervalSeconds() * 1000);
-      });
-    }, delayMs);
-  }
-
-  /** One full cycle over every active leader. Public so tests (and the A2
-   * "pick up a new address within one interval" acceptance criterion) can
-   * drive it directly without waiting on the timer. */
-  async runPollCycle(): Promise<void> {
-    this.lastCycleStartedAt = new Date();
-    const activeLeaders = await this.db
+  async activeAddresses(): Promise<string[]> {
+    const rows = await this.db
       .select({ address: leaders.address })
       .from(leaders)
       .where(and(eq(leaders.chain, CHAIN_DEFAULT), eq(leaders.active, true)));
-
-    await Promise.allSettled(
-      activeLeaders.map((l) => this.pollAddress(l.address)),
-    );
-
-    // An address that dropped out of the active set (A3 deactivation, or
-    // simply removed) should stop being diffed against — otherwise its
-    // stale in-memory state lingers forever and a later reactivation would
-    // see a bogus "no change" on the first poll back.
-    const activeSet = new Set(activeLeaders.map((l) => l.address));
-    const staleAddresses = Array.from(this.lastKnownPositions.keys()).filter(
-      (addr) => !activeSet.has(addr),
-    );
-    for (const addr of staleAddresses) {
-      this.lastKnownPositions.delete(addr);
-      this.lastPollAt.delete(addr);
-      this.cachedState.delete(addr);
-    }
-
-    this.lastCycleCompletedAt = new Date();
-    this.cyclesCompleted += 1;
+    return rows.map((r) => r.address);
   }
 
-  private async pollAddress(address: string): Promise<void> {
+  async refreshWatched(): Promise<void> {
     try {
-      const pollTime = new Date();
-      const response = await this.info.clearinghouseState(address);
-      const newPositions = toPositionMap(response);
-      const previousPositions = this.lastKnownPositions.get(address);
-
-      const changedCoins = new Set<string>();
-      const coinsToCheck = new Set([
-        ...(previousPositions?.keys() ?? []),
-        ...newPositions.keys(),
-      ]);
-      for (const coin of coinsToCheck) {
-        if (positionChanged(previousPositions?.get(coin), newPositions.get(coin))) {
-          changedCoins.add(coin);
-        }
-      }
-
-      if (changedCoins.size > 0) {
-        await this.handleDelta(address, previousPositions, newPositions, pollTime);
-      }
-
-      this.lastKnownPositions.set(address, newPositions);
-      this.lastPollAt.set(address, pollTime);
-      this.cachedState.set(address, { response, fetchedAt: pollTime });
+      const addresses = await this.activeAddresses();
+      this.feed.setWatched(addresses);
     } catch (error) {
-      this.logger.error(
-        `Poll failed for ${address}: ${(error as Error).message}`,
-        (error as Error).stack,
+      this.logger.error(`Watch list refresh failed: ${(error as Error).message}`);
+    }
+  }
+
+  /** Called by the feed for every trade a watched address is part of. */
+  onTrade(address: string, trade: HlWsTrade): void {
+    let entry = this.pending.get(address);
+    if (!entry) {
+      entry = { minTime: trade.time, tids: new Set() };
+      this.pending.set(address, entry);
+      setTimeout(() => {
+        this.pending.delete(address);
+        void this.liveSync(address, entry!.minTime, entry!.tids, 0);
+      }, GROUP_GAP_MS);
+    }
+    entry.minTime = Math.min(entry.minTime, trade.time);
+    entry.tids.add(BigInt(trade.tid));
+  }
+
+  private async liveSync(address: string, minTime: number, tids: Set<bigint>, attempt: number): Promise<void> {
+    let missing: bigint[] = [...tids];
+    try {
+      const result = await this.fillSync.sync(address, "live", minTime - LIVE_LOOKBACK_MS, tids);
+      missing = result.missingTids;
+    } catch (error) {
+      this.logger.warn(`Live sync failed for ${address}: ${(error as Error).message}`);
+    }
+    if (missing.length === 0) return;
+    if (attempt < LIVE_RETRY_DELAYS_MS.length) {
+      setTimeout(
+        () => void this.liveSync(address, minTime, new Set(missing), attempt + 1),
+        LIVE_RETRY_DELAYS_MS[attempt],
+      );
+    } else {
+      this.logger.warn(
+        `${missing.length} trade(s) of ${address} still not in userFillsByTime after retries; the hourly sweep will pick them up`,
       );
     }
   }
 
-  private async handleDelta(
-    address: string,
-    previousPositions: Map<string, PositionState> | undefined,
-    newPositions: Map<string, PositionState>,
-    pollTime: Date,
-  ): Promise<void> {
-    const windowStart = await this.getWindowStart(address);
-    if (!windowStart) {
-      // Brand new address, no backfill history yet either — nothing to
-      // diff a fill window against on this very first sighting.
-      return;
+  /** Re-reads fills since `startTime` for every active address. */
+  async sweep(startTime: number): Promise<{ addresses: number; inserted: number; failed: number }> {
+    let addresses: string[];
+    try {
+      addresses = await this.activeAddresses();
+    } catch (error) {
+      // Callers fire this without awaiting; it must never reject.
+      this.logger.error(`Sweep could not read leaders: ${(error as Error).message}`);
+      return { addresses: 0, inserted: 0, failed: 0 };
     }
-
-    const startTime = windowStart.getTime() + 1;
-    const endTime = pollTime.getTime();
-    if (startTime >= endTime) return;
-
-    const rawFills = await this.info.userFillsByTime(address, startTime, endTime);
-    const perpsFills = rawFills.filter((f) => !isOutOfScopeSpotFill(f));
-    if (perpsFills.length === 0) return;
-
-    const inserted = await this.insertFills(address, perpsFills);
-    if (inserted.length === 0) return;
-
-    const stateLookup: PositionStateLookup = {
-      hadPositionBefore: (coin) => (previousPositions?.has(coin) ?? false),
-      leverageBefore: (coin) => previousPositions?.get(coin)?.leverageValue ?? null,
-      hasPositionAfter: (coin) => newPositions.has(coin),
-      leverageAfter: (coin) => newPositions.get(coin)?.leverageValue ?? null,
-    };
-
-    const drafts = classifyFillsIntoActions(inserted, stateLookup);
-    if (drafts.length === 0) return;
-
-    const insertedActions = await this.db
-      .insert(actions)
-      .values(
-        drafts.map((d) => ({
-          chain: CHAIN_DEFAULT,
-          address,
-          coin: d.coin,
-          kind: d.kind,
-          side: d.side,
-          notionalUsd: d.notionalUsd,
-          avgPx: d.avgPx,
-          leverage: d.leverage,
-          fillIds: d.fillIds,
-          ts: d.ts,
-        })),
-      )
-      .returning();
-
-    // Rules trigger mechanism (§1 of the M2 task): emit synchronously,
-    // in-process, right after the row is persisted — RulesModule listens
-    // via @OnEvent rather than polling `actions`. One event per action row
-    // (a single delta can classify into several actions, e.g. a close then
-    // a fresh open on the same coin in one poll window).
-    for (const row of insertedActions) {
-      this.eventEmitter?.emit(ACTION_CREATED_EVENT, row);
-    }
+    let inserted = 0;
+    let failed = 0;
+    await Promise.all(
+      addresses.map(async (address) => {
+        try {
+          // Await first: `x += await f()` reads x before awaiting, so
+          // concurrent sweeps would overwrite each other's counts.
+          const result = await this.fillSync.sync(address, "sweep", startTime);
+          inserted += result.inserted;
+        } catch (error) {
+          failed += 1;
+          this.logger.warn(`Sweep failed for ${address}: ${(error as Error).message}`);
+        }
+      }),
+    );
+    this.lastSweepAt = new Date();
+    if (inserted > 0) this.logger.warn(`Sweep stored ${inserted} fill(s) the feed had missed`);
+    return { addresses: addresses.length, inserted, failed };
   }
 
-  /** First-ever poll of an address in this process has no in-memory prior
-   * poll time (a fresh deploy, or an address that just came off A2 import).
-   * Fall back to the latest fill already on file for it — either from A5
-   * backfill or earlier activity — rather than fetching an unbounded
-   * window. If there is truly no fill history yet (backfill still running,
-   * or a genuinely fill-less address), there is nothing meaningful to diff
-   * a window against on this cycle: return null and let the caller skip
-   * the fetch, just seeding state so the *next* cycle has a real start. */
-  private async getWindowStart(address: string): Promise<Date | null> {
-    const inMemory = this.lastPollAt.get(address);
-    if (inMemory) return inMemory;
-    return this.latestFillTimestamp(address);
-  }
-
-  private async latestFillTimestamp(address: string): Promise<Date | null> {
-    const [row] = await this.db
-      .select({ ts: fills.ts })
-      .from(fills)
-      .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address)))
-      .orderBy(desc(fills.ts))
-      .limit(1);
-    return row?.ts ?? null;
-  }
-
-  /** Inserts fills deduped on (chain, tid) (W2), in ascending time order,
-   * and returns the same list for the caller to feed into action
-   * aggregation. Windows don't overlap cycle-to-cycle by construction
-   * (each starts at the previous cycle's end + 1ms) — EXCEPT if a cycle
-   * throws after this fetch but before `pollAddress` updates
-   * `lastPollAt`/`lastKnownPositions`: the next cycle then re-fetches the
-   * same window and re-derives the same `actions` rows. Accepted trade-off
-   * ("never miss a fill" over "never double-count an action" on a rare
-   * mid-cycle crash) rather than adding tid-level action dedupe for a
-   * failure mode that's already logged and isolated per-address. */
-  private async insertFills(address: string, rawFills: HlUserFill[]): Promise<HlUserFill[]> {
-    const sorted = [...rawFills].sort((a, b) => a.time - b.time);
-    const rows = sorted.map((f) => toFillRow(address, f));
-
-    if (rows.length === 0) return [];
-
-    await this.db.insert(fills).values(rows).onConflictDoNothing();
-
-    const latest = sorted[sorted.length - 1];
-    const latestTs = new Date(latest.time);
-    if (!this.lastFillAt || latestTs > this.lastFillAt) {
-      this.lastFillAt = latestTs;
-    }
-
-    return sorted;
-  }
-
-  // ---------------------------------------------------------------------
-  // Introspection for /health and the 5-minute snapshot job.
-  // ---------------------------------------------------------------------
-
-  getCachedStates(): ReadonlyMap<string, CachedClearinghouseState> {
-    return this.cachedState;
-  }
-
-  /** Synchronous in-process accessor for R1/R3's `equityUsd` (§1 of the M2
-   * task): the Rules path needs fresher-than-`equity_snapshots` data, and
-   * this cache is already refreshed every poll cycle for free — no extra
-   * Hyperliquid call, no DB read. Returns `null` if this address hasn't
-   * completed a poll cycle yet (brand new leader, or process just started).
-   */
+  /** R1/R3 equity: account value across dexes, refreshed right before any
+   * live action is written. Null until the address has been refreshed. */
   getEquityUsd(address: string): number | null {
-    const entry = this.cachedState.get(address);
-    if (!entry) return null;
-    return Number(entry.response.marginSummary.accountValue);
+    return this.accounts.getEquityUsd(address);
   }
 
-  getHeartbeat(): {
-    pollerAlive: boolean;
-    lastFillAt: Date | null;
-    cyclesCompleted: number;
-    lastCycleCompletedAt: Date | null;
-  } {
-    const intervalMs = env.watcherPollIntervalSeconds() * 1000;
-    const alive =
-      this.running &&
-      this.lastCycleCompletedAt !== null &&
-      Date.now() - this.lastCycleCompletedAt.getTime() < intervalMs * 3;
+  getHeartbeat(): { feed: TradeFeedStatus; lastFillAt: Date | null; lastSweepAt: Date | null } {
     return {
-      pollerAlive: alive,
-      lastFillAt: this.lastFillAt,
-      cyclesCompleted: this.cyclesCompleted,
-      lastCycleCompletedAt: this.lastCycleCompletedAt,
+      feed: this.feed.status(),
+      lastFillAt: this.fillSync.getLastFillAt(),
+      lastSweepAt: this.lastSweepAt,
     };
   }
 }

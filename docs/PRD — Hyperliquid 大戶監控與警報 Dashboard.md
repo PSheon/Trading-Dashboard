@@ -118,7 +118,7 @@ Sep 29, 2026 · @Paul
 
 | 需求 | 端點 | 用法 | 已知約束 |
 | --- | --- | --- | --- |
-| 即時成交 | WS `userFills` | 每地址一個訂閱 | 單一連線訂閱數有上限，100 個在限額內；`dir` 欄位直接給出 Open Long / Close Short / Long > Short 等分類 |
+| 即時成交 | WS `userFills` | 每地址一個訂閱 | 單一連線訂閱數有上限，100 個在限額內；`dir` 欄位直接給出 Open Long / Close Short / Long > Short 等分類（**不成立，見 11.1**：每 IP 最多 10 個地址；改用 `trades`） |
 | 清算 | WS `userEvents` | 每地址一個訂閱 | 事件型別需在實作時對照官方 schema |
 | 倉位與權益 | POST info `clearinghouseState` | 每地址每 5 分鐘 | 按 IP 計 weight，每分鐘有上限；100 地址 × 每 5 分鐘 = 每分鐘 20 次，在上限內 |
 | 歷史回補 | POST info `userFillsByTime` | 匯入時與對帳補拉 | 只回最近一段區間、單次筆數有上限；無法回補更早歷史 |
@@ -143,7 +143,7 @@ Postgres，所有核心表帶 `chain` 欄位（第 1 版恆為 `hyperliquid`）�
 | leader\_lists | id | source, imported\_at, file\_name | 每次匯入一個版本 |
 | leader\_list\_items | (list\_id, address) | rank, stats\_json | 名單版本內容，diff 用 |
 | leaders | (chain, address) | label, tier(A/B/C), notes, active, first\_seen\_at | 地址池主檔 |
-| fills | (chain, tid) | address, coin, side, dir, px, sz, fee, closed\_pnl, hash, ts | 原始成交，永久保存 |
+| fills | (chain, tid)（**改為 (chain, address, tid)，見 11.1**） | address, coin, side, dir, px, sz, fee, closed\_pnl, hash, ts | 原始成交，永久保存 |
 | actions | id | chain, address, coin, kind(open/add/reduce/close/flip/liquidation), side, notional\_usd, avg\_px, leverage, fill\_ids\[\], ts | 聚合後的動作；規則與 Feed 只看這張表 |
 | position\_snapshots | (chain, address, coin, ts) | szi, entry\_px, leverage, margin\_mode, unrealized\_pnl, liq\_px | 定時倉位快照 |
 | equity\_snapshots | (chain, address, ts) | account\_value, total\_margin\_used, withdrawable | 權益曲線 |
@@ -163,7 +163,7 @@ Watcher 與 Scheduler 寫入 Postgres，Rules 讀 actions 表決定是否推 Tel
 
 | 元件 | 部署 | 說明 |
 | --- | --- | --- |
-| Next.js（TS）+ shadcn / ReUI | Vercel | 純前端；以 env 內的 token 呼叫 API |
+| Next.js（TS）+ shadcn / ReUI | Vercel | 純前端；以 env 內的 token 呼叫 API（**改為伺服器端轉送 + 單一密碼登入，見 11.1**） |
 | Nest.js（TS） | Railway，1 個服務，關閉 sleep | 模組：Watcher、Scheduler（@nestjs/schedule）、Rules、Notify、API、Import；共用一個進程，避免 WS 訂閱與規則狀態跨進程同步 |
 | Postgres | Railway | 每日自動備份；fills 與 equity\_snapshots 為主要資產 |
 | Telegram Bot | — | 一個 bot token、一個 chat id，存於 Railway env |
@@ -241,3 +241,21 @@ Watcher 與 Scheduler 寫入 Postgres，Rules 讀 actions 表決定是否推 Tel
 | 群體規則初始值 | R6：N=3、T=30 分鐘；R7：觀察窗 24 小時；R8：N=3、T=60 分鐘 | 先偏鬆，看誤報再收緊 |
 | 冷卻時間預設 | 單地址規則 15 分鐘（同地址同幣）；群體規則 4 小時（同幣） | 避免洗版 |
 | Vault 地址 | 匯入時以 clearinghouseState 判斷並標記；照常監控；R3 的權益 % 改用 vault TVL | 名單可能混有 vault |
+
+### 11.1 實作修訂（2026-09-29）
+
+實作時以 Hyperliquid mainnet 實測，發現下列前提不成立，改動如下。上表其餘決定不變。
+
+| 主題 | 原本 | 改為 | 依據（實測） |
+| --- | --- | --- | --- |
+| 即時成交來源（W1） | 每地址訂閱 WS `userFills` | 訂閱全部 perp 市場的 WS `trades`（11 個 dex 共約 330 個），成交的 `users` 含監控地址時，拉該地址 `userFillsByTime` | 官方限制：每 IP「user-specific 訂閱最多 10 個不同地址」；`trades` 不屬於此類，每筆成交帶 `users: [買方, 賣方]` |
+| 目標 1（5 秒內通知） | — | 維持；實測延遲見交付報告 | 以 `trades` 偵測約 1–2 秒 |
+| 漏訊補救（W4） | 5 分鐘對帳補拉 | 5 分鐘快照與對帳保留；另加：斷線恢復後補拉斷線期間、程序啟動補拉 75 分鐘、每小時全地址補拉 75 分鐘 | 儲存以 (chain, address, tid) 去重，重疊補拉不會重複 |
+| fills 主鍵（§6） | (chain, tid) | (chain, address, tid) | 同一筆成交的買賣雙方共用同一個 `tid`；兩個監控地址互為對手時，舊主鍵會吞掉其中一方 |
+| 動作分類（W3） | 依 fill 的 `dir` | 依每筆 fill 的 `startPosition`（成交前倉位）計算前後倉位：open / add / reduce / close / flip；清算以 fill 的 `liquidation.liquidatedUser` 判斷 | 官方 schema 註明 `dir` 僅供前端顯示；`dir` 分不出開倉與加倉 |
+| HIP-3 市場 | 未提及 | 納入監控；倉位與權益依地址交易過的每個 dex 分別查詢，權益加總 | `clearinghouseState` 不帶 `dex` 只回主 dex；CopyDog 名單中的地址會交易 `xyz:TSLA` 等 |
+| 請求預算（W6） | 單一上限 | 上限不變（1200 的 70%），分「即時」「背景」兩級，匯入回補與補拉不會延誤即時偵測 | 100 個地址回補約需 60,000 weight |
+| 歷史回補的通知 | 未提及 | 回補的歷史成交也產生 actions（供勝率與 PnL），但不發通知；超過 10 分鐘的動作一律不通知 | 避免把舊成交當成新訊號 |
+| 前端與 API 權限（§7、§8） | 前端以 env token 呼叫 API | token 只在 Next.js 伺服器端；網頁以單一密碼登入（仍無帳號系統） | `NEXT_PUBLIC_` 變數會打包進瀏覽器，任何開啟網頁的人都能拿到 token |
+| 同一動作多條規則 | 未提及 | 一個動作只發一則 Telegram，列出所有命中規則；每條規則各寫一筆 alerts 並各自計算冷卻 | 大額開倉同時命中 R1 與 R3 |
+

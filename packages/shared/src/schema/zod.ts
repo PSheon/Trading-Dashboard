@@ -307,20 +307,23 @@ export const leaderDetailResponseSchema = z.object({
 export type LeaderDetailResponse = z.infer<typeof leaderDetailResponseSchema>;
 
 /**
- * GET /health — heartbeat per §8 可觀測.
- *
- * There is no WS in this v1 (polling-only Watcher — see watcher.service.ts
- * for why), so `wsConnected` doesn't correspond to anything real; renamed
- * to `pollerAlive` (did the poll loop complete a cycle recently). Likewise
- * `requestsToday` implied a since-midnight counter the request budgeter
- * doesn't keep (it only needs a trailing-60s window) — renamed to
- * `requestsLastMinute`, which is the number the budgeter can report
- * honestly.
+ * GET /health — heartbeat per §8 可觀測: is the trade feed connected, when
+ * did it last see a trade / store a fill, when did the safety nets last run,
+ * and how much REST budget is in use.
  */
 export const heartbeatResponseSchema = z.object({
-  pollerAlive: z.boolean(),
+  feedConnected: z.boolean(),
+  feedSocketsOpen: z.number().int(),
+  feedSocketsTotal: z.number().int(),
+  marketsSubscribed: z.number().int(),
+  feedDisconnectedSince: z.coerce.date().nullable(),
+  lastTradeAt: z.coerce.date().nullable(),
   lastFillAt: z.coerce.date().nullable(),
+  lastSnapshotAt: z.coerce.date().nullable(),
+  lastSweepAt: z.coerce.date().nullable(),
   requestsLastMinute: z.number().int(),
+  weightLastMinute: z.number(),
+  queuedRequests: z.object({ live: z.number().int(), background: z.number().int() }),
   dryRun: z.boolean(),
   now: z.coerce.date(),
 });

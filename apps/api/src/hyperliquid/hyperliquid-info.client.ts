@@ -1,12 +1,13 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 import { env } from "../config/env.js";
-import { RequestBudgeterService } from "./request-budgeter.service.js";
+import { RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
   HlAllMidsResponse,
   HlClearinghouseStateResponse,
   HlInfoRequestBody,
   HlMetaResponse,
+  HlPerpDexsResponse,
   HlUserFillsByTimeResponse,
 } from "./types.js";
 
@@ -15,11 +16,15 @@ import type {
 const WEIGHT_CLEARINGHOUSE_STATE = 2;
 const WEIGHT_USER_FILLS_BY_TIME_BASE = 20;
 const WEIGHT_META = 20;
+const WEIGHT_PERP_DEXS = 20;
 const WEIGHT_ALL_MIDS = 20;
 /** Assumed per-docs multiplier for the "additional weight per 20 items
  * returned" surcharge on userFillsByTime — see the budgeter's doc comment
  * for why this is 1 and not something else. */
 const EXTRA_WEIGHT_PER_20_ITEMS = 1;
+/** A dead connection must not hold a caller (and its per-address sync
+ * chain) forever. */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 /**
  * Read-only wrapper around Hyperliquid's `POST /info` endpoint.
@@ -34,14 +39,19 @@ export class HyperliquidInfoClient {
 
   constructor(private readonly budgeter: RequestBudgeterService) {}
 
-  private async post<T>(body: HlInfoRequestBody, weight: number): Promise<T> {
-    await this.budgeter.acquire(weight);
+  private async post<T>(
+    body: HlInfoRequestBody,
+    weight: number,
+    priority: RequestPriority = "background",
+  ): Promise<T> {
+    await this.budgeter.acquire(weight, priority);
 
     const url = env.hyperliquidApiUrl();
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (res.status === 429) {
@@ -61,22 +71,35 @@ export class HyperliquidInfoClient {
     return (await res.json()) as T;
   }
 
-  /** Coin universe metadata: szDecimals, max leverage (§5). */
-  meta(): Promise<HlMetaResponse> {
-    return this.post<HlMetaResponse>({ type: "meta" }, WEIGHT_META);
+  /** Coin universe metadata: szDecimals, max leverage (§5). `dex` selects a
+   * HIP-3 dex; omitted means the main dex. */
+  meta(dex?: string): Promise<HlMetaResponse> {
+    return this.post<HlMetaResponse>(dex ? { type: "meta", dex } : { type: "meta" }, WEIGHT_META);
   }
 
-  /** Positions + equity for one address (§4.2 W4, polled every N seconds). */
-  clearinghouseState(address: string): Promise<HlClearinghouseStateResponse> {
+  /** All perp dexes: `[null, {name: "xyz"}, …]`, main dex first. */
+  perpDexs(): Promise<HlPerpDexsResponse> {
+    return this.post<HlPerpDexsResponse>({ type: "perpDexs" }, WEIGHT_PERP_DEXS);
+  }
+
+  /** Positions + equity for one address on ONE dex. Without `dex` only the
+   * main dex is returned — HIP-3 positions ("xyz:TSLA") need their own call
+   * (verified live 2026-09-29). */
+  clearinghouseState(
+    address: string,
+    dex?: string,
+    priority: RequestPriority = "background",
+  ): Promise<HlClearinghouseStateResponse> {
     return this.post<HlClearinghouseStateResponse>(
-      { type: "clearinghouseState", user: address },
+      dex ? { type: "clearinghouseState", user: address, dex } : { type: "clearinghouseState", user: address },
       WEIGHT_CLEARINGHOUSE_STATE,
+      priority,
     );
   }
 
   /**
-   * Historical fills for one address, used at import time (A5) and for
-   * delta-triggered fetches (W2/W3). Hyperliquid only returns a bounded
+   * Fills for one address across every dex, used by A5 backfill, the
+   * trade-triggered live sync and the hourly sweep (W2/W3). Hyperliquid only returns a bounded
    * window / row count — see §5 known constraints (2000 rows/call, most
    * recent 10,000 fills retained). Time-ascending order, confirmed live.
    *
@@ -88,10 +111,12 @@ export class HyperliquidInfoClient {
     address: string,
     startTime: number,
     endTime?: number,
+    priority: RequestPriority = "background",
   ): Promise<HlUserFillsByTimeResponse> {
     const result = await this.post<HlUserFillsByTimeResponse>(
       { type: "userFillsByTime", user: address, startTime, endTime },
       WEIGHT_USER_FILLS_BY_TIME_BASE,
+      priority,
     );
     const extraWeight = Math.ceil(result.length / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
     this.budgeter.recordAdditionalWeight(extraWeight);

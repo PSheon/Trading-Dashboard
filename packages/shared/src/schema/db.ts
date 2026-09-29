@@ -7,7 +7,8 @@
  *   (§11 決策紀錄: "chain 欄位 — 第 1 版即加，但不做任何抽象層").
  * - `fills` keeps a `raw jsonb` column to allow re-deriving data if the
  *   Hyperliquid schema changes (§11: "fills 原始資料").
- * - `fills` primary key is the composite (chain, tid) (§11 decision + §6).
+ * - `fills` primary key is (chain, address, tid): §6 said (chain, tid), but
+ *   both counterparties of a trade share one tid (see the table below).
  * - Primary keys / columns are taken verbatim from the §6 table; where the
  *   PRD is silent on a concrete SQL type (e.g. the bare "id" columns), an
  *   idiomatic Postgres choice is made (serial/bigserial + timestamptz).
@@ -102,8 +103,11 @@ export const fills = pgTable(
     /** Full raw fill payload from Hyperliquid, kept for schema-change replay. */
     raw: jsonb("raw").$type<Record<string, unknown>>().notNull(),
   },
+  // Both counterparties of a trade share one `tid` (verified live
+  // 2026-09-29), so a (chain, tid) key would silently drop the second
+  // watched wallet's fill when two leaders trade against each other.
   (table) => [
-    primaryKey({ columns: [table.chain, table.tid] }),
+    primaryKey({ columns: [table.chain, table.address, table.tid] }),
     index("fills_address_ts_idx").on(table.address, table.ts.desc()),
   ],
 );

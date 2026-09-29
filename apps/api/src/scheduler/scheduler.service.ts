@@ -1,96 +1,181 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
   equitySnapshots,
-  leaders,
+  fills,
   positionSnapshots,
 } from "@trading-dashboard/shared";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
-import { WatcherService } from "../watcher/watcher.service.js";
+import { NotifyService } from "../notify/notify.service.js";
+import { AccountStateService, MAIN_DEX, type AccountState } from "../watcher/account-state.service.js";
+import { FillSyncService } from "../watcher/fill-sync.service.js";
+import { TradeFeedService } from "../watcher/trade-feed.service.js";
+import { SWEEP_WINDOW_MS, WatcherService } from "../watcher/watcher.service.js";
+
+/** §8: feed down this long → Telegram self-alert. */
+const FEED_DOWN_ALERT_MS = 10 * 60_000;
+const RECONCILE_OVERLAP_MS = 60_000;
 
 /**
- * Downsampled snapshot persistence (W4, adapted for polling-only §4.2/§11:
- * "儲存維持 5 分鐘一筆；詳情頁預設每小時一點，可切 5 分鐘 — 儲存不降採樣，顯示
- * 才降"). The fast Watcher poll loop runs every
- * `WATCHER_POLL_INTERVAL_SECONDS` (tens of seconds) for fill/action
- * detection; this cron reuses whatever clearinghouseState the poll loop
- * most recently cached for each active leader and writes it down at a
- * fixed 5-minute grain — no second round of API calls, per the task's
- * explicit instruction (that would double the request budget for no
- * benefit, since positions don't need finer-than-5-minute storage).
+ * Periodic jobs:
+ * - every 5 min (W4): positions and equity of every active leader on every
+ *   dex it uses → `position_snapshots` / `equity_snapshots`, and
+ *   reconciliation: a position that changed with no stored fill since the
+ *   previous snapshot triggers a fill sync;
+ * - hourly: sweep every address's last 75 minutes of fills, and subscribe to
+ *   newly listed markets;
+ * - every minute: §8 self-alert when the trade feed has been down 10 min.
  */
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
+  private feedDownAlerted = false;
+  private feedMissingSince: number | null = null;
+  lastSnapshotAt: Date | null = null;
 
   constructor(
     private readonly watcher: WatcherService,
+    private readonly accounts: AccountStateService,
+    private readonly fillSync: FillSyncService,
+    private readonly feed: TradeFeedService,
+    private readonly notify: NotifyService,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
   ) {}
 
   @Cron(CronExpression.EVERY_5_MINUTES)
-  async pollAllLeaders(): Promise<void> {
-    const activeLeaders = await this.db
-      .select({ address: leaders.address })
-      .from(leaders)
-      .where(and(eq(leaders.chain, CHAIN_DEFAULT), eq(leaders.active, true)));
-
-    const cached = this.watcher.getCachedStates();
-    let written = 0;
-    let skipped = 0;
-
-    for (const { address } of activeLeaders) {
-      const entry = cached.get(address);
-      if (!entry) {
-        // Address hasn't completed a single fast-poll cycle yet (just
-        // imported, or the Watcher only just started) — nothing to
-        // snapshot this round, the next 5-minute tick will have it.
-        skipped += 1;
-        continue;
-      }
-
-      try {
-        await this.writeSnapshots(address, entry.response, entry.fetchedAt);
-        written += 1;
-      } catch (error) {
-        this.logger.error(
-          `Snapshot write failed for ${address}: ${(error as Error).message}`,
-        );
-      }
+  async snapshotAll(): Promise<{ written: number; reconciled: number; failed: number }> {
+    let addresses: string[];
+    try {
+      addresses = await this.watcher.activeAddresses();
+    } catch (error) {
+      this.logger.error(`Snapshot could not read leaders: ${(error as Error).message}`);
+      return { written: 0, reconciled: 0, failed: 0 };
     }
-
-    this.logger.log(`5-min snapshot tick: wrote ${written}, skipped ${skipped} (no cached state yet)`);
+    let written = 0;
+    let reconciled = 0;
+    let failed = 0;
+    await Promise.all(
+      addresses.map(async (address) => {
+        try {
+          const previous = this.accounts.get(address);
+          const state = await this.accounts.refresh(address, "background");
+          await this.writeSnapshots(address, state);
+          written += 1;
+          if (previous && (await this.reconcile(address, previous, state))) reconciled += 1;
+        } catch (error) {
+          failed += 1;
+          this.logger.error(`Snapshot failed for ${address}: ${(error as Error).message}`);
+        }
+      }),
+    );
+    this.lastSnapshotAt = new Date();
+    this.logger.log(`Snapshots: ${written} written, ${reconciled} reconciled, ${failed} failed`);
+    return { written, reconciled, failed };
   }
 
-  private async writeSnapshots(
-    address: string,
-    response: HlClearinghouseStateResponse,
-    ts: Date,
-  ): Promise<void> {
+  @Cron(CronExpression.EVERY_HOUR)
+  async hourly(): Promise<void> {
+    try {
+      await this.feed.refreshMarkets();
+    } catch (error) {
+      this.logger.error(`Market refresh failed: ${(error as Error).message}`);
+    }
+    const result = await this.watcher.sweep(Date.now() - SWEEP_WINDOW_MS);
+    this.logger.log(`Hourly sweep: ${result.addresses} addresses, ${result.inserted} new fills, ${result.failed} failed`);
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async checkFeed(now = Date.now()): Promise<void> {
+    try {
+      await this.checkFeedOnce(now);
+    } catch (error) {
+      this.logger.error(`Feed check failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async checkFeedOnce(now: number): Promise<void> {
+    const status = this.feed.status();
+    const down = status.socketsTotal === 0 || status.socketsOpen < status.socketsTotal;
+    if (!down) {
+      this.feedMissingSince = null;
+      if (this.feedDownAlerted) {
+        this.feedDownAlerted = false;
+        await this.notify.sendSystemMessage("✅ Trade feed recovered; missed fills are being swept.");
+      }
+      return;
+    }
+    const since = status.disconnectedSince?.getTime() ?? (this.feedMissingSince ??= now);
+    if (!this.feedDownAlerted && now - since >= FEED_DOWN_ALERT_MS) {
+      this.feedDownAlerted = true;
+      await this.notify.sendSystemMessage(
+        `⚠️ Trade feed down for ${Math.round((now - since) / 60_000)} min (${status.socketsOpen}/${status.socketsTotal} sockets open). No alerts until it recovers.`,
+      );
+    }
+  }
+
+  /** True if a fill sync was needed: some coin's size changed since the
+   * previous state, but no fill for that coin was stored since then. */
+  private async reconcile(address: string, previous: AccountState, current: AccountState): Promise<boolean> {
+    const before = AccountStateService.positions(previous);
+    const after = AccountStateService.positions(current);
+    const changed = [...new Set([...before.keys(), ...after.keys()])].filter(
+      (coin) => before.get(coin) !== after.get(coin),
+    );
+    if (changed.length === 0) return false;
+
+    const seen = await this.db
+      .selectDistinct({ coin: fills.coin })
+      .from(fills)
+      .where(
+        and(
+          eq(fills.chain, CHAIN_DEFAULT),
+          eq(fills.address, address),
+          inArray(fills.coin, changed),
+          gt(fills.ts, previous.fetchedAt),
+        ),
+      );
+    const covered = new Set(seen.map((r) => r.coin));
+    const unexplained = changed.filter((coin) => !covered.has(coin));
+    if (unexplained.length === 0) return false;
+
+    this.logger.warn(`Reconcile ${address}: ${unexplained.join(",")} changed with no fill; syncing`);
+    await this.fillSync.sync(address, "reconcile", previous.fetchedAt.getTime() - RECONCILE_OVERLAP_MS);
+    return true;
+  }
+
+  /** One equity row per address (summed across dexes; `withdrawable` is the
+   * main dex's) and one position row per open coin. */
+  private async writeSnapshots(address: string, state: AccountState): Promise<void> {
+    let accountValue = 0;
+    let totalMarginUsed = 0;
+    for (const response of state.byDex.values()) {
+      accountValue += Number(response.marginSummary.accountValue);
+      totalMarginUsed += Number(response.marginSummary.totalMarginUsed);
+    }
     await this.db
       .insert(equitySnapshots)
       .values({
         chain: CHAIN_DEFAULT,
         address,
-        ts,
-        accountValue: response.marginSummary.accountValue,
-        totalMarginUsed: response.marginSummary.totalMarginUsed,
-        withdrawable: response.withdrawable,
+        ts: state.fetchedAt,
+        accountValue: accountValue.toString(),
+        totalMarginUsed: totalMarginUsed.toString(),
+        withdrawable: state.byDex.get(MAIN_DEX)?.withdrawable ?? "0",
       })
       .onConflictDoNothing();
 
-    const positionRows = response.assetPositions
+    const rows = [...state.byDex.values()]
+      .flatMap((response) => response.assetPositions)
       .filter((ap) => Number(ap.position.szi) !== 0)
       .map((ap) => ({
         chain: CHAIN_DEFAULT,
         address,
         coin: ap.position.coin,
-        ts,
+        ts: state.fetchedAt,
         szi: ap.position.szi,
         entryPx: ap.position.entryPx ?? null,
         leverage: ap.position.leverage?.value?.toString() ?? null,
@@ -98,21 +183,15 @@ export class SchedulerService {
         unrealizedPnl: ap.position.unrealizedPnl,
         liqPx: ap.position.liquidationPx ?? null,
       }));
-
-    if (positionRows.length > 0) {
-      await this.db.insert(positionSnapshots).values(positionRows).onConflictDoNothing();
-    }
+    if (rows.length > 0) await this.db.insert(positionSnapshots).values(rows).onConflictDoNothing();
   }
 
-  /** Refreshes coin_meta from `meta()` (szDecimals, max leverage). Out of
-   * scope for this task (not part of the budgeter/Watcher/leader-pool/
-   * heartbeat items) — left as the scaffold's not-implemented stub. */
+  /** Refreshes coin_meta from `meta()` (szDecimals, max leverage). M3. */
   async refreshCoinMeta(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  /** N3: records mid price 1h/4h/24h after a sent alert. Out of scope
-   * (Notify/Rules territory, M2). */
+  /** N3: mid price 1h/4h/24h after a sent alert. M3. */
   async scoreAlert(_alertId: bigint): Promise<void> {
     throw new Error("not implemented");
   }

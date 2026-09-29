@@ -14,7 +14,7 @@ describe("fills dedupe (W2) — real Postgres", () => {
     await closeTestDb();
   });
 
-  it("inserting the same (chain, tid) twice does not duplicate the row", async () => {
+  it("inserting the same (chain, address, tid) twice does not duplicate the row", async () => {
     const row = {
       chain: "hyperliquid" as const,
       tid: 123456789n,
@@ -37,6 +37,24 @@ describe("fills dedupe (W2) — real Postgres", () => {
     const rows = await db.select().from(fills);
     expect(rows).toHaveLength(1);
     expect(rows[0].tid).toBe(123456789n);
+  });
+
+  it("stores both counterparties of one trade (they share the tid)", async () => {
+    const base = {
+      chain: "hyperliquid" as const,
+      tid: 77n,
+      coin: "BTC",
+      px: "60000",
+      sz: "1",
+      fee: "1",
+      closedPnl: "0",
+      hash: "0xhash",
+      ts: new Date("2026-01-01T00:00:00Z"),
+      raw: {},
+    };
+    await db.insert(fills).values({ ...base, address: "0xbuyer", side: "B", dir: "Open Long" }).onConflictDoNothing();
+    await db.insert(fills).values({ ...base, address: "0xseller", side: "A", dir: "Open Short" }).onConflictDoNothing();
+    expect(await db.select().from(fills)).toHaveLength(2);
   });
 
   it("tid=0 is a valid, distinct primary key value (observed live on Hyperliquid)", async () => {

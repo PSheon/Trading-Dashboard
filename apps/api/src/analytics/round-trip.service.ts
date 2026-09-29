@@ -124,7 +124,10 @@ export class RoundTripService {
       const fillRows = await this.db
         .select({ tid: fills.tid, closedPnl: fills.closedPnl })
         .from(fills)
-        .where(and(eq(fills.chain, CHAIN_DEFAULT), inArray(fills.tid, allFillIds)));
+        // tid is shared with the counterparty's fill: scope to this address.
+        .where(
+          and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), inArray(fills.tid, allFillIds)),
+        );
       for (const row of fillRows) {
         pnlByTid.set(row.tid.toString(), row.closedPnl === null ? 0 : Number(row.closedPnl));
       }

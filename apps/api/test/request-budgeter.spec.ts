@@ -195,6 +195,22 @@ describe("RequestBudgeterService (W6)", () => {
     expect(order).toEqual(["profile", "fills", "warm", "sweep"]);
   });
 
+  it("lets a page's list call go on its known base; a background list waits for its whole worst case", async () => {
+    process.env.HYPERLIQUID_WEIGHT_BURST = "200"; // reserves: live 20 + page 40; 14 tokens/s at 840/min
+    const budgeter = new RequestBudgeterService();
+    await budgeter.acquire(100, "live"); // 100 left
+    const order: string[] = [];
+    // A sweep's list: 120 up front (20 base + worst-case 100) needs 180.
+    void budgeter.acquire(120, "background", undefined, 20).then(() => order.push("sweep"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual([]);
+    // A trader page's list: goes on 20 + 60, taking the bucket to -20.
+    void budgeter.acquire(120, "background", PAGE_RANK.fills, 20).then(() => order.push("page"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual(["page"]);
+    expect(budgeter.introspect().tokensAvailable).toBe(-20);
+  });
+
   it("settles a worst-case estimate: a refund goes back to the bucket and wakes waiters", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "200";
     const budgeter = new RequestBudgeterService();

@@ -61,6 +61,11 @@ import { env, getIntEnv } from "../config/env.js";
  * the difference once the response is in. Charging afterwards instead let
  * a burst of heavy lists (each up to +100) drive the bucket hundreds into
  * debt, and every call queued behind them, a first paint included, paid it.
+ * Background lists wait for their whole worst case; a page's list (rank ≤
+ * `PAGE_RANK.fills`) waits only for its known base plus the reserves, then
+ * takes the worst case, so at most one such list at a time runs the bucket
+ * below zero (by ≤ 100), and first paints, first in line, pay a few
+ * seconds at most instead of waiting behind every list.
  */
 export type RequestPriority = "live" | "background";
 
@@ -82,7 +87,10 @@ export const INTERACTIVE_MAX_RANK = PAGE_RANK.portfolio;
 export const UNRANKED_BASE = 1_000;
 
 interface Waiter {
+  /** Taken from the bucket when the call goes out. */
   weight: number;
+  /** Tokens (beyond the reserves) the call waits for; see `acquire`. */
+  gate: number;
   resolve: () => void;
   /** Lower goes first within a lane; ties go in arrival order. */
   rank: number;
@@ -157,11 +165,15 @@ export class RequestBudgeterService {
    * an address that trades once an hour isn't stuck behind bots that trade
    * every second.
    */
-  acquire(weight: number, priority: RequestPriority = "background", rank?: number): Promise<void> {
+  acquire(weight: number, priority: RequestPriority = "background", rank?: number, known = weight): Promise<void> {
     return new Promise((resolve) => {
       const seq = this.seq++;
       const defaultRank = priority === "background" ? UNRANKED_BASE + seq : seq;
-      this.queues[priority].push({ weight, resolve, rank: rank ?? defaultRank, seq });
+      const r = rank ?? defaultRank;
+      // A page's list call waits only for its known part; everything else
+      // waits for its whole (worst-case) weight.
+      const gate = priority === "background" && r <= PAGE_RANK.fills ? Math.min(known, weight) : weight;
+      this.queues[priority].push({ weight, gate, resolve, rank: r, seq });
       // A newcomer may go before the waiter the pending timer is for.
       this.rearm();
     });
@@ -209,7 +221,7 @@ export class RequestBudgeterService {
           : next.rank <= INTERACTIVE_MAX_RANK
             ? this.liveReserve
             : this.liveReserve + this.interactiveReserve;
-      const needed = Math.min(next.weight, this.capacity - reserve) + reserve;
+      const needed = Math.min(next.gate, this.capacity - reserve) + reserve;
       if (this.tokens < needed) {
         this.pumpTimer = setTimeout(
           () => {

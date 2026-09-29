@@ -70,8 +70,11 @@ export class HyperliquidInfoClient {
     weight: number,
     priority: RequestPriority = "background",
     rank?: number,
+    /** The part of `weight` that is certain (list calls: the base). */
+    known?: number,
   ): Promise<T> {
-    await this.budgeter.acquire(weight, priority, rank);
+    if (known === undefined) await this.budgeter.acquire(weight, priority, rank);
+    else await this.budgeter.acquire(weight, priority, rank, known);
 
     const url = env.hyperliquidApiUrl();
     const res = await fetch(url, {
@@ -114,7 +117,7 @@ export class HyperliquidInfoClient {
   ): Promise<T> {
     let result: T;
     try {
-      result = await this.post<T>(body, base + MAX_LIST_SURCHARGE, priority, rank);
+      result = await this.post<T>(body, base + MAX_LIST_SURCHARGE, priority, rank, base);
     } catch (error) {
       if (!(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-MAX_LIST_SURCHARGE);
       throw error;

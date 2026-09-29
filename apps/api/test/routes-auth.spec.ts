@@ -188,4 +188,27 @@ describe("route access on the existing controllers", () => {
     expect((await call("get", "/actions", "alice-token").expect(200)).body).toHaveLength(2);
     expect((await call("get", "/actions?scope=favorites", "bob-token").expect(200)).body).toEqual([]);
   });
+  it("filters a trader's actions by normalized address", async () => {
+    const address = "0x" + "ab".repeat(20);
+    const base = { coin: "BTC", kind: "open" as const, side: "long", notionalUsd: "1", avgPx: "1", fillIds: [], ts: new Date() };
+    await db.insert(actions).values([{ ...base, address }, { ...base, address: OTHER }]);
+    const result = await call("get", `/actions?address=0x${"AB".repeat(20)}`).expect(200);
+    expect(result.body.map((a: { address: string }) => a.address)).toEqual([address]);
+  });
+
+  it.each(["limit=0", "limit=-1", "limit=501", "limit=abc", "before=invalid", "kind=bogus", "scope=bogus", "address=invalid"])(
+    "rejects malformed action query %s", async (query) => {
+      await call("get", `/actions?${query}`).expect(400);
+    },
+  );
+
+  it("validates alert queries and administrative input", async () => {
+    await call("get", "/alerts?limit=1000000", "alice-token").expect(400);
+    await call("get", "/lists/diff?fromListId=oops&toListId=2", "boss-token").expect(400);
+    await call("get", "/leaders?active=maybe").expect(400);
+    await call("patch", `/leaders/hyperliquid/${WHALE}`, "boss-token", { active: "false" }).expect(400);
+    await call("patch", `/leaders/hyperliquid/${WHALE}`, "boss-token", { address: OTHER }).expect(400);
+    await call("post", "/import/lists", "boss-token", { fileName: "x.csv", rows: [null] }).expect(400);
+  });
+
 });

@@ -20,7 +20,8 @@ async function bootstrap() {
     .set('json replacer', (_key: string, value: unknown) =>
       typeof value === 'bigint' ? value.toString() : value,
     );
-  // apps/web (Vercel) calls this API cross-origin (§7).
+  // Browser calls use the same-origin web proxy. CORS is retained for
+  // direct API clients; it is not an authentication boundary.
   app.enableCors();
   await app.listen(process.env.PORT ?? 3000);
 }

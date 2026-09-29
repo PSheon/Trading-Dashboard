@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, max } from "drizzle-orm";
+import { and, desc, eq, gte, max } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
   actions,
@@ -95,17 +95,13 @@ export class LeadersService {
     return row?.rank ?? null;
   }
 
-  /** Current open-position count from `position_snapshots` (task's explicit
-   * instruction: dashboard reads persisted snapshots, 5-minute staleness is
-   * fine — never the Watcher's in-memory state, that's reserved for the
-   * latency-critical Rules path). `writeSnapshots` in scheduler.service.ts
-   * only ever inserts rows with `szi != 0`, so every row at the latest `ts`
-   * is by construction an open position — no extra filter needed here. */
+  /** The latest complete snapshot may be flat, with an equity row but no
+   * position rows. Do not use the last non-empty position timestamp. */
   private async openPositionCount(chain: string, address: string): Promise<number> {
     const [latest] = await this.db
-      .select({ ts: max(positionSnapshots.ts) })
-      .from(positionSnapshots)
-      .where(and(eq(positionSnapshots.chain, chain), eq(positionSnapshots.address, address)));
+      .select({ ts: max(equitySnapshots.ts) })
+      .from(equitySnapshots)
+      .where(and(eq(equitySnapshots.chain, chain), eq(equitySnapshots.address, address)));
     if (!latest?.ts) return 0;
 
     const rows = await this.db
@@ -173,9 +169,9 @@ export class LeadersService {
 
   private async currentPositions(chain: string, address: string): Promise<PositionRow[]> {
     const [latest] = await this.db
-      .select({ ts: max(positionSnapshots.ts) })
-      .from(positionSnapshots)
-      .where(and(eq(positionSnapshots.chain, chain), eq(positionSnapshots.address, address)));
+      .select({ ts: max(equitySnapshots.ts) })
+      .from(equitySnapshots)
+      .where(and(eq(equitySnapshots.chain, chain), eq(equitySnapshots.address, address)));
     if (!latest?.ts) return [];
 
     const rows = await this.db
@@ -228,7 +224,7 @@ export class LeadersService {
     const rows = await this.db
       .select({ ts: equitySnapshots.ts, accountValue: equitySnapshots.accountValue })
       .from(equitySnapshots)
-      .where(and(eq(equitySnapshots.chain, chain), eq(equitySnapshots.address, address)))
+      .where(and(eq(equitySnapshots.chain, chain), eq(equitySnapshots.address, address), gte(equitySnapshots.ts, since)))
       .orderBy(equitySnapshots.ts);
 
     const windowed = rows.filter((r) => r.ts >= since);

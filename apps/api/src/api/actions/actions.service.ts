@@ -35,6 +35,7 @@ export class ActionsService {
         ),
       );
     }
+    if (query.address) conditions.push(eq(actions.address, query.address.toLowerCase()));
     if (query.coin) conditions.push(eq(actions.coin, query.coin));
     if (query.kind) conditions.push(eq(actions.kind, query.kind));
     if (query.tier) conditions.push(eq(leaders.tier, query.tier));

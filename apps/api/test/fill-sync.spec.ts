@@ -137,6 +137,9 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     byAddress.set(A, many);
     const result = await sync.sync(A, "backfill", 0);
     expect(result).toMatchObject({ inserted: 7000, actions: 7000 });
+    const replay = await sync.sync(A, "backfill", 0);
+    expect(replay).toMatchObject({ inserted: 0, actions: 0 });
+    expect(sync.getFastPathStats()).toEqual({ verified: 0, corrected: 0 });
   }, 60_000);
 
   it("does not alert on a sweep that finds a fill older than the alert horizon", async () => {
@@ -199,4 +202,33 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     expect(await db.select().from(actions)).toHaveLength(1);
     expect(emitted).toHaveLength(1);
   });
+  it("recovers actions after fills were committed but action creation failed", async () => {
+    const t = Date.now() - 1000;
+    byAddress.set(A, [fill({ time: t })]);
+    const failure = vi.spyOn(db, "transaction").mockRejectedValueOnce(new Error("interrupted action write"));
+    await expect(sync.sync(A, "sweep", t - 1)).rejects.toThrow("interrupted action write");
+    failure.mockRestore();
+    expect(await db.select().from(fills)).toHaveLength(1);
+    expect(await db.select().from(actions)).toHaveLength(0);
+    await sync.sync(A, "sweep", t - 1);
+    expect(await db.select().from(actions)).toHaveLength(1);
+    expect(emitted).toHaveLength(1);
+    await sync.sync(A, "sweep", t - 1);
+    expect(await db.select().from(actions)).toHaveLength(1);
+    expect(emitted).toHaveLength(1);
+  });
+
+  it("recovers stored first-page fills after a later upstream page fails", async () => {
+    const t = Date.now() - 10_000_000;
+    const many = Array.from({ length: PAGE_SIZE + 1 }, (_, i) => fill({ time: t + i * 2000, startPosition: String(i) }));
+    byAddress.set(A, many);
+    info.userFillsByTime.mockResolvedValueOnce(many.slice(0, PAGE_SIZE)).mockRejectedValueOnce(new Error("page unavailable"));
+    await expect(sync.sync(A, "backfill", 0)).rejects.toThrow("page unavailable");
+    expect(await db.select().from(fills)).toHaveLength(PAGE_SIZE);
+    await sync.sync(A, "backfill", 0);
+    const rows = await db.select().from(actions);
+    expect(new Set(rows.flatMap((a) => a.fillIds)).size).toBe(PAGE_SIZE + 1);
+    expect(emitted).toHaveLength(0);
+  }, 30_000);
+
 });

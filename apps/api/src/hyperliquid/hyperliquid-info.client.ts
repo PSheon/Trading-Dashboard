@@ -20,6 +20,7 @@ import type {
   HlUserFill,
   HlReferralResponse,
   HlUserFillsByTimeResponse,
+  HlUserFundingEntry,
 } from "./types.js";
 
 /** Hyperliquid `info` request weights (verified live against the docs —
@@ -50,7 +51,11 @@ const WEIGHT_REFERRAL = 20;
  * returned" surcharge on userFillsByTime — see the budgeter's doc comment
  * for why this is 1 and not something else. */
 const EXTRA_WEIGHT_PER_20_ITEMS = 1;
-/** Every list endpoint returns at most 2,000 items per call. */
+/** `userFunding`: in the surcharge list, base 20 (rate-limits docs). */
+const WEIGHT_USER_FUNDING_BASE = 20;
+/** `userFunding` returns at most 500 entries per call (verified live). */
+export const USER_FUNDING_PAGE_SIZE = 500;
+/** Every fill list endpoint returns at most 2,000 items per call. */
 export const MAX_LIST_ITEMS = 2000;
 /** The worst-case surcharge of one list call, acquired up front. */
 export const MAX_LIST_SURCHARGE = Math.ceil(MAX_LIST_ITEMS / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
@@ -87,9 +92,14 @@ export class HyperliquidInfoClient {
     known?: number,
   ): Promise<T> {
     const caller = currentRequestSignal();
-    const signal = AbortSignal.any([this.jobs.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...(caller ? [caller] : [])]);
-    await this.budgeter.acquire(weight, priority, rank, { known, signal });
-    signal.throwIfAborted();
+    // Time in the budget queue doesn't count against the request timeout:
+    // a heavy background load (home warm-up, trade analytics) may wait
+    // longer than that for its turn, and still has to run. A page load is
+    // bounded by its own request's deadline (`caller`) instead.
+    const queued = AbortSignal.any([this.jobs.signal, ...(caller ? [caller] : [])]);
+    await this.budgeter.acquire(weight, priority, rank, { known, signal: queued });
+    queued.throwIfAborted();
+    const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
 
     const url = this.config.value.hyperliquid.apiUrl;
     const res = await fetch(url, {
@@ -129,16 +139,41 @@ export class HyperliquidInfoClient {
     base: number,
     priority: RequestPriority,
     rank: number | undefined,
+    maxItems = MAX_LIST_ITEMS,
   ): Promise<T> {
+    const worst = surcharge(maxItems);
     let result: T;
     try {
-      result = await this.post<T>(body, base + MAX_LIST_SURCHARGE, priority, rank, base);
+      result = await this.post<T>(body, base + worst, priority, rank, base);
     } catch (error) {
-      if (!(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-MAX_LIST_SURCHARGE);
+      if (!(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-worst);
       throw error;
     }
-    this.budgeter.adjust(surcharge(result.length) - MAX_LIST_SURCHARGE);
+    this.budgeter.adjust(surcharge(result.length) - worst);
     return result;
+  }
+
+  /**
+   * Funding payments of every position from `startTime`, oldest first, at
+   * most 500 per call (paged by time; verified live 2026-09-29). Payments
+   * older than about a week come as one entry per coin and day (stamped
+   * 00:00 UTC, `nSamples` hours). In the docs' per-20-items surcharge list,
+   * base 20.
+   */
+  userFunding(
+    address: string,
+    startTime: number,
+    endTime?: number,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlUserFundingEntry[]> {
+    return this.postList<HlUserFundingEntry[]>(
+      { type: "userFunding", user: address, startTime, endTime },
+      WEIGHT_USER_FUNDING_BASE,
+      priority,
+      rank,
+      USER_FUNDING_PAGE_SIZE,
+    );
   }
 
   /** Coin universe metadata: szDecimals, max leverage (§5). `dex` selects a

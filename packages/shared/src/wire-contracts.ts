@@ -16,6 +16,13 @@ export const wireTraderStatsSchema = s.traderStatsSchema.extend({ updatedAt: iso
 export const wireTradersSchema = s.tradersResponseSchema.extend({ updatedAt: iso.nullable(), items: z.array(wireTraderStatsSchema.extend({ favorite: z.boolean() })) });
 export const wireTraderProfileSchema = s.traderProfileResponseSchema.extend({ stats: wireTraderStatsSchema.nullable(), lastTradeAt: iso.nullable().optional(), fetchedAt: iso });
 export const wireTraderActivitySchema = s.traderActivityResponseSchema.extend({ lastTradeAt: iso.nullable(), fetchedAt: iso });
+export const wireRoundTripSchema = s.roundTripSchema.extend({ id, entryTime: iso, exitTime: iso.nullable() });
+export const wireTradeCoverageSchema = s.tradeCoverageSchema.extend({ from: iso.nullable(), fundingFrom: iso.nullable() });
+export const wireTraderAnalyticsSchema = s.traderAnalyticsResponseSchema.extend({
+  summary: s.tradeSummarySchema.extend({ best: z.array(wireRoundTripSchema), worst: z.array(wireRoundTripSchema) }),
+  coverage: wireTradeCoverageSchema, computedAt: iso,
+});
+export const wireTraderTradesSchema = s.traderTradesResponseSchema.extend({ items: z.array(wireRoundTripSchema), coverage: wireTradeCoverageSchema, computedAt: iso });
 export const wireAdminUserSchema = s.adminUserSchema.extend({ createdAt: iso, lastLoginAt: iso });
 export const wireMeSchema = s.meResponseSchema.extend({ createdAt: iso });
 export const wireFavoriteSchema = s.favoriteSchema.extend({ createdAt: iso, stats: wireTraderStatsSchema.nullable() });
@@ -67,6 +74,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/:address/portfolio", status: 200, auth: "public", response: s.portfolioResponseSchema },
   { method: "GET", path: "/traders/:address/activity", status: 200, auth: "public", response: wireTraderActivitySchema },
   { method: "GET", path: "/traders/:address/fills", status: 200, auth: "public", response: z.array(s.traderFillSchema.extend({ ts: iso })) },
+  { method: "GET", path: "/traders/:address/analytics", status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderAnalyticsSchema },
+  { method: "GET", path: "/traders/:address/trades", status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderTradesSchema },
   { method: "GET", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "PATCH", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "GET", path: "/me/favorites", status: 200, auth: "user", response: z.array(wireFavoriteSchema) },
@@ -96,3 +105,6 @@ export function findHttpContract(method: string, path: string) {
 export type WireAction = z.infer<typeof wireActionSchema>;
 export type WireFill = z.infer<typeof wireFillSchema>;
 export type WireAlert = z.infer<typeof wireAlertSchema>;
+export type WireRoundTrip = z.infer<typeof wireRoundTripSchema>;
+export type WireTraderAnalytics = z.infer<typeof wireTraderAnalyticsSchema>;
+export type WireTraderTrades = z.infer<typeof wireTraderTradesSchema>;

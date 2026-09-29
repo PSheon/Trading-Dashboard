@@ -203,7 +203,24 @@ export type HlInfoRequestBody =
       startTime: number;
       endTime?: number;
     }
-  | { type: "referral"; user: string };
+  | { type: "referral"; user: string }
+  | { type: "userFunding"; user: string; startTime: number; endTime?: number };
+
+/** One `userFunding` entry: a funding payment on one position. Recent ones
+ * are hourly; older ones are daily sums (`nSamples` hours, stamped 00:00
+ * UTC; verified live 2026-09-29). `usdc` < 0 means paid. */
+export interface HlUserFundingEntry {
+  time: number;
+  hash: string;
+  delta: {
+    type: "funding";
+    coin: string;
+    usdc: string;
+    szi: string;
+    fundingRate: string;
+    nSamples?: number | null;
+  };
+}
 
 /** One `portfolio` history: [epoch ms, decimal string] points. */
 export interface HlPortfolioHistory {

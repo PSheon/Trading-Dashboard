@@ -104,7 +104,7 @@ function toFillTid(fill: HlUserFill): bigint {
   return BigInt(fill.tid);
 }
 
-function liquidates(fill: HlUserFill, address: string): boolean {
+export function liquidates(fill: HlUserFill, address: string): boolean {
   return fill.liquidation?.liquidatedUser?.toLowerCase() === address.toLowerCase();
 }
 
@@ -118,7 +118,7 @@ function liquidates(fill: HlUserFill, address: string): boolean {
  * when that is unambiguous (fills read back from the database come in no
  * particular order), and otherwise keeps the order it was given in.
  */
-function executionOrder(fills: HlUserFill[]): HlUserFill[] {
+export function executionOrder(fills: HlUserFill[]): HlUserFill[] {
   const sorted = [...fills].sort((x, y) => x.time - y.time);
   const out: HlUserFill[] = [];
   for (let i = 0; i < sorted.length; ) {

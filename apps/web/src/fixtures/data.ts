@@ -502,10 +502,11 @@ export function alertsFor(address: string | undefined): AlertEntry[] {
     }));
 }
 
+/** The default rules (no owner) the admin edits. */
 export const alertRules: AlertRule[] = [
   {
     id: 1,
-    userId: 1,
+    userId: null,
     scope: "address",
     kind: "R1",
     paramsJson: { flatThresholdUsd: 1_000_000, pctThreshold: 0.1 },
@@ -516,7 +517,7 @@ export const alertRules: AlertRule[] = [
   },
   {
     id: 2,
-    userId: 1,
+    userId: null,
     scope: "address",
     kind: "R2",
     paramsJson: {},
@@ -527,7 +528,7 @@ export const alertRules: AlertRule[] = [
   },
   {
     id: 3,
-    userId: 1,
+    userId: null,
     scope: "address",
     kind: "R3",
     paramsJson: { flatThresholdUsd: 500_000, pctThreshold: 0.05 },

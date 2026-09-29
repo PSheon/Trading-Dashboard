@@ -1,30 +1,25 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put } from "@nestjs/common";
 import {
   addressSchema,
+  patchFavoriteAlertRequestSchema,
   patchMeRequestSchema,
-  putTelegramChannelRequestSchema,
-  type AlertRule,
   type Favorite,
   type MeResponse,
-  type NotificationChannel,
 } from "@trading-dashboard/shared";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { FavoritesService } from "./favorites.service.js";
-import { NotificationChannelsService } from "./notification-channels.service.js";
 import { ProfileService } from "./profile.service.js";
-import { UserAlertRulesService } from "./user-alert-rules.service.js";
 import { parseOr400, requireUserId } from "./validation.js";
 
 /** The signed-in user's own data. Not @Public: the guard returns 401
- * without a valid token; the service token gets 403 (it has no profile). */
+ * without a valid token; the service token gets 403 (it has no profile).
+ * Telegram linking lives in telegram/telegram.controller.ts. */
 @Controller("me")
 export class MeController {
   constructor(
     private readonly profile: ProfileService,
     private readonly favorites: FavoritesService,
-    private readonly channels: NotificationChannelsService,
-    private readonly rules: UserAlertRulesService,
   ) {}
 
   @Get()
@@ -49,6 +44,7 @@ export class MeController {
     return this.favorites.add(userId, parseOr400(addressSchema, address).toLowerCase());
   }
 
+  /** Unfavoriting deletes the row, and its alert with it. */
   @Delete("favorites/:address")
   @HttpCode(204)
   async removeFavorite(@CurrentUser() user: RequestUser | null, @Param("address") address: string): Promise<void> {
@@ -56,28 +52,17 @@ export class MeController {
     await this.favorites.remove(userId, parseOr400(addressSchema, address).toLowerCase());
   }
 
-  @Get("notification-channels")
-  listChannels(@CurrentUser() user: RequestUser | null): Promise<NotificationChannel[]> {
-    return this.channels.list(requireUserId(user));
-  }
-
-  @Put("notification-channels/telegram")
-  putTelegram(@CurrentUser() user: RequestUser | null, @Body() body: unknown): Promise<NotificationChannel> {
-    const userId = requireUserId(user);
-    return this.channels.putTelegram(userId, parseOr400(putTelegramChannelRequestSchema, body));
-  }
-
-  @Get("alert-rules")
-  listRules(@CurrentUser() user: RequestUser | null): Promise<AlertRule[]> {
-    return this.rules.list(requireUserId(user));
-  }
-
-  @Patch("alert-rules/:id")
-  patchRule(
+  @Patch("favorites/:address/alert")
+  patchFavoriteAlert(
     @CurrentUser() user: RequestUser | null,
-    @Param("id", ParseIntPipe) id: number,
+    @Param("address") address: string,
     @Body() body: unknown,
-  ): Promise<AlertRule> {
-    return this.rules.patch(requireUserId(user), id, body ?? {});
+  ): Promise<Favorite> {
+    const userId = requireUserId(user);
+    return this.favorites.setAlert(
+      userId,
+      parseOr400(addressSchema, address).toLowerCase(),
+      parseOr400(patchFavoriteAlertRequestSchema, body ?? {}),
+    );
   }
 }

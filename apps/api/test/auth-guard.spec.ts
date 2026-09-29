@@ -193,7 +193,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
   });
 
   describe("first sign-in", () => {
-    it("creates the user with Privy email/wallet and copies the default rules to them", async () => {
+    it("creates the user with Privy email/wallet, and no alert rules (sign-up no longer copies them)", async () => {
       await get("/t/protected", "alice-token").expect(200);
 
       const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
@@ -204,18 +204,12 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
         locale: "zh-TW",
       });
 
-      const defaults = await db.select().from(alertRules);
-      const own = defaults.filter((r) => r.userId === alice.id);
-      const templates = defaults.filter((r) => r.userId === null);
-      expect(own.map((r) => r.kind).sort()).toEqual(["R1", "R2", "R3"]);
-      for (const rule of own) {
-        const template = templates.find((t) => t.kind === rule.kind)!;
-        expect(rule.id).not.toBe(template.id);
-        expect({ ...rule, id: 0, userId: null }).toEqual({ ...template, id: 0 });
-      }
+      const rules = await db.select().from(alertRules);
+      expect(rules.map((r) => r.kind).sort()).toEqual(["R1", "R2", "R3"]);
+      expect(rules.every((r) => r.userId === null)).toBe(true);
     });
 
-    it("a returning user: last_login_at bumps, rules are not copied twice, profile is not re-fetched", async () => {
+    it("a returning user: last_login_at bumps, profile is not re-fetched", async () => {
       await get("/t/protected", "alice-token").expect(200);
       const [first] = await db.select().from(users);
       auth.clearCache();
@@ -225,14 +219,14 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       const rows = await db.select().from(users);
       expect(rows).toHaveLength(1);
       expect(rows[0].lastLoginAt.getTime()).toBeGreaterThan(first.lastLoginAt.getTime());
-      expect((await db.select().from(alertRules).where(eq(alertRules.userId, first.id))).length).toBe(3);
+      expect(await db.select().from(alertRules).where(eq(alertRules.userId, first.id))).toEqual([]);
       expect(privy.fetchProfile).toHaveBeenCalledTimes(1);
     });
 
     it("concurrent first requests create exactly one user", async () => {
       await Promise.all([1, 2, 3, 4].map(() => get("/t/protected", "alice-token").expect(200)));
       expect(await db.select().from(users)).toHaveLength(1);
-      expect(await db.select().from(alertRules)).toHaveLength(6);
+      expect(await db.select().from(alertRules)).toHaveLength(3); // the defaults only
     });
 
     it("an email added to AUTH_ADMIN_EMAILS later is promoted at its next sign-in; others stay users", async () => {

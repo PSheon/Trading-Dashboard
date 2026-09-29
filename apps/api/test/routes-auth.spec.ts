@@ -120,24 +120,21 @@ describe("route access on the existing controllers", () => {
   });
 
   it("/alert-rules lists and edits only the defaults, with validation", async () => {
-    await call("get", "/alerts", "alice-token").expect(200); // signs alice in → she owns copies
+    await call("get", "/alerts", "alice-token").expect(200); // signs alice in
+    const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+    // Sign-up no longer copies rules; a leftover owned row is still never
+    // listed or edited here.
+    expect(await db.select().from(alertRules).where(eq(alertRules.userId, alice.id))).toEqual([]);
+    const [owned] = await db
+      .insert(alertRules)
+      .values({ userId: alice.id, scope: "address", kind: "R1", paramsJson: { flatThresholdUsd: 1, pctThreshold: 0.1 }, cooldownS: 900, tiers: ["A"] })
+      .returning();
+
     const listed = (await call("get", "/alert-rules", "boss-token").expect(200)).body as { userId: number | null; id: number }[];
     expect(listed).toHaveLength(3);
     expect(listed.every((r) => r.userId === null)).toBe(true);
 
-    const [aliceRow] = await db
-      .select()
-      .from(alertRules)
-      .innerJoin(users, eq(users.id, alertRules.userId))
-      .where(eq(users.privyUserId, "did:privy:alice"));
-    const body = {
-      id: aliceRow.alert_rules.id,
-      scope: "address",
-      kind: aliceRow.alert_rules.kind,
-      paramsJson: aliceRow.alert_rules.paramsJson,
-      cooldownS: 1,
-      tiers: ["A"],
-    };
+    const body = { id: owned.id, scope: "address", kind: owned.kind, paramsJson: owned.paramsJson, cooldownS: 1, tiers: ["A"] };
     await call("post", "/alert-rules", "boss-token", body).expect(404); // not a default
 
     await call("post", "/alert-rules", "boss-token", { ...body, id: listed[0].id, cooldownS: -5 }).expect(400);
@@ -151,11 +148,11 @@ describe("route access on the existing controllers", () => {
     const all = await db.select().from(users);
     const alice = all.find((u) => u.privyUserId === "did:privy:alice")!;
     const bob = all.find((u) => u.privyUserId === "did:privy:bob")!;
-    const [rule] = await db.select().from(alertRules).where(eq(alertRules.userId, alice.id));
-    const [bobRule] = await db.select().from(alertRules).where(eq(alertRules.userId, bob.id));
+    const [defaultRule] = await db.select().from(alertRules);
     await db.insert(alerts).values([
-      { ruleId: rule.id, userId: alice.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "a" }, sendStatus: "sent", sentAt: new Date() },
-      { ruleId: bobRule.id, userId: bob.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "b" }, sendStatus: "sent", sentAt: new Date() },
+      // A favorite alert has no rule; an admin-style one references a default.
+      { ruleId: null, userId: alice.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "a" }, sendStatus: "sent", sentAt: new Date() },
+      { ruleId: defaultRule.id, userId: bob.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "b" }, sendStatus: "sent", sentAt: new Date() },
     ]);
 
     const mine = (await call("get", "/alerts", "alice-token").expect(200)).body as { userId: number }[];

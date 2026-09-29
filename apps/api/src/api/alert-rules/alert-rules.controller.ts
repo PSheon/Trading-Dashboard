@@ -5,8 +5,9 @@ import { Roles } from "../../common/auth/current-user.js";
 import { parseUpsertRule } from "../../rules/rule-validation.js";
 import { AlertRulesService } from "./alert-rules.service.js";
 
-/** The default rules (no owner) that each new user gets a copy of. Admin
- * only; users edit their own copies through /me/alert-rules. */
+/** The default rules (no owner): what admins are alerted on for imported
+ * leaders. Admin only. Users set CopyDog-style alerts on their favorites
+ * instead (PATCH /me/favorites/:address/alert). */
 @Roles("admin")
 @Controller("alert-rules")
 export class AlertRulesController {

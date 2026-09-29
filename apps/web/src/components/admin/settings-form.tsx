@@ -406,6 +406,18 @@ function NotificationsForm({ value: original }: { value: AdminSettings["notifica
         checked={value.alertsEnabled}
         onChange={(alertsEnabled) => setValue({ ...value, alertsEnabled })}
       />
+      <div className="grid max-w-xs gap-2">
+        <Label htmlFor="max-alert-traders">{t("admin.settings.notifications.maxAlertTraders")}</Label>
+        <Input
+          id="max-alert-traders"
+          type="number"
+          min={1}
+          max={1000}
+          value={value.maxAlertTraders}
+          onChange={(e) => setValue({ ...value, maxAlertTraders: Number(e.target.value) })}
+        />
+        <p className="text-xs text-muted-foreground">{t("admin.settings.notifications.maxAlertTradersHint")}</p>
+      </div>
     </FormCard>
   );
 }

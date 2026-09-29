@@ -51,8 +51,13 @@ export const env = {
   telegramBotUsername: () => getEnv("TELEGRAM_BOT_USERNAME") || undefined,
   /** Chat for system messages (feed outages etc.), not user alerts. */
   telegramSystemChatId: () => getEnv("TELEGRAM_SYSTEM_CHAT_ID") || undefined,
-  /** Default true: messages are logged instead of sent. */
+  /** Default true: alerts and system messages are logged instead of sent.
+   * The bot's own replies in a chat (linking, /stop) are always sent. */
   telegramDryRun: () => getBoolEnv("TELEGRAM_DRY_RUN", true),
+  /** Default true: receive bot updates (/start, /stop) by long polling
+   * `getUpdates`. Only one process may poll a token at a time, so turn it
+   * off everywhere but one (e.g. local dev next to a deployed api). */
+  telegramBotPolling: () => getBoolEnv("TELEGRAM_BOT_POLLING", true),
   /** Site origin for links inside Telegram messages, no trailing slash. */
   telegramLinkBaseUrl: () => getEnv("TELEGRAM_LINK_BASE_URL") ?? "https://app.orbie.fun",
   hyperliquidApiUrl: () =>

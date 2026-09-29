@@ -1,8 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq, isNull, sql } from "drizzle-orm";
-import { alertRules, users } from "@trading-dashboard/shared";
+import { and, eq, isNull } from "drizzle-orm";
+import { users } from "@trading-dashboard/shared";
 
 import { env } from "../../config/env.js";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
@@ -70,8 +70,7 @@ export type SignInResult =
  * Turns a bearer token into a caller:
  * - equal to AUTH_SERVICE_TOKEN → `{ kind: "service" }` (server to server);
  * - otherwise a Privy access token → the `users` row for that Privy DID,
- *   created on first sign-in (with a copy of the default alert rules)
- *   unless sign-ups are closed.
+ *   created on first sign-in unless sign-ups are closed.
  *
  * Outcomes of verified tokens are cached (keyed by a hash, never the raw
  * token) until the token expires or CACHE_TTL_MS passes, whichever is
@@ -165,9 +164,8 @@ export class AuthService {
    * New user: fetch
    * email/wallet from Privy (best effort); when sign-ups are closed only a
    * AUTH_ADMIN_EMAILS address gets in. The new row is admin when its
-   * email is in that list, and gets its own copy of the default rules
-   * (`alert_rules` rows with no owner) in the same transaction, so a user
-   * never exists without their rules.
+   * email is in that list. Nothing else is created with it: alerts are set
+   * per favorite, and admins are alerted on the default rules themselves.
    */
   async signIn(privyUserId: string): Promise<SignInResult> {
     const [existing] = await this.db
@@ -187,29 +185,17 @@ export class AuthService {
       return { status: "signups_closed" };
     }
 
-    const created = await this.db.transaction(async (tx) => {
-      const [inserted] = await tx
-        .insert(users)
-        .values({
-          privyUserId,
-          email,
-          walletAddress: profile?.walletAddress ?? null,
-          role: bootstrapAdmin ? "admin" : "user",
-        })
-        // Two first requests racing: the loser reads the winner's row below.
-        .onConflictDoNothing({ target: users.privyUserId })
-        .returning();
-      if (!inserted) return undefined;
-
-      await tx.execute(sql`
-        insert into ${alertRules} (user_id, scope, kind, params_json, cooldown_s, quiet_hours, tiers, enabled)
-        select ${inserted.id}, scope, kind, params_json, cooldown_s, quiet_hours, tiers, enabled
-        from ${alertRules}
-        where ${isNull(alertRules.userId)}
-        on conflict do nothing
-      `);
-      return inserted;
-    });
+    const [created] = await this.db
+      .insert(users)
+      .values({
+        privyUserId,
+        email,
+        walletAddress: profile?.walletAddress ?? null,
+        role: bootstrapAdmin ? "admin" : "user",
+      })
+      // Two first requests racing: the loser reads the winner's row below.
+      .onConflictDoNothing({ target: users.privyUserId })
+      .returning();
     if (created) {
       this.logger.log(`New user ${created.id} (${privyUserId})${bootstrapAdmin ? " — bootstrap admin" : ""}`);
       return { status: "ok", user: created };

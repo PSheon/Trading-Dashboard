@@ -4,35 +4,35 @@ import {
   alerts,
   leaders,
   notificationChannels,
+  traderStats,
   userFavorites,
   users,
+  type AlertSides,
   type LeaderSource,
 } from "@trading-dashboard/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RoundTripService } from "../src/analytics/round-trip.service.js";
-import { AuthService } from "../src/common/auth/auth.service.js";
-import type { PrivyVerifier } from "../src/common/auth/privy-verifier.js";
-import { NotifyService, type RulesFireContext } from "../src/notify/notify.service.js";
+import { NotifyService, type AlertContext } from "../src/notify/notify.service.js";
 import type { TelegramHttpClient } from "../src/notify/telegram-http.client.js";
-import { RulesService } from "../src/rules/rules.service.js";
+import { FAVORITE_BURST_GUARD_MS, RulesService } from "../src/rules/rules.service.js";
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import type { WatcherService } from "../src/watcher/watcher.service.js";
-import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 
 const CHAIN = "hyperliquid";
-const ADDRESS = "0xrulestest";
+const ADDRESS = "0x" + "12".repeat(20);
 
 let nextActionId = 1n;
-function actionRow(overrides: {
-  kind?: "open" | "add" | "reduce" | "close" | "flip" | "liquidation";
-  side?: "long" | "short";
-  coin?: string;
-  notionalUsd?: string;
-  ts?: Date;
-} = {}) {
+function actionRow(
+  overrides: {
+    kind?: "open" | "add" | "reduce" | "close" | "flip" | "liquidation";
+    side?: "long" | "short";
+    coin?: string;
+    notionalUsd?: string;
+  } = {},
+) {
   return {
     chain: CHAIN,
     address: ADDRESS,
@@ -43,7 +43,7 @@ function actionRow(overrides: {
     avgPx: "60000",
     leverage: "5",
     fillIds: [nextActionId++],
-    ts: overrides.ts ?? new Date(),
+    ts: new Date(),
   };
 }
 
@@ -52,48 +52,58 @@ function fakeWatcher(equityUsd: number | null): WatcherService {
 }
 
 function fakeNotify() {
-  const notifyRulesFire = vi.fn(async (_ctx: RulesFireContext) => {});
-  return { notify: { notifyRulesFire } as unknown as NotifyService, notifyRulesFire };
+  const notifyAlert = vi.fn(async (_ctx: AlertContext) => {});
+  return { notify: { notifyAlert } as unknown as NotifyService, notifyAlert };
 }
 
-/** Kinds per recipient user id, from the notifyRulesFire calls. */
-function callsByUser(mock: ReturnType<typeof fakeNotify>["notifyRulesFire"]): Map<number, string[]> {
+type NotifyMock = ReturnType<typeof fakeNotify>["notifyAlert"];
+
+/** Per recipient: favorite flag and the rule kinds, from the notifyAlert calls. */
+function byUser(mock: NotifyMock): Map<number, { favorite: boolean; rules: string[] }> {
   return new Map(
-    mock.mock.calls.map(([ctx]) => [ctx.recipient.userId, ctx.rules.map((r) => r.kind).sort()]),
+    mock.mock.calls.map(([ctx]) => [
+      ctx.recipient.userId,
+      { favorite: ctx.favorite, rules: ctx.rules.map((r) => r.kind).sort() },
+    ]),
   );
 }
 
 const db = getTestDb();
-const noProfile: PrivyVerifier = {
-  verifyAccessToken: async () => {
-    throw new Error("unused");
-  },
-  fetchProfile: async () => null,
-};
 const settings = new SettingsService(db);
-const auth = new AuthService(db, noProfile, settings);
-let didSeq = 0;
 
-/** A user signed in through the real first-login path (so they own a copy
- * of the default rules), optionally an admin, favoriting ADDRESS, with a
- * Telegram channel. */
-async function signedInUser(opts: { admin?: boolean; favorite?: boolean; chatId?: string } = {}) {
-  const result = await auth.signIn(`did:privy:rules-${++didSeq}`);
-  if (result.status !== "ok") throw new Error(`sign-in failed: ${result.status}`);
-  const user = result.user;
-  if (opts.admin) await db.update(users).set({ role: "admin" }).where(eq(users.id, user.id));
-  if (opts.favorite ?? true) await db.insert(userFavorites).values({ userId: user.id, chain: CHAIN, address: ADDRESS });
-  if (opts.chatId) {
-    await db.insert(notificationChannels).values({ userId: user.id, kind: "telegram", target: opts.chatId });
+/** A user, optionally an admin, with an optional alert on ADDRESS and a
+ * linked Telegram chat. */
+async function user(
+  opts: {
+    admin?: boolean;
+    alert?: { sides?: AlertSides; minUsd?: number | null; enabled?: boolean };
+    favorite?: boolean;
+    chatId?: string;
+    locale?: "zh-TW" | "en";
+  } = {},
+) {
+  const row = await insertUser(db, { role: opts.admin ? "admin" : "user", locale: opts.locale ?? "zh-TW" });
+  if (opts.alert || opts.favorite) {
+    await db.insert(userFavorites).values({
+      userId: row.id,
+      chain: CHAIN,
+      address: ADDRESS,
+      alertEnabled: opts.alert ? (opts.alert.enabled ?? true) : false,
+      alertSides: opts.alert?.sides ?? "both",
+      alertMinUsd: opts.alert?.minUsd == null ? null : String(opts.alert.minUsd),
+    });
   }
-  return user;
+  if (opts.chatId) {
+    await db.insert(notificationChannels).values({ userId: row.id, kind: "telegram", target: opts.chatId });
+  }
+  return row;
 }
 
-async function ruleOf(userId: number, kind: "R1" | "R2" | "R3") {
+async function defaultRule(kind: "R1" | "R2" | "R3") {
   const [row] = await db
     .select()
     .from(alertRules)
-    .where(and(eq(alertRules.userId, userId), eq(alertRules.kind, kind)));
+    .where(and(isNull(alertRules.userId), eq(alertRules.kind, kind)));
   return row;
 }
 
@@ -109,210 +119,218 @@ async function resetWithLeader(source: LeaderSource = "import") {
   await new RulesSeedService(db).seedDefaultRules();
 }
 
-describe("RulesService — rule semantics, evaluated on a favoriting user's own rules", () => {
-  let userId: number;
+function rulesWith(notify: NotifyService, equity: number | null = 1_000_000) {
+  return new RulesService(db, fakeWatcher(equity), notify, settings);
+}
+
+afterAll(async () => {
+  await closeTestDb();
+});
+
+describe("RulesService — favorite alerts (CopyDog-style)", () => {
+  beforeEach(async () => {
+    await resetWithLeader("favorite");
+  });
+
+  it("only users with an alert switched on are notified; plain favorites and bystanders are not", async () => {
+    const alerting = await user({ alert: {}, chatId: "111" });
+    await user({ favorite: true, chatId: "222" }); // favorite, alert off
+    await user({ alert: { enabled: false } });
+    await user(); // bystander
+
+    const { notify, notifyAlert } = fakeNotify();
+    await rulesWith(notify).evaluateAction(await insertAction());
+
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
+    const ctx = notifyAlert.mock.calls[0][0];
+    expect(ctx).toMatchObject({ favorite: true, rules: [] });
+    expect(ctx.recipient).toEqual({ userId: alerting.id, telegramChatId: "111", locale: "zh-TW" });
+  });
+
+  it("filters by side: buy = B-side actions (open/add long, cover a short), sell = A-side", async () => {
+    const buyer = await user({ alert: { sides: "buy" } });
+    const seller = await user({ alert: { sides: "sell" } });
+    const both = await user({ alert: { sides: "both" } });
+    const rules = rulesWith(fakeNotify().notify);
+
+    const cases: [Parameters<typeof actionRow>[0], number[]][] = [
+      [{ kind: "open", side: "long" }, [buyer.id, both.id]],
+      [{ kind: "close", side: "short", coin: "ETH" }, [buyer.id, both.id]],
+      [{ kind: "flip", side: "long", coin: "SOL" }, [buyer.id, both.id]],
+      [{ kind: "open", side: "short", coin: "HYPE" }, [seller.id, both.id]],
+      [{ kind: "reduce", side: "long", coin: "DOGE" }, [seller.id, both.id]],
+      [{ kind: "liquidation", side: "long", coin: "XRP" }, [seller.id, both.id]],
+    ];
+    for (const [action, expected] of cases) {
+      const { notify, notifyAlert } = fakeNotify();
+      Object.assign(rules, { notify });
+      await rules.evaluateAction(await insertAction(action));
+      expect([...byUser(notifyAlert).keys()].sort(), JSON.stringify(action)).toEqual(expected.sort());
+    }
+  });
+
+  it("filters by minimum notional; null means any size", async () => {
+    const big = await user({ alert: { minUsd: 100_000 } });
+    const any = await user({ alert: { minUsd: null } });
+
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify);
+    await rules.evaluateAction(await insertAction({ notionalUsd: "99999.99" }));
+    expect([...byUser(notifyAlert).keys()]).toEqual([any.id]);
+
+    notifyAlert.mockClear();
+    await rules.evaluateAction(await insertAction({ notionalUsd: "100000", coin: "ETH" }));
+    expect([...byUser(notifyAlert).keys()].sort()).toEqual([big.id, any.id].sort());
+  });
+
+  it("burst guard: one alert per (user, trader, coin) within ~10 s; another coin or user is unaffected", async () => {
+    const a = await user({ alert: {} });
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify);
+
+    await rules.evaluateAction(await insertAction());
+    await rules.evaluateAction(await insertAction({ kind: "add" }));
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
+
+    await rules.evaluateAction(await insertAction({ coin: "ETH" }));
+    expect(notifyAlert).toHaveBeenCalledTimes(2);
+
+    const b = await user({ alert: {} });
+    await rules.evaluateAction(await insertAction({ kind: "reduce" }));
+    expect(notifyAlert.mock.calls[2][0].recipient.userId).toBe(b.id);
+    expect(notifyAlert).toHaveBeenCalledTimes(3);
+
+    // After the window, `a` hears about BTC again.
+    const now = Date.now();
+    const spy = vi.spyOn(Date, "now").mockReturnValue(now + FAVORITE_BURST_GUARD_MS + 1);
+    try {
+      await rules.evaluateAction(await insertAction({ kind: "close" }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(byUser(notifyAlert).has(a.id)).toBe(true);
+    expect(notifyAlert).toHaveBeenCalledTimes(5);
+  });
+
+  it("concurrent evaluations of two actions on the same coin alert once", async () => {
+    await user({ alert: {} });
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify);
+    const [x, y] = [await insertAction(), await insertAction({ kind: "add" })];
+    await Promise.all([rules.evaluateAction(x), rules.evaluateAction(y)]);
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it("a disabled user gets nothing; recipients carry their locale and trader name", async () => {
+    const off = await user({ alert: {} });
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, off.id));
+    const en = await user({ alert: {}, locale: "en" });
+    await db.insert(traderStats).values({
+      address: ADDRESS,
+      displayName: "LeaderboardName",
+      accountValue: "1",
+      pnlDay: "0",
+      pnlWeek: "0",
+      pnlMonth: "0",
+      pnlAllTime: "0",
+      roiDay: "0",
+      roiWeek: "0",
+      roiMonth: "0",
+      roiAllTime: "0",
+      volumeDay: "0",
+      volumeWeek: "0",
+      volumeMonth: "0",
+      volumeAllTime: "0",
+      updatedAt: new Date(),
+    });
+
+    const { notify, notifyAlert } = fakeNotify();
+    await rulesWith(notify).evaluateAction(await insertAction());
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
+    expect(notifyAlert.mock.calls[0][0]).toMatchObject({
+      traderName: "LeaderboardName",
+      recipient: { userId: en.id, locale: "en", telegramChatId: null },
+    });
+  });
+
+  it("favorite-sourced leader: admins get nothing from the default rules", async () => {
+    await user({ admin: true, chatId: "999" });
+    const { notify, notifyAlert } = fakeNotify();
+    await rulesWith(notify).evaluateAction(await insertAction({ kind: "flip" }));
+    expect(notifyAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe("RulesService — admins on imported leaders: the default rules, as before", () => {
+  let adminId: number;
 
   beforeEach(async () => {
-    await resetWithLeader();
-    userId = (await signedInUser()).id;
+    await resetWithLeader("import");
+    adminId = (await user({ admin: true, chatId: "999" })).id;
   });
 
   it("R1 fires on an 'open' whose notional meets min(flatThresholdUsd, equity*pct) — seeded flat=50000, pct=0.10", async () => {
-    const { notify, notifyRulesFire } = fakeNotify();
-    // equity=1,000,000 -> pct branch = 100,000 > flat 50,000 -> min is 50,000.
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify, 1_000_000);
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "49999" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
+    expect(notifyAlert).not.toHaveBeenCalled();
 
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "50000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
-    const ctx = notifyRulesFire.mock.calls[0][0];
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
+    const ctx = notifyAlert.mock.calls[0][0];
     expect(ctx.rules.map((r) => r.kind)).toEqual(["R1"]);
-    expect(ctx.rules[0].userId).toBe(userId);
-    expect(ctx.recipient).toEqual({ userId, telegramChatId: null });
+    expect(ctx.rules[0].userId).toBeNull(); // the default itself, no copy
+    expect(ctx).toMatchObject({ favorite: false, recipient: { userId: adminId, telegramChatId: "999" } });
   });
 
-  it("R1's equity% branch can be lower than the flat threshold — min(X,Y) semantics, not just X", async () => {
-    const { notify, notifyRulesFire } = fakeNotify();
-    // equity=100,000 -> pct branch = 10,000, well under flat 50,000 -> min is 10,000.
-    const rules = new RulesService(db, fakeWatcher(100_000), notify, settings);
-
+  it("R1's equity% branch can be lower than the flat threshold", async () => {
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify, 100_000);
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "9999" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
-
+    expect(notifyAlert).not.toHaveBeenCalled();
     await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "10000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
   });
 
-  it("R2 fires on any 'flip' regardless of size, and only on 'flip'", async () => {
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
-
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "1" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
+  it("R2 fires on any 'flip' regardless of size; R3 on any kind over its threshold", async () => {
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify, 1_000_000);
 
     await rules.evaluateAction(await insertAction({ kind: "flip", notionalUsd: "1" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
-    expect(notifyRulesFire.mock.calls[0][0].rules.map((r) => r.kind)).toEqual(["R2"]);
+    expect(notifyAlert.mock.calls[0][0].rules.map((r) => r.kind)).toEqual(["R2"]);
+
+    await rules.evaluateAction(await insertAction({ kind: "reduce", notionalUsd: "99999", coin: "ETH" }));
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
+    await rules.evaluateAction(await insertAction({ kind: "reduce", notionalUsd: "100000", coin: "ETH" }));
+    expect(notifyAlert.mock.calls[1][0].rules.map((r) => r.kind)).toEqual(["R3"]);
   });
 
-  it("R3 fires on ANY action kind once notional meets min(flatThresholdUsd, equity*pct) — seeded flat=100000, pct=0.20", async () => {
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
-
-    await rules.evaluateAction(await insertAction({ kind: "reduce", notionalUsd: "99999" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
-
-    await rules.evaluateAction(await insertAction({ kind: "reduce", notionalUsd: "100000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
+  it("R1 and R3 on the same 'open': one message; flat threshold alone without equity", async () => {
+    const { notify, notifyAlert } = fakeNotify();
+    await rulesWith(notify, null).evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
+    expect(notifyAlert).toHaveBeenCalledTimes(1);
+    expect(notifyAlert.mock.calls[0][0].rules.map((r) => r.kind).sort()).toEqual(["R1", "R3"]);
   });
 
-  it("sends ONE combined message per recipient when R1 and R3 both match the same 'open'", async () => {
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(10_000_000), notify, settings);
-
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
-
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
-    expect(notifyRulesFire.mock.calls[0][0].rules.map((r) => r.kind).sort()).toEqual(["R1", "R3"]);
-  });
-
-  it("falls back to the flat threshold alone when equityUsd is unavailable (no cached poll state yet)", async () => {
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(null), notify, settings);
-
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "49999" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
-
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "50000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not fire a rule scoped to tiers that exclude this leader's current tier", async () => {
-    await db.update(alertRules).set({ tiers: ["A"] }).where(eq(alertRules.id, (await ruleOf(userId, "R2")).id));
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
-
+  it("tiers and the enabled flag of the default rule apply", async () => {
+    await db.update(alertRules).set({ tiers: ["A"] }).where(eq(alertRules.id, (await defaultRule("R2")).id));
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify);
     await rules.evaluateAction(await insertAction({ kind: "flip" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
-  });
+    expect(notifyAlert).not.toHaveBeenCalled();
 
-  it("does not fire a disabled rule", async () => {
-    await db.update(alertRules).set({ enabled: false }).where(eq(alertRules.id, (await ruleOf(userId, "R2")).id));
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
-
+    await db.update(alertRules).set({ tiers: ["B"], enabled: false }).where(eq(alertRules.kind, "R2"));
     await rules.evaluateAction(await insertAction({ kind: "flip" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
+    expect(notifyAlert).not.toHaveBeenCalled();
   });
 
-  it("never evaluates the default (ownerless) rules themselves", async () => {
-    await db.delete(userFavorites);
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
-
-    // Imported leader, no favoriters, no admins: nobody to notify.
-    await rules.evaluateAction(await insertAction({ kind: "flip" }));
-    expect(notifyRulesFire).not.toHaveBeenCalled();
-    expect(await db.select().from(alerts)).toHaveLength(0);
-  });
-
-  it("suppresses a re-fire within the same rule/address/coin's cooldown window, and allows it again after cooldown expires", async () => {
-    const r1 = await ruleOf(userId, "R1");
-    await db.update(alertRules).set({ cooldownS: 1 }).where(eq(alertRules.id, r1.id));
-
-    const { notify, notifyRulesFire } = fakeNotify();
-    const rules = new RulesService(db, fakeWatcher(1_000_000), notify, settings);
-
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "60000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
-
-    // Simulate N2 having logged the resulting alert (cooldown reads
-    // `alerts.sent_at`, not in-memory state).
+  it("every admin is a recipient; the cooldown is per admin, rule, address and coin", async () => {
+    const other = await user({ admin: true });
+    const r2 = await defaultRule("R2");
     await db.insert(alerts).values({
-      ruleId: r1.id,
-      userId,
-      chain: CHAIN,
-      address: ADDRESS,
-      coin: "BTC",
-      payloadJson: {},
-      sentAt: new Date(),
-      sendStatus: "dry_run",
-    });
-
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "60000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
-
-    // Another coin isn't in cooldown.
-    await rules.evaluateAction(await insertAction({ kind: "open", coin: "ETH", notionalUsd: "60000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(2);
-
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "60000" }));
-    expect(notifyRulesFire).toHaveBeenCalledTimes(3);
-  }, 10_000);
-});
-
-describe("RulesService — recipients, per-user cooldown and channel routing", () => {
-  it("imported leader: favoriters plus every admin; non-favoriting users are not notified", async () => {
-    await resetWithLeader("import");
-    const favoriter = await signedInUser({ chatId: "111" });
-    const admin = await signedInUser({ admin: true, favorite: false, chatId: "999" });
-    await signedInUser({ favorite: false }); // bystander
-
-    const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
-
-    const byUser = callsByUser(notifyRulesFire);
-    expect([...byUser.keys()].sort()).toEqual([favoriter.id, admin.id].sort());
-    const chats = new Map(notifyRulesFire.mock.calls.map(([ctx]) => [ctx.recipient.userId, ctx.recipient.telegramChatId]));
-    expect(chats.get(favoriter.id)).toBe("111");
-    expect(chats.get(admin.id)).toBe("999");
-  });
-
-  it("favorite-sourced leader: only its favoriters, not admins", async () => {
-    await resetWithLeader("favorite");
-    const favoriter = await signedInUser();
-    await signedInUser({ admin: true, favorite: false });
-
-    const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
-
-    expect([...callsByUser(notifyRulesFire).keys()]).toEqual([favoriter.id]);
-  });
-
-  it("an admin who also favorites gets one message, not two", async () => {
-    await resetWithLeader("import");
-    const admin = await signedInUser({ admin: true });
-
-    const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
-
-    expect(notifyRulesFire).toHaveBeenCalledTimes(1);
-    expect(notifyRulesFire.mock.calls[0][0].recipient.userId).toBe(admin.id);
-  });
-
-  it("each user's own rules decide: one user's disabled rule doesn't affect another", async () => {
-    await resetWithLeader();
-    const a = await signedInUser();
-    const b = await signedInUser();
-    await db.update(alertRules).set({ enabled: false }).where(eq(alertRules.id, (await ruleOf(a.id, "R2")).id));
-
-    const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
-
-    expect([...callsByUser(notifyRulesFire).keys()]).toEqual([b.id]);
-  });
-
-  it("cooldown is per user: A's recent alert doesn't silence B", async () => {
-    await resetWithLeader();
-    const a = await signedInUser();
-    const b = await signedInUser();
-    await db.insert(alerts).values({
-      ruleId: (await ruleOf(a.id, "R2")).id,
-      userId: a.id,
+      ruleId: r2.id,
+      userId: adminId,
       chain: CHAIN,
       address: ADDRESS,
       coin: "BTC",
@@ -321,26 +339,46 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
       sendStatus: "sent",
     });
 
-    const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
+    const { notify, notifyAlert } = fakeNotify();
+    const rules = rulesWith(notify);
+    await rules.evaluateAction(await insertAction({ kind: "flip" }));
+    expect([...byUser(notifyAlert).keys()]).toEqual([other.id]); // adminId is cooling down
 
-    expect([...callsByUser(notifyRulesFire).keys()]).toEqual([b.id]);
+    await rules.evaluateAction(await insertAction({ kind: "flip", coin: "ETH" }));
+    expect([...byUser(notifyAlert).keys()].sort()).toEqual([adminId, other.id].sort());
+
+    await db.update(alertRules).set({ cooldownS: 0 }).where(eq(alertRules.id, r2.id));
+    notifyAlert.mockClear();
+    await rules.evaluateAction(await insertAction({ kind: "flip" }));
+    expect(byUser(notifyAlert).has(adminId)).toBe(true);
   });
 
-  it("a disabled channel counts as no channel", async () => {
-    await resetWithLeader();
-    const user = await signedInUser({ chatId: "111" });
-    await db.update(notificationChannels).set({ enabled: false });
+  it("an admin who also has a favorite alert gets one message carrying both reasons", async () => {
+    const admin2 = await user({ admin: true, alert: { sides: "both" }, chatId: "777" });
+    const fan = await user({ alert: {} });
 
-    const { notify, notifyRulesFire } = fakeNotify();
-    await new RulesService(db, fakeWatcher(1_000_000), notify, settings).evaluateAction(await insertAction({ kind: "flip" }));
+    const { notify, notifyAlert } = fakeNotify();
+    await rulesWith(notify).evaluateAction(await insertAction({ kind: "flip" }));
 
-    expect(notifyRulesFire.mock.calls[0][0].recipient).toEqual({ userId: user.id, telegramChatId: null });
+    expect(notifyAlert).toHaveBeenCalledTimes(3);
+    const calls = byUser(notifyAlert);
+    expect(calls.get(admin2.id)).toEqual({ favorite: true, rules: ["R2"] });
+    expect(calls.get(adminId)).toEqual({ favorite: false, rules: ["R2"] });
+    expect(calls.get(fan.id)).toEqual({ favorite: true, rules: [] });
+  });
+
+  it("an admin's favorite alert still fires when no rule does", async () => {
+    await db.delete(users).where(eq(users.id, adminId));
+    const admin2 = await user({ admin: true, alert: { minUsd: 5 } });
+    const { notify, notifyAlert } = fakeNotify();
+    await rulesWith(notify).evaluateAction(await insertAction({ kind: "add", notionalUsd: "10" }));
+    expect(byUser(notifyAlert).get(admin2.id)).toEqual({ favorite: true, rules: [] });
   });
 });
 
-describe("RulesService + NotifyService — real sends routed per user (mocked Telegram)", () => {
-  beforeEach(() => {
+describe("RulesService + NotifyService — real sends (mocked Telegram)", () => {
+  beforeEach(async () => {
+    await resetWithLeader("import");
     process.env.TELEGRAM_DRY_RUN = "false";
     process.env.TELEGRAM_SYSTEM_CHAT_ID = "env-chat";
   });
@@ -349,43 +387,61 @@ describe("RulesService + NotifyService — real sends routed per user (mocked Te
     delete process.env.TELEGRAM_SYSTEM_CHAT_ID;
   });
 
-  it("sends each user's message to their own chat; a user without a channel gets a 'failed' row saying why", async () => {
-    await resetWithLeader();
-    const withChannel = await signedInUser({ chatId: "111" });
-    const withoutChannel = await signedInUser();
-
+  function realNotify() {
     const telegram = { sendMessage: vi.fn(async () => {}) } as unknown as TelegramHttpClient;
-    const notify = new NotifyService(db, new RoundTripService(db), telegram);
-    const rules = new RulesService(db, fakeWatcher(10_000_000), notify, settings);
+    return { telegram, notify: new NotifyService(db, telegram) };
+  }
 
-    // R1 + R3 both match: one message per recipient, one row per rule.
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
+  it("each recipient's message goes to their own chat; no linked chat → a 'failed' row saying why", async () => {
+    const linked = await user({ alert: {}, chatId: "111", locale: "en" });
+    const unlinked = await user({ alert: {} });
+    const admin = await user({ admin: true, alert: {}, chatId: "999" });
 
-    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
-    expect(telegram.sendMessage).toHaveBeenCalledWith("111", expect.stringContaining("R1+R3"));
+    const { telegram, notify } = realNotify();
+    await rulesWith(notify, 10_000_000).evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
+
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(2);
+    expect(telegram.sendMessage).toHaveBeenCalledWith("111", expect.stringContaining("🟢 Buy · Open long BTC"));
+    expect(telegram.sendMessage).toHaveBeenCalledWith("999", expect.stringContaining("規則 R1+R3"));
 
     const rows = await db.select().from(alerts);
-    const sent = rows.filter((r) => r.userId === withChannel.id);
-    const failed = rows.filter((r) => r.userId === withoutChannel.id);
-    expect(sent).toHaveLength(2);
-    expect(sent.every((r) => r.sendStatus === "sent")).toBe(true);
-    expect(failed).toHaveLength(2);
-    expect(failed.every((r) => r.sendStatus === "failed")).toBe(true);
-    expect(failed[0].payloadJson).toMatchObject({ reason: "no enabled Telegram channel" });
-    // Rows reference each user's own rule copies.
-    expect(new Set(sent.map((r) => r.ruleId))).toEqual(
-      new Set([(await ruleOf(withChannel.id, "R1")).id, (await ruleOf(withChannel.id, "R3")).id]),
+    const of = (id: number) => rows.filter((r) => r.userId === id);
+    expect(of(linked.id)).toMatchObject([{ sendStatus: "sent", ruleId: null }]);
+    expect(of(unlinked.id)).toMatchObject([{ sendStatus: "failed", ruleId: null }]);
+    expect(of(unlinked.id)[0].payloadJson).toMatchObject({ reason: "no enabled Telegram channel" });
+    // The admin: one message, one row per matched default rule.
+    expect(of(admin.id).map((r) => r.ruleId).sort()).toEqual(
+      [(await defaultRule("R1")).id, (await defaultRule("R3")).id].sort(),
     );
+    expect(of(admin.id).every((r) => r.sendStatus === "sent")).toBe(true);
   });
 
-  it("alert kill switch (notifications.alertsEnabled=false): no sends, no alert rows; system messages still go out", async () => {
-    await resetWithLeader();
-    await signedInUser({ chatId: "111" });
-    await signedInUser();
+  it("a paused (disabled) channel counts as none", async () => {
+    await user({ alert: {}, chatId: "111" });
+    await db.update(notificationChannels).set({ enabled: false });
+    const { telegram, notify } = realNotify();
+    await rulesWith(notify).evaluateAction(await insertAction());
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    expect((await db.select().from(alerts))[0].sendStatus).toBe("failed");
+  });
 
-    const telegram = { sendMessage: vi.fn(async () => {}) } as unknown as TelegramHttpClient;
-    const notify = new NotifyService(db, new RoundTripService(db), telegram);
-    const rules = new RulesService(db, fakeWatcher(10_000_000), notify, settings);
+  it("TELEGRAM_DRY_RUN: nothing is sent, every recipient gets a 'dry_run' row", async () => {
+    process.env.TELEGRAM_DRY_RUN = "true";
+    await user({ alert: {}, chatId: "111" });
+    await user({ alert: {} });
+    const { telegram, notify } = realNotify();
+    await rulesWith(notify).evaluateAction(await insertAction());
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    const rows = await db.select().from(alerts);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.sendStatus === "dry_run")).toBe(true);
+  });
+
+  it("alert kill switch (notifications.alertsEnabled=false): no sends, no rows; system messages still go out", async () => {
+    await user({ alert: {}, chatId: "111" });
+    await user({ admin: true, chatId: "999" });
+    const { telegram, notify } = realNotify();
+    const rules = rulesWith(notify, 10_000_000);
 
     await settings.patch({ notifications: { alertsEnabled: false } }, null);
     try {
@@ -399,20 +455,22 @@ describe("RulesService + NotifyService — real sends routed per user (mocked Te
       await settings.patch({ notifications: { alertsEnabled: true } }, null);
     }
 
-    // Switched back on: the next action alerts again.
-    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000" }));
+    await rules.evaluateAction(await insertAction({ kind: "open", notionalUsd: "150000", coin: "ETH" }));
     expect(telegram.sendMessage).toHaveBeenCalledWith("111", expect.any(String));
-    expect(await db.select().from(alerts)).toHaveLength(4);
+    expect(telegram.sendMessage).toHaveBeenCalledWith("999", expect.any(String));
+  });
+
+  it("onActionCreated never rejects, even when evaluation throws", async () => {
+    const { notify } = realNotify();
+    const rules = rulesWith(notify);
+    vi.spyOn(rules, "evaluateAction").mockRejectedValueOnce(new Error("db down"));
+    await expect(rules.onActionCreated(await insertAction())).resolves.toBeUndefined();
   });
 });
 
 describe("RulesSeedService — real Postgres", () => {
   beforeEach(async () => {
     await truncateAll(db);
-  });
-
-  afterAll(async () => {
-    await closeTestDb();
   });
 
   it("seeds R1/R2/R3 with the documented defaults", async () => {
@@ -429,21 +487,16 @@ describe("RulesSeedService — real Postgres", () => {
       paramsJson: { flatThresholdUsd: 50_000, pctThreshold: 0.1 },
     });
     expect(r1.tiers.sort()).toEqual(["A", "B", "C"]);
-
-    const r3 = rows.find((r) => r.kind === "R3")!;
-    expect(r3.paramsJson).toEqual({ flatThresholdUsd: 100_000, pctThreshold: 0.2 });
+    expect(rows.find((r) => r.kind === "R3")!.paramsJson).toEqual({ flatThresholdUsd: 100_000, pctThreshold: 0.2 });
   });
 
   it("is idempotent — running it again never duplicates rows or clobbers edited params", async () => {
     const seed = new RulesSeedService(db);
     await seed.seedDefaultRules();
-
     await db.update(alertRules).set({ cooldownS: 1234 }).where(eq(alertRules.kind, "R1"));
-
     await seed.seedDefaultRules();
     const rows = await db.select().from(alertRules);
     expect(rows).toHaveLength(3);
-    const r1 = rows.find((r) => r.kind === "R1")!;
-    expect(r1.cooldownS).toBe(1234);
+    expect(rows.find((r) => r.kind === "R1")!.cooldownS).toBe(1234);
   });
 });

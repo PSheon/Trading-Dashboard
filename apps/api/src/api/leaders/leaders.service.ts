@@ -31,33 +31,35 @@ export class LeadersService {
   async findAll(query: LeadersQuery): Promise<LeaderSummary[]> {
     const rows = await this.repository.findListed(query);
 
-    // Aggregation remains here; query batching is tracked in the performance task.
-    return Promise.all(rows.map((row) => this.summarize(row as unknown as Leader)));
-  }
-
-  private async summarize(leader: Leader): Promise<LeaderSummary> {
-    const now = new Date();
-    const [rank, openPositionCount, pnl7d, pnl30d, winRate, avgHoldTimeSeconds, lastActionAt] =
-      await Promise.all([
-        this.repository.latestRank(leader.address),
-        this.repository.openPositionCount(leader.chain, leader.address),
-        this.roundTrip.realizedPnl(leader.address, new Date(now.getTime() - 7 * DAY_MS)),
-        this.roundTrip.realizedPnl(leader.address, new Date(now.getTime() - 30 * DAY_MS)),
-        this.roundTrip.winRate(leader.address, undefined, new Date(now.getTime() - 30 * DAY_MS)),
-        this.roundTrip.avgHoldTimeSeconds(leader.address),
-        this.repository.lastActionAt(leader.chain, leader.address),
+    const result: LeaderSummary[] = [];
+    const now = Date.now();
+    // Bound bind parameters and per-batch working sets; no concurrent per-leader fanout.
+    for (let offset = 0; offset < rows.length; offset += 200) {
+      const batch = rows.slice(offset, offset + 200);
+      const addresses = batch.map(row => row.address);
+      const [metadata, trips] = await Promise.all([
+        this.repository.summaryMetadata(addresses),
+        this.roundTrip.reconstructRoundTripsMany(addresses),
       ]);
-
-    return {
-      ...leader,
-      rank,
-      openPositionCount,
-      pnl7d,
-      pnl30d,
-      winRate,
-      avgHoldTimeSeconds,
-      lastActionAt,
-    };
+      const byAddress = new Map<string, typeof trips>();
+      for (const trip of trips) {
+        const list = byAddress.get(trip.address) ?? [];
+        list.push(trip); byAddress.set(trip.address, list);
+      }
+      for (const leader of batch) {
+        const all = byAddress.get(leader.address) ?? [];
+        const month = all.filter(trip => trip.closeTs.getTime() >= now - 30 * DAY_MS);
+        result.push({
+          ...leader,
+          ...(metadata.get(leader.address) ?? { rank: null, openPositionCount: 0, lastActionAt: null }),
+          pnl7d: month.filter(trip => trip.closeTs.getTime() >= now - 7 * DAY_MS).reduce((sum, trip) => sum + trip.pnl, 0),
+          pnl30d: month.reduce((sum, trip) => sum + trip.pnl, 0),
+          winRate: month.length ? month.filter(trip => trip.pnl > 0).length / month.length : null,
+          avgHoldTimeSeconds: all.length ? all.reduce((sum, trip) => sum + trip.holdTimeSeconds, 0) / all.length : null,
+        });
+      }
+    }
+    return result;
   }
 
   /** D3: current positions, fill history, self-stored equity curve, coin

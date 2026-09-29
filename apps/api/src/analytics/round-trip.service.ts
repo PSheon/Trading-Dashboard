@@ -49,20 +49,27 @@ export class RoundTripService {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
   async reconstructRoundTrips(address: string, coin?: string): Promise<RoundTrip[]> {
-    const conditions = [eq(actions.chain, CHAIN_DEFAULT), eq(actions.address, address)];
+    return this.reconstructRoundTripsMany([address], coin);
+  }
+
+  /** Batch callers must bound the address window; fills remain keyed by address + tid. */
+  async reconstructRoundTripsMany(addresses: string[], coin?: string): Promise<RoundTrip[]> {
+    if (addresses.length === 0) return [];
+    const conditions = [eq(actions.chain, CHAIN_DEFAULT), inArray(actions.address, addresses)];
     if (coin) conditions.push(eq(actions.coin, coin));
 
     const rows = await this.db
       .select()
       .from(actions)
       .where(and(...conditions))
-      .orderBy(actions.ts);
+      .orderBy(actions.ts, actions.id);
 
     const byCoin = new Map<string, ActionRow[]>();
     for (const row of rows) {
-      const list = byCoin.get(row.coin) ?? [];
+      const key = `${row.address}\0${row.coin}`;
+      const list = byCoin.get(key) ?? [];
       list.push(row);
-      byCoin.set(row.coin, list);
+      byCoin.set(key, list);
     }
 
     // Collect every terminal action's fill_ids first so the closed_pnl sums
@@ -78,7 +85,8 @@ export class RoundTripService {
     }
     const pending: PendingTrip[] = [];
 
-    for (const [coinName, coinActions] of byCoin) {
+    for (const coinActions of byCoin.values()) {
+      const { address, coin: coinName } = coinActions[0]!;
       let openAction: ActionRow | undefined;
       // Every fill from the `open` through the terminal `close`/`flip`
       // (inclusive) contributes to the round trip's PnL — opens/adds
@@ -121,22 +129,23 @@ export class RoundTripService {
 
     const allFillIds = [...new Set(pending.flatMap((p) => p.fillIds))];
     const pnlByTid = new Map<string, number>();
-    if (allFillIds.length > 0) {
+    // Chunk IN parameters below PostgreSQL's bind limit.
+    for (let offset = 0; offset < allFillIds.length; offset += 20000) {
       const fillRows = await this.db
-        .select({ tid: fills.tid, closedPnl: fills.closedPnl })
+        .select({ address: fills.address, tid: fills.tid, closedPnl: fills.closedPnl })
         .from(fills)
         // tid is shared with the counterparty's fill: scope to this address.
         .where(
-          and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), inArray(fills.tid, allFillIds)),
+          and(eq(fills.chain, CHAIN_DEFAULT), inArray(fills.address, addresses), inArray(fills.tid, allFillIds.slice(offset, offset + 20000))),
         );
       for (const row of fillRows) {
-        pnlByTid.set(row.tid.toString(), row.closedPnl === null ? 0 : Number(row.closedPnl));
+        pnlByTid.set(`${row.address}\0${row.tid}`, row.closedPnl === null ? 0 : Number(row.closedPnl));
       }
     }
 
     return pending
       .map((p) => {
-        const pnl = p.fillIds.reduce((sum, tid) => sum + (pnlByTid.get(tid.toString()) ?? 0), 0);
+        const pnl = p.fillIds.reduce((sum, tid) => sum + (pnlByTid.get(`${p.address}\0${tid}`) ?? 0), 0);
         return {
           address: p.address,
           coin: p.coin,

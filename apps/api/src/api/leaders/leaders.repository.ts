@@ -1,6 +1,6 @@
 import type { DbTransaction } from "../../db/unit-of-work.js";
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, max } from "drizzle-orm";
+import { and, desc, eq, gte, max, sql } from "drizzle-orm";
 import {
   actions,
   alerts as alertsTable,
@@ -34,6 +34,20 @@ export class LeadersRepository {
     if (query.tier) conditions.push(eq(leaders.tier, query.tier));
     if (query.active !== undefined) conditions.push(eq(leaders.active, query.active));
     return this.db.select().from(leaders).where(and(...conditions));
+  }
+  async summaryMetadata(addresses: string[]) {
+    if (addresses.length === 0) return new Map<string, { rank: number | null; openPositionCount: number; lastActionAt: Date | null }>();
+    // One round trip; correlated lookups use each table's address/time indexes.
+    const result = await this.db.execute<{ address: string; rank: number | null; openPositionCount: number; lastActionAt: Date | null }>(sql`
+      SELECT l.address,
+        (SELECT i.rank FROM leader_list_items i JOIN leader_lists lists ON lists.id = i.list_id
+          WHERE i.address = l.address ORDER BY lists.imported_at DESC, lists.id DESC LIMIT 1) AS rank,
+        (SELECT count(*)::int FROM position_snapshots p WHERE p.chain = l.chain AND p.address = l.address
+          AND p.ts = (SELECT max(e.ts) FROM equity_snapshots e WHERE e.chain = l.chain AND e.address = l.address)) AS "openPositionCount",
+        (SELECT max(a.ts) FROM actions a WHERE a.chain = l.chain AND a.address = l.address) AS "lastActionAt"
+      FROM leaders l WHERE l.chain = ${CHAIN_DEFAULT} AND l.address IN (${sql.join(addresses.map(address => sql`${address}`), sql`, `)})
+    `);
+    return new Map(result.rows.map(row => [row.address, row]));
   }
   async findOne(chain: string, address: string) {
     const [row] = await this.db.select().from(leaders).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).limit(1);

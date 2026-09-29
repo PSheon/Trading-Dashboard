@@ -73,7 +73,10 @@ export const leaderListItems = pgTable(
     rank: integer("rank").notNull(),
     statsJson: jsonb("stats_json").$type<Record<string, unknown>>(),
   },
-  (table) => [primaryKey({ columns: [table.listId, table.address] })],
+  (table) => [
+    primaryKey({ columns: [table.listId, table.address] }),
+    index("leader_list_items_address_idx").on(table.address, table.listId),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -149,6 +152,7 @@ export const actions = pgTable(
   },
   (table) => [
     index("actions_ts_idx").on(table.ts.desc()),
+    index("actions_chain_address_ts_id_idx").on(table.chain, table.address, table.ts.desc(), table.id.desc()),
     index("actions_coin_ts_idx").on(table.coin, table.ts.desc()),
   ],
 );

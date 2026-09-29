@@ -118,3 +118,8 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 
 - Task 36: pinned Node image, API/shared-only build and production dependency deployment, non-root runtime, explicit locked migration command bundled with SQL/journal, Docker update tracking and CI image build. No automatic migration at API startup.
 - Local Docker build passed; runtime excludes compiler/test/frontend packages. Image migration/readiness 200/graceful exit 0 passed against a created-and-dropped DB; concurrent local migration retries preserve journal count. Web webpack production build passed after dependency changes. Generated-output lint exclusion fixed and workspace lint passed. Production release-hook setup and external deployment remain unverified.
+
+## Batch 11 performance
+
+- Task 37: bounded 200-address metadata/round-trip batches, address-scoped fill PnL, stable timestamp/id ordering, capped fill bind lists and two query indexes (migration 0010). The new 12-leader test failed at 133 queries before the change and passed at 4; cross-address shared tids and latest-flat snapshot semantics are covered.
+- Full isolated API 47 files / 501 tests passed, then the added empty-history/latest-snapshot case passed (2 targeted tests); API typecheck/lint passed. Synthetic 100k-row latest-action EXPLAIN changed sequential scan to new index (8.254 ms → 0.074 ms in one local run). These numbers do not represent production latency. Full-history memory and index rollout limits are documented; no production DB altered.

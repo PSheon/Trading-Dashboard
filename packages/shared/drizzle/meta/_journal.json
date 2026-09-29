@@ -71,6 +71,13 @@
       "when": 1790685076002,
       "tag": "0009_admin_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790687272804,
+      "tag": "0010_illegal_jean_grey",
+      "breakpoints": true
     }
   ]
 }

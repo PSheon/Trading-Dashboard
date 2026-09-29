@@ -1,0 +1,2 @@
+CREATE INDEX "actions_chain_address_ts_id_idx" ON "actions" USING btree ("chain","address","ts" DESC NULLS LAST,"id" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "leader_list_items_address_idx" ON "leader_list_items" USING btree ("address","list_id");

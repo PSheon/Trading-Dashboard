@@ -328,22 +328,46 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(after.lastLoginAt).toEqual(before.lastLoginAt);
     });
 
-    it("invalidateUser(id) applies a disable at once; without it the cache holds for at most 30 s", async () => {
+    it("database revocation applies without a process-local invalidation", async () => {
       await get("/t/protected", "alice-token").expect(200);
       const [alice] = await db.select().from(users);
       await disable("did:privy:alice");
 
-      // Still cached (≤ 30 s)...
-      await get("/t/protected", "alice-token").expect(200);
-      // ...until the admin stream invalidates the user.
+      // Simulates a change committed by another application process.
+      await get("/t/protected", "alice-token").expect(401);
       auth.invalidateUser(alice.id);
       await get("/t/protected", "alice-token").expect(401);
 
-      // Re-enabling works the same way (the "disabled" outcome is cached too).
+      // Re-enabling is also visible without invalidation.
       await disable("did:privy:alice", null);
-      await get("/t/protected", "alice-token").expect(401);
+      await get("/t/protected", "alice-token").expect(200);
       auth.invalidateUser(alice.id);
       await get("/t/protected", "alice-token").expect(200);
+    });
+
+    it("does not publish stale authorization when disabled during a slow profile refresh", async () => {
+      await db.insert(users).values({ id: 90000, privyUserId: "did:privy:boss", role: "admin", email: null });
+      let started!: () => void;
+      const entered = new Promise<void>((resolve) => { started = resolve; });
+      let release!: () => void;
+      const waiting = new Promise<void>((resolve) => { release = resolve; });
+      privy.fetchProfile.mockImplementationOnce(async () => { started(); await waiting; return null; });
+      const pending = auth.authenticate("boss-token");
+      await entered;
+      try { await disable("did:privy:boss"); }
+      finally { release(); }
+      expect(await pending).toEqual({ status: "disabled", userId: 90000 });
+      await get("/t/admin", "boss-token").expect(401);
+    });
+
+    it("cached tokens observe committed demotion and deletion on the next request", async () => {
+      await get("/t/admin", "boss-token").expect(200);
+      await db.update(users).set({ role: "user" }).where(eq(users.privyUserId, "did:privy:boss"));
+      await get("/t/admin", "boss-token").expect(403);
+      const caller = await get("/t/protected", "boss-token").expect(200);
+      expect(caller.body.user.role).toBe("user");
+      await db.delete(users).where(eq(users.privyUserId, "did:privy:boss"));
+      await get("/t/protected", "boss-token").expect(401);
     });
 
     it("the cache expires after 30 s even without invalidateUser", async () => {
@@ -394,7 +418,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
   });
 
   describe("token cache", () => {
-    it("a verified token is reused without re-verifying or hitting the users table", async () => {
+    it("a verified token is reused without re-verifying while authorization is refreshed", async () => {
       await get("/t/protected", "alice-token").expect(200);
       await get("/t/protected", "alice-token").expect(200);
       await get("/t/public", "alice-token").expect(200);

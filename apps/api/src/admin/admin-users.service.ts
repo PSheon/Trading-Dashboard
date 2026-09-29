@@ -139,8 +139,8 @@ export class AdminUsersService {
 
       return this.findOne(tx, id);
     });
-    // Cached sign-ins of this user would otherwise keep the old role or
-    // access for up to 30 s.
+    // Eagerly drop local verification entries; every request also rechecks
+    // persisted authorization, including requests in other processes.
     if (request.role !== undefined || request.disabled !== undefined) this.auth.invalidateUser(id);
     return updated;
   }

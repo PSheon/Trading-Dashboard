@@ -62,12 +62,18 @@ admin, verify the Privy profile lookup succeeds; if an account was already
 created as a user, use an explicitly scoped administrative recovery integration
 or an operator-controlled database procedure, not recurring email promotion.
 
-The last-admin and self-demotion/disable safeguards remain. Role/disable edits
-invalidate authentication cache in the current process. The application remains
-single replica; cross-process invalidation, in-flight authorization revocation,
-role-change audit events and dynamic custom roles are follow-up work. Frontend
-`/me.permissions` and permission-based UI are also deferred; the current UI still
-uses its existing user/admin role display. Never rely on UI visibility for access.
+The last-admin and self-demotion/disable safeguards remain. Every authenticated
+request reads persisted role/disabled state, even when its Privy verification is
+cached. A committed change is visible at the next database authorization read
+in any application process, and an in-flight profile lookup is followed by a
+fresh read before publishing a caller. DB errors fail closed on protected
+routes. Requests already authorized before a concurrent commit can finish;
+this does not cancel in-flight business operations or revoke a Privy session.
+Privy verification itself is cached for at most 30 seconds and never past token
+expiry. Workers still use the supported single-replica topology.
+
+Role-change audit events, frontend effective permissions and dynamic custom
+roles are follow-up work. Never rely on UI visibility for access.
 
 ## Startup validation
 

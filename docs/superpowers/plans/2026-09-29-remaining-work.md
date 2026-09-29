@@ -83,3 +83,5 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 - Targeted limiter/real-DB favorites tests: 25 passed, including simultaneous last-slot additions, idempotent retries and no rejected backfill. Added actual HTTP envelope/Retry-After probe and strict environment regressions before the full gate.
 
 - Task 25 full gate: 42 API files / 477 tests passed; API typecheck/build/lint passed. Real HTTP probe verifies forged forwarded IP cannot bypass the default limiter and v1 429 retains Retry-After.
+
+- Task 26: every cached or freshly resolved human caller rechecks persisted role/disabled state. Profile-fetch completion is followed by another DB authorization read; protected routes fail closed on DB errors. Two new revocation tests failed before implementation; targeted auth/admin tests passed 55/55 afterward. Added a deterministic disable-during-profile-lookup regression. This guarantees freshness at the authorization read, not cancellation of business operations already admitted before a concurrent commit, and does not claim provider-side Privy session revocation.

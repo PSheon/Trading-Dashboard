@@ -27,10 +27,8 @@ function tokenKey(token: string): string {
   return createHash("sha256").update(token).digest("base64url");
 }
 
-/** A verified token's outcome is trusted this long at most, even when the
- * token expires later: disabling a user, changing a role or opening
- * sign-ups takes effect within this window (or at once, through
- * `invalidateUser` / `clearCache`). */
+/** Signature/identity verification may be reused briefly. Persisted role and
+ * disabled state are re-read for every request, including cache hits. */
 const CACHE_TTL_MS = 30_000;
 const CACHE_MAX_ENTRIES = 5_000;
 /** A returning user with no email on file is looked up at Privy again at
@@ -74,8 +72,8 @@ export type SignInResult =
  *
  * Outcomes of verified tokens are cached (keyed by a hash, never the raw
  * token) until the token expires or CACHE_TTL_MS passes, whichever is
- * first, so a signed-in page doesn't cost a signature check and two
- * queries per request. Invalid tokens are not cached.
+ * first. Every request still reads current database authorization; cached
+ * outcomes never grant a stale role. Invalid tokens are not cached.
  */
 @Injectable()
 export class AuthService {
@@ -101,7 +99,10 @@ export class AuthService {
     const now = Date.now();
     const cached = this.cache.get(key);
     if (cached) {
-      if (cached.expiresAt > now) return cached.outcome;
+      if (cached.expiresAt > now) {
+        const current = await this.currentAuthorization(cached.outcome);
+        return cached.expiresAt > Date.now() ? current : { status: "invalid" };
+      }
       this.cache.delete(key);
     }
 
@@ -121,8 +122,23 @@ export class AuthService {
             user: { kind: "user", id: result.user.id, privyUserId: result.user.privyUserId, role: result.user.role },
           }
         : result;
-    this.remember(key, outcome, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS));
-    return outcome;
+    // Profile refresh may await a remote call while an administrator changes
+    // this user. Re-read after that work before publishing an authorization.
+    const current = await this.currentAuthorization(outcome);
+    if (verified.expiresAt.getTime() <= Date.now()) return { status: "invalid" };
+    if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS));
+    return current;
+  }
+
+  private async currentAuthorization(outcome: CachedOutcome): Promise<AuthOutcome> {
+    const id = outcome.status === "disabled" ? outcome.userId
+      : outcome.status === "user" && outcome.user.kind === "user" ? outcome.user.id : undefined;
+    if (id === undefined) return outcome;
+    const [row] = await this.db.select({ id: users.id, privyUserId: users.privyUserId, role: users.role, disabledAt: users.disabledAt })
+      .from(users).where(eq(users.id, id));
+    if (!row) return { status: "invalid" };
+    if (row.disabledAt) return { status: "disabled", userId: row.id };
+    return { status: "user", user: { kind: "user", id: row.id, privyUserId: row.privyUserId, role: row.role } };
   }
 
   /** The caller for this token, or null when it isn't one. */
@@ -131,8 +147,8 @@ export class AuthService {
     return outcome.status === "user" ? outcome.user : null;
   }
 
-  /** Forgets every cached token of this user, so a disable, re-enable or
-   * role change applies to their next request instead of within 30 s. */
+  /** Drop local verification entries after administrative edits. Correctness
+   * does not depend on broadcasting this hint: every instance reads the DB. */
   invalidateUser(userId: number): void {
     for (const [key, { outcome }] of this.cache) {
       const id =

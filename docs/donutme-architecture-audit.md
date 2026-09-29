@@ -4,9 +4,9 @@
 
 ## 後續實作狀態（2026-09-29）
 
-本批已完成第 2–6 項的設定防護，以及第 1 項的啟動前驗證；typed config 注入各 service（第 7 項）仍待後續。RBAC-1／2／4 已加入 permission catalog、依序執行的 guards 與明列 service scopes；RBAC-3 已改為僅建立帳號時 bootstrap，管理稽核記錄仍待補。RBAC-6 已補 service scopes、路由矩陣與降權回歸，真實 SDK 驗簽及其餘測試邊界仍未完成。
+後續 40 項實作已推進至文件整併；完整逐項狀態見 [目前稽核清單](audit-follow-up.md)，測試與限制見 [執行紀錄](superpowers/plans/2026-09-29-remaining-work.md)。目前已有 immutable typed config DI、可協商 response transform／wire DTO、feature repositories 與 UnitOfWork、無啟動副作用的 module 邊界、Privy 真實 SDK 驗簽、DB 即時角色／停權檢查、前端 effective permissions 與管理稽核。
 
-後續資料正確性批次已修正第 13、14、23 項，補第 10 項匯入語意／批量驗證，並完成 RBAC-5 的前端身份切換快取隔離。執行期批次另補第 27–30 項的關機／readiness、逾時取消與排程並行防護；多副本 worker 協調仍未導入。通知持久化批次已補第 25–26 項的 transactional outbox、重放情境與原子 cooldown；操作限制見 [通知交付](notification-delivery.md)。HTTP 批次已補第 8–12、15–16 項：可協商的 envelope、filter、共同 validation、wire DTO／輸出白名單與路由文件；詳見 [HTTP 契約](http-contract.md)。Repository/module 重構、RBAC-5 的多副本撤銷與其他未列明項目仍待後續。部署差異與完整權限表見 [Auth and config](auth-and-config.md)，本批驗證見 [實作紀錄](superpowers/plans/2026-09-29-env-rbac.md)。以下「現有」均指上述稽核基準，避免將歷史問題誤認為目前狀態。
+限流、outbox、shutdown、CI、隔離 DB、瀏覽器與無障礙測試、正式映像／migration、批次查詢及人工資料還原演練也已實作。依賴仍有 4 項 moderate；多副本 watcher ownership、完整 CSP、真實 Privy 登入、正式環境部署／備份／RPO／RTO 均不得視為已驗證。**以下所有「現有／尚未」及檔案數量皆是上述基準的歷史稽核快照，不是目前缺陷清單。**
 
 ## 範圍與方法
 

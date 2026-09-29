@@ -1,116 +1,91 @@
-# Audit follow-up — 2026-09-29
+# Trading-Dashboard 稽核與後續狀態 — 2026-09-29
 
-This is a status ledger, not a claim that every PRD requirement has shipped.
-The audit preceded concurrent feature commits; always compare the current code
-and tests before implementing an item. Historical PRD and competitor PDFs are
-reference material, not generated or verified by this change.
+本頁是目前狀態；[DonutMe 對照](donutme-architecture-audit.md)保留原始問題快照。
+「已實作」代表程式與本機驗證，不代表遠端 CI、正式部署或所有 PRD 功能已驗收。
+完整逐批證據見[執行紀錄](superpowers/plans/2026-09-29-remaining-work.md)。
+最終 rebase／整合及整合後測試結果以該紀錄末尾為準。
 
-## Addressed in the audit-fixes branch
+## 40 項逐項結果
 
-- Destructive tests use only explicit TEST_DATABASE_URL, loopback hosts and
-  database names ending in `_test`; DATABASE_URL is never a fallback.
-- Actions filter the normalized trader address. Legacy actions, alerts, leaders,
-  list diff and import controllers parse shared schemas; limits and malformed
-  inputs are rejected. Leader PATCH rejects unknown fields. Boolean query
-  parsing handles `false` correctly.
-- Equity and positions are persisted atomically. Legacy leader views use the
-  latest equity snapshot, including flat positions. The equity history time
-  window is applied in SQL.
-- Fill sync retries process already-stored fills returned in the requested
-  window, repairing interrupted action derivation while retaining action locks
-  and deduplication. This does not recover data no longer returned by upstream
-  alone guarantee delivery; the durable outbox described below recovers missed events.
-- Docker build context excludes secrets, dependencies and local artifacts.
-- Root dev builds shared first, watches contracts and uses separate API/web
-  ports. Turbo tracks root env files and passes appropriate dev variables.
-- Migration commands load the root env file and fail on a missing DATABASE_URL.
-- Root/API/web setup docs now describe real commands, isolated tests, fast path
-  behavior and historical-spec precedence. The API starter README is replaced.
+| # | 項目 | 目前結果與邊界 |
+| --- | --- | --- |
+| 1 | Alert payload | 已版本化，兼容歷史 payload，未知版本不猜測顯示 |
+| 2 | Actions cursor | timestamp + ID 穩定排序；舊 timestamp-only 仍保留原限制 |
+| 3 | Settings transaction | 共用交易、鎖與 revision cache；並行／rollback 回歸 |
+| 4 | 身份快取隔離 | Privy DID 切換 QueryClient、取消舊請求及重設 UI |
+| 5 | Import validation | 地址／rank／重複資料正規化、1000 筆及 body 上限 |
+| 6 | Shutdown | 停止接單、取消與 drain；process watchdog |
+| 7 | Readiness | /health/ready 實際查 DB，失效回 503；平台未部署 |
+| 8 | Deadline／cancel | 整體 HTTP、queue、upstream、DB 有界限；stream 另有生命週期 |
+| 9 | Telegram retry | 依 Retry-After、逾時／取消；無真實發送 |
+| 10 | Scheduler | 限制並行、coalescing、attempt/success 分離；仍單副本 watcher |
+| 11 | Durable outbox | 交易內持久化 intent／情境、lease、有限重試；at-least-once |
+| 12 | Cooldown | DB 原子 reservation；不保證外部訊息 exactly-once |
+| 13 | Success transform | X-API-Contract:1 協商 envelope；舊 client 保留 raw |
+| 14 | Error format | 全域 filter、穩定 code／request ID／field paths |
+| 15 | Validation | 共用輸入 schema，拒絕未知／錯誤欄位 |
+| 16 | Wire contract | Date／BigInt JSON 契約與瀏覽器／fixture runtime validation |
+| 17 | DTO boundary | 輸出白名單及 route contract registry |
+| 18 | API docs | 可產生的 route catalog 與 freshness check |
+| 19 | Repository | settings／favorites／alerts／leaders／discovery 分離 persistence |
+| 20 | UnitOfWork | 跨 repository 傳遞同一交易，保留鎖／ownership |
+| 21 | Module boundary | on-demand ingestion 與 watcher／bootstrap 拆分 |
+| 22 | Service 責任 | policy、query、worker 協作分工；不為行數建立空泛抽象 |
+| 23 | Shared boundary | contracts/database subpath；前端契約不依賴 ORM schema |
+| 24 | Typed config DI | 啟動驗證、深度 immutable snapshot、service constructor 注入 |
+| 25 | Abuse limits | IP／已驗證 caller／分類限流、favorite 配額與明確 proxy trust |
+| 26 | RBAC revocation | 每次 protected request 重查 DB 角色／停權，不取消已准入業務 |
+| 27 | RBAC UI | /me.permissions 控制路由／選單／寫入；API 是權限最終判斷 |
+| 28 | Admin audit | migration 0009；成功管理異動與 audit 同一交易，actor 可保留 |
+| 29 | Privy integration | 真實 SDK ES256／claims／expiry／DB guards 測試；無 live login |
+| 30 | Logs | JSON 結構、request ID、route/status/duration、redaction |
+| 31 | HTTP security | headers、exact-origin CORS；前端 script/connect CSP 尚未收緊 |
+| 32 | CI | 固定 action SHA、least privilege、tests/build/image；遠端尚未執行 |
+| 33 | DB isolation | 每次隨機 DB、真 migration、成功／失敗清理，平行 run 不互踩 |
+| 34 | Bootstrap／browser | 真 compiled API 200/503／SIGTERM；fixture browser login/logout |
+| 35 | Dependencies | 8 high → 0 high；仍 4 moderate，詳見依賴文件，未全數解決 |
+| 36 | Image／migration | 已建置非 root 正式依賴映像；獨立鎖定 migration／實際容器 probe |
+| 37 | Query performance | 12 leaders 133 → 4 queries；migration 0010 索引；人工 EXPLAIN |
+| 38 | Accessibility | 對比／圖表語意／scroll focus／tabs/radios 修正；桌面手機 Axe |
+| 39 | Backup restore | 人工資料真 dump/restore 通過；正式 backup/PITR/retention 未驗證 |
+| 40 | 文件一致性 | 本清單、README、DonutMe 狀態與操作手冊更新；保留歷史原始規格 |
 
-Claude's activity filtering is included in `3cf7d4c`. His official-bot Telegram
-feature and UI follow-up were merged into dev by `3f28a2b` while this work was
-being verified; this branch was rebased onto that commit. Bot linking,
-per-favorite preferences, alert-trader limits and disabled-recipient filtering
-are now implemented and are not outstanding implementation items.
+原始稽核先行修正亦保留：actions 地址篩選、boolean/query parsing、snapshot 原子性、
+fill replay 修復、Docker secrets 排除、開發期 shared watch、runtime DB fallback 移除。
+Claude 的 Telegram bot linking、收藏警報設定、TWAP／冷 trader page 與後續即時 feed
+功能以實際提交整合為準；本稽核不以舊規格覆寫它們。
 
-## Env and Privy/RBAC follow-up
+## 尚未解決或尚待外部驗證
 
-Startup validation now rejects invalid settings before Nest starts; runtime DB
-fallback is removed. Permissions map local user/admin roles to actions, and service
-callers require explicit AUTH_SERVICE_PERMISSIONS. Admin email bootstrap applies
-only when creating a local account, so demotion survives later authentication.
-See [migration and permissions](auth-and-config.md) and the
-[verification ledger](superpowers/plans/2026-09-29-env-rbac.md).
-The broader [DonutMe comparison](donutme-architecture-audit.md) tracks deferred
-response contracts, repositories, config DI and authorization lifecycle work.
+- **依賴**：4 moderate 實例，涉及舊 esbuild loader、uuid 8/9、URI decoder；
+  Privy optional Farcaster 與 TypeScript／React peer 警告仍在。不能以 fixture 通過
+  推論真錢包整合皆相容。[依賴評估](dependency-maintenance.md)
+- **正式環境**：遠端 CI／image registry／Railway/Vercel、production migration、
+  真實 Privy 登入與 remote JWKS rotation、proxy topology／client IP、完整 CSP origin
+  inventory、backup/PITR／異地保存／retention／RPO／RTO 都未實際確認。
+- **多副本與規模**：watcher ownership 與記憶體限流仍以單副本運作；匿名請求經 Next
+  proxy 可能共享 allowance。Legacy leader 列表仍未分頁、analytics 仍重建完整歷史；
+  大表 index 建立需安排鎖定／CONCURRENTLY 策略。pg 9 前需处理單交易 parallel query。
+- **通知維運**：外部接受後 crash 可能重複發送；audit/outbox 自動 retention 尚未制定。
+  恢復備份後須先 reconciliation 再啟用發送。[通知交付](notification-delivery.md)
+- **無障礙**：尚未做人工作業系統螢幕閱讀器、所有 modal／error／zoom／高對比驗收。
+  自動掃描不等於 WCAG 認證。[涵蓋範圍](accessibility.md)
+- **歷史功能範圍**：R4–R9、群體規則、scoring／episodes、copy execution 沒有因本次
+  稽核而完成；目前保留為未實作／另立功能需求，不宣稱使用者已接受取消。
+  Markdown 是活文件；歷史 PRD／競品 PDF 未重新產生，不可當部署驗收報告。
 
-## Data correctness batch
+## 操作與證據入口
 
-Alert payloads now have a shared versioned display contract and historical reader.
-Actions support lossless timestamp/ID cursors. Settings patches serialize concurrent
-writers and commit all sections atomically. Browser sessions use a fresh QueryClient
-and reset UI state per Privy DID; identity changes abort previous requests. Imports
-validate address/rank semantics and cap rows/content before persistence or backfill.
-See the [ordered implementation ledger](superpowers/plans/2026-09-29-remaining-work.md).
+- [Auth/config 與 Privy/RBAC](auth-and-config.md)
+- [HTTP contracts](http-contract.md)／[route catalog](http-routes.md)
+- [CI／隔離測試](ci-and-testing.md)
+- [容器與 release migration](container-delivery.md)
+- [查詢效能](query-performance.md)
+- [備份還原](backup-and-restore.md)
+- [HTTP security 與 logs](http-security-and-logs.md)／[rate limits](rate-limits.md)
+- [管理稽核](admin-audit.md)
 
-## Runtime reliability batch
-
-Shutdown now stops admission, aborts external/queued work and drains background
-jobs and the pool under deadlines. `/health/ready` checks DB availability; Railway
-configuration points there. Telegram calls have deadlines and respect retry-after.
-Snapshots/sweeps limit concurrency to four; overlapping sweeps retain follow-up
-windows, and snapshot attempt/success/failure timestamps are distinct. HTTP caller
-cancellation reaches Hyperliquid queue/fetch work. These repository changes have
-been tested locally; no Railway deployment was performed.
-
-## Durable notifications
-
-Recent action intents, evaluation context, cooldown reservations and delivery
-records now persist transactionally. Leased retries recover interrupted work and
-revalidate recipients before each send. See [delivery operations](notification-delivery.md)
-for additive migrations, limits and the possible duplicate after Telegram acceptance.
-
-## Remaining high-priority work
-
-6. Inbound API rate limits and monitored-address quotas. The external API
-   budgeter now has bounded/cancellable queues, but is not an inbound abuse limit.
-7. Dependency audit remediation: initial scan reported 8 high, 15 moderate and
-   4 low. Drizzle 0.36.4 is below the identifier escaping patch (0.45.2); no
-   untrusted dynamic identifier path was found in this review. Other findings
-   include development tools and indirect Privy dependencies; assess reachability
-   before equating a package advisory with an exploitable public endpoint.
-
-## Reliability and maintenance follow-up
-
-- Batch/reuse round-trip analytics, especially across notification recipients;
-  avoid whole-history scans and unbounded IN bind lists. Measure index needs
-  for actions by address and alerts by recipient/cooldown using real query plans.
-- Minimal production Docker dependencies, runtime hardening and migration
-  deployment sequencing; the current image still contains development packages.
-- Repo CI with disposable DB, contract tests and browser E2E tests covering real
-  payloads, login/logout/account switching and cross-address isolation.
-- Security headers/CORS policy.
-- Toolchain alignment (TypeScript 5/6, Node type versions); remove unused CLI
-  dependencies and evaluate Vite native tsconfig paths support.
-- Complete radio/tab keyboard semantics and browser accessibility review.
-- Record and verify actual backup/restore and retention settings; PRD prose is
-  not proof these operations run. Keep historical PDFs explicitly versioned or
-  generate them from Markdown.
-- R4–R9, alert scoring and episodes need explicit accepted/deferred status;
-  current stubs should not be presented as completed Stage 1 features.
-
-## Verification
-
-An independent temporary local PostgreSQL cluster was used, never the application's
-DB. Baseline: 28 files / 294 tests. After regression fixes: 29 files / 315 tests.
-After rebasing onto Claude's Telegram merge: 30 files / 346 tests.
-Final branch verification and integration results are recorded in the implementation
-ledger under `docs/superpowers/plans/2026-09-29-audit-fixes.md`.
-
-## HTTP contract batch
-
-Version 1 envelopes are explicitly negotiated; legacy clients keep raw DTOs.
-Output schemas validate and allowlist all registered routes, browser/fixture
-responses validate at runtime, and common input validation reports stable paths.
-See [HTTP boundary](http-contract.md), [route catalog](http-routes.md) and the
-implementation ledger for rollout rules and real HTTP/DB evidence.
+本機證據含完整 API 回歸、前端 unit／browser、型別／lint、webpack production build、
+Docker runtime readiness／shutdown，以及獨立 DB restore。每個數量與 commit 時點詳見
+執行紀錄；歷史 294／346 等測試數不代表目前整合後驗收數。Default Turbopack 在此環境
+受 worker port binding 限制，曾改以 webpack 驗證；不把替代驗證說成原 bundler 已通過。

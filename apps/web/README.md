@@ -44,7 +44,8 @@ filtering (§12). Earlier chat-id/per-user-rule screens are historical designs.
   rejected, so requests can't leave `NEXT_API_URL`.
 - There is no page gating in the web app (no `proxy.ts`): browsing is
   public and apps/api enforces every signed-in / admin rule. The admin
-  area also hides itself unless `GET /me` says `role: "admin"`.
+  area and its write controls use effective `GET /me.permissions` grants and deny
+  missing/error states. Role text is for display; the API remains authoritative.
 
 ## Environment
 
@@ -118,3 +119,9 @@ NEXT_PUBLIC_API_FIXTURES=1 pnpm --filter @trading-dashboard/web dev  # no backen
 ```
 
 Run `pnpm --filter @trading-dashboard/web typecheck`, `pnpm --filter @trading-dashboard/web lint`, and `pnpm --filter @trading-dashboard/web build` separately.
+
+Browser tests: install Chromium with `pnpm --filter @trading-dashboard/web exec
+playwright install chromium`, then run `pnpm --filter @trading-dashboard/web
+test:e2e`. This uses a dedicated fixture server and .next-e2e output, skipping
+repo .env loading. Coverage and limits: [accessibility](../../docs/accessibility.md)
+and [CI](../../docs/ci-and-testing.md).

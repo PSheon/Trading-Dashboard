@@ -93,7 +93,9 @@ pnpm build
 ```
 
 Run `pnpm db:generate` only after database schema changes, and review the SQL.
-Tests require an explicitly exported, separate `TEST_DATABASE_URL`; run `pnpm test`.
+Root `pnpm test` creates and removes a fresh migrated API test database. Export
+`TEST_DATABASE_ADMIN_URL` pointing to a disposable loopback PostgreSQL parent
+(`postgres` or an `_test` database) with CREATE DATABASE permission.
 Never point tests at a development or production database.
 
 See `apps/web/README.md` for the web app's env vars. Never give apps/web a
@@ -112,3 +114,14 @@ the browser bundle.
   `apps/web` and add `app.orbie.fun` under Domains. The build and install
   commands in that file `cd` back to the repo root to run `pnpm`/`turbo`
   against the whole workspace.
+
+## Current engineering status
+
+See the [40-item audit status](docs/audit-follow-up.md) for completed source
+changes, remaining external verification and dated evidence. Key runbooks:
+[CI/tests](docs/ci-and-testing.md), [runtime image/migrations](docs/container-delivery.md),
+[backup/restore](docs/backup-and-restore.md), [dependencies](docs/dependency-maintenance.md),
+[HTTP contracts](docs/http-contract.md), [accessibility](docs/accessibility.md).
+Historical PRD/PDFs describe earlier scope; current code, generated route catalog
+and these runbooks take precedence. R4–R9, scoring/episodes and copy execution
+are not silently marked shipped.

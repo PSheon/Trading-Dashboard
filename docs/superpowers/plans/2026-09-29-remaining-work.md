@@ -133,3 +133,8 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 
 - Task 39: real custom-format pg_dump/pg_restore drill using two disposable databases and synthetic ownership/RBAC, favorites, precision-sensitive action, pending outboxes and audit data. All table contents, index definitions, migration journal, unique/FK constraints and sequence continuation verified; both DBs and temporary archive removed. Local sample 50,553 bytes / 1.551 s is not production RTO evidence.
 - Added CI drill and operational recovery procedure, explicitly separating synthetic proof from unverified provider snapshots/PITR, retention, encryption, off-site copies and live RPO/RTO. No actual business data or external notifications used.
+
+## Batch 14 documentation and reconciliation
+
+- Task 40: replaced stale open-task ledger with all 40 current statuses and explicit unresolved/live-verification boundaries; refreshed DonutMe audit status while preserving baseline findings, root test instructions, frontend permission docs and API operations. Corrected obsolete README claim that admin email re-promotes on every login. Historical PRD/PDF and R4–R9/scoring/episodes/copy execution remain explicitly unimplemented/unverified rather than silently accepted.
+- Concurrent dev advanced to 1e12ce5 with total-account-value/live trader WebSocket and SSE action feed. Final rebase, review and combined verification follow; source completion does not yet claim integration.

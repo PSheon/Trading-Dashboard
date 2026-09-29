@@ -1,7 +1,7 @@
 # Orbie API
 
 NestJS service for public trader discovery, authenticated user data, admin APIs,
-Hyperliquid monitoring and Telegram notifications. Deployed as one Railway
+Hyperliquid monitoring and Telegram notifications. Configured for one Railway
 replica with PostgreSQL; the web app forwards the browser's Privy bearer token.
 
 ## Local development
@@ -27,7 +27,8 @@ docker run --name orbie-postgres-dev --rm -d \
 For that container, set `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/trading_dashboard`.
 The API listens on `PORT` (default 3000); web dev uses 3001. Root `pnpm dev`
 builds shared contracts before starting both apps and the shared compiler watch.
-The API and migration config load the repo-root `.env`; exported values win.
+Local API and drizzle-kit commands load repo-root `.env`; exported values win.
+Test-mode API and the container release migration command do not read it.
 API startup validates configuration before creating Nest providers. A missing
 DATABASE_URL, malformed boolean/integer, partial Privy credentials or unsafe
 production service token stops startup. No implicit database fallback is used.
@@ -108,14 +109,15 @@ that requires them; the runtime image does not run migrations automatically.
 Keep one replica: caches, watcher state and notification coordination currently
 assume one process. Do not scale replicas without distributed ownership.
 
-`AUTH_ADMIN_EMAILS` promotes matching verified emails on subsequent authenticated
-requests as well as first registration. Remove an email from this setting before
-demoting its account, or it can be promoted again. `TELEGRAM_DRY_RUN=true` is the
+`AUTH_ADMIN_EMAILS` bootstraps matching verified emails only on first local
+registration. Subsequent requests read persisted role/disabled state, so demotion
+is preserved even while Privy signature verification is cached. `TELEGRAM_DRY_RUN=true` is the
 default; review it deliberately before enabling real delivery.
 
-Backups, retention jobs, readiness checks and durable notification recovery are
-not guaranteed by this repository's deployment config. Confirm platform settings
-and rehearse recovery before treating this as production-ready. Remaining work:
+`/health/ready` checks database availability; persistent outboxes recover delivery
+work with at-least-once semantics. Actual platform backup/PITR and retention
+settings remain unverified. Use the [release runbook](../../docs/container-delivery.md)
+and [restore drill](../../docs/backup-and-restore.md). Current status:
 [Audit follow-up](../../docs/audit-follow-up.md).
 
 ### Feed cursors and imports

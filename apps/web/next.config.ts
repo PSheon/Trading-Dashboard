@@ -9,7 +9,7 @@ import type { NextConfig } from "next";
 // PRIVY_APP_SECRET, …) never enter this process. Values already set (the
 // shell, apps/web/.env.local, Vercel) win. On Vercel there is no root .env.
 const rootEnv = resolve(import.meta.dirname, "../../.env");
-if (existsSync(rootEnv)) {
+if (process.env.NEXT_TEST_MODE !== "1" && existsSync(rootEnv)) {
   for (const [key, value] of Object.entries(parseEnv(readFileSync(rootEnv, "utf8")))) {
     if (key.startsWith("NEXT_") && process.env[key] === undefined) process.env[key] = value;
   }
@@ -18,6 +18,7 @@ if (existsSync(rootEnv)) {
 const fixtures = process.env.NEXT_PUBLIC_API_FIXTURES === "1";
 
 const nextConfig: NextConfig = {
+  distDir: process.env.NEXT_TEST_MODE === "1" ? ".next-e2e" : ".next",
   poweredByHeader: false,
   headers() {
     return [{ source: "/:path*", headers: [

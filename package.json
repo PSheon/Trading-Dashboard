@@ -14,7 +14,9 @@
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @trading-dashboard/shared db:generate",
     "db:migrate": "pnpm --filter @trading-dashboard/shared db:migrate",
-    "test": "turbo run test"
+    "test": "pnpm test:api:isolated && pnpm --filter @trading-dashboard/web test",
+    "test:api:isolated": "node scripts/test-api-isolated.mjs",
+    "test:bootstrap": "pnpm --filter @trading-dashboard/shared build && pnpm --filter @trading-dashboard/api build && node scripts/bootstrap-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

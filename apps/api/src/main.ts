@@ -12,7 +12,7 @@ import { AppModule } from './app.module.js';
 // Local development reads the repo-root .env; on Railway the platform sets
 // the variables and there is no file. Variables already set win.
 const envFile = resolve(import.meta.dirname, '../../../.env');
-if (existsSync(envFile)) process.loadEnvFile(envFile);
+if (process.env.NODE_ENV !== "test" && existsSync(envFile)) process.loadEnvFile(envFile);
 
 async function bootstrap() {
   const config = validateEnvironment();

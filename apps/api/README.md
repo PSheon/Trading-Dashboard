@@ -36,24 +36,29 @@ matrix and service-token migration requirements.
 Build/typecheck do not require a live database. Use `pnpm db:generate` only after
 changing the database schema; review generated SQL before applying it.
 
-## Automated tests: a separate database
+## Automated tests: disposable databases
 
-Tests truncate tables. They **never use DATABASE_URL**. `TEST_DATABASE_URL` is
-required, must point to `localhost`, `127.0.0.1` or `::1`, have a database name
-ending in `_test`, and contain no query options. Tests do not load `.env`.
-Use a disposable instance and avoid sharing it with other agents or test runs.
+Root `pnpm test` creates/migrates/drops a random database for each API run, then
+runs frontend tests. Supply an explicit disposable local PostgreSQL parent:
 
 ```sh
 docker run --name orbie-postgres-test --rm -d \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=trading_dashboard_test \
-  -p 127.0.0.1:55432:5432 postgres:16-alpine
+  -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:55432:5432 postgres:16-alpine
 # Wait until: docker exec orbie-postgres-test pg_isready -U postgres
-export TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/trading_dashboard_test
-DATABASE_URL="$TEST_DATABASE_URL" pnpm db:migrate
+export TEST_DATABASE_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:55432/postgres
 pnpm test
 # Stop only this disposable container when finished:
 docker stop orbie-postgres-test
 ```
+
+Use `pnpm test:api:isolated test/me.spec.ts` for a subset. Parent URLs must use
+loopback and postgres or a database ending in _test, without URL options.
+The runner never uses DATABASE_URL as its parent and never truncates the parent.
+Each concurrent run gets a separate migrated database. See
+[CI and isolation](../../docs/ci-and-testing.md) for cleanup and failure limits.
+
+The following low-level commands instead require TEST_DATABASE_URL to refer to
+an already migrated disposable local _test database; they truncate its tables.
 
 For a subset, pass filters directly to Vitest (no extra `--`):
 
@@ -72,7 +77,7 @@ part of the normal suite.
 
 - `common/auth`: global default-deny guard, Privy verification, role checks and
   a hashed-token cache. Public routes explicitly opt in. `AUTH_SERVICE_TOKEN`
-  is a server-only admin identity, never added by the browser proxy.
+  is a server-only scoped service identity, never added by the browser proxy.
 - `traders`, `insights`: public discovery, cached Hyperliquid views, crowd data.
 - `users`, `admin`, `settings`: owner-scoped data and administrative controls.
 - `watcher`: WS `trades` → position book → actions; background fills confirm

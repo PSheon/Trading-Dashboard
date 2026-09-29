@@ -6,9 +6,10 @@ import {
   userFavorites,
   users,
 } from "@trading-dashboard/shared";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminUsersService, escapeLike } from "../src/admin/admin-users.service.js";
+import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { RequestUser } from "../src/common/auth/current-user.js";
 import { insertUser, truncateAdminTables } from "./admin-test-utils.js";
 import { closeTestDb, getTestDb } from "./db-test-utils.js";
@@ -32,10 +33,12 @@ async function httpError(promise: Promise<unknown>): Promise<HttpException> {
 
 describe("admin users — real Postgres", () => {
   const db = getTestDb();
-  const service = new AdminUsersService(db);
+  const invalidateUser = vi.fn();
+  const service = new AdminUsersService(db, { invalidateUser } as unknown as AuthService);
 
   beforeEach(async () => {
     await truncateAdminTables(db);
+    invalidateUser.mockClear();
   });
 
   afterAll(async () => {
@@ -156,6 +159,15 @@ describe("admin users — real Postgres", () => {
       expect(enabled.disabled).toBe(false);
       const [after] = await db.select().from(users).where(eq(users.id, user.id));
       expect(after.disabledAt).toBeNull();
+      expect(invalidateUser.mock.calls).toEqual([[user.id], [user.id], [user.id], [user.id]]);
+    });
+
+    it("drops the user's cached sign-ins only after a change that went through", async () => {
+      const user = await insertUser(db);
+      await service.patch(user.id, {}, SERVICE);
+      await httpError(service.patch(user.id, { role: "root" }, SERVICE));
+      await httpError(service.patch(999, { role: "admin" }, SERVICE));
+      expect(invalidateUser).not.toHaveBeenCalled();
     });
 
     it("404s on an unknown id", async () => {

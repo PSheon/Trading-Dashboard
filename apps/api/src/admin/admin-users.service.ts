@@ -14,6 +14,7 @@ import {
   type AdminUsersResponse,
 } from "@trading-dashboard/shared";
 
+import { AuthService } from "../common/auth/auth.service.js";
 import { userIdOf, type RequestUser } from "../common/auth/current-user.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -53,7 +54,10 @@ function toAdminUser(row: AdminUserRow): AdminUser {
 /** GET /admin/users, PATCH /admin/users/:id. */
 @Injectable()
 export class AdminUsersService {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(
+    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly auth: AuthService,
+  ) {}
 
   async list(rawQuery: unknown): Promise<AdminUsersResponse> {
     const query = parseOr400(adminUsersQuerySchema, rawQuery);
@@ -97,7 +101,7 @@ export class AdminUsersService {
   async patch(id: number, body: unknown, actor: RequestUser | null): Promise<AdminUser> {
     const request = parseOr400(patchAdminUserRequestSchema, body);
 
-    return this.db.transaction(async (tx) => {
+    const updated = await this.db.transaction(async (tx) => {
       const enabledAdmins = await tx
         .select({ id: users.id })
         .from(users)
@@ -135,6 +139,10 @@ export class AdminUsersService {
 
       return this.findOne(tx, id);
     });
+    // Cached sign-ins of this user would otherwise keep the old role or
+    // access for up to 30 s.
+    if (request.role !== undefined || request.disabled !== undefined) this.auth.invalidateUser(id);
+    return updated;
   }
 
   private async findOne(tx: Tx, id: number): Promise<AdminUser> {

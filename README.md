@@ -33,6 +33,8 @@ npm run sw -- funnel --dry-run             # discover candidate wallets from tok
 npm run sw -- funnel --max-wallets 50      # … and register them (via token_funnel)
 npm run sw -- golden                       # P1 golden samples → test/golden, docs/p1-golden.md
 npm run sw -- pnl-sheet --wallet A --wallet B   # P1 per-token PnL → docs/p1-gmgn.md
+npm run sw -- prices                       # SOL/USD by the minute from Dune (prices stablecoin trades)
+npm run sw -- gmgn-check --sample 10       # R0: our trades against GMGN → docs/r0-gmgn-check.md
 ```
 
 Code lives in `src/lib` (pipeline), `src/cli` (the `sw` command) and
@@ -99,8 +101,8 @@ first run backfills 180 days for each.
 
 ## Stage
 
-R0 (data you can trust) is mostly done: the Helius pipeline, reconciliation and
-point-in-time snapshots run on 55 wallets. Next: point-in-time funnel replay
+R0 (data you can trust) passed on 55 wallets: reconciliation, stablecoin
+conversion and the cross-check against GMGN (docs/r0-gmgn-check.md). Next: point-in-time funnel replay
 (R1) and the follow-trade backtest (R2). The dashboard is frozen as a
 read-only view and deployment is paused until the backtest says the approach
 works; see the spec for scope.

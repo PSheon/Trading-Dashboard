@@ -26,12 +26,12 @@ interface SnapshotRow {
  * Position notional at the snapshot's own mark price. A snapshot stores
  * szi, entryPx and unrealizedPnl; since uPnL = szi × (mark − entry),
  * szi × mark = szi × entry + uPnL. So this is |szi| × mark at snapshot time,
- * with no separate price source (`coin_meta` has no prices). Falls back to
- * |szi| × entry when uPnL is missing; null without an entry price.
+ * with no separate price source (`coin_meta` has no prices). Returns null when any valuation input is unavailable.
  */
 export function snapshotNotional(szi: number, entryPx: number | null, unrealizedPnl: number | null): number | null {
-  if (entryPx === null || !Number.isFinite(entryPx)) return null;
-  return Math.abs(szi * entryPx + (unrealizedPnl ?? 0));
+  if (entryPx === null || unrealizedPnl === null || ![szi, entryPx, unrealizedPnl].every(Number.isFinite)) return null;
+  const value = Math.abs(szi * entryPx + unrealizedPnl);
+  return Number.isFinite(value) ? value : null;
 }
 
 const numOrNull = (v: string | null): number | null => {
@@ -62,8 +62,9 @@ export class InsightsService {
    * closed position disappears on the next run.
    *
    * 24 h ago: the same, for the set closest to now − 24 h (± 15 min);
-   * `netNotional24hAgo` is null for every coin when there is no such set,
-   * else the coin's net then (0 when nobody held it).
+   * Exposure change uses only addresses present in both sets; missing
+   * observations are not flat positions. Includes price movement, not just trades.
+   * The legacy prior-total field is available only for identical cohorts.
    */
   async computeCrowd(now: Date): Promise<CrowdResponse> {
     const [current, past] = await Promise.all([
@@ -77,50 +78,74 @@ export class InsightsService {
 
     const coins = new Map<
       string,
-      { longNotional: number; shortNotional: number; long: Set<string>; short: Set<string> }
+      { longNotional: number | null; shortNotional: number | null; long: Set<string>; short: Set<string> }
     >();
     for (const row of current.rows) {
       const szi = numOrNull(row.szi);
       if (row.coin === null || szi === null || szi === 0) continue;
       const notional = snapshotNotional(szi, numOrNull(row.entry_px), numOrNull(row.unrealized_pnl));
-      if (notional === null) continue;
       let agg = coins.get(row.coin);
       if (!agg) coins.set(row.coin, (agg = { longNotional: 0, shortNotional: 0, long: new Set(), short: new Set() }));
       if (szi > 0) {
-        agg.longNotional += notional;
+        agg.longNotional = agg.longNotional === null || notional === null ? null : agg.longNotional + notional;
         agg.long.add(row.address);
       } else {
-        agg.shortNotional += notional;
+        agg.shortNotional = agg.shortNotional === null || notional === null ? null : agg.shortNotional + notional;
         agg.short.add(row.address);
       }
     }
 
+    const currentAddresses = new Set(current.rows.map(row => row.address));
+    const pastAddresses = new Set(past.rows.map(row => row.address));
+    const matched = new Set([...currentAddresses].filter(address => pastAddresses.has(address)));
+    const sameCohort = matched.size > 0 && matched.size === currentAddresses.size && matched.size === pastAddresses.size;
+    const unpriced = new Set<string>();
+    const currentMatched = new Map<string, number>();
+    const pastMatched = new Map<string, number>();
+    for (const row of current.rows) {
+      if (!matched.has(row.address) || row.coin === null) continue;
+      const szi = numOrNull(row.szi);
+      if (szi === null) { unpriced.add(row.coin); continue; }
+      if (szi === 0) continue;
+      const notional = snapshotNotional(szi, numOrNull(row.entry_px), numOrNull(row.unrealized_pnl));
+      if (notional === null) unpriced.add(row.coin);
+      else currentMatched.set(row.coin, (currentMatched.get(row.coin) ?? 0) + Math.sign(szi) * notional);
+    }
     const pastNet = new Map<string, number>();
     for (const row of past.rows) {
       const szi = numOrNull(row.szi);
-      if (row.coin === null || szi === null || szi === 0) continue;
-      const notional = snapshotNotional(szi, numOrNull(row.entry_px), numOrNull(row.unrealized_pnl));
-      if (notional === null) continue;
+      if (row.coin === null || szi === 0) continue;
+      const notional = szi === null ? null : snapshotNotional(szi, numOrNull(row.entry_px), numOrNull(row.unrealized_pnl));
+      if (notional === null || szi === null) {
+        if (matched.has(row.address)) unpriced.add(row.coin);
+        continue;
+      }
       pastNet.set(row.coin, (pastNet.get(row.coin) ?? 0) + Math.sign(szi) * notional);
+      if (matched.has(row.address)) pastMatched.set(row.coin, (pastMatched.get(row.coin) ?? 0) + Math.sign(szi) * notional);
+      // Retain yesterday's positions even when every observed owner is now flat.
+      if (!coins.has(row.coin)) coins.set(row.coin, { longNotional: 0, shortNotional: 0, long: new Set(), short: new Set() });
     }
 
     const out: CrowdCoin[] = [...coins].map(([coin, a]) => {
-      const gross = a.longNotional + a.shortNotional;
+      const gross = (a.longNotional ?? 0) + (a.shortNotional ?? 0);
       return {
         coin,
         longNotional: a.longNotional,
         shortNotional: a.shortNotional,
         longTraders: a.long.size,
         shortTraders: a.short.size,
-        netBias: gross > 0 ? (a.longNotional - a.shortNotional) / gross : 0,
-        netNotional24hAgo: past.addresses > 0 ? (pastNet.get(coin) ?? 0) : null,
+        netBias: a.longNotional === null || a.shortNotional === null ? null : gross > 0 ? (a.longNotional - a.shortNotional) / gross : 0,
+        netNotional24hAgo: sameCohort && !unpriced.has(coin) ? (pastNet.get(coin) ?? 0) : null,
+        netNotionalChange24h: !unpriced.has(coin) && (currentMatched.has(coin) || pastMatched.has(coin))
+          ? (currentMatched.get(coin) ?? 0) - (pastMatched.get(coin) ?? 0) : null,
       };
     });
     out.sort(
-      (x, y) => y.longNotional + y.shortNotional - (x.longNotional + x.shortNotional) || x.coin.localeCompare(y.coin),
+      (x, y) => (y.longNotional ?? 0) + (y.shortNotional ?? 0) - ((x.longNotional ?? 0) + (x.shortNotional ?? 0)) || x.coin.localeCompare(y.coin),
     );
 
-    return { trackedTraders: current.addresses, coins: out, updatedAt: current.latestTs };
+    return { trackedTraders: current.addresses, coins: out, updatedAt: current.latestTs,
+      comparison: { currentTraders: currentAddresses.size, pastTraders: pastAddresses.size, matchedTraders: matched.size } };
   }
 
   /** Per active leader, the snapshot run in [from, to] closest to `target`,

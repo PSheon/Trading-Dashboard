@@ -203,6 +203,14 @@ export const MIN_BASE_USD = 10;
 export const MIN_BASE_FRACTION = 0.01;
 
 export interface PortfolioMetrics {
+  methodology: {
+    version: "flow-neutral-v1";
+    intervals: number;
+    excludedIntervals: number;
+    excludedFraction: number | null;
+    capitalFloorUsd: number;
+    quality: "observed" | "partial" | "unavailable";
+  };
   maxDrawdownUsd: number;
   maxDrawdownPct: number | null;
   sharpe: number | null;
@@ -307,7 +315,16 @@ export function portfolioMetrics(pnl: Point[], capital: CapitalSeries): Portfoli
     cumulativeReturn.push([ts, index - 1]);
   }
 
+  const excludedIntervals = returns.filter(([, r]) => r === null).length;
   return {
+    methodology: {
+      version: "flow-neutral-v1",
+      intervals: returns.length,
+      excludedIntervals,
+      excludedFraction: returns.length ? excludedIntervals / returns.length : null,
+      capitalFloorUsd: Math.max(MIN_BASE_USD, MIN_BASE_FRACTION * capital.accountValue.reduce((peak, [, v]) => Math.max(peak, v), 0)),
+      quality: !usable ? "unavailable" : excludedIntervals ? "partial" : "observed",
+    },
     maxDrawdownUsd,
     maxDrawdownPct: usable ? maxDrawdownPct : null,
     sharpe: usable ? dailySharpe(pnl[0][0], returns) : null,

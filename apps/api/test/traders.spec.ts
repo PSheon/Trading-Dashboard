@@ -524,7 +524,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
 
     it("returns empty series for a window Hyperliquid didn't send", async () => {
       info.portfolio.mockResolvedValueOnce([]);
-      expect(await controller.portfolio(UNKNOWN, { window: "day" })).toEqual({
+      expect(await controller.portfolio(UNKNOWN, { window: "day" })).toMatchObject({
         window: "day",
         market: "perp",
         accountValue: [],
@@ -1192,7 +1192,7 @@ describe("portfolioMetrics — flow-neutral time-weighted returns, hand-computed
   });
 
   it("guards: dust bases are skipped, short windows have no Sharpe, empty is null", () => {
-    expect(portfolioMetrics([], { accountValue: [], pnl: [] })).toEqual({
+    expect(portfolioMetrics([], { accountValue: [], pnl: [] })).toMatchObject({
       maxDrawdownUsd: 0,
       maxDrawdownPct: null,
       sharpe: null,

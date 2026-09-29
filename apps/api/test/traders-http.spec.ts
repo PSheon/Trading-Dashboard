@@ -198,7 +198,7 @@ describe("public discovery routes over HTTP", () => {
 
     const crowd = await request(app.getHttpServer()).get("/insights/crowd");
     expect(crowd.status).toBe(200);
-    expect(crowd.body).toEqual({ trackedTraders: 0, coins: [], updatedAt: null });
+    expect(crowd.body).toEqual({ trackedTraders: 0, coins: [], updatedAt: null, comparison: { currentTraders: 0, pastTraders: 0, matchedTraders: 0 } });
   });
 
   it("answers 503 busy with Retry-After past the page deadline, and the retry gets the finished work", async () => {

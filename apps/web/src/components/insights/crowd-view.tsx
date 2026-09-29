@@ -34,7 +34,7 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
 
   const coins = crowd.data.coins;
   const shown = all ? coins : coins.slice(0, COLLAPSED);
-  const max = Math.max(1, ...shown.map((c) => Math.max(c.longNotional, c.shortNotional)));
+  const max = Math.max(1, ...shown.map((c) => Math.max(c.longNotional ?? 0, c.shortNotional ?? 0)));
 
   return (
     <Panel className="overflow-hidden">
@@ -44,6 +44,12 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
           <p className="mt-1 text-xs text-muted-foreground">
             {t("insights.crowdSubtitle", { count: crowd.data.trackedTraders })}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {crowd.data.comparison
+              ? t("insights.crowdComparison", { matched: crowd.data.comparison.matchedTraders, current: crowd.data.comparison.currentTraders, past: crowd.data.comparison.pastTraders })
+              : t("insights.crowdComparisonUnavailable")}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("insights.crowdExposureHint")}</p>
         </div>
         {crowd.data.updatedAt ? (
           <span className="num text-[11px] text-subtle-foreground">
@@ -67,9 +73,9 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
             </div>
             <ul>
               {shown.map((c) => {
-                const net = c.longNotional - c.shortNotional;
-                const change = c.netNotional24hAgo === null ? null : net - c.netNotional24hAgo;
-                const biasPct = Math.abs(c.netBias);
+                // Never derive a delta from totals over potentially different cohorts.
+                const change = c.netNotionalChange24h ?? null;
+                const biasPct = Math.abs(c.netBias ?? 0);
                 return (
                   <li key={c.coin}>
                     <button
@@ -83,20 +89,20 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
                       </span>
                       <span className="flex items-center justify-end gap-2">
                         <span className="text-[11px] text-muted-foreground">
-                          {format.usd(c.shortNotional, { compact: true })}
+                          {c.shortNotional === null ? "—" : format.usd(c.shortNotional, { compact: true })}
                         </span>
                         <span
                           className="h-5 rounded-l-md bg-negative/80"
-                          style={{ width: `${(c.shortNotional / max) * 70}%` }}
+                          style={{ width: `${((c.shortNotional ?? 0) / max) * 70}%` }}
                         />
                       </span>
                       <span className="flex items-center gap-2 border-l border-border-strong pl-0">
                         <span
                           className="h-5 rounded-r-md bg-positive/80"
-                          style={{ width: `${(c.longNotional / max) * 70}%` }}
+                          style={{ width: `${((c.longNotional ?? 0) / max) * 70}%` }}
                         />
                         <span className="text-[11px] text-muted-foreground">
-                          {format.usd(c.longNotional, { compact: true })}
+                          {c.longNotional === null ? "—" : format.usd(c.longNotional, { compact: true })}
                         </span>
                       </span>
                       <span className="text-right text-xs">
@@ -110,14 +116,14 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
                             "inline-flex h-6 items-center rounded-full px-2 text-[11px] font-semibold",
                             biasPct < 0.05
                               ? "bg-raised text-muted-foreground"
-                              : c.netBias > 0
+                              : (c.netBias ?? 0) > 0
                                 ? "bg-positive-soft text-positive"
                                 : "bg-negative-soft text-negative",
                           )}
                         >
-                          {biasPct < 0.05
+                          {c.netBias === null ? "—" : biasPct < 0.05
                             ? t("insights.biasFlat")
-                            : t(c.netBias > 0 ? "insights.biasLong" : "insights.biasShort", {
+                            : t((c.netBias ?? 0) > 0 ? "insights.biasLong" : "insights.biasShort", {
                                 value: format.pct(biasPct, { digits: 0 }),
                               })}
                         </span>

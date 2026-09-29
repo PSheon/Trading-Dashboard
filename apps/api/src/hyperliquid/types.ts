@@ -1,8 +1,7 @@
 /**
  * Typed request/response shapes for the Hyperliquid public info & WS APIs
- * that this PRD needs (§5). These are intentionally loose (fields the docs
- * document, `unknown`/optional elsewhere) — tightening them is part of the
- * next task, not this scaffold.
+ * that the application consumes. HTTP payloads are runtime-validated in
+ * response-validation.ts; additional fields are retained for forward compatibility.
  */
 
 // ---------------------------------------------------------------------------
@@ -27,7 +26,7 @@ export interface HlAssetPosition {
   position: {
     coin: string;
     szi: string;
-    entryPx?: string;
+    entryPx?: string | null;
     leverage: { type: string; value: number };
     liquidationPx?: string | null;
     marginUsed: string;

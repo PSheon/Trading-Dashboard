@@ -672,6 +672,9 @@ export const sparklinesQuerySchema = z.object({
     .pipe(z.array(z.string()).max(30)),
   window: traderWindowSchema.default("month"),
 });
+/** Address → PnL series; [] when its fetch failed. Addresses whose
+ * portfolio isn't ready within the api's deadline (8 s) are left out and
+ * keep loading into the cache: ask again for them. */
 export const sparklinesResponseSchema = z.record(z.string(), z.array(seriesPointSchema));
 export type SparklinesResponse = z.infer<typeof sparklinesResponseSchema>;
 

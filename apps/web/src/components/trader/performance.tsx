@@ -333,7 +333,7 @@ export function PerformanceChart({
             </div>
             {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} className="mt-2.5" muted={muted} /> : null}
           </div>
-          {last ? <p className="num text-xs text-subtle-foreground">{format.dateTime(last[0])}</p> : null}
+          {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.dateTime(last[0])}</p> : null}
         </div>
       </div>
 

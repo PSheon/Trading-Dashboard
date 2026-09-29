@@ -565,6 +565,24 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(res[C]).toEqual([]);
     });
 
+    it("answers by the deadline with what is ready; the rest load into the cache for the retry", async () => {
+      service.sparklineDeadlineMs = 30;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      info.portfolio.mockImplementation(async (address: string) => {
+        if (address === C) await gate;
+        return portfolioFixture;
+      });
+      const first = await controller.sparklines({ addresses: `${A},${C}` });
+      expect(Object.keys(first)).toEqual([A]); // C is left out, not []
+      release();
+      await vi.waitFor(() => expect(service.sparklineCache.peek(C)).toBeDefined());
+      const retry = await controller.sparklines({ addresses: `${A},${C}` });
+      expect(Object.keys(retry).sort()).toEqual([A, C]);
+      expect(retry[C].length).toBeGreaterThan(0);
+      expect(info.portfolio).toHaveBeenCalledTimes(2);
+    });
+
     it("rejects more than 30 addresses, invalid ones, or none", async () => {
       const many = Array.from({ length: 31 }, (_, i) => `0x${i.toString(16).padStart(40, "0")}`).join(",");
       await expectStatus(() => controller.sparklines({ addresses: many }), 400);

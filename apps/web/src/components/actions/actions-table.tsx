@@ -12,7 +12,8 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { api } from "@/lib/api";
-import { coinLabel, toNumber, truncateAddress } from "@/lib/format";
+import { TraderName } from "@/components/traders/trader-name";
+import { coinLabel, toNumber } from "@/lib/format";
 
 export const ACTION_KINDS: readonly ActionKind[] = ["open", "add", "reduce", "close", "flip", "liquidation"];
 
@@ -95,7 +96,7 @@ export function ActionsTable({
                         className={cn("size-3.5 text-subtle-foreground transition-transform", open && "rotate-180")}
                       />
                     ) : null}
-                    <span title={format.dateTime(row.ts)}>{format.relative(row.ts)}</span>
+                    <span className="num font-mono text-xs" title={format.dateTime(row.ts)}>{format.relative(row.ts)}</span>
                   </span>
                 </TableCell>
                 {showTrader ? (
@@ -106,7 +107,9 @@ export function ActionsTable({
                       className="flex items-center gap-2 rounded-md font-medium outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <AddressAvatar seed={row.address} size={22} />
-                      <span className="max-w-[9rem] truncate">{row.leaderLabel || truncateAddress(row.address)}</span>
+                      <span className="flex max-w-[9rem] min-w-0">
+                        <TraderName trader={{ address: row.address, displayName: row.leaderLabel }} />
+                      </span>
                       {row.leaderTier ? (
                         <span className="rounded-md bg-raised px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                           {row.leaderTier}
@@ -179,7 +182,7 @@ function FillsRow({ actionId, colSpan }: { actionId: string; colSpan: number }) 
                   const pnl = toNumber(fill.closedPnl);
                   return (
                     <tr key={String(fill.tid)} className="border-t border-border/60">
-                      <td className="px-3 py-1.5 text-muted-foreground">{format.time(fill.ts)}</td>
+                      <td className="num px-3 py-1.5 font-mono text-muted-foreground">{format.time(fill.ts)}</td>
                       <td className="px-3 py-1.5">{fill.dir}</td>
                       <td className="px-3 py-1.5 text-right">{format.price(fill.px)}</td>
                       <td className="px-3 py-1.5 text-right">{format.num(fill.sz, 4)}</td>

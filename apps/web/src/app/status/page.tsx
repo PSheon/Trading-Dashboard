@@ -51,10 +51,10 @@ export default function StatusPage() {
           {data ? (
             <>
               <Row
-                label="WS connected"
+                label="Poller alive"
                 value={
-                  <Badge variant={data.wsConnected ? "default" : "secondary"}>
-                    {data.wsConnected ? "connected" : "disconnected"}
+                  <Badge variant={data.pollerAlive ? "default" : "secondary"}>
+                    {data.pollerAlive ? "alive" : "not responding"}
                   </Badge>
                 }
               />
@@ -67,8 +67,8 @@ export default function StatusPage() {
                 }
               />
               <Row
-                label="Requests today"
-                value={data.requestsToday.toString()}
+                label="Requests (last minute)"
+                value={data.requestsLastMinute.toString()}
               />
               <Row
                 label="DRY_RUN"

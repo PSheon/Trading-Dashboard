@@ -22,6 +22,13 @@ export function getBoolEnv(key: string, defaultValue = false): boolean {
   return raw.toLowerCase() === "true" || raw === "1";
 }
 
+export function getIntEnv(key: string, defaultValue: number): number {
+  const raw = process.env[key];
+  if (raw === undefined) return defaultValue;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
+}
+
 export const env = {
   databaseUrl: () => getEnv("DATABASE_URL"),
   apiAuthToken: () => getEnv("API_AUTH_TOKEN"),
@@ -33,4 +40,15 @@ export const env = {
     getEnv("HYPERLIQUID_API_URL") ?? "https://api.hyperliquid.xyz/info",
   hyperliquidWsUrl: () =>
     getEnv("HYPERLIQUID_WS_URL") ?? "wss://api.hyperliquid.xyz/ws",
+
+  /**
+   * W6 request budgeter + polling-only Watcher config. See the arithmetic
+   * in `request-budgeter.service.ts` and `watcher.service.ts` for how these
+   * two defaults were derived — they are not independent knobs, changing
+   * one changes the safety margin the other assumes.
+   */
+  watcherPollIntervalSeconds: () =>
+    getIntEnv("WATCHER_POLL_INTERVAL_SECONDS", 20),
+  hyperliquidWeightBudgetPerMin: () =>
+    getIntEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", 840),
 };

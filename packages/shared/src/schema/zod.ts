@@ -182,6 +182,16 @@ export const leadersQuerySchema = z.object({
 });
 export type LeadersQuery = z.infer<typeof leadersQuerySchema>;
 
+/** PATCH /leaders/:chain/:address — A3 manual leader management. All
+ * fields optional; only the ones present are updated. */
+export const patchLeaderRequestSchema = z.object({
+  label: z.string().nullable().optional(),
+  tier: tierSchema.optional(),
+  notes: z.string().nullable().optional(),
+  active: z.boolean().optional(),
+});
+export type PatchLeaderRequest = z.infer<typeof patchLeaderRequestSchema>;
+
 /** GET /actions (Live Feed) — D1 */
 export const actionsFeedQuerySchema = z.object({
   coin: z.string().optional(),
@@ -215,11 +225,21 @@ export type UpsertAlertRuleRequest = z.infer<
   typeof upsertAlertRuleRequestSchema
 >;
 
-/** GET /health — heartbeat per §8 可觀測 */
+/**
+ * GET /health — heartbeat per §8 可觀測.
+ *
+ * There is no WS in this v1 (polling-only Watcher — see watcher.service.ts
+ * for why), so `wsConnected` doesn't correspond to anything real; renamed
+ * to `pollerAlive` (did the poll loop complete a cycle recently). Likewise
+ * `requestsToday` implied a since-midnight counter the request budgeter
+ * doesn't keep (it only needs a trailing-60s window) — renamed to
+ * `requestsLastMinute`, which is the number the budgeter can report
+ * honestly.
+ */
 export const heartbeatResponseSchema = z.object({
-  wsConnected: z.boolean(),
+  pollerAlive: z.boolean(),
   lastFillAt: z.coerce.date().nullable(),
-  requestsToday: z.number().int(),
+  requestsLastMinute: z.number().int(),
   dryRun: z.boolean(),
   now: z.coerce.date(),
 });

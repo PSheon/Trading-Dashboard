@@ -1,9 +1,0 @@
-.git
-node_modules
-.next
-.env
-.env*.local
-data
-test
-coverage
-*.tsbuildinfo

@@ -10,6 +10,7 @@ import type {
   HlPerpDexsResponse,
   HlPortfolioResponse,
   HlUserFill,
+  HlReferralResponse,
   HlUserFillsByTimeResponse,
 } from "./types.js";
 
@@ -22,6 +23,9 @@ const WEIGHT_PERP_DEXS = 20;
 const WEIGHT_ALL_MIDS = 20;
 const WEIGHT_PORTFOLIO = 20;
 const WEIGHT_USER_FILLS_BASE = 20;
+/** Not in the weight-2 list, so "all other documented info requests" = 20
+ * (rate-limits-and-user-limits, checked 2026-09-29). */
+const WEIGHT_REFERRAL = 20;
 /** Assumed per-docs multiplier for the "additional weight per 20 items
  * returned" surcharge on userFillsByTime — see the budgeter's doc comment
  * for why this is 1 and not something else. */
@@ -164,5 +168,15 @@ export class HyperliquidInfoClient {
     );
     this.budgeter.recordAdditionalWeight(Math.ceil(result.length / 20) * EXTRA_WEIGHT_PER_20_ITEMS);
     return result;
+  }
+
+  /** Referral and builder rewards for one address (the platform's revenue
+   * snapshot). Top-level amounts are USDC; see `HlReferralResponse`. */
+  referral(
+    address: string,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlReferralResponse> {
+    return this.post<HlReferralResponse>({ type: "referral", user: address }, WEIGHT_REFERRAL, priority, rank);
   }
 }

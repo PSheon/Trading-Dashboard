@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { EventEmitterModule } from "@nestjs/event-emitter";
 
+import { AdminModule } from "./admin/admin.module.js";
 import { ApiModule } from "./api/api.module.js";
 import { AuthGuard } from "./common/auth/auth.guard.js";
 import { AuthModule } from "./common/auth/auth.module.js";
@@ -26,6 +27,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     SettingsModule,
     AuthModule,
     ApiModule,
+    AdminModule,
     ImportModule,
     WatcherModule,
     SchedulerModule,

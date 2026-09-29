@@ -218,13 +218,20 @@ export class TradersService implements OnApplicationBootstrap {
     };
   }
 
-  /** Our own perp fills in the window; complete, so never capped. */
+  /** The larger of our own perp fills in the window and Hyperliquid's latest
+   * fills. Ours can have holes (an address imported less than 30 days ago,
+   * backfill limits, downtime), and a hole must not make an active trader
+   * look like a low sample; Hyperliquid's list stops at 2,000. */
   private async trackedSample(address: string, since: Date): Promise<SharedProfile["sample"]> {
-    const [{ n }] = await this.db
-      .select({ n: count() })
-      .from(fills)
-      .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), gte(fills.ts, since), ...perpFillsOnly));
-    return { fills30d: n, capped: false };
+    const [[{ n }], upstream] = await Promise.all([
+      this.db
+        .select({ n: count() })
+        .from(fills)
+        .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), gte(fills.ts, since), ...perpFillsOnly)),
+      // Our count alone is still an answer if Hyperliquid is unavailable.
+      this.untrackedSample(address, since).catch(() => ({ fills30d: 0, capped: false })),
+    ]);
+    return n >= upstream.fills30d ? { fills30d: n, capped: false } : upstream;
   }
 
   /** From Hyperliquid's latest fills, through the same cache the fills tab

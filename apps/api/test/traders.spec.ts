@@ -23,6 +23,7 @@ import {
   portfolioKey,
   portfolioMetrics,
   portfolioSeries,
+  sampleFromUserFills,
   toPortfolioResponse,
 } from "../src/traders/traders.mappers.js";
 import { TradersService } from "../src/traders/traders.service.js";
@@ -598,6 +599,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     });
 
     it("counts our own fills for a tracked address and applies the admin's threshold per request", async () => {
+      vi.mocked(info.userFills).mockResolvedValueOnce([]);
       await db.insert(leaders).values({ address: C });
       const ago = (h: number) => new Date(Date.now() - h * 3_600_000);
       const row = (tid: bigint, address: string, coin: string, ts: Date) => ({
@@ -624,11 +626,27 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       const res = await controller.profile(C, null);
       expect(res.tracked).toBe(true);
       expect(res.sample).toEqual({ fills30d: 3, capped: false, lowSample: true });
-      expect(info.userFills).not.toHaveBeenCalled();
 
       await settings.patch({ discovery: { lowSampleThreshold: 3 } }, null);
       expect((await controller.profile(C, null)).sample.lowSample).toBe(false);
       expect(info.clearinghouseState).toHaveBeenCalledTimes(2); // still the cached profile
+    });
+
+    it("uses Hyperliquid's count for a tracked address when ours has holes, and ours if Hyperliquid fails", async () => {
+      await db.insert(leaders).values({ address: C });
+      // No fills of ours at all (e.g. imported today): the upstream sample wins.
+      const upstream = sampleFromUserFills(userFillsFixture, Date.now() - 30 * 86_400_000);
+      expect(upstream.fills30d).toBeGreaterThan(0);
+      expect((await controller.profile(C, null)).sample).toMatchObject({ fills30d: upstream.fills30d });
+
+      await db.delete(leaders);
+      await db.insert(leaders).values({ address: D });
+      await db.insert(fills).values({
+        tid: 9n, address: D, coin: "BTC", side: "B", dir: "Open Long", px: "1", sz: "1",
+        fee: "0", closedPnl: "0", ts: new Date(Date.now() - 3_600_000), raw: {},
+      });
+      vi.mocked(info.userFills).mockRejectedValueOnce(new Error("502"));
+      expect((await controller.profile(D, null)).sample).toMatchObject({ fills30d: 1, capped: false });
     });
   });
 

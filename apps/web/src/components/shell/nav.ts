@@ -30,6 +30,7 @@ export const settingsNav: NavItem = { href: "/settings", label: "nav.settings", 
 export const adminNav: NavItem = { href: "/admin", label: "nav.admin", icon: ShieldCheck };
 
 export function isActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/" || pathname.startsWith("/trader/");
+  // A trader page belongs to no section (as on CopyDog): nothing is lit.
+  if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }

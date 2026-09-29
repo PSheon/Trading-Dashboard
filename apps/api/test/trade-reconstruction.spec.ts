@@ -315,13 +315,28 @@ describe("reading recent history backwards", () => {
   });
 
   it("stops at the target with coverage truncated, keeping the newest fills with no holes", async () => {
-    const { source, all } = fakeSource(25_000, MIN, now);
+    const { source, all, calls } = fakeSource(25_000, MIN + 7, now);
     const history = await readRecentHistory(source, { now, lookbackStart: 0, target: 10_000, maxCalls: 20 });
     expect(history.truncated).toBe(true);
     expect(history.fills.length).toBeGreaterThanOrEqual(10_000);
     const from = history.from!;
     // Every fill from `from` to now, and nothing older.
     expect(history.fills.length).toBe(all.filter((f) => f.time >= from).length);
+    // Hyperliquid answers 422 to a fractional time.
+    expect(calls.every(([start, end]) => Number.isInteger(start) && Number.isInteger(end))).toBe(true);
+  });
+
+  it("keeps reading past the target until `enough` holds (e.g. closed trades)", async () => {
+    const { source } = fakeSource(25_000, MIN, now);
+    const history = await readRecentHistory(source, {
+      now,
+      lookbackStart: 0,
+      target: 3_000,
+      maxCalls: 30,
+      enough: (fills) => fills.length >= 9_000,
+    });
+    expect(history.fills.length).toBeGreaterThanOrEqual(9_000);
+    expect(history.truncated).toBe(true);
   });
 
   it("reads to the lookback start when there is less history than the target", async () => {

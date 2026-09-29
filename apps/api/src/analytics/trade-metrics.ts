@@ -78,6 +78,7 @@ export const WINDOW_MS: Record<TradeWindow, number | null> = {
   all: null,
   "30d": 30 * 86_400_000,
   "7d": 7 * 86_400_000,
+  "1d": 86_400_000,
 };
 
 export const LIST_SIZE = 10;

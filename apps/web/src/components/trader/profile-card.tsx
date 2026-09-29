@@ -1,7 +1,7 @@
 "use client";
 
-import type { TraderActivity, TraderActivityResponse, TraderProfileResponse } from "@/lib/contracts";
-import { Check, ChevronDown, Copy, Radio, Share2 } from "lucide-react";
+import type { PnlTier, TraderActivity, TraderActivityResponse, TraderAnalyticsResponse, TraderProfileResponse } from "@/lib/contracts";
+import { Check, Copy, Radio, Share2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 
@@ -15,6 +15,7 @@ import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import type { LiveStatus } from "@/lib/use-live-trader";
 import { useNow } from "@/lib/use-now";
+import { ComputingState, CoverageNote } from "./trade-analytics";
 
 function useCopied() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -156,6 +157,8 @@ export function ProfileCard({
   lowSampleThreshold,
   liveStatus,
   allTimeVolume,
+  trades,
+  tradesComputing,
 }: {
   profile: TraderProfileResponse;
   activity: TraderActivityResponse | null | undefined;
@@ -163,10 +166,13 @@ export function ProfileCard({
   liveStatus: LiveStatus;
   /** From the same `portfolio` as the page's PnL (all-time window). */
   allTimeVolume: number | null;
+  /** All-time trade analytics (any address), for 分組 and 最佳與最差. */
+  trades: TraderAnalyticsResponse | undefined;
+  /** The api is still reconstructing a cold address's trades. */
+  tradesComputing: boolean;
 }) {
   const { t, format } = useI18n();
   const { copied, copy } = useCopied();
-  const [coinsView, setCoinsView] = useState<"best" | "worst">("best");
 
   const gross = profile.longNotional + profile.shortNotional;
   // Leverage and margin usage are perp figures: relative to perp equity,
@@ -180,7 +186,6 @@ export function ProfileCard({
         ? t("trader.biasLong")
         : t("trader.biasShort");
   const unrealized = profile.positions.reduce((s, p) => s + p.unrealizedPnl, 0);
-  const coins = coinsView === "best" ? profile.analytics?.bestCoins : profile.analytics?.worstCoins;
 
   return (
     <aside className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -321,59 +326,144 @@ export function ProfileCard({
         <Row label={t("trader.openPositions")}>{profile.positions.length}</Row>
       </Section>
 
-      <Section title={t("trader.analytics")}>
-        {profile.analytics ? (
-          <>
-            <Row label={t("trader.winRate")}>{format.pct(profile.analytics.winRate30d)}</Row>
-            <Row label={t("trader.roundTrips")}>{profile.analytics.roundTrips30d}</Row>
-            <Row label={t("trader.realized")}>
-              <span className={profile.analytics.realizedPnl30d >= 0 ? "text-positive" : "text-negative"}>
-                {format.usd(profile.analytics.realizedPnl30d, { sign: true, compact: true })}
-              </span>
-            </Row>
-            <Row label={t("trader.avgHold")}>{format.duration(profile.analytics.avgHoldSeconds)}</Row>
-          </>
-        ) : (
-          <p className="text-xs leading-relaxed text-muted-foreground">{t("trader.notTracked")}</p>
-        )}
-      </Section>
+      <GroupsSection trades={trades} computing={tradesComputing} />
+      <BestWorstSection trades={trades} computing={tradesComputing} />
+      <MostTradedSection trades={trades} computing={tradesComputing} />
+    </aside>
+  );
+}
 
-      <Section
-        title={t("trader.bestWorst")}
-        action={
-          profile.analytics ? (
-            <Segmented
-              value={coinsView}
-              onChange={setCoinsView}
-              options={[
-                { value: "best", label: t("trader.best") },
-                { value: "worst", label: t("trader.worst") },
-              ]}
-              label={t("trader.bestWorst")}
-            />
-          ) : (
-            <ChevronDown className="size-4 text-subtle-foreground" aria-hidden />
-          )
-        }
-      >
-        {coins && coins.length > 0 ? (
+const PNL_TONE: Record<PnlTier, string> = {
+  extremely_profitable: "text-primary",
+  very_profitable: "text-positive",
+  profitable: "text-positive",
+  break_even: "",
+  unprofitable: "text-negative",
+  very_unprofitable: "text-negative",
+  rekt: "text-negative",
+};
+
+/** Placeholder rows while the api computes a cold address. */
+function PendingRows({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col gap-2 py-1" aria-hidden>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex justify-between">
+          <span className="h-3.5 w-20 animate-pulse rounded bg-raised" />
+          <span className="h-3.5 w-14 animate-pulse rounded bg-raised" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 分組: CopyDog's trading style, PnL cohort and size cohort. */
+function GroupsSection({ trades, computing }: { trades: TraderAnalyticsResponse | undefined; computing: boolean }) {
+  const { t } = useI18n();
+  const c = trades?.classification;
+  return (
+    <Section title={t("trader.groups")}>
+      {!trades && computing ? (
+        <>
+          <PendingRows />
+          <ComputingState compact />
+        </>
+      ) : (
+        <>
+          <Row label={t("trader.tradingStyle")}>
+            <span title={c?.style ? t(`trader.styleHints.${c.style}`) : undefined} data-testid="trading-style">
+              {c?.style ? t(`trader.styles.${c.style}`) : "—"}
+            </span>
+          </Row>
+          <Row label={t("trader.pnlTier")}>
+            <span
+              className={c?.pnlTier ? PNL_TONE[c.pnlTier] : ""}
+              title={c?.pnlTier ? t(`trader.pnlTierHints.${c.pnlTier}`) : undefined}
+              data-testid="pnl-tier"
+            >
+              {c?.pnlTier ? t(`trader.pnlTiers.${c.pnlTier}`) : "—"}
+            </span>
+          </Row>
+          <Row label={t("trader.sizeTier")}>
+            <span title={c?.sizeTier ? t(`trader.sizeTierHints.${c.sizeTier}`) : undefined} data-testid="size-tier">
+              {c?.sizeTier ? t(`trader.sizeTiers.${c.sizeTier}`) : "—"}
+            </span>
+          </Row>
+        </>
+      )}
+    </Section>
+  );
+}
+
+/** 最佳與最差: the three best or worst closed trades by net PnL. */
+function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsResponse | undefined; computing: boolean }) {
+  const { t, format } = useI18n();
+  const [view, setView] = useState<"best" | "worst">("best");
+  const rows = (view === "best" ? trades?.summary.best : trades?.summary.worst)?.slice(0, 3) ?? [];
+  return (
+    <Section
+      title={t("trader.bestWorst")}
+      action={
+        <Segmented
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "best", label: t("trader.best") },
+            { value: "worst", label: t("trader.worst") },
+          ]}
+          label={t("trader.bestWorst")}
+        />
+      }
+    >
+      {!trades && computing ? (
+        <PendingRows />
+      ) : rows.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {rows.map((trade) => (
+            <li key={trade.id} className="flex items-center justify-between py-1 text-[0.8125rem]">
+              <span className="flex items-center gap-2 font-medium">
+                <CoinIcon coin={trade.coin} size={18} />
+                {coinLabel(trade.coin)}
+              </span>
+              <span className={cn("num font-semibold", trade.netPnl >= 0 ? "text-positive" : "text-negative")}>
+                {format.usd(trade.netPnl, { sign: true, compact: true })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t("trader.noClosedTrades")}</p>
+      )}
+    </Section>
+  );
+}
+
+/** 最常交易: the three coins with the most volume (Σ size × entry). */
+function MostTradedSection({ trades, computing }: { trades: TraderAnalyticsResponse | undefined; computing: boolean }) {
+  const { t, format } = useI18n();
+  const rows = [...(trades?.summary.coins ?? [])].sort((a, b) => b.volume - a.volume).slice(0, 3);
+  return (
+    <Section title={t("trader.mostTraded")}>
+      {!trades && computing ? (
+        <PendingRows />
+      ) : rows.length > 0 ? (
+        <>
           <ul className="flex flex-col gap-1">
-            {coins.map((c) => (
-              <li key={c.coin} className="flex items-center justify-between py-1 text-[0.8125rem]">
+            {rows.map((coin) => (
+              <li key={coin.coin} className="flex items-center justify-between py-1 text-[0.8125rem]">
                 <span className="flex items-center gap-2 font-medium">
-                  <CoinIcon coin={c.coin} size={18} />
-                  {coinLabel(c.coin)}
+                  <CoinIcon coin={coin.coin} size={18} />
+                  {coinLabel(coin.coin)}
                 </span>
-                <span className={cn("num font-semibold", c.pnl >= 0 ? "text-positive" : "text-negative")}>
-                  {format.usd(c.pnl, { sign: true, compact: true })}
-                </span>
+                <span className="num font-semibold">{format.usd(coin.volume, { compact: true })}</span>
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="text-xs text-muted-foreground">{t("trader.noCoins")}</p>
-        )}
-      </Section>
-    </aside>
+          {trades ? <CoverageNote analytics={trades} className="mt-2" /> : null}
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t("trader.noClosedTrades")}</p>
+      )}
+    </Section>
   );
 }

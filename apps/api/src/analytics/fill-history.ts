@@ -23,6 +23,9 @@ export interface HistoryOptions {
   target: number;
   /** Stop after this many `range` calls. */
   maxCalls: number;
+  /** Past `target`, keep reading until this holds too (e.g. enough closed
+   * trades for the statistics to mean something). */
+  enough?: (fills: HlUserFill[]) => boolean;
 }
 
 export interface History {
@@ -71,8 +74,9 @@ export async function readRecentHistory(source: FillSource, options: HistoryOpti
       reachedStart = true;
       break;
     }
-    if (byTid.size >= options.target) break;
-    const start = Math.max(options.lookbackStart, end - span);
+    if (byTid.size >= options.target && (options.enough?.([...byTid.values()]) ?? true)) break;
+    // Whole milliseconds: Hyperliquid answers 422 to a fractional time.
+    const start = Math.max(options.lookbackStart, Math.floor(end - span));
     let cursor = start;
     let inWindow = 0;
     let complete = false;

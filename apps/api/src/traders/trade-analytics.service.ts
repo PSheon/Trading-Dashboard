@@ -17,7 +17,9 @@ import { pnlTier, sizeTier, summarize, tradingStyle } from "../analytics/trade-m
 import {
   applyFills,
   attributeFunding,
+  isClosed,
   isPartial,
+  reconstructTrades,
   toRoundTrip,
   type FundingEvent,
   type Trade,
@@ -34,11 +36,15 @@ import { TradersService } from "./traders.service.js";
 /** Served from the store for this long; older answers are still served
  * while a refresh runs in the background. */
 export const STALE_MS = 10 * 60_000;
-/** A cold read keeps the newest this many fills (or `LOOKBACK_MS`). */
+/** A cold read keeps the newest this many fills and at least
+ * `COLD_MIN_TRADES` closed trades, back to `LOOKBACK_MS` at most, within
+ * `COLD_FILL_CALLS` fill calls (≈ 120 weight each when full). A burst of
+ * fills (one position built from thousands) can hold few trades. */
 export const COLD_TARGET_FILLS = 10_000;
+export const COLD_MIN_TRADES = 30;
 export const LOOKBACK_MS = 365 * 86_400_000;
 /** `…ByTime` calls per cold read: fills, then TWAP slices. */
-export const COLD_FILL_CALLS = 12;
+export const COLD_FILL_CALLS = 24;
 export const COLD_TWAP_CALLS = 8;
 /** Pages per incremental refresh (a refresh every ~10 min rarely needs 2). */
 export const REFRESH_PAGES = 6;
@@ -56,7 +62,7 @@ export const MAX_WAITING = 20;
 const LANE = "background" as const;
 const RANK = PAGE_RANK.fills;
 
-const WINDOWS: TradeWindow[] = ["all", "30d", "7d"];
+const WINDOWS: TradeWindow[] = ["all", "30d", "7d", "1d"];
 
 /** Weight and calls one computation spent (Hyperliquid's formula: 20 per
  * call, +1 per 20 items on list calls). */
@@ -314,12 +320,20 @@ export class TradeAnalyticsService {
   private async coldHyperliquid(address: string, cost: Cost) {
     const now = Date.now();
     // Shared with the page's fills tab and activity (cached 5 min).
+    const fillsCached = this.traders.userFillsCache.peek(address) !== undefined;
+    const twapCached = this.traders.twapFillsCache.peek(address) !== undefined;
     const [latest, latestTwap] = await this.traders.latestFills(address);
+    for (const [cached, list] of [[fillsCached, latest], [twapCached, latestTwap]] as const) {
+      if (cached) continue;
+      cost.calls += 1;
+      cost.weight += listWeight(list.length);
+    }
     const history = await readRecentHistory(this.fillSource(address, false, latest, cost), {
       now,
       lookbackStart: now - LOOKBACK_MS,
       target: COLD_TARGET_FILLS,
       maxCalls: COLD_FILL_CALLS,
+      enough: (fills) => reconstructTrades(address, fills).filter(isClosed).length >= COLD_MIN_TRADES,
     });
     // TWAP slices over the same span (they interleave with the fills).
     const twapFrom = history.from ?? now - LOOKBACK_MS;
@@ -445,6 +459,10 @@ export class TradeAnalyticsService {
   private async perpAccountValue(address: string, cost: Cost): Promise<number> {
     const profile = this.traders.profileCache.peek(address);
     if (profile) return profile.value.perpEquity;
+    if (this.traders.dexCache.peek("dexes") === undefined) {
+      cost.calls += 1;
+      cost.weight += 20;
+    }
     const dexes = await this.traders.perpDexes();
     const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, RANK)));
     cost.calls += states.length;

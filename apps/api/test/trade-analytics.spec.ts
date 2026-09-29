@@ -94,6 +94,9 @@ describe("trade analytics for any address", () => {
     rawPortfolio: vi.fn(async () => portfolio),
     portfolioCache: { peek: () => undefined },
     profileCache: { peek: () => undefined },
+    userFillsCache: { peek: () => undefined },
+    twapFillsCache: { peek: () => undefined },
+    dexCache: { peek: () => undefined },
     leaderboardAllTimePnl: vi.fn(async (): Promise<number | null> => null),
     perpDexes: vi.fn(async () => ["", "xyz"]),
   };
@@ -170,7 +173,8 @@ describe("trade analytics for any address", () => {
 
     // Both closed within 7 days.
     expect((await get(`/traders/${X}/analytics?window=7d`).expect(200)).body.summary).toMatchObject({ trades: 2 });
-    expect((await get(`/traders/${X}/analytics?window=1d`)).status).toBe(400);
+    expect((await get(`/traders/${X}/analytics?window=1d`).expect(200)).body.summary.trades).toBe(0);
+    expect((await get(`/traders/${X}/analytics?window=90d`)).status).toBe(400);
     expect((await get(`/traders/0x12/analytics`)).status).toBe(400);
   });
 

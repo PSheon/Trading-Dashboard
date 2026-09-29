@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ActionFeedItem,
   ActiveWithin,
@@ -11,6 +11,9 @@ import type {
   PortfolioResponse,
   SparklinesResponse,
   TraderActivityResponse,
+  TraderAnalyticsResponse,
+  TraderTradesResponse,
+  TradeWindow,
   TraderFill,
   TraderProfileResponse,
   TradersResponse,
@@ -172,6 +175,54 @@ export function usePortfolio(address: string, window: TraderWindow, market: "all
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
     ...busyRetry,
+  });
+}
+
+/**
+ * A cold address's trade analytics take the api a while (it reads the
+ * address's fill history from Hyperliquid): it answers 503 busy until they
+ * are stored, and these queries keep asking, every Retry-After, for up to
+ * ~10 minutes. The page shows a "computing" state meanwhile.
+ */
+export const ANALYTICS_BUSY_RETRIES = 120;
+const computingRetry = {
+  retry: (failureCount: number, error: Error) => failureCount < (isBusy(error) ? ANALYTICS_BUSY_RETRIES : 3),
+  retryDelay: busyRetry.retryDelay,
+};
+
+/** Still computing: no data yet and the last answer was busy. */
+export function isComputing(query: { data?: unknown; failureReason: Error | null; isPending: boolean }): boolean {
+  return query.data === undefined && (query.isPending || isBusy(query.failureReason));
+}
+
+/** GET /traders/:address/analytics: win rate, trade count, best / worst,
+ * coins and tiers, for any address (served from the api's store). */
+export function useTraderAnalytics(address: string, window: TradeWindow) {
+  return useQuery({
+    queryKey: ["trader-analytics", address, window],
+    queryFn: () => api.get<TraderAnalyticsResponse>(`/traders/${address}/analytics?window=${window}`),
+    placeholderData: keepPreviousData,
+    // The api refreshes a stored answer older than 10 minutes on read.
+    refetchInterval: 2 * 60_000,
+    ...computingRetry,
+  });
+}
+
+export type TradeStatusFilter = "all" | "closed" | "open";
+export const TRADES_PAGE = 50;
+
+/** GET /traders/:address/trades: the round-trip ledger, "show more" pages. */
+export function useTraderTrades(address: string, status: TradeStatusFilter, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: ["trader-trades", address, status],
+    queryFn: ({ pageParam }) =>
+      api.get<TraderTradesResponse>(
+        `/traders/${address}/trades?status=${status}&limit=${TRADES_PAGE}${pageParam ? `&cursor=${pageParam}` : ""}`,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    enabled,
+    ...computingRetry,
   });
 }
 

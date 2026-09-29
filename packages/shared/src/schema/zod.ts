@@ -702,8 +702,8 @@ export type TraderFill = z.infer<typeof traderFillSchema>;
 // --- trade analytics (any address) -----------------------------------------
 
 /** Window of the trade analytics: every closed trade in coverage, or those
- * closed in the last 30 / 7 days. */
-export const tradeWindowSchema = z.enum(["all", "30d", "7d"]);
+ * closed in the last 30 / 7 / 1 days (the trader page's windows). */
+export const tradeWindowSchema = z.enum(["all", "30d", "7d", "1d"]);
 export type TradeWindow = z.infer<typeof tradeWindowSchema>;
 
 /** CopyDog's trading styles, from the median hold of closed trades:

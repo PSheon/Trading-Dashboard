@@ -8,7 +8,11 @@ import { RequestBudgeterService, type RequestPriority } from "./request-budgeter
 import type {
   HlAllMidsResponse,
   HlClearinghouseStateResponse,
+  HlDelegatorSummary,
   HlInfoRequestBody,
+  HlSpotClearinghouseStateResponse,
+  HlSpotMetaAndAssetCtxsResponse,
+  HlUserAbstractionResponse,
   HlMetaResponse,
   HlPerpDexsResponse,
   HlPortfolioResponse,
@@ -27,6 +31,12 @@ const WEIGHT_PERP_DEXS = 20;
 /** In the docs' weight-2 list with clearinghouseState (rate-limits-and-user-limits). */
 const WEIGHT_ALL_MIDS = 2;
 const WEIGHT_PORTFOLIO = 20;
+/** In the docs' weight-2 list (rate-limits-and-user-limits, checked 2026-09-29). */
+const WEIGHT_SPOT_CLEARINGHOUSE_STATE = 2;
+/** Not in the weight-2 list, so 20 (checked 2026-09-29). */
+const WEIGHT_SPOT_META_AND_CTXS = 20;
+const WEIGHT_USER_ABSTRACTION = 20;
+const WEIGHT_DELEGATOR_SUMMARY = 20;
 const WEIGHT_USER_FILLS_BASE = 20;
 /** `userTwapSliceFills` and `userTwapSliceFillsByTime` are both in the
  * docs' list of requests with "additional weight per 20 items returned"
@@ -216,9 +226,41 @@ export class HyperliquidInfoClient {
     );
   }
 
-  /** Mid prices for every coin, used for alert scoring (N3). */
-  allMids(): Promise<HlAllMidsResponse> {
-    return this.post<HlAllMidsResponse>({ type: "allMids" }, WEIGHT_ALL_MIDS);
+  /** Mid prices for every main-dex perp and spot pair ("@107", "#123"
+   * outcomes), used for alert scoring (N3) and outcome-token values. */
+  allMids(priority: RequestPriority = "background", rank?: number): Promise<HlAllMidsResponse> {
+    return this.post<HlAllMidsResponse>({ type: "allMids" }, WEIGHT_ALL_MIDS, priority, rank);
+  }
+
+  /** Spot balances (and, in unified / portfolio-margin accounts, all
+   * collateral). Weight 2. */
+  spotClearinghouseState(
+    address: string,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlSpotClearinghouseStateResponse> {
+    return this.post<HlSpotClearinghouseStateResponse>(
+      { type: "spotClearinghouseState", user: address },
+      WEIGHT_SPOT_CLEARINGHOUSE_STATE,
+      priority,
+      rank,
+    );
+  }
+
+  /** Spot tokens, pairs and each pair's mark / mid. Weight 20. */
+  spotMetaAndAssetCtxs(priority: RequestPriority = "background", rank?: number): Promise<HlSpotMetaAndAssetCtxsResponse> {
+    return this.post<HlSpotMetaAndAssetCtxsResponse>({ type: "spotMetaAndAssetCtxs" }, WEIGHT_SPOT_META_AND_CTXS, priority, rank);
+  }
+
+  /** The account's collateral mode ("unifiedAccount", "portfolioMargin",
+   * "disabled", "default", "dexAbstraction"). Weight 20. */
+  userAbstraction(address: string, priority: RequestPriority = "background", rank?: number): Promise<HlUserAbstractionResponse> {
+    return this.post<HlUserAbstractionResponse>({ type: "userAbstraction", user: address }, WEIGHT_USER_ABSTRACTION, priority, rank);
+  }
+
+  /** HYPE staking totals. Weight 20. */
+  delegatorSummary(address: string, priority: RequestPriority = "background", rank?: number): Promise<HlDelegatorSummary> {
+    return this.post<HlDelegatorSummary>({ type: "delegatorSummary", user: address }, WEIGHT_DELEGATOR_SUMMARY, priority, rank);
   }
 
   /** Account value and PnL history per window (day/week/month/allTime, and

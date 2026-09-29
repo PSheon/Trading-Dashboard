@@ -11,6 +11,7 @@ import { RoiPill } from "@/components/traders/bits";
 import { Segmented } from "@/components/ui/segmented";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
+import { useNow } from "@/lib/use-now";
 
 export type ChartMode = "pnl" | "value";
 export type ChartUnit = "usd" | "pct";
@@ -61,48 +62,59 @@ const signText = (n: number | null | undefined, muted: boolean) =>
 const signBar = (n: number | null | undefined, muted: boolean) =>
   muted ? "bg-subtle-foreground" : (n ?? 0) >= 0 ? "bg-positive" : "bg-negative";
 
-/** Four KPI tiles tied to the window toggle: PnL, ROI, Sharpe (with max
- * drawdown) and win rate. Low-sample traders get their returns greyed. */
-/** The window's ROI: the leaderboard's when we have it, else PnL over the
- * starting account value. Shared by the ROI tile and the chart's pill. */
-export function windowRoi(
-  profile: TraderProfileResponse,
-  portfolio: PortfolioResponse | undefined,
-  window: TraderWindow,
-): number | null {
-  const pnl = portfolio?.pnl.at(-1)?.[1] ?? profile.stats?.pnl[window] ?? null;
-  const startValue = portfolio?.accountValue[0]?.[1];
-  return profile.stats?.roi[window] ?? (pnl !== null && startValue ? pnl / startValue : null);
+/** The window's ROI, from the same `portfolio` series as its PnL (PnL ÷
+ * the capital in the window; see the api's `portfolioRoi`). The trader page
+ * never mixes in the leaderboard's ROI: that one adds up subaccounts and is
+ * up to 15 minutes old. Shared by the ROI tile and the chart's pill. */
+export function windowRoi(portfolio: PortfolioResponse | undefined): number | null {
+  return portfolio?.roi ?? null;
 }
 
+/** The leaderboard's figure differs enough from the portfolio's to explain. */
+const LEADERBOARD_DIFF = 0.2;
+
+/** Four KPI tiles tied to the window toggle: PnL, ROI, Sharpe (with max
+ * drawdown) and win rate, all from Hyperliquid's `portfolio`. Low-sample
+ * traders get their returns greyed. */
 export function KpiTiles({
   profile,
   portfolio,
   allTime,
   window,
+  market,
   lowSample,
 }: {
   profile: TraderProfileResponse;
   portfolio: PortfolioResponse | undefined;
   allTime: PortfolioResponse | undefined;
   window: TraderWindow;
+  market: Market;
   /** From the activity request; false until it arrives. */
   lowSample: boolean;
 }) {
   const { t, format } = useI18n();
   const muted = lowSample;
+  const now = useNow();
 
-  const pnl = portfolio?.pnl.at(-1)?.[1] ?? profile.stats?.pnl[window] ?? null;
-  const roi = windowRoi(profile, portfolio, window);
+  const pnl = portfolio?.pnl.at(-1)?.[1] ?? null;
+  const roi = windowRoi(portfolio);
 
   const spanYears = allTime && allTime.pnl.length > 1
     ? (allTime.pnl.at(-1)![0] - allTime.pnl[0][0]) / (365.25 * 86400_000)
     : null;
-  const allRoi = profile.stats?.roi.allTime;
+  const allRoi = allTime?.roi ?? null;
   const annualized =
-    spanYears && spanYears > 0.25 && allRoi !== undefined && allRoi > -1
+    spanYears && spanYears > 0.25 && allRoi !== null && allRoi > -1
       ? (1 + allRoi) ** (1 / spanYears) - 1
       : null;
+  // The leaderboard's PnL for the same window (perps + spot, like the "all"
+  // market) when it tells a different story: it adds up the address's
+  // subaccounts.
+  const boardPnl = market === "all" && portfolio?.market === "all" ? profile.stats?.pnl[window] : undefined;
+  const boardDiffers =
+    boardPnl !== undefined &&
+    pnl !== null &&
+    Math.abs(boardPnl - pnl) > LEADERBOARD_DIFF * Math.max(Math.abs(boardPnl), Math.abs(pnl), 1);
   const history =
     spanYears === null
       ? null
@@ -115,6 +127,7 @@ export function KpiTiles({
   const loading = !portfolio;
 
   return (
+    <div className="flex flex-col gap-1.5">
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <Tile
         label={t("trader.kpi.pnl")}
@@ -179,6 +192,19 @@ export function KpiTiles({
             : t("trader.kpi.noTrades")
         }
       />
+    </div>
+      <p className="num px-1 text-[11px] leading-relaxed text-subtle-foreground">
+        {t("trader.kpi.source", { market: t(market === "perp" ? "trader.chart.perp" : "trader.chart.all") })}
+        {boardDiffers && profile.stats ? (
+          <>
+            {" · "}
+            {t("trader.kpi.leaderboardDiff", {
+              value: format.usd(boardPnl, { sign: true, compact: true }),
+              time: format.relative(profile.stats.updatedAt, now),
+            })}
+          </>
+        ) : null}
+      </p>
     </div>
   );
 }

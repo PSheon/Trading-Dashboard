@@ -4,7 +4,7 @@ import { readAlertDisplayValues } from "@/lib/contracts";
 
 import type { ActionFeedItem, TraderFill, TraderProfileResponse } from "@/lib/contracts";
 import { Download } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { ActionsTable, KindBadge, SideText } from "@/components/actions/actions-table";
@@ -17,18 +17,32 @@ import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { coinLabel } from "@/lib/format";
+import { mergeLiveFills } from "@/lib/live-trader";
 import { useAlerts, useLiveActions, useTraderFills } from "@/lib/queries";
 
 type Tab = "positions" | "fills" | "actions" | "alerts";
 const TABS: Tab[] = ["positions", "fills", "actions", "alerts"];
+const NO_FILLS: TraderFill[] = [];
+const NO_MARKS: Readonly<Record<string, number>> = {};
 
 /** Positions / fills / actions / alerts under the chart. Fills and actions
  * export to CSV (競品分析 §3.10: your data, portable). */
-export function ActivityTabs({ profile }: { profile: TraderProfileResponse }) {
+export function ActivityTabs({
+  profile,
+  liveFills = NO_FILLS,
+  marks = NO_MARKS,
+}: {
+  profile: TraderProfileResponse;
+  /** Fills seen on Hyperliquid's WebSocket, merged over the REST list. */
+  liveFills?: TraderFill[];
+  /** Live mids for the positions' mark column. */
+  marks?: Readonly<Record<string, number>>;
+}) {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("positions");
   const { status } = useAuth();
   const fills = useTraderFills(profile.address, 200);
+  const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
   const {
     query: actions,
     status: actionsStream,
@@ -36,7 +50,7 @@ export function ActivityTabs({ profile }: { profile: TraderProfileResponse }) {
   } = useLiveActions({ address: profile.address, limit: 200 }, { enabled: tab === "actions" });
   const alerts = useAlerts(profile.address, { enabled: tab === "alerts" && status === "signedIn" });
 
-  const exportable = tab === "fills" ? fills.data : tab === "actions" ? actions.data : undefined;
+  const exportable = tab === "fills" ? fillRows : tab === "actions" ? actions.data : undefined;
 
   return (
     <section className="rounded-2xl border border-border bg-card">
@@ -71,7 +85,7 @@ export function ActivityTabs({ profile }: { profile: TraderProfileResponse }) {
             size="sm"
             onClick={() =>
               tab === "fills"
-                ? exportFills(profile.address, fills.data ?? [])
+                ? exportFills(profile.address, fillRows ?? [])
                 : exportActions(profile.address, actions.data ?? [])
             }
           >
@@ -82,16 +96,16 @@ export function ActivityTabs({ profile }: { profile: TraderProfileResponse }) {
       </div>
 
       <div role="tabpanel" className="min-h-[180px]">
-        {tab === "positions" ? <Positions profile={profile} /> : null}
+        {tab === "positions" ? <Positions profile={profile} marks={marks} /> : null}
         {tab === "fills" ? (
           fills.isError ? (
             <ErrorState message={fills.error.message} onRetry={() => fills.refetch()} />
-          ) : !fills.data ? (
+          ) : !fillRows ? (
             <Loading />
-          ) : fills.data.length === 0 ? (
+          ) : fillRows.length === 0 ? (
             <EmptyState title={t("trader.noFills")} />
           ) : (
-            <Fills rows={fills.data} />
+            <Fills rows={fillRows} />
           )
         ) : null}
         {tab === "actions" ? (
@@ -133,7 +147,13 @@ function Loading() {
   );
 }
 
-function Positions({ profile }: { profile: TraderProfileResponse }) {
+/** Live mid when the socket has one, else the mark implied by the REST
+ * position value. */
+function markOf(p: TraderProfileResponse["positions"][number], marks: Readonly<Record<string, number>>): number | null {
+  return marks[p.coin] ?? (p.szi !== 0 ? p.positionValue / Math.abs(p.szi) : null);
+}
+
+function Positions({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
   const { t, format } = useI18n();
   if (profile.positions.length === 0) return <EmptyState title={t("trader.noPositions")} />;
   return (
@@ -145,6 +165,7 @@ function Positions({ profile }: { profile: TraderProfileResponse }) {
           <TableHead className="text-right">{t("trader.cols.value")}</TableHead>
           <TableHead className="hidden text-right sm:table-cell">{t("trader.cols.size")}</TableHead>
           <TableHead className="hidden text-right md:table-cell">{t("trader.cols.entry")}</TableHead>
+          <TableHead className="hidden text-right md:table-cell">{t("trader.cols.mark")}</TableHead>
           <TableHead className="text-right">{t("trader.cols.pnl")}</TableHead>
           <TableHead className="hidden text-right lg:table-cell">{t("trader.cols.liq")}</TableHead>
         </TableRow>
@@ -171,6 +192,9 @@ function Positions({ profile }: { profile: TraderProfileResponse }) {
               {format.num(Math.abs(p.szi), 4)}
             </TableCell>
             <TableCell className="hidden text-right text-muted-foreground md:table-cell">{format.price(p.entryPx)}</TableCell>
+            <TableCell className="hidden text-right md:table-cell" data-testid="mark">
+              {format.price(markOf(p, marks))}
+            </TableCell>
             <TableCell
               className={cn("text-right font-semibold", p.unrealizedPnl >= 0 ? "text-positive" : "text-negative")}
             >

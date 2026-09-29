@@ -1,0 +1,2057 @@
+{
+ "capturedAt": "2026-09-29T12:29:34.385Z",
+ "spotMetaAndAssetCtxs": [
+  {
+   "tokens": [
+    {
+     "name": "USDC",
+     "index": 0,
+     "szDecimals": 8
+    },
+    {
+     "name": "PURR",
+     "index": 1,
+     "szDecimals": 0
+    },
+    {
+     "name": "JEFF",
+     "index": 5,
+     "szDecimals": 0
+    },
+    {
+     "name": "POINTS",
+     "index": 9,
+     "szDecimals": 0
+    },
+    {
+     "name": "XULIAN",
+     "index": 13,
+     "szDecimals": 0
+    },
+    {
+     "name": "RUG",
+     "index": 14,
+     "szDecimals": 0
+    },
+    {
+     "name": "ILIENS",
+     "index": 15,
+     "szDecimals": 0
+    },
+    {
+     "name": "FUCKY",
+     "index": 16,
+     "szDecimals": 2
+    },
+    {
+     "name": "CZ",
+     "index": 17,
+     "szDecimals": 2
+    },
+    {
+     "name": "VEGAS",
+     "index": 25,
+     "szDecimals": 2
+    },
+    {
+     "name": "CATNIP",
+     "index": 28,
+     "szDecimals": 2
+    },
+    {
+     "name": "SELL",
+     "index": 30,
+     "szDecimals": 0
+    },
+    {
+     "name": "GPT",
+     "index": 35,
+     "szDecimals": 2
+    },
+    {
+     "name": "BID",
+     "index": 37,
+     "szDecimals": 0
+    },
+    {
+     "name": "VAPOR",
+     "index": 42,
+     "szDecimals": 0
+    },
+    {
+     "name": "PILL",
+     "index": 45,
+     "szDecimals": 2
+    },
+    {
+     "name": "CAT",
+     "index": 48,
+     "szDecimals": 2
+    },
+    {
+     "name": "MBAPPE",
+     "index": 50,
+     "szDecimals": 2
+    },
+    {
+     "name": "MAGA",
+     "index": 51,
+     "szDecimals": 2
+    },
+    {
+     "name": "OMNIX",
+     "index": 53,
+     "szDecimals": 1
+    },
+    {
+     "name": "ARI",
+     "index": 58,
+     "szDecimals": 2
+    },
+    {
+     "name": "PEAR",
+     "index": 71,
+     "szDecimals": 1
+    },
+    {
+     "name": "NEIRO",
+     "index": 78,
+     "szDecimals": 1
+    },
+    {
+     "name": "TIME",
+     "index": 79,
+     "szDecimals": 1
+    },
+    {
+     "name": "BERA",
+     "index": 80,
+     "szDecimals": 1
+    },
+    {
+     "name": "LAUNCH",
+     "index": 95,
+     "szDecimals": 2
+    },
+    {
+     "name": "WOW",
+     "index": 98,
+     "szDecimals": 0
+    },
+    {
+     "name": "VAULT",
+     "index": 106,
+     "szDecimals": 2
+    },
+    {
+     "name": "MONAD",
+     "index": 112,
+     "szDecimals": 1
+    },
+    {
+     "name": "BOZO",
+     "index": 113,
+     "szDecimals": 2
+    },
+    {
+     "name": "UP",
+     "index": 115,
+     "szDecimals": 2
+    },
+    {
+     "name": "HPL",
+     "index": 120,
+     "szDecimals": 2
+    },
+    {
+     "name": "YEETI",
+     "index": 128,
+     "szDecimals": 0
+    },
+    {
+     "name": "LQNA",
+     "index": 129,
+     "szDecimals": 2
+    },
+    {
+     "name": "STRICT",
+     "index": 133,
+     "szDecimals": 0
+    },
+    {
+     "name": "LUCKY",
+     "index": 143,
+     "szDecimals": 0
+    },
+    {
+     "name": "MUNCH",
+     "index": 146,
+     "szDecimals": 0
+    },
+    {
+     "name": "COPE",
+     "index": 147,
+     "szDecimals": 2
+    },
+    {
+     "name": "YAP",
+     "index": 149,
+     "szDecimals": 2
+    },
+    {
+     "name": "HYPE",
+     "index": 150,
+     "szDecimals": 2
+    },
+    {
+     "name": "STEEL",
+     "index": 151,
+     "szDecimals": 2
+    },
+    {
+     "name": "RETARD",
+     "index": 152,
+     "szDecimals": 2
+    },
+    {
+     "name": "STAR",
+     "index": 154,
+     "szDecimals": 2
+    },
+    {
+     "name": "SOLV",
+     "index": 157,
+     "szDecimals": 2
+    },
+    {
+     "name": "BUBZ",
+     "index": 158,
+     "szDecimals": 2
+    },
+    {
+     "name": "SENT",
+     "index": 186,
+     "szDecimals": 2
+    },
+    {
+     "name": "JPEG",
+     "index": 196,
+     "szDecimals": 2
+    },
+    {
+     "name": "UBTC",
+     "index": 197,
+     "szDecimals": 5
+    },
+    {
+     "name": "UETH",
+     "index": 221,
+     "szDecimals": 4
+    },
+    {
+     "name": "LATINA",
+     "index": 223,
+     "szDecimals": 2
+    },
+    {
+     "name": "USDE",
+     "index": 235,
+     "szDecimals": 2
+    },
+    {
+     "name": "USOL",
+     "index": 254,
+     "szDecimals": 3
+    },
+    {
+     "name": "USDT0",
+     "index": 268,
+     "szDecimals": 2
+    },
+    {
+     "name": "RUB",
+     "index": 277,
+     "szDecimals": 5
+    },
+    {
+     "name": "UPUMP",
+     "index": 299,
+     "szDecimals": 0
+    },
+    {
+     "name": "LICKO",
+     "index": 307,
+     "szDecimals": 2
+    },
+    {
+     "name": "UXPL",
+     "index": 343,
+     "szDecimals": 1
+    },
+    {
+     "name": "USDH",
+     "index": 360,
+     "szDecimals": 2
+    },
+    {
+     "name": "AAPL",
+     "index": 413,
+     "szDecimals": 2
+    },
+    {
+     "name": "MAX",
+     "index": 734,
+     "szDecimals": 1
+    },
+    {
+     "name": "UANSEM",
+     "index": 844,
+     "szDecimals": 0
+    },
+    {
+     "name": "FXMR",
+     "index": 851,
+     "szDecimals": 2
+    }
+   ],
+   "universe": [
+    {
+     "tokens": [
+      1,
+      0
+     ],
+     "name": "PURR/USDC",
+     "index": 0,
+     "isCanonical": true
+    },
+    {
+     "tokens": [
+      5,
+      0
+     ],
+     "name": "@4",
+     "index": 4,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      9,
+      0
+     ],
+     "name": "@8",
+     "index": 8,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      13,
+      0
+     ],
+     "name": "@12",
+     "index": 12,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      14,
+      0
+     ],
+     "name": "@13",
+     "index": 13,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      15,
+      0
+     ],
+     "name": "@14",
+     "index": 14,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      16,
+      0
+     ],
+     "name": "@15",
+     "index": 15,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      17,
+      0
+     ],
+     "name": "@16",
+     "index": 16,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      30,
+      0
+     ],
+     "name": "@24",
+     "index": 24,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      28,
+      0
+     ],
+     "name": "@26",
+     "index": 26,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      35,
+      0
+     ],
+     "name": "@31",
+     "index": 31,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      37,
+      0
+     ],
+     "name": "@33",
+     "index": 33,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      25,
+      0
+     ],
+     "name": "@35",
+     "index": 35,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      42,
+      0
+     ],
+     "name": "@37",
+     "index": 37,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      45,
+      0
+     ],
+     "name": "@39",
+     "index": 39,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      50,
+      0
+     ],
+     "name": "@47",
+     "index": 47,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      58,
+      0
+     ],
+     "name": "@53",
+     "index": 53,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      53,
+      0
+     ],
+     "name": "@74",
+     "index": 74,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      113,
+      0
+     ],
+     "name": "@77",
+     "index": 77,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      112,
+      0
+     ],
+     "name": "@80",
+     "index": 80,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      129,
+      0
+     ],
+     "name": "@86",
+     "index": 86,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      128,
+      0
+     ],
+     "name": "@88",
+     "index": 88,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      133,
+      0
+     ],
+     "name": "@93",
+     "index": 93,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      51,
+      0
+     ],
+     "name": "@95",
+     "index": 95,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      115,
+      0
+     ],
+     "name": "@100",
+     "index": 100,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      143,
+      0
+     ],
+     "name": "@103",
+     "index": 103,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      147,
+      0
+     ],
+     "name": "@104",
+     "index": 104,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      149,
+      0
+     ],
+     "name": "@106",
+     "index": 106,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      150,
+      0
+     ],
+     "name": "@107",
+     "index": 107,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      98,
+      0
+     ],
+     "name": "@109",
+     "index": 109,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      151,
+      0
+     ],
+     "name": "@110",
+     "index": 110,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      152,
+      0
+     ],
+     "name": "@111",
+     "index": 111,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      78,
+      0
+     ],
+     "name": "@113",
+     "index": 113,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      71,
+      0
+     ],
+     "name": "@114",
+     "index": 114,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      146,
+      0
+     ],
+     "name": "@116",
+     "index": 116,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      80,
+      0
+     ],
+     "name": "@117",
+     "index": 117,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      158,
+      0
+     ],
+     "name": "@119",
+     "index": 119,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      95,
+      0
+     ],
+     "name": "@122",
+     "index": 122,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      106,
+      0
+     ],
+     "name": "@125",
+     "index": 125,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      48,
+      0
+     ],
+     "name": "@126",
+     "index": 126,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      154,
+      0
+     ],
+     "name": "@134",
+     "index": 134,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      186,
+      0
+     ],
+     "name": "@135",
+     "index": 135,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      157,
+      0
+     ],
+     "name": "@136",
+     "index": 136,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      79,
+      0
+     ],
+     "name": "@138",
+     "index": 138,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      197,
+      0
+     ],
+     "name": "@142",
+     "index": 142,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      196,
+      0
+     ],
+     "name": "@147",
+     "index": 147,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      235,
+      0
+     ],
+     "name": "@150",
+     "index": 150,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      221,
+      0
+     ],
+     "name": "@151",
+     "index": 151,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      254,
+      0
+     ],
+     "name": "@156",
+     "index": 156,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      268,
+      0
+     ],
+     "name": "@166",
+     "index": 166,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      277,
+      0
+     ],
+     "name": "@173",
+     "index": 173,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      307,
+      0
+     ],
+     "name": "@187",
+     "index": 187,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      299,
+      0
+     ],
+     "name": "@188",
+     "index": 188,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      223,
+      0
+     ],
+     "name": "@195",
+     "index": 195,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      150,
+      268
+     ],
+     "name": "@207",
+     "index": 207,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      343,
+      0
+     ],
+     "name": "@210",
+     "index": 210,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      360,
+      0
+     ],
+     "name": "@230",
+     "index": 230,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      150,
+      360
+     ],
+     "name": "@232",
+     "index": 232,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      343,
+      360
+     ],
+     "name": "@233",
+     "index": 233,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      197,
+      360
+     ],
+     "name": "@234",
+     "index": 234,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      221,
+      360
+     ],
+     "name": "@235",
+     "index": 235,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      150,
+      235
+     ],
+     "name": "@255",
+     "index": 255,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      413,
+      0
+     ],
+     "name": "@268",
+     "index": 268,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      120,
+      360
+     ],
+     "name": "@294",
+     "index": 294,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      120,
+      0
+     ],
+     "name": "@335",
+     "index": 335,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      734,
+      0
+     ],
+     "name": "@591",
+     "index": 591,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      844,
+      0
+     ],
+     "name": "@699",
+     "index": 699,
+     "isCanonical": false
+    },
+    {
+     "tokens": [
+      851,
+      0
+     ],
+     "name": "@708",
+     "index": 708,
+     "isCanonical": false
+    }
+   ]
+  },
+  [
+   {
+    "coin": "PURR/USDC",
+    "markPx": "0.143",
+    "midPx": "0.142915"
+   },
+   {
+    "coin": "@4",
+    "markPx": "3.4349",
+    "midPx": "3.4349"
+   },
+   {
+    "coin": "@8",
+    "markPx": "0.0054088",
+    "midPx": "0.0054169"
+   },
+   {
+    "coin": "@12",
+    "markPx": "0.00005439",
+    "midPx": "0.00005447"
+   },
+   {
+    "coin": "@13",
+    "markPx": "0.00041237",
+    "midPx": "0.00041299"
+   },
+   {
+    "coin": "@14",
+    "markPx": "0.00011095",
+    "midPx": "0.00011111"
+   },
+   {
+    "coin": "@15",
+    "markPx": "0.000106",
+    "midPx": "0.000153"
+   },
+   {
+    "coin": "@16",
+    "markPx": "0.01919",
+    "midPx": "0.058497"
+   },
+   {
+    "coin": "@24",
+    "markPx": "0.00004",
+    "midPx": "0.00003"
+   },
+   {
+    "coin": "@26",
+    "markPx": "0.000608",
+    "midPx": "0.001039"
+   },
+   {
+    "coin": "@31",
+    "markPx": "0.000036",
+    "midPx": "0.000031"
+   },
+   {
+    "coin": "@33",
+    "markPx": "0.00000032",
+    "midPx": "0.00000066"
+   },
+   {
+    "coin": "@35",
+    "markPx": "0.00689",
+    "midPx": "0.005691"
+   },
+   {
+    "coin": "@37",
+    "markPx": "0.00005311",
+    "midPx": "0.00007179"
+   },
+   {
+    "coin": "@39",
+    "markPx": "0.000051",
+    "midPx": "0.00011"
+   },
+   {
+    "coin": "@47",
+    "markPx": "0.003508",
+    "midPx": "0.009009"
+   },
+   {
+    "coin": "@53",
+    "markPx": "0.000155",
+    "midPx": "0.000238"
+   },
+   {
+    "coin": "@74",
+    "markPx": "0.0000053",
+    "midPx": "0.0000072"
+   },
+   {
+    "coin": "@77",
+    "markPx": "0.004833",
+    "midPx": "0.00484"
+   },
+   {
+    "coin": "@80",
+    "markPx": "0.0002202",
+    "midPx": "0.0002198"
+   },
+   {
+    "coin": "@86",
+    "markPx": "0.083122",
+    "midPx": "0.083246"
+   },
+   {
+    "coin": "@88",
+    "markPx": "0.00008167",
+    "midPx": "0.00008179"
+   },
+   {
+    "coin": "@93",
+    "markPx": "0.00000297",
+    "midPx": "0.00001495"
+   },
+   {
+    "coin": "@95",
+    "markPx": "0.000127",
+    "midPx": "0.000163"
+   },
+   {
+    "coin": "@100",
+    "markPx": "0.003683",
+    "midPx": "0.003677"
+   },
+   {
+    "coin": "@103",
+    "markPx": "0.00004982",
+    "midPx": "0.00004989"
+   },
+   {
+    "coin": "@104",
+    "markPx": "0.033511",
+    "midPx": "0.033561"
+   },
+   {
+    "coin": "@106",
+    "markPx": "0.003715",
+    "midPx": "0.008481"
+   },
+   {
+    "coin": "@107",
+    "markPx": "88.377",
+    "midPx": "88.3775"
+   },
+   {
+    "coin": "@109",
+    "markPx": "0.00013211",
+    "midPx": "0.00032425"
+   },
+   {
+    "coin": "@110",
+    "markPx": "0.013",
+    "midPx": "0.0185"
+   },
+   {
+    "coin": "@111",
+    "markPx": "0.031577",
+    "midPx": "0.031624"
+   },
+   {
+    "coin": "@113",
+    "markPx": "0.0001515",
+    "midPx": "0.0001217"
+   },
+   {
+    "coin": "@114",
+    "markPx": "0.0002003",
+    "midPx": "0.0001665"
+   },
+   {
+    "coin": "@116",
+    "markPx": "0.00001288",
+    "midPx": "0.0000129"
+   },
+   {
+    "coin": "@117",
+    "markPx": "0.000581",
+    "midPx": "0.0009848"
+   },
+   {
+    "coin": "@119",
+    "markPx": "0.008",
+    "midPx": "0.0088"
+   },
+   {
+    "coin": "@122",
+    "markPx": "0.00376",
+    "midPx": "0.003765"
+   },
+   {
+    "coin": "@125",
+    "markPx": "0.002028",
+    "midPx": "0.004144"
+   },
+   {
+    "coin": "@126",
+    "markPx": "0.175",
+    "midPx": "0.1936"
+   },
+   {
+    "coin": "@134",
+    "markPx": "0.000249",
+    "midPx": "0.000817"
+   },
+   {
+    "coin": "@135",
+    "markPx": "0.000012",
+    "midPx": "0.000015"
+   },
+   {
+    "coin": "@136",
+    "markPx": "0.00425",
+    "midPx": "0.00426"
+   },
+   {
+    "coin": "@138",
+    "markPx": "0.0002966",
+    "midPx": "0.00026"
+   },
+   {
+    "coin": "@142",
+    "markPx": "84176.0",
+    "midPx": "84175.5"
+   },
+   {
+    "coin": "@147",
+    "markPx": "0.000044",
+    "midPx": "0.00012"
+   },
+   {
+    "coin": "@150",
+    "markPx": "0.9996",
+    "midPx": "0.99965"
+   },
+   {
+    "coin": "@151",
+    "markPx": "2735.7",
+    "midPx": "2735.65"
+   },
+   {
+    "coin": "@156",
+    "markPx": "120.11",
+    "midPx": "120.115"
+   },
+   {
+    "coin": "@166",
+    "markPx": "0.99945",
+    "midPx": "0.999455"
+   },
+   {
+    "coin": "@173",
+    "markPx": "22000.0",
+    "midPx": "28500.0"
+   },
+   {
+    "coin": "@187",
+    "markPx": "0.000017",
+    "midPx": "0.000058"
+   },
+   {
+    "coin": "@188",
+    "markPx": "0.005738",
+    "midPx": "0.00573635"
+   },
+   {
+    "coin": "@195",
+    "markPx": "0.000111",
+    "midPx": "0.000226"
+   },
+   {
+    "coin": "@207",
+    "markPx": "88.445",
+    "midPx": "88.4205"
+   },
+   {
+    "coin": "@210",
+    "markPx": "0.1006",
+    "midPx": "0.100575"
+   },
+   {
+    "coin": "@230",
+    "markPx": "0.99683",
+    "midPx": "0.99687"
+   },
+   {
+    "coin": "@232",
+    "markPx": "63.129",
+    "midPx": null
+   },
+   {
+    "coin": "@233",
+    "markPx": "0.082112",
+    "midPx": null
+   },
+   {
+    "coin": "@234",
+    "markPx": "76644.0",
+    "midPx": null
+   },
+   {
+    "coin": "@235",
+    "markPx": "2110.1",
+    "midPx": null
+   },
+   {
+    "coin": "@255",
+    "markPx": "88.34",
+    "midPx": "88.3395"
+   },
+   {
+    "coin": "@268",
+    "markPx": "300.0",
+    "midPx": "316.695"
+   },
+   {
+    "coin": "@294",
+    "markPx": "0.010355",
+    "midPx": null
+   },
+   {
+    "coin": "@335",
+    "markPx": "0.012961",
+    "midPx": "0.012971"
+   },
+   {
+    "coin": "@591",
+    "markPx": "0.0000002",
+    "midPx": "0.0000002"
+   },
+   {
+    "coin": "@699",
+    "markPx": "0.14578",
+    "midPx": "0.146425"
+   },
+   {
+    "coin": "@708",
+    "markPx": "54.749",
+    "midPx": "30.031"
+   }
+  ]
+ ],
+ "allMids": {
+  "#12301": "0.005015",
+  "#14730": "0.582125",
+  "#14741": "0.768175",
+  "@100": "0.003677",
+  "@103": "0.00004989",
+  "@104": "0.033561",
+  "@106": "0.008481",
+  "@107": "88.3775",
+  "@109": "0.00032425",
+  "@110": "0.0185",
+  "@111": "0.031624",
+  "@113": "0.0001217",
+  "@114": "0.0001665",
+  "@116": "0.0000129",
+  "@117": "0.0009848",
+  "@119": "0.0088",
+  "@12": "0.00005447",
+  "@122": "0.003765",
+  "@125": "0.004144",
+  "@126": "0.1936",
+  "@13": "0.00041299",
+  "@134": "0.000817",
+  "@135": "0.000015",
+  "@136": "0.00426",
+  "@138": "0.00026",
+  "@14": "0.00011111",
+  "@142": "84175.5",
+  "@147": "0.00012",
+  "@15": "0.000153",
+  "@150": "0.99965",
+  "@151": "2735.95",
+  "@156": "120.105",
+  "@16": "0.058497",
+  "@166": "0.999455",
+  "@173": "28500.0",
+  "@187": "0.000058",
+  "@188": "0.0057287",
+  "@195": "0.000226",
+  "@207": "88.417",
+  "@210": "0.100575",
+  "@230": "0.99687",
+  "@232": "63.129",
+  "@233": "0.082112",
+  "@234": "76644.0",
+  "@235": "2110.1",
+  "@24": "0.00003",
+  "@255": "88.3395",
+  "@26": "0.001039",
+  "@268": "316.695",
+  "@294": "0.010355",
+  "@31": "0.000031",
+  "@33": "0.00000066",
+  "@335": "0.012971",
+  "@35": "0.005691",
+  "@37": "0.00007179",
+  "@39": "0.00011",
+  "@4": "3.4349",
+  "@47": "0.009009",
+  "@53": "0.000238",
+  "@591": "0.0000002",
+  "@699": "0.146425",
+  "@708": "30.031",
+  "@74": "0.0000072",
+  "@77": "0.00484",
+  "@8": "0.0054169",
+  "@80": "0.0002198",
+  "@86": "0.083246",
+  "@88": "0.00008179",
+  "@93": "0.00001495",
+  "@95": "0.000163",
+  "PURR/USDC": "0.142915"
+ },
+ "accounts": [
+  {
+   "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+   "abstraction": "unifiedAccount",
+   "portfolioMarginEnabled": false,
+   "balances": [
+    {
+     "coin": "USDC",
+     "token": 0,
+     "total": "26341537.6155383699",
+     "hold": "12028592.2676689997",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "HYPE",
+     "token": 150,
+     "total": "0.02805372",
+     "hold": "0.0",
+     "entryNtl": "1.74804897"
+    },
+    {
+     "coin": "USDE",
+     "token": 235,
+     "total": "111.58916385",
+     "hold": "0.0",
+     "entryNtl": "111.58916385"
+    },
+    {
+     "coin": "MAX",
+     "token": 734,
+     "total": "3270.684496",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "UANSEM",
+     "token": 844,
+     "total": "2998000.0076000001",
+     "hold": "0.0",
+     "entryNtl": "572062.35177"
+    }
+   ],
+   "delegatorSummary": {
+    "delegated": "0.0",
+    "undelegated": "0.0",
+    "totalPendingWithdrawal": "0.0",
+    "nPendingWithdrawals": 0
+   },
+   "perpEquity": 12029293.141549,
+   "hlTotal": 26778700.08113
+  },
+  {
+   "user": "0xbf732ea04197942783e34730ed6e0f6099575d58",
+   "abstraction": "portfolioMargin",
+   "portfolioMarginEnabled": true,
+   "balances": [
+    {
+     "coin": "USDC",
+     "token": 0,
+     "total": "6302966.5625281502",
+     "hold": "609253.119945",
+     "entryNtl": "0.0",
+     "spotHold": "609253.1199449999",
+     "ltv": "0.0",
+     "supplied": "5693713.4425831502"
+    },
+    {
+     "coin": "MUNCH",
+     "token": 146,
+     "total": "7.43118",
+     "hold": "0.0",
+     "entryNtl": "0.00002749"
+    },
+    {
+     "coin": "HYPE",
+     "token": 150,
+     "total": "0.00336102",
+     "hold": "0.0",
+     "entryNtl": "0.20485075",
+     "ltv": "0.65"
+    },
+    {
+     "coin": "STAR",
+     "token": 154,
+     "total": "0.01435139",
+     "hold": "0.0",
+     "entryNtl": "0.00000143"
+    },
+    {
+     "coin": "LICKO",
+     "token": 307,
+     "total": "220.32122253",
+     "hold": "0.0",
+     "entryNtl": "0.00132192"
+    },
+    {
+     "coin": "MAX",
+     "token": 734,
+     "total": "6923.026638",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    }
+   ],
+   "delegatorSummary": {
+    "delegated": "0.00000059",
+    "undelegated": "0.00000066",
+    "totalPendingWithdrawal": "0.0",
+    "nPendingWithdrawals": 0
+   },
+   "perpEquity": 609253.119945,
+   "hlTotal": 6302966.864901
+  },
+  {
+   "user": "0x03b9a189e2480d1e4c3007080b29f362282130fa",
+   "abstraction": "disabled",
+   "portfolioMarginEnabled": false,
+   "balances": [
+    {
+     "coin": "USDC",
+     "token": 0,
+     "total": "1782995.91570456",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "PURR",
+     "token": 1,
+     "total": "446803.7113",
+     "hold": "0.0",
+     "entryNtl": "85740.49619847"
+    },
+    {
+     "coin": "JEFF",
+     "token": 5,
+     "total": "527.84941",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "POINTS",
+     "token": 9,
+     "total": "47664.7429",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "XULIAN",
+     "token": 13,
+     "total": "208012.74898",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "RUG",
+     "token": 14,
+     "total": "323.09027",
+     "hold": "0.0",
+     "entryNtl": "0.21322988"
+    },
+    {
+     "coin": "ILIENS",
+     "token": 15,
+     "total": "123868.70626",
+     "hold": "0.0",
+     "entryNtl": "9.03622212"
+    },
+    {
+     "coin": "CZ",
+     "token": 17,
+     "total": "235.6542208",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "VEGAS",
+     "token": 25,
+     "total": "3524.33196365",
+     "hold": "0.0",
+     "entryNtl": "3.52080763"
+    },
+    {
+     "coin": "CATNIP",
+     "token": 28,
+     "total": "6586.05624303",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "SELL",
+     "token": 30,
+     "total": "140997.83464",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "GPT",
+     "token": 35,
+     "total": "874880.4537729",
+     "hold": "0.0",
+     "entryNtl": "0.87488045"
+    },
+    {
+     "coin": "BID",
+     "token": 37,
+     "total": "7376210.2941100001",
+     "hold": "0.0",
+     "entryNtl": "3.46681883"
+    },
+    {
+     "coin": "VAPOR",
+     "token": 42,
+     "total": "523733.26834",
+     "hold": "0.0",
+     "entryNtl": "5.00689004"
+    },
+    {
+     "coin": "PILL",
+     "token": 45,
+     "total": "11571.84586854",
+     "hold": "0.0",
+     "entryNtl": "1.15718458"
+    },
+    {
+     "coin": "MBAPPE",
+     "token": 50,
+     "total": "1741.6275786",
+     "hold": "0.0",
+     "entryNtl": "1.74162757"
+    },
+    {
+     "coin": "MAGA",
+     "token": 51,
+     "total": "2883.0054658",
+     "hold": "0.0",
+     "entryNtl": "0.28830054"
+    },
+    {
+     "coin": "OMNIX",
+     "token": 53,
+     "total": "69398.608337",
+     "hold": "0.0",
+     "entryNtl": "0.69398608"
+    },
+    {
+     "coin": "ARI",
+     "token": 58,
+     "total": "26121.51742064",
+     "hold": "0.0",
+     "entryNtl": "2.61215174"
+    },
+    {
+     "coin": "PEAR",
+     "token": 71,
+     "total": "35444.846513",
+     "hold": "0.0",
+     "entryNtl": "3.54448465"
+    },
+    {
+     "coin": "NEIRO",
+     "token": 78,
+     "total": "30498.056636",
+     "hold": "0.0",
+     "entryNtl": "3.08640333"
+    },
+    {
+     "coin": "BERA",
+     "token": 80,
+     "total": "2497.964362",
+     "hold": "0.0",
+     "entryNtl": "2.4667398"
+    },
+    {
+     "coin": "LAUNCH",
+     "token": 95,
+     "total": "1.0",
+     "hold": "0.0",
+     "entryNtl": "0.25959"
+    },
+    {
+     "coin": "WOW",
+     "token": 98,
+     "total": "16216.42358",
+     "hold": "0.0",
+     "entryNtl": "1.62164235"
+    },
+    {
+     "coin": "VAULT",
+     "token": 106,
+     "total": "1286.08114841",
+     "hold": "0.0",
+     "entryNtl": "1.28608114"
+    },
+    {
+     "coin": "MONAD",
+     "token": 112,
+     "total": "77.71447471",
+     "hold": "0.0",
+     "entryNtl": "0.00345052"
+    },
+    {
+     "coin": "BOZO",
+     "token": 113,
+     "total": "81.9212173",
+     "hold": "0.0",
+     "entryNtl": "0.02269217"
+    },
+    {
+     "coin": "UP",
+     "token": 115,
+     "total": "597.6004598",
+     "hold": "0.0",
+     "entryNtl": "0.59760045"
+    },
+    {
+     "coin": "YEETI",
+     "token": 128,
+     "total": "18789.58267",
+     "hold": "0.0",
+     "entryNtl": "0.18789582"
+    },
+    {
+     "coin": "LQNA",
+     "token": 129,
+     "total": "15.0",
+     "hold": "0.0",
+     "entryNtl": "23.304"
+    },
+    {
+     "coin": "STRICT",
+     "token": 133,
+     "total": "17365.34758",
+     "hold": "0.0",
+     "entryNtl": "0.17365347"
+    },
+    {
+     "coin": "LUCKY",
+     "token": 143,
+     "total": "148405.49676",
+     "hold": "0.0",
+     "entryNtl": "1.60277936"
+    },
+    {
+     "coin": "MUNCH",
+     "token": 146,
+     "total": "102291.30646",
+     "hold": "0.0",
+     "entryNtl": "0.37847783"
+    },
+    {
+     "coin": "COPE",
+     "token": 147,
+     "total": "4.93890347",
+     "hold": "0.0",
+     "entryNtl": "0.04115588"
+    },
+    {
+     "coin": "YAP",
+     "token": 149,
+     "total": "5.22488831",
+     "hold": "0.0",
+     "entryNtl": "0.04353899"
+    },
+    {
+     "coin": "HYPE",
+     "token": 150,
+     "total": "59999.99998013",
+     "hold": "0.0",
+     "entryNtl": "4842839.9983947696"
+    },
+    {
+     "coin": "STEEL",
+     "token": 151,
+     "total": "5.26443899",
+     "hold": "0.0",
+     "entryNtl": "0.04386857"
+    },
+    {
+     "coin": "RETARD",
+     "token": 152,
+     "total": "5.32437594",
+     "hold": "0.0",
+     "entryNtl": "0.04436802"
+    },
+    {
+     "coin": "STAR",
+     "token": 154,
+     "total": "8205.95997609",
+     "hold": "0.0",
+     "entryNtl": "0.82059599"
+    },
+    {
+     "coin": "SENT",
+     "token": 186,
+     "total": "1975.0",
+     "hold": "0.0",
+     "entryNtl": "1975.0"
+    },
+    {
+     "coin": "JPEG",
+     "token": 196,
+     "total": "66666.67333332",
+     "hold": "0.0",
+     "entryNtl": "994.06675057"
+    },
+    {
+     "coin": "LATINA",
+     "token": 223,
+     "total": "85392.1594",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "LICKO",
+     "token": 307,
+     "total": "24121.63639449",
+     "hold": "0.0",
+     "entryNtl": "0.14472981"
+    }
+   ],
+   "delegatorSummary": {
+    "delegated": "684977.81889503",
+    "undelegated": "28.69343605",
+    "totalPendingWithdrawal": "0.0",
+    "nPendingWithdrawals": 0
+   },
+   "perpEquity": 1529920.193769,
+   "hlTotal": 69226464.737385
+  },
+  {
+   "user": "0xfc0a9d73b4382348bac7f4f600439bc61bb00271",
+   "abstraction": "unifiedAccount",
+   "portfolioMarginEnabled": false,
+   "balances": [
+    {
+     "coin": "USDC",
+     "token": 0,
+     "total": "30859.00603322",
+     "hold": "18614.242351",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "PURR",
+     "token": 1,
+     "total": "67840.02872",
+     "hold": "0.0",
+     "entryNtl": "5142.1109785"
+    },
+    {
+     "coin": "HPL",
+     "token": 120,
+     "total": "34.08829015",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "HYPE",
+     "token": 150,
+     "total": "0.15752313",
+     "hold": "0.0",
+     "entryNtl": "12.28239017"
+    },
+    {
+     "coin": "UBTC",
+     "token": 197,
+     "total": "0.0100448685",
+     "hold": "0.0",
+     "entryNtl": "608.11362"
+    },
+    {
+     "coin": "UETH",
+     "token": 221,
+     "total": "0.099964",
+     "hold": "0.0",
+     "entryNtl": "277.71"
+    },
+    {
+     "coin": "USOL",
+     "token": 254,
+     "total": "0.00949602",
+     "hold": "0.0",
+     "entryNtl": "0.91916256"
+    },
+    {
+     "coin": "UXPL",
+     "token": 343,
+     "total": "2725.686356",
+     "hold": "0.0",
+     "entryNtl": "2093.48924726"
+    },
+    {
+     "coin": "AAPL",
+     "token": 413,
+     "total": "0.03997481",
+     "hold": "0.0",
+     "entryNtl": "10.6276"
+    },
+    {
+     "coin": "+12301",
+     "total": "1092.0",
+     "hold": "0.0",
+     "entryNtl": "497.46671"
+    },
+    {
+     "coin": "+14730",
+     "total": "1000.0",
+     "hold": "0.0",
+     "entryNtl": "506.29392839"
+    },
+    {
+     "coin": "+14741",
+     "total": "121.0",
+     "hold": "0.0",
+     "entryNtl": "81.61398553"
+    },
+    {
+     "coin": "MAX",
+     "token": 734,
+     "total": "3287231.9093490001",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    }
+   ],
+   "delegatorSummary": {
+    "delegated": "413.70692105",
+    "undelegated": "0.0",
+    "totalPendingWithdrawal": "0.0",
+    "nPendingWithdrawals": 0
+   },
+   "perpEquity": 19891.41965,
+   "hlTotal": 79227.733956
+  },
+  {
+   "user": "0xc926ddba8b7617dbc65712f20cf8e1b58b8598d3",
+   "abstraction": "disabled",
+   "portfolioMarginEnabled": false,
+   "balances": [
+    {
+     "coin": "FUCKY",
+     "token": 16,
+     "total": "0.00609881",
+     "hold": "0.0",
+     "entryNtl": "0.00001061"
+    },
+    {
+     "coin": "VEGAS",
+     "token": 25,
+     "total": "0.00934664",
+     "hold": "0.0",
+     "entryNtl": "0.00004403"
+    },
+    {
+     "coin": "CAT",
+     "token": 48,
+     "total": "0.0006626",
+     "hold": "0.0",
+     "entryNtl": "0.00007249"
+    },
+    {
+     "coin": "MAGA",
+     "token": 51,
+     "total": "10.1231029",
+     "hold": "0.0",
+     "entryNtl": "0.00158536"
+    },
+    {
+     "coin": "TIME",
+     "token": 79,
+     "total": "0.0278497",
+     "hold": "0.0",
+     "entryNtl": "0.00000913"
+    },
+    {
+     "coin": "HYPE",
+     "token": 150,
+     "total": "0.33017736",
+     "hold": "0.0",
+     "entryNtl": "83.59852976"
+    },
+    {
+     "coin": "STEEL",
+     "token": 151,
+     "total": "0.00367567",
+     "hold": "0.0",
+     "entryNtl": "0.00008921"
+    },
+    {
+     "coin": "STAR",
+     "token": 154,
+     "total": "370.58407459",
+     "hold": "0.0",
+     "entryNtl": "0.0370584"
+    },
+    {
+     "coin": "SOLV",
+     "token": 157,
+     "total": "0.00157253",
+     "hold": "0.0",
+     "entryNtl": "0.00001557"
+    },
+    {
+     "coin": "BUBZ",
+     "token": 158,
+     "total": "0.00404126",
+     "hold": "0.0",
+     "entryNtl": "0.00006295"
+    },
+    {
+     "coin": "LATINA",
+     "token": 223,
+     "total": "34712.363",
+     "hold": "0.0",
+     "entryNtl": "45.82031916"
+    },
+    {
+     "coin": "USDE",
+     "token": 235,
+     "total": "0.00083602",
+     "hold": "0.0",
+     "entryNtl": "0.00083613"
+    },
+    {
+     "coin": "USDT0",
+     "token": 268,
+     "total": "0.00000967",
+     "hold": "0.0",
+     "entryNtl": "0.00000965"
+    },
+    {
+     "coin": "RUB",
+     "token": 277,
+     "total": "0.0000081994",
+     "hold": "0.0",
+     "entryNtl": "0.39524575"
+    },
+    {
+     "coin": "UPUMP",
+     "token": 299,
+     "total": "70.355231",
+     "hold": "0.0",
+     "entryNtl": "0.47078885"
+    },
+    {
+     "coin": "LICKO",
+     "token": 307,
+     "total": "854.00543011",
+     "hold": "0.0",
+     "entryNtl": "0.00512403"
+    },
+    {
+     "coin": "UXPL",
+     "token": 343,
+     "total": "0.065892",
+     "hold": "0.0",
+     "entryNtl": "0.01064631"
+    },
+    {
+     "coin": "USDH",
+     "token": 360,
+     "total": "0.00006507",
+     "hold": "0.0",
+     "entryNtl": "0.00006507"
+    },
+    {
+     "coin": "MAX",
+     "token": 734,
+     "total": "188039967.971585989",
+     "hold": "0.0",
+     "entryNtl": "75.21539972"
+    }
+   ],
+   "delegatorSummary": {
+    "delegated": "50122.82368631",
+    "undelegated": "618.17679371",
+    "totalPendingWithdrawal": "0.0",
+    "nPendingWithdrawals": 0
+   },
+   "perpEquity": 411369.50109,
+   "hlTotal": 4901235.995185
+  },
+  {
+   "user": "0x06ecb2a427c3d51a66c29d9b4fb1960107d10b19",
+   "abstraction": "unifiedAccount",
+   "portfolioMarginEnabled": false,
+   "balances": [
+    {
+     "coin": "USDC",
+     "token": 0,
+     "total": "591.01716256",
+     "hold": "0.0",
+     "entryNtl": "0.0"
+    },
+    {
+     "coin": "FXMR",
+     "token": 851,
+     "total": "4444.692409",
+     "hold": "4444.68",
+     "entryNtl": "253898.92754025"
+    }
+   ],
+   "delegatorSummary": {
+    "delegated": "0.0",
+    "undelegated": "0.0",
+    "totalPendingWithdrawal": "0.0",
+    "nPendingWithdrawals": 0
+   },
+   "perpEquity": 0,
+   "hlTotal": 243933.481862
+  }
+ ]
+}

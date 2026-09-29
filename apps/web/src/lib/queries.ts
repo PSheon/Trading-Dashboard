@@ -23,6 +23,7 @@ import { actionsQueryString, mergeFetched, type ActionsParams } from "@/lib/acti
 import { api, isBusy } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useActionStream } from "@/lib/use-action-stream";
+import { isStreamingTrader } from "@/lib/use-live-trader";
 
 /**
  * React Query hooks for the Stage 2 endpoints. Polling follows how fast the
@@ -117,12 +118,18 @@ const busyRetry = {
       : Math.min(1000 * 2 ** attempt, 30_000),
 };
 
+/** While the trader page streams an address from Hyperliquid's WebSocket,
+ * its REST data is only the fallback: refresh it rarely. */
+const POLL_MS = 30_000;
+const POLL_WHILE_LIVE_MS = 5 * 60_000;
+const livePoll = (address: string) => () => (isStreamingTrader(address) ? POLL_WHILE_LIVE_MS : POLL_MS);
+
 /** GET /traders/:address: the first paint (account, positions, stats). */
 export function useTraderProfile(address: string) {
   return useQuery({
     queryKey: ["trader", address],
     queryFn: () => api.get<TraderProfileResponse>(`/traders/${address}`),
-    refetchInterval: 30_000,
+    refetchInterval: livePoll(address),
     ...busyRetry,
   });
 }
@@ -153,7 +160,7 @@ export function useTraderFills(address: string, limit = 100) {
   return useQuery({
     queryKey: ["trader-fills", address, limit],
     queryFn: () => api.get<TraderFill[]>(`/traders/${address}/fills?limit=${limit}`),
-    refetchInterval: 30_000,
+    refetchInterval: livePoll(address),
     ...busyRetry,
   });
 }

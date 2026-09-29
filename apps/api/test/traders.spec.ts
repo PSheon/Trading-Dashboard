@@ -16,7 +16,10 @@ import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.
 import { BusyException } from "../src/traders/busy.js";
 import type {
   HlClearinghouseStateResponse,
+  HlDelegatorSummary,
   HlPerpDexsResponse,
+  HlSpotClearinghouseStateResponse,
+  HlSpotMetaAndAssetCtxsResponse,
   HlPortfolioResponse,
   HlTwapSliceFill,
   HlUserFill,
@@ -28,6 +31,7 @@ import {
   downsample,
   portfolioKey,
   portfolioMetrics,
+  portfolioRoi,
   portfolioSeries,
   sampleFromUserFills,
   toPortfolioResponse,
@@ -104,10 +108,49 @@ const perpDexsFixture: HlPerpDexsResponse = [
   { name: "abcd", assetToStreamingOiCap: [] },
 ];
 
+/** A small spot market: USDC, HYPE (@107) and PURR ("PURR/USDC"); the
+ * contexts deliberately out of order (Hyperliquid's are). */
+const spotMarket: HlSpotMetaAndAssetCtxsResponse = [
+  {
+    tokens: [
+      { name: "USDC", index: 0 },
+      { name: "PURR", index: 1 },
+      { name: "HYPE", index: 150 },
+    ],
+    universe: [
+      { name: "PURR/USDC", index: 0, tokens: [1, 0], isCanonical: true },
+      { name: "@107", index: 107, tokens: [150, 0] },
+    ],
+  },
+  [
+    { coin: "@107", markPx: "40", midPx: "40.1" },
+    { coin: "PURR/USDC", markPx: "0.5", midPx: "0.5" },
+  ],
+];
+const spotState: HlSpotClearinghouseStateResponse = {
+  balances: [
+    { coin: "USDC", token: 0, total: "1000", hold: "0", entryNtl: "0" },
+    { coin: "HYPE", token: 150, total: "10", hold: "0", entryNtl: "0" },
+    { coin: "PURR", token: 1, total: "0", hold: "0", entryNtl: "0" },
+  ],
+};
+
 function fakeInfo() {
   return {
     perpDexs: vi.fn(async () => perpDexsFixture),
     clearinghouseState: vi.fn(async (_address: string, dex?: string) => (dex === "xyz" ? xyzState : mainState)),
+    spotClearinghouseState: vi.fn(async (_address: string) => spotState),
+    spotMetaAndAssetCtxs: vi.fn(async () => spotMarket),
+    allMids: vi.fn(async (): Promise<Record<string, string>> => ({})),
+    userAbstraction: vi.fn(async (_address: string) => "disabled"),
+    delegatorSummary: vi.fn(
+      async (_address: string): Promise<HlDelegatorSummary> => ({
+        delegated: "5",
+        undelegated: "0",
+        totalPendingWithdrawal: "0",
+        nPendingWithdrawals: 0,
+      }),
+    ),
     portfolio: vi.fn(async (_address: string) => portfolioFixture),
     userFills: vi.fn(async (_address: string) => userFillsFixture),
     userTwapSliceFills: vi.fn(async (_address: string): Promise<HlTwapSliceFill[]> => []),
@@ -299,7 +342,19 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
 
       const xyzPositions = xyzState.assetPositions.map((a) => a.position);
       expect(res.positions).toHaveLength(2 + xyzPositions.length); // SOL (szi 0) omitted
-      expect(res.accountValue).toBeCloseTo(500_000 + Number(xyzState.marginSummary.accountValue), 2);
+      const perpEquity = 500_000 + Number(xyzState.marginSummary.accountValue);
+      expect(res.perpEquity).toBeCloseTo(perpEquity, 2);
+      // Standard account: perp + spot (1,000 USDC + 10 HYPE at the 40 mark)
+      // + 5 staked HYPE.
+      expect(res.accountMode).toBe("standard");
+      expect(res.spotValue).toBeCloseTo(1_400, 6);
+      expect(res.stakedValue).toBeCloseTo(200, 6);
+      expect(res.accountValue).toBeCloseTo(perpEquity + 1_400 + 200, 2);
+      expect(res.spotBalances).toEqual([
+        { coin: "USDC", token: 0, total: 1000, px: 1, value: 1000, priceKey: null },
+        { coin: "HYPE", token: 150, total: 10, px: 40, value: 400, priceKey: "@107" },
+      ]);
+      expect(res.perpDexes).toEqual(["", "xyz"]);
       expect(res.marginUsed).toBeCloseTo(21_000 + Number(xyzState.marginSummary.totalMarginUsed), 2);
       expect(res.withdrawable).toBeCloseTo(100_000 + Number(xyzState.withdrawable), 2);
 
@@ -325,6 +380,46 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(byCoin.get("xyz:XYZ100")).toMatchObject({ side: "long", liqPx: null });
       // Largest first.
       expect(res.positions[0].coin).toBe("xyz:GOLD");
+    });
+
+    it("doesn't add perp equity to a unified or portfolio-margin account's spot balance", async () => {
+      info.userAbstraction.mockResolvedValue("unifiedAccount");
+      const unified = await controller.profile(A, null);
+      expect(unified.accountMode).toBe("unified");
+      expect(unified.perpEquity).toBeCloseTo(500_000 + Number(xyzState.marginSummary.accountValue), 2);
+      expect(unified.accountValue).toBeCloseTo(1_400 + 200, 6);
+
+      // The spot state's own flag wins, whatever the abstraction call says.
+      info.userAbstraction.mockResolvedValue("disabled");
+      info.spotClearinghouseState.mockResolvedValueOnce({ ...spotState, portfolioMarginEnabled: true });
+      const pm = await controller.profile(B, null);
+      expect(pm.accountMode).toBe("portfolioMargin");
+      expect(pm.accountValue).toBeCloseTo(1_600, 6);
+    });
+
+    it("keeps the account mode and staking 10 min and the spot price book 30 s app-wide", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        await controller.profile(A, null);
+        await controller.profile(B, null);
+        expect(info.spotMetaAndAssetCtxs).toHaveBeenCalledTimes(1); // shared by both addresses
+        expect(info.spotClearinghouseState).toHaveBeenCalledTimes(2);
+        for (const call of info.spotClearinghouseState.mock.calls) expect(call.slice(1)).toEqual(["background", 0]);
+
+        vi.advanceTimersByTime(61_000); // profile and price book expire
+        await controller.profile(A, null);
+        expect(info.spotClearinghouseState).toHaveBeenCalledTimes(3);
+        expect(info.spotMetaAndAssetCtxs).toHaveBeenCalledTimes(2);
+        expect(info.userAbstraction).toHaveBeenCalledTimes(2); // A and B once each
+        expect(info.delegatorSummary).toHaveBeenCalledTimes(2);
+
+        vi.advanceTimersByTime(10 * 60_000);
+        await controller.profile(A, null);
+        expect(info.userAbstraction).toHaveBeenCalledTimes(3);
+        expect(info.delegatorSummary).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("caches the profile 60 s per address (favorite still per caller) and the dex list across addresses", async () => {
@@ -435,6 +530,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         maxDrawdownUsd: 0,
         maxDrawdownPct: null,
         sharpe: null,
+        roi: null,
       });
     });
   });
@@ -1036,5 +1132,31 @@ describe("portfolioMetrics — hand-computed", () => {
     expect(res).toMatchObject(portfolioMetrics(series.pnl, series.accountValue));
     expect(res.maxDrawdownUsd).toBeGreaterThan(0);
     expect(res.sharpe).not.toBeNull();
+    expect(res.roi).toBe(portfolioRoi(series.pnl, series.accountValue));
+  });
+});
+
+describe("portfolioRoi — PnL over the capital in the window", () => {
+  const pts = (vals: number[]): Array<[number, number]> => vals.map((v, i) => [i, v]);
+
+  it("is PnL ÷ starting value without flows", () => {
+    // 1000 → 1100 on +100 PnL.
+    expect(portfolioRoi(pts([0, 40, 100]), pts([1000, 1040, 1100]))).toBeCloseTo(0.1, 12);
+  });
+
+  it("counts deposits as capital, not return", () => {
+    // Starts at 1000, +50 PnL, then a 9,000 deposit: 10,050 at the end.
+    // PnL ÷ (1000 + 9000) = 0.5 %, not 50 ÷ 1000 = 5 %.
+    expect(portfolioRoi(pts([0, 50, 50]), pts([1000, 1050, 10_050]))).toBeCloseTo(0.005, 12);
+  });
+
+  it("works for all-time windows that start at 0", () => {
+    // Deposited 2,000, made 600 → 2,600.
+    expect(portfolioRoi(pts([0, 0, 600]), pts([0, 2000, 2600]))).toBeCloseTo(0.3, 12);
+  });
+
+  it("is null without data or when everything was withdrawn", () => {
+    expect(portfolioRoi([], [])).toBeNull();
+    expect(portfolioRoi(pts([0, 100]), pts([1000, 0]))).toBeNull(); // capital −100
   });
 });

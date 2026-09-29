@@ -17,11 +17,13 @@ import { TradersTable } from "@/components/traders/traders-table";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { api } from "@/lib/api";
-import { coinLabel, toNumber, traderName } from "@/lib/format";
+import { coinDex, coinLabel, toNumber, traderName } from "@/lib/format";
 import { useSiteSettings, useSparklines, useTraders } from "@/lib/queries";
+import { useLiveMids } from "@/lib/use-live-mids";
+import { useNow } from "@/lib/use-now";
 
 export function HomeView() {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const settings = useSiteSettings();
   const top = useTraders({ window: "month", sort: "pnl", order: "desc", limit: 10, offset: 0 });
 
@@ -72,6 +74,17 @@ export function HomeView() {
   }, [featured, top.data]);
   const sparklines = useSparklines(sparkAddresses, "month");
 
+  // Live mark prices on the market chips: `allMids` isn't user-specific, so
+  // the home page may subscribe to it (one message per dex every few s).
+  const homeMarkets = useMemo(() => settings.data?.homeMarkets ?? [], [settings.data]);
+  const mids = useLiveMids(useMemo(() => [...new Set(homeMarkets.map((m) => coinDex(m) ?? ""))], [homeMarkets]));
+  const now = useNow();
+  const boardNote = top.data?.updatedAt ? (
+    <span className="num text-xs font-normal tracking-normal text-subtle-foreground">
+      {t("home.leaderboardSource", { time: format.relative(top.data.updatedAt, now) })}
+    </span>
+  ) : null;
+
   return (
     <div className="flex flex-col gap-10 md:gap-12">
       <section className="grid items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
@@ -103,12 +116,13 @@ export function HomeView() {
               <Trophy className="size-[18px]" />
             </span>
           </MarketChip>
-          {(settings.data?.homeMarkets ?? []).map((market) => (
+          {homeMarkets.map((market) => (
             <MarketChip
               key={market}
               href={`/insights?coin=${encodeURIComponent(market)}`}
               label={coinLabel(market)}
               hint={t("home.marketHint", { market: coinLabel(market) })}
+              price={mids[market]}
             >
               <CoinIcon coin={market} size={36} />
             </MarketChip>
@@ -121,7 +135,7 @@ export function HomeView() {
 
       <section>
         <SectionHeader
-          title={t("home.featured")}
+          title={<SourcedTitle title={t("home.featured")} note={boardNote} />}
           action={
             <Button asChild variant="secondary" size="sm">
               <Link href="/explore">{t("common.viewAll")}</Link>
@@ -139,7 +153,7 @@ export function HomeView() {
 
       <section>
         <SectionHeader
-          title={t("home.topTraders")}
+          title={<SourcedTitle title={t("home.topTraders")} note={boardNote} />}
           action={
             <Button asChild variant="secondary" size="sm">
               <Link href="/explore">{t("common.viewAll")}</Link>
@@ -164,25 +178,44 @@ export function HomeView() {
   );
 }
 
+/** A section title with where its numbers come from beside it. */
+function SourcedTitle({ title, note }: { title: string; note: React.ReactNode }) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+      {title}
+      {note}
+    </span>
+  );
+}
+
 function MarketChip({
   href,
   label,
   hint,
+  price,
   children,
 }: {
   href: string;
   label: string;
   hint: string;
+  /** Live mid from Hyperliquid's WebSocket, when it has arrived. */
+  price?: number;
   children: React.ReactNode;
 }) {
+  const { format } = useI18n();
   return (
     <Link
       href={href}
       title={hint}
-      className="flex size-[104px] shrink-0 snap-start flex-col items-center justify-center gap-2.5 rounded-2xl bg-raised text-[0.8125rem] font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex size-[104px] shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-2xl bg-raised text-[0.8125rem] font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
-      <span className="max-w-[88px] truncate">{label}</span>
+      <span className="flex max-w-[88px] flex-col items-center leading-tight">
+        <span className="max-w-full truncate">{label}</span>
+        {price !== undefined ? (
+          <span className="num max-w-full truncate text-[10.5px] font-medium text-muted-foreground">{format.price(price)}</span>
+        ) : null}
+      </span>
     </Link>
   );
 }

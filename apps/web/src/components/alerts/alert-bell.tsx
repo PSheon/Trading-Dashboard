@@ -102,7 +102,10 @@ export function AlertBell({
       </PopoverTrigger>
       <PopoverContent onClick={(e) => e.stopPropagation()} aria-label={t("alerts.title")}>
         {favorite ? (
-          <AlertEditor key={JSON.stringify(favorite.alert)} address={address} alert={favorite.alert} onDone={() => setOpen(false)} />
+          // Not keyed by the alert: saving updates it, and a remount would
+          // drop the save's onSuccess (which closes the popover). The
+          // content unmounts when closed, so each opening starts fresh.
+          <AlertEditor address={address} alert={favorite.alert} onDone={() => setOpen(false)} />
         ) : null}
       </PopoverContent>
     </Popover>

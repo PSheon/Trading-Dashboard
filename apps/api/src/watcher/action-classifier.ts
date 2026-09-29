@@ -65,6 +65,21 @@ export function toScaled(value: string): bigint {
   return negative ? -scaled : scaled;
 }
 
+/** Inverse of `toScaled`: a plain decimal string, no trailing zeros. */
+export function fromScaled(value: bigint): string {
+  const negative = value < 0n;
+  const digits = (negative ? -value : value).toString().padStart(SCALE_DIGITS + 1, "0");
+  const intPart = digits.slice(0, -SCALE_DIGITS);
+  const fracPart = digits.slice(-SCALE_DIGITS).replace(/0+$/, "");
+  return `${negative ? "-" : ""}${intPart}${fracPart ? `.${fracPart}` : ""}`;
+}
+
+/** Signed size of a fill from its owner's side: + for a buy. */
+export function signedSize(fill: Pick<HlUserFill, "side" | "sz">): bigint {
+  const sz = toScaled(fill.sz);
+  return fill.side === "B" ? sz : -sz;
+}
+
 const sign = (v: bigint): -1 | 0 | 1 => (v > 0n ? 1 : v < 0n ? -1 : 0);
 const abs = (v: bigint): bigint => (v < 0n ? -v : v);
 
@@ -93,6 +108,48 @@ function liquidates(fill: HlUserFill, address: string): boolean {
   return fill.liquidation?.liquidatedUser?.toLowerCase() === address.toLowerCase();
 }
 
+/**
+ * Sorts one coin's fills by time, and fills sharing a millisecond into the
+ * order they executed in. `tid` is NOT that order (checked live 2026-09-29:
+ * same-millisecond fills sorted by tid broke the startPosition chain in about
+ * half the cases); the info API and the trade feed both list fills in
+ * execution order, and within a millisecond each fill starts where the
+ * previous one ended. So a same-millisecond run is chained by startPosition
+ * when that is unambiguous (fills read back from the database come in no
+ * particular order), and otherwise keeps the order it was given in.
+ */
+function executionOrder(fills: HlUserFill[]): HlUserFill[] {
+  const sorted = [...fills].sort((x, y) => x.time - y.time);
+  const out: HlUserFill[] = [];
+  for (let i = 0; i < sorted.length; ) {
+    let j = i + 1;
+    while (j < sorted.length && sorted[j].time === sorted[i].time) j++;
+    const run = sorted.slice(i, j);
+    out.push(...(run.length > 1 ? (chainByPosition(run) ?? run) : run));
+    i = j;
+  }
+  return out;
+}
+
+function chainByPosition(run: HlUserFill[]): HlUserFill[] | null {
+  if (run.some((f) => f.startPosition === undefined)) return null;
+  const start = run.map((f) => toScaled(f.startPosition!));
+  const end = run.map((f, k) => start[k] + signedSize(f));
+  const indexes = run.map((_, k) => k);
+  const heads = indexes.filter((k) => !end.some((e, m) => m !== k && e === start[k]));
+  if (heads.length !== 1) return null;
+  const order = [heads[0]];
+  const used = new Set(order);
+  while (order.length < run.length) {
+    const last = order[order.length - 1];
+    const next = indexes.filter((k) => !used.has(k) && start[k] === end[last]);
+    if (next.length !== 1) return null;
+    used.add(next[0]);
+    order.push(next[0]);
+  }
+  return order.map((k) => run[k]);
+}
+
 interface Group {
   coin: string;
   side: "A" | "B";
@@ -109,9 +166,8 @@ function groupFills(address: string, fills: HlUserFill[]): Group[] {
   }
   const groups: Group[] = [];
   for (const [coin, coinFills] of byCoin) {
-    coinFills.sort((x, y) => x.time - y.time || x.tid - y.tid);
     let current: Group | undefined;
-    for (const fill of coinFills) {
+    for (const fill of executionOrder(coinFills)) {
       const liquidation = liquidates(fill, address);
       const last = current?.fills[current.fills.length - 1];
       if (
@@ -158,8 +214,7 @@ export function classifyFills(
     let notional = 0;
     let size = 0;
     for (const fill of group.fills) {
-      const sz = toScaled(fill.sz);
-      after += fill.side === "B" ? sz : -sz;
+      after += signedSize(fill);
       notional += Number(fill.px) * Number(fill.sz);
       size += Number(fill.sz);
     }

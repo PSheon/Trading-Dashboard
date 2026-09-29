@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { actions, CHAIN_DEFAULT, fills } from "@trading-dashboard/shared";
+import { actions, fills } from "@trading-dashboard/shared";
+import { eq } from "drizzle-orm";
 
-import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
@@ -10,7 +10,17 @@ import type { RequestPriority } from "../hyperliquid/request-budgeter.service.js
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { AccountStateService, dexOf } from "./account-state.service.js";
 import { classifyFills, isOutOfScopeSpotFill } from "./action-classifier.js";
-import { ACTION_CREATED_EVENT } from "./action-created.event.js";
+import {
+  actionsCovering,
+  chunks,
+  draftToRow,
+  emitRecent,
+  insertActions,
+  storedFills,
+  withActionLock,
+  type ActionRow,
+  type DbOrTx,
+} from "./action-store.js";
 import { toFillRow } from "./fill-row.js";
 
 /** Hyperliquid's per-call cap on `userFillsByTime` rows. */
@@ -18,27 +28,28 @@ export const PAGE_SIZE = 2000;
 /** Only the latest 10,000 fills exist, so 5 full pages cover everything;
  * one spare page absorbs the overlap between pages. */
 const MAX_PAGES = 6;
-/** Postgres caps one statement at 65,535 bind parameters (a fills row has
- * 13, an actions row 10); a high-frequency address can produce thousands of
- * rows in one sync, so inserts go in chunks. */
-const INSERT_CHUNK_ROWS = 1000;
 /** A live sync reuses account state younger than this (equity for R1/R3),
  * unless the action opened a position the cached state doesn't have yet. */
 const ACCOUNT_REUSE_MS = 10_000;
 
-function chunks<T>(rows: T[]): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < rows.length; i += INSERT_CHUNK_ROWS) out.push(rows.slice(i, i + INSERT_CHUNK_ROWS));
-  return out;
-}
-
 /**
- * - `live`: an address just traded (seen on the `trades` feed).
+ * - `confirm`: after the fast path alerted on feed trades, store their fills
+ *   and check its actions (background lane).
+ * - `live`: store an address's fills at live priority and alert on them
+ *   (the pre-fast-path route; kept for callers that need it).
  * - `sweep`: the hourly safety net, and catch-up after a feed outage.
  * - `reconcile`: a 5-minute snapshot showed a position change with no fill.
  * - `backfill`: A5, full history of a newly added address.
  */
-export type SyncReason = "live" | "sweep" | "reconcile" | "backfill";
+export type SyncReason = "confirm" | "live" | "sweep" | "reconcile" | "backfill";
+
+/** How often the fast path's actions matched their real fills. */
+export interface FastPathStats {
+  /** Fast-path actions whose fills are all stored and were re-derived. */
+  verified: number;
+  /** Of those, how many had the wrong kind or side and were corrected. */
+  corrected: number;
+}
 
 export interface SyncResult {
   fetched: number;
@@ -68,6 +79,7 @@ export class FillSyncService {
   private readonly logger = new Logger(FillSyncService.name);
   private readonly chains = new Map<string, Promise<unknown>>();
   private lastFillAt: Date | null = null;
+  private readonly fastPath: FastPathStats = { verified: 0, corrected: 0 };
 
   constructor(
     private readonly info: HyperliquidInfoClient,
@@ -78,6 +90,10 @@ export class FillSyncService {
 
   getLastFillAt(): Date | null {
     return this.lastFillAt;
+  }
+
+  getFastPathStats(): FastPathStats {
+    return { ...this.fastPath };
   }
 
   /** `rank` orders this address's requests within its budget lane (lower
@@ -169,53 +185,65 @@ export class FillSyncService {
     return drafts.some((d) => (d.kind === "open" || d.kind === "flip") && d.leverage === null);
   }
 
+  /**
+   * Fresh fills → actions. A fill the fast path already made an action for
+   * (its tid is in one of the address's `fill_ids`) gets no second one; once
+   * all of such an action's fills are stored, it is re-derived from them and
+   * corrected in place, without an alert, if the fast path got it wrong.
+   * Fills no action covers (the feed missed them) become actions as before.
+   */
   private async createActions(address: string, reason: SyncReason, newFills: HlUserFill[], rank?: number): Promise<number> {
     const leverage = (coin: string) => this.accounts.leverageFor(address, coin);
-    let drafts = classifyFills(address, newFills, leverage);
-    if (reason === "live" && this.needsAccountRefresh(address, newFills, drafts)) {
+    if (reason === "live" && this.needsAccountRefresh(address, newFills, classifyFills(address, newFills, leverage))) {
       // Positions and equity as of right after these fills: R1/R3 compare
       // against equity, and the action records the position's leverage.
       try {
         await this.accounts.refresh(address, "live", new Set(newFills.map((f) => dexOf(f.coin))), rank);
-        drafts = classifyFills(address, newFills, leverage);
       } catch (error) {
         this.logger.warn(`Account refresh failed for ${address}: ${(error as Error).message}`);
       }
     }
-    if (drafts.length === 0) return 0;
 
-    const rows: (typeof actions.$inferSelect)[] = [];
-    for (const chunk of chunks(drafts)) {
-      rows.push(
-        ...(await this.db
-          .insert(actions)
-          .values(
-            chunk.map((d) => ({
-              chain: CHAIN_DEFAULT,
-              address,
-              coin: d.coin,
-              kind: d.kind,
-              side: d.side,
-              notionalUsd: d.notionalUsd,
-              avgPx: d.avgPx,
-              leverage: d.leverage,
-              fillIds: d.fillIds,
-              ts: d.ts,
-            })),
-          )
-          .returning()),
+    const rows = await withActionLock(this.db, address, async (tx) => {
+      const tids = newFills.map((f) => BigInt(f.tid));
+      const covering = await actionsCovering(tx, address, tids, Math.min(...newFills.map((f) => f.time)));
+      const covered = new Set(covering.flatMap((a) => a.fillIds));
+      const drafts = classifyFills(
+        address,
+        newFills.filter((f) => !covered.has(BigInt(f.tid))),
+        leverage,
       );
-    }
+      for (const action of covering) await this.verify(tx, address, action);
+      return drafts.length > 0 ? insertActions(tx, address, drafts) : [];
+    });
 
-    // History (backfill) and anything older than the alert horizon is stored
-    // for analytics but never alerted on: a notification about a trade from
-    // an hour ago would read as if it just happened.
-    if (reason !== "backfill") {
-      const horizon = Date.now() - env.alertMaxActionAgeSeconds() * 1000;
-      for (const row of rows) {
-        if (row.ts.getTime() >= horizon) this.events?.emit(ACTION_CREATED_EVENT, row);
-      }
-    }
+    // Backfill is history: stored for analytics, never alerted on.
+    if (reason !== "backfill") emitRecent(this.events, rows);
     return rows.length;
+  }
+
+  /** Re-derives a fast-path action from its real fills once all are stored,
+   * and corrects kind/side (a liquidation, or a book that was off) in place.
+   * No event: the alert already went out, and a second one would read as a
+   * new trade. */
+  private async verify(tx: DbOrTx, address: string, action: ActionRow): Promise<void> {
+    const real = await storedFills(tx, address, action.fillIds);
+    if (real.length < action.fillIds.length) return; // the rest come in a later sync
+    const drafts = classifyFills(address, real);
+    if (drafts.length === 0) return;
+    this.fastPath.verified += 1;
+    const [first, ...rest] = drafts;
+    if (rest.length === 0 && first.kind === action.kind && first.side === action.side) return;
+
+    this.fastPath.corrected += 1;
+    const { leverage: _leverage, ...shape } = draftToRow(address, first);
+    await tx.update(actions).set(shape).where(eq(actions.id, action.id));
+    // Real fills can split what the feed saw as one action (a liquidation
+    // among them); the other parts are stored, not alerted on.
+    if (rest.length > 0) await insertActions(tx, address, rest.map((d) => ({ ...d, leverage: action.leverage })));
+    this.logger.warn(
+      `Fast path corrected action ${action.id} (${address} ${action.coin}): ${action.kind} ${action.side} → ` +
+        `${drafts.map((d) => `${d.kind} ${d.side}`).join(" + ")} (${this.fastPath.corrected} of ${this.fastPath.verified} checked)`,
+    );
   }
 }

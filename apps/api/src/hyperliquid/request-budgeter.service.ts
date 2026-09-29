@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 
-import { env } from "../config/env.js";
+import { env, getIntEnv } from "../config/env.js";
 
 /**
  * Shared request-weight budgeter for every Hyperliquid `info` call (W6,
@@ -14,29 +14,46 @@ import { env } from "../config/env.js";
  * 2000-row page costs 120), which is the common reading.
  *
  * Load shape: fill discovery comes from the `trades` WS feed, which costs no
- * REST weight. REST carries (a) a `userFillsByTime` + `clearinghouseState`
- * burst per address that just traded, (b) the 5-minute snapshots, (c) the
- * hourly sweep and (d) A5 backfill. Only (a) is latency-sensitive, so it
- * runs in the `live` lane; everything else is `background`. The default cap
- * is PRD §8's 70% of 1200.
+ * REST weight. REST carries (a) the odd `clearinghouseState` the feed fast
+ * path needs, (b) a `userFillsByTime` per address that traded, a few seconds
+ * later, to store its fills, (c) the 5-minute snapshots, (d) the hourly
+ * sweep, (e) A5 backfill and (f) page loads. Only (a) is latency-sensitive,
+ * so it runs in the `live` lane; everything else is `background`. The
+ * default rate is PRD §8's 70% of 1200.
  *
  * ## Design
  *
- * Virtual-time pacing with two priority lanes. Each dispatched call reserves
- * `weight × msPerWeight` of timeline; the next waiter is released once that
- * slot has passed, always taking from the `live` queue before `background`.
- * So a 100-address backfill queued in `background` delays a live fetch by at
- * most one call's slot, instead of the live fetch waiting behind all of it.
- * No burst allowance: calls are spread evenly.
+ * A token bucket with two priority lanes. Tokens (weight) refill at the
+ * budget rate up to `HYPERLIQUID_WEIGHT_BURST` (default 200), so a few
+ * calls after a quiet spell go out at once (a cold page load) while the
+ * long-run average stays at the budget. Any 60 s then carries at most
+ * rate + burst; the burst is capped so that stays under Hyperliquid's 1200.
  *
- * On a real 429 the effective budget halves (floor 20% of the cap) and the
- * timeline is pushed 2 s out; it recovers by 10% of the cap per 20
+ * - `live` waiters go before `background` ones, and `background` may not
+ *   spend the last 10% of the bucket, which stays for `live`: a burst of
+ *   page loads leaves a detection call its tokens.
+ * - Starvation guard: while `background` waiters exist, at least one in
+ *   every four dispatches goes to `background`.
+ * - Within a lane the lowest `rank` goes first.
+ * - A call heavier than the bucket waits for a full bucket and takes it
+ *   negative, so it always runs eventually and later callers pay for it.
+ *
+ * On a real 429 the rate halves (floor 20% of the budget) and the bucket
+ * goes 2 s into debt; the rate recovers by 10% of the budget per 20
  * consecutive successes. `userFillsByTime`'s surcharge is only known after
- * the response, so it is added to the timeline afterwards via
- * `recordAdditionalWeight()`, charging future callers rather than the call
- * that already happened.
+ * the response, so `recordAdditionalWeight()` takes it from the bucket
+ * afterwards, charging future callers rather than the call that already
+ * happened.
  */
 export type RequestPriority = "live" | "background";
+
+/** Hyperliquid's documented REST limit per IP. */
+const HARD_LIMIT_PER_MIN = 1200;
+const DEFAULT_BURST = 200;
+/** Share of the bucket only `live` may spend. */
+const LIVE_RESERVE_SHARE = 0.1;
+/** Live dispatches in a row, while background waits, before one background. */
+const MAX_LIVE_STREAK = 3;
 
 interface Waiter {
   weight: number;
@@ -57,12 +74,16 @@ export class RequestBudgeterService {
   private readonly configuredBudgetPerMin: number;
   private effectiveBudgetPerMin: number;
   private readonly floorBudgetPerMin: number;
+  private readonly capacity: number;
+  private readonly liveReserve: number;
 
-  /** End of the most recently dispatched call's slot, in epoch ms. */
-  private nextSlotEndsAt = 0;
+  private tokens: number;
+  private lastRefillAt: number;
   private readonly queues: Record<RequestPriority, Waiter[]> = { live: [], background: [] };
   private pumpTimer: ReturnType<typeof setTimeout> | undefined;
   private seq = 0;
+  /** Live dispatches in a row while background waiters existed. */
+  private liveStreak = 0;
 
   private consecutiveSuccesses = 0;
   private lastRateLimitedAt: number | undefined;
@@ -70,15 +91,22 @@ export class RequestBudgeterService {
   constructor() {
     this.configuredBudgetPerMin = env.hyperliquidWeightBudgetPerMin();
     this.effectiveBudgetPerMin = this.configuredBudgetPerMin;
-    this.floorBudgetPerMin = Math.max(
-      1,
-      Math.round(this.configuredBudgetPerMin * 0.2),
-    );
+    this.floorBudgetPerMin = Math.max(1, Math.round(this.configuredBudgetPerMin * 0.2));
+    const burst = getIntEnv("HYPERLIQUID_WEIGHT_BURST", DEFAULT_BURST);
+    this.capacity = Math.max(1, Math.min(burst, HARD_LIMIT_PER_MIN - this.configuredBudgetPerMin));
+    this.liveReserve = Math.floor(this.capacity * LIVE_RESERVE_SHARE);
+    this.tokens = this.capacity;
+    this.lastRefillAt = Date.now();
   }
 
-  /** How much wall-clock time one unit of weight currently costs. */
-  private msPerWeight(): number {
-    return 60_000 / this.effectiveBudgetPerMin;
+  /** Tokens per millisecond at the current rate. */
+  private rate(): number {
+    return this.effectiveBudgetPerMin / 60_000;
+  }
+
+  private refill(now: number): void {
+    this.tokens = Math.min(this.capacity, this.tokens + (now - this.lastRefillAt) * this.rate());
+    this.lastRefillAt = now;
   }
 
   private prune(now: number): void {
@@ -95,16 +123,18 @@ export class RequestBudgeterService {
 
   /**
    * Resolves once it is this call's turn to go out. `live` waiters are
-   * always released before `background` ones. Within a lane the lowest
-   * `rank` goes first (default: arrival order). The watcher ranks a live
-   * sync by when that address was last served, so an address that trades
-   * once an hour isn't stuck behind bots that trade every second.
+   * released before `background` ones (but see the starvation guard).
+   * Within a lane the lowest `rank` goes first (default: arrival order).
+   * The watcher ranks live calls by when that address was last served, so
+   * an address that trades once an hour isn't stuck behind bots that trade
+   * every second.
    */
   acquire(weight: number, priority: RequestPriority = "background", rank?: number): Promise<void> {
     return new Promise((resolve) => {
       const seq = this.seq++;
       this.queues[priority].push({ weight, resolve, rank: rank ?? seq, seq });
-      this.pump();
+      // A newcomer may go before the waiter the pending timer is for.
+      this.rearm();
     });
   }
 
@@ -113,11 +143,25 @@ export class RequestBudgeterService {
     return { live: this.queues.live.length, background: this.queues.background.length };
   }
 
+  private rearm(): void {
+    clearTimeout(this.pumpTimer);
+    this.pumpTimer = undefined;
+    this.pump();
+  }
+
+  private nextLane(): { lane: RequestPriority; forced: boolean } | null {
+    const { live, background } = this.queues;
+    if (live.length === 0) return background.length > 0 ? { lane: "background", forced: false } : null;
+    if (background.length > 0 && this.liveStreak >= MAX_LIVE_STREAK) return { lane: "background", forced: true };
+    return { lane: "live", forced: false };
+  }
+
   private pump(): void {
     if (this.pumpTimer) return;
     for (;;) {
-      const lane = this.queues.live.length > 0 ? this.queues.live : this.queues.background;
-      if (lane.length === 0) return;
+      const pick = this.nextLane();
+      if (!pick) return;
+      const lane = this.queues[pick.lane];
       let index = 0;
       for (let i = 1; i < lane.length; i++) {
         const a = lane[i];
@@ -126,15 +170,24 @@ export class RequestBudgeterService {
       }
       const next = lane[index];
       const now = Date.now();
-      if (now < this.nextSlotEndsAt) {
-        this.pumpTimer = setTimeout(() => {
-          this.pumpTimer = undefined;
-          this.pump();
-        }, this.nextSlotEndsAt - now);
+      this.refill(now);
+      // Background leaves the reserve to live, unless it is its guaranteed
+      // turn. A call heavier than what it may use waits for all of it.
+      const reserve = pick.lane === "live" || pick.forced ? 0 : this.liveReserve;
+      const needed = Math.min(next.weight, this.capacity - reserve) + reserve;
+      if (this.tokens < needed) {
+        this.pumpTimer = setTimeout(
+          () => {
+            this.pumpTimer = undefined;
+            this.pump();
+          },
+          Math.ceil((needed - this.tokens) / this.rate()),
+        );
         return;
       }
       lane.splice(index, 1);
-      this.nextSlotEndsAt = now + next.weight * this.msPerWeight();
+      this.tokens -= next.weight;
+      this.liveStreak = pick.lane === "live" && this.queues.background.length > 0 ? this.liveStreak + 1 : 0;
       this.record(now, next.weight);
       next.resolve();
     }
@@ -142,14 +195,15 @@ export class RequestBudgeterService {
 
   /**
    * Reports weight consumed that couldn't be known until after the
-   * response arrived (userFillsByTime's per-20-items surcharge). Extends
-   * the scheduler timeline for future callers but never delays the caller
-   * that just finished — the call already happened.
+   * response arrived (userFillsByTime's per-20-items surcharge). Taken from
+   * the bucket for future callers; never delays the caller that just
+   * finished — the call already happened.
    */
   recordAdditionalWeight(weight: number): void {
     if (weight <= 0) return;
     const now = Date.now();
-    this.nextSlotEndsAt = Math.max(this.nextSlotEndsAt, now) + weight * this.msPerWeight();
+    this.refill(now);
+    this.tokens -= weight;
     this.record(now, weight, false);
   }
 
@@ -160,6 +214,7 @@ export class RequestBudgeterService {
       this.consecutiveSuccesses >= 20 &&
       this.effectiveBudgetPerMin < this.configuredBudgetPerMin
     ) {
+      this.refill(Date.now());
       this.effectiveBudgetPerMin = Math.min(
         this.configuredBudgetPerMin,
         this.effectiveBudgetPerMin + this.configuredBudgetPerMin * 0.1,
@@ -175,6 +230,7 @@ export class RequestBudgeterService {
   onRateLimited(): void {
     this.consecutiveSuccesses = 0;
     this.lastRateLimitedAt = Date.now();
+    this.refill(Date.now());
     const next = Math.max(
       this.floorBudgetPerMin,
       Math.round(this.effectiveBudgetPerMin * 0.5),
@@ -183,9 +239,10 @@ export class RequestBudgeterService {
       `429 from Hyperliquid — backing off effective budget ${this.effectiveBudgetPerMin.toFixed(0)} -> ${next}/min`,
     );
     this.effectiveBudgetPerMin = next;
-    // Also push the scheduler timeline out so we don't immediately retry
+    // Also empty the bucket, 2 s into debt, so we don't immediately retry
     // into another 429 while the lower rate takes effect.
-    this.nextSlotEndsAt = Math.max(this.nextSlotEndsAt, Date.now() + 2000);
+    this.tokens = Math.min(this.tokens, 0) - 2000 * this.rate();
+    if (this.pumpTimer) this.rearm();
   }
 
   /** Introspection for the /health heartbeat (§8 可觀測). */
@@ -194,14 +251,20 @@ export class RequestBudgeterService {
     weightLastMinute: number;
     effectiveBudgetPerMin: number;
     configuredBudgetPerMin: number;
+    burstCapacity: number;
+    tokensAvailable: number;
     lastRateLimitedAt: Date | null;
   } {
-    this.prune(Date.now());
+    const now = Date.now();
+    this.prune(now);
+    this.refill(now);
     return {
       requestsLastMinute: this.window.filter((e) => e.request).length,
       weightLastMinute: this.window.reduce((sum, e) => sum + e.weight, 0),
       effectiveBudgetPerMin: this.effectiveBudgetPerMin,
       configuredBudgetPerMin: this.configuredBudgetPerMin,
+      burstCapacity: this.capacity,
+      tokensAvailable: this.tokens,
       lastRateLimitedAt: this.lastRateLimitedAt
         ? new Date(this.lastRateLimitedAt)
         : null,

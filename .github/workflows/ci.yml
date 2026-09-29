@@ -53,6 +53,13 @@ jobs:
         run: pnpm test:api:isolated
       - name: Concurrent release migration smoke
         run: node scripts/migration-smoke.mjs
+      - name: PostgreSQL restore tooling
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - name: Synthetic backup and restore
+        run: node scripts/backup-restore-smoke.mjs
+        env:
+          PG_DUMP: /usr/lib/postgresql/16/bin/pg_dump
+          PG_RESTORE: /usr/lib/postgresql/16/bin/pg_restore
       - name: Web tests
         run: pnpm --filter @trading-dashboard/web test
       - name: Compiled API bootstrap and shutdown

@@ -128,3 +128,8 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 
 - Task 38: browser Axe checks at 1280/390px and signed-in admin/settings routes; corrected secondary-text contrast, redundant SVG semantics, scrolling-table focus, tab/panel relationships, roving tab/radio keyboard focus, mobile export label and translated skip link. Keyboard and initial Axe tests failed before fixes.
 - Five combined browser tests passed, then the added signed-in route scan passed; web typecheck/lint passed. No full WCAG certification or live Privy modal/device-reader coverage is claimed. Existing Playwright TS runner was reused for CI rather than introducing a second Python test stack.
+
+## Batch 13 recovery validation
+
+- Task 39: real custom-format pg_dump/pg_restore drill using two disposable databases and synthetic ownership/RBAC, favorites, precision-sensitive action, pending outboxes and audit data. All table contents, index definitions, migration journal, unique/FK constraints and sequence continuation verified; both DBs and temporary archive removed. Local sample 50,553 bytes / 1.551 s is not production RTO evidence.
+- Added CI drill and operational recovery procedure, explicitly separating synthetic proof from unverified provider snapshots/PITR, retention, encryption, off-site copies and live RPO/RTO. No actual business data or external notifications used.

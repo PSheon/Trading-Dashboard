@@ -20,7 +20,8 @@ const WEIGHT_CLEARINGHOUSE_STATE = 2;
 const WEIGHT_USER_FILLS_BY_TIME_BASE = 20;
 const WEIGHT_META = 20;
 const WEIGHT_PERP_DEXS = 20;
-const WEIGHT_ALL_MIDS = 20;
+/** In the docs' weight-2 list with clearinghouseState (rate-limits-and-user-limits). */
+const WEIGHT_ALL_MIDS = 2;
 const WEIGHT_PORTFOLIO = 20;
 const WEIGHT_USER_FILLS_BASE = 20;
 /** Not in the weight-2 list, so "all other documented info requests" = 20

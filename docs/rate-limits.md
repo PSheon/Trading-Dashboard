@@ -31,12 +31,17 @@ and boolean/hop-count shortcuts are rejected. Operators must verify every
 trusted proxy sanitizes forwarded headers and the actual network path before
 configuring trust. Never infer trust from a caller-supplied header.
 
-The current Next forwarder does not forward client IP headers. Anonymous
-visitors behind it therefore share its egress allowance; authenticated visitors
+The Next forwarder relays the last syntactically valid received forwarded-IP
+entry. That value is trustworthy only if the hosting edge sanitizes it. Default
+Express trust remains disabled, so anonymous visitors share the forwarder's
+egress allowance; authenticated visitors
 have separate user windows but still share the broader ingress allowance. Edge
 per-client limiting or authenticated forwarding metadata must be configured
 and tested for the actual hosting topology before asserting per-visitor limits.
-No production proxy setting or edge policy was changed by this source update.
+SSE concurrent-stream limits separately retain STREAM_TRUSTED_PROXY_HOPS
+(default 0) from the live-feed feature. Its hop-count policy is not enabled by
+API_TRUSTED_PROXY_CIDRS; verify a fixed, non-bypassable topology before enabling
+either. No production proxy setting or edge policy was changed by this source update.
 
 The approach follows DonutMe's verified-user tracker and adapter-resolved IP
 boundary, adapted to Express and this single-process runtime. References:

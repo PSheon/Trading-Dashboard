@@ -13,7 +13,8 @@ independently committing repository methods.
 Repositories now cover settings, favorites, alerts, legacy leaders and discovery
 queries. Pure rule matching is separate from recipient/cooldown orchestration.
 Other features retain their existing DB access; this is not a generic ORM wrapper
-or a claim that every query has been relocated. Query batching is separate work.
+or a claim that every query has been relocated. Leader-summary batching is documented in query-performance.md; other query
+paths retain their own bounds and performance limits.
 
 IngestionModule supplies on-demand account/fill/backfill services without a
 watcher bootstrap. UsersModule and ImportModule use this capability directly.

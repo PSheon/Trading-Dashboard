@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { ActionsTable, KindBadge, SideText } from "@/components/actions/actions-table";
+import { LiveBadge } from "@/components/actions/live-badge";
 import { EmptyState, ErrorState, SignInPrompt, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ import { useAuth } from "@/lib/auth";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { coinLabel } from "@/lib/format";
 import { mergeLiveFills } from "@/lib/live-trader";
-import { useActions, useAlerts, useTraderFills } from "@/lib/queries";
+import { useAlerts, useLiveActions, useTraderFills } from "@/lib/queries";
 
 type Tab = "positions" | "fills" | "actions" | "alerts";
 const TABS: Tab[] = ["positions", "fills", "actions", "alerts"];
@@ -42,7 +43,11 @@ export function ActivityTabs({
   const { status } = useAuth();
   const fills = useTraderFills(profile.address, 200);
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
-  const actions = useActions({ address: profile.address, limit: 200 }, { enabled: tab === "actions" });
+  const {
+    query: actions,
+    status: actionsStream,
+    highlight: newActions,
+  } = useLiveActions({ address: profile.address, limit: 200 }, { enabled: tab === "actions" });
   const alerts = useAlerts(profile.address, { enabled: tab === "alerts" && status === "signedIn" });
 
   const exportable = tab === "fills" ? fillRows : tab === "actions" ? actions.data : undefined;
@@ -73,6 +78,7 @@ export function ActivityTabs({
             </button>
           ))}
         </div>
+        {tab === "actions" ? <LiveBadge status={actionsStream} className="ml-auto" /> : null}
         {exportable && exportable.length > 0 ? (
           <Button
             variant="ghost"
@@ -110,7 +116,7 @@ export function ActivityTabs({
           ) : actions.data.length === 0 ? (
             <EmptyState title={t("trader.noActions")} />
           ) : (
-            <ActionsTable rows={actions.data} showTrader={false} />
+            <ActionsTable rows={actions.data} showTrader={false} highlight={newActions} />
           )
         ) : null}
         {tab === "alerts" ? (

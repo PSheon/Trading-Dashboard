@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import type { NextRequest } from "next/server";
 
 /**
@@ -13,6 +14,10 @@ import type { NextRequest } from "next/server";
  * The caller only controls path segments and the query string. Segments are
  * re-encoded one by one and `.`/`..`/empty segments are rejected, so the
  * target is always under NEXT_API_URL's origin and base path.
+ *
+ * Bodies are buffered, except `text/event-stream` (GET /actions/stream),
+ * which is relayed as it arrives; the browser disconnecting cancels the
+ * upstream request.
  */
 
 const UPSTREAM_TIMEOUT_MS = 20_000;
@@ -80,9 +85,35 @@ async function forward(
   if (contentType) headers.set("Content-Type", contentType);
   const acceptLanguage = request.headers.get("accept-language");
   if (acceptLanguage) headers.set("Accept-Language", acceptLanguage);
+  // SSE resume cursor (an action id); anything else is dropped.
+  const lastEventId = request.headers.get("last-event-id");
+  if (lastEventId && /^\d{1,19}$/.test(lastEventId)) headers.set("Last-Event-ID", lastEventId);
+  // The browser's address, for the api's per-client limits (it counts this
+  // forwarder as one trusted proxy hop).
+  const client = clientAddress(request);
+  if (client) headers.set("X-Forwarded-For", client);
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
   const body = hasBody ? await request.arrayBuffer() : undefined;
+
+  // Client disconnects abort the upstream call. The deadline covers a
+  // buffered response until its body is read; a stream's only until its
+  // headers arrive.
+  const upstreamAbort = new AbortController();
+  const onClientAbort = () => upstreamAbort.abort(request.signal.reason);
+  if (request.signal.aborted) onClientAbort();
+  else request.signal.addEventListener("abort", onClientAbort, { once: true });
+  const deadline = setTimeout(
+    () => upstreamAbort.abort(new DOMException("api timed out", "TimeoutError")),
+    UPSTREAM_TIMEOUT_MS,
+  );
+  const done = () => {
+    clearTimeout(deadline);
+    request.signal.removeEventListener("abort", onClientAbort);
+  };
+  const timedOut = (err: unknown) =>
+    (err instanceof Error && err.name === "TimeoutError") ||
+    (upstreamAbort.signal.reason instanceof Error && upstreamAbort.signal.reason.name === "TimeoutError");
 
   let upstream: Response;
   try {
@@ -92,16 +123,19 @@ async function forward(
       body: body && body.byteLength > 0 ? body : undefined,
       redirect: "manual",
       cache: "no-store",
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]),
+      signal: upstreamAbort.signal,
     });
   } catch (err) {
-    const timedOut = err instanceof Error && err.name === "TimeoutError";
-    return json(timedOut ? 504 : 502, timedOut ? "api timed out" : "api unreachable", request, id);
+    done();
+    const late = timedOut(err);
+    return json(late ? 504 : 502, late ? "api timed out" : "api unreachable", request, id);
   }
 
   // Upstream redirects are not followed or relayed (they could point
   // anywhere); surface them as a gateway error instead.
   if (upstream.status >= 300 && upstream.status < 400) {
+    done();
+    void upstream.body?.cancel().catch(() => undefined);
     return json(502, "api responded with a redirect", request, id);
   }
 
@@ -116,13 +150,72 @@ async function forward(
   const retryAfter = upstream.headers.get("retry-after");
   if (retryAfter) resHeaders.set("Retry-After", retryAfter);
 
+  // Server-sent events: relayed chunk by chunk as they arrive, never buffered.
+  if (upstream.ok && upstream.body && upstreamType?.toLowerCase().startsWith("text/event-stream")) {
+    clearTimeout(deadline);
+    resHeaders.set("Cache-Control", "no-cache, no-transform");
+    resHeaders.set("X-Accel-Buffering", "no");
+    return new Response(relay(upstream.body, upstreamAbort, done), { status: upstream.status, headers: resHeaders });
+  }
+
   const nullBody =
     upstream.status === 204 || upstream.status === 304 || request.method === "HEAD";
   try {
     return new Response(nullBody ? null : await upstream.arrayBuffer(), { status: upstream.status, headers: resHeaders });
-  } catch {
-    return json(502, "api response interrupted", request, id);
+  } catch (err) {
+    return timedOut(err)
+      ? json(504, "api timed out", request, id)
+      : json(502, "api response interrupted", request, id);
+  } finally {
+    done();
   }
+}
+
+/**
+ * Pass-through of a streamed upstream body. The browser going away (the
+ * route's response is cancelled, or the request signal aborts) aborts the
+ * upstream fetch, so apps/api sees the disconnect and frees the stream. An
+ * upstream that fails mid-stream ends the relay; the client reconnects.
+ */
+function relay(body: ReadableStream<Uint8Array>, upstreamAbort: AbortController, done: () => void): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    done();
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { value, done: ended } = await reader.read();
+        if (ended) {
+          finish();
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch {
+        finish();
+        upstreamAbort.abort();
+        controller.close();
+      }
+    },
+    async cancel(reason) {
+      finish();
+      upstreamAbort.abort(reason);
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
+/** The browser's address as this server received it: the last
+ * X-Forwarded-For entry (the one the platform in front of us, e.g. Vercel,
+ * wrote), if it is an IP address. */
+function clientAddress(request: NextRequest): string | undefined {
+  const entries = (request.headers.get("x-forwarded-for") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const last = entries.at(-1);
+  return last && isIP(last) ? last : undefined;
 }
 
 export const GET = forward;

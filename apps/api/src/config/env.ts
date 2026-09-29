@@ -65,4 +65,14 @@ export const env = {
   /** Actions older than this are stored but never alerted on (catch-up
    * sweeps find fills late; a stale alert would read as news). */
   alertMaxActionAgeSeconds: () => getIntEnv("ALERT_MAX_ACTION_AGE_SECONDS", 120, 1, 86400),
+
+  /** GET /actions/stream: open streams allowed per client address. */
+  streamMaxPerIp: () => getIntEnv("STREAM_MAX_PER_IP", STREAM_DEFAULTS.maxPerIp, 1, 1000),
+  /** GET /actions/stream: open streams allowed in this process. */
+  streamMaxTotal: () => getIntEnv("STREAM_MAX_TOTAL", STREAM_DEFAULTS.maxTotal, 1, 100_000),
+  /** Proxies in front of the api whose X-Forwarded-For entries are trusted
+   * to name the client (0: the socket's peer address). */
+  streamTrustedProxyHops: () => getIntEnv("STREAM_TRUSTED_PROXY_HOPS", STREAM_DEFAULTS.trustedProxyHops, 0, 10),
 };
+
+export const STREAM_DEFAULTS = { maxPerIp: 8, maxTotal: 500, trustedProxyHops: 0 } as const;

@@ -18,6 +18,9 @@ export class TransformInterceptor implements NestInterceptor {
     const meta = responseMeta(req, res);
     res.vary("x-api-contract");
     return next.handle().pipe(map((data: unknown) => {
+      // A handler that wrote the response itself (an SSE stream via @Res)
+      // validates its own output; there is no body left to wrap.
+      if (res.headersSent) return data;
       if (!usesEnvelope(req) || data instanceof StreamableFile || res.statusCode === 204 || req.method === "HEAD") return data;
       const contract = findHttpContract(req.method, req.path);
       if (!contract) throw new Error("Missing response contract");

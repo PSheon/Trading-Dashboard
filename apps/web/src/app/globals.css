@@ -231,3 +231,22 @@
 .range-accent:disabled::-webkit-slider-thumb {
   cursor: not-allowed;
 }
+
+/* A feed row that just arrived over the live stream. */
+@keyframes row-arrive {
+  from {
+    background-color: rgb(255 122 69 / 22%);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.row-arrive {
+  animation: row-arrive 2.4s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-arrive {
+    animation: none;
+    background-color: var(--primary-soft);
+  }
+}

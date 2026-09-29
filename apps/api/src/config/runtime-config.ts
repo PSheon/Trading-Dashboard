@@ -62,6 +62,12 @@ export function validateEnvironment(source: Environment = process.env) {
     burst: integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };
-  return { app, database, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert };
+  const stream = {
+    maxPerIp: integerValue("STREAM_MAX_PER_IP", source.STREAM_MAX_PER_IP, 8, 1, 1000),
+    maxTotal: integerValue("STREAM_MAX_TOTAL", source.STREAM_MAX_TOTAL, 500, 1, 100_000),
+    trustedProxyHops: integerValue("STREAM_TRUSTED_PROXY_HOPS", source.STREAM_TRUSTED_PROXY_HOPS, 0, 0, 10),
+  };
+  if (stream.maxPerIp > stream.maxTotal) throw new Error("STREAM_MAX_PER_IP must not exceed STREAM_MAX_TOTAL");
+  return { app, database, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

@@ -23,6 +23,7 @@ import {
   type ActionRow,
   type DbOrTx,
 } from "./action-store.js";
+import { ACTION_CORRECTED_EVENT, type ActionCorrectedEvent } from "./action-created.event.js";
 import { toFillRow } from "./fill-row.js";
 
 /** Hyperliquid's per-call cap on `userFillsByTime` (and TWAP slice) rows. */
@@ -284,6 +285,7 @@ export class FillSyncService {
       }
     }
 
+    const corrections: ActionCorrectedEvent = { updated: [], inserted: [] };
     const rows = await withActionLock(this.db, address, async (tx) => {
       const tids = newFills.map((f) => BigInt(f.tid));
       const covering = await actionsCovering(tx, address, tids, Math.min(...newFills.map((f) => f.time)));
@@ -301,11 +303,13 @@ export class FillSyncService {
           const fill = realByTid.get(tid);
           return fill ? [fill] : [];
         });
-        await this.verify(tx, address, action, real, action.fillIds.some((tid) => freshTids.has(tid)));
+        await this.verify(tx, address, action, real, action.fillIds.some((tid) => freshTids.has(tid)), corrections);
       }
       return drafts.length > 0 ? insertActions(tx, address, drafts, reason !== "backfill", this.accounts.getEquityUsd(address)) : [];
     });
 
+    // Committed: pages showing a corrected row can fix it (never an alert).
+    if (corrections.updated.length > 0 || corrections.inserted.length > 0) this.events?.emit(ACTION_CORRECTED_EVENT, corrections);
     // Backfill is history: stored for analytics, never alerted on.
     if (reason !== "backfill") emitRecent(this.events, rows);
     return rows.length;
@@ -313,9 +317,17 @@ export class FillSyncService {
 
   /** Re-derives a fast-path action from its real fills once all are stored,
    * and corrects kind/side (a liquidation, or a book that was off) in place.
-   * No event: the alert already went out, and a second one would read as a
-   * new trade. */
-  private async verify(tx: DbOrTx, address: string, action: ActionRow, real: HlUserFill[], hasFreshFill: boolean): Promise<void> {
+   * No `action.created`: the alert already went out, and a second one would
+   * read as a new trade. The changed rows are collected in `corrections`
+   * for `action.corrected` once the transaction commits. */
+  private async verify(
+    tx: DbOrTx,
+    address: string,
+    action: ActionRow,
+    real: HlUserFill[],
+    hasFreshFill: boolean,
+    corrections: ActionCorrectedEvent,
+  ): Promise<void> {
     if (real.length < action.fillIds.length) return; // the rest come in a later sync
     const drafts = classifyFills(address, real);
     if (drafts.length === 0) return;
@@ -328,10 +340,10 @@ export class FillSyncService {
 
     this.fastPath.corrected += 1;
     const { leverage: _leverage, ...shape } = draftToRow(address, first);
-    await tx.update(actions).set(shape).where(eq(actions.id, action.id));
+    corrections.updated.push(...(await tx.update(actions).set(shape).where(eq(actions.id, action.id)).returning()));
     // Real fills can split what the feed saw as one action (a liquidation
     // among them); the other parts are stored, not alerted on.
-    if (rest.length > 0) await insertActions(tx, address, rest.map((d) => ({ ...d, leverage: action.leverage })));
+    if (rest.length > 0) corrections.inserted.push(...(await insertActions(tx, address, rest.map((d) => ({ ...d, leverage: action.leverage })))));
     this.logger.warn(
       `Fast path corrected action ${action.id} (${address} ${action.coin}): ${action.kind} ${action.side} → ` +
         `${drafts.map((d) => `${d.kind} ${d.side}`).join(" + ")} (${this.fastPath.corrected} of ${this.fastPath.verified} checked)`,

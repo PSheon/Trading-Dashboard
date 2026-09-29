@@ -103,3 +103,16 @@ it("every production controller route has exactly one shared response contract",
   scan(join(import.meta.dirname, "../src"));
   expect(httpRouteContracts.map((r) => `${r.method} ${r.path}`).sort()).toEqual(discovered.sort());
 });
+
+it("declares every streaming route's event schemas in the registry", () => {
+  const streams = httpRouteContracts.filter((r) => r.stream);
+  expect(streams.map((r) => `${r.method} ${r.path}`)).toEqual(["GET /actions/stream"]);
+  const events = streams[0].stream!.events;
+  expect(Object.keys(events).sort()).toEqual(["action", "reset", "update"]);
+  const wire = { id: "9007199254740993", chain: "hyperliquid", address: "0xabc", coin: "BTC", kind: "open", side: "long", notionalUsd: "1.01", avgPx: "1", fillIds: [], ts: "2026-01-01T00:00:00.000Z" };
+  expect(events.action.safeParse(wire).success).toBe(true);
+  expect(events.update.safeParse({ ...wire, id: 1 }).success).toBe(false);
+  expect(events.reset.safeParse({ reason: "replay_truncated" }).success).toBe(true);
+  // A stream never serves a JSON body.
+  expect(streams[0].response.safeParse(undefined).success).toBe(false);
+});

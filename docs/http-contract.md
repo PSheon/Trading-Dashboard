@@ -35,6 +35,14 @@ TypeScript types. Browser domain aliases use JsonWire so Date/BigInt are not
 assumed after JSON transport. Domain/request schemas remain separate; Zod query
 coercion does not weaken output validation.
 
+Streaming routes (`GET /actions/stream`, `text/event-stream`) have no JSON body
+(`response: z.never()`); their registry entry lists each SSE event name with the
+schema of its `data:`, and the server validates every event before writing it.
+`action` carries the action id as the SSE `id:` (the `Last-Event-ID` resume
+cursor); `update` (a corrected row) carries none; `reset` means the replay was
+truncated. Errors before the stream starts (400/401/403/429/503) use the normal
+error bodies above.
+
 Controller input parsing uses common/http/validation.ts; domain refinements such
 as rule-specific parameters and import row semantics remain in their use cases.
 The shared route list supplies [generated route documentation](http-routes.md).

@@ -49,10 +49,13 @@ export function ActionsTable({
   rows,
   showTrader = true,
   expandable = true,
+  highlight,
 }: {
   rows: ActionFeedItem[];
   showTrader?: boolean;
   expandable?: boolean;
+  /** Ids of rows that just arrived live; they flash briefly. */
+  highlight?: ReadonlySet<string>;
 }) {
   const { t, format } = useI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -80,7 +83,8 @@ export function ActionsTable({
           return (
             <Fragment key={id}>
               <TableRow
-                className={cn(expandable && "cursor-pointer")}
+                className={cn(expandable && "cursor-pointer", highlight?.has(id) && "row-arrive")}
+                data-live={highlight?.has(id) ? "new" : undefined}
                 aria-expanded={expandable ? open : undefined}
                 onClick={expandable ? () => setExpanded(open ? null : id) : undefined}
               >

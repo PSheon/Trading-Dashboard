@@ -309,6 +309,10 @@ export const zhTW = {
     loadingFills: "載入成交…",
     noFills: "這個動作沒有成交紀錄",
     tier: "等級 {tier}",
+    live: "即時",
+    liveHint: "新動作發生當下就會出現",
+    polling: "定時更新",
+    pollingHint: "即時連線重新連接中，期間每隔幾秒重新整理",
   },
   portfolio: {
     title: "投資組合",
@@ -341,7 +345,7 @@ export const zhTW = {
   },
   insights: {
     title: "洞察",
-    subtitle: "所有監控中的地址的即時動作，最新的在最上面，每 10 秒更新。",
+    subtitle: "所有監控中的地址的即時動作，最新的在最上面，發生當下就會出現。",
     coin: "幣種（例如 BTC）",
     allKinds: "所有動作",
     allTiers: "所有等級",

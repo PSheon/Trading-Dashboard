@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { ActionsController } from "../src/api/actions/actions.controller.js";
 import { ActionsService } from "../src/api/actions/actions.service.js";
+import { ActionStreamService } from "../src/api/actions/action-stream.service.js";
 import { AlertRulesController } from "../src/api/alert-rules/alert-rules.controller.js";
 import { AlertRulesService } from "../src/api/alert-rules/alert-rules.service.js";
 import { AlertsController } from "../src/api/alerts/alerts.controller.js";
@@ -57,6 +58,7 @@ describe("route access on the existing controllers", () => {
       ],
       providers: [
         ActionsService,
+        ActionStreamService,
         AlertsService,
         AlertRulesService,
         { provide: HealthService, useValue: { heartbeat: async () => ({ ok: true }) } },

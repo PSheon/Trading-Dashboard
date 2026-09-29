@@ -97,31 +97,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     cache: "no-store",
   });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let message = text || res.statusText;
-    let details: Record<string, unknown> = {};
-    const retryAfter = Number(res.headers.get("retry-after"));
-    const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined;
-    try {
-      // Nest errors: {statusCode, message, code?} or {…, issues: zod issues}.
-      let parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
-      const envelope = errorEnvelopeSchema.safeParse(parsed);
-      if (envelope.success) parsed = { ...envelope.data.error.details, code: envelope.data.error.code, message: envelope.data.message, issues: envelope.data.error.fields } as typeof parsed;
-      if (parsed && typeof parsed === "object") details = parsed as Record<string, unknown>;
-      if (typeof parsed.message === "string") message = parsed.message;
-      else if (Array.isArray(parsed.message)) message = parsed.message.join("; ");
-      if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
-        const detail = (parsed.issues as { path?: unknown[]; message?: string }[])
-          .map((i) => `${Array.isArray(i.path) ? i.path.join(".") : typeof i.path === "string" ? i.path : ""}: ${i.message ?? ""}`)
-          .join("; ");
-        message = `${message} (${detail})`;
-      }
-    } catch {
-      // not JSON; keep the raw text
-    }
-    throw new ApiError(res.status, message, details, retryAfterMs);
-  }
+  if (!res.ok) throw await errorFromResponse(res);
 
   if (res.status === 204) return undefined as JsonWire<T>;
   const text = await res.text();
@@ -134,6 +110,56 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     throw new ApiError(502, "Invalid API response", { code: "invalid_response" });
   }
   return validateData<T>(method, path, envelope.success ? envelope.data.data : parsed);
+}
+
+/** A non-2xx answer as an ApiError, from either error body shape. */
+async function errorFromResponse(res: Response): Promise<ApiError> {
+  const text = await res.text().catch(() => "");
+  let message = text || res.statusText;
+  let details: Record<string, unknown> = {};
+  const retryAfter = Number(res.headers.get("retry-after"));
+  const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined;
+  try {
+    // Nest errors: {statusCode, message, code?} or {…, issues: zod issues}.
+    let parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
+    const envelope = errorEnvelopeSchema.safeParse(parsed);
+    if (envelope.success) parsed = { ...envelope.data.error.details, code: envelope.data.error.code, message: envelope.data.message, issues: envelope.data.error.fields } as typeof parsed;
+    if (parsed && typeof parsed === "object") details = parsed as Record<string, unknown>;
+    if (typeof parsed.message === "string") message = parsed.message;
+    else if (Array.isArray(parsed.message)) message = parsed.message.join("; ");
+    if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
+      const detail = (parsed.issues as { path?: unknown[]; message?: string }[])
+        .map((i) => `${Array.isArray(i.path) ? i.path.join(".") : typeof i.path === "string" ? i.path : ""}: ${i.message ?? ""}`)
+        .join("; ");
+      message = `${message} (${detail})`;
+    }
+  } catch {
+    // not JSON; keep the raw text
+  }
+  return new ApiError(res.status, message, details, retryAfterMs);
+}
+
+/**
+ * Opens a server-sent-event stream through the forwarder with fetch (not
+ * EventSource, which can't send the Authorization header). Resolves with
+ * the open response once the api accepted it; its body is the event stream.
+ * A refusal (401, 429, …) throws an ApiError. Aborted with `signal` and on
+ * sign-in/out, like every other request.
+ */
+export async function openEventStream(path: string, options: { signal: AbortSignal; lastEventId?: string }): Promise<Response> {
+  const signal = AbortSignal.any([options.signal, sessionController.signal]);
+  const token = await currentToken();
+  signal.throwIfAborted();
+  const headers: Record<string, string> = { Accept: "text/event-stream", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (options.lastEventId) headers["Last-Event-ID"] = options.lastEventId;
+  const res = await fetch(`${API_BASE}${path}`, { method: "GET", signal, headers, credentials: "same-origin", cache: "no-store" });
+  if (!res.ok) throw await errorFromResponse(res);
+  if (!res.body || !res.headers.get("content-type")?.startsWith("text/event-stream")) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new ApiError(502, "Invalid API response", { code: "invalid_response" });
+  }
+  return res;
 }
 
 function validateData<T>(method: string, path: string, data: unknown): JsonWire<T> {

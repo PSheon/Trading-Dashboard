@@ -4,12 +4,80 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Design tokens (Orbie). Dark only: a deep navy-black ground derived from
+ * brand navy #1e1b3a, slightly lifted panels, cream text, and Orbie orange
+ * #ff7a45 as the one brand accent (CTAs, active nav, selected tabs, sliders,
+ * focus, chart series). Gains and losses use their own green / red pair so a
+ * profit is never mistaken for the brand colour. No raw hex in components.
+ */
+:root {
+  color-scheme: dark;
+
+  --background: #0f0d1f;
+  --foreground: #fbf6ee;
+
+  /* Panels (trader page columns, tables) sit one step above the ground;
+     raised surfaces (chips, featured cards, inputs) one more. */
+  --card: #15122a;
+  --card-foreground: #fbf6ee;
+  --raised: #1d1a36;
+  --raised-hover: #262243;
+  --popover: #1b1833;
+  --popover-foreground: #fbf6ee;
+
+  --primary: #ff7a45;
+  --primary-foreground: #1e1b3a;
+  --primary-soft: rgb(255 122 69 / 14%);
+  --secondary: #221e3d;
+  --secondary-foreground: #fbf6ee;
+  --muted: #1d1a36;
+  --muted-foreground: #b9b5d0;
+  --subtle-foreground: #7f7a9c;
+  --accent: #221e3d;
+  --accent-foreground: #fbf6ee;
+
+  /* Up / down. Mint green and a rose red, both far enough from the orange. */
+  --positive: #34d399;
+  --positive-soft: rgb(52 211 153 / 14%);
+  --negative: #f4506f;
+  --negative-soft: rgb(244 80 111 / 15%);
+  --destructive: #f4506f;
+  --warning: #f5c451;
+
+  --border: #2a2645;
+  --border-strong: #38335a;
+  --input: #38335a;
+  --ring: rgb(255 122 69 / 60%);
+
+  --chart-1: #ff7a45;
+  --chart-2: #f4506f;
+  --chart-3: #b9b5d0;
+  --chart-4: #7f7a9c;
+  --chart-5: #38335a;
+  /* Revenue bars: builder fee (brand) and referral (cream-violet). */
+  --chart-builder: #ff7a45;
+  --chart-referral: #a99cf5;
+
+  --radius: 0.875rem;
+
+  --sidebar: #0f0d1f;
+  --sidebar-foreground: #fbf6ee;
+  --sidebar-primary: #ff7a45;
+  --sidebar-primary-foreground: #1e1b3a;
+  --sidebar-accent: #1d1a36;
+  --sidebar-accent-foreground: #fbf6ee;
+  --sidebar-border: #2a2645;
+  --sidebar-ring: rgb(255 122 69 / 60%);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
-  --font-heading: var(--font-sans);
+  --font-wordmark: var(--font-fredoka), var(--font-inter), system-ui, sans-serif;
+  --font-sans: var(--font-inter), "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+  --font-heading: var(--font-inter), "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -26,105 +94,140 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-chart-builder: var(--chart-builder);
+  --color-chart-referral: var(--chart-referral);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
+  --color-raised: var(--raised);
+  --color-raised-hover: var(--raised-hover);
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-}
-
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --radius-xl: calc(var(--radius) * 1.15);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-3xl: calc(var(--radius) * 1.8);
+  --radius-4xl: calc(var(--radius) * 2.2);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply bg-background font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
   }
-  html {
-    @apply font-sans;
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
+  /* Thin, dark scrollbars everywhere. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+@layer utilities {
+  /* Every figure in the app lines up in columns. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "cv11";
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Trader page: three columns on wide screens, profile + main with the copy
+   panel under the profile on laptops, one column on phones. */
+.trader-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "profile" "main" "copy";
+}
+.trader-grid > [data-area="profile"] { grid-area: profile; }
+.trader-grid > [data-area="main"] { grid-area: main; }
+.trader-grid > [data-area="copy"] { grid-area: copy; }
+
+@media (min-width: 1024px) {
+  .trader-grid {
+    grid-template-columns: 272px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "profile main" "copy main";
+    align-items: start;
+  }
+}
+@media (min-width: 1280px) {
+  .trader-grid {
+    grid-template-columns: 276px minmax(0, 1fr) 320px;
+    grid-template-rows: auto;
+    grid-template-areas: "profile main copy";
+  }
+}
+
+/* Range input styled as a thin track with a ring thumb (copy panel). */
+.range-accent {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--primary) 0%,
+    var(--primary) var(--fill, 0%),
+    var(--border-strong) var(--fill, 0%),
+    var(--border-strong) 100%
+  );
+  outline: none;
+}
+.range-accent::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--background);
+  border: 2px solid var(--primary);
+  cursor: pointer;
+}
+.range-accent::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--background);
+  border: 2px solid var(--primary);
+  cursor: pointer;
+}
+.range-accent:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
 }

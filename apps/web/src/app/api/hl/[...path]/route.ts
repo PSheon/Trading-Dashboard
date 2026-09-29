@@ -1,12 +1,14 @@
 import type { NextRequest } from "next/server";
 
-import { SESSION_REQUIRED_HEADER } from "@/lib/api";
-import { SESSION_COOKIE, isValidSession } from "@/lib/session";
-
 /**
- * Server-side forwarder: /api/hl/<path>?<query>  →  ${API_URL}/<path>?<query>
- * with `Authorization: Bearer ${API_AUTH_TOKEN}`. Both env vars are
- * server-only, so the api token never reaches the browser (PRD §8 安全).
+ * Same-origin forwarder: /api/hl/<path>?<query>  →  ${API_URL}/<path>?<query>.
+ * It exists so the browser never needs apps/api's URL or CORS.
+ *
+ * Auth (Stage 2 §3): the browser's own `Authorization` header (a Privy
+ * access token) is passed through exactly as received, and apps/api
+ * verifies it. This route never adds `API_AUTH_TOKEN` — that is the
+ * service identity for server-to-server calls, and attaching it here would
+ * hand every anonymous browser request admin-level access.
  *
  * The caller only controls path segments and the query string. Segments are
  * re-encoded one by one and `.`/`..`/empty segments are rejected, so the
@@ -15,15 +17,11 @@ import { SESSION_COOKIE, isValidSession } from "@/lib/session";
 
 const UPSTREAM_TIMEOUT_MS = 20_000;
 
-function json(status: number, message: string, headers?: HeadersInit) {
-  return Response.json({ statusCode: status, message }, { status, headers });
+function json(status: number, message: string) {
+  return Response.json({ statusCode: status, message }, { status });
 }
 
-function buildTarget(
-  apiUrl: string,
-  segments: string[],
-  search: string,
-): URL | null {
+function buildTarget(apiUrl: string, segments: string[], search: string): URL | null {
   let base: URL;
   try {
     base = new URL(apiUrl);
@@ -51,27 +49,22 @@ async function forward(
   request: NextRequest,
   ctx: RouteContext<"/api/hl/[...path]">,
 ): Promise<Response> {
-  // Defense in depth: proxy.ts already rejects unauthenticated requests.
-  if (!isValidSession(request.cookies.get(SESSION_COOKIE)?.value)) {
-    return json(401, "Login required", { [SESSION_REQUIRED_HEADER]: "1" });
-  }
-
   const apiUrl = process.env.API_URL;
-  const apiToken = process.env.API_AUTH_TOKEN;
-  if (!apiUrl || !apiToken) {
-    return json(500, "API_URL / API_AUTH_TOKEN are not configured");
-  }
+  if (!apiUrl) return json(500, "API_URL is not configured");
 
   const { path } = await ctx.params;
   const target = buildTarget(apiUrl, path, request.nextUrl.search);
   if (!target) return json(400, "Invalid api path");
 
   const headers = new Headers({
-    Authorization: `Bearer ${apiToken}`,
     Accept: request.headers.get("accept") ?? "application/json",
   });
+  const authorization = request.headers.get("authorization");
+  if (authorization) headers.set("Authorization", authorization);
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("Content-Type", contentType);
+  const acceptLanguage = request.headers.get("accept-language");
+  if (acceptLanguage) headers.set("Accept-Language", acceptLanguage);
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
   const body = hasBody ? await request.arrayBuffer() : undefined;
@@ -91,15 +84,15 @@ async function forward(
     return json(timedOut ? 504 : 502, timedOut ? "api timed out" : "api unreachable");
   }
 
-  const resHeaders = new Headers({ "Cache-Control": "no-store" });
-  const upstreamType = upstream.headers.get("content-type");
-  if (upstreamType) resHeaders.set("Content-Type", upstreamType);
-
   // Upstream redirects are not followed or relayed (they could point
   // anywhere); surface them as a gateway error instead.
   if (upstream.status >= 300 && upstream.status < 400) {
     return json(502, `api responded with a redirect (${upstream.status})`);
   }
+
+  const resHeaders = new Headers({ "Cache-Control": "no-store" });
+  const upstreamType = upstream.headers.get("content-type");
+  if (upstreamType) resHeaders.set("Content-Type", upstreamType);
 
   const nullBody =
     upstream.status === 204 || upstream.status === 304 || request.method === "HEAD";

@@ -1,37 +1,73 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Fredoka, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
 import { AppProviders } from "@/components/app-providers";
-import { AppShell } from "@/components/app-shell";
+import { AppShell } from "@/components/shell/app-shell";
+import { getLocale, getMessages } from "@/i18n/server";
+import { APP_NAME, APP_URL } from "@/lib/config";
 
-const geistSans = Geist({
-  variable: "--font-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
+});
+
+/** Wordmark only (Stage 2 §9: Fredoka 600). */
+const fredoka = Fredoka({
+  variable: "--font-fredoka",
+  subsets: ["latin"],
+  weight: "600",
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
-  variable: "--font-mono",
+  variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
 });
 
-export const metadata: Metadata = {
-  // "Hyperliquid Watch" is a placeholder product name pending Paul's
-  // naming decision (PRD §10 未決問題) — the repo itself stays
-  // "Trading-Dashboard".
-  title: "Hyperliquid Watch",
-  description: "Hyperliquid 大戶監控與警報 Dashboard",
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocale();
+  const messages = getMessages(locale);
+  const title = `${APP_NAME} — ${messages.meta.tagline}`;
+  return {
+    metadataBase: new URL(APP_URL),
+    applicationName: APP_NAME,
+    title: { default: title, template: `%s · ${APP_NAME}` },
+    description: messages.meta.description,
+    openGraph: {
+      type: "website",
+      siteName: APP_NAME,
+      url: "/",
+      title,
+      description: messages.meta.description,
+      locale: locale === "zh-TW" ? "zh_TW" : "en_US",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: messages.meta.description,
+    },
+  };
+}
+
+export const viewport: Viewport = {
+  themeColor: "#0f0d1f",
+  colorScheme: "dark",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const locale = await getLocale();
+  const messages = getMessages(locale);
+
   return (
-    // Dark theme is the default per PRD §4.5; no light-mode toggle in M1.
     <html
-      lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      lang={locale}
+      className={`dark ${inter.variable} ${fredoka.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
-        <AppProviders>
+      <body className="min-h-full bg-background text-foreground">
+        <AppProviders locale={locale} messages={messages}>
           <AppShell>{children}</AppShell>
         </AppProviders>
       </body>

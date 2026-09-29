@@ -202,6 +202,14 @@ function Fills({ rows }: { rows: TraderFill[] }) {
               <span className="flex items-center gap-2 font-semibold">
                 <CoinIcon coin={f.coin} size={18} />
                 {coinLabel(f.coin)}
+                {f.twapId != null ? (
+                  <span
+                    title={t("trader.twapHint", { id: f.twapId })}
+                    className="rounded bg-raised px-1 py-px text-[0.625rem] font-semibold tracking-wide text-muted-foreground"
+                  >
+                    {t("trader.twap")}
+                  </span>
+                ) : null}
               </span>
             </TableCell>
             <TableCell className={f.side === "buy" ? "text-positive" : "text-negative"}>{f.dir}</TableCell>
@@ -275,7 +283,7 @@ function exportFills(address: string, rows: TraderFill[]) {
   downloadCsv(
     `${address}-fills.csv`,
     toCsv(
-      ["time_utc", "tid", "coin", "side", "dir", "px", "sz", "notional_usd", "fee", "closed_pnl"],
+      ["time_utc", "tid", "coin", "side", "dir", "px", "sz", "notional_usd", "fee", "closed_pnl", "twap_id"],
       rows.map((f) => [
         new Date(f.ts).toISOString(),
         f.tid,
@@ -287,6 +295,7 @@ function exportFills(address: string, rows: TraderFill[]) {
         f.notionalUsd,
         f.fee,
         f.closedPnl,
+        f.twapId ?? null,
       ]),
     ),
   );

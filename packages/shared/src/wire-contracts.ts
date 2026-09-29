@@ -14,7 +14,8 @@ export const wireLeaderDetailSchema = s.leaderDetailResponseSchema.extend({ lead
   positions: z.array(s.positionRowSchema.extend({ ts: iso })), equityCurve: z.array(s.equityPointSchema.extend({ ts: iso })), alerts: z.array(wireAlertSchema) });
 export const wireTraderStatsSchema = s.traderStatsSchema.extend({ updatedAt: iso });
 export const wireTradersSchema = s.tradersResponseSchema.extend({ updatedAt: iso.nullable(), items: z.array(wireTraderStatsSchema.extend({ favorite: z.boolean() })) });
-export const wireTraderProfileSchema = s.traderProfileResponseSchema.extend({ stats: wireTraderStatsSchema.nullable(), lastTradeAt: iso.nullable(), fetchedAt: iso });
+export const wireTraderProfileSchema = s.traderProfileResponseSchema.extend({ stats: wireTraderStatsSchema.nullable(), lastTradeAt: iso.nullable().optional(), fetchedAt: iso });
+export const wireTraderActivitySchema = s.traderActivityResponseSchema.extend({ lastTradeAt: iso.nullable(), fetchedAt: iso });
 export const wireAdminUserSchema = s.adminUserSchema.extend({ createdAt: iso, lastLoginAt: iso });
 export const wireMeSchema = s.meResponseSchema.extend({ createdAt: iso });
 export const wireFavoriteSchema = s.favoriteSchema.extend({ createdAt: iso, stats: wireTraderStatsSchema.nullable() });
@@ -44,6 +45,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/sparklines", status: 200, auth: "public", response: s.sparklinesResponseSchema },
   { method: "GET", path: "/traders/:address", status: 200, auth: "public", response: wireTraderProfileSchema },
   { method: "GET", path: "/traders/:address/portfolio", status: 200, auth: "public", response: s.portfolioResponseSchema },
+  { method: "GET", path: "/traders/:address/activity", status: 200, auth: "public", response: wireTraderActivitySchema },
   { method: "GET", path: "/traders/:address/fills", status: 200, auth: "public", response: z.array(s.traderFillSchema.extend({ ts: iso })) },
   { method: "GET", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "PATCH", path: "/me", status: 200, auth: "user", response: wireMeSchema },

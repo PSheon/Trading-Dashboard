@@ -80,14 +80,17 @@ export function KpiTiles({
   portfolio,
   allTime,
   window,
+  lowSample,
 }: {
   profile: TraderProfileResponse;
   portfolio: PortfolioResponse | undefined;
   allTime: PortfolioResponse | undefined;
   window: TraderWindow;
+  /** From the activity request; false until it arrives. */
+  lowSample: boolean;
 }) {
   const { t, format } = useI18n();
-  const muted = profile.sample.lowSample;
+  const muted = lowSample;
 
   const pnl = portfolio?.pnl.at(-1)?.[1] ?? profile.stats?.pnl[window] ?? null;
   const roi = windowRoi(profile, portfolio, window);

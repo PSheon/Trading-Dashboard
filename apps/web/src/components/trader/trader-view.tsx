@@ -8,7 +8,8 @@ import { useState } from "react";
 import { EmptyState, ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
-import { usePortfolio, useSiteSettings, useTraderProfile } from "@/lib/queries";
+import { isBusy } from "@/lib/api";
+import { usePortfolio, useSiteSettings, useTraderActivity, useTraderProfile } from "@/lib/queries";
 import { ActivityTabs } from "./activity-tabs";
 import { CopyPanel } from "./copy-panel";
 import {
@@ -53,10 +54,15 @@ function TraderLoaded({ address }: { address: string }) {
   const [unit, setUnit] = useState<ChartUnit>("usd");
   const [market, setMarket] = useState<Market>("perp");
 
+  // The profile is the cheap first paint; activity (sample size, last
+  // trade) costs the api fill lists and loads alongside it.
   const profile = useTraderProfile(address);
+  const activity = useTraderActivity(address);
   const portfolio = usePortfolio(address, window, market);
   const allTime = usePortfolio(address, "allTime", market);
   const settings = useSiteSettings();
+  const lowSample = activity.data?.sample.lowSample ?? false;
+  const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
   if (profile.isError) {
     return (
@@ -70,19 +76,30 @@ function TraderLoaded({ address }: { address: string }) {
     <div className="trader-grid -mx-1 md:-mx-3">
       <div data-area="profile">
         {profile.data ? (
-          <ProfileCard profile={profile.data} lowSampleThreshold={settings.data?.lowSampleThreshold ?? 20} />
+          <ProfileCard
+            profile={profile.data}
+            activity={activity.isError ? null : activity.data}
+            lowSampleThreshold={settings.data?.lowSampleThreshold ?? 20}
+          />
         ) : (
           <Skeleton className="h-[640px] rounded-2xl" />
         )}
       </div>
 
       <div data-area="main" className="flex min-w-0 flex-col gap-3">
+        {busy ? (
+          <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-warning" />
+            {t("trader.busyRetrying")}
+          </p>
+        ) : null}
         {profile.data ? (
           <KpiTiles
             profile={profile.data}
             portfolio={portfolio.data}
             allTime={allTime.data}
             window={window}
+            lowSample={lowSample}
           />
         ) : (
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -102,7 +119,7 @@ function TraderLoaded({ address }: { address: string }) {
           onUnit={setUnit}
           market={market}
           onMarket={setMarket}
-          muted={profile.data?.sample.lowSample ?? false}
+          muted={lowSample}
           roi={profile.data ? windowRoi(profile.data, portfolio.data, window) : null}
         />
         {profile.data ? <ActivityTabs profile={profile.data} /> : <Skeleton className="h-64 rounded-2xl" />}

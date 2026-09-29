@@ -7,12 +7,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { RoundTripService } from "../src/analytics/round-trip.service.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
+
 import { InsightsController } from "../src/insights/insights.controller.js";
 import { InsightsService } from "../src/insights/insights.service.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import { parseLeaderboard } from "../src/traders/leaderboard.js";
 import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
-import { TradersController } from "../src/traders/traders.controller.js";
+import { PAGE_DEADLINE_MS, TradersController } from "../src/traders/traders.controller.js";
 import { TradersService } from "../src/traders/traders.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -47,15 +48,23 @@ describe("public discovery routes over HTTP", () => {
   let app: INestApplication;
   let auth: AuthService;
   let settings: SettingsService;
+  let info: {
+    perpDexs: ReturnType<typeof vi.fn>;
+    clearinghouseState: ReturnType<typeof vi.fn>;
+    portfolio: ReturnType<typeof vi.fn>;
+    userFills: ReturnType<typeof vi.fn>;
+    userTwapSliceFills: ReturnType<typeof vi.fn>;
+  };
 
   beforeAll(async () => {
     process.env.AUTH_SERVICE_TOKEN = "service-token-for-traders-0123456789";
-    const info = {
+    info = {
       perpDexs: vi.fn(async () => [null]),
       clearinghouseState: vi.fn(async () => emptyState),
       portfolio: vi.fn(async () => []),
       userFills: vi.fn(async () => []),
-    } as unknown as HyperliquidInfoClient;
+      userTwapSliceFills: vi.fn(async () => []),
+    };
     ({ app, auth, settings } = await createAuthedApp({
       db,
       privy,
@@ -64,7 +73,7 @@ describe("public discovery routes over HTTP", () => {
         {
           provide: TradersService,
           useFactory: (s: SettingsService) =>
-            new TradersService(db, info, new RoundTripService(db), new LeaderboardIngestService(db, s), s),
+            new TradersService(db, info as unknown as HyperliquidInfoClient, new RoundTripService(db), new LeaderboardIngestService(db, s), s),
           inject: [SettingsService],
         },
         { provide: InsightsService, useValue: new InsightsService(db) },
@@ -107,7 +116,15 @@ describe("public discovery routes over HTTP", () => {
       [B, true],
     ]);
     const profile = await request(app.getHttpServer()).get(`/traders/${B}`).set("Authorization", "Bearer alice-token");
-    expect(profile.body).toMatchObject({ favorite: true, isVault: false, sample: { fills30d: 0, lowSample: true } });
+    expect(profile.body).toMatchObject({ favorite: true, isVault: false });
+    expect(profile.body).not.toHaveProperty("sample");
+    const activity = await request(app.getHttpServer()).get(`/traders/${B}/activity`);
+    expect(activity.status).toBe(200);
+    expect(activity.body).toMatchObject({
+      address: B,
+      lastTradeAt: null,
+      sample: { fills30d: 0, capped: false, lowSample: true },
+    });
 
     const anon = await request(app.getHttpServer()).get("/traders");
     expect(anon.body.items.some((i: { favorite: boolean }) => i.favorite)).toBe(false);
@@ -136,5 +153,42 @@ describe("public discovery routes over HTTP", () => {
     const crowd = await request(app.getHttpServer()).get("/insights/crowd");
     expect(crowd.status).toBe(200);
     expect(crowd.body).toEqual({ trackedTraders: 0, coins: [], updatedAt: null });
+  });
+
+  it("answers 503 busy with Retry-After past the page deadline, and the retry gets the finished work", async () => {
+    const controller = app.get(TradersController);
+    controller.pageDeadlineMs = 50;
+    try {
+      const C = `0x${"c3".repeat(20)}`;
+      // Hyperliquid (or the budget queue in front of it) is slow.
+      let releaseState!: (v: typeof emptyState) => void;
+      info.clearinghouseState.mockReturnValueOnce(new Promise((r) => (releaseState = r)));
+      let releaseTwap!: (v: unknown[]) => void;
+      info.userTwapSliceFills.mockReturnValueOnce(new Promise((r) => (releaseTwap = r)));
+
+      const profile = await request(app.getHttpServer()).get(`/traders/${C}`);
+      expect(profile.status).toBe(503);
+      expect(profile.headers["retry-after"]).toBe("5");
+      expect(profile.body).toEqual({ statusCode: 503, code: "busy", message: expect.any(String), retryAfterSeconds: 5 });
+      const activity = await request(app.getHttpServer()).get(`/traders/${C}/activity`);
+      expect(activity.status).toBe(503);
+      expect(activity.headers["retry-after"]).toBe("5");
+
+      releaseState(emptyState);
+      releaseTwap([]);
+      await new Promise((r) => setTimeout(r, 20));
+      const calls = info.clearinghouseState.mock.calls.length;
+      expect((await request(app.getHttpServer()).get(`/traders/${C}`)).status).toBe(200);
+      expect((await request(app.getHttpServer()).get(`/traders/${C}/activity`)).status).toBe(200);
+      expect(info.clearinghouseState.mock.calls.length).toBe(calls); // served from the cache
+
+      // Other upstream failures stay 502, without Retry-After.
+      info.portfolio.mockRejectedValueOnce(new Error("Hyperliquid info request failed: 500"));
+      const failed = await request(app.getHttpServer()).get(`/traders/${C}/portfolio`);
+      expect(failed.status).toBe(502);
+      expect(failed.headers["retry-after"]).toBeUndefined();
+    } finally {
+      controller.pageDeadlineMs = PAGE_DEADLINE_MS;
+    }
   });
 });

@@ -18,6 +18,7 @@ export type TraderStats = JsonWire<Domain.TraderStats>;
 export type TradersResponse = JsonWire<Domain.TradersResponse>;
 export type TraderProfileResponse = JsonWire<Domain.TraderProfileResponse>;
 export type TraderFill = JsonWire<Domain.TraderFill>;
+export type TraderActivityResponse = JsonWire<Domain.TraderActivityResponse>;
 export type Favorite = JsonWire<Domain.Favorite>;
 export type TelegramStatus = JsonWire<Domain.TelegramStatus>;
 export type TelegramLinkResponse = JsonWire<Domain.TelegramLinkResponse>;

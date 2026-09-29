@@ -9,6 +9,8 @@ import { AccountStateService } from "../src/watcher/account-state.service.js";
 import { ACTION_CREATED_EVENT } from "../src/watcher/action-created.event.js";
 import { FeedActionsService } from "../src/watcher/feed-actions.service.js";
 import { FillSyncService } from "../src/watcher/fill-sync.service.js";
+import type { TradeFeedService } from "../src/watcher/trade-feed.service.js";
+import { WatcherService } from "../src/watcher/watcher.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 import { FakeExchange } from "./fast-path-fixtures.js";
 
@@ -20,7 +22,13 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
   let stateTime: number;
   /** Fills the info API doesn't return yet (indexing lag). */
   let unindexed: Set<number>;
-  let info: { clearinghouseState: ReturnType<typeof vi.fn>; userFillsByTime: ReturnType<typeof vi.fn> };
+  /** Fills that are TWAP slices: only the TWAP endpoint returns them. */
+  let twap: Set<number>;
+  let info: {
+    clearinghouseState: ReturnType<typeof vi.fn>;
+    userFillsByTime: ReturnType<typeof vi.fn>;
+    userTwapSliceFillsByTime: ReturnType<typeof vi.fn>;
+  };
   let emitted: Array<typeof actions.$inferSelect>;
   let fast: FeedActionsService;
   let sync: FillSyncService;
@@ -30,10 +38,16 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     exchange = new FakeExchange(A);
     stateTime = 0;
     unindexed = new Set();
+    twap = new Set();
     info = {
       clearinghouseState: vi.fn(async (_address: string, dex?: string) => exchange.stateAt(dex, stateTime)),
       userFillsByTime: vi.fn(async (_address: string, start: number) =>
-        exchange.fills.filter((f) => f.time >= start && !unindexed.has(f.tid)),
+        exchange.fills.filter((f) => f.time >= start && !unindexed.has(f.tid) && !twap.has(f.tid)),
+      ),
+      userTwapSliceFillsByTime: vi.fn(async (_address: string, start: number) =>
+        exchange.fills
+          .filter((f) => f.time >= start && !unindexed.has(f.tid) && twap.has(f.tid))
+          .map((f) => ({ fill: { ...f, hash: `0x${"0".repeat(64)}`, twapId: null }, twapId: 4242 })),
       ),
     };
     const client = info as unknown as HyperliquidInfoClient;
@@ -147,5 +161,62 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     await sync.sync(A, "sweep", t - 120_000);
     const rows = await db.select().from(actions).orderBy(asc(actions.ts));
     expect(rows.map((r) => `${r.kind}:${r.side}`)).toEqual(["open:long", "flip:short"]);
+  });
+
+  describe("TWAP slices (on the feed, missing from userFillsByTime)", () => {
+    it("stores them from the TWAP endpoint and verifies (and corrects) the fast path's actions from them", async () => {
+      const t = Date.now() - 5_000;
+      stateTime = t - 100_000; // flat, and never read again below
+      await fast.process(A, exchange.order("SOL", "B", ["1"], t - 90_000).trades); // the book exists
+      exchange.order("BTC", "B", ["2"], t - 60_000); // a slice the feed missed
+      const slice = exchange.order("BTC", "A", ["1"], t); // the book thinks this opens a short
+      for (const f of exchange.fills) twap.add(f.tid);
+      await fast.process(A, slice.trades);
+      expect(emitted).toHaveLength(2);
+
+      const result = await sync.sync(A, "confirm", t - 1_000, tidsOf(slice.fills));
+      expect(result.missingTids).toEqual([]);
+      const stored = await db.select().from(fills);
+      expect(stored.map((f) => f.raw.twapId)).toEqual([4242]);
+      // Re-derived from the stored slice: a reduce of the long, in place, no alert.
+      const btc = (await db.select().from(actions)).filter((r) => r.coin === "BTC");
+      expect(btc).toHaveLength(1);
+      expect(btc[0]).toMatchObject({ kind: "reduce", side: "long" });
+      expect(emitted).toHaveLength(2);
+      expect(sync.getFastPathStats()).toEqual({ verified: 1, corrected: 1 });
+    });
+
+    it("never lists a TWAP trader as fillsUnavailable (watcher → confirm → TWAP endpoint)", async () => {
+      const results: Array<Awaited<ReturnType<FillSyncService["sync"]>>> = [];
+      const real = sync.sync.bind(sync);
+      vi.spyOn(sync, "sync").mockImplementation(async (...args) => {
+        const r = await real(...args);
+        results.push(r);
+        return r;
+      });
+      const watcher = new WatcherService(
+        { setWatched: () => {}, status: () => ({}), stop: () => {} } as unknown as TradeFeedService,
+        sync,
+        new AccountStateService(info as unknown as HyperliquidInfoClient, db),
+        fast,
+        db,
+      );
+      try {
+        const t = Date.now();
+        stateTime = t - 1;
+        const slice = exchange.order("ETH", "B", ["0.4"], t);
+        twap.add(slice.fills[0].tid);
+        for (const trade of slice.trades) watcher.onTrade(A, trade);
+        // The fast path runs after ~1 s, the confirm ~2 s later.
+        await vi.waitFor(() => expect(results).toHaveLength(1), { timeout: 8_000, interval: 100 });
+        expect(results[0]).toMatchObject({ inserted: 1, missingTids: [] });
+        // Nothing left to look for: no retry pending, nothing listed.
+        expect((watcher as unknown as { timers: Set<unknown> }).timers.size).toBe(0);
+        expect(watcher.getHeartbeat().fillsUnavailable).toEqual([]);
+        expect(await db.select().from(actions)).toHaveLength(1);
+      } finally {
+        watcher.stop();
+      }
+    }, 15_000);
   });
 });

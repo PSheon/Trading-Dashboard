@@ -12,7 +12,7 @@ export class TtlCache<V> {
   constructor(
     private readonly ttlMs: number,
     private readonly maxEntries = 5_000,
-    private readonly now: () => number = Date.now,
+    private readonly now: () => number = () => Date.now(),
   ) {}
 
   get(key: string, load: () => Promise<V>): Promise<V> {

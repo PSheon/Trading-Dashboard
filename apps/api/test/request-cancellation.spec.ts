@@ -8,7 +8,7 @@ it("removes aborted waiters without spending tokens", async () => {
   const budget = new RequestBudgeterService();
   await budget.acquire(1, "live");
   const abort = new AbortController();
-  const waiting = budget.acquire(1, "background", undefined, abort.signal);
+  const waiting = budget.acquire(1, "background", undefined, { signal: abort.signal });
   const rejected = expect(waiting).rejects.toMatchObject({ name: "AbortError" });
   abort.abort();
   await rejected;

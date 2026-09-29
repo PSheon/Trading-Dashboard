@@ -121,7 +121,7 @@ describe("HyperliquidInfoClient.referral (mocked HTTP)", () => {
     const client = new HyperliquidInfoClient(budgeter as unknown as RequestBudgeterService);
 
     expect(await client.referral(ZERO, "background", 0)).toEqual(NEED_TO_TRADE);
-    expect(budgeter.acquire).toHaveBeenCalledWith(20, "background", 0, expect.any(AbortSignal));
+    expect(budgeter.acquire).toHaveBeenCalledWith(20, "background", 0, { known: undefined, signal: expect.any(AbortSignal) });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({ type: "referral", user: ZERO });
     expect(budgeter.onSuccess).toHaveBeenCalled();

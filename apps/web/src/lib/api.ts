@@ -18,6 +18,8 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public details: Record<string, unknown> = {},
+    /** From a Retry-After header (seconds), in ms. */
+    public retryAfterMs?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -31,6 +33,12 @@ export class ApiError extends Error {
 /** The api's error code, when `error` is an ApiError that has one. */
 export function apiErrorCode(error: unknown): string | undefined {
   return error instanceof ApiError ? error.code : undefined;
+}
+
+/** 503 `{code: "busy"}`: Hyperliquid's request budget couldn't serve the
+ * call in time; it is worth retrying after `retryAfterMs`. */
+export function isBusy(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 503 && error.code === "busy";
 }
 
 export type AccessTokenGetter = () => Promise<string | null>;
@@ -93,6 +101,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     const text = await res.text().catch(() => "");
     let message = text || res.statusText;
     let details: Record<string, unknown> = {};
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined;
     try {
       // Nest errors: {statusCode, message, code?} or {…, issues: zod issues}.
       let parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
@@ -110,7 +120,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     } catch {
       // not JSON; keep the raw text
     }
-    throw new ApiError(res.status, message, details);
+    throw new ApiError(res.status, message, details, retryAfterMs);
   }
 
   if (res.status === 204) return undefined as JsonWire<T>;

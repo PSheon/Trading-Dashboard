@@ -20,6 +20,7 @@ import type {
   LeaderList,
   LivePosition,
   MeResponse,
+  TraderActivityResponse,
   TraderFill,
   TraderProfileResponse,
   TraderStats,
@@ -302,6 +303,26 @@ function positionsFor(address: string, accountValue: number): LivePosition[] {
   return [...crypto, ...stock].sort((a, b) => b.positionValue - a.positionValue);
 }
 
+function isTrackedFixture(address: string, favorite: boolean): boolean {
+  const rank = rankOf(address);
+  return favorite || (rank >= 0 && rank < 60);
+}
+
+/** GET /traders/:address/activity: sample size and last trade. */
+export function activityFor(
+  address: string,
+  favorite: boolean,
+  lowSampleThreshold: number,
+): TraderActivityResponse {
+  const sample = sampleFor(address, isTrackedFixture(address, favorite));
+  return {
+    address: address.toLowerCase(),
+    lastTradeAt: lastTradeFor(address),
+    sample: { ...sample, lowSample: sample.fills30d < lowSampleThreshold },
+    fetchedAt: new Date(NOW),
+  };
+}
+
 export function profileFor(
   address: string,
   favorite: boolean,
@@ -319,8 +340,7 @@ export function profileFor(
     (sum, p) => sum + p.positionValue / Math.max(1, p.leverage ?? 1),
     0,
   );
-  const rank = rankOf(address);
-  const tracked = favorite || (rank >= 0 && rank < 60);
+  const tracked = isTrackedFixture(address, favorite);
   const random = rng(`analytics:${address}`);
 
   const coinPnl = [
@@ -344,8 +364,6 @@ export function profileFor(
     positions,
     tracked,
     isVault: stats?.isVault ?? false,
-    sample: sampleFor(address, tracked),
-    lastTradeAt: lastTradeFor(address),
     favorite,
     analytics: tracked
       ? {
@@ -405,8 +423,12 @@ function sampleFor(address: string, tracked: boolean) {
 
 // --- fills ------------------------------------------------------------------------------
 
+/** A run of the sample's fills stands in for TWAP slices, so the fills tab
+ * shows its "TWAP" tag in fixture mode. */
+const FIXTURE_TWAP = { id: 2_256_941, from: 4, to: 10 };
+
 export function traderFills(limit: number): TraderFill[] {
-  return fillsSample.slice(0, limit).map((f) => ({
+  return fillsSample.slice(0, limit).map((f, i) => ({
     tid: String(f.tid),
     coin: f.coin,
     side: f.side === "B" ? "buy" : "sell",
@@ -417,6 +439,7 @@ export function traderFills(limit: number): TraderFill[] {
     closedPnl: f.closedPnl === null ? null : Number(f.closedPnl),
     fee: f.fee === null ? null : Number(f.fee),
     ts: new Date(f.time + SHIFT),
+    twapId: i >= FIXTURE_TWAP.from && i < FIXTURE_TWAP.to ? FIXTURE_TWAP.id : null,
   }));
 }
 

@@ -10,13 +10,14 @@ import type {
   PublicSettings,
   PortfolioResponse,
   SparklinesResponse,
+  TraderActivityResponse,
   TraderFill,
   TraderProfileResponse,
   TradersResponse,
   TraderWindow,
 } from "@/lib/contracts";
 
-import { api } from "@/lib/api";
+import { api, isBusy } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 /**
@@ -95,11 +96,41 @@ export function useSparklines(addresses: string[], window: TraderWindow = "month
   });
 }
 
+/**
+ * Trader-page requests answer 503 `{code: "busy"}` when the api's
+ * Hyperliquid budget can't serve them in time (e.g. right after a deploy).
+ * Those are retried after their Retry-After for a couple of minutes, and
+ * the page shows a "retrying" state meanwhile; other errors keep React
+ * Query's default of 3 retries.
+ */
+const BUSY_MAX_RETRIES = 12;
+const busyRetry = {
+  retry: (failureCount: number, error: Error) =>
+    failureCount < (isBusy(error) ? BUSY_MAX_RETRIES : 3),
+  retryDelay: (attempt: number, error: Error) =>
+    isBusy(error)
+      ? Math.min(30_000, error.retryAfterMs ?? 5_000)
+      : Math.min(1000 * 2 ** attempt, 30_000),
+};
+
+/** GET /traders/:address: the first paint (account, positions, stats). */
 export function useTraderProfile(address: string) {
   return useQuery({
     queryKey: ["trader", address],
     queryFn: () => api.get<TraderProfileResponse>(`/traders/${address}`),
     refetchInterval: 30_000,
+    ...busyRetry,
+  });
+}
+
+/** GET /traders/:address/activity: sample size and last trade, loaded
+ * alongside the profile (it costs the api more and arrives later). */
+export function useTraderActivity(address: string) {
+  return useQuery({
+    queryKey: ["trader-activity", address],
+    queryFn: () => api.get<TraderActivityResponse>(`/traders/${address}/activity`),
+    refetchInterval: 60_000,
+    ...busyRetry,
   });
 }
 
@@ -110,6 +141,7 @@ export function usePortfolio(address: string, window: TraderWindow, market: "all
       api.get<PortfolioResponse>(`/traders/${address}/portfolio?window=${window}&market=${market}`),
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
+    ...busyRetry,
   });
 }
 
@@ -118,6 +150,7 @@ export function useTraderFills(address: string, limit = 100) {
     queryKey: ["trader-fills", address, limit],
     queryFn: () => api.get<TraderFill[]>(`/traders/${address}/fills?limit=${limit}`),
     refetchInterval: 30_000,
+    ...busyRetry,
   });
 }
 

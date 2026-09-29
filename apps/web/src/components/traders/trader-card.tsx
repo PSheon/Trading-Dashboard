@@ -1,6 +1,6 @@
 "use client";
 
-import type { TraderActivity } from "@trading-dashboard/shared";
+import type { TraderActivity } from "@/lib/contracts";
 import Link from "next/link";
 import { cn } from "cn";
 

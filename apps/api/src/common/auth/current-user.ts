@@ -1,4 +1,4 @@
-import { createParamDecorator, SetMetadata, type ExecutionContext } from "@nestjs/common";
+import { ForbiddenException, UnauthorizedException, createParamDecorator, SetMetadata, type ExecutionContext } from "@nestjs/common";
 import type { Permission, UserRole } from "@trading-dashboard/shared";
 
 /**
@@ -26,4 +26,11 @@ export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
 /** The signed-in user's id, or null for anonymous and service callers. */
 export function userIdOf(user: RequestUser | null): number | null {
   return user?.kind === "user" ? user.id : null;
+}
+
+/** Only a signed-in human has owned resources; service principals do not. */
+export function requireUserId(user: RequestUser | null): number {
+  if (!user) throw new UnauthorizedException("Sign in required");
+  if (user.kind !== "user") throw new ForbiddenException("Only a signed-in user has a profile");
+  return user.id;
 }

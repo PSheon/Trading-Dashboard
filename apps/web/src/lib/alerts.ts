@@ -7,7 +7,7 @@ import type {
   TelegramLinkResponse,
   TelegramStatus,
   TelegramTestResponse,
-} from "@trading-dashboard/shared";
+} from "@/lib/contracts";
 
 import { api, type ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";

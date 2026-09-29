@@ -1,6 +1,6 @@
 "use client";
 
-import type { Favorite, SparklinesResponse } from "@trading-dashboard/shared";
+import type { Favorite, SparklinesResponse } from "@/lib/contracts";
 import { Activity, BellRing, Star, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";

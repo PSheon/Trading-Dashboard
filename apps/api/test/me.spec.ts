@@ -70,6 +70,15 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   const alice = as("alice-token");
   const bob = as("bob-token");
 
+  it("serves validated v1 profile and favorite DTOs with string timestamps", async () => {
+    const me = await alice.get("/me").set("x-api-contract", "1").expect(200);
+    expect(typeof me.body.data.createdAt).toBe("string");
+    const favorite = await alice.put(`/me/favorites/${ADDR}`).set("x-api-contract", "1").expect(200);
+    expect(favorite.body.data.address).toBe(ADDR);
+    const list = await alice.get("/me/favorites").set("x-api-contract", "1").expect(200);
+    expect(list.body.data).toHaveLength(1);
+  });
+
   async function leaderRow(address: string) {
     const [row] = await db.select().from(leaders).where(eq(leaders.address, address));
     return row;

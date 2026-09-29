@@ -1,6 +1,6 @@
 "use client";
 
-import type { TraderActivity, TraderActivityResponse, TraderProfileResponse } from "@trading-dashboard/shared";
+import type { TraderActivity, TraderActivityResponse, TraderProfileResponse } from "@/lib/contracts";
 import { Check, ChevronDown, Copy, Radio, Share2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";

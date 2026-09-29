@@ -1,6 +1,6 @@
 "use client";
 
-import type { TraderWindow } from "@trading-dashboard/shared";
+import type { TraderWindow } from "@/lib/contracts";
 import { SearchX } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";

@@ -18,7 +18,7 @@ import { AuthService } from "../common/auth/auth.service.js";
 import { userIdOf, type RequestUser } from "../common/auth/current-user.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import { parseOr400 } from "./validation.js";
+import { parseOr400 } from "../common/http/validation.js";
 
 type Tx = Parameters<Parameters<DrizzleDb["transaction"]>[0]>[0];
 

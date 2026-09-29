@@ -8,7 +8,7 @@ import {
 import { userIdOf, type RequestUser } from "../common/auth/current-user.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { RevenueService } from "./revenue.service.js";
-import { isZodError, parseOr400 } from "./validation.js";
+import { isZodError, parseOr400 } from "../common/http/validation.js";
 
 /**
  * GET/PATCH /admin/settings on top of `SettingsService`: validates the

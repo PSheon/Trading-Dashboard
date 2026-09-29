@@ -1,3 +1,4 @@
+import { HttpModule } from "./common/http/http.module.js";
 import { OutboxModule } from "./outbox/outbox.module.js";
 import { Module } from "@nestjs/common";
 import { EventEmitterModule } from "@nestjs/event-emitter";
@@ -23,6 +24,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     // `action.created` event that RulesModule listens for (§1 of the M2
     // task's rules-engine trigger mechanism).
     EventEmitterModule.forRoot(),
+    HttpModule,
     DbModule,
     SettingsModule,
     AuthModule,

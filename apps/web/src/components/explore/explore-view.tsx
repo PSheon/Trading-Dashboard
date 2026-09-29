@@ -1,6 +1,6 @@
 "use client";
 
-import { activeWithinSchema, type ActiveWithin, type TraderWindow } from "@trading-dashboard/shared";
+import { activeWithinSchema, type ActiveWithin, type TraderWindow } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";

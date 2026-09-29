@@ -1,6 +1,6 @@
 "use client";
 
-import type { SparklinesResponse, TraderStats, TraderWindow } from "@trading-dashboard/shared";
+import type { SparklinesResponse, TraderStats, TraderWindow } from "@/lib/contracts";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";

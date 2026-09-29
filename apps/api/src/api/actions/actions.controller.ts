@@ -11,7 +11,7 @@ import { actionsFeedQuerySchema, type ActionFeedItem, type Fill } from "@trading
 
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
-import { parseOr400 } from "../../users/validation.js";
+import { parseOr400 } from "../../common/http/validation.js";
 import { ActionsService } from "./actions.service.js";
 
 /** Market data: public, except `?scope=favorites`, which needs a signed-in

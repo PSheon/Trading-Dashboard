@@ -1,15 +1,16 @@
+import { sendHttpError } from "../common/http/response-contract.js";
 import type { Request, Response, NextFunction } from "express";
 import { BackgroundJobs } from "./background-jobs.service.js";
 import { withRequestSignal } from "./request-context.js";
 
 /** One HTTP deadline shared by all nested upstream calls and their queue waits. */
 export function requestContext(jobs: BackgroundJobs) {
-  return (_req: Request, res: Response, next: NextFunction) => {
-    if (jobs.stopping) { res.status(503).json({ statusCode: 503, message: "Shutting down" }); return; }
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (jobs.stopping) { sendHttpError(req, res, 503, "Shutting down", "unavailable"); return; }
     const abort = new AbortController();
     const timer = setTimeout(() => {
       abort.abort(new DOMException("Request deadline exceeded", "TimeoutError"));
-      if (!res.headersSent) res.status(504).json({ statusCode: 504, message: "Request timed out" });
+      if (!res.headersSent) sendHttpError(req, res, 504, "Request timed out", "deadline_exceeded");
       else res.destroy();
     }, 20_000);
     res.once("finish", () => clearTimeout(timer));

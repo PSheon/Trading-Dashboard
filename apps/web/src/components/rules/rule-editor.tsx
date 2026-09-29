@@ -1,6 +1,6 @@
 "use client";
 
-import type { AlertRule, Tier } from "@trading-dashboard/shared";
+import type { AlertRule, Tier } from "@/lib/contracts";
 import { useState } from "react";
 import { cn } from "cn";
 

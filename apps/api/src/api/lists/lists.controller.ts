@@ -5,7 +5,7 @@ import type {
 } from "@trading-dashboard/shared";
 
 import { listDiffRequestSchema } from "@trading-dashboard/shared";
-import { parseOr400 } from "../../users/validation.js";
+import { parseOr400 } from "../../common/http/validation.js";
 import { RequirePermissions } from "../../common/auth/permissions.js";
 import { ListsService } from "./lists.service.js";
 

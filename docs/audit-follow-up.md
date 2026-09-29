@@ -85,8 +85,6 @@ for additive migrations, limits and the possible duplicate after Telegram accept
 - Batch/reuse round-trip analytics, especially across notification recipients;
   avoid whole-history scans and unbounded IN bind lists. Measure index needs
   for actions by address and alerts by recipient/cooldown using real query plans.
-- Runtime response validation / explicit JSON wire types instead of `as T` and
-  Date-typed values that are actually strings after transport.
 - Minimal production Docker dependencies, runtime hardening and migration
   deployment sequencing; the current image still contains development packages.
 - Repo CI with disposable DB, contract tests and browser E2E tests covering real
@@ -108,3 +106,11 @@ DB. Baseline: 28 files / 294 tests. After regression fixes: 29 files / 315 tests
 After rebasing onto Claude's Telegram merge: 30 files / 346 tests.
 Final branch verification and integration results are recorded in the implementation
 ledger under `docs/superpowers/plans/2026-09-29-audit-fixes.md`.
+
+## HTTP contract batch
+
+Version 1 envelopes are explicitly negotiated; legacy clients keep raw DTOs.
+Output schemas validate and allowlist all registered routes, browser/fixture
+responses validate at runtime, and common input validation reports stable paths.
+See [HTTP boundary](http-contract.md), [route catalog](http-routes.md) and the
+implementation ledger for rollout rules and real HTTP/DB evidence.

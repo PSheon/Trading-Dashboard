@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AlertRule, UpsertAlertRuleRequest } from "@trading-dashboard/shared";
+import type { AlertRule, UpsertAlertRuleRequest } from "@/lib/contracts";
 
 import { ErrorState, Panel, Skeleton } from "@/components/page";
 import { RuleEditor } from "@/components/rules/rule-editor";

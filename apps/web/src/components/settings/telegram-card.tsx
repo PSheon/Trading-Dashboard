@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import type { TelegramLinkResponse, TelegramStatus } from "@trading-dashboard/shared";
+import type { TelegramLinkResponse, TelegramStatus } from "@/lib/contracts";
 import { BellRing, Check, ExternalLink, Loader2, Send, Unlink } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";

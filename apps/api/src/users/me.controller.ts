@@ -7,10 +7,10 @@ import {
   type MeResponse,
 } from "@trading-dashboard/shared";
 
-import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
+import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
 import { FavoritesService } from "./favorites.service.js";
 import { ProfileService } from "./profile.service.js";
-import { parseOr400, requireUserId } from "./validation.js";
+import { parseOr400 } from "../common/http/validation.js";
 
 /** The signed-in user's own data. Not @Public: the guard returns 401
  * without a valid token; the service token gets 403 (it has no profile).

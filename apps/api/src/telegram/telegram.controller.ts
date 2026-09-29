@@ -2,7 +2,7 @@ import { Controller, Delete, Get, HttpCode, Post } from "@nestjs/common";
 import type { TelegramLinkResponse, TelegramStatus, TelegramTestResponse } from "@trading-dashboard/shared";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
-import { requireUserId } from "../users/validation.js";
+import { requireUserId } from "../common/auth/current-user.js";
 import { TelegramLinkService } from "./telegram-link.service.js";
 
 /** The signed-in user's Telegram link to the official bot. */

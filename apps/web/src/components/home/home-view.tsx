@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueries } from "@tanstack/react-query";
-import type { TraderProfileResponse } from "@trading-dashboard/shared";
+import type { TraderProfileResponse } from "@/lib/contracts";
 import { ChevronRight, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";

@@ -1,6 +1,6 @@
 "use client";
 
-import type { PortfolioResponse, TraderProfileResponse, TraderWindow } from "@trading-dashboard/shared";
+import type { PortfolioResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
 import { useMemo } from "react";
 import { cn } from "cn";
 

@@ -41,8 +41,12 @@ docs/
 - **ORM**: Drizzle, schema lives in `packages/shared/src/schema/db.ts` (one
   source of truth for every table in PRD §6), migrations in
   `packages/shared/drizzle/`.
-- **Auth**: no login system — a single bearer token (`API_AUTH_TOKEN`),
-  checked by a global Nest guard, everywhere except `/health`.
+- **Auth**: no account system. apps/api checks a single bearer token
+  (`API_AUTH_TOKEN`) with a global Nest guard, everywhere except `/health`.
+  That token lives only on servers: the browser calls apps/web's own
+  `/api/hl/*` route, which forwards to apps/api with the token attached.
+  apps/web itself is behind a single shared password (`WEB_PASSWORD`) —
+  see `apps/web/README.md`.
 - shadcn/ui only for now (no ReUI — see the comment in
   `apps/web/src/components/app-shell.tsx`; ReUI is paid/registry and can be
   layered in later without blocking this scaffold).
@@ -72,9 +76,10 @@ pnpm lint
 pnpm build
 ```
 
-apps/web needs its own `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_API_AUTH_TOKEN`
-(see `.env.example`) since Next only exposes `NEXT_PUBLIC_`-prefixed vars to
-the browser.
+apps/web reads four **server-only** env vars — `API_URL`, `API_AUTH_TOKEN`,
+`WEB_PASSWORD`, `WEB_SESSION_SECRET` — see `apps/web/README.md`. Never give
+apps/web a `NEXT_PUBLIC_*` copy of the api token: `NEXT_PUBLIC_` vars are
+inlined into the browser bundle.
 
 ## Deployment
 

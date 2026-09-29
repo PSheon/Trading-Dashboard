@@ -2,6 +2,24 @@ import { CHAIN_DEFAULT, traderStats } from "@trading-dashboard/shared";
 
 /** Official leaderboard (stats host, not the rate-limited info API). */
 export const LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
+/** Every vault ever created (≈9.5k, open and closed), same host. */
+export const VAULTS_URL = "https://stats-data.hyperliquid.xyz/Mainnet/vaults";
+
+const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
+
+/** `GET /Mainnet/vaults` → the set of vault addresses, lowercased. Closed
+ * vaults count too: the address is still a vault, not a trader. */
+export function parseVaults(payload: unknown): Set<string> {
+  if (!Array.isArray(payload)) throw new Error("Vault list payload is not an array");
+  const out = new Set<string>();
+  for (const entry of payload as Array<{ summary?: { vaultAddress?: unknown } } | null>) {
+    const address = entry?.summary?.vaultAddress;
+    if (typeof address !== "string") continue;
+    const lower = address.trim().toLowerCase();
+    if (ADDRESS_RE.test(lower)) out.add(lower);
+  }
+  return out;
+}
 
 interface WindowPerformance {
   pnl?: string | number | null;
@@ -29,19 +47,24 @@ function decimal(value: unknown): string {
 }
 
 /**
- * Leaderboard JSON → `trader_stats` rows, all stamped `updatedAt`.
+ * Leaderboard JSON → `trader_stats` rows, all stamped `updatedAt`, with
+ * `isVault` from `vaults` (false when not given).
  * Addresses are lowercased and de-duplicated (first wins; one INSERT … ON
  * CONFLICT can't touch the same key twice). Missing windows count as 0.
  * Rows without a valid address are dropped.
  */
-export function parseLeaderboard(payload: unknown, updatedAt: Date): TraderStatsInsert[] {
+export function parseLeaderboard(
+  payload: unknown,
+  updatedAt: Date,
+  vaults?: ReadonlySet<string>,
+): TraderStatsInsert[] {
   const rows = (payload as Partial<LeaderboardPayload> | null)?.leaderboardRows;
   if (!Array.isArray(rows)) throw new Error("Leaderboard payload has no leaderboardRows array");
 
   const out = new Map<string, TraderStatsInsert>();
   for (const row of rows) {
     const address = typeof row?.ethAddress === "string" ? row.ethAddress.trim().toLowerCase() : "";
-    if (!/^0x[0-9a-f]{40}$/.test(address) || out.has(address)) continue;
+    if (!ADDRESS_RE.test(address) || out.has(address)) continue;
 
     const windows = new Map<string, WindowPerformance>();
     for (const entry of row.windowPerformances ?? []) {
@@ -67,6 +90,7 @@ export function parseLeaderboard(payload: unknown, updatedAt: Date): TraderStats
       volumeWeek: w("week", "vlm"),
       volumeMonth: w("month", "vlm"),
       volumeAllTime: w("allTime", "vlm"),
+      isVault: vaults?.has(address) ?? false,
       updatedAt,
     });
   }
@@ -74,7 +98,7 @@ export function parseLeaderboard(payload: unknown, updatedAt: Date): TraderStats
 }
 
 /** Postgres caps one statement at 65,535 bind parameters; trader_stats has
- * 17 columns, so 2,000 rows (34,000 parameters) per INSERT stays well under. */
+ * 18 columns, so 2,000 rows (36,000 parameters) per INSERT stays well under. */
 export const UPSERT_CHUNK_ROWS = 2_000;
 
 export function chunk<T>(items: T[], size: number): T[][] {

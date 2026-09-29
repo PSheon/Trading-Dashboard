@@ -1,16 +1,29 @@
 import { readFileSync } from "node:fs";
 
-import { traderStats } from "@trading-dashboard/shared";
+import { appSettings, traderStats } from "@trading-dashboard/shared";
 import { asc, count, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { chunk, parseLeaderboard, UPSERT_CHUNK_ROWS, type LeaderboardPayload } from "../src/traders/leaderboard.js";
-import { LeaderboardIngestService, LEADERBOARD_REFRESH_MS } from "../src/traders/leaderboard-ingest.service.js";
+import { SettingsService } from "../src/settings/settings.service.js";
+import {
+  chunk,
+  LEADERBOARD_URL,
+  parseLeaderboard,
+  parseVaults,
+  UPSERT_CHUNK_ROWS,
+  VAULTS_URL,
+  type LeaderboardPayload,
+} from "../src/traders/leaderboard.js";
+import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
 import { closeTestDb, getTestDb } from "./db-test-utils.js";
 
-const sample = JSON.parse(
-  readFileSync(new URL("./fixtures/leaderboard.json", import.meta.url), "utf8"),
-) as LeaderboardPayload;
+const fixture = <T>(name: string): T =>
+  JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8")) as T;
+const sample = fixture<LeaderboardPayload>("leaderboard.json");
+/** Real `Mainnet/vaults` entries (pnls dropped): two that are on the sample
+ * leaderboard, two closed and two open ones that aren't. */
+const vaultSample = fixture<Array<{ summary: { vaultAddress: string; isClosed: boolean } }>>("vaults.json");
+const SAMPLE_VAULTS = ["0x654016a8c9fcf0c4cb7ed6078aba21f7f399f7b7", "0xc179e03922afe8fa9533d3f896338b9fb87ce0c8"];
 
 const addr = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
 
@@ -47,10 +60,16 @@ describe("parseLeaderboard — real sample", () => {
     expect(Number(row.roiMonth)).toBeCloseTo(Number(perf.get("month")!.roi), 8);
     expect(Number(row.volumeAllTime)).toBeCloseTo(Number(perf.get("allTime")!.vlm), 2);
     expect(row.updatedAt).toBe(at);
+    expect(row.isVault).toBe(false);
 
     const named = rows.filter((r) => r.displayName !== null).map((r) => r.displayName);
     expect(named).toContain("PURRINA Pro Plan");
     expect(rows.filter((r) => r.displayName === null).length).toBeGreaterThan(30);
+  });
+
+  it("flags rows whose address is in the vault list", () => {
+    const rows = parseLeaderboard(sample, at, parseVaults(vaultSample));
+    expect(rows.filter((r) => r.isVault).map((r) => r.address).sort()).toEqual(SAMPLE_VAULTS);
   });
 
   it("lowercases, de-duplicates, drops invalid addresses and zero-fills missing windows", () => {
@@ -84,18 +103,47 @@ describe("parseLeaderboard — real sample", () => {
     expect(() => parseLeaderboard({ nope: [] }, at)).toThrow(/leaderboardRows/);
   });
 
+  it("parses the vault list: lowercased, closed vaults included, junk skipped", () => {
+    const set = parseVaults([
+      ...vaultSample,
+      { summary: { vaultAddress: `0x${"CD".repeat(20)}` } },
+      { summary: { vaultAddress: "0x12" } },
+      { summary: {} },
+      null,
+    ]);
+    expect(set.size).toBe(vaultSample.length + 1);
+    expect(set.has(`0x${"cd".repeat(20)}`)).toBe(true);
+    for (const v of vaultSample) expect(set.has(v.summary.vaultAddress.toLowerCase())).toBe(true);
+    expect(vaultSample.some((v) => v.summary.isClosed)).toBe(true);
+    expect(() => parseVaults({ vaults: [] })).toThrow(/not an array/);
+  });
+
   it("chunks under Postgres' 65,535-parameter cap", () => {
-    expect(UPSERT_CHUNK_ROWS * 17).toBeLessThan(65_535);
+    expect(UPSERT_CHUNK_ROWS * 18).toBeLessThan(65_535); // 18 trader_stats columns
     expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
   });
 });
 
 describe("LeaderboardIngestService — real Postgres", () => {
   const db = getTestDb();
-  const service = new LeaderboardIngestService(db);
+  let settings: SettingsService;
+  let service: LeaderboardIngestService;
+
+  /** Routes the two stats-host URLs; `vaults` may be a failure status. */
+  function mockFetch(vaults: unknown = vaultSample, vaultStatus = 200) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === LEADERBOARD_URL) return new Response(JSON.stringify(sample), { status: 200 });
+      if (url === VAULTS_URL) return new Response(JSON.stringify(vaults), { status: vaultStatus });
+      throw new Error(`unexpected fetch ${url}`);
+    });
+  }
 
   beforeEach(async () => {
     await db.execute(sql`TRUNCATE TABLE trader_stats`);
+    await db.delete(appSettings);
+    settings = new SettingsService(db);
+    service = new LeaderboardIngestService(db, settings);
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -105,6 +153,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
   });
 
   const all = () => db.select().from(traderStats).orderBy(asc(traderStats.address));
+  const vaultRows = async () => (await all()).filter((r) => r.isVault).map((r) => r.address);
 
   it("replaces the table: upserts new values and removes rows the import didn't include", async () => {
     const t1 = new Date("2026-09-29T00:00:00Z");
@@ -128,7 +177,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
   });
 
   it("imports more rows than one statement could bind (chunked)", async () => {
-    const n = UPSERT_CHUNK_ROWS * 2 + 500; // 4,500 × 17 params > 65,535
+    const n = UPSERT_CHUNK_ROWS * 2 + 500; // 4,500 × 18 params > 65,535
     const at = new Date();
     const rows = parseLeaderboard(
       { leaderboardRows: Array.from({ length: n }, (_, i) => lbRow(addr(i + 1), i)) },
@@ -146,34 +195,76 @@ describe("LeaderboardIngestService — real Postgres", () => {
     expect(await all()).toHaveLength(1);
   });
 
-  it("refresh() fetches the leaderboard and imports it; refreshIfStale() skips a fresh table", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async () => new Response(JSON.stringify(sample), { status: 200 }));
+  it("refresh() imports the leaderboard and flags vaults from the vault list", async () => {
+    const fetchSpy = mockFetch();
     const result = await service.refresh();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(String(fetchSpy.mock.calls[0][0])).toBe("https://stats-data.hyperliquid.xyz/Mainnet/leaderboard");
-    expect(result.rows).toBe(sample.leaderboardRows.length);
+    expect(fetchSpy.mock.calls.map((c) => String(c[0])).sort()).toEqual([LEADERBOARD_URL, VAULTS_URL].sort());
+    expect(result).toMatchObject({ rows: sample.leaderboardRows.length, vaults: 2 });
     expect(await all()).toHaveLength(sample.leaderboardRows.length);
-
-    expect(await service.refreshIfStale()).toBeNull();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    // 16 minutes later it's stale again.
-    await service.refreshIfStale(Date.now() + LEADERBOARD_REFRESH_MS + 60_000);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(await vaultRows()).toEqual(SAMPLE_VAULTS);
+    // Off-leaderboard vaults are answered from the in-memory set.
+    expect(service.isVault(vaultSample.at(-1)!.summary.vaultAddress.toLowerCase())).toBe(true);
+    expect(service.isVault(addr(1))).toBe(false);
   });
 
-  it("concurrent refreshes share one fetch; a failed fetch rejects without touching the table", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async () => new Response(JSON.stringify(sample), { status: 200 }));
+  it("keeps the previous vault flags when the vault list fails", async () => {
+    mockFetch();
+    await service.refresh();
+    vi.restoreAllMocks();
+
+    // A fresh process (no in-memory list) whose vault fetch fails.
+    const restarted = new LeaderboardIngestService(db, settings);
+    mockFetch("oops", 503);
+    const result = await restarted.refresh();
+    expect(result.vaults).toBeNull();
+    expect(await vaultRows()).toEqual(SAMPLE_VAULTS);
+
+    // A malformed list counts as a failure too.
+    vi.restoreAllMocks();
+    mockFetch({ not: "an array" });
+    expect((await restarted.refresh()).vaults).toBeNull();
+    expect(await vaultRows()).toEqual(SAMPLE_VAULTS);
+  });
+
+  it("new rows use this process's last vault list when the current fetch fails", async () => {
+    mockFetch();
+    await service.refresh();
+    await db.execute(sql`DELETE FROM trader_stats WHERE is_vault`);
+    vi.restoreAllMocks();
+    mockFetch("oops", 500);
+    await service.refresh();
+    expect(await vaultRows()).toEqual(SAMPLE_VAULTS);
+  });
+
+  it("imports when older than discovery.leaderboardRefreshMinutes (default 15), read on every check", async () => {
+    const fetchSpy = mockFetch();
+    const leaderboardFetches = () => fetchSpy.mock.calls.filter((c) => String(c[0]) === LEADERBOARD_URL).length;
+    expect(await service.refreshIfStale()).not.toBeNull(); // empty table
+    expect(leaderboardFetches()).toBe(1);
+
+    const t = Date.now();
+    expect(await service.refreshIfStale(t + 14 * 60_000)).toBeNull();
+    expect(await service.refreshIfStale(t + 16 * 60_000)).not.toBeNull();
+    expect(leaderboardFetches()).toBe(2);
+
+    await settings.patch({ discovery: { leaderboardRefreshMinutes: 60 } }, null);
+    const t2 = Date.now();
+    expect(await service.refreshIfStale(t2 + 30 * 60_000)).toBeNull();
+    expect(await service.refreshIfStale(t2 + 61 * 60_000)).not.toBeNull();
+    expect(leaderboardFetches()).toBe(3);
+  });
+
+  it("concurrent refreshes share one fetch; a failed leaderboard rejects without touching the table", async () => {
+    const fetchSpy = mockFetch();
     await Promise.all([service.refresh(), service.refresh()]);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls.filter((c) => String(c[0]) === LEADERBOARD_URL)).toHaveLength(1);
 
     fetchSpy.mockImplementation(async () => new Response("bad gateway", { status: 502 }));
     await expect(service.refresh()).rejects.toThrow(/502/);
-    // The scheduled handler logs instead of throwing.
-    await expect(service.onSchedule()).resolves.toBeUndefined();
+    // The scheduled tick logs instead of throwing; make the table stale first.
+    await settings.patch({ discovery: { leaderboardRefreshMinutes: 5 } }, null);
+    await db.execute(sql`UPDATE trader_stats SET updated_at = now() - interval '1 hour'`);
+    await expect(service.onTick()).resolves.toBeUndefined();
     expect(await all()).toHaveLength(sample.leaderboardRows.length);
   });
 });

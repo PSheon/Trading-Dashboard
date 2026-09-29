@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 
 import { BadGatewayException } from "@nestjs/common";
-import { actions, fills, leaders, userFavorites, users } from "@trading-dashboard/shared";
+import { actions, appSettings, fills, leaders, userFavorites, users } from "@trading-dashboard/shared";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RoundTripService } from "../src/analytics/round-trip.service.js";
 import type { RequestUser } from "../src/common/auth/current-user.js";
+import { SettingsService } from "../src/settings/settings.service.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type {
   HlClearinghouseStateResponse,
@@ -17,7 +18,13 @@ import type {
 import { parseLeaderboard } from "../src/traders/leaderboard.js";
 import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
 import { TradersController } from "../src/traders/traders.controller.js";
-import { downsample, portfolioKey } from "../src/traders/traders.mappers.js";
+import {
+  downsample,
+  portfolioKey,
+  portfolioMetrics,
+  portfolioSeries,
+  toPortfolioResponse,
+} from "../src/traders/traders.mappers.js";
 import { TradersService } from "../src/traders/traders.service.js";
 import { TtlCache } from "../src/traders/ttl-cache.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -32,6 +39,8 @@ const A = `0x${"a1".repeat(20)}`;
 const B = `0x${"b2".repeat(20)}`;
 const C = `0x${"c3".repeat(20)}`;
 const D = `0x${"d4".repeat(20)}`;
+/** A vault: biggest account value and month PnL, hidden by default. */
+const V = `0x${"f6".repeat(20)}`;
 const UNKNOWN = `0x${"e5".repeat(20)}`;
 
 const mainState: HlClearinghouseStateResponse = {
@@ -125,7 +134,8 @@ async function expectStatus(promise: Promise<unknown> | (() => unknown), status:
 
 describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   const db = getTestDb();
-  const ingest = new LeaderboardIngestService(db);
+  const settings = new SettingsService(db);
+  const ingest = new LeaderboardIngestService(db, settings);
   let info: ReturnType<typeof fakeInfo>;
   let service: TradersService;
   let controller: TradersController;
@@ -134,12 +144,15 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   beforeEach(async () => {
     await truncateAll(db);
     await db.execute(sql`TRUNCATE TABLE trader_stats, user_favorites, users RESTART IDENTITY CASCADE`);
+    await db.delete(appSettings);
+    await settings.patch({ discovery: {} }, null); // resets the 30 s settings cache to the defaults
     info = fakeInfo();
     service = new TradersService(
       db,
       info as unknown as HyperliquidInfoClient,
       new RoundTripService(db),
       ingest,
+      settings,
     );
     controller = new TradersController(service);
 
@@ -151,9 +164,11 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
             statsRow(B, { av: 50_000, day: 30, week: 10, month: 300, roiMonth: 3, vlmMonth: 40 }),
             statsRow(C, { av: 10, name: "alphabet", day: 1, week: 50, month: 200, roiMonth: -0.1, vlmMonth: 30 }),
             statsRow(D, { av: 2_000_000, name: "Delta_1", day: -5, week: -20, month: -10, roiMonth: 0.2, vlmMonth: 20 }),
+            statsRow(V, { av: 9_000_000, name: "HLP-like", day: 9, week: 900, month: 900, roiMonth: 0.1, vlmMonth: 1 }),
           ],
         },
         IMPORTED_AT,
+        new Set([V]),
       ),
       IMPORTED_AT,
     );
@@ -387,6 +402,9 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         accountValue: [],
         pnl: [],
         volume: 0,
+        maxDrawdownUsd: 0,
+        maxDrawdownPct: null,
+        sharpe: null,
       });
     });
   });
@@ -507,6 +525,147 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(res[0].tid).toBe("80");
     });
   });
+  // --- Stage 2 §10: vaults, sample size, warming ------------------------------
+
+  describe("vaults", () => {
+    it("hides vaults by default (discovery.hideVaults), overridable per query and by the admin", async () => {
+      const byDefault = await controller.list({}, null);
+      expect(addresses(byDefault)).toEqual([B, C, A, D]);
+      expect(byDefault.total).toBe(4);
+      expect(byDefault.items.every((i) => i.isVault === false)).toBe(true);
+
+      const shown = await controller.list({ hideVaults: "false" }, null);
+      expect(addresses(shown)).toEqual([V, B, C, A, D]);
+      expect(shown.items[0].isVault).toBe(true);
+
+      await settings.patch({ discovery: { hideVaults: false } }, null);
+      expect(addresses(await controller.list({}, null))[0]).toBe(V);
+      expect(addresses(await controller.list({ hideVaults: "true" }, null))).not.toContain(V);
+
+      await expectStatus(() => controller.list({ hideVaults: "yes" }, null), 400);
+    });
+
+    it("flags a vault's profile from trader_stats, or from the vault list for addresses not on the leaderboard", async () => {
+      expect((await controller.profile(V, null)).isVault).toBe(true);
+      expect((await controller.profile(A, null)).isVault).toBe(false);
+
+      const spy = vi.spyOn(ingest, "isVault").mockImplementation((a) => a === UNKNOWN);
+      expect((await controller.profile(UNKNOWN, null)).isVault).toBe(true);
+      expect(spy).toHaveBeenCalledWith(UNKNOWN);
+      spy.mockRestore();
+    });
+  });
+
+  describe("profile sample", () => {
+    const hl = (hoursAgo: number, coin = "BTC", tid = Math.floor(Math.random() * 1e12)): HlUserFill => ({
+      ...userFillsFixture[0],
+      coin,
+      tid,
+      time: Date.now() - hoursAgo * 3_600_000,
+    });
+
+    it("counts an untracked address's perp fills in 30 days from userFills, shared with the fills tab", async () => {
+      info.userFills.mockResolvedValue([
+        hl(1),
+        hl(2, "xyz:TSLA"),
+        hl(3, "@107"), // spot
+        hl(4, "PURR/USDC"), // spot
+        hl(24 * 29),
+        hl(24 * 31), // outside the window
+      ]);
+      const res = await controller.profile(UNKNOWN, null);
+      expect(res.sample).toEqual({ fills30d: 3, capped: false, lowSample: true });
+      await controller.fills(UNKNOWN, undefined);
+      expect(info.userFills).toHaveBeenCalledTimes(1);
+      expect(info.userFills.mock.calls[0]).toEqual([UNKNOWN, "background", 0]);
+    });
+
+    it("is capped when userFills hit 2,000 and the oldest is still inside the window", async () => {
+      const full = Array.from({ length: 2000 }, (_, i) => hl(i * 0.1, "ETH", i + 1)); // all within ~8 days
+      info.userFills.mockResolvedValueOnce(full);
+      const capped = await controller.profile(UNKNOWN, null);
+      expect(capped.sample).toEqual({ fills30d: 2000, capped: true, lowSample: false });
+
+      const reachesPast = [...full.slice(1), hl(24 * 40, "ETH", 99_999)];
+      info.userFills.mockResolvedValueOnce(reachesPast);
+      const other = `0x${"07".repeat(20)}`;
+      expect((await controller.profile(other, null)).sample).toEqual({ fills30d: 1999, capped: false, lowSample: false });
+
+      const short = full.slice(0, 1999);
+      info.userFills.mockResolvedValueOnce(short);
+      const third = `0x${"08".repeat(20)}`;
+      expect((await controller.profile(third, null)).sample.capped).toBe(false);
+    });
+
+    it("counts our own fills for a tracked address and applies the admin's threshold per request", async () => {
+      await db.insert(leaders).values({ address: C });
+      const ago = (h: number) => new Date(Date.now() - h * 3_600_000);
+      const row = (tid: bigint, address: string, coin: string, ts: Date) => ({
+        tid,
+        address,
+        coin,
+        side: "B",
+        dir: "Open Long",
+        px: "1",
+        sz: "1",
+        fee: "0",
+        closedPnl: "0",
+        ts,
+        raw: {},
+      });
+      await db.insert(fills).values([
+        row(1n, C, "BTC", ago(1)),
+        row(2n, C, "xyz:GOLD", ago(100)),
+        row(3n, C, "ETH", ago(24 * 29)),
+        row(4n, C, "@107", ago(2)), // spot
+        row(5n, C, "BTC", ago(24 * 31)), // too old
+        row(1n, D, "BTC", ago(1)), // someone else
+      ]);
+      const res = await controller.profile(C, null);
+      expect(res.tracked).toBe(true);
+      expect(res.sample).toEqual({ fills30d: 3, capped: false, lowSample: true });
+      expect(info.userFills).not.toHaveBeenCalled();
+
+      await settings.patch({ discovery: { lowSampleThreshold: 3 } }, null);
+      expect((await controller.profile(C, null)).sample.lowSample).toBe(false);
+      expect(info.clearinghouseState).toHaveBeenCalledTimes(2); // still the cached profile
+    });
+  });
+
+  describe("home warm-up", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("warms the top 24 by month PnL (no vaults while hidden) so card sparklines hit the cache for 15 min", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      expect(await service.homeAddresses()).toEqual([B, C, A, D]);
+      expect(await service.warmHome()).toBe(4);
+      expect(info.portfolio).toHaveBeenCalledTimes(4);
+      for (const call of info.portfolio.mock.calls) expect(call.slice(1)).toEqual(["background", 1]);
+
+      vi.setSystemTime(Date.now() + 12 * 60_000); // past the normal 10 min TTL
+      const res = await controller.sparklines({ addresses: [A, B, C, D].join(","), window: "month" });
+      expect(Object.values(res).every((s) => s.length > 0)).toBe(true);
+      expect(info.portfolio).toHaveBeenCalledTimes(4);
+
+      // A warm run re-fetches even while entries are fresh.
+      await service.warmHome();
+      expect(info.portfolio).toHaveBeenCalledTimes(8);
+
+      await settings.patch({ discovery: { hideVaults: false } }, null);
+      expect((await service.homeAddresses())[0]).toBe(V);
+    });
+
+    it("uses the admin's featured list when set, and survives a failing address", async () => {
+      await settings.patch({ discovery: { featuredAddresses: [D, A.toUpperCase().replace("0X", "0x")] } }, null);
+      expect(await service.homeAddresses()).toEqual([D, A]);
+      info.portfolio.mockRejectedValueOnce(new Error("boom"));
+      expect(await service.warmHome()).toBe(1);
+      await expect(service.onWarmSchedule()).resolves.toBeUndefined();
+    });
+  });
+
 });
 
 describe("TtlCache", () => {
@@ -541,11 +700,95 @@ describe("TtlCache", () => {
     expect(await cache.get("f", async () => "ok")).toBe("ok");
   });
 
+  it("refresh() reloads a fresh key with its own TTL and joins a load in flight", async () => {
+    let now = 0;
+    const cache = new TtlCache<number>(10_000, 100, () => now);
+    await cache.get("k", async () => 1);
+    expect(await cache.refresh("k", async () => 2, 15_000)).toBe(2);
+    now = 14_999;
+    expect(cache.peek("k")).toEqual({ value: 2 });
+    now = 15_000;
+    expect(cache.peek("k")).toBeUndefined();
+
+    let release!: (v: number) => void;
+    const slow = vi.fn(() => new Promise<number>((resolve) => (release = resolve)));
+    const a = cache.get("j", slow);
+    const b = cache.refresh("j", async () => 99);
+    release(3);
+    expect(await Promise.all([a, b])).toEqual([3, 3]);
+    expect(slow).toHaveBeenCalledTimes(1);
+  });
+
   it("stays within its size bound, dropping the oldest", async () => {
     const cache = new TtlCache<number>(60_000, 3);
     for (let i = 0; i < 5; i++) await cache.get(`k${i}`, async () => i);
     expect(cache.size).toBe(3);
     expect(cache.peek("k0")).toBeUndefined();
     expect(cache.peek("k4")).toEqual({ value: 4 });
+  });
+});
+
+describe("portfolioMetrics — hand-computed", () => {
+  const H = 3_600_000;
+  const T0 = 1_790_000_000_000;
+
+  it("hourly series: drawdown from the 150 peak, Sharpe annualized by 8,760 periods", () => {
+    // t:        0h    1h    2h    3h    4h
+    // pnl:       0   100    50   150    30
+    // account: 1000  1100  1050  1150  1030
+    const pnl: Array<[number, number]> = [0, 100, 50, 150, 30].map((v, i) => [T0 + i * H, v]);
+    const av: Array<[number, number]> = [1000, 1100, 1050, 1150, 1030].map((v, i) => [T0 + i * H, v]);
+    const m = portfolioMetrics(pnl, av);
+
+    // Peaks 100→50 (fall 50) and 150→30 (fall 120): max 120, from the 150
+    // peak where account value was 1150.
+    expect(m.maxDrawdownUsd).toBe(120);
+    expect(m.maxDrawdownPct).toBeCloseTo(120 / 1150, 12); // 0.104347826…
+
+    // Returns: 100/1000 = 0.1, −50/1100 = −0.0454545…, 100/1050 = 0.0952380…,
+    // −120/1150 = −0.1043478…; mean 0.0113589309…, sample stdev
+    // 0.1024837842…; × √(365·24) → 10.3737161021.
+    expect(m.sharpe).toBeCloseTo(10.3737161021, 8);
+  });
+
+  it("daily series: skips returns whose prior account value is 0; annualized by 365", () => {
+    const D = 24 * H;
+    const pnl: Array<[number, number]> = [0, 10, -5, 20, 20, 40].map((v, i) => [T0 + i * D, v]);
+    const av: Array<[number, number]> = [0, 500, 490, 520, 520, 540].map((v, i) => [T0 + i * D, v]);
+    const m = portfolioMetrics(pnl, av);
+    // Peak 10 (account 500) → −5: fall 15, 3%.
+    expect(m.maxDrawdownUsd).toBe(15);
+    expect(m.maxDrawdownPct).toBeCloseTo(0.03, 12);
+    // Returns (first skipped: prior account 0): −15/500 = −0.03, 25/490,
+    // 0/520 = 0, 20/520; mean 0.0148704867, stdev 0.0369587450; × √365.
+    expect(m.sharpe).toBeCloseTo(7.6869560544, 8);
+  });
+
+  it("returns 0 / null at the edges", () => {
+    const pts = (vals: number[]): Array<[number, number]> => vals.map((v, i) => [T0 + i * H, v]);
+    // Empty.
+    expect(portfolioMetrics([], [])).toEqual({ maxDrawdownUsd: 0, maxDrawdownPct: null, sharpe: null });
+    // Monotonic up: no drawdown (0 % of the first point's account), fewer than 5 points → no Sharpe.
+    expect(portfolioMetrics(pts([0, 1, 2, 3]), pts([100, 101, 102, 103]))).toEqual({
+      maxDrawdownUsd: 0,
+      maxDrawdownPct: 0,
+      sharpe: null,
+    });
+    // Constant returns: zero variance → null Sharpe.
+    expect(portfolioMetrics(pts([0, 10, 20, 30, 40]), pts([100, 100, 100, 100, 100])).sharpe).toBeNull();
+    // Account value ≤ 0 at the peak → null %.
+    expect(portfolioMetrics(pts([5, 0]), pts([0, -5])).maxDrawdownPct).toBeNull();
+    // Account series sampled at other times: the latest earlier value is used.
+    const m = portfolioMetrics(pts([0, 100, 40]), [[T0 + 0.5 * H, 2000]]);
+    expect(m.maxDrawdownUsd).toBe(60);
+    expect(m.maxDrawdownPct).toBeCloseTo(0.03, 12);
+  });
+
+  it("the portfolio endpoint returns the metrics of the window it serves", async () => {
+    const series = portfolioSeries(portfolioFixture, "week", "all");
+    const res = toPortfolioResponse(portfolioFixture, "week", "all");
+    expect(res).toMatchObject(portfolioMetrics(series.pnl, series.accountValue));
+    expect(res.maxDrawdownUsd).toBeGreaterThan(0);
+    expect(res.sharpe).not.toBeNull();
   });
 });

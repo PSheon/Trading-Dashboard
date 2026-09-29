@@ -18,12 +18,21 @@ export class TtlCache<V> {
   get(key: string, load: () => Promise<V>): Promise<V> {
     const hit = this.peek(key);
     if (hit !== undefined) return Promise.resolve(hit.value);
-    const pending = this.inflight.get(key);
-    if (pending) return pending;
+    return this.inflight.get(key) ?? this.start(key, load);
+  }
+
+  /** Reloads `key` even if fresh (joining a load already in flight) and
+   * keeps the result for `ttlMs` (default: the cache's TTL). Used to warm
+   * entries before they expire. */
+  refresh(key: string, load: () => Promise<V>, ttlMs = this.ttlMs): Promise<V> {
+    return this.inflight.get(key) ?? this.start(key, load, ttlMs);
+  }
+
+  private start(key: string, load: () => Promise<V>, ttlMs = this.ttlMs): Promise<V> {
     const promise = (async () => {
       try {
         const value = await load();
-        this.set(key, value);
+        this.set(key, value, ttlMs);
         return value;
       } finally {
         this.inflight.delete(key);
@@ -45,9 +54,9 @@ export class TtlCache<V> {
     return { value: entry.value };
   }
 
-  set(key: string, value: V): void {
+  set(key: string, value: V, ttlMs = this.ttlMs): void {
     this.entries.delete(key);
-    this.entries.set(key, { value, expiresAt: this.now() + this.ttlMs });
+    this.entries.set(key, { value, expiresAt: this.now() + ttlMs });
     if (this.entries.size <= this.maxEntries) return;
     const now = this.now();
     for (const [k, e] of this.entries) if (e.expiresAt <= now) this.entries.delete(k);

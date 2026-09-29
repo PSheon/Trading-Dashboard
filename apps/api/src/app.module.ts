@@ -6,6 +6,7 @@ import { ApiModule } from "./api/api.module.js";
 import { AuthGuard } from "./common/auth/auth.guard.js";
 import { DbModule } from "./db/db.module.js";
 import { ImportModule } from "./import/import.module.js";
+import { InsightsModule } from "./insights/insights.module.js";
 import { NotifyModule } from "./notify/notify.module.js";
 import { RulesModule } from "./rules/rules.module.js";
 import { SchedulerModule } from "./scheduler/scheduler.module.js";
@@ -28,6 +29,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     RulesModule,
     NotifyModule,
     TradersModule,
+    InsightsModule,
   ],
   providers: [
     {

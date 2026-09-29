@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# build outputs
+dist/
+.next/
+out/
+build/
+.turbo/
+*.tsbuildinfo
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ide
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# playwright / test artifacts (unrelated stray files)
+.playwright-mcp/

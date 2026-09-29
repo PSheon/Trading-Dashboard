@@ -24,7 +24,7 @@ it("preserves error code, details and normalized field paths", async () => {
   await expect(api.get("/me")).rejects.toMatchObject({ code: "alert_limit", details: { limit: 3 }, message: "Limit (rows.0.address: Invalid)" });
 });
 it("fixtures obey the same transport schemas as network responses", async () => {
-  for (const path of ["/traders", `/traders/${initialFavorites[0]}`, `/traders/${initialFavorites[0]}/fills`, "/actions", "/alerts", "/health", "/me", "/me/favorites", "/me/telegram", "/insights/crowd", "/settings", "/admin/users", "/admin/settings", "/admin/overview", "/admin/revenue"]) {
+  for (const path of ["/traders", `/traders/${initialFavorites[0]}`, `/traders/${initialFavorites[0]}/fills`, `/traders/${initialFavorites[0]}/analytics?window=30d`, `/traders/${initialFavorites[0]}/trades?status=closed&limit=5`, "/actions", "/alerts", "/health", "/me", "/me/favorites", "/me/telegram", "/insights/crowd", "/settings", "/admin/users", "/admin/settings", "/admin/overview", "/admin/revenue"]) {
     const result = await fixtureRequest("GET", path, undefined, "fixture-admin");
     const parsed = findHttpContract("GET", path)!.response.safeParse(result);
     expect(parsed.success, `${path}: ${parsed.success ? "" : parsed.error.message}`).toBe(true);

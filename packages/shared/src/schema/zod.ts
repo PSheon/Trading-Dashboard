@@ -579,7 +579,9 @@ export const traderProfileResponseSchema = z.object({
     })
     .optional(),
   favorite: z.boolean(),
-  /** From this system's own records; null when not tracked. */
+  /** @deprecated Tracked addresses only, from the actions table. The web
+   * reads GET /traders/:address/analytics (any address) instead; kept for
+   * API clients for one step. */
   analytics: z
     .object({
       winRate30d: z.number().nullable(),
@@ -717,6 +719,208 @@ export const traderFillSchema = z.object({
   twapId: z.number().int().nullable().optional(),
 });
 export type TraderFill = z.infer<typeof traderFillSchema>;
+
+// --- trade analytics (any address) -----------------------------------------
+
+/** Window of the trade analytics: every closed trade in coverage, or those
+ * closed in the last 30 / 7 / 1 days (the trader page's windows). */
+export const tradeWindowSchema = z.enum(["all", "30d", "7d", "1d"]);
+export type TradeWindow = z.infer<typeof tradeWindowSchema>;
+
+/** CopyDog's trading styles, from the median hold of closed trades:
+ * scalp < 15 min ≤ intraday < 24 h ≤ swing < 14 days ≤ position. */
+export const tradingStyleSchema = z.enum(["scalp", "intraday", "swing", "position"]);
+export type TradingStyle = z.infer<typeof tradingStyleSchema>;
+
+/** CopyDog's PnL cohorts on Hyperliquid's leaderboard all-time PnL: ≥ $1M,
+ * ≥ $100K, > $0, $0 (break even), > −$100K, > −$1M, else rekt. */
+export const pnlTierSchema = z.enum([
+  "extremely_profitable",
+  "very_profitable",
+  "profitable",
+  "break_even",
+  "unprofitable",
+  "very_unprofitable",
+  "rekt",
+]);
+export type PnlTier = z.infer<typeof pnlTierSchema>;
+
+/** CopyDog's size cohorts on perp account value (Σ clearinghouse
+ * `marginSummary.accountValue`, not spot or staking): apex ≥ $5M, whale ≥
+ * $1M, large ≥ $100K, medium ≥ $10K, else small. */
+export const sizeTierSchema = z.enum(["apex", "whale", "large", "medium", "small"]);
+export type SizeTier = z.infer<typeof sizeTierSchema>;
+
+/** One round trip: a coin's position from leaving 0 to returning to 0 (or
+ * flipping). Open trips have no exit yet. */
+export const roundTripSchema = z.object({
+  /** The tid of its first fill we hold, negative for a partial trade;
+   * unique per address. */
+  id: z.string(),
+  coin: z.string(),
+  side: z.enum(["long", "short"]),
+  status: z.enum(["open", "closed"]),
+  entryTime: z.coerce.date(),
+  exitTime: z.coerce.date().nullable(),
+  /** Volume-weighted over every fill that grew the position (a partial
+   * trade's unseen part priced from its first closing fill). */
+  entryPx: z.number(),
+  /** Volume-weighted over every fill that shrank it; null before any. */
+  exitPx: z.number().nullable(),
+  /** Σ every fill that grew the position, in coins (CopyDog's `size`). */
+  size: z.number(),
+  /** size × (entryPx + exitPx), USD: CopyDog's 名義價值 column. */
+  notional: z.number(),
+  /** size × entryPx, USD: what CopyDog sums as a coin's volume. */
+  volume: z.number(),
+  /** Closed: exit − entry; open: so far. */
+  holdSeconds: z.number(),
+  /** Σ closedPnl (Hyperliquid's, before fees). */
+  realizedPnl: z.number(),
+  fees: z.number(),
+  /** Funding paid (−) or received (+) over the hold; null when the hold
+   * started before funding coverage (`coverage.fundingFrom`). Not in
+   * `netPnl`, as on CopyDog. */
+  funding: z.number().nullable(),
+  /** realizedPnl − fees. Decides win/loss. */
+  netPnl: z.number(),
+  liquidated: z.boolean(),
+  /** Some of its fills were TWAP slices. */
+  twap: z.boolean(),
+  fills: z.number().int(),
+  /** Already open at the first fill we hold: the real open time is before
+   * `entryTime` (CopyDog shows "before …" and "> duration"). */
+  partial: z.boolean(),
+  /** A partial trade not closed from yet: `entryPx` covers only the fills
+   * we hold (CopyDog's "≈"). */
+  entryApprox: z.boolean(),
+});
+export type RoundTrip = z.infer<typeof roundTripSchema>;
+
+/** What history the analytics are based on. */
+export const tradeCoverageSchema = z.object({
+  /** "tracked": our own fills table; "hyperliquid": Hyperliquid's fill
+   * history, read for this page. */
+  source: z.enum(["tracked", "hyperliquid"]),
+  /** Earliest fill read; null when there are none. */
+  from: z.coerce.date().nullable(),
+  /** Older history exists that isn't included (Hyperliquid's retention,
+   * the lookback, or a position already open at `from`): the UI says
+   * "based on trades since `from`". */
+  truncated: z.boolean(),
+  /** Funding is included for trades opened on or after this; null until
+   * it has been read. */
+  fundingFrom: z.coerce.date().nullable(),
+  /** Last fully read funding timestamp; amounts can be partial after it. */
+  fundingThrough: z.coerce.date().nullable(),
+  /** Fills behind the trades. */
+  fills: z.number().int(),
+});
+export type TradeCoverage = z.infer<typeof tradeCoverageSchema>;
+
+/** One coin's closed trades (CopyDog's `byAsset`). */
+export const tradeCoinSchema = z.object({
+  coin: z.string(),
+  trades: z.number().int(),
+  wins: z.number().int(),
+  losses: z.number().int(),
+  /** Σ size × entry price. */
+  volume: z.number(),
+  netPnl: z.number(),
+  winRate: z.number(),
+});
+export type TradeCoin = z.infer<typeof tradeCoinSchema>;
+
+export const tradeSummarySchema = z.object({
+  /** Closed trades in the window (by exit time). */
+  trades: z.number().int(),
+  wins: z.number().int(),
+  losses: z.number().int(),
+  /** wins ÷ trades (net PnL > 0); null without trades. */
+  winRate: z.number().nullable(),
+  avgHoldSeconds: z.number().nullable(),
+  medianHoldSeconds: z.number().nullable(),
+  /** Σ winning net PnL ÷ |Σ losing net PnL|; null without a loss. */
+  profitFactor: z.number().nullable(),
+  realizedPnl: z.number(),
+  fees: z.number(),
+  netPnl: z.number(),
+  /** Σ size × entry price of the window's closed trades. */
+  volume: z.number(),
+  /** Open trades now (not window-dependent). */
+  openTrades: z.number().int(),
+  /** Up to 10 each: closed winners by net PnL, largest first; losers,
+   * largest loss first. */
+  best: z.array(roundTripSchema),
+  worst: z.array(roundTripSchema),
+  /** Every coin with a closed trade in the window, by net PnL (highest
+   * first). CopyDog's rail "most traded" sorts these by volume, its 表現
+   * tab by trade count. */
+  coins: z.array(tradeCoinSchema),
+});
+export type TradeSummary = z.infer<typeof tradeSummarySchema>;
+
+export const traderClassificationSchema = z.object({
+  /** From the median hold of all closed trades in coverage; null without
+   * any. */
+  style: tradingStyleSchema.nullable(),
+  /** From `allTimePnl`; null when it couldn't be read. */
+  pnlTier: pnlTierSchema.nullable(),
+  /** From `perpAccountValue`; null when it couldn't be read. */
+  sizeTier: sizeTierSchema.nullable(),
+  /** Hyperliquid's leaderboard all-time PnL (what CopyDog tiers on); for an
+   * address not on the leaderboard, its portfolio's all-time PnL. */
+  allTimePnl: z.number().nullable(),
+  /** Perp account value summed over dexes (CopyDog's `accountValue`). */
+  perpAccountValue: z.number().nullable(),
+});
+export type TraderClassification = z.infer<typeof traderClassificationSchema>;
+
+/** GET /traders/:address/analytics?window= — round-trip statistics for any
+ * address. Served from the store; a cold address answers 503 busy while its
+ * history is read, then the retry finds it. */
+export const traderAnalyticsQuerySchema = z.object({ window: tradeWindowSchema.default("all") });
+export type TraderAnalyticsQuery = z.infer<typeof traderAnalyticsQuerySchema>;
+
+export const traderAnalyticsResponseSchema = z.object({
+  address: z.string(),
+  window: tradeWindowSchema,
+  summary: tradeSummarySchema,
+  classification: traderClassificationSchema,
+  coverage: tradeCoverageSchema,
+  computedAt: z.coerce.date(),
+  /** Older than the staleness window; a refresh is running. */
+  refreshing: z.boolean(),
+});
+export type TraderAnalyticsResponse = z.infer<typeof traderAnalyticsResponseSchema>;
+
+/** GET /traders/:address/trades?status=&limit=&cursor= — the round-trip
+ * ledger, latest first by exit (open trades by entry), as CopyDog sorts. */
+export const traderTradesQuerySchema = z.object({
+  status: z.enum(["all", "closed", "open"]).default("all"),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  /** `nextCursor` of the previous page. */
+  cursor: z.string().max(38).regex(/^\d+_-?\d+$/).refine(value => {
+    const [ms, tid] = value.split("_");
+    if (ms === undefined || tid === undefined) return false;
+    const time = Number(ms);
+    try {
+      const id = BigInt(tid);
+      return Number.isSafeInteger(time) && time >= 0 && time <= 8_640_000_000_000_000
+        && id >= -(2n ** 63n) && id <= 2n ** 63n - 1n;
+    } catch { return false; }
+  }, "Invalid trade cursor").optional(),
+});
+export type TraderTradesQuery = z.infer<typeof traderTradesQuerySchema>;
+
+export const traderTradesResponseSchema = z.object({
+  address: z.string(),
+  items: z.array(roundTripSchema),
+  nextCursor: z.string().nullable(),
+  coverage: tradeCoverageSchema,
+  computedAt: z.coerce.date(),
+});
+export type TraderTradesResponse = z.infer<typeof traderTradesResponseSchema>;
 
 // --- favorites (signed in) --------------------------------------------------
 

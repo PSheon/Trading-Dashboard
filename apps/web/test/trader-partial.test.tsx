@@ -6,6 +6,8 @@ import { TraderView } from "../src/components/trader/trader-view";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
 vi.mock("../src/lib/queries", () => ({
   useTraderProfile: () => ({ isError: true, error: new Error("Profile unavailable"), refetch() {} }),
+  isComputing: () => false,
+  useTraderAnalytics: () => ({ data: undefined }),
   useTraderActivity: () => ({ data: undefined }),
   usePortfolio: () => ({ data: { pnl: [[1, 42]] }, isPending: false }),
   useSiteSettings: () => ({ data: undefined }),
@@ -14,7 +16,7 @@ vi.mock("../src/lib/use-live-trader", () => ({ useLiveTrader: () => ({ profile: 
 vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null }));
 vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => null }));
 vi.mock("../src/components/trader/activity-tabs", () => ({ ActivityTabs: () => null }));
-vi.mock("../src/components/trader/performance", () => ({ KpiTiles: () => null, windowRoi: () => null,
+vi.mock("../src/components/trader/performance", () => ({ TRADE_WINDOW: { allTime: "all" }, KpiTiles: () => null, windowRoi: () => null,
   PerformanceChart: () => <div>Available performance history</div>,
 }));
 it("keeps independent performance history visible when required profile data fails", () => {

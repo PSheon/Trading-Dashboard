@@ -24,6 +24,8 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/traders/:address/portfolio` | 200 | public |
 | GET | `/traders/:address/activity` | 200 | public |
 | GET | `/traders/:address/fills` | 200 | public |
+| GET | `/traders/:address/analytics` | 200 | public; 503 busy while a cold address computes |
+| GET | `/traders/:address/trades` | 200 | public; 503 busy while a cold address computes |
 | GET | `/me` | 200 | user |
 | PATCH | `/me` | 200 | user |
 | GET | `/me/favorites` | 200 | user |

@@ -9,7 +9,7 @@ import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.
 import type { HlUserFill, HlUserFundingEntry } from "../src/hyperliquid/types.js";
 import { TradeAnalyticsController } from "../src/traders/trade-analytics.controller.js";
 import { TradeAnalyticsRepository } from "../src/traders/trade-analytics.repository.js";
-import { STALE_MS, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
+import { STALE_MS, MAX_CONCURRENT, MAX_WAITING, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
 import { PAGE_DEADLINE_MS } from "../src/traders/traders.controller.js";
 import type { TradersService } from "../src/traders/traders.service.js";
 import { toFillRow } from "../src/watcher/fill-row.js";
@@ -78,8 +78,8 @@ describe("trade analytics for any address", () => {
     userFillsByTime: vi.fn(async (_address: string, start: number, end?: number) =>
       history.filter((f) => !f.twapId && f.time >= start && (end === undefined || f.time <= end)).sort((a, b) => a.time - b.time),
     ),
-    userTwapSliceFillsByTime: vi.fn(async (_address: string, start: number) =>
-      history.filter((f) => f.twapId && f.time >= start).map((f) => ({ fill: { ...f, twapId: null }, twapId: f.twapId! })),
+    userTwapSliceFillsByTime: vi.fn(async (_address: string, start: number, end?: number) =>
+      history.filter((f) => f.twapId && f.time >= start && (end === undefined || f.time <= end)).map((f) => ({ fill: { ...f, twapId: null }, twapId: f.twapId! })),
     ),
     clearinghouseState: vi.fn(async (_address: string, dex?: string) => ({
       time: Date.now(),
@@ -99,7 +99,7 @@ describe("trade analytics for any address", () => {
     }),
     rawPortfolio: vi.fn(async () => portfolio),
     portfolioCache: { peek: () => undefined },
-    profileCache: { peek: () => undefined },
+    profileCache: { peek: vi.fn<() => unknown>(() => undefined) },
     userFillsCache: { peek: () => undefined },
     twapFillsCache: { peek: () => undefined },
     dexCache: { peek: () => undefined },
@@ -124,6 +124,7 @@ describe("trade analytics for any address", () => {
     await service.settled();
     await truncateAll(db);
     vi.clearAllMocks();
+    traders.profileCache.peek.mockReset().mockReturnValue(undefined);
     tracked.clear();
     latestGate = null;
     livePositions = [["SOL", "5"]];
@@ -143,6 +144,7 @@ describe("trade analytics for any address", () => {
   });
 
   afterAll(async () => {
+    await service.settled();
     await app.close();
     await closeTestDb();
   });
@@ -203,8 +205,9 @@ describe("trade analytics for any address", () => {
   });
 
   it("refreshes incrementally: only fills after the cursor, continuing open trades", async () => {
-    await service.compute(X, true);
-    await waitFor(async () => (await db.select().from(traderAnalytics))[0]?.fundingCursor != null);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(T(3));
+    try { await service.compute(X, true); await service.settled(); }
+    finally { clock.mockRestore(); }
     const [state] = await db.select().from(traderAnalytics);
     const cursor = state.fillCursor!.getTime();
     expect(cursor).toBe(T(10));
@@ -222,7 +225,7 @@ describe("trade analytics for any address", () => {
     expect(traders.latestFills).not.toHaveBeenCalled();
     expect(info.userFillsByTime.mock.calls.every(([, start]) => start === cursor)).toBe(true);
 
-    await waitFor(async () => (await db.select().from(traderAnalytics))[0].fundingCursor!.getTime() === T(2));
+    await waitFor(async () => (await db.select().from(traderAnalytics))[0].fundingCursor!.getTime() >= NOW);
     const res = await get(`/traders/${X}/analytics`).expect(200);
     expect(res.body.summary).toMatchObject({ trades: 3, wins: 2, openTrades: 1 });
     const sol = (await get(`/traders/${X}/trades?status=closed`)).body.items.find((t: { coin: string }) => t.coin === "SOL");
@@ -232,6 +235,109 @@ describe("trade analytics for any address", () => {
     const eth = (await get(`/traders/${X}/trades?status=closed`)).body.items.find((t: { coin: string }) => t.coin === "ETH");
     expect(eth.funding).toBe(0.25);
     expect(res.body.coverage.fundingFrom).not.toBeNull();
+  });
+
+  it("does not use a partial profile as evidence that positions closed", async () => {
+    traders.profileCache.peek.mockReturnValue({ value: {
+      fetchedAt: new Date().toISOString(), perpEquity: null, positions: [],
+      dataQuality: { partial: true },
+    } });
+    await service.compute(X, true);
+    const res = await get(`/traders/${X}/trades?status=open`).expect(200);
+    expect(res.body.items.map((t: { coin: string }) => t.coin)).toContain("SOL");
+    expect((await get(`/traders/${X}/analytics`)).body.classification.perpAccountValue).toBe(2500000);
+  });
+
+  it("uses upstream observation time instead of a newer profile assembly time", async () => {
+    traders.profileCache.peek.mockReturnValue({ value: {
+      fetchedAt: new Date().toISOString(), perpEquity: 2500000, positions: [],
+    } });
+    info.clearinghouseState.mockImplementationOnce(async () => ({ time: T(20), marginSummary: { accountValue: "1250000" }, assetPositions: [] }));
+    await service.compute(X, true);
+    expect((await get(`/traders/${X}/trades?status=open`)).body.items).toHaveLength(1);
+  });
+
+  it("rolls back trade writes if the state checkpoint fails, so retry does not lose or replay fills", async () => {
+    await service.refresh(X);
+    const repository = new TradeAnalyticsRepository(db);
+    const before = await repository.allTrades(X);
+    history.push(fill("SOL", 5, -5, 12, T(1), { closedPnl: "10" }));
+    const save = vi.spyOn(TradeAnalyticsRepository.prototype, "saveState").mockRejectedValueOnce(new Error("checkpoint failed"));
+    try {
+      await expect(service.refresh(X)).rejects.toThrow("checkpoint failed");
+      expect(await repository.allTrades(X)).toEqual(before);
+    } finally { save.mockRestore(); }
+    await service.compute(X, false);
+    expect((await get(`/traders/${X}/analytics`)).body.summary.trades).toBe(3);
+  });
+
+  it("bounds admission even when many stale addresses arrive in the same tick", async () => {
+    let release!: () => void;
+    latestGate = new Promise<void>(resolve => { release = resolve; });
+    const work = Array.from({ length: MAX_CONCURRENT + MAX_WAITING + 3 }, (_, i) =>
+      service.compute(`0x${i.toString(16).padStart(40, "0")}`, false).then(() => "ok", () => "busy"));
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      const early = await Promise.race([work.at(-1)!, Promise.resolve("pending")]);
+      expect(early).toBe("busy");
+    } finally {
+      release();
+      await Promise.all(work);
+      await service.settled();
+    }
+  });
+
+  it("preserves the checkpoint when a fill stream exceeds the refresh page budget", async () => {
+    await service.refresh(X);
+    const repository = new TradeAnalyticsRepository(db);
+    const before = await repository.state(X);
+    const beforeTrades = await repository.allTrades(X);
+    const impl = info.userFillsByTime.getMockImplementation()!;
+    info.userFillsByTime.mockImplementation(async (_address, start) =>
+      Array.from({ length: 2000 }, (_, i) => fill("BTC", 0, 1, 100, start + i + 1)));
+    try {
+      await expect(service.refresh(X)).rejects.toThrow();
+      expect(await repository.state(X)).toEqual(before);
+      expect(await repository.allTrades(X)).toEqual(beforeTrades);
+    } finally { info.userFillsByTime.mockImplementation(impl); }
+  });
+
+  it("reports funding progress without making old fills look freshly observed", async () => {
+    await service.refresh(X);
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
+    const repository = new TradeAnalyticsRepository(db);
+    const before = await repository.state(X);
+    await service.fundingStep(X);
+    const after = await repository.state(X);
+    expect(after?.computedAt).toEqual(before?.computedAt);
+    const res = await get(`/traders/${X}/trades`).expect(200);
+    expect(new Date(res.body.coverage.fundingThrough).getTime()).toBeGreaterThan(T(0) - 1000);
+  });
+
+  it("rejects out-of-range pagination cursors before querying storage", async () => {
+    for (const cursor of ["999999999999999999999_1", "1_9223372036854775808"]) {
+      await get(`/traders/${X}/trades?cursor=${cursor}`).expect(400);
+    }
+  });
+
+  it("reads both cold tails before advancing a shared cursor", async () => {
+    const cached = [...history];
+    traders.latestFills.mockResolvedValueOnce([cached.filter(f => !f.twapId), cached.filter(f => f.twapId)]);
+    history.push(fill("SOL", 5, -5, 12, T(1), { closedPnl: "10", twapId: 8 }));
+    history.push(fill("BTC", 0, 1, 100, T(0.5)));
+    await service.refresh(X);
+    const trades = await new TradeAnalyticsRepository(db).allTrades(X);
+    expect(trades.find(t => t.coin === "SOL")?.exitTime).toBe(T(1));
+  });
+
+  it("does not prune an opening when a close arrives during the live state read", async () => {
+    info.clearinghouseState.mockImplementationOnce(async () => {
+      history.push(fill("SOL", 5, -5, 12, T(1), { closedPnl: "10" }));
+      return { time: Date.now(), marginSummary: { accountValue: "1250000" }, assetPositions: [] };
+    });
+    await service.refresh(X);
+    const sol = (await new TradeAnalyticsRepository(db).allTrades(X)).find(t => t.coin === "SOL");
+    expect(sol).toMatchObject({ entryTime: T(10), exitTime: T(1), fees: 2 });
   });
 
   it("drops an open trade the account no longer holds (closed by fills we can't read)", async () => {

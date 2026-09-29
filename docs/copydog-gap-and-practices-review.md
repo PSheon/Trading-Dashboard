@@ -182,3 +182,9 @@ commit 範圍，不能冒用為 `9892464` 的全量測試結果。
 已依 DonutMe 實際 feature module/repository 分工，將 insights、profile、revenue 的 persistence 移入 repository，維持 API 與計算行為。E11 仍未全數完成，auth、admin users、Telegram/outbox 等交易邊界須後續處理。
 
 [Copydog 驗收矩陣](copydog-parity-acceptance.md) 明確區分現有功能、Claude 未合併功能、樣本推估公式及真實執行。Stage 3 是目標規格，不能當成已完成證據。
+
+## 2026-09-30：交易者分析整合
+
+Claude `681f8c4` 的任意地址交易分析已納入本輪整合：交易者頁面新增表現、交易列表、風格/PnL/規模分類與所選期間的扣費勝率。整合時保留來源降級與未知值語義，補上資金費驗證、共同成交截止時間、交易/進度原子提交、有界工作佇列、cursor 驗證與列表刷新。
+
+這不是 Stage 3 探索/收藏/洞察全部完成，也不是 Copydog 所有公式或真實跟單等價驗收。詳見 [驗收矩陣](copydog-parity-acceptance.md) 與 [交易分析定義、限制及發布順序](trade-analytics.md)。E12 高密度歷史可恢復回補、E13 跨 replica 協調、E22 歷史 funding 精確歸屬仍待處理。

@@ -135,7 +135,7 @@ const SIZE_TIERS: SizeTier[] = ["apex", "whale", "large", "medium", "small"];
 function coverage(address: string, trades: RoundTrip[]) {
   const truncated = seeded(`coverage:${address}`)() < 0.4;
   const from = trades.at(-1)!.entryTime;
-  return { source: "hyperliquid" as const, from, truncated, fundingFrom: new Date(Date.now() - 30 * 24 * HOUR), fills: 1_840 };
+  return { source: "hyperliquid" as const, from, truncated, fundingFrom: new Date(Date.now() - 30 * 24 * HOUR), fundingThrough: new Date(Date.now() - 60_000), fills: 1_840 };
 }
 
 export function fixtureAnalytics(address: string, window: TradeWindow): TraderAnalyticsResponse {

@@ -87,10 +87,10 @@ function Empty({ title, body }: { title: string; body?: string }) {
 export function CoverageNote({ analytics, className }: { analytics: Pick<TraderAnalyticsResponse, "coverage">; className?: string }) {
   const { t, format } = useI18n();
   const { coverage } = analytics;
-  if (!coverage.truncated || coverage.from === null) return null;
   return (
     <p className={cn("text-[11px] leading-relaxed text-subtle-foreground", className)} title={t("trader.coverageHint")}>
-      {t("trader.coverageSince", { date: format.date(coverage.from) })}
+      {coverage.truncated && coverage.from !== null ? t("trader.coverageSince", { date: format.date(coverage.from) }) : null}{" "}
+      {coverage.fundingThrough ? t("trader.fundingThrough", { date: format.date(coverage.fundingThrough) }) : t("trader.fundingPending")}
     </p>
   );
 }

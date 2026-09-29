@@ -29,9 +29,9 @@ import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { BusyException } from "./busy.js";
-import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow } from "./trade-analytics.repository.js";
+import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow, type TradeAnalyticsTx } from "./trade-analytics.repository.js";
 import { portfolioSeries } from "./traders.mappers.js";
-import { TradersService } from "./traders.service.js";
+import { FILLS_TTL_MS, TradersService } from "./traders.service.js";
 
 /** Served from the store for this long; older answers are still served
  * while a refresh runs in the background. */
@@ -91,7 +91,7 @@ export interface ComputeLog {
   trades: number;
 }
 
-type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "coverageFrom" | "truncated" | "fundingFrom" | "fillsRead" | "computedAt">;
+type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "coverageFrom" | "truncated" | "fundingFrom" | "fundingCursor" | "fillsRead" | "computedAt">;
 
 /**
  * Round-trip analytics for any address (the trader page's win rate, 表現 and
@@ -175,22 +175,20 @@ export class TradeAnalyticsService {
   }
 
   /** One computation per address at a time; callers share it. */
-  compute(address: string, cold: boolean): Promise<AnalyticsRow> {
+  compute(address: string, _cold: boolean): Promise<AnalyticsRow> {
     const existing = this.inflight.get(address);
     if (existing) return existing;
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
-    if (cold && this.waiting.length >= MAX_WAITING) return Promise.reject(new BusyException(5_000));
+    if (this.inflight.size >= MAX_CONCURRENT + MAX_WAITING) return Promise.reject(new BusyException(5_000));
     const promise = this.jobs.run(() => this.serial(address, () => this.limited(() => this.refresh(address))));
     this.inflight.set(address, promise);
     promise
-      .finally(() => {
-        if (this.inflight.get(address) === promise) this.inflight.delete(address);
-      })
-      // Registered inside the caller's request: run it as its own job so
-      // the request's end doesn't cancel its Hyperliquid calls.
-      .then(() => this.jobs.run(() => this.serial(address, () => this.fundingStep(address))))
+      .then(() => this.jobs.run(() => this.serial(address, () => this.limited(() => this.fundingStep(address)))))
       .catch((error: Error) => {
         if (!(error instanceof BusyException)) this.logger.warn(`Trade analytics for ${address} failed: ${error.message}`);
+      })
+      .finally(() => {
+        if (this.inflight.get(address) === promise) this.inflight.delete(address);
       });
     return promise;
   }
@@ -234,23 +232,27 @@ export class TradeAnalyticsService {
     const started = Date.now();
     const cost: Cost = { calls: 0, weight: 0 };
     const [state, tracked] = await Promise.all([this.repository.state(address), this.traders.isTracked(address)]);
+    const live = await this.liveAccount(address, cost);
     let kind: ComputeLog["kind"];
     let next: Omit<AnalyticsInsert, "summary" | "classification" | "computedAt">;
     let fillCount: number;
+    let persist: (tx: TradeAnalyticsTx) => Promise<void>;
     if (tracked) {
       kind = "tracked";
-      ({ next, fillCount } = await this.rebuildTracked(address, state));
+      ({ next, fillCount, persist } = await this.rebuildTracked(address, state));
     } else if (!state || state.source !== "hyperliquid" || state.fillCursor === null) {
       kind = "cold";
-      ({ next, fillCount } = await this.coldHyperliquid(address, cost));
+      ({ next, fillCount, persist } = await this.coldHyperliquid(address, cost));
     } else {
       kind = "refresh";
-      ({ next, fillCount } = await this.incrementalHyperliquid(address, state, cost));
+      ({ next, fillCount, persist } = await this.incrementalHyperliquid(address, state, cost));
     }
-    const live = await this.liveAccount(address, cost);
-    await this.dropClosedElsewhere(address, live);
     const classification = await this.classify(address, live, cost);
-    const { row, trades } = await this.store(address, next, classification);
+    const { row, trades } = await this.repository.transaction(async (tx) => {
+      await persist(tx);
+      const dropped = tracked ? 0 : await this.dropClosedElsewhere(address, live, tx);
+      return this.store(address, { ...next, truncated: next.truncated || dropped > 0 }, classification, tx);
+    });
     this.record(address, { kind, ms: Date.now() - started, ...cost, fills: fillCount, trades });
     return row;
   }
@@ -260,17 +262,19 @@ export class TradeAnalyticsService {
     address: string,
     next: Omit<AnalyticsInsert, "summary" | "classification" | "computedAt">,
     classification: Omit<TraderClassification, "style">,
+    tx?: TradeAnalyticsTx,
+    computedAt = new Date(),
   ): Promise<{ row: AnalyticsRow; trades: number }> {
     const now = Date.now();
-    const trades = (await this.repository.allTrades(address)).map((t) => toRoundTrip(t, now));
+    const trades = (await this.repository.allTrades(address, tx)).map((t) => toRoundTrip(t, now));
     const summary = Object.fromEntries(WINDOWS.map((w) => [w, summarize(trades, w, now)])) as Record<TradeWindow, TradeSummary>;
     const full: TraderClassification = { ...classification, style: tradingStyle(summary.all.medianHoldSeconds) };
     const row = await this.repository.saveState({
       ...next,
       summary: jsonSummary(summary),
       classification: full,
-      computedAt: new Date(now),
-    });
+      computedAt,
+    }, tx);
     return { row, trades: trades.length };
   }
 
@@ -278,7 +282,9 @@ export class TradeAnalyticsService {
     const list = this.lastLog.get(address) ?? [];
     list.push(log);
     if (list.length > 10) list.shift();
+    this.lastLog.delete(address);
     this.lastLog.set(address, list);
+    if (this.lastLog.size > 200) this.lastLog.delete(this.lastLog.keys().next().value!);
     this.logger.log(
       `Trade analytics ${log.kind} ${address}: ${log.fills} ${log.kind === "funding" ? "payments" : "fills"}, ` +
         `${log.trades} trades, ${log.calls} calls, weight ${log.weight}, ${log.ms} ms`,
@@ -291,7 +297,7 @@ export class TradeAnalyticsService {
     const open = new Map<string, Trade>();
     const result = applyFills(address, open, fillsRead, fundingFrom);
     const trades = result.touched;
-    await this.repository.transaction(async (tx) => {
+    const persist = async (tx: TradeAnalyticsTx) => {
       // Funding already read stays with its trade across the rebuild.
       const kept = state?.source === "tracked" ? await this.repository.fundingByTid(address, tx) : new Map<bigint, number>();
       for (const t of trades) {
@@ -299,9 +305,10 @@ export class TradeAnalyticsService {
         if (funding !== undefined && t.funding !== null) t.funding = funding;
       }
       await this.repository.replaceTrades(tx, address, trades);
-    });
+    };
     const newest = latestOf(fillsRead);
     return {
+      persist,
       fillCount: fillsRead.length,
       next: {
         chain: CHAIN_DEFAULT,
@@ -361,22 +368,29 @@ export class TradeAnalyticsService {
     });
     const from = Math.max(history.from ?? 0, twap.truncated && twap.from !== null ? twap.from : 0) || null;
     let all = [...history.fills, ...twap.fills].filter((f) => from === null || f.time >= from);
-    // The cached latest lists may be a few minutes old: read on from them.
-    const newest = latestOf(all).time;
-    if (newest !== null) {
-      const tail = await readForward(async (start) => {
-        const batch = await this.info.userFillsByTime(address, start, undefined, LANE, RANK);
+    // Both streams must cover the same fixed upper bound before sharing a
+    // checkpoint. Their caches can have different observation times.
+    const tail = async (isTwap: boolean, cached: HlUserFill[]) => {
+      const start = latestOf(cached).time ?? now - FILLS_TTL_MS;
+      const result = await readForward(async (since) => {
+        const batch = isTwap
+          ? (await this.info.userTwapSliceFillsByTime(address, since, now, LANE, RANK)).map(twapSliceToFill)
+          : await this.info.userFillsByTime(address, since, now, LANE, RANK);
         cost.calls += 1;
         cost.weight += listWeight(batch.length);
         return batch;
-      }, newest, 2);
-      all = dedupe([...all, ...tail.fills]);
-    }
+      }, start, REFRESH_PAGES);
+      if (!result.complete) throw new BusyException(5_000);
+      return result.fills;
+    };
+    const [regularTail, twapTail] = await Promise.all([tail(false, latest), tail(true, latestTwap)]);
+    all = dedupe([...all, ...regularTail, ...twapTail]).filter(f => f.time <= now && (from === null || f.time >= from));
     const open = new Map<string, Trade>();
     const result = applyFills(address, open, all, null);
-    await this.repository.transaction((tx) => this.repository.replaceTrades(tx, address, result.touched));
+    const persist = (tx: TradeAnalyticsTx) => this.repository.replaceTrades(tx, address, result.touched);
     const cursor = latestOf(all);
     return {
+      persist,
       fillCount: all.length,
       next: {
         chain: CHAIN_DEFAULT,
@@ -394,35 +408,37 @@ export class TradeAnalyticsService {
   }
 
   private async incrementalHyperliquid(address: string, state: AnalyticsRow, cost: Cost) {
+    const until = Date.now();
     const since = state.fillCursor!.getTime();
     const seen = new Set(state.cursorTids);
     const read = (twap: boolean) =>
       readForward(async (start) => {
         const batch = twap
-          ? (await this.info.userTwapSliceFillsByTime(address, start, undefined, LANE, RANK)).map(twapSliceToFill)
-          : await this.info.userFillsByTime(address, start, undefined, LANE, RANK);
+          ? (await this.info.userTwapSliceFillsByTime(address, start, until, LANE, RANK)).map(twapSliceToFill)
+          : await this.info.userFillsByTime(address, start, until, LANE, RANK);
         cost.calls += 1;
         cost.weight += listWeight(batch.length);
         return batch;
       }, since, REFRESH_PAGES);
     const [regular, twap] = await Promise.all([read(false), read(true)]);
+    // A shared cursor cannot advance past unread history in either stream.
+    // Preserve the last good checkpoint instead of silently skipping fills.
+    if (!regular.complete || !twap.complete) throw new BusyException(5_000);
     const fresh = dedupe([...regular.fills, ...twap.fills]).filter(
       (f) => f.time > since || (f.time === since && !seen.has(String(f.tid))),
     );
     const fundingFrom = state.fundingFrom?.getTime() ?? null;
-    let partial = false;
-    if (fresh.length > 0) {
-      await this.repository.transaction(async (tx) => {
-        const open = new Map((await this.repository.openTrades(address, tx)).map((t) => [t.coin, t]));
-        const result = applyFills(address, open, fresh, fundingFrom);
-        partial = result.touched.some(isPartial);
-        await this.repository.deleteTrades(tx, address, result.dropped.map((t) => t.openTid));
-        await this.repository.upsertTrades(tx, address, result.touched);
-      });
-    }
+    const open = new Map((await this.repository.openTrades(address)).map((t) => [t.coin, t]));
+    const result = applyFills(address, open, fresh, fundingFrom);
+    const partial = result.touched.some(isPartial);
+    const persist = async (tx: TradeAnalyticsTx) => {
+      await this.repository.deleteTrades(tx, address, result.dropped.map((t) => t.openTid));
+      await this.repository.upsertTrades(tx, address, result.touched);
+    };
     const newest = latestOf(fresh);
     const cursorTids = newest.time === since ? [...state.cursorTids, ...newest.tids] : newest.tids;
     return {
+      persist,
       fillCount: fresh.length,
       next: {
         chain: CHAIN_DEFAULT,
@@ -460,33 +476,27 @@ export class TradeAnalyticsService {
    * closed by fills we can't read — typically TWAP slices older than
    * Hyperliquid keeps. It is dropped rather than shown open forever.
    */
-  private async dropClosedElsewhere(address: string, live: LiveAccount | null): Promise<number> {
+  private async dropClosedElsewhere(address: string, live: LiveAccount | null, tx: TradeAnalyticsTx): Promise<number> {
     if (!live || !Number.isFinite(live.time)) return 0;
-    const open = await this.repository.openTrades(address);
+    const open = await this.repository.openTrades(address, tx);
     const gone = open.filter((t) => {
       if (t.lastFillTime >= live.time) return false;
       const szi = live.positions.get(t.coin) ?? 0;
       return szi === 0 || (szi > 0) !== (t.side === "long");
     });
     if (gone.length > 0) {
-      await this.repository.deleteTrades(this.repository.db, address, gone.map((t) => t.openTid));
+      await this.repository.deleteTrades(tx, address, gone.map((t) => t.openTid));
     }
     return gone.length;
   }
 
-  /** Positions and perp account value: the page's cached profile, else one
+  /** Positions and perp account value: one
    * `clearinghouseState` per dex (2 weight each). */
   private async liveAccount(address: string, cost: Cost): Promise<LiveAccount | null> {
     try {
-      const profile = this.traders.profileCache.peek(address);
-      // A partial profile (a dex state missing) can't vouch for positions.
-      if (profile && profile.value.perpEquity !== null && !profile.value.dataQuality?.partial) {
-        return {
-          time: new Date(profile.value.fetchedAt).getTime(),
-          positions: new Map(profile.value.positions.map((p) => [p.coin, p.szi])),
-          perpAccountValue: profile.value.perpEquity,
-        };
-      }
+      // A profile is assembled from independent sources and can be partial;
+      // its fetchedAt is not the clearinghouse observation time. Reconcile
+      // only against a complete set of upstream states and their own times.
       if (this.traders.dexCache.peek("dexes") === undefined) {
         cost.calls += 1;
         cost.weight += 20;
@@ -547,7 +557,7 @@ export class TradeAnalyticsService {
     let cursor = start;
     let lastComplete = start - 1;
     for (let page = 0; page < FUNDING_MAX_PAGES; page++) {
-      const batch = await this.info.userFunding(address, cursor, undefined, LANE);
+      const batch = await this.info.userFunding(address, cursor, now, LANE);
       cost.calls += 1;
       cost.weight += 20 + Math.ceil(batch.length / 20);
       const full = batch.length >= USER_FUNDING_PAGE_SIZE;
@@ -562,33 +572,27 @@ export class TradeAnalyticsService {
         events.push({ time: entry.time, coin: entry.delta.coin, usdc: Number(entry.delta.usdc) });
       }
       if (!full) {
-        if (lastTime !== undefined) lastComplete = lastTime;
+        lastComplete = now;
         break;
       }
       lastComplete = lastTime! - 1;
       cursor = lastTime!;
     }
 
+    let trades = 0;
     await this.repository.transaction(async (tx) => {
-      const trades = first
+      const rows = first
         ? (await this.repository.allTrades(address, tx)).map((t) => ({ ...t, funding: t.entryTime >= fundingFrom ? 0 : null }))
         : await this.repository.fundableSince(address, new Date(start), tx);
-      attributeFunding(trades, events);
-      await this.repository.updateFunding(tx, address, trades);
-      await this.repository.saveState({
+      attributeFunding(rows, events);
+      await this.repository.updateFunding(tx, address, rows);
+      const { style: _style, ...tiers } = traderClassificationSchema.parse(state.classification);
+      ({ trades } = await this.store(address, {
         ...state,
         fundingFrom: new Date(fundingFrom),
         fundingCursor: new Date(Math.max(lastComplete, start - 1)),
-      }, tx);
+      }, tiers, tx, state.computedAt));
     });
-    // Best / worst lists carry each trade's funding.
-    const latest = await this.repository.state(address);
-    let trades = 0;
-    if (latest) {
-      const { summary: _s, classification, computedAt: _c, ...rest } = latest;
-      const { style: _style, ...tiers } = traderClassificationSchema.parse(classification);
-      ({ trades } = await this.store(address, rest, tiers));
-    }
     this.record(address, { kind: "funding", ms: Date.now() - started, ...cost, fills: events.length, trades });
   }
 }
@@ -599,6 +603,7 @@ function coverageOf(row: Stored): TradeCoverage {
     from: row.coverageFrom,
     truncated: row.truncated,
     fundingFrom: row.fundingFrom,
+    fundingThrough: row.fundingCursor,
     fills: row.fillsRead,
   };
 }

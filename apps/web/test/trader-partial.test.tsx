@@ -6,11 +6,11 @@ import { TraderView } from "../src/components/trader/trader-view";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
 vi.mock("../src/lib/queries", () => ({
   useTraderProfile: () => ({ isError: true, error: new Error("Profile unavailable"), refetch() {} }),
+  isComputing: () => false,
+  useTraderAnalytics: () => ({ data: undefined }),
   useTraderActivity: () => ({ data: undefined }),
   usePortfolio: () => ({ data: { pnl: [[1, 42]] }, isPending: false }),
   useSiteSettings: () => ({ data: undefined }),
-  useTraderAnalytics: () => ({ data: undefined, isPending: true, failureReason: null }),
-  isComputing: () => true,
 }));
 vi.mock("../src/lib/use-live-trader", () => ({ useLiveTrader: () => ({ profile: undefined, fills: [], mids: {} }) }));
 vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null }));

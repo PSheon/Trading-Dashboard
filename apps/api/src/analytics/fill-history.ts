@@ -95,7 +95,8 @@ export async function readRecentHistory(source: FillSource, options: HistoryOpti
         break;
       }
       // Inclusive: fills sharing `last` may straddle the page boundary.
-      cursor = last > cursor ? last : last + 1;
+      if (last <= cursor) break;
+      cursor = last;
     }
     if (!complete) break;
     const length = end - start;
@@ -132,7 +133,8 @@ export async function readForward(
     for (const f of batch) byTid.set(f.tid, f);
     if (batch.length < FILL_PAGE) return { fills: [...byTid.values()], calls, complete: true };
     const last = batch[batch.length - 1].time;
-    cursor = last > cursor ? last : last + 1;
+    if (last <= cursor) return { fills: [...byTid.values()], calls, complete: false };
+    cursor = last;
   }
   return { fills: [...byTid.values()], calls, complete: false };
 }

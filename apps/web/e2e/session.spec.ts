@@ -26,3 +26,20 @@ test("public discovery navigates to a trader with activity without signing in", 
   await expect(page).toHaveURL(/\/trader\/0x/);
   await expect(page.getByRole("tablist")).toBeVisible();
 });
+
+for (const width of [1440, 390]) {
+  test(`trader analytics and trade ledger work at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/explore");
+    await page.locator('a[href^="/trader/"]').first().click();
+    await expect(page.getByTestId("trading-style")).not.toHaveText("—");
+    await page.getByRole("tab", { name: "Performance", exact: true }).click();
+    await expect(page.getByRole("tabpanel").getByText(/Funding read through/)).toBeVisible();
+    await page.getByRole("tab", { name: "Trades", exact: true }).click();
+    await expect(page.getByRole("tabpanel").getByRole("table")).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByText(/Funding read through/)).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}

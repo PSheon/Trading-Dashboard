@@ -39,14 +39,14 @@ const schemas = {
     }).passthrough() }).passthrough()),
     marginSummary: summary, crossMarginSummary: summary, withdrawable: decimal, time: integer,
   }).passthrough(),
+  userFunding: list(z.object({ time: integer, hash: z.string(), delta: z.object({
+    type: z.literal("funding"), coin: name, usdc: decimal, szi: decimal, fundingRate: decimal,
+    nSamples: integer.nullable().optional(),
+  }).passthrough() }).passthrough(), 500),
   userFills: list(fill, 2000),
   userFillsByTime: list(fill, 2000),
   userTwapSliceFills: list(z.object({ fill, twapId: integer }).passthrough(), 2000),
   userTwapSliceFillsByTime: list(z.object({ fill, twapId: integer }).passthrough(), 2000),
-  userFunding: list(z.object({
-    time: integer,
-    delta: z.object({ type: z.string(), coin: name, usdc: decimal }).passthrough(),
-  }).passthrough(), 500),
   allMids: z.record(name, decimal),
   spotClearinghouseState: z.object({ balances: list(z.object({
     coin: name, token: integer.optional(), total: decimal, hold: decimal, entryNtl: decimal, supplied: decimal.optional(),

@@ -12,8 +12,8 @@ import { fromScaled, toScaled } from "../watcher/action-classifier.js";
 export type AnalyticsRow = typeof traderAnalytics.$inferSelect;
 export type AnalyticsInsert = typeof traderAnalytics.$inferInsert;
 type TradeRow = typeof traderTrades.$inferSelect;
-type Tx = Parameters<Parameters<DrizzleDb["transaction"]>[0]>[0];
-type DbOrTx = DrizzleDb | Tx;
+export type TradeAnalyticsTx = Parameters<Parameters<DrizzleDb["transaction"]>[0]>[0];
+type DbOrTx = DrizzleDb | TradeAnalyticsTx;
 
 const INSERT_CHUNK = 500;
 
@@ -77,7 +77,7 @@ const mine = (address: string) => and(eq(traderTrades.chain, CHAIN_DEFAULT), eq(
 export class TradeAnalyticsRepository {
   constructor(@Inject(DRIZZLE_CLIENT) readonly db: DrizzleDb) {}
 
-  transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
+  transaction<T>(work: (tx: TradeAnalyticsTx) => Promise<T>): Promise<T> {
     return this.db.transaction(work);
   }
 

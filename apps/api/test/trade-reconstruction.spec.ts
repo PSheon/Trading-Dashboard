@@ -1,7 +1,7 @@
 import type { RoundTrip } from "@trading-dashboard/shared/contracts";
 import { describe, expect, it } from "vitest";
 
-import { FILL_PAGE, readRecentHistory, type FillSource } from "../src/analytics/fill-history.js";
+import { FILL_PAGE, readForward, readRecentHistory, type FillSource } from "../src/analytics/fill-history.js";
 import { pnlTier, sizeTier, summarize, tradingStyle } from "../src/analytics/trade-metrics.js";
 import {
   applyFills,
@@ -359,4 +359,12 @@ describe("reading recent history backwards", () => {
     expect(history.fills).toHaveLength(all.length);
     expect(history.from).toBe(all[0].time);
   });
+});
+
+it("does not skip an overflowing timestamp in forward history", async () => {
+  const page = Array.from({ length: FILL_PAGE }, (_, tid) => ({ time: 100, tid }) as HlUserFill);
+  const starts: number[] = [];
+  const result = await readForward(async start => { starts.push(start); return start === 100 ? page : []; }, 100, 3);
+  expect(result.complete).toBe(false);
+  expect(starts).not.toContain(101);
 });

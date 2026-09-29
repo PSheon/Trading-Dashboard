@@ -4,11 +4,13 @@
 `GET /traders/:address/trades?status=all|closed|open&limit&cursor` give the
 trader page its win rate, trade count, 分組 (style and cohorts), 最佳與最差,
 最常交易 and the 表現 / 交易 tabs for **any** Hyperliquid address, not just the
-ones Orbie tracks. The definitions reproduce CopyDog's, reverse-engineered
+ones Orbie tracks. The imported implementation targets CopyDog's definitions, reverse-engineered
 from its public API (`https://api.copydog.xyz/api/hyperliquid/traders/<a>/summary`,
-`/trades`, `/performance`) and its JS bundle, and validated trade by trade.
+`/trades`, `/performance`) and its JS bundle, and reported by the original branch as validated trade by trade. The integration
+review did not independently repeat those live comparisons; fitted thresholds
+remain estimates (see below).
 
-## Definitions (CopyDog's)
+## Implemented definitions
 
 **Trade (round trip).** A coin's position from leaving 0 to returning to 0.
 A fill that flips the position closes the old trade with the part that
@@ -92,14 +94,29 @@ renders an image card).
   2026-04-17, though that account has traded since 2024).
 - **Funding** (`userFunding`: 500 per call, 20 + 1 per 20 items; hourly for
   about a week, then one entry per coin and day) is a second, unranked step
-  after the trades are stored, from the start of coverage, 40 calls per step
-  (a long history completes over later refreshes). An account holding 40
-  positions costs ~34 calls (~1,500 weight) for a year; a light account 1–2.
+  after the trades are stored. The implemented lookback is 365 days, bounded
+  by the fill coverage start, with at most 40 pages per step. `fundingFrom`
+  and `fundingThrough` disclose the interval read; null funding and incomplete
+  coverage are not whole-history totals. Historical daily aggregates cannot
+  prove exact intraday attribution.
 - Stored in `trader_trades` and `trader_analytics` (migration 0011), served
   from there; an answer older than 10 minutes is served while a refresh runs.
   A cold address answers 503 busy (Retry-After 5 s) after 12 s; the work runs
   as a background job at the page-activity rank (`PAGE_RANK.fills`) and the
-  retry finds it. At most 2 addresses compute at once, 20 wait.
+  retry finds it. At most 2 jobs run at once, with at most 22 addresses admitted across
+  refresh and funding work, including stale reads. These limits are per process.
 - Queue time in the request budgeter no longer counts against the 20 s
   Hyperliquid request timeout (it now covers only the HTTP exchange), so a
   heavy background load isn't cancelled while it waits for budget.
+
+
+## Integration safeguards (2026-09-30)
+
+- New funding responses pass the same finite-decimal and timestamp validation as other upstream reads. Shape reference: [Hyperliquid perpetual info API](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals).
+- Each cold stream tails from its own cached boundary. Both regular and TWAP reads use one captured upper time bound before the shared cursor can advance. Incomplete forward pages leave the last checkpoint intact and return busy; persistently dense accounts can remain busy until a separate resumable backfill design is implemented (E12).
+- Clearinghouse observations are captured before fill reads. Partial profile positions or profile assembly timestamps never prove a position closed. Tracked fills may lag the watcher, so their open trades are not pruned using clearinghouse absence. For untracked complete forward reads, dropped unavailable history sets truncated coverage.
+- Trade mutations and the summary/cursor checkpoint commit together. Funding attribution, its cursor and updated summaries also commit together; funding does not renew fill freshness. Upstream I/O occurs outside DB transactions.
+- These atomic writes do not establish a cross-replica lock. Run analytics on one process until E13 adds distributed coordination. SQL volume and historical funding attribution remain E12/E22 work.
+- `/trades` validates representable timestamp/int64 cursors before storage access. The web polls the ledger every 2 minutes so funding and stale refresh results arrive without remounting. Selected-period KPI values do not display the previous period's placeholder response.
+- Existing legacy `profile.analytics` remains the separate recorded 30-day gross-PnL statistic. New trader-page analytics use selected-period closed round trips, after fees and before funding; the trade ledger additionally shows available funding with coverage disclosure.
+- Release order: apply additive migration 0011 with the existing release migration command, deploy the API exposing the new routes, then the frontend. Only temporary local databases were migrated for this integration; no deployment or production migration was performed.

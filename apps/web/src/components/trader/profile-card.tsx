@@ -494,7 +494,7 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
       ) : rows.length > 0 ? (
         <CoinFigureRows rows={rows.map((x) => ({ key: x.id, coin: x.coin, figure: signedUsd1(x.netPnl), className: pnlTone(x.netPnl) }))} />
       ) : (
-        <p className="text-xs text-muted-foreground">{t("trader.noClosedTrades")}</p>
+        <p className="text-xs text-muted-foreground">{t(trades ? "trader.noClosedTrades" : "trader.kpi.noTrades")}</p>
       )}
     </Section>
   );
@@ -511,7 +511,7 @@ function MostTradedSection({ trades, computing }: { trades: TraderAnalyticsRespo
       ) : rows.length > 0 ? (
         <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: usd1(c.volume) }))} />
       ) : (
-        <p className="text-xs text-muted-foreground">{t("trader.noClosedTrades")}</p>
+        <p className="text-xs text-muted-foreground">{t(trades ? "trader.noClosedTrades" : "trader.kpi.noTrades")}</p>
       )}
     </Section>
   );

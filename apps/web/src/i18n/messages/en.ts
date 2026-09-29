@@ -7,7 +7,7 @@ export const en: Messages = {
     flow: "Interval gain is the change in cumulative PnL. Its capital base is the previous whole-account value plus positive net cash flow, estimated as the change in account value minus PnL. Deposits are treated as present at the start of the interval; their actual timing is unknown.",
     exclusions: "Intervals below the greater of $10 or 1% of peak account value are excluded. Excluded intervals contribute zero to the compounded index. Any excluded interval marks the estimate partial; with no usable intervals ROI and percentage drawdown are unavailable. Observed intervals do not establish complete source history.",
     risk: "Percentage drawdown uses the compounded return index; dollar drawdown uses cumulative PnL. Sharpe uses UTC daily log returns, sample standard deviation, zero risk-free rate and annualization by sqrt(365). It requires seven calendar days and nonzero variance. Days without points contribute zero; full-loss daily growth is floored at 0.0001.",
-    records: "Recorded win rate uses complete perp round trips closed in the last 30 days and gross closed PnL before fees and funding. Missing opening history is excluded. Fill count is not an independent trade count. Changing the chart period does not change this recorded statistic.",
+    records: "Trader-page win rate uses perp round trips closed in the selected period, after fees and before funding. Partial opening history can be included and is marked. Legacy recorded 30-day analytics remain a separate gross-PnL statistic. Fill count is not an independent trade count.",
     crowd: "Crowd comparison uses only addresses with snapshots in both periods. Exposure differences include price movements and are not net trade flows. Missing snapshots or unavailable valuations are not zero positions.",
   },
   meta: {
@@ -287,6 +287,8 @@ export const en: Messages = {
     sideShort: "Short",
     shareTrade: "Share trade",
     shareCopied: "Trade summary and link copied",
+    fundingThrough: "Funding read through {date}; totals may be partial.",
+    fundingPending: "Funding has not been read; net totals exclude unavailable funding.",
     coverageSince: "Based on trades since {date}",
     coverageHint: "Hyperliquid serves only part of the fill history; older trades aren't included",
     noClosedTrades: "No closed trades",

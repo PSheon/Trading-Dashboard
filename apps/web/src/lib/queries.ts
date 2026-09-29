@@ -215,6 +215,7 @@ export const TRADES_PAGE = 50;
 export function useTraderTrades(address: string, status: TradeStatusFilter, enabled = true) {
   return useInfiniteQuery({
     queryKey: ["trader-trades", address, status],
+    refetchInterval: 2 * 60_000,
     queryFn: ({ pageParam }) =>
       api.get<TraderTradesResponse>(
         `/traders/${address}/trades?status=${status}&limit=${TRADES_PAGE}${pageParam ? `&cursor=${pageParam}` : ""}`,

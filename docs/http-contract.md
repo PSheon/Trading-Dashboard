@@ -97,3 +97,16 @@ Dex discovery, account mode, spot balances/valuation and identity/tracking remai
 required. A required-source failure retains HTTP error semantics, while the web
 still renders independently loaded portfolio history. The web keeps partial REST
 snapshots unchanged by numerical socket overlays until a complete refresh arrives.
+
+
+## Trader round-trip analytics
+
+`GET /traders/:address/analytics?window=all|30d|7d|1d` and
+`GET /traders/:address/trades?status=all|closed|open&limit&cursor` are public,
+registered DTO routes supporting both legacy raw and v1 envelopes. Cursor
+validation rejects unrepresentable dates/int64 IDs before invoking the service.
+Coverage includes `fundingFrom` and `fundingThrough` as nullable ISO timestamps;
+funding values can be partial beyond that interval. `computedAt` is the fill
+analysis time and is not advanced merely by funding work. Cold computations
+may return 503 with Retry-After while a bounded background job continues.
+See [definitions and release order](trade-analytics.md).

@@ -73,3 +73,10 @@ it("fails closed for undocumented context identity rather than assigning prices 
   // Without identity there is no safe way to assign the mark price to a pair.
   expect(() => validateInfoResponse("spotMetaAndAssetCtxs", [{ tokens: [], universe: [] }, [{ markPx: "0.14", midPx: "0.209265" }]])).toThrow();
 });
+
+it("validates funding payments before attribution", async () => {
+  const { validateInfoResponse } = await import("../src/hyperliquid/response-validation.js");
+  const entry = { time: 1, hash: "0x0", delta: { type: "funding", coin: "BTC", usdc: "-0.25", szi: "1", fundingRate: "0.001", nSamples: null } };
+  expect(validateInfoResponse("userFunding", [entry])).toEqual([entry]);
+  expect(() => validateInfoResponse("userFunding", [{ ...entry, delta: { ...entry.delta, usdc: "NaN" } }])).toThrow();
+});

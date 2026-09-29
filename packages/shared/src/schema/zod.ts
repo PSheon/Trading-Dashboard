@@ -811,6 +811,8 @@ export const tradeCoverageSchema = z.object({
   /** Funding is included for trades opened on or after this; null until
    * it has been read. */
   fundingFrom: z.coerce.date().nullable(),
+  /** Last fully read funding timestamp; amounts can be partial after it. */
+  fundingThrough: z.coerce.date().nullable(),
   /** Fills behind the trades. */
   fills: z.number().int(),
 });
@@ -898,7 +900,16 @@ export const traderTradesQuerySchema = z.object({
   status: z.enum(["all", "closed", "open"]).default("all"),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   /** `nextCursor` of the previous page. */
-  cursor: z.string().regex(/^\d+_-?\d+$/).optional(),
+  cursor: z.string().max(38).regex(/^\d+_-?\d+$/).refine(value => {
+    const [ms, tid] = value.split("_");
+    if (ms === undefined || tid === undefined) return false;
+    const time = Number(ms);
+    try {
+      const id = BigInt(tid);
+      return Number.isSafeInteger(time) && time >= 0 && time <= 8_640_000_000_000_000
+        && id >= -(2n ** 63n) && id <= 2n ** 63n - 1n;
+    } catch { return false; }
+  }, "Invalid trade cursor").optional(),
 });
 export type TraderTradesQuery = z.infer<typeof traderTradesQuerySchema>;
 

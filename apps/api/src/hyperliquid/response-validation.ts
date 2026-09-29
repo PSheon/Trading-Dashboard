@@ -39,6 +39,10 @@ const schemas = {
     }).passthrough() }).passthrough()),
     marginSummary: summary, crossMarginSummary: summary, withdrawable: decimal, time: integer,
   }).passthrough(),
+  userFunding: list(z.object({ time: integer, hash: z.string(), delta: z.object({
+    type: z.literal("funding"), coin: name, usdc: decimal, szi: decimal, fundingRate: decimal,
+    nSamples: integer.nullable().optional(),
+  }).passthrough() }).passthrough(), 500),
   userFills: list(fill, 2000),
   userFillsByTime: list(fill, 2000),
   userTwapSliceFills: list(z.object({ fill, twapId: integer }).passthrough(), 2000),

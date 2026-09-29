@@ -44,7 +44,11 @@ import {
   telegramStatusSchema,
   telegramTestResponseSchema,
   traderActivityResponseSchema,
+  traderAnalyticsQuerySchema,
+  traderAnalyticsResponseSchema,
   traderFillSchema,
+  traderTradesQuerySchema,
+  traderTradesResponseSchema,
   traderProfileResponseSchema,
   tradersQuerySchema,
   tradersResponseSchema,
@@ -85,6 +89,7 @@ import {
   setAdminSettings,
   setAdminUsers,
 } from "./admin";
+import { fixtureAnalytics, fixtureTradePage } from "./trades";
 
 // Mutable demo state (per browser tab).
 const NO_ALERT: FavoriteAlert = { enabled: false, sides: "both", minUsd: null };
@@ -243,6 +248,16 @@ export async function fixtureRequest<T>(
         market: q.market,
         ...portfolioFor(address, q.window, q.market),
       });
+    }
+    case "GET /traders/:address/analytics": {
+      const address = addressSchema.parse(parts[1]).toLowerCase();
+      const q = query(traderAnalyticsQuerySchema, search) as z.infer<typeof traderAnalyticsQuerySchema>;
+      return wire(traderAnalyticsResponseSchema, fixtureAnalytics(address, q.window));
+    }
+    case "GET /traders/:address/trades": {
+      const address = addressSchema.parse(parts[1]).toLowerCase();
+      const q = query(traderTradesQuerySchema, search) as z.infer<typeof traderTradesQuerySchema>;
+      return wire(traderTradesResponseSchema, fixtureTradePage(address, q.status, q.limit, q.cursor));
     }
     case "GET /traders/:address/fills": {
       const limit = Math.min(500, Number(search.get("limit") ?? 100) || 100);

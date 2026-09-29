@@ -19,15 +19,19 @@ import { useAuth } from "@/lib/auth";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { coinLabel } from "@/lib/format";
 import { mergeLiveFills } from "@/lib/live-trader";
-import { useAlerts, useLiveActions, useTraderFills } from "@/lib/queries";
+import { isComputing, useAlerts, useLiveActions, useTraderAnalytics, useTraderFills } from "@/lib/queries";
+import { PerformanceTab, TradesTab } from "./trade-analytics";
 
-type Tab = "positions" | "fills" | "actions" | "alerts";
-const TABS: Tab[] = ["positions", "fills", "actions", "alerts"];
+type Tab = "positions" | "performance" | "trades" | "fills" | "actions" | "alerts";
+/** CopyDog's order: positions, performance, then the lists. */
+const TABS: Tab[] = ["positions", "performance", "trades", "fills", "actions", "alerts"];
 const NO_FILLS: TraderFill[] = [];
 const NO_MARKS: Readonly<Record<string, number>> = {};
 
-/** Positions / fills / actions / alerts under the chart. Fills and actions
- * export to CSV (競品分析 §3.10: your data, portable). */
+/** Positions / performance / trades / fills / actions / alerts under the
+ * chart. Performance and trades are the round trips the api reconstructs
+ * for any address. Fills and actions export to CSV (競品分析 §3.10: your
+ * data, portable). */
 export function ActivityTabs({
   profile,
   liveFills = NO_FILLS,
@@ -51,6 +55,8 @@ export function ActivityTabs({
     highlight: newActions,
   } = useLiveActions({ address: profile.address, limit: 200 }, { enabled: tab === "actions" });
   const alerts = useAlerts(profile.address, { enabled: tab === "alerts" && status === "signedIn" });
+  // All-time, like CopyDog's performance tab; shared with the profile rail.
+  const analytics = useTraderAnalytics(profile.address, "all");
 
   const exportable = tab === "fills" ? fillRows : tab === "actions" ? actions.data : undefined;
 
@@ -104,6 +110,15 @@ export function ActivityTabs({
 
       <div role="tabpanel" id={panelId} aria-labelledby={`${panelId}-${tab}`} tabIndex={0} className="min-h-[180px]">
         {tab === "positions" ? <Positions profile={profile} marks={marks} /> : null}
+        {tab === "performance" ? (
+          <PerformanceTab
+            analytics={analytics.data}
+            computing={isComputing(analytics)}
+            error={analytics.error}
+            onRetry={() => analytics.refetch()}
+          />
+        ) : null}
+        {tab === "trades" ? <TradesTab address={profile.address} /> : null}
         {tab === "fills" ? (
           fills.isError ? (
             <ErrorState message={fills.error.message} onRetry={() => fills.refetch()} />

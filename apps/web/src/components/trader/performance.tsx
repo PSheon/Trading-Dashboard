@@ -1,6 +1,6 @@
 "use client";
 
-import type { PortfolioResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
+import type { PortfolioResponse, TradeWindow, TraderAnalyticsResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
 import { useMemo } from "react";
 import Link from "next/link";
 import { cn } from "cn";
@@ -19,6 +19,9 @@ export type ChartUnit = "usd" | "pct";
 export type Market = "perp" | "all";
 
 export const WINDOWS: TraderWindow[] = ["day", "week", "month", "allTime"];
+
+/** The trade analytics window matching a chart window. */
+export const TRADE_WINDOW: Record<TraderWindow, TradeWindow> = { day: "1d", week: "7d", month: "30d", allTime: "all" };
 
 function Tile({
   label,
@@ -75,8 +78,11 @@ export function windowRoi(portfolio: PortfolioResponse | undefined): number | nu
 /** The leaderboard's figure differs enough from the portfolio's to explain. */
 const LEADERBOARD_DIFF = 0.2;
 
-/** PnL/ROI/Sharpe follow the portfolio window. Recorded perp win rate
- * retains its explicit 30-day scope independently of the chart controls. */
+/** Four KPI tiles tied to the window toggle: PnL, ROI, Sharpe (with max
+ * drawdown) from Hyperliquid's `portfolio`, and win rate with its trade
+ * count from the round trips the api reconstructs for any address (closed
+ * in the window, CopyDog's definition). Low-sample traders get their
+ * returns greyed. */
 export function KpiTiles({
   profile,
   portfolio,
@@ -84,6 +90,8 @@ export function KpiTiles({
   window,
   market,
   lowSample,
+  trades,
+  tradesComputing,
 }: {
   profile: TraderProfileResponse;
   portfolio: PortfolioResponse | undefined;
@@ -92,6 +100,10 @@ export function KpiTiles({
   market: Market;
   /** From the activity request; false until it arrives. */
   lowSample: boolean;
+  /** GET /traders/:address/analytics for this window. */
+  trades: TraderAnalyticsResponse | undefined;
+  /** The api is still reconstructing a cold address's trades. */
+  tradesComputing: boolean;
 }) {
   const { t, format } = useI18n();
   const muted = lowSample;
@@ -124,7 +136,7 @@ export function KpiTiles({
         : `${Math.max(1, Math.round(spanYears * 365))}d`;
 
   const sharpe = portfolio?.sharpe ?? null;
-  const winRate = profile.analytics?.winRate30d ?? null;
+  const winRate = trades?.summary.winRate ?? null;
   const loading = !portfolio;
 
   return (
@@ -183,14 +195,17 @@ export function KpiTiles({
       />
       <Tile
         label={t("trader.kpi.winRate")}
-        value={winRate === null ? "—" : format.pct(winRate)}
+        loading={!trades && tradesComputing}
+        value={winRate === null ? "—" : format.pct(winRate, { digits: 1 })}
         valueClass={muted ? "text-subtle-foreground" : ""}
         fill={winRate ?? 0}
         barClass={muted ? "bg-subtle-foreground" : "bg-primary"}
         sub={
-          profile.analytics
-            ? t("trader.kpi.trades", { count: profile.analytics.roundTrips30d })
-            : t("trader.kpi.noTrades")
+          trades
+            ? t("trader.kpi.trades", { count: trades.summary.trades })
+            : tradesComputing
+              ? t("trader.kpi.computing")
+              : t("trader.kpi.noTrades")
         }
       />
     </div>

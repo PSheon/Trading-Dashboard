@@ -484,3 +484,76 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
   afterJson: jsonb("after_json"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("admin_audit_logs_created_idx").on(table.createdAt), index("admin_audit_logs_actor_idx").on(table.actorUserId, table.createdAt)]);
+
+// ---------------------------------------------------------------------------
+// trader_trades / trader_analytics — round trips reconstructed from fills for
+// any address (the trader page's 交易 / 表現 tabs), and each address's
+// summary and refresh cursors. Derived from fills, so safe to truncate.
+// ---------------------------------------------------------------------------
+
+export const traderTrades = pgTable(
+  "trader_trades",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    /** tid of the trade's first fill we hold: unique per address. */
+    openTid: bigint("open_tid", { mode: "bigint" }).notNull(),
+    coin: text("coin").notNull(),
+    side: text("side").$type<"long" | "short">().notNull(),
+    entryTime: timestamp("entry_time", { withTimezone: true }).notNull(),
+    /** Null while open. */
+    exitTime: timestamp("exit_time", { withTimezone: true }),
+    /** Ledger order: exit time, or entry time while open. */
+    sortTime: timestamp("sort_time", { withTimezone: true }).notNull(),
+    /** Signed size now (0 once closed); the next refresh continues from it. */
+    position: numeric("position").notNull(),
+    /** Size already open before the first fill we hold (a partial trade),
+     * and its price once solved from a closing fill. */
+    preSize: numeric("pre_size").notNull().default("0"),
+    prePx: numeric("pre_px"),
+    entrySz: numeric("entry_sz").notNull(),
+    entryNtl: numeric("entry_ntl").notNull(),
+    exitSz: numeric("exit_sz").notNull(),
+    exitNtl: numeric("exit_ntl").notNull(),
+    realizedPnl: numeric("realized_pnl").notNull(),
+    fees: numeric("fees").notNull(),
+    /** Null when the hold started before funding was read. */
+    funding: numeric("funding"),
+    netPnl: numeric("net_pnl").notNull(),
+    liquidated: boolean("liquidated").notNull().default(false),
+    twap: boolean("twap").notNull().default(false),
+    fills: integer("fills").notNull(),
+    lastFillTime: timestamp("last_fill_time", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.chain, table.address, table.openTid] }),
+    index("trader_trades_address_sort_idx").on(table.address, table.sortTime.desc(), table.openTid.desc()),
+  ],
+);
+
+export const traderAnalytics = pgTable(
+  "trader_analytics",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    /** "tracked" (our fills table) or "hyperliquid" (its fill history). */
+    source: text("source").$type<"tracked" | "hyperliquid">().notNull(),
+    /** Earliest fill read. */
+    coverageFrom: timestamp("coverage_from", { withTimezone: true }),
+    truncated: boolean("truncated").notNull().default(false),
+    fillsRead: integer("fills_read").notNull().default(0),
+    /** Time of the newest fill processed, and the tids at that millisecond
+     * (the next read starts there, inclusive, and skips them). */
+    fillCursor: timestamp("fill_cursor", { withTimezone: true }),
+    cursorTids: jsonb("cursor_tids").$type<string[]>().notNull().default([]),
+    /** Funding is complete for trades opened on or after `fundingFrom`, up
+     * to `fundingCursor`; both null until funding was first read. */
+    fundingFrom: timestamp("funding_from", { withTimezone: true }),
+    fundingCursor: timestamp("funding_cursor", { withTimezone: true }),
+    /** { all, 30d, 7d } summaries, as served. */
+    summary: jsonb("summary").$type<Record<string, unknown>>().notNull(),
+    classification: jsonb("classification").$type<Record<string, unknown>>().notNull(),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.chain, table.address] })],
+);

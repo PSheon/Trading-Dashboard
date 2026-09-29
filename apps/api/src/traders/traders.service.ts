@@ -277,7 +277,7 @@ export class TradersService {
   }
 
   /** `userFills` and the latest TWAP slices (which it doesn't include). */
-  private latestFills(address: string): Promise<[HlUserFill[], HlUserFill[]]> {
+  latestFills(address: string): Promise<[HlUserFill[], HlUserFill[]]> {
     return Promise.all([
       this.userFillsCache.get(address, () => this.info.userFills(address, LANE, PAGE_RANK.fills)),
       this.twapFillsCache.get(address, async () =>
@@ -303,13 +303,22 @@ export class TradersService {
 
   isTracked(address: string) { return this.repository.isTracked(address); }
 
+  /** Hyperliquid's leaderboard all-time PnL, as last imported; null for an
+   * address not on the leaderboard. */
+  async leaderboardAllTimePnl(address: string): Promise<number | null> {
+    const [row] = await this.repository.findStats(address);
+    return row ? toTraderStats(row).pnl.allTime : null;
+  }
+
   // --- GET /traders/:address/portfolio -------------------------------------
 
   async portfolio(address: string, query: PortfolioQuery): Promise<PortfolioResponse> {
-    const raw = await this.portfolioCache.get(address, () =>
-      this.info.portfolio(address, LANE, PAGE_RANK.portfolio),
-    );
-    return toPortfolioResponse(raw, query.window, query.market);
+    return toPortfolioResponse(await this.rawPortfolio(address), query.window, query.market);
+  }
+
+  /** Hyperliquid's `portfolio`, through the page's 60 s cache. */
+  rawPortfolio(address: string): Promise<HlPortfolioResponse> {
+    return this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.portfolio));
   }
 
   // --- GET /traders/sparklines ---------------------------------------------

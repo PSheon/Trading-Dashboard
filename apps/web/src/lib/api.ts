@@ -13,10 +13,20 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Machine-readable error code from the body, e.g. "busy". */
+    public code?: string,
+    /** From a Retry-After header (seconds), in ms. */
+    public retryAfterMs?: number,
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/** 503 `{code: "busy"}`: Hyperliquid's request budget couldn't serve the
+ * call in time; it is worth retrying after `retryAfterMs`. */
+export function isBusy(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 503 && error.code === "busy";
 }
 
 export type AccessTokenGetter = () => Promise<string | null>;
@@ -64,9 +74,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let message = text || res.statusText;
+    let code: string | undefined;
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined;
     try {
       // Nest errors: {statusCode, message, code?} or {…, issues: zod issues}.
-      const parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
+      const parsed = JSON.parse(text) as { message?: unknown; issues?: unknown; code?: unknown };
+      if (typeof parsed.code === "string") code = parsed.code;
       if (typeof parsed.message === "string") message = parsed.message;
       else if (Array.isArray(parsed.message)) message = parsed.message.join("; ");
       if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
@@ -78,7 +92,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     } catch {
       // not JSON; keep the raw text
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code, retryAfterMs);
   }
 
   if (res.status === 204) return undefined as T;

@@ -1,6 +1,6 @@
 "use client";
 
-import type { TraderActivity, TraderProfileResponse } from "@trading-dashboard/shared";
+import type { TraderActivity, TraderActivityResponse, TraderProfileResponse } from "@trading-dashboard/shared";
 import { Check, ChevronDown, Copy, Radio, Share2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
@@ -90,13 +90,27 @@ function LastTrade({ at }: { at: Date | string | null }) {
   );
 }
 
+/** Placeholder for the last-trade pill while the activity request runs. */
+function LastTradeLoading() {
+  const { t } = useI18n();
+  return (
+    <span className="inline-flex h-6 w-28 animate-pulse items-center rounded-full bg-raised" role="status">
+      <span className="sr-only">{t("trader.activityLoading")}</span>
+    </span>
+  );
+}
+
 /** Left column: identity, last trade, account value, leverage, bias,
- * overview, our own analytics, best / worst coins. */
+ * overview, our own analytics, best / worst coins. `activity` (last trade,
+ * sample size) arrives after the profile: undefined while loading (its pill
+ * pulses), null if it failed (no pill). */
 export function ProfileCard({
   profile,
+  activity,
   lowSampleThreshold,
 }: {
   profile: TraderProfileResponse;
+  activity: TraderActivityResponse | null | undefined;
   lowSampleThreshold: number;
 }) {
   const { t, format } = useI18n();
@@ -148,17 +162,21 @@ export function ProfileCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3.5">
-        <LastTrade at={profile.lastTradeAt} />
+        {activity ? (
+          <LastTrade at={activity.lastTradeAt} />
+        ) : activity === undefined ? (
+          <LastTradeLoading />
+        ) : null}
         {profile.tracked ? (
           <span className="inline-flex h-6 items-center gap-1 rounded-full bg-primary-soft px-2 text-[0.6875rem] font-semibold text-primary">
             <Radio className="size-3" />
             {t("trader.tracked")}
           </span>
         ) : null}
-        {profile.sample.lowSample ? (
+        {activity?.sample.lowSample ? (
           <LowSampleTag
-            fills={profile.sample.fills30d}
-            capped={profile.sample.capped}
+            fills={activity.sample.fills30d}
+            capped={activity.sample.capped}
             threshold={lowSampleThreshold}
           />
         ) : null}

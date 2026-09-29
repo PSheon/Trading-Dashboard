@@ -93,6 +93,9 @@ async function forward(
   const resHeaders = new Headers({ "Cache-Control": "no-store" });
   const upstreamType = upstream.headers.get("content-type");
   if (upstreamType) resHeaders.set("Content-Type", upstreamType);
+  // A 503 busy says when to retry.
+  const retryAfter = upstream.headers.get("retry-after");
+  if (retryAfter) resHeaders.set("Retry-After", retryAfter);
 
   const nullBody =
     upstream.status === 204 || upstream.status === 304 || request.method === "HEAD";

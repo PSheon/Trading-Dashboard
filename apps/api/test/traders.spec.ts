@@ -9,15 +9,18 @@ import { RoundTripService } from "../src/analytics/round-trip.service.js";
 import type { RequestUser } from "../src/common/auth/current-user.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
+
+import { BusyException } from "../src/traders/busy.js";
 import type {
   HlClearinghouseStateResponse,
   HlPerpDexsResponse,
   HlPortfolioResponse,
+  HlTwapSliceFill,
   HlUserFill,
 } from "../src/hyperliquid/types.js";
 import { parseLeaderboard } from "../src/traders/leaderboard.js";
 import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
-import { TradersController } from "../src/traders/traders.controller.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, TradersController } from "../src/traders/traders.controller.js";
 import {
   downsample,
   portfolioKey,
@@ -26,7 +29,7 @@ import {
   sampleFromUserFills,
   toPortfolioResponse,
 } from "../src/traders/traders.mappers.js";
-import { TradersService } from "../src/traders/traders.service.js";
+import { FILLS_TTL_MS, TradersService } from "../src/traders/traders.service.js";
 import { TtlCache } from "../src/traders/ttl-cache.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -104,8 +107,10 @@ function fakeInfo() {
     clearinghouseState: vi.fn(async (_address: string, dex?: string) => (dex === "xyz" ? xyzState : mainState)),
     portfolio: vi.fn(async (_address: string) => portfolioFixture),
     userFills: vi.fn(async (_address: string) => userFillsFixture),
+    userTwapSliceFills: vi.fn(async (_address: string): Promise<HlTwapSliceFill[]> => []),
   };
 }
+
 
 function statsRow(
   address: string,
@@ -273,8 +278,14 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(dexesQueried.sort()).toEqual(["(main)", "xyz"]); // "abcd" lists no markets
       for (const call of info.clearinghouseState.mock.calls) {
         expect(call[0]).toBe(A);
+        // First-paint rank, and a bounded wait for budget.
         expect(call.slice(2)).toEqual(["background", 0]);
       }
+      // The first paint doesn't wait on any fill list.
+      expect(info.userFills).not.toHaveBeenCalled();
+      expect(info.userTwapSliceFills).not.toHaveBeenCalled();
+      expect(res).not.toHaveProperty("sample");
+      expect(res).not.toHaveProperty("lastTradeAt");
 
       expect(res.address).toBe(A);
       expect(res.displayName).toBe("Alpha Whale");
@@ -404,9 +415,9 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(portfolioKey("allTime", "perp")).toBe("perpAllTime");
       expect(portfolioKey("week", "all")).toBe("week");
 
-      // One upstream call served both (60 s cache), in the background lane at rank 0.
+      // One upstream call served both (60 s cache), in the background lane at the chart's rank.
       expect(info.portfolio).toHaveBeenCalledTimes(1);
-      expect(info.portfolio.mock.calls[0]).toEqual([A, "background", 0]);
+      expect(info.portfolio.mock.calls[0]).toEqual([A, "background", 1]);
       await expectStatus(() => controller.portfolio(A, { window: "year" }), 400);
     });
 
@@ -500,13 +511,14 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         closedPnl: null,
         fee: 1,
         ts: t(2),
+        twapId: null,
       });
       expect(res[1]).toMatchObject({ side: "buy", notionalUsd: 30000, closedPnl: 0 });
       expect(await controller.fills(A, "1")).toHaveLength(1);
       expect(info.userFills).not.toHaveBeenCalled();
     });
 
-    it("asks Hyperliquid for an untracked address (cached 60 s)", async () => {
+    it("asks Hyperliquid for an untracked address (cached 5 min)", async () => {
       const res = await controller.fills(UNKNOWN, "200");
       const perps = userFillsFixture.filter((f) => !f.coin.startsWith("@"));
       expect(perps.length).toBeLessThan(userFillsFixture.length);
@@ -527,7 +539,8 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
 
       expect(await controller.fills(UNKNOWN, "3")).toHaveLength(3);
       expect(info.userFills).toHaveBeenCalledTimes(1);
-      expect(info.userFills.mock.calls[0]).toEqual([UNKNOWN, "background", 0]);
+      expect(info.userFills.mock.calls[0]).toEqual([UNKNOWN, "background", 2]);
+      expect(info.userTwapSliceFills.mock.calls).toEqual([[UNKNOWN, "background", 2]]);
     });
 
     it("validates limit (1–200, default 50)", async () => {
@@ -636,12 +649,17 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     });
   });
 
-  describe("profile sample", () => {
+  describe("GET /traders/:address/activity (sample size, last trade)", () => {
     const hl = (hoursAgo: number, coin = "BTC", tid = Math.floor(Math.random() * 1e12)): HlUserFill => ({
       ...userFillsFixture[0],
       coin,
       tid,
       time: Date.now() - hoursAgo * 3_600_000,
+    });
+    const slice = (hoursAgo: number, twapId = 2_256_941, coin = "CFX", tid = Math.floor(Math.random() * 1e12)): HlTwapSliceFill => ({
+      // Hyperliquid's own fill.twapId inside a slice is null; the outer one counts.
+      fill: { ...hl(hoursAgo, coin, tid), hash: `0x${"0".repeat(64)}`, twapId: null },
+      twapId,
     });
 
     it("counts an untracked address's perp fills in 30 days from userFills, shared with the fills tab", async () => {
@@ -653,35 +671,53 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         hl(24 * 29),
         hl(24 * 31), // outside the window
       ]);
-      const res = await controller.profile(UNKNOWN, null);
+      const res = await controller.activity(UNKNOWN);
       expect(res.sample).toEqual({ fills30d: 3, capped: false, lowSample: true });
+      expect(res.lastTradeAt!.getTime()).toBeCloseTo(Date.now() - 3_600_000, -4);
       await controller.fills(UNKNOWN, undefined);
       expect(info.userFills).toHaveBeenCalledTimes(1);
-      expect(info.userFills.mock.calls[0]).toEqual([UNKNOWN, "background", 0]);
+      expect(info.userTwapSliceFills).toHaveBeenCalledTimes(1);
+      expect(info.userFills.mock.calls[0]).toEqual([UNKNOWN, "background", 2]);
+      // The activity never touches positions.
+      expect(info.clearinghouseState).not.toHaveBeenCalled();
+    });
+
+    it("counts TWAP slices (not in userFills) in the sample and the last trade", async () => {
+      // A TWAP trader: userFills' newest is 6 days old, slices ran an hour ago.
+      info.userFills.mockResolvedValue([hl(24 * 6), hl(24 * 7)]);
+      info.userTwapSliceFills.mockResolvedValue([slice(1), slice(1.5), slice(2), slice(24 * 40)]);
+      const res = await controller.activity(UNKNOWN);
+      expect(res.sample).toEqual({ fills30d: 5, capped: false, lowSample: true });
+      expect(res.lastTradeAt!.getTime()).toBeCloseTo(Date.now() - 3_600_000, -4);
+
+      // A full TWAP list whose oldest slice is inside the window: "at least".
+      const other = `0x${"07".repeat(20)}`;
+      info.userTwapSliceFills.mockResolvedValue(Array.from({ length: 2000 }, (_, i) => slice(i * 0.01, 1, "CFX", i + 1)));
+      expect((await controller.activity(other)).sample).toEqual({ fills30d: 2002, capped: true, lowSample: false });
     });
 
     it("is capped when userFills hit 2,000 and the oldest is still inside the window", async () => {
       const full = Array.from({ length: 2000 }, (_, i) => hl(i * 0.1, "ETH", i + 1)); // all within ~8 days
       info.userFills.mockResolvedValueOnce(full);
-      const capped = await controller.profile(UNKNOWN, null);
+      const capped = await controller.activity(UNKNOWN);
       expect(capped.sample).toEqual({ fills30d: 2000, capped: true, lowSample: false });
 
       const reachesPast = [...full.slice(1), hl(24 * 40, "ETH", 99_999)];
       info.userFills.mockResolvedValueOnce(reachesPast);
       const other = `0x${"07".repeat(20)}`;
-      expect((await controller.profile(other, null)).sample).toEqual({ fills30d: 1999, capped: false, lowSample: false });
+      expect((await controller.activity(other)).sample).toEqual({ fills30d: 1999, capped: false, lowSample: false });
 
       const short = full.slice(0, 1999);
       info.userFills.mockResolvedValueOnce(short);
       const third = `0x${"08".repeat(20)}`;
-      expect((await controller.profile(third, null)).sample.capped).toBe(false);
+      expect((await controller.activity(third)).sample.capped).toBe(false);
     });
 
-    it("counts our own fills for a tracked address and applies the admin's threshold per request", async () => {
-      vi.mocked(info.userFills).mockResolvedValueOnce([]);
+    it("counts our own fills (TWAP slices included) for a tracked address and applies the admin's threshold per request", async () => {
+      vi.mocked(info.userFills).mockResolvedValue([]);
       await db.insert(leaders).values({ address: C });
       const ago = (h: number) => new Date(Date.now() - h * 3_600_000);
-      const row = (tid: bigint, address: string, coin: string, ts: Date) => ({
+      const row = (tid: bigint, address: string, coin: string, ts: Date, raw: Record<string, unknown> = {}) => ({
         tid,
         address,
         coin,
@@ -692,23 +728,25 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         fee: "0",
         closedPnl: "0",
         ts,
-        raw: {},
+        raw,
       });
+      const sliceAt = ago(1);
       await db.insert(fills).values([
-        row(1n, C, "BTC", ago(1)),
+        row(1n, C, "BTC", ago(24)),
         row(2n, C, "xyz:GOLD", ago(100)),
         row(3n, C, "ETH", ago(24 * 29)),
         row(4n, C, "@107", ago(2)), // spot
         row(5n, C, "BTC", ago(24 * 31)), // too old
-        row(1n, D, "BTC", ago(1)), // someone else
+        row(6n, C, "CFX", sliceAt, { twapId: 7 }), // a stored TWAP slice: the latest trade
+        row(1n, D, "BTC", ago(0.5)), // someone else
       ]);
-      const res = await controller.profile(C, null);
-      expect(res.tracked).toBe(true);
-      expect(res.sample).toEqual({ fills30d: 3, capped: false, lowSample: true });
+      const res = await controller.activity(C);
+      expect(res.sample).toEqual({ fills30d: 4, capped: false, lowSample: true });
+      expect(res.lastTradeAt).toEqual(sliceAt);
+      expect((await controller.profile(C, null)).tracked).toBe(true);
 
-      await settings.patch({ discovery: { lowSampleThreshold: 3 } }, null);
-      expect((await controller.profile(C, null)).sample.lowSample).toBe(false);
-      expect(info.clearinghouseState).toHaveBeenCalledTimes(2); // still the cached profile
+      await settings.patch({ discovery: { lowSampleThreshold: 4 } }, null);
+      expect((await controller.activity(C)).sample.lowSample).toBe(false);
     });
 
     it("uses Hyperliquid's count for a tracked address when ours has holes, and ours if Hyperliquid fails", async () => {
@@ -716,7 +754,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       // No fills of ours at all (e.g. imported today): the upstream sample wins.
       const upstream = sampleFromUserFills(userFillsFixture, Date.now() - 30 * 86_400_000);
       expect(upstream.fills30d).toBeGreaterThan(0);
-      expect((await controller.profile(C, null)).sample).toMatchObject({ fills30d: upstream.fills30d });
+      expect((await controller.activity(C)).sample).toMatchObject({ fills30d: upstream.fills30d });
 
       await db.delete(leaders);
       await db.insert(leaders).values({ address: D });
@@ -725,7 +763,94 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         fee: "0", closedPnl: "0", ts: new Date(Date.now() - 3_600_000), raw: {},
       });
       vi.mocked(info.userFills).mockRejectedValueOnce(new Error("502"));
-      expect((await controller.profile(D, null)).sample).toMatchObject({ fills30d: 1, capped: false });
+      expect((await controller.activity(D)).sample).toMatchObject({ fills30d: 1, capped: false });
+    });
+
+    it("maps upstream failure to 502, and past the deadline answers 503 busy while the work carries on into the cache", async () => {
+      info.userFills.mockRejectedValueOnce(new Error("Hyperliquid info request failed: 500"));
+      await expectStatus(controller.activity(UNKNOWN), 502);
+      await expectStatus(() => controller.activity("0x12"), 400);
+
+      // The request budget is backed up: the TWAP list takes a while.
+      let release!: (v: HlTwapSliceFill[]) => void;
+      info.userTwapSliceFills.mockReturnValueOnce(new Promise<HlTwapSliceFill[]>((r) => (release = r)));
+      controller.pageDeadlineMs = 30;
+      const other = `0x${"07".repeat(20)}`;
+      const busy = await controller.activity(other).catch((e: unknown) => e);
+      expect(busy).toBeInstanceOf(BusyException);
+      expect((busy as BusyException).getStatus()).toBe(503);
+      expect((busy as BusyException).getResponse()).toEqual({
+        statusCode: 503,
+        code: "busy",
+        message: expect.any(String),
+        retryAfterSeconds: BUSY_RETRY_AFTER_MS / 1000,
+      });
+
+      // The retry is served by the same in-flight load once it lands.
+      release([]);
+      controller.pageDeadlineMs = PAGE_DEADLINE_MS;
+      expect((await controller.activity(other)).sample.fills30d).toBeGreaterThan(0);
+      expect(info.userTwapSliceFills.mock.calls.filter((c) => c[0] === other)).toHaveLength(1);
+    });
+  });
+
+  describe("fill lists: TWAP slices and cache TTLs", () => {
+    const at = (m: number) => Date.UTC(2026, 8, 29, 0, m);
+    const hlAt = (m: number, tid: number, coin = "BTC"): HlUserFill => ({ ...userFillsFixture[0], coin, tid, time: at(m) });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("merges an untracked address's TWAP slices into its fills, newest first, tagged with twapId", async () => {
+      info.userFills.mockResolvedValue([hlAt(1, 11), hlAt(3, 13), hlAt(4, 14, "@107")]);
+      info.userTwapSliceFills.mockResolvedValue([
+        { fill: { ...hlAt(5, 25, "CFX"), twapId: null }, twapId: 2_256_941 },
+        { fill: { ...hlAt(2, 22, "CFX"), twapId: null }, twapId: 2_256_941 },
+      ]);
+      const res = await controller.fills(UNKNOWN, undefined);
+      expect(res.map((f) => [f.tid, f.twapId])).toEqual([
+        ["25", 2_256_941],
+        ["13", null],
+        ["22", 2_256_941],
+        ["11", null],
+      ]);
+      expect(res[0]).toMatchObject({ coin: "CFX", ts: new Date(at(5)) });
+    });
+
+    it("reads twapId from a stored slice's raw for a tracked address", async () => {
+      await db.insert(leaders).values({ address: A });
+      const base = { address: A, side: "B", dir: "Open Long", px: "1", sz: "2", fee: "0", closedPnl: "0" };
+      await db.insert(fills).values([
+        { ...base, tid: 1n, coin: "BTC", ts: new Date(at(1)), raw: { twapId: null } },
+        { ...base, tid: 2n, coin: "CFX", ts: new Date(at(2)), raw: { twapId: 2_256_941, hash: `0x${"0".repeat(64)}` } },
+      ]);
+      const res = await controller.fills(A, undefined);
+      expect(res.map((f) => [f.tid, f.twapId])).toEqual([
+        ["2", 2_256_941],
+        ["1", null],
+      ]);
+      expect(info.userTwapSliceFills).not.toHaveBeenCalled();
+    });
+
+    it("keeps an untracked address's fill lists 5 min and its positions 60 s", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      expect(FILLS_TTL_MS).toBe(5 * 60_000);
+      await Promise.all([controller.profile(UNKNOWN, null), controller.activity(UNKNOWN), controller.fills(UNKNOWN, "5")]);
+      expect(info.clearinghouseState).toHaveBeenCalledTimes(2);
+      expect(info.userFills).toHaveBeenCalledTimes(1);
+      expect(info.userTwapSliceFills).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(Date.now() + 61_000);
+      await Promise.all([controller.profile(UNKNOWN, null), controller.activity(UNKNOWN), controller.fills(UNKNOWN, "5")]);
+      expect(info.clearinghouseState).toHaveBeenCalledTimes(4); // positions refreshed
+      expect(info.userFills).toHaveBeenCalledTimes(1); // lists still cached
+      expect(info.userTwapSliceFills).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(Date.now() + 4 * 60_000);
+      await controller.activity(UNKNOWN);
+      expect(info.userFills).toHaveBeenCalledTimes(2);
+      expect(info.userTwapSliceFills).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -739,7 +864,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(await service.homeAddresses()).toEqual([B, C, A, D]);
       expect(await service.warmHome()).toBe(4);
       expect(info.portfolio).toHaveBeenCalledTimes(4);
-      for (const call of info.portfolio.mock.calls) expect(call.slice(1)).toEqual(["background", 1]);
+      for (const call of info.portfolio.mock.calls) expect(call.slice(1)).toEqual(["background", 3]);
 
       vi.setSystemTime(Date.now() + 12 * 60_000); // past the normal 10 min TTL
       const res = await controller.sparklines({ addresses: [A, B, C, D].join(","), window: "month" });

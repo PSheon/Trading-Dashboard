@@ -81,9 +81,26 @@ export interface HlUserFill {
   };
   feeToken?: string;
   builderFee?: string;
+  /** On a TWAP slice fill, set by this app from the slice's outer `twapId`
+   * (Hyperliquid's own `fill.twapId` inside a slice is null). */
+  twapId?: number | null;
 }
 
 export type HlUserFillsByTimeResponse = HlUserFill[];
+
+/**
+ * One item of `userTwapSliceFills` / `userTwapSliceFillsByTime`. TWAP slice
+ * fills are NOT in `userFills` / `userFillsByTime` (verified live
+ * 2026-09-29: an account with 2,000 slices in the last day had its newest
+ * `userFills` entry 6 days old), but the `trades` feed carries them like any
+ * other trade, trader in `users[]`, same tid. The fill has every field a
+ * normal fill has (startPosition, dir, closedPnl, fee, oid); its `hash` is
+ * always 0x0…0.
+ */
+export interface HlTwapSliceFill {
+  fill: HlUserFill;
+  twapId: number;
+}
 
 /** `perpDexs`: index 0 is the main dex (returned as null); the rest are
  * HIP-3 builder dexes whose coins are named "<dex>:<COIN>". */
@@ -108,6 +125,13 @@ export type HlInfoRequestBody =
   | { type: "allMids" }
   | { type: "portfolio"; user: string }
   | { type: "userFills"; user: string }
+  | { type: "userTwapSliceFills"; user: string }
+  | {
+      type: "userTwapSliceFillsByTime";
+      user: string;
+      startTime: number;
+      endTime?: number;
+    }
   | { type: "referral"; user: string };
 
 /** One `portfolio` history: [epoch ms, decimal string] points. */

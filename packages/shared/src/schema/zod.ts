@@ -460,17 +460,18 @@ export const traderProfileResponseSchema = z.object({
   /** Watched by the live pipeline (imported or someone's favorite). */
   tracked: z.boolean(),
   isVault: z.boolean(),
-  /** Latest perp fill we know of (ours or Hyperliquid's latest list). */
-  lastTradeAt: z.coerce.date().nullable(),
-  /** Sample size, so a 3-trade 300% ROI doesn't look like a 300-trade one
-   * (競品分析 §3.2). Tracked: our fills; untracked: Hyperliquid's latest
-   * `userFills` (at most 2,000, so `capped` means "at least"). */
-  sample: z.object({
-    fills30d: z.number().int(),
-    capped: z.boolean(),
-    /** fills30d below the admin's `discovery.lowSampleThreshold`. */
-    lowSample: z.boolean(),
-  }),
+  /** @deprecated Moved to GET /traders/:address/activity; no longer sent.
+   * Kept optional for one step so older clients still parse. */
+  lastTradeAt: z.coerce.date().nullable().optional(),
+  /** @deprecated Moved to GET /traders/:address/activity; no longer sent.
+   * Kept optional for one step so older clients still parse. */
+  sample: z
+    .object({
+      fills30d: z.number().int(),
+      capped: z.boolean(),
+      lowSample: z.boolean(),
+    })
+    .optional(),
   favorite: z.boolean(),
   /** From this system's own records; null when not tracked. */
   analytics: z
@@ -486,6 +487,38 @@ export const traderProfileResponseSchema = z.object({
   fetchedAt: z.coerce.date(),
 });
 export type TraderProfileResponse = z.infer<typeof traderProfileResponseSchema>;
+
+/** GET /traders/:address/activity — the fills-derived part of the trader
+ * page, served apart from the profile because it costs far more Hyperliquid
+ * weight (fill lists) and would hold up the first paint. Public. TWAP slice
+ * fills count like any other fill. */
+export const traderActivityResponseSchema = z.object({
+  address: z.string(),
+  /** Latest perp fill we know of (ours or Hyperliquid's latest lists). */
+  lastTradeAt: z.coerce.date().nullable(),
+  /** Sample size, so a 3-trade 300% ROI doesn't look like a 300-trade one
+   * (競品分析 §3.2). Tracked: our fills or Hyperliquid's latest lists,
+   * whichever is larger; untracked: Hyperliquid's latest `userFills` plus
+   * latest TWAP slices (each at most 2,000, so `capped` means "at least"). */
+  sample: z.object({
+    fills30d: z.number().int(),
+    capped: z.boolean(),
+    /** fills30d below the admin's `discovery.lowSampleThreshold`. */
+    lowSample: z.boolean(),
+  }),
+  fetchedAt: z.coerce.date(),
+});
+export type TraderActivityResponse = z.infer<typeof traderActivityResponseSchema>;
+
+/** 503 body when Hyperliquid's request budget can't serve a page load in
+ * time; the response carries `Retry-After` (seconds). */
+export const busyErrorSchema = z.object({
+  statusCode: z.literal(503),
+  code: z.literal("busy"),
+  message: z.string(),
+  retryAfterSeconds: z.number().int(),
+});
+export type BusyError = z.infer<typeof busyErrorSchema>;
 
 /** GET /traders/:address/portfolio?window=&market= — PnL and account value
  * history from Hyperliquid's `portfolio`. Points are [epoch ms, value]. */
@@ -525,7 +558,7 @@ export const sparklinesResponseSchema = z.record(z.string(), z.array(seriesPoint
 export type SparklinesResponse = z.infer<typeof sparklinesResponseSchema>;
 
 /** GET /traders/:address/fills?limit= — recent perp fills (ours when
- * tracked, else Hyperliquid's latest). */
+ * tracked, else Hyperliquid's latest), TWAP slices included. */
 export const traderFillSchema = z.object({
   tid: z.string(),
   coin: z.string(),
@@ -537,6 +570,8 @@ export const traderFillSchema = z.object({
   closedPnl: z.number().nullable(),
   fee: z.number().nullable(),
   ts: z.coerce.date(),
+  /** The TWAP this fill is a slice of; null for a regular fill. */
+  twapId: z.number().int().nullable().optional(),
 });
 export type TraderFill = z.infer<typeof traderFillSchema>;
 

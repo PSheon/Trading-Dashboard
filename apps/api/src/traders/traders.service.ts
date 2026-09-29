@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, like, max, notLike, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, like, max, notLike, or, sql, type SQL } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
   fills,
@@ -11,6 +11,7 @@ import {
   type PortfolioQuery,
   type PortfolioResponse,
   type SparklinesResponse,
+  type TraderActivityResponse,
   type TraderFill,
   type TraderProfileResponse,
   type TradersQuery,
@@ -21,7 +22,8 @@ import {
 import { RoundTripService } from "../analytics/round-trip.service.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
+import { HyperliquidInfoClient, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
+import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
@@ -31,7 +33,7 @@ import {
   hlFillToTraderFill,
   isPerpCoin,
   portfolioSeries,
-  sampleFromUserFills,
+  sampleFromLists,
   type FillSample,
   summarizeAccount,
   summarizeRoundTrips,
@@ -40,17 +42,23 @@ import {
 } from "./traders.mappers.js";
 import { TtlCache } from "./ttl-cache.js";
 
-/** Page loads go ahead of backfill and sweeps (lower rank first within the
- * background lane) but never ahead of live detection (the live lane). */
+/**
+ * Page loads go ahead of backfill and sweeps (lower rank first within the
+ * background lane) but never ahead of live detection (the live lane). Within
+ * a page, the first paint (profile: account value, positions) goes first,
+ * then the chart, then the fill lists; home warming after all of them.
+ */
 const LANE = "background" as const;
-const RANK = 0;
-/** Home-page warming: behind page loads, still ahead of backfill/sweeps
- * (whose rank is their arrival sequence). */
-const WARM_RANK = 1;
 
+/** Positions and account value: live data. */
 export const PROFILE_TTL_MS = 60_000;
 export const PORTFOLIO_TTL_MS = 60_000;
-export const FILLS_TTL_MS = 60_000;
+/** Hyperliquid's latest fill and TWAP slice lists, for addresses we don't
+ * store fills for (a tracked address's fills tab reads our table). They
+ * cost up to 120 weight each, 3–6× a whole profile, so they are kept
+ * longer: the fills tab and activity of an untracked trader are up to 5 min
+ * old. */
+export const FILLS_TTL_MS = 5 * 60_000;
 export const SPARKLINE_TTL_MS = 10 * 60_000;
 export const DEX_LIST_TTL_MS = 60 * 60_000;
 export const SPARKLINE_MAX_POINTS = 40;
@@ -60,11 +68,9 @@ export const WARM_TTL_MS = 15 * 60_000;
 export const WARM_TOP_COUNT = 24;
 const THIRTY_DAYS_MS = 30 * 24 * 3_600_000;
 
-/** The profile without per-request fields (`favorite`, and `lowSample`,
- * which follows the admin's threshold), so one cached copy serves everyone. */
-type SharedProfile = Omit<TraderProfileResponse, "favorite" | "sample"> & {
-  sample: { fills30d: number; capped: boolean };
-};
+/** The profile without the per-request `favorite`, so one cached copy
+ * serves everyone. */
+type SharedProfile = Omit<TraderProfileResponse, "favorite">;
 
 const SORT_COLUMNS = {
   pnl: { day: traderStats.pnlDay, week: traderStats.pnlWeek, month: traderStats.pnlMonth, allTime: traderStats.pnlAllTime },
@@ -112,6 +118,7 @@ export class TradersService implements OnApplicationBootstrap {
   readonly portfolioCache = new TtlCache<HlPortfolioResponse>(PORTFOLIO_TTL_MS);
   readonly sparklineCache = new TtlCache<HlPortfolioResponse>(SPARKLINE_TTL_MS);
   readonly userFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS);
+  readonly twapFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS);
   readonly dexCache = new TtlCache<string[]>(DEX_LIST_TTL_MS, 1);
 
   constructor(
@@ -124,6 +131,8 @@ export class TradersService implements OnApplicationBootstrap {
 
   onApplicationBootstrap(): void {
     if (process.env.NODE_ENV === "test") return;
+    // The first trader page after a deploy then needs one request, not two.
+    this.perpDexes().catch(() => undefined);
     // After the startup import, so "top by month PnL" has data.
     this.ingest.startup.then(() => this.onWarmSchedule()).catch(() => undefined);
   }
@@ -193,31 +202,31 @@ export class TradersService implements OnApplicationBootstrap {
 
   // --- GET /traders/:address ------------------------------------------------
 
-  /** `address` must already be validated and lowercased. */
+  /**
+   * The first paint: identity, account value, positions across dexes, the
+   * leaderboard stats and (tracked) our own analytics. No fill lists: those
+   * are `activity()`. `address` must already be validated and lowercased.
+   */
   async profile(address: string, userId: number | null): Promise<TraderProfileResponse> {
-    const [shared, favorites, discovery] = await Promise.all([
+    const [shared, favorites] = await Promise.all([
       this.profileCache.get(address, () => this.loadProfile(address)),
       this.favoritesAmong(userId, [address]),
-      this.settings.get("discovery"),
     ]);
-    return {
-      ...shared,
-      sample: { ...shared.sample, lowSample: shared.sample.fills30d < discovery.lowSampleThreshold },
-      favorite: favorites.has(address),
-    };
+    return { ...shared, favorite: favorites.has(address) };
   }
 
   private async loadProfile(address: string): Promise<SharedProfile> {
     const since = new Date(Date.now() - THIRTY_DAYS_MS);
     const [dexes, tracked] = await Promise.all([this.perpDexes(), this.isTracked(address)]);
-    const [states, statsRows, sample, analytics] = await Promise.all([
-      Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, RANK))),
+    const [states, statsRows, analytics] = await Promise.all([
+      Promise.all(
+        dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile)),
+      ),
       this.db
         .select()
         .from(traderStats)
         .where(and(eq(traderStats.chain, CHAIN_DEFAULT), eq(traderStats.address, address)))
         .limit(1),
-      tracked ? this.trackedSample(address, since) : this.untrackedSample(address, since),
       tracked
         ? this.roundTrips.reconstructRoundTrips(address).then((trips) => summarizeRoundTrips(trips, since))
         : null,
@@ -230,9 +239,27 @@ export class TradersService implements OnApplicationBootstrap {
       ...summarizeAccount(states),
       tracked,
       isVault: stats?.isVault ?? this.ingest.isVault(address),
-      lastTradeAt: sample.lastTradeAt === null ? null : new Date(sample.lastTradeAt),
-      sample: { fills30d: sample.fills30d, capped: sample.capped },
       analytics,
+      fetchedAt: new Date(),
+    };
+  }
+
+  // --- GET /traders/:address/activity ---------------------------------------
+
+  /** Sample size and last trade, from fills (TWAP slices included). Apart
+   * from the profile because the fill lists cost far more weight. */
+  async activity(address: string): Promise<TraderActivityResponse> {
+    const since = new Date(Date.now() - THIRTY_DAYS_MS);
+    const [tracked, discovery] = await Promise.all([this.isTracked(address), this.settings.get("discovery")]);
+    const sample = tracked ? await this.trackedSample(address, since) : await this.untrackedSample(address, since);
+    return {
+      address,
+      lastTradeAt: sample.lastTradeAt === null ? null : new Date(sample.lastTradeAt),
+      sample: {
+        fills30d: sample.fills30d,
+        capped: sample.capped,
+        lowSample: sample.fills30d < discovery.lowSampleThreshold,
+      },
       fetchedAt: new Date(),
     };
   }
@@ -255,14 +282,20 @@ export class TradersService implements OnApplicationBootstrap {
     return { fills30d: count30d.fills30d, capped: count30d.capped, lastTradeAt: lastTradeAt < 0 ? null : lastTradeAt };
   }
 
-  /** From Hyperliquid's latest fills, through the same cache the fills tab
-   * reads, so opening the page pays for `userFills` once. */
+  /** From Hyperliquid's latest fills and TWAP slices, through the same
+   * caches the fills tab reads, so opening the page pays for each once. */
   private async untrackedSample(address: string, since: Date): Promise<FillSample> {
-    return sampleFromUserFills(await this.userFills(address), since.getTime());
+    return sampleFromLists(await this.latestFills(address), since.getTime());
   }
 
-  private userFills(address: string): Promise<HlUserFill[]> {
-    return this.userFillsCache.get(address, () => this.info.userFills(address, LANE, RANK));
+  /** `userFills` and the latest TWAP slices (which it doesn't include). */
+  private latestFills(address: string): Promise<[HlUserFill[], HlUserFill[]]> {
+    return Promise.all([
+      this.userFillsCache.get(address, () => this.info.userFills(address, LANE, PAGE_RANK.fills)),
+      this.twapFillsCache.get(address, async () =>
+        (await this.info.userTwapSliceFills(address, LANE, PAGE_RANK.fills)).map(twapSliceToFill),
+      ),
+    ]);
   }
 
   /**
@@ -272,7 +305,7 @@ export class TradersService implements OnApplicationBootstrap {
    */
   perpDexes(): Promise<string[]> {
     return this.dexCache.get("dexes", async () => {
-      const list = await this.info.perpDexs(LANE, RANK);
+      const list = await this.info.perpDexs(LANE, PAGE_RANK.profile);
       const hip3 = list
         .filter((d): d is NonNullable<typeof d> => d !== null && (d.assetToStreamingOiCap?.length ?? 0) > 0)
         .map((d) => d.name);
@@ -292,7 +325,9 @@ export class TradersService implements OnApplicationBootstrap {
   // --- GET /traders/:address/portfolio -------------------------------------
 
   async portfolio(address: string, query: PortfolioQuery): Promise<PortfolioResponse> {
-    const raw = await this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, RANK));
+    const raw = await this.portfolioCache.get(address, () =>
+      this.info.portfolio(address, LANE, PAGE_RANK.portfolio),
+    );
     return toPortfolioResponse(raw, query.window, query.market);
   }
 
@@ -307,7 +342,7 @@ export class TradersService implements OnApplicationBootstrap {
         try {
           // A fresh trader-page copy (60 s) is reused; either way one fetch.
           const raw = await this.sparklineCache.get(address, () =>
-            this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, RANK)),
+            this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.fills)),
           );
           return [address, downsample(portfolioSeries(raw, window, "all").pnl, SPARKLINE_MAX_POINTS)] as const;
         } catch (error) {
@@ -368,7 +403,7 @@ export class TradersService implements OnApplicationBootstrap {
     const addresses = await this.homeAddresses();
     const results = await Promise.allSettled(
       addresses.map((address) =>
-        this.sparklineCache.refresh(address, () => this.info.portfolio(address, LANE, WARM_RANK), WARM_TTL_MS),
+        this.sparklineCache.refresh(address, () => this.info.portfolio(address, LANE, PAGE_RANK.warm), WARM_TTL_MS),
       ),
     );
     const failed = results.filter((r) => r.status === "rejected").length;
@@ -379,8 +414,9 @@ export class TradersService implements OnApplicationBootstrap {
 
   // --- GET /traders/:address/fills -----------------------------------------
 
-  /** Recent perp fills, newest first: ours when the address is tracked,
-   * otherwise Hyperliquid's latest. */
+  /** Recent perp fills, newest first, TWAP slices included (with their
+   * `twapId`): ours when the address is tracked, otherwise Hyperliquid's
+   * latest fills and TWAP slices merged. */
   async fills(address: string, limit: number): Promise<TraderFill[]> {
     if (await this.isTracked(address)) {
       const rows = await this.db
@@ -394,6 +430,7 @@ export class TradersService implements OnApplicationBootstrap {
           fee: fills.fee,
           closedPnl: fills.closedPnl,
           ts: fills.ts,
+          twapId: sql<string | null>`${fills.raw}->>'twapId'`,
         })
         .from(fills)
         .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), ...perpFillsOnly))
@@ -401,8 +438,8 @@ export class TradersService implements OnApplicationBootstrap {
         .limit(limit);
       return rows.map(dbFillToTraderFill);
     }
-    const raw = await this.userFills(address);
-    return raw
+    const [regular, twap] = await this.latestFills(address);
+    return [...regular, ...twap]
       .filter((f) => isPerpCoin(f.coin))
       .sort((a, b) => b.time - a.time || b.tid - a.tid)
       .slice(0, limit)

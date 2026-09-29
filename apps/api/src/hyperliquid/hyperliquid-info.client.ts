@@ -9,6 +9,7 @@ import type {
   HlMetaResponse,
   HlPerpDexsResponse,
   HlPortfolioResponse,
+  HlTwapSliceFill,
   HlUserFill,
   HlReferralResponse,
   HlUserFillsByTimeResponse,
@@ -24,6 +25,11 @@ const WEIGHT_PERP_DEXS = 20;
 const WEIGHT_ALL_MIDS = 2;
 const WEIGHT_PORTFOLIO = 20;
 const WEIGHT_USER_FILLS_BASE = 20;
+/** `userTwapSliceFills` and `userTwapSliceFillsByTime` are both in the
+ * docs' list of requests with "additional weight per 20 items returned"
+ * (rate-limits-and-user-limits, checked 2026-09-29); base 20 like every
+ * other request not in the weight-2 list. */
+const WEIGHT_TWAP_SLICE_FILLS_BASE = 20;
 /** Not in the weight-2 list, so "all other documented info requests" = 20
  * (rate-limits-and-user-limits, checked 2026-09-29). */
 const WEIGHT_REFERRAL = 20;
@@ -31,9 +37,20 @@ const WEIGHT_REFERRAL = 20;
  * returned" surcharge on userFillsByTime — see the budgeter's doc comment
  * for why this is 1 and not something else. */
 const EXTRA_WEIGHT_PER_20_ITEMS = 1;
+/** Every list endpoint returns at most 2,000 items per call. */
+export const MAX_LIST_ITEMS = 2000;
+/** The worst-case surcharge of one list call, acquired up front. */
+export const MAX_LIST_SURCHARGE = Math.ceil(MAX_LIST_ITEMS / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
 /** A dead connection must not hold a caller (and its per-address sync
  * chain) forever. */
 const REQUEST_TIMEOUT_MS = 20_000;
+
+const surcharge = (items: number) => Math.ceil(items / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
+
+/** A TWAP slice as a regular fill, tagged with its TWAP's id. */
+export function twapSliceToFill(slice: HlTwapSliceFill): HlUserFill {
+  return { ...slice.fill, twapId: slice.twapId };
+}
 
 /**
  * Read-only wrapper around Hyperliquid's `POST /info` endpoint.
@@ -81,6 +98,31 @@ export class HyperliquidInfoClient {
     return (await res.json()) as T;
   }
 
+  /**
+   * A list request (1 more weight per 20 items returned): acquires the base
+   * plus the worst-case surcharge up front, then gives back what the
+   * response didn't use. On failure the surcharge goes back and the base
+   * stays spent (a failed call may still have been counted), except after a
+   * 429, where the budgeter has just backed off and handing tokens back
+   * would undo that.
+   */
+  private async postList<T extends unknown[]>(
+    body: HlInfoRequestBody,
+    base: number,
+    priority: RequestPriority,
+    rank: number | undefined,
+  ): Promise<T> {
+    let result: T;
+    try {
+      result = await this.post<T>(body, base + MAX_LIST_SURCHARGE, priority, rank);
+    } catch (error) {
+      if (!(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-MAX_LIST_SURCHARGE);
+      throw error;
+    }
+    this.budgeter.adjust(surcharge(result.length) - MAX_LIST_SURCHARGE);
+    return result;
+  }
+
   /** Coin universe metadata: szDecimals, max leverage (§5). `dex` selects a
    * HIP-3 dex; omitted means the main dex. */
   meta(dex?: string): Promise<HlMetaResponse> {
@@ -114,27 +156,56 @@ export class HyperliquidInfoClient {
    * trade-triggered live sync and the hourly sweep (W2/W3). Hyperliquid only returns a bounded
    * window / row count — see §5 known constraints (2000 rows/call, most
    * recent 10,000 fills retained). Time-ascending order, confirmed live.
-   *
-   * The base weight (20) is acquired up-front by `post()`; the per-20-items
-   * surcharge is only knowable after the response lands, so it is reported
-   * to the budgeter here, right after parsing.
+   * TWAP slice fills are not included; see `userTwapSliceFillsByTime`.
    */
-  async userFillsByTime(
+  userFillsByTime(
     address: string,
     startTime: number,
     endTime?: number,
     priority: RequestPriority = "background",
     rank?: number,
   ): Promise<HlUserFillsByTimeResponse> {
-    const result = await this.post<HlUserFillsByTimeResponse>(
+    return this.postList<HlUserFillsByTimeResponse>(
       { type: "userFillsByTime", user: address, startTime, endTime },
       WEIGHT_USER_FILLS_BY_TIME_BASE,
       priority,
       rank,
     );
-    const extraWeight = Math.ceil(result.length / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
-    this.budgeter.recordAdditionalWeight(extraWeight);
-    return result;
+  }
+
+  /**
+   * The address's TWAP slice fills from `startTime`, oldest first, at most
+   * 2,000 per call (paged like `userFillsByTime`; verified live 2026-09-29).
+   * Not in the info-endpoint docs' request list, but named in the
+   * rate-limit docs' per-20-items surcharge list.
+   */
+  userTwapSliceFillsByTime(
+    address: string,
+    startTime: number,
+    endTime?: number,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlTwapSliceFill[]> {
+    return this.postList<HlTwapSliceFill[]>(
+      { type: "userTwapSliceFillsByTime", user: address, startTime, endTime },
+      WEIGHT_TWAP_SLICE_FILLS_BASE,
+      priority,
+      rank,
+    );
+  }
+
+  /** The address's latest TWAP slice fills (at most 2,000, newest first). */
+  userTwapSliceFills(
+    address: string,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlTwapSliceFill[]> {
+    return this.postList<HlTwapSliceFill[]>(
+      { type: "userTwapSliceFills", user: address },
+      WEIGHT_TWAP_SLICE_FILLS_BASE,
+      priority,
+      rank,
+    );
   }
 
   /** Mid prices for every coin, used for alert scoring (N3). */
@@ -154,21 +225,14 @@ export class HyperliquidInfoClient {
   }
 
   /** The address's most recent fills (up to 2000, newest first), spot and
-   * every perp dex. Weight 20 plus the per-20-items surcharge, reported
-   * after the response like `userFillsByTime`. */
-  async userFills(
+   * every perp dex, TWAP slices excluded. Weight 20 plus the per-20-items
+   * surcharge. */
+  userFills(
     address: string,
     priority: RequestPriority = "background",
     rank?: number,
   ): Promise<HlUserFill[]> {
-    const result = await this.post<HlUserFill[]>(
-      { type: "userFills", user: address },
-      WEIGHT_USER_FILLS_BASE,
-      priority,
-      rank,
-    );
-    this.budgeter.recordAdditionalWeight(Math.ceil(result.length / 20) * EXTRA_WEIGHT_PER_20_ITEMS);
-    return result;
+    return this.postList<HlUserFill[]>({ type: "userFills", user: address }, WEIGHT_USER_FILLS_BASE, priority, rank);
   }
 
   /** Referral and builder rewards for one address (the platform's revenue

@@ -41,6 +41,7 @@ import {
   putTelegramChannelRequestSchema,
   sparklinesQuerySchema,
   sparklinesResponseSchema,
+  traderActivityResponseSchema,
   traderFillSchema,
   traderProfileResponseSchema,
   tradersQuerySchema,
@@ -56,6 +57,7 @@ import { ApiError } from "@/lib/api";
 import {
   actionFills,
   actionsFeed,
+  activityFor,
   alertRules,
   alertsFor,
   findStats,
@@ -184,10 +186,14 @@ export async function fixtureRequest<T>(
     }
     case "GET /traders/:address": {
       const address = addressSchema.parse(parts[1]).toLowerCase();
-      const profile = profileFor(address, signedIn && favorites.has(address));
-      const threshold = adminSettings.discovery.lowSampleThreshold;
-      profile.sample.lowSample = profile.sample.fills30d < threshold;
-      return wire(traderProfileResponseSchema, profile);
+      return wire(traderProfileResponseSchema, profileFor(address, signedIn && favorites.has(address)));
+    }
+    case "GET /traders/:address/activity": {
+      const address = addressSchema.parse(parts[1]).toLowerCase();
+      return wire(
+        traderActivityResponseSchema,
+        activityFor(address, signedIn && favorites.has(address), adminSettings.discovery.lowSampleThreshold),
+      );
     }
     case "GET /traders/:address/portfolio": {
       const address = addressSchema.parse(parts[1]).toLowerCase();

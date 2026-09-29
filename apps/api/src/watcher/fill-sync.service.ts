@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { actions, fills } from "@trading-dashboard/shared";
-import { eq } from "drizzle-orm";
+import { actions, CHAIN_DEFAULT, fills } from "@trading-dashboard/shared";
+import { and, eq, gte, sql } from "drizzle-orm";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
+import { HyperliquidInfoClient, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
 import type { RequestPriority } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { AccountStateService, dexOf } from "./account-state.service.js";
@@ -23,11 +23,32 @@ import {
 } from "./action-store.js";
 import { toFillRow } from "./fill-row.js";
 
-/** Hyperliquid's per-call cap on `userFillsByTime` rows. */
+/** Hyperliquid's per-call cap on `userFillsByTime` (and TWAP slice) rows. */
 export const PAGE_SIZE = 2000;
 /** Only the latest 10,000 fills exist, so 5 full pages cover everything;
  * one spare page absorbs the overlap between pages. */
 const MAX_PAGES = 6;
+/** An address that used a TWAP this recently gets its slices read by the
+ * hourly sweep too. */
+export const TWAP_ACTIVE_MS = 48 * 3_600_000;
+
+/** Reads time-ascending pages from `startTime` until a short page. */
+async function readPages(
+  startTime: number,
+  fetchPage: (start: number) => Promise<HlUserFill[]>,
+  onPage: (batch: HlUserFill[]) => Promise<void>,
+): Promise<void> {
+  let start = Math.max(0, startTime);
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const batch = await fetchPage(start);
+    await onPage(batch);
+    if (batch.length < PAGE_SIZE) break;
+    const last = batch[batch.length - 1].time;
+    // Next page starts at the last timestamp, inclusive: fills sharing
+    // that millisecond may straddle the page boundary. Dedupe absorbs it.
+    start = last > start ? last : last + 1;
+  }
+}
 /** A live sync reuses account state younger than this (equity for R1/R3),
  * unless the action opened a position the cached state doesn't have yet. */
 const ACCOUNT_REUSE_MS = 10_000;
@@ -80,6 +101,8 @@ export class FillSyncService {
   private readonly chains = new Map<string, Promise<unknown>>();
   private lastFillAt: Date | null = null;
   private readonly fastPath: FastPathStats = { verified: 0, corrected: 0 };
+  /** When a sync last found TWAP slice fills for each address. */
+  private readonly twapSeenAt = new Map<string, number>();
 
   constructor(
     private readonly info: HyperliquidInfoClient,
@@ -128,32 +151,79 @@ export class FillSyncService {
     rank?: number,
   ): Promise<SyncResult> {
     const priority: RequestPriority = reason === "live" ? "live" : "background";
+    const expected = [...expectTids];
     const fetchedTids = new Set<bigint>();
-    const fetchedTimes = new Set<number>();
+    let latestFillTime: number | null = null;
     const newFills: HlUserFill[] = [];
     let fetched = 0;
-    let start = Math.max(0, startTime);
-
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const batch = await this.info.userFillsByTime(address, start, undefined, priority, rank);
+    const take = async (batch: HlUserFill[]) => {
       fetched += batch.length;
       for (const f of batch) {
         fetchedTids.add(BigInt(f.tid));
-        fetchedTimes.add(f.time);
+        if (latestFillTime === null || f.time > latestFillTime) latestFillTime = f.time;
       }
       newFills.push(...(await this.store(address, batch)));
-      if (batch.length < PAGE_SIZE) break;
-      const last = batch[batch.length - 1].time;
-      // Next page starts at the last timestamp, inclusive: fills sharing
-      // that millisecond may straddle the page boundary. Dedupe absorbs it.
-      start = last > start ? last : last + 1;
+    };
+
+    await readPages(startTime, (start) => this.info.userFillsByTime(address, start, undefined, priority, rank), take);
+
+    // TWAP slice fills are only in their own endpoint. Read it when the
+    // feed saw trades userFillsByTime didn't return, and on the paths that
+    // must be complete without the feed's help.
+    let missingTids = expected.filter((tid) => !fetchedTids.has(tid));
+    if (missingTids.length > 0 || (await this.wantsTwapSlices(address, reason).catch(() => true))) {
+      let slices = 0;
+      try {
+        await readPages(
+          startTime,
+          async (start) =>
+            (await this.info.userTwapSliceFillsByTime(address, start, undefined, priority, rank)).map(twapSliceToFill),
+          async (batch) => {
+            slices += batch.length;
+            await take(batch);
+          },
+        );
+      } catch (error) {
+        // The fills stored so far still become actions below (they are
+        // stored now, so no later sync would see them as new); what is
+        // still missing is looked for again by the caller's retry.
+        this.logger.warn(`TWAP slice fills for ${address} failed: ${(error as Error).message}`);
+      }
+      if (slices > 0) this.twapSeenAt.set(address, Date.now());
+      missingTids = expected.filter((tid) => !fetchedTids.has(tid));
     }
 
-    const missingTids = [...expectTids].filter((tid) => !fetchedTids.has(tid));
     const created = newFills.length > 0 ? await this.createActions(address, reason, newFills, rank) : 0;
-    let latestFillTime: number | null = null;
-    for (const time of fetchedTimes) if (latestFillTime === null || time > latestFillTime) latestFillTime = time;
     return { fetched, inserted: newFills.length, actions: created, missingTids, latestFillTime };
+  }
+
+  /**
+   * Without expected tids, whether a sync should also read TWAP slices:
+   * always for backfill (history) and reconcile (a position moved with no
+   * fill, which is what a TWAP looks like to userFillsByTime); for the
+   * hourly sweep only when the address used a TWAP in the last two days,
+   * since slices cost a second request per address. The feed plus the
+   * 5-minute reconcile cover an address's first TWAP.
+   */
+  private async wantsTwapSlices(address: string, reason: SyncReason): Promise<boolean> {
+    if (reason === "backfill" || reason === "reconcile") return true;
+    if (reason !== "sweep") return false;
+    const cutoff = Date.now() - TWAP_ACTIVE_MS;
+    if ((this.twapSeenAt.get(address) ?? 0) >= cutoff) return true;
+    const [row] = await this.db
+      .select({ ts: fills.ts })
+      .from(fills)
+      .where(
+        and(
+          eq(fills.chain, CHAIN_DEFAULT),
+          eq(fills.address, address),
+          gte(fills.ts, new Date(cutoff)),
+          sql`${fills.raw}->>'twapId' is not null`,
+        ),
+      )
+      .limit(1);
+    if (row) this.twapSeenAt.set(address, row.ts.getTime());
+    return row !== undefined;
   }
 
   /** Inserts perp fills, returning only those that weren't stored yet. */

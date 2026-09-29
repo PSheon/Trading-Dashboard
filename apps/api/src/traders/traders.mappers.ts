@@ -273,16 +273,29 @@ export interface FillSample {
 }
 
 export function sampleFromUserFills(raw: HlUserFill[], since: number): FillSample {
+  return sampleFromLists([raw], since);
+}
+
+/** The same over several capped lists (`userFills` and the latest TWAP
+ * slices, which it doesn't include): counts every perp fill once, and is
+ * `capped` if any one list is. */
+export function sampleFromLists(lists: HlUserFill[][], since: number): FillSample {
   let fills30d = 0;
-  let oldest = Infinity;
+  let capped = false;
   let lastTradeAt: number | null = null;
-  for (const f of raw) {
-    oldest = Math.min(oldest, f.time);
-    if (!isPerpCoin(f.coin)) continue;
-    if (f.time >= since) fills30d += 1;
-    if (lastTradeAt === null || f.time > lastTradeAt) lastTradeAt = f.time;
+  const seen = new Set<number>();
+  for (const raw of lists) {
+    let oldest = Infinity;
+    for (const f of raw) {
+      oldest = Math.min(oldest, f.time);
+      if (!isPerpCoin(f.coin) || seen.has(f.tid)) continue;
+      seen.add(f.tid);
+      if (f.time >= since) fills30d += 1;
+      if (lastTradeAt === null || f.time > lastTradeAt) lastTradeAt = f.time;
+    }
+    if (raw.length >= USER_FILLS_CAP && oldest >= since) capped = true;
   }
-  return { fills30d, capped: raw.length >= USER_FILLS_CAP && oldest >= since, lastTradeAt };
+  return { fills30d, capped, lastTradeAt };
 }
 
 export function hlFillToTraderFill(f: HlUserFill): TraderFill {
@@ -299,6 +312,7 @@ export function hlFillToTraderFill(f: HlUserFill): TraderFill {
     closedPnl: numOrNull(f.closedPnl),
     fee: numOrNull(f.fee),
     ts: new Date(f.time),
+    twapId: f.twapId ?? null,
   };
 }
 
@@ -312,6 +326,8 @@ export function dbFillToTraderFill(row: {
   fee: string;
   closedPnl: string | null;
   ts: Date;
+  /** `raw->>'twapId'`: text, or null for a regular fill. */
+  twapId: string | null;
 }): TraderFill {
   const px = num(row.px);
   const sz = num(row.sz);
@@ -326,5 +342,6 @@ export function dbFillToTraderFill(row: {
     closedPnl: numOrNull(row.closedPnl),
     fee: numOrNull(row.fee),
     ts: row.ts,
+    twapId: numOrNull(row.twapId),
   };
 }

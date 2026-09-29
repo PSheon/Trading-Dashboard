@@ -138,3 +138,8 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 
 - Task 40: replaced stale open-task ledger with all 40 current statuses and explicit unresolved/live-verification boundaries; refreshed DonutMe audit status while preserving baseline findings, root test instructions, frontend permission docs and API operations. Corrected obsolete README claim that admin email re-promotes on every login. Historical PRD/PDF and R4–R9/scoring/episodes/copy execution remain explicitly unimplemented/unverified rather than silently accepted.
 - Concurrent dev advanced to 1e12ce5 with total-account-value/live trader WebSocket and SSE action feed. Final rebase, review and combined verification follow; source completion does not yet claim integration.
+
+## Combined live-feature integration
+
+- Rebased all 13 audit commits onto dev 1e12ce5, preserving Claude's total-account-value/live trader and SSE feed work. Resolved conflicts by combining corrected-action tests, favorite-change events, stream config, releasable SSE deadlines and accessible live-mark tabs.
+- Integration typecheck identified the new literal chain contract and missing stream test config. Fixed both; a new regression reproduced SSE defaults reading changed process env instead of the injected snapshot, then migrated ActionStreamService to AppConfig. Workspace types/lints and route-doc freshness pass; combined full tests/review are in progress.

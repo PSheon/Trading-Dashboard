@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppConfig } from "../src/config/app-config.js";
 import { validateEnvironment } from "../src/config/runtime-config.js";
 
+import { defaultActionStreamOptions } from "../src/api/actions/action-stream.service.js";
 import { TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 afterEach(() => vi.unstubAllEnvs());
 
@@ -21,6 +22,11 @@ describe("injected runtime configuration", () => {
     const client = new TelegramHttpClient(config);
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "changed-after-startup");
     expect(client.configured()).toBe(false);
+  });
+  it("stream options use the injected startup snapshot", () => {
+    const config = new AppConfig(validateEnvironment({ DATABASE_URL: "postgres://test@localhost/test", STREAM_MAX_TOTAL: "20" }));
+    vi.stubEnv("STREAM_MAX_TOTAL", "999");
+    expect(defaultActionStreamOptions(config).maxTotal).toBe(20);
   });
   it("includes the optional system notification destination", () => {
     const value = validateEnvironment({ DATABASE_URL: "postgres://test@localhost/test", TELEGRAM_SYSTEM_CHAT_ID: " -100123 " });

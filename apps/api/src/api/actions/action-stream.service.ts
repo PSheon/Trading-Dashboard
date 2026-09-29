@@ -4,7 +4,7 @@ import { actionStreamEventSchemas, type ActionFeedItem, type ActionStreamEventNa
 import type { Request, Response } from "express";
 import { isIP } from "node:net";
 
-import { env } from "../../config/env.js";
+import { AppConfig } from "../../config/app-config.js";
 import { BackgroundJobs } from "../../runtime/background-jobs.service.js";
 import { releaseRequestDeadline } from "../../runtime/request-middleware.js";
 import { FAVORITES_CHANGED_EVENT, type FavoritesChangedEvent } from "../../users/favorites.service.js";
@@ -36,11 +36,11 @@ export interface ActionStreamOptions {
   maxQueuedBytes: number;
 }
 
-export function defaultActionStreamOptions(): ActionStreamOptions {
+export function defaultActionStreamOptions(config: AppConfig): ActionStreamOptions {
   return {
-    maxPerIp: env.streamMaxPerIp(),
-    maxTotal: env.streamMaxTotal(),
-    trustedProxyHops: env.streamTrustedProxyHops(),
+    maxPerIp: config.value.stream.maxPerIp,
+    maxTotal: config.value.stream.maxTotal,
+    trustedProxyHops: config.value.stream.trustedProxyHops,
     heartbeatMs: 15_000,
     replayLimit: 200,
     replayWindowMs: 60 * 60_000,
@@ -109,11 +109,12 @@ export class ActionStreamService implements OnModuleDestroy {
   private flushing: Promise<void> = Promise.resolve();
 
   constructor(
+    private readonly config: AppConfig,
     private readonly actions: ActionsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() @Inject(ACTION_STREAM_OPTIONS) options?: Partial<ActionStreamOptions>,
   ) {
-    this.options = { ...defaultActionStreamOptions(), ...options };
+    this.options = { ...defaultActionStreamOptions(config), ...options };
     // Shutdown starts (SIGTERM) → end every stream at once, so the HTTP
     // server can close and clients reconnect to the next instance.
     this.jobs.signal.addEventListener("abort", () => this.closeAll(), { once: true });

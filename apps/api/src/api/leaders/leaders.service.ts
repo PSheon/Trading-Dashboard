@@ -1,6 +1,7 @@
 import { recordAdminAudit, type AuditActor } from "../../common/audit/admin-audit.js";
 import { UnitOfWork } from "../../db/unit-of-work.js";
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import type {
   CoinDistributionEntry,
   EquityInterval,
@@ -51,6 +52,7 @@ export class LeadersService {
         const month = all.filter(trip => trip.closeTs.getTime() >= now - 30 * DAY_MS);
         result.push({
           ...leader,
+          chain: CHAIN_DEFAULT,
           ...(metadata.get(leader.address) ?? { rank: null, openPositionCount: 0, lastActionAt: null }),
           pnl7d: month.filter(trip => trip.closeTs.getTime() >= now - 7 * DAY_MS).reduce((sum, trip) => sum + trip.pnl, 0),
           pnl30d: month.reduce((sum, trip) => sum + trip.pnl, 0),

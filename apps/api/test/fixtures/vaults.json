@@ -1,0 +1,86 @@
+[
+ {
+  "apr": 8.08722576482336,
+  "summary": {
+   "name": "BredoStrategy",
+   "vaultAddress": "0x654016a8c9fcf0c4cb7ed6078aba21f7f399f7b7",
+   "leader": "0xf5f569a7006860e6e17c92ba9d5959090acf0336",
+   "tvl": "5483078.2034130003",
+   "isClosed": false,
+   "relationship": {
+    "type": "normal"
+   },
+   "createTimeMillis": 1771339341792
+  }
+ },
+ {
+  "apr": 1.5606928429475,
+  "summary": {
+   "name": "drkmttr",
+   "vaultAddress": "0xc179e03922afe8fa9533d3f896338b9fb87ce0c8",
+   "leader": "0xf4f7cebbd2c7b6dee34ab29fa55a116eff25239f",
+   "tvl": "13597087.2649620008",
+   "isClosed": false,
+   "relationship": {
+    "type": "normal"
+   },
+   "createTimeMillis": 1765303910503
+  }
+ },
+ {
+  "apr": 0.0,
+  "summary": {
+   "name": "Snipe Trading",
+   "vaultAddress": "0x00043d4a2c258892172dc6ce5f62e2e3936ae0dc",
+   "leader": "0x9ab020fd91d6909e3d0cbf6c078f8b8163836c06",
+   "tvl": "0.000016",
+   "isClosed": true,
+   "relationship": {
+    "type": "normal"
+   },
+   "createTimeMillis": 1736422051357
+  }
+ },
+ {
+  "apr": 0.0,
+  "summary": {
+   "name": "lean.hl",
+   "vaultAddress": "0x000614c6ecd32d4a4eddcaf5701010bb723dfe67",
+   "leader": "0xc9739116b8759b5a0b5834ed62e218676ea9776f",
+   "tvl": "0.000014",
+   "isClosed": true,
+   "relationship": {
+    "type": "normal"
+   },
+   "createTimeMillis": 1738864908471
+  }
+ },
+ {
+  "apr": 0.10737804664618912,
+  "summary": {
+   "name": "\u0950 Quantum Momentum Fund",
+   "vaultAddress": "0x00161c88c702c33d5b02f0648da891b89f14789c",
+   "leader": "0x506657af2bfdc6d4bb0988119265d77bb42b84d6",
+   "tvl": "110.774602",
+   "isClosed": false,
+   "relationship": {
+    "type": "normal"
+   },
+   "createTimeMillis": 1759387218453
+  }
+ },
+ {
+  "apr": 0.0,
+  "summary": {
+   "name": "TesterMoon",
+   "vaultAddress": "0x001fb30e36023f3c6e8a5282b897b0e34e25d7c9",
+   "leader": "0xc548f4890223b3248cf9c15d5a8878f9481345c1",
+   "tvl": "100.000002",
+   "isClosed": false,
+   "relationship": {
+    "type": "normal"
+   },
+   "createTimeMillis": 1727035477442
+  }
+ }
+]

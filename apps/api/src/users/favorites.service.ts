@@ -5,7 +5,7 @@ import { CHAIN_DEFAULT, leaders, traderStats, userFavorites, type Favorite } fro
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { BackfillService } from "../watcher/backfill.service.js";
-import { toTraderStats } from "./trader-stats.mapper.js";
+import { toTraderStats } from "../traders/traders.mappers.js";
 
 /**
  * A user's favorites. A favorited address joins the watch list (`leaders`):

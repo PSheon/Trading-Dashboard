@@ -183,7 +183,10 @@ export function createFormatter(locale: Locale): Formatter {
       if (abs < 60) return rtf.format(seconds, "second");
       if (abs < 3600) return rtf.format(Math.round(seconds / 60), "minute");
       if (abs < 86400) return rtf.format(Math.round(seconds / 3600), "hour");
-      return rtf.format(Math.round(seconds / 86400), "day");
+      // A holder's last trade can be months back: "3 個月前", not "92 天前".
+      if (abs < 45 * 86400) return rtf.format(Math.round(seconds / 86400), "day");
+      if (abs < 365 * 86400) return rtf.format(Math.round(seconds / (30.44 * 86400)), "month");
+      return rtf.format(Math.round(seconds / (365.25 * 86400)), "year");
     },
 
     duration(value) {

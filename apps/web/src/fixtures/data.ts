@@ -345,7 +345,7 @@ export function profileFor(
     tracked,
     isVault: stats?.isVault ?? false,
     sample: sampleFor(address, tracked),
-    lastTradeAt: findStats(address)?.activity === "inactive" ? null : new Date(NOW - 45 * 60_000),
+    lastTradeAt: lastTradeFor(address),
     favorite,
     analytics: tracked
       ? {
@@ -371,7 +371,30 @@ export function profileFor(
  * low-sample threshold (20); untracked whales can hit the 2,000 cap. */
 export const LOW_SAMPLE_THRESHOLD = 20;
 
+/** When the trader last traded, consistent with its leaderboard activity:
+ * within the day / week / month, or (a 30-day holder) months back or never
+ * as far as the latest fills go. Addresses off the leaderboard traded
+ * recently. Seeded, so stable across reloads. */
+function lastTradeFor(address: string): Date | null {
+  const random = rng(`last-trade:${address}`);
+  const activity = findStats(address)?.activity ?? "day";
+  const HOUR = 3_600_000;
+  const between = (fromH: number, toH: number) => new Date(NOW - (fromH + random() * (toH - fromH)) * HOUR);
+  switch (activity) {
+    case "day":
+      return between(0.1, 23);
+    case "week":
+      return between(25, 7 * 24 - 1);
+    case "month":
+      return between(7 * 24 + 1, 30 * 24 - 1);
+    case "inactive":
+      return random() < 0.3 ? null : between(31 * 24, 300 * 24);
+  }
+}
+
 function sampleFor(address: string, tracked: boolean) {
+  // No volume in 30 days → no fills in 30 days.
+  if (findStats(address)?.activity === "inactive") return { fills30d: 0, capped: false, lowSample: true };
   const random = rng(`sample:${address}`);
   const roll = random();
   const fills30d =

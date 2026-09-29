@@ -1,5 +1,6 @@
 "use client";
 
+import type { TraderActivity } from "@trading-dashboard/shared";
 import { ArrowDownRight, ArrowUpRight, Landmark, Star } from "lucide-react";
 import { cn } from "cn";
 
@@ -83,6 +84,37 @@ export function VaultBadge({ className }: { className?: string }) {
         {t("common.vault")}
       </span>
     </Tooltip>
+  );
+}
+
+/** Dot colour per activity: green = traded today, orange = this week,
+ * grey = this month, hollow = not in 30 days. */
+export const ACTIVITY_DOT: Record<TraderActivity, string> = {
+  day: "bg-positive",
+  week: "bg-primary",
+  month: "bg-muted-foreground",
+  inactive: "border border-subtle-foreground bg-transparent",
+};
+
+/**
+ * "24h 內交易" / "7 天內交易" / "30 天內交易" / "30 天未交易" (Stage 2 §12):
+ * a dot and a short caption, CopyDog's "2H AGO" in spirit. From the
+ * leaderboard's volume windows, so it costs no request.
+ */
+export function ActivityBadge({ activity, className }: { activity: TraderActivity; className?: string }) {
+  const { t } = useI18n();
+  return (
+    <span
+      title={t(`common.activityHint.${activity}`)}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 text-[0.6875rem] leading-none font-medium whitespace-nowrap",
+        activity === "inactive" ? "text-subtle-foreground" : "text-muted-foreground",
+        className,
+      )}
+    >
+      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", ACTIVITY_DOT[activity])} />
+      {t(`common.activity.${activity}`)}
+    </span>
   );
 }
 

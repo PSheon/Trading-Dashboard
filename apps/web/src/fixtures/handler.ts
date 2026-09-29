@@ -154,9 +154,11 @@ export async function fixtureRequest<T>(
       const q = query(tradersQuerySchema, search) as z.infer<typeof tradersQuerySchema>;
       const needle = q.q?.toLowerCase();
       const hideVaults = q.hideVaults ?? adminSettings.discovery.hideVaults;
+      const active = q.active ?? adminSettings.discovery.defaultActiveWithin;
       let rows = traderStats.filter(
         (s) =>
           (!hideVaults || !s.isVault) &&
+          (active === "any" || s.volume[active] > 0) &&
           (!needle ||
             s.address.startsWith(needle) ||
             (s.displayName ?? "").toLowerCase().includes(needle)) &&

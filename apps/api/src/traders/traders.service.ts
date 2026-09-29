@@ -1,9 +1,10 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { and, asc, count, desc, eq, gte, ilike, inArray, like, max, notLike, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, like, max, notLike, or, type SQL } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
   fills,
+  type ActiveWithin,
   leaders,
   traderStats,
   userFavorites,
@@ -76,6 +77,19 @@ const SORT_COLUMNS = {
   },
 } as const;
 
+/** Volume column per activity filter: "traded within the window" means that
+ * window's leaderboard volume is above zero (Stage 2 §12). */
+const ACTIVE_VOLUME_COLUMNS = {
+  day: traderStats.volumeDay,
+  week: traderStats.volumeWeek,
+  month: traderStats.volumeMonth,
+} as const;
+
+/** The WHERE condition for an activity filter; none for "any". */
+export function activeCondition(active: ActiveWithin): SQL | undefined {
+  return active === "any" ? undefined : gt(ACTIVE_VOLUME_COLUMNS[active], "0");
+}
+
 /** Escapes LIKE/ILIKE wildcards in user input. */
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
@@ -130,8 +144,11 @@ export class TradersService implements OnApplicationBootstrap {
     if (query.minAccountValue !== undefined) {
       conditions.push(gte(traderStats.accountValue, String(query.minAccountValue)));
     }
-    const hideVaults = query.hideVaults ?? (await this.settings.get("discovery")).hideVaults;
+    const discovery = await this.settings.get("discovery");
+    const hideVaults = query.hideVaults ?? discovery.hideVaults;
     if (hideVaults) conditions.push(eq(traderStats.isVault, false));
+    const active = activeCondition(query.active ?? discovery.defaultActiveWithin);
+    if (active) conditions.push(active);
     const where = and(...conditions);
     const column = query.sort === "accountValue" ? traderStats.accountValue : SORT_COLUMNS[query.sort][query.window];
     const direction = query.order === "asc" ? asc : desc;
@@ -313,8 +330,10 @@ export class TradersService implements OnApplicationBootstrap {
     }
   }
 
-  /** The home page's trader cards: the admin's featured list, else the top
-   * 24 by month PnL (vaults left out when `hideVaults` is on). */
+  /** The home page's trader cards: the admin's featured list (always kept,
+   * active or not), else the top 24 by month PnL among what the home list
+   * shows: no vaults while `hideVaults` is on, and only accounts that traded
+   * within `defaultActiveWithin`, so 30-day holders aren't warmed (§12). */
   async homeAddresses(): Promise<string[]> {
     const discovery = await this.settings.get("discovery");
     if (discovery.featuredAddresses.length > 0) {
@@ -322,6 +341,8 @@ export class TradersService implements OnApplicationBootstrap {
     }
     const conditions: SQL[] = [eq(traderStats.chain, CHAIN_DEFAULT)];
     if (discovery.hideVaults) conditions.push(eq(traderStats.isVault, false));
+    const active = activeCondition(discovery.defaultActiveWithin);
+    if (active) conditions.push(active);
     const rows = await this.db
       .select({ address: traderStats.address })
       .from(traderStats)

@@ -29,10 +29,13 @@ const emptyState = {
   time: 0,
 };
 
-const row = (address: string, month: number) => ({
+/** A holder: no volume in 30 days, so the default activity filter hides it. */
+const H = `0x${"09".repeat(20)}`;
+
+const row = (address: string, month: number, vlm = 1) => ({
   ethAddress: address,
   accountValue: "1000",
-  windowPerformances: [["month", { pnl: String(month), roi: "0", vlm: "0" }]] as Array<
+  windowPerformances: [["month", { pnl: String(month), roi: "0", vlm: String(vlm) }]] as Array<
     [string, { pnl: string; roi: string; vlm: string }]
   >,
 });
@@ -74,7 +77,9 @@ describe("public discovery routes over HTTP", () => {
     auth.clearCache();
     await settings.patch({ discovery: {} }, null);
     const at = new Date();
-    await db.insert(traderStats).values(parseLeaderboard({ leaderboardRows: [row(A, 2), row(B, 1), row(V, 3)] }, at, new Set([V])));
+    await db
+      .insert(traderStats)
+      .values(parseLeaderboard({ leaderboardRows: [row(A, 2), row(B, 1), row(V, 3), row(H, 9, 0)] }, at, new Set([V])));
   });
 
   afterAll(async () => {
@@ -112,6 +117,14 @@ describe("public discovery routes over HTTP", () => {
     expect((await request(app.getHttpServer()).get("/traders")).body.total).toBe(2);
     expect((await request(app.getHttpServer()).get("/traders?hideVaults=1")).status).toBe(400);
     expect((await request(app.getHttpServer()).get("/traders/0x123")).status).toBe(400);
+
+    // Activity filter (§12): the holder only shows with active=any.
+    const active = await request(app.getHttpServer()).get("/traders?active=any");
+    expect(active.body.items[0]).toMatchObject({ address: H, activity: "inactive" });
+    expect(active.body.total).toBe(3);
+    expect((await request(app.getHttpServer()).get("/traders?active=month")).body.total).toBe(2);
+    expect((await request(app.getHttpServer()).get("/traders?active=day")).body.total).toBe(0);
+    expect((await request(app.getHttpServer()).get("/traders?active=inactive")).status).toBe(400);
 
     const crowd = await request(app.getHttpServer()).get("/insights/crowd");
     expect(crowd.status).toBe(200);

@@ -26,6 +26,8 @@ export function HomeView() {
   const top = useTraders({ window: "month", sort: "pnl", order: "desc", limit: 10, offset: 0 });
 
   // Featured: the admin's list (Stage 2 §6), else the top 10 by 30-day PnL.
+  // `active` is left to the api, which applies the admin's
+  // discovery.defaultActiveWithin (§12), so 30-day holders stay off home.
   const featuredAddresses = settings.data?.featuredAddresses ?? [];
   const featuredProfiles = useQueries({
     queries: featuredAddresses.map((address) => ({
@@ -49,6 +51,7 @@ export function HomeView() {
           isVault: p.isVault,
           pnl: p.stats?.pnl.month ?? null,
           roi: p.stats?.roi.month ?? null,
+          activity: p.stats?.activity ?? null,
         }));
     }
     return top.data?.items.map((s) => ({
@@ -57,6 +60,7 @@ export function HomeView() {
       isVault: s.isVault,
       pnl: s.pnl.month,
       roi: s.roi.month,
+      activity: s.activity,
     }));
   }, [settings.data, featuredAddresses.length, featuredProfiles, top.data]);
 

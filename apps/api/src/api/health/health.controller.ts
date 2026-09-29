@@ -8,7 +8,7 @@ import { HealthService } from "./health.service.js";
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
-  /** Only unauthenticated route in the API (§8 安全) — heartbeat/liveness. */
+  /** Heartbeat/liveness; open to anyone. */
   @Public()
   @Get()
   heartbeat(): Promise<HeartbeatResponse> {

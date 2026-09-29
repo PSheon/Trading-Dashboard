@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { RoundTripService } from "../src/analytics/round-trip.service.js";
 import { NotifyService } from "../src/notify/notify.service.js";
 import type { TelegramHttpClient } from "../src/notify/telegram-http.client.js";
-import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 
 const CHAIN = "hyperliquid";
 const ADDRESS = "0xnotifytest";
@@ -19,18 +19,22 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
   const roundTrip = new RoundTripService(db);
 
   let ruleId: number;
+  let userId: number;
   let leaderRow: typeof leaders.$inferSelect;
   let actionRow: typeof actions.$inferSelect;
 
   beforeEach(async () => {
     await truncateAll(db);
     process.env.DRY_RUN = "false";
+    // Env chats are for system messages only; user alerts must never go there.
     process.env.TELEGRAM_CHAT_ID_REALTIME = "chat-realtime";
     process.env.TELEGRAM_CHAT_ID_GROUP = "chat-group";
 
+    userId = (await insertUser(db)).id;
     const [rule] = await db
       .insert(alertRules)
       .values({
+        userId,
         scope: "address",
         kind: "R1",
         paramsJson: { flatThresholdUsd: 50_000, pctThreshold: 0.1 },
@@ -78,37 +82,59 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     return row;
   }
 
+  function recipient(telegramChatId: string | null = "chat-user") {
+    return { userId, telegramChatId };
+  }
+
   it("DRY_RUN=true never calls the network, and still writes an alerts row with send_status='dry_run'", async () => {
     process.env.DRY_RUN = "true";
     const telegram = fakeTelegram(async () => {});
     const service = new NotifyService(db, roundTrip, telegram);
 
-    await service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow });
+    await service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow, recipient: recipient() });
 
     expect(telegram.sendMessage).not.toHaveBeenCalled();
     const rows = await db.select().from(alerts);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ ruleId, address: ADDRESS, coin: "BTC", sendStatus: "dry_run" });
+    expect(rows[0]).toMatchObject({ ruleId, userId, address: ADDRESS, coin: "BTC", sendStatus: "dry_run" });
     expect(rows[0].sentAt).not.toBeNull();
   });
 
-  it("a successful real send writes send_status='sent' and routes R1 to the realtime chat id", async () => {
+  it("a successful real send goes to the recipient's own chat (not the env chats) and writes send_status='sent' with user_id", async () => {
     const telegram = fakeTelegram(async () => {});
     const service = new NotifyService(db, roundTrip, telegram);
 
-    await service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow });
+    await service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow, recipient: recipient() });
 
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
-    expect(telegram.sendMessage).toHaveBeenCalledWith("chat-realtime", expect.any(String));
+    expect(telegram.sendMessage).toHaveBeenCalledWith("chat-user", expect.any(String));
     const [row] = await db.select().from(alerts);
-    expect(row.sendStatus).toBe("sent");
+    expect(row).toMatchObject({ sendStatus: "sent", userId });
+    expect(row.payloadJson).toMatchObject({ chatId: "chat-user" });
+  });
+
+  it("a recipient with no Telegram channel gets 'failed' rows with the reason, and nothing is sent", async () => {
+    const telegram = fakeTelegram(async () => {});
+    const service = new NotifyService(db, roundTrip, telegram);
+
+    await service.notifyRulesFire({
+      rules: [await ruleRow()],
+      action: actionRow,
+      leader: leaderRow,
+      recipient: recipient(null),
+    });
+
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    const [row] = await db.select().from(alerts);
+    expect(row).toMatchObject({ sendStatus: "failed", userId });
+    expect(row.payloadJson).toMatchObject({ reason: "no enabled Telegram channel" });
   });
 
   it("the rendered message includes the leader label, coin, side, notional, leverage, avg price, and win rate placeholder", async () => {
     const telegram = fakeTelegram(async () => {});
     const service = new NotifyService(db, roundTrip, telegram);
 
-    await service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow });
+    await service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow, recipient: recipient() });
 
     const text = (telegram.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
     expect(text).toContain("Whale");
@@ -125,7 +151,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
 
     const start = Date.now();
     await expect(
-      service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow }),
+      service.notifyRulesFire({ rules: [await ruleRow()], action: actionRow, leader: leaderRow, recipient: recipient() }),
     ).resolves.toBeUndefined();
     const elapsed = Date.now() - start;
 
@@ -141,6 +167,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     const [r3] = await db
       .insert(alertRules)
       .values({
+        userId,
         scope: "address",
         kind: "R3",
         paramsJson: { flatThresholdUsd: 100_000, pctThreshold: 0.2 },
@@ -157,6 +184,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
       rules: [await ruleRow(), r3],
       action: actionRow,
       leader: leaderRow,
+      recipient: recipient(),
     });
 
     // One combined Telegram message...
@@ -166,5 +194,15 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.ruleId).sort()).toEqual([ruleId, r3.id].sort());
     expect(rows.every((r) => r.sendStatus === "sent")).toBe(true);
+  });
+
+  it("system messages still go to TELEGRAM_CHAT_ID_REALTIME", async () => {
+    const telegram = fakeTelegram(async () => {});
+    const service = new NotifyService(db, roundTrip, telegram);
+
+    await service.sendSystemMessage("feed down");
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith("chat-realtime", "feed down");
+    expect(await db.select().from(alerts)).toHaveLength(0);
   });
 });

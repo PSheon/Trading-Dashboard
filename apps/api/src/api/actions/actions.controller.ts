@@ -1,20 +1,39 @@
-import { Controller, Get, Param, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  Query,
+  UnauthorizedException,
+} from "@nestjs/common";
 import type { ActionFeedItem, ActionsFeedQuery, Fill } from "@trading-dashboard/shared";
 
+import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
+import { Public } from "../../common/auth/public.decorator.js";
 import { ActionsService } from "./actions.service.js";
 
+/** Market data: public, except `?scope=favorites`, which needs a signed-in
+ * user. */
+@Public()
 @Controller("actions")
 export class ActionsController {
   constructor(private readonly actionsService: ActionsService) {}
 
   @Get()
-  findFeed(@Query() query: ActionsFeedQuery): Promise<ActionFeedItem[]> {
+  findFeed(@CurrentUser() user: RequestUser | null, @Query() query: ActionsFeedQuery): Promise<ActionFeedItem[]> {
+    if (query.scope === "favorites") {
+      if (!user) throw new UnauthorizedException("Sign in to see your favorites");
+      if (user.kind !== "user") throw new ForbiddenException("Only a signed-in user has favorites");
+      return this.actionsService.findFeed(query, user.id);
+    }
     return this.actionsService.findFeed(query);
   }
 
   /** D1: expand a feed row to see its constituent fills. */
   @Get(":id/fills")
   getFills(@Param("id") id: string): Promise<Fill[]> {
+    if (!/^\d+$/.test(id)) throw new BadRequestException("id must be an integer");
     return this.actionsService.getFillsForAction(BigInt(id));
   }
 }

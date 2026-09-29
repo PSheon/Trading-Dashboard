@@ -33,7 +33,7 @@ export class AdminSettingsService {
 
     let saved: AdminSettings;
     try {
-      saved = await this.settings.patch(request, userIdOf(user));
+      saved = await this.settings.patch(request, userIdOf(user), user);
     } catch (error) {
       if (isZodError(error)) {
         throw new BadRequestException({ statusCode: 400, message: "Invalid settings", issues: error.issues });

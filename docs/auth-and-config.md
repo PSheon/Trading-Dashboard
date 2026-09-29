@@ -77,7 +77,8 @@ API guards. The frontend gates admin routes, navigation and write controls by
 permissions, fails closed on missing/failed profile data, and refreshes /me every
 30 seconds while active. Its display may lag a role edit until refresh; the API
 still checks each request. Deploy the API contract before this frontend version.
-Role-change audit events and dynamic custom roles are follow-up work. Never
+Successful administrative mutations are now transactionally audited; see
+[administrative audit](admin-audit.md). Dynamic custom roles remain out of scope. Never
 rely on UI visibility for access.
 
 ## Startup validation
@@ -150,3 +151,18 @@ budget and pool close has 3s before remaining connections are closed. Deadline
 expiry can interrupt work, so this alone does not guarantee notification delivery.
 
 `GET /admin/outbox` requires `admin.access`; see [delivery recovery](notification-delivery.md).
+
+## Privy verification tests
+
+The installed @privy-io/node SDK is exercised through SdkPrivyVerifier using
+fresh local P-256 keys and ES256 JWTs. Tests reject incorrect issuer/audience,
+expiry/missing claims, wrong signatures, malformed tokens and algorithm
+confusion. An actual HTTP guard test ignores role/permission claims and resolves
+RBAC from the local users table, including promotion and disable with a cached
+verified token. No production credentials or provider login is required.
+
+Pinned-key replacement is tested by constructing a restarted verifier with the
+new key. Live Privy login, provider-side revocation and remote JWKS fetching/
+rotation are not claimed by these offline tests. The installed SDK configures
+remote JWKS cache/refresh behavior when no pinned key is supplied. Reference:
+[Privy access tokens](https://docs.privy.io/authentication/user-authentication/access-tokens).

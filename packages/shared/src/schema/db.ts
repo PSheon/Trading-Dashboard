@@ -467,3 +467,16 @@ export const notificationCooldowns = pgTable("notification_cooldowns", {
   key: text("key").primaryKey(),
   reservedAt: timestamp("reserved_at", { withTimezone: true }).notNull(),
 });
+
+/** Successful administrative mutations, written with their business transaction.
+ * No foreign key: actor attribution must survive subsequent account deletion. */
+export const adminAuditLogs = pgTable("admin_audit_logs", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  actorKind: text("actor_kind").notNull(),
+  actorUserId: integer("actor_user_id"),
+  event: text("event").notNull(),
+  target: text("target").notNull(),
+  beforeJson: jsonb("before_json"),
+  afterJson: jsonb("after_json"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("admin_audit_logs_created_idx").on(table.createdAt), index("admin_audit_logs_actor_idx").on(table.actorUserId, table.createdAt)]);

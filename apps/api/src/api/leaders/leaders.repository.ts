@@ -1,3 +1,4 @@
+import type { DbTransaction } from "../../db/unit-of-work.js";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, gte, max } from "drizzle-orm";
 import {
@@ -38,8 +39,12 @@ export class LeadersRepository {
     const [row] = await this.db.select().from(leaders).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).limit(1);
     return row;
   }
-  async update(chain: string, address: string, patch: PatchLeaderRequest) {
-    const [row] = await this.db.update(leaders).set(patch).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).returning();
+  async lockOne(tx: DbTransaction, chain: string, address: string) {
+    const [row] = await tx.select().from(leaders).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).for("update");
+    return row;
+  }
+  async update(tx: DbTransaction, chain: string, address: string, patch: PatchLeaderRequest) {
+    const [row] = await tx.update(leaders).set(patch).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).returning();
     return row;
   }
   equityRows(chain: string, address: string, since: Date) {

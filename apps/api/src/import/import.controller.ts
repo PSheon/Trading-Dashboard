@@ -1,3 +1,4 @@
+import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Body, Controller, Post } from "@nestjs/common";
 import type { ImportLeaderListResponse } from "@trading-dashboard/shared/contracts";
 
@@ -15,7 +16,8 @@ export class ImportController {
   @Post("lists")
   importList(
     @Body() body: unknown,
+    @CurrentUser() actor: RequestUser | null,
   ): Promise<ImportLeaderListResponse> {
-    return this.importService.importLeaderList(parseOr400(importLeaderListRequestSchema, body));
+    return this.importService.importLeaderList(parseOr400(importLeaderListRequestSchema, body), actor);
   }
 }

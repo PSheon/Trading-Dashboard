@@ -14,7 +14,9 @@ if (needsDatabase && !databaseUrl) throw new Error("DATABASE_URL is required for
 
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/schema/db.ts",
+  // drizzle-kit 0.28 does not resolve NodeNext .js imports from TS sources.
+  // db:generate builds this artifact first; TypeScript remains the source of truth.
+  schema: "./dist/schema/db.js",
   out: "./drizzle",
   dbCredentials: {
     url: databaseUrl ?? "",

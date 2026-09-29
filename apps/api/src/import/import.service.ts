@@ -1,3 +1,4 @@
+import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
 import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, inArray } from "drizzle-orm";
 import { leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
@@ -97,7 +98,7 @@ export class ImportService {
     private readonly backfill: BackfillService,
   ) {}
 
-  async importLeaderList(request: ImportLeaderListRequest): Promise<ImportLeaderListResponse> {
+  async importLeaderList(request: ImportLeaderListRequest, actor: AuditActor = null): Promise<ImportLeaderListResponse> {
     const validated = importLeaderListRequestSchema.safeParse(request);
     if (!validated.success) throw new BadRequestException({ message: "Invalid import", issues: validated.error.issues });
     request = validated.data;
@@ -179,6 +180,8 @@ export class ImportService {
           ),
         );
 
+      await recordAdminAudit(tx, actor, "list.import", String(list.id), null,
+        { source: request.source, itemCount: dedupedRows.length, newAddressCount: inserted.length });
       return { listId: list.id, itemCount: dedupedRows.length, newAddresses: inserted.map((r) => r.address) };
     });
 

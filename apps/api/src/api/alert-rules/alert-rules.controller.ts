@@ -1,3 +1,4 @@
+import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Body, Controller, Get, Post } from "@nestjs/common";
 import type { AlertRule } from "@trading-dashboard/shared/contracts";
 
@@ -20,7 +21,7 @@ export class AlertRulesController {
 
   @RequirePermissions("rules.manage")
   @Post()
-  upsert(@Body() body: unknown): Promise<AlertRule> {
-    return this.alertRulesService.upsert(parseUpsertRule(body));
+  upsert(@Body() body: unknown, @CurrentUser() actor: RequestUser | null): Promise<AlertRule> {
+    return this.alertRulesService.upsert(parseUpsertRule(body), actor);
   }
 }

@@ -53,7 +53,8 @@ export class LeadersController {
     @Param("chain") chain: string,
     @Param("address") address: string,
     @Body() body: unknown,
+    @CurrentUser() actor: RequestUser | null,
   ): Promise<Leader> {
-    return this.leadersService.update(parseOr400(chainSchema, chain), parseOr400(addressSchema, address).toLowerCase(), parseOr400(patchLeaderRequestSchema, body));
+    return this.leadersService.update(parseOr400(chainSchema, chain), parseOr400(addressSchema, address).toLowerCase(), parseOr400(patchLeaderRequestSchema, body), actor);
   }
 }

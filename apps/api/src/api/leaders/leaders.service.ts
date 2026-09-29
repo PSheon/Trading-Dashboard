@@ -1,3 +1,5 @@
+import { recordAdminAudit, type AuditActor } from "../../common/audit/admin-audit.js";
+import { UnitOfWork } from "../../db/unit-of-work.js";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type {
   CoinDistributionEntry,
@@ -21,6 +23,7 @@ const EQUITY_CURVE_WINDOW_DAYS = 30;
 @Injectable()
 export class LeadersService {
   constructor(
+    private readonly uow: UnitOfWork,
     private readonly repository: LeadersRepository,
     private readonly roundTrip: RoundTripService,
   ) {}
@@ -135,12 +138,13 @@ export class LeadersService {
    * stops polling/snapshots — the Watcher re-reads `leaders` fresh every
    * cycle and filters on `active=true` there, so there's nothing else to
    * wire up here for that half of the acceptance criterion. */
-  async update(chain: string, address: string, patch: PatchLeaderRequest): Promise<Leader> {
-    const updated = await this.repository.update(chain, address, patch);
-
-    if (!updated) {
-      throw new NotFoundException(`No leader ${chain}/${address}`);
-    }
-    return updated as unknown as Leader;
+  async update(chain: string, address: string, patch: PatchLeaderRequest, actor: AuditActor = null): Promise<Leader> {
+    return this.uow.run(async (tx) => {
+      const before = await this.repository.lockOne(tx, chain, address);
+      if (!before) throw new NotFoundException(`No leader ${chain}/${address}`);
+      const updated = await this.repository.update(tx, chain, address, patch);
+      await recordAdminAudit(tx, actor, "leader.update", `${chain}/${address}`, before, updated);
+      return updated as unknown as Leader;
+    });
   }
 }

@@ -1,3 +1,4 @@
+import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import {
   BadRequestException,
   ConflictException,
@@ -137,7 +138,10 @@ export class AdminUsersService {
       if (request.disabled === false) set.disabledAt = null;
       if (Object.keys(set).length > 0) await tx.update(users).set(set).where(eq(users.id, id));
 
-      return this.findOne(tx, id);
+      const updated = await this.findOne(tx, id);
+      if (Object.keys(set).length > 0) await recordAdminAudit(tx, actor, "user.update", String(id),
+        { role: target.role, disabled: target.disabledAt !== null }, { role: updated.role, disabled: updated.disabled });
+      return updated;
     });
     // Eagerly drop local verification entries; every request also rechecks
     // persisted authorization, including requests in other processes.

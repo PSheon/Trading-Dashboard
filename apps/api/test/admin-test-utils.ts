@@ -8,6 +8,7 @@ import type { TestDb } from "./db-test-utils.js";
 export async function truncateAdminTables(db: TestDb): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
+      admin_audit_logs,
       users, user_favorites, notification_channels, app_settings, revenue_snapshots,
       alerts, alert_rules, leaders
     RESTART IDENTITY CASCADE

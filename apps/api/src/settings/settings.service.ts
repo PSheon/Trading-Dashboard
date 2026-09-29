@@ -1,3 +1,4 @@
+import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
 import { Injectable, Logger } from "@nestjs/common";
 import {
   adminSettingsSchema,
@@ -65,7 +66,7 @@ export class SettingsService {
 
   /** Merges each given section over its current value, validates the result
    * (throws ZodError on invalid input) and saves only those sections. */
-  async patch(request: PatchAdminSettingsRequest, userId: number | null): Promise<AdminSettings> {
+  async patch(request: PatchAdminSettingsRequest, userId: number | null, actor: AuditActor = userId): Promise<AdminSettings> {
     const merged = await this.uow.run(async (tx) => {
       // One transaction-scoped lock also protects sections that have no row yet.
       await this.repository.lockSections(tx);
@@ -78,6 +79,8 @@ export class SettingsService {
       });
       const keys = (Object.keys(request) as AppSettingsKey[]).filter((k) => request[k] !== undefined);
       await this.repository.saveSections(tx, keys, value, userId);
+      if (keys.length) await recordAdminAudit(tx, actor, "settings.update", "app_settings",
+        Object.fromEntries(keys.map((key) => [key, current[key]])), Object.fromEntries(keys.map((key) => [key, value[key]])));
       return value;
     });
     // An older in-flight read must not republish stale data after this commit.

@@ -148,7 +148,7 @@ export function useTraderProfile(address: string) {
   return useQuery({
     queryKey: ["trader", address],
     queryFn: () => api.get<TraderProfileResponse>(`/traders/${address}`),
-    refetchInterval: livePoll(address),
+    refetchInterval: query => query.state.data?.dataQuality?.partial ? 5_000 : livePoll(address)(),
     ...busyRetry,
   });
 }

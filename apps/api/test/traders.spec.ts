@@ -483,6 +483,78 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(await service.isTracked(B)).toBe(false);
     });
 
+    it("retains verified positions when one perp dex fails without publishing partial totals", async () => {
+      info.clearinghouseState.mockRejectedValueOnce(new Error("dex unavailable"));
+      const res = await controller.profile(UNKNOWN, null);
+      expect(res.positions.length).toBeGreaterThan(0);
+      expect(res.positions.every(p => p.coin.startsWith("xyz:"))).toBe(true);
+      expect(res.perpEquity).toBeNull();
+      expect(res.accountValue).toBeNull();
+      expect(res.longNotional).toBeNull();
+      expect(res.spotValue).toBe(1400);
+      expect(res.dataQuality?.partial).toBe(true);
+      expect(res.dataQuality?.sources["perp:main"]).toMatchObject({ status: "unavailable", asOf: null });
+    });
+
+    it("does not turn failed staking into zero or hide otherwise available positions", async () => {
+      info.delegatorSummary.mockRejectedValueOnce(new Error("staking unavailable"));
+      const res = await controller.profile(UNKNOWN, null);
+      expect(res.stakedValue).toBeNull();
+      expect(res.accountValue).toBeNull();
+      expect(res.perpEquity).not.toBeNull();
+      expect(res.positions.length).toBeGreaterThan(0);
+      expect(res.dataQuality?.sources.staking.status).toBe("unavailable");
+    });
+
+    it("retries a partial profile after its short cache without replacing missing staking with zero", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        info.delegatorSummary.mockRejectedValueOnce(new Error("temporary failure"));
+        const first = await controller.profile(UNKNOWN, null);
+        expect(first.stakedValue).toBeNull();
+        vi.setSystemTime(Date.now() + 5_001);
+        const recovered = await controller.profile(UNKNOWN, null);
+        expect(recovered.stakedValue).toBe(200);
+        expect(recovered.dataQuality?.partial).toBe(false);
+        expect(recovered.accountValue).not.toBeNull();
+      } finally { vi.useRealTimers(); }
+    });
+
+    it("bounds a stuck optional source and ignores its late failure", async () => {
+      service.profileSourceDeadlineMs = 20;
+      let reject!: (error: Error) => void;
+      info.delegatorSummary.mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
+      const result = await controller.profile(UNKNOWN, null);
+      expect(result.stakedValue).toBeNull();
+      expect(result.positions.length).toBeGreaterThan(0);
+      reject(new Error("late upstream error"));
+      await new Promise(resolve => setImmediate(resolve));
+    });
+
+    it("keeps account data when recorded analytics fail", async () => {
+      await db.insert(leaders).values({ address: UNKNOWN });
+      const spy = vi.spyOn(RoundTripService.prototype, "reconstructRoundTrips").mockRejectedValueOnce(new Error("analytics unavailable"));
+      try {
+        const result = await controller.profile(UNKNOWN, null);
+        expect(result.analytics).toBeNull();
+        expect(result.accountValue).not.toBeNull();
+        expect(result.dataQuality?.sources.analytics.status).toBe("unavailable");
+      } finally { spy.mockRestore(); }
+    });
+
+    it("preserves source observation times across the longer staking cache", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const first = await controller.profile(A, null);
+        vi.setSystemTime(Date.now() + 61_000);
+        const second = await controller.profile(A, null);
+        expect(second.fetchedAt).not.toEqual(first.fetchedAt);
+        expect(second.dataQuality?.sources.staking.asOf).toBe(first.dataQuality?.sources.staking.asOf);
+        expect(second.dataQuality?.sources.staking.asOf).toBeDefined();
+        expect(second.dataQuality?.sources.spot.asOf).not.toBe(first.dataQuality?.sources.spot.asOf);
+      } finally { vi.useRealTimers(); }
+    });
+
     it("rejects an invalid address with 400 and maps upstream failure to 502", async () => {
       await expectStatus(() => controller.profile("0x123", null), 400);
       await expectStatus(() => controller.profile(`${A}00`, null), 400);
@@ -490,7 +562,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       await expectStatus(() => controller.fills("0xZZ", undefined), 400);
       expect(info.clearinghouseState).not.toHaveBeenCalled();
 
-      info.clearinghouseState.mockRejectedValueOnce(new Error("Hyperliquid info request failed: 429"));
+      info.spotClearinghouseState.mockRejectedValueOnce(new Error("Hyperliquid info request failed: 429"));
       await expect(controller.profile(UNKNOWN, null)).rejects.toBeInstanceOf(BadGatewayException);
     });
   });

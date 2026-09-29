@@ -525,20 +525,32 @@ export type SpotBalance = z.infer<typeof spotBalanceSchema>;
 /** GET /traders/:address — the trader page's left column and header. Public;
  * `favorite` is false when signed out. */
 export const traderProfileResponseSchema = z.object({
+  /** Source timestamps are observations, not the profile assembly time.
+   * Optional while rolling out older clients/fixtures. Nullable totals must
+   * not be interpreted as zero; positions may contain only available dexes. */
+  dataQuality: z.object({
+    partial: z.boolean(),
+    sources: z.record(z.object({
+      status: z.enum(["available", "unavailable"]),
+      asOf: z.string().datetime().nullable(),
+      stale: z.boolean(),
+      maxAgeMs: z.number().int().nonnegative(),
+    })),
+  }).optional(),
   address: z.string(),
   displayName: z.string().nullable(),
   stats: traderStatsSchema.nullable(),
   /** Total equity, as Hyperliquid's portfolio totals it: perp equity (except
    * in unified / portfolio-margin accounts, where the spot balance already
    * holds it) + spot value + staked HYPE. */
-  accountValue: z.number(),
+  accountValue: z.number().nullable(),
   /** Sum of `marginSummary.accountValue` over every perp dex. Leverage and
    * margin usage are relative to this. */
-  perpEquity: z.number(),
+  perpEquity: z.number().nullable(),
   /** Spot balances at their USDC marks. */
   spotValue: z.number(),
   /** Staked HYPE (delegated, undelegated and pending withdrawal). */
-  stakedValue: z.number(),
+  stakedValue: z.number().nullable(),
   accountMode: accountModeSchema,
   /** Largest first. */
   spotBalances: z.array(spotBalanceSchema),
@@ -546,10 +558,10 @@ export const traderProfileResponseSchema = z.object({
    * listed market. Live clients subscribe to the same set. */
   perpDexes: z.array(z.string()),
   /** Perp only, summed over dexes. */
-  marginUsed: z.number(),
-  withdrawable: z.number(),
-  longNotional: z.number(),
-  shortNotional: z.number(),
+  marginUsed: z.number().nullable(),
+  withdrawable: z.number().nullable(),
+  longNotional: z.number().nullable(),
+  shortNotional: z.number().nullable(),
   positions: z.array(livePositionSchema),
   /** Watched by the live pipeline (imported or someone's favorite). */
   tracked: z.boolean(),

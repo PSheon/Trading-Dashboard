@@ -74,3 +74,26 @@ matrix complement the route document; this is not an OpenAPI document.
 Implementation follows DonutMe's transform/filter split while retaining Zod and
 Express. Framework boundaries checked against [Nest interceptors](https://docs.nestjs.com/interceptors)
 and [exception filters](https://docs.nestjs.com/exception-filters).
+
+## Trader profile degradation
+
+`GET /traders/:address` includes optional `dataQuality` metadata: each source's
+availability, observation `asOf`, `maxAgeMs` and response-time `stale` value.
+Clients must continue aging timestamps while displayed; the web checks every
+30 seconds. These timestamps describe the REST snapshot's observations, not
+subsequent WebSocket updates. `fetchedAt` is only the profile assembly time.
+
+A failed/timed-out individual perp dex, staking, leaderboard metadata or recorded
+analytics source does not discard other successful data. Unknown `accountValue`,
+`perpEquity`, `marginUsed`, `withdrawable`, `longNotional`, `shortNotional` and
+`stakedValue` are null, never fabricated zero. Position rows may be a subset;
+`dataQuality.partial` and per-source statuses must accompany their presentation.
+Deploy nullable-aware clients before the API. Partial responses cache/retry for
+5 seconds; complete responses retain the 60-second profile cache. Optional source
+work has a 4-second response deadline; underlying shared fetches retain their
+existing lifecycle and may populate a source cache later.
+
+Dex discovery, account mode, spot balances/valuation and identity/tracking remain
+required. A required-source failure retains HTTP error semantics, while the web
+still renders independently loaded portfolio history. The web keeps partial REST
+snapshots unchanged by numerical socket overlays until a complete refresh arrives.

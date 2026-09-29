@@ -17,7 +17,7 @@ Baseline: 7904d39; isolated branch codex/audit-fixes. No remote deployment, real
 - E06: HTTP Info runtime schemas and bounded decoded response reader implemented; malformed values, unsafe integers, unknown account modes and invalid nested referral data are rejected. WS paths remain outside this batch.
 - E02/E03/E22: gross label/source clarification only; net accounting, history completeness and low-sample basis remain pending Claude integration.
 - E07–E09: completed in the second batch below. E16 real-provider/proxy verification remains pending.
-- E10–E15/E17–E21: pending; external verification requires the actual configured environment.
+- E10: implemented in the third batch below. E11–E15/E17–E21: pending; external verification requires the actual configured environment.
 - G01–G12: pending; real financial side effects require explicit separate authorization.
 
 ## Review and upstream compatibility
@@ -50,3 +50,17 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Three initial route-auth failures came from old non-contract stub payloads, not valid production DTOs. Leader routes now use the real service/repository and assert actual per-user alert isolation instead of echoing mock scope.
 - API typecheck, lint, compiled build and HTTP docs freshness passed. Full compiled Nest app bootstrap returned readiness 200 with the owned test database and 503 with the database offline; graceful shutdown and test DB cleanup passed.
 - Scope limits: E16 real Privy/JWKS rotation and deployed proxy behavior remain unverified; no real notifications/trades, production migration, remote push or deployment performed.
+
+## Third batch: E10 (base 1e35ff3)
+
+- Ruling: dex discovery, tracked/favorite ownership, spot balances, account mode and the price book remain required because their failure prevents a reliable accounting scope. Individual perp dexes, staking, leaderboard metadata and recorded analytics degrade independently, each with a 4s response deadline. A failed required profile request no longer replaces the independent portfolio chart with a page-wide error.
+- Missing perp or staking inputs produce null account totals (and null complete-perp totals when a dex is missing); available positions and independently verified spot value remain visible. No guessed subtotal is presented as whole-account equity. Position counts are qualified and failed analytics are distinguished from an unwatched address.
+- Additive dataQuality records per-source availability, observation time and freshness budget. Cache observation times survive hits; leaderboard time comes from the stored import and freshness budget uses its configured refresh interval. fetchedAt still means profile assembly, not every source's update time.
+- Partial profiles cache for 5s (complete profiles 60s), and the browser retries partial profiles every 5s. Optional timeouts do not claim to cancel shared upstream work; existing upstream deadlines/budgets still apply, and late cache completion can help the next refresh.
+- Ruling: while REST data is partial, suppress the numerical WebSocket overlay and show polling status until a complete snapshot is recovered. This deliberately trades some live updates for preserving unknown totals; live fills remain separate.
+- Nullable profile totals require deploying updated consumers before the API. Existing numeric-only third-party clients must update; absence of the new metadata remains accepted for older complete fixtures.
+- Required-source failure, malformed data, and unknown account modes are not turned into empty accounts. Upstream tokens without a price and full historical completeness remain separately tracked issues, not fixed by this batch.
+- Tests observed RED→GREEN for single-dex failure, staking failure, source observation age and preserving portfolio history after profile failure. Added coverage for short-cache recovery, source timeout/late rejection, analytics outage and false-zero live overlay.
+- Fresh-context review found that response-time stale flags freeze between polls. A mounted fake-clock regression reproduced it; ProfileQuality now re-evaluates age with the shared 30s browser clock. Analytics failure copy was also corrected with an SSR regression.
+- API: 52 files / 577 tests passed. Web: 17 files / 67 tests passed; Chromium fixture E2E: 6/6 passed. API/web typecheck and lint, API build, final webpack production build and HTTP docs freshness passed. Compiled API bootstrap returned readiness 200 with the owned test DB and 503 when offline, then shut down cleanly. Existing optional Farcaster SDK warning remains outside this batch.
+- Concurrent dev update 57ad712 adds only a Stage 3 specification; preserve it during rebase. Claude's analysis UI branch 42fe055 remains unmerged and untouched.

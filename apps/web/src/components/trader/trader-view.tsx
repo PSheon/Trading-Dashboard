@@ -68,23 +68,17 @@ function TraderLoaded({ address }: { address: string }) {
   const lowSample = activity.data?.sample.lowSample ?? false;
   const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
-  if (profile.isError) {
-    return (
-      <div className="rounded-2xl border border-border bg-card">
-        <ErrorState message={`${t("trader.loadFailed")} · ${profile.error.message}`} onRetry={() => profile.refetch()} />
-      </div>
-    );
-  }
-
   return (
     <div className="trader-grid -mx-1 md:-mx-3">
       <div data-area="profile">
-        {live.profile ? (
+        {profile.isError && !live.profile ? (
+          <ErrorState message={`${t("trader.loadFailed")} · ${profile.error.message}`} onRetry={() => profile.refetch()} />
+        ) : live.profile ? (
           <ProfileCard
             profile={live.profile}
             activity={activity.isError ? null : activity.data}
             lowSampleThreshold={settings.data?.lowSampleThreshold ?? 20}
-            liveStatus={live.status}
+            liveStatus={live.profile.dataQuality?.partial ? "polling" : live.status}
             allTimeVolume={allTime.data?.volume ?? null}
           />
         ) : (
@@ -93,6 +87,9 @@ function TraderLoaded({ address }: { address: string }) {
       </div>
 
       <div data-area="main" className="flex min-w-0 flex-col gap-3">
+        {profile.data?.dataQuality?.partial ? (
+          <p role="status" className="text-sm text-warning">{t("trader.partialProfile")} <button type="button" className="underline" onClick={() => profile.refetch()}>{t("common.retry")}</button></p>
+        ) : null}
         {busy ? (
           <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-warning" />
@@ -108,7 +105,7 @@ function TraderLoaded({ address }: { address: string }) {
             market={market}
             lowSample={lowSample}
           />
-        ) : (
+        ) : profile.isError ? null : (
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => (
               <Skeleton key={i} className="h-[116px] rounded-2xl" />
@@ -131,6 +128,8 @@ function TraderLoaded({ address }: { address: string }) {
         />
         {live.profile ? (
           <ActivityTabs profile={live.profile} liveFills={live.fills} marks={live.mids} />
+        ) : profile.isError ? (
+          <p className="text-sm text-muted-foreground">{t("trader.positionsUnavailable")}</p>
         ) : (
           <Skeleton className="h-64 rounded-2xl" />
         )}

@@ -622,6 +622,9 @@ export const en: Messages = {
     settings: {
       saveSection: "Save section",
       saved: "Saved",
+      conflict: "Settings changed elsewhere. Your draft is preserved. Reload the latest section before saving.",
+      reload: "Reload section (discard this draft)",
+      invalid: "Stored settings need repair: {sections}. Safety switches with invalid values are disabled.",
       unsaved: "Unsaved changes",
       failed: "Couldn't save: {message}",
       general: {

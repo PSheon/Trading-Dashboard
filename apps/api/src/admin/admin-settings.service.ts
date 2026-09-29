@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable } from "@nestjs/common";
 import {
   patchAdminSettingsRequestSchema,
-  type AdminSettings,
+  appSettingsKeyEnum,
+  type AdminSettingsSnapshot,
   type PatchAdminSettingsRequest,
 } from "@trading-dashboard/shared/contracts";
 
@@ -23,15 +24,21 @@ export class AdminSettingsService {
     private readonly revenue: RevenueService,
   ) {}
 
-  getAll(): Promise<AdminSettings> {
-    return this.settings.getAll();
+  getAll(): Promise<AdminSettingsSnapshot> {
+    return this.settings.getSnapshot();
   }
 
-  async patch(body: unknown, user: RequestUser | null): Promise<AdminSettings> {
+  async patch(body: unknown, user: RequestUser | null): Promise<AdminSettingsSnapshot> {
     const request = normalize(parseOr400(patchAdminSettingsRequestSchema, body));
+    for (const key of appSettingsKeyEnum) {
+      if (request[key] !== undefined && request.expectedRevisions?.[key] === undefined) {
+        throw new HttpException({ statusCode: 428, code: "settings_precondition_required", section: key,
+          message: "Reload settings before saving; a section revision is required." }, 428);
+      }
+    }
     const before = (await this.settings.get("revenue")).builderAddress?.toLowerCase() ?? null;
 
-    let saved: AdminSettings;
+    let saved: AdminSettingsSnapshot;
     try {
       saved = await this.settings.patch(request, userIdOf(user), user);
     } catch (error) {

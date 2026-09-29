@@ -12,6 +12,14 @@
 
 P1：現有應修正的行為。P2：現有品質/營運問題。**上線阻擋**：正式跟單前必須完成的設計，不表示目前已有可被利用的資金漏洞。
 
+## 設定安全性修正進度（2026-09-30）
+
+A01、A02、A05 已實作：每個 section 的 revision 前置條件、同區塊衝突拒絕、只提交變更欄位、保留其他區塊草稿、明確重新載入、嚴格 mutation schema，以及逐欄復原損壞資料。A08 的解析差異也已修正：SettingsService 與通知送出前檢查共用 `settings-recovery.ts`，通知仍直接讀取最新 DB。
+
+Admin GET 直接讀 DB，避免衝突後重新載入仍拿到 30 秒快取。業務與公開設定仍有原本快取，因此 A03/A04 尚未完成。Revision 是目前 JSON 與 updatedAt 的表示 token，不是不可變政策版本，不解決 A07，也不代表跟單已可下單。更新協定與部署相容性見 [admin-settings.md](admin-settings.md)。
+
+以下表格保留原始發現；A01/A02/A05/A08 的現況以上述修正為準。其餘項目仍待完成。
+
 ## 現有設定機制
 
 | ID / 優先度 | 發現與具體後果 | 位置 | 建議與驗收 |
@@ -80,7 +88,7 @@ P1：現有應修正的行為。P2：現有品質/營運問題。**上線阻擋*
 
 ## 建議執行順序與驗收
 
-1. **先修目前設定安全性：A01/A02/A05。** revision 衝突、dirty-field patch、fail-closed、unknown-key rejection；用多管理員及損壞 section 測試驗收。
+1. **已完成目前設定安全性：A01/A02/A05（含 A08 共用解析）。** revision 衝突、dirty-field patch、fail-closed、unknown-key rejection；用多管理員及損壞 section 測試驗收。
 2. **補設定的生效模型：A03/A04/A06–A10。** typed effective settings、權限分離、版本與事件、audit UI；測兩個 process、重啟、cache outage、保存/生效失敗與保留草稿。
 3. **設計並實作 paper-copy。** verified signals、strategy ownership/version、資金 reservation、風控及虛擬 ledger；先不建立真實 signer。
 4. **完成 signer 與 testnet execution。** consent/revoke、nonce、client IDs、unknown 訂單恢復、部分成交及策略對帳；平台 pause 與撤權在 worker 生效。

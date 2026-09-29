@@ -90,3 +90,16 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - First E2E run overlapped source/shared-output changes and failed two navigations; stable-source rerun passed all eight without changing navigation assertions. Existing optional Farcaster mini-app module warning remains E18/E20.
 - Incremental funding test now advances a controlled clock between reads; a completed funding page checkpoints its requested cutoff, not merely its last event. This avoids re-reading an empty interval while still testing a genuinely later payment.
 - No live Copydog parity check, real Privy/Telegram/transaction execution, production migration, push or deployment performed. Retain the worktree for the next authorized batch.
+
+
+## Sixth batch: settings concurrency and recovery (base 0ac2a22)
+
+- Implements A01/A02/A05, plus shared typed recovery for A08. GET/PATCH snapshots expose per-section revisions and invalidSections; mutations require preconditions and reject unknown/empty fields. Revision checks, writes and audit remain under the same transaction advisory lock.
+- Ruling: use SHA-256 of canonical stored JSON plus updatedAt, requiring no migration. These are representation preconditions, not immutable historical policy versions. Cost: A07 still needs a separate policy history design.
+- Ruling: bootstrap absent rows keep defaults, but existing missing/malformed security switches fail closed. Other valid fields survive corruption. Cost: damaged/legacy partial settings may need explicit repair before enabling a switch again.
+- Ruling: require preconditions at AdminSettingsService; trusted internal SettingsService patches retain optional preconditions. Cost: browser/API must ship together and old mutation clients receive 428 until upgraded.
+- Ruling: reuse the recovery helper in fresh notification delivery checks to close the A08 parse mismatch exposed by A02. Business TTL cache, distributed policy enforcement and post-commit snapshot durability stay out of scope; they remain A03/A07/A12.
+- RED→GREEN: initial API tests reproduced stale overwrite, unsafe fallback and accepted unknown/empty writes. Added real-Postgres concurrency, all-section conflict rollback, uncached snapshot and malformed-data cases. JSON null fixtures explicitly use jsonb null, avoiding SQL NOT NULL violations.
+- Mounted UI test verifies dirty-field payloads, preserving another section's draft and original revision, 409 draft preservation, and explicit reload. Additional background-refetch failure test reproduced draft unmount, then passed after retaining cached forms and showing an error notice.
+- Fresh-context whole-diff review: no Critical/Important findings. Final: minor (deferred): concurrent different-section saves may return whole snapshots out of order and temporarily regress clean displayed values; server preconditions still prevent lost updates. A03/A06/A07/A12 scope exclusions remain tracked, not resolved by this batch.
+- Verification so far: API 54 files / 626 tests; web 19 files / 69 tests; Chromium 8/8; API/web lint and typecheck; API build; full compiled Nest readiness 200/503; HTTP docs freshness and diff checks. Webpack production build also passed (existing optional Farcaster mini-app module warning remains E18/E20). No production changes, pushes or real notifications/trades.

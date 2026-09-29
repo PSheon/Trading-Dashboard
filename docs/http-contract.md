@@ -110,3 +110,6 @@ funding values can be partial beyond that interval. `computedAt` is the fill
 analysis time and is not advanced merely by funding work. Cold computations
 may return 503 with Retry-After while a bounded background job continues.
 See [definitions and release order](trade-analytics.md).
+
+Admin settings mutations additionally require per-section revision preconditions;
+see [admin-settings.md](admin-settings.md) for 428/409 handling and rollout limits.

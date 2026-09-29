@@ -10,10 +10,11 @@ import {
   notificationSettingsSchema,
   revenueSettingsSchema,
   type AdminSettings,
+  type AdminSettingsSnapshot,
   type PatchAdminSettingsRequest,
 } from "@/lib/contracts";
 import { ArrowDown, ArrowUp, Check, Plus, X } from "lucide-react";
-import { useState } from "react";
+import { useState, type SetStateAction } from "react";
 import type { ZodTypeAny } from "zod";
 import { cn } from "cn";
 
@@ -40,13 +41,14 @@ const SCHEMAS: Record<Section, ZodTypeAny> = {
 /** Site settings: one form per section; each saves only its own section
  * (PATCH /admin/settings), validated client-side with the shared schema. */
 export function AdminSettingsForm() {
+  const { t } = useI18n();
   const settings = useQuery({
     queryKey: ["admin", "settings"],
-    queryFn: () => api.get<AdminSettings>("/admin/settings"),
+    queryFn: () => api.get<AdminSettingsSnapshot>("/admin/settings"),
     refetchInterval: false,
   });
 
-  if (settings.isError) {
+  if (settings.isError && !settings.data) {
     return (
       <Panel>
         <ErrorState message={settings.error.message} onRetry={() => settings.refetch()} />
@@ -55,23 +57,41 @@ export function AdminSettingsForm() {
   }
   if (!settings.data) return <Skeleton className="h-[480px] rounded-2xl" />;
 
-  // Keyed by content so a successful save resets each form to the server copy.
   const d = settings.data;
   return (
     <div className="flex max-w-4xl flex-col gap-4">
-      <GeneralForm key={JSON.stringify(d.general)} value={d.general} />
-      <DiscoveryForm key={JSON.stringify(d.discovery)} value={d.discovery} />
-      <NotificationsForm key={JSON.stringify(d.notifications)} value={d.notifications} />
-      <RevenueForm key={JSON.stringify(d.revenue)} value={d.revenue} />
+      {settings.isError ? <p role="alert" className="text-sm text-negative">{t("admin.settings.failed", { message: settings.error.message })}</p> : null}
+      <div role="status">{d.invalidSections.length ? t("admin.settings.invalid", { sections: d.invalidSections.join(", ") }) : null}</div>
+      <GeneralForm value={d.general} revision={d.revisions.general} />
+      <DiscoveryForm value={d.discovery} revision={d.revisions.discovery} />
+      <NotificationsForm value={d.notifications} revision={d.revisions.notifications} />
+      <RevenueForm value={d.revenue} revision={d.revisions.revenue} />
     </div>
   );
 }
 
+/** Keep the exact baseline of an edited form, even when another section refreshes. */
+function useSectionDraft<S extends Section>(incoming: AdminSettings[S], incomingRevision: string) {
+  const [draft, setDraft] = useState({ original: incoming, value: incoming, revision: incomingRevision });
+  if (draft.revision !== incomingRevision && JSON.stringify(draft.value) === JSON.stringify(draft.original)) {
+    setDraft({ original: incoming, value: incoming, revision: incomingRevision });
+  }
+  return {
+    ...draft,
+    setValue: (action: SetStateAction<AdminSettings[S]>) => setDraft(previous => ({ ...previous,
+      value: typeof action === "function" ? action(previous.value) : action,
+    })),
+    accept: (value: AdminSettings[S], revision: string) => setDraft({ original: value, value, revision }),
+  };
+}
+
 function useSaveSection<S extends Section>(section: S) {
   const queryClient = useQueryClient();
-  return useMutation<AdminSettings, ApiError, AdminSettings[S]>({
-    mutationFn: (value) =>
-      api.patch<AdminSettings>("/admin/settings", { [section]: value } as PatchAdminSettingsRequest),
+  return useMutation<AdminSettingsSnapshot, ApiError, { patch: Partial<AdminSettings[S]>; revision: string }>({
+    mutationFn: ({ patch, revision }) =>
+      api.patch<AdminSettingsSnapshot>("/admin/settings", {
+        [section]: patch, expectedRevisions: { [section]: revision },
+      } as PatchAdminSettingsRequest),
     onSuccess: (data) => {
       queryClient.setQueryData(["admin", "settings"], data);
       void queryClient.invalidateQueries({ queryKey: ["site-settings"] });
@@ -85,6 +105,8 @@ function FormCard<S extends Section>({
   section,
   value,
   original,
+  revision,
+  onSaved,
   children,
 }: {
   id: string;
@@ -92,10 +114,22 @@ function FormCard<S extends Section>({
   section: S;
   value: AdminSettings[S];
   original: AdminSettings[S];
+  revision: string;
+  onSaved: (value: AdminSettings[S], revision: string) => void;
   children: React.ReactNode;
 }) {
   const { t } = useI18n();
   const save = useSaveSection(section);
+  const queryClient = useQueryClient();
+  const reload = useMutation({
+    mutationFn: () => api.get<AdminSettingsSnapshot>("/admin/settings"),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["admin", "settings"], data);
+      onSaved(data[section], data.revisions[section]);
+      setClientError(undefined);
+      save.reset();
+    },
+  });
   const canSave = usePermission("settings.write");
   const [clientError, setClientError] = useState<string>();
   const dirty = JSON.stringify(value) !== JSON.stringify(original);
@@ -111,18 +145,21 @@ function FormCard<S extends Section>({
       return;
     }
     setClientError(undefined);
-    save.mutate(parsed.data as AdminSettings[S]);
+    const patch = Object.fromEntries(Object.entries(parsed.data).filter(([key, field]) =>
+      JSON.stringify(field) !== JSON.stringify((original as Record<string, unknown>)[key]),
+    )) as Partial<AdminSettings[S]>;
+    save.mutate({ patch, revision }, { onSuccess: data => onSaved(data[section], data.revisions[section]) });
   }
 
   return (
     <Panel id={id} className="scroll-mt-24 p-5 md:p-6">
       <form onSubmit={submit} className="flex flex-col gap-5">
         <h2 className="text-base font-bold tracking-tight">{title}</h2>
-        <fieldset disabled={!canSave} className="contents">{children}</fieldset>
+        <fieldset disabled={!canSave || save.isPending || reload.isPending} className="contents">{children}</fieldset>
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
-          {clientError || save.isError ? (
+          {clientError || save.isError || reload.isError ? (
             <p role="alert" className="mr-auto text-xs text-negative">
-              {t("admin.settings.failed", { message: clientError ?? save.error?.message ?? "" })}
+              {save.error?.status === 409 ? t("admin.settings.conflict") : t("admin.settings.failed", { message: clientError ?? reload.error?.message ?? save.error?.message ?? "" })}
             </p>
           ) : dirty ? (
             <p className="mr-auto text-xs text-warning">{t("admin.settings.unsaved")}</p>
@@ -132,7 +169,8 @@ function FormCard<S extends Section>({
               {t("admin.settings.saved")}
             </p>
           ) : null}
-          <Button type="submit" disabled={!canSave || !dirty || save.isPending}>
+          {save.error?.status === 409 ? <Button type="button" variant="secondary" disabled={reload.isPending} onClick={() => reload.mutate()}>{t("admin.settings.reload")}</Button> : null}
+          <Button type="submit" disabled={!canSave || !dirty || save.isPending || reload.isPending || save.error?.status === 409}>
             {save.isPending ? t("common.saving") : t("admin.settings.saveSection")}
           </Button>
         </div>
@@ -180,15 +218,15 @@ function Toggle({
   );
 }
 
-function GeneralForm({ value: original }: { value: AdminSettings["general"] }) {
+function GeneralForm({ value: incoming, revision: incomingRevision }: { value: AdminSettings["general"]; revision: string }) {
   const { t } = useI18n();
-  const [value, setValue] = useState(original);
+  const { value, original, revision, setValue, accept } = useSectionDraft<"general">(incoming, incomingRevision);
   const set = (patch: Partial<AdminSettings["general"]>) => setValue((v) => ({ ...v, ...patch }));
   const setAnnouncement = (patch: Partial<AdminSettings["general"]["announcement"]>) =>
     set({ announcement: { ...value.announcement, ...patch } });
 
   return (
-    <FormCard id="general" title={t("admin.settings.general.title")} section="general" value={value} original={original}>
+    <FormCard id="general" title={t("admin.settings.general.title")} section="general" value={value} original={original} revision={revision} onSaved={accept}>
       <div className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
         <Toggle
           label={t("admin.settings.general.announcement")}
@@ -232,10 +270,13 @@ function GeneralForm({ value: original }: { value: AdminSettings["general"] }) {
   );
 }
 
-function DiscoveryForm({ value: original }: { value: AdminSettings["discovery"] }) {
+function DiscoveryForm({ value: incoming, revision: incomingRevision }: { value: AdminSettings["discovery"]; revision: string }) {
   const { t } = useI18n();
-  const [value, setValue] = useState(original);
-  const [marketsText, setMarketsText] = useState(original.homeMarkets.join(", "));
+  const { value, original, revision, setValue, accept } = useSectionDraft<"discovery">(incoming, incomingRevision);
+  const [marketsInput, setMarketsInput] = useState({ revision, text: original.homeMarkets.join(", ") });
+  if (marketsInput.revision !== revision) setMarketsInput({ revision, text: original.homeMarkets.join(", ") });
+  const marketsText = marketsInput.text;
+  const setMarketsText = (text: string) => setMarketsInput({ revision, text });
   const [candidate, setCandidate] = useState("");
   const [candidateError, setCandidateError] = useState<string>();
   const set = (patch: Partial<AdminSettings["discovery"]>) => setValue((v) => ({ ...v, ...patch }));
@@ -268,7 +309,7 @@ function DiscoveryForm({ value: original }: { value: AdminSettings["discovery"] 
   }
 
   return (
-    <FormCard id="discovery" title={t("admin.settings.discovery.title")} section="discovery" value={value} original={original}>
+    <FormCard id="discovery" title={t("admin.settings.discovery.title")} section="discovery" value={value} original={original} revision={revision} onSaved={accept}>
       <div className="grid gap-2">
         <Label>{t("admin.settings.discovery.featured")}</Label>
         <p className="text-xs text-muted-foreground">
@@ -413,9 +454,9 @@ function DiscoveryForm({ value: original }: { value: AdminSettings["discovery"] 
   );
 }
 
-function NotificationsForm({ value: original }: { value: AdminSettings["notifications"] }) {
+function NotificationsForm({ value: incoming, revision: incomingRevision }: { value: AdminSettings["notifications"]; revision: string }) {
   const { t } = useI18n();
-  const [value, setValue] = useState(original);
+  const { value, original, revision, setValue, accept } = useSectionDraft<"notifications">(incoming, incomingRevision);
   return (
     <FormCard
       id="notifications"
@@ -423,6 +464,8 @@ function NotificationsForm({ value: original }: { value: AdminSettings["notifica
       section="notifications"
       value={value}
       original={original}
+      revision={revision}
+      onSaved={accept}
     >
       <Toggle
         label={t("admin.settings.notifications.alertsEnabled")}
@@ -446,14 +489,17 @@ function NotificationsForm({ value: original }: { value: AdminSettings["notifica
   );
 }
 
-function RevenueForm({ value: original }: { value: AdminSettings["revenue"] }) {
+function RevenueForm({ value: incoming, revision: incomingRevision }: { value: AdminSettings["revenue"]; revision: string }) {
   const { t, format } = useI18n();
-  const [value, setValue] = useState(original);
-  const [feeText, setFeeText] = useState(String(original.builderFeeTenthsBps / 1000));
+  const { value, original, revision, setValue, accept } = useSectionDraft<"revenue">(incoming, incomingRevision);
+  const [feeInput, setFeeInput] = useState({ revision, text: String(original.builderFeeTenthsBps / 1000) });
+  if (feeInput.revision !== revision) setFeeInput({ revision, text: String(original.builderFeeTenthsBps / 1000) });
+  const feeText = feeInput.text;
+  const setFeeText = (text: string) => setFeeInput({ revision, text });
   const set = (patch: Partial<AdminSettings["revenue"]>) => setValue((v) => ({ ...v, ...patch }));
 
   return (
-    <FormCard id="revenue" title={t("admin.settings.revenue.title")} section="revenue" value={value} original={original}>
+    <FormCard id="revenue" title={t("admin.settings.revenue.title")} section="revenue" value={value} original={original} revision={revision} onSaved={accept}>
       <div className="grid gap-2">
         <Label htmlFor="builder-address">{t("admin.settings.revenue.address")}</Label>
         <Input

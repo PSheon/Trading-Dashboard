@@ -226,14 +226,14 @@ export class NotifyService {
   async sendTestMessage(chatId: string, locale: Locale): Promise<{ sent: boolean; dryRun: boolean }> {
     const text = renderTestMessage(locale, this.config.value.telegram.linkBaseUrl);
     if (this.config.value.telegram.dryRun) {
-      this.logger.log(`[TELEGRAM_DRY_RUN] test message to ${chatId}: ${text}`);
+      this.logger.log("[TELEGRAM_DRY_RUN] test message suppressed");
       return { sent: false, dryRun: true };
     }
     try {
       await this.telegram.sendMessage(chatId, text);
       return { sent: true, dryRun: false };
     } catch (error) {
-      this.logger.warn(`Test message to ${chatId} failed: ${errorText(error)}`);
+      this.logger.warn(`Test message failed: ${errorText(error)}`);
       return { sent: false, dryRun: false };
     }
   }
@@ -244,11 +244,11 @@ export class NotifyService {
   async sendSystemMessage(text: string): Promise<void> {
     const chatId = this.config.value.telegram.systemChatId;
     if (this.config.value.telegram.dryRun || !chatId) {
-      this.logger.warn(`[${this.config.value.telegram.dryRun ? "TELEGRAM_DRY_RUN" : "no chat id"}] system message: ${text}`);
+      this.logger.warn(`[${this.config.value.telegram.dryRun ? "TELEGRAM_DRY_RUN" : "no chat id"}] system message suppressed`);
       return;
     }
     if (!(await this.sendWithRetry(chatId, text))) {
-      this.logger.error(`System message could not be delivered: ${text}`);
+      this.logger.error("System message could not be delivered");
     }
   }
 

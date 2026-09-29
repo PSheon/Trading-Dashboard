@@ -18,6 +18,21 @@ if (existsSync(rootEnv)) {
 const fixtures = process.env.NEXT_PUBLIC_API_FIXTURES === "1";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  headers() {
+    return [{ source: "/:path*", headers: [
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Frame-Options", value: "DENY" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" },
+      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+      ...(process.env.NODE_ENV === "production" ? [{ key: "Strict-Transport-Security", value: "max-age=15552000" }] : []),
+    ] }];
+  },
+  webpack(config) {
+    if (!fixtures) config.resolve.alias["@/fixtures/handler"] = resolve(import.meta.dirname, "src/fixtures/disabled.ts");
+    return config;
+  },
   // Without fixture mode, the fixture handler (and the sample JSON it
   // imports) is replaced by a stub, so it never reaches a bundle.
   turbopack: fixtures

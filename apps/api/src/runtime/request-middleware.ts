@@ -1,4 +1,5 @@
-import { sendHttpError } from "../common/http/response-contract.js";
+import { Logger } from "@nestjs/common";
+import { responseMeta, sendHttpError } from "../common/http/response-contract.js";
 import type { Request, Response, NextFunction } from "express";
 import { BackgroundJobs } from "./background-jobs.service.js";
 import { withRequestSignal } from "./request-context.js";
@@ -10,7 +11,10 @@ const deadlines = new WeakMap<Response, () => void>();
 
 /** One HTTP deadline shared by all nested upstream calls and their queue waits. */
 export function requestContext(jobs: BackgroundJobs, deadlineMs = REQUEST_DEADLINE_MS) {
+  const logger = new Logger("HTTP");
   return (req: Request, res: Response, next: NextFunction) => {
+    const { requestId } = responseMeta(req, res);
+    const started = performance.now();
     if (jobs.stopping) { sendHttpError(req, res, 503, "Shutting down", "unavailable"); return; }
     const abort = new AbortController();
     const timer = setTimeout(() => {
@@ -19,14 +23,19 @@ export function requestContext(jobs: BackgroundJobs, deadlineMs = REQUEST_DEADLI
       else res.destroy();
     }, deadlineMs);
     deadlines.set(res, () => clearTimeout(timer));
-    res.once("finish", () => clearTimeout(timer));
+    res.once("finish", () => {
+      clearTimeout(timer);
+      withRequestSignal(abort.signal, () => logger.log({ event: "http.request", method: req.method,
+        route: typeof req.route?.path === "string" ? req.route.path : "unmatched", status: res.statusCode,
+        durationMs: Math.round(performance.now() - started) }), requestId);
+    });
     res.once("close", () => {
       clearTimeout(timer);
       // Still fires for a released (long-lived) response: a disconnected
       // client aborts whatever the handler has in flight.
       if (!res.writableEnded) abort.abort();
     });
-    withRequestSignal(abort.signal, next);
+    withRequestSignal(abort.signal, next, requestId);
   };
 }
 

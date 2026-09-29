@@ -29,6 +29,7 @@ describe("startup environment", () => {
     expect(result.auth.permissions).toEqual([]);
   });
   it.each([
+    ["API_CORS_ORIGINS", "*"], ["API_CORS_ORIGINS", "https://example.com/path"], ["API_CORS_ORIGINS", "https://user:pass@example.com"],
     ["API_READ_PER_MINUTE", "0"], ["MAX_FAVORITES_PER_USER", "1.5"],
     ["API_TRUSTED_PROXY_CIDRS", "true"], ["API_TRUSTED_PROXY_CIDRS", "0.0.0.0/0"], ["API_TRUSTED_PROXY_CIDRS", "::/129"],
     ["DATABASE_URL", ""], ["DATABASE_URL", "https://example.com/db"],

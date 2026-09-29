@@ -214,7 +214,7 @@ export class AuthService {
       .onConflictDoNothing({ target: users.privyUserId })
       .returning();
     if (created) {
-      this.logger.log(`New user ${created.id} (${privyUserId})${bootstrapAdmin ? " — bootstrap admin" : ""}`);
+      this.logger.log(`New user ${created.id}${bootstrapAdmin ? " — bootstrap admin" : ""}`);
       return { status: "ok", user: created };
     }
 

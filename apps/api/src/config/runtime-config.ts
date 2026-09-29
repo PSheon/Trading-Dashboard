@@ -77,6 +77,14 @@ export function validateEnvironment(source: Environment = process.env) {
     trustedProxyHops: integerValue("STREAM_TRUSTED_PROXY_HOPS", source.STREAM_TRUSTED_PROXY_HOPS, 0, 0, 10),
   };
   if (stream.maxPerIp > stream.maxTotal) throw new Error("STREAM_MAX_PER_IP must not exceed STREAM_MAX_TOTAL");
+  const corsOrigins = (source.API_CORS_ORIGINS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  for (const origin of corsOrigins) {
+    try {
+      const url = new URL(origin);
+      if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin || url.username || url.password) throw new Error();
+    } catch { throw new Error("API_CORS_ORIGINS must contain exact HTTP(S) origins without paths or credentials"); }
+  }
+  const http = { corsOrigins };
   const limits = {
     ingressPerMinute: integerValue("API_INGRESS_PER_MINUTE", source.API_INGRESS_PER_MINUTE, 3000, 1, 1000000),
     readPerMinute: integerValue("API_READ_PER_MINUTE", source.API_READ_PER_MINUTE, 300, 1, 1000000),
@@ -84,6 +92,6 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

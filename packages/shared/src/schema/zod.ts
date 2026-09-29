@@ -27,6 +27,25 @@ export const actionKindSchema = z.enum([
 ]);
 export type ActionKindInput = z.infer<typeof actionKindSchema>;
 
+/** New alerts persist version 1; readers also accept pre-version nested and flat rows. */
+const alertDisplayValuesSchema = z.object({
+  actionKind: actionKindSchema,
+  notionalUsd: z.union([z.string().regex(/^\d+(?:\.\d+)?$/), z.number().finite().nonnegative()]),
+});
+export const alertPayloadSchema = z.object({
+  version: z.literal(1),
+  values: alertDisplayValuesSchema.passthrough(),
+}).passthrough();
+
+export function readAlertDisplayValues(payload: Record<string, unknown>) {
+  if (payload.version !== undefined && payload.version !== 1) return undefined;
+  const candidate = payload.values ?? (payload.version === undefined
+    ? { actionKind: payload.kind, notionalUsd: payload.notionalUsd }
+    : undefined);
+  const result = alertDisplayValuesSchema.safeParse(candidate);
+  return result.success ? result.data : undefined;
+}
+
 export const alertRuleScopeSchema = z.enum(["address", "group"]);
 export const alertRuleKindSchema = z.enum([
   "R1",
@@ -144,10 +163,10 @@ export type AlertEntry = z.infer<typeof alertSchema>;
 
 /** POST /import/lists — body for A1 (CopyDog CSV/JSON upload). */
 export const importLeaderListRequestSchema = z.object({
-  source: z.string().default("copydog"),
-  fileName: z.string(),
+  source: z.string().trim().min(1).max(64).default("copydog"),
+  fileName: z.string().trim().min(1).max(255),
   /** Raw parsed rows; column mapping happens server-side per A1. */
-  rows: z.array(z.record(z.string(), z.unknown())),
+  rows: z.array(z.record(z.string(), z.unknown())).min(1).max(1000),
 });
 export type ImportLeaderListRequest = z.infer<
   typeof importLeaderListRequestSchema
@@ -209,6 +228,13 @@ export const actionsFeedQuerySchema = z.object({
   tier: tierSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   before: z.coerce.date().optional(),
+  /** Pair with before using the last row's timestamp and id for lossless pagination. */
+  beforeId: z.string().regex(/^[1-9]\d{0,18}$/).refine(
+    (value) => /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n,
+    "Invalid action cursor id",
+  ).optional(),
+}).refine((value) => value.beforeId === undefined || value.before !== undefined, {
+  message: "before is required with beforeId", path: ["before"],
 });
 export type ActionsFeedQuery = z.infer<typeof actionsFeedQuerySchema>;
 

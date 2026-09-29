@@ -1,10 +1,11 @@
 "use client";
 
 import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { MeResponse } from "@trading-dashboard/shared";
 import { createContext, use, useCallback, useEffect, useMemo, useRef } from "react";
 
+import { SessionQueries } from "@/lib/session-queries";
 import { APP_NAME, PRIVY_APP_ID } from "@/lib/config";
 import { api, setAccessTokenGetter } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
@@ -68,7 +69,8 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
   // Registered during render (idempotent) rather than in an effect: child
   // queries subscribe in their own effects, which run before ours, and the
   // first /me request must already carry the token.
-  setAccessTokenGetter(getAccessToken);
+  const scope = ready && authenticated && user?.id ? user.id : ready ? "anonymous" : "loading";
+  setAccessTokenGetter(getAccessToken, scope);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -81,7 +83,7 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
     [ready, authenticated, login, logout, user],
   );
 
-  return <AuthContext value={value}>{children}</AuthContext>;
+  return <AuthContext value={value}><SessionQueries key={scope}>{children}</SessionQueries></AuthContext>;
 }
 
 // --- fixture login ------------------------------------------------------------
@@ -96,7 +98,8 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
   const [stored, setStored] = useLocalStorage(FIXTURE_SESSION_KEY);
   const signedIn = stored === undefined ? null : stored === "1";
 
-  setAccessTokenGetter(fixtureTokenGetter);
+  const scope = signedIn ? "fixture:demo" : signedIn === null ? "loading" : "anonymous";
+  setAccessTokenGetter(fixtureTokenGetter, scope);
 
   const persist = useCallback((next: boolean) => setStored(next ? "1" : null), [setStored]);
 
@@ -111,31 +114,16 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
     [signedIn, persist],
   );
 
-  return <AuthContext value={value}>{children}</AuthContext>;
+  return <AuthContext value={value}><SessionQueries key={scope}>{children}</SessionQueries></AuthContext>;
 }
 
 // --- side effects shared by every mode ------------------------------------------
 
-/** Refetch everything when the user signs in or out (favorite flags, /me),
- * and adopt the locale saved on the account at sign-in. */
+/** The keyed session boundary resets state on identity changes. Adopt the saved locale. */
 function AuthEffects() {
-  const { status } = useAuth();
-  const queryClient = useQueryClient();
-  const previous = useRef<AuthStatus | null>(null);
   const { data: me } = useMe();
   const { locale, setLocale } = useI18n();
   const adoptedFor = useRef<number | null>(null);
-
-  useEffect(() => {
-    const prev = previous.current;
-    previous.current = status;
-    if (prev === null || prev === "loading" || prev === status) return;
-    if (status === "signedOut") {
-      queryClient.removeQueries({ queryKey: ["me"] });
-      adoptedFor.current = null;
-    }
-    void queryClient.invalidateQueries();
-  }, [status, queryClient]);
 
   useEffect(() => {
     if (!me || adoptedFor.current === me.id) return;
@@ -179,5 +167,5 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   setAccessTokenGetter(null);
-  return children;
+  return <SessionQueries>{children}</SessionQueries>;
 }

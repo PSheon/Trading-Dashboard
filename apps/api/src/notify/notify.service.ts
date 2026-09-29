@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { actions, alertRules, alerts, type Locale } from "@trading-dashboard/shared";
+import { actions, alertRules, alerts, alertPayloadSchema, type Locale } from "@trading-dashboard/shared";
 
 import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -89,7 +89,8 @@ export class NotifyService {
       ruleKinds,
     });
     const chatId = recipient.telegramChatId;
-    const payloadJson = {
+    const payloadJson = alertPayloadSchema.parse({
+      version: 1,
       text,
       chatId,
       locale: recipient.locale,
@@ -104,7 +105,7 @@ export class NotifyService {
         avgPx: action.avgPx,
         dashboardUrl,
       },
-    };
+    });
 
     // Dry run covers alerts: logged and recorded, never sent.
     if (env.telegramDryRun()) {

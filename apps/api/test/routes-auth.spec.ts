@@ -108,7 +108,7 @@ describe("route access on the existing controllers", () => {
     const adminRoutes: [("get" | "post" | "patch"), string, object?][] = [
       ["get", "/lists"],
       ["get", "/lists/diff?fromListId=1&toListId=2"],
-      ["post", "/import/lists", { fileName: "x.csv", rows: [] }],
+      ["post", "/import/lists", { fileName: "x.csv", rows: [{ address: WHALE, rank: 1 }] }],
       ["patch", `/leaders/hyperliquid/${WHALE}`, { tier: "A" }],
       ["get", "/alert-rules"],
     ];
@@ -212,7 +212,7 @@ describe("route access on the existing controllers", () => {
     expect(result.body.map((a: { address: string }) => a.address)).toEqual([address]);
   });
 
-  it.each(["limit=0", "limit=-1", "limit=501", "limit=abc", "before=invalid", "kind=bogus", "scope=bogus", "address=invalid"])(
+  it.each(["limit=0", "limit=-1", "limit=501", "limit=abc", "before=invalid", "beforeId=1", "before=2026-01-01&beforeId=9223372036854775808", "kind=bogus", "scope=bogus", "address=invalid"])(
     "rejects malformed action query %s", async (query) => {
       await call("get", `/actions?${query}`).expect(400);
     },

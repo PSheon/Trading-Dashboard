@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
   actions,
@@ -39,7 +39,12 @@ export class ActionsService {
     if (query.coin) conditions.push(eq(actions.coin, query.coin));
     if (query.kind) conditions.push(eq(actions.kind, query.kind));
     if (query.tier) conditions.push(eq(leaders.tier, query.tier));
-    if (query.before) conditions.push(lt(actions.ts, new Date(query.before)));
+    if (query.before) {
+      const before = new Date(query.before);
+      conditions.push(query.beforeId
+        ? or(lt(actions.ts, before), and(eq(actions.ts, before), lt(actions.id, BigInt(query.beforeId))))!
+        : lt(actions.ts, before));
+    }
 
     const limit = query.limit ? Number(query.limit) : 100;
 
@@ -62,7 +67,7 @@ export class ActionsService {
       .from(actions)
       .leftJoin(leaders, and(eq(leaders.chain, actions.chain), eq(leaders.address, actions.address)))
       .where(and(...conditions))
-      .orderBy(desc(actions.ts))
+      .orderBy(desc(actions.ts), desc(actions.id))
       .limit(limit);
 
     return rows as unknown as ActionFeedItem[];

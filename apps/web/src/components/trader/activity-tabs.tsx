@@ -1,5 +1,7 @@
 "use client";
 
+import { readAlertDisplayValues } from "@trading-dashboard/shared";
+
 import type { ActionFeedItem, TraderFill, TraderProfileResponse } from "@trading-dashboard/shared";
 import { Download } from "lucide-react";
 import { useState } from "react";
@@ -237,14 +239,15 @@ function AlertsList({ rows }: { rows: NonNullable<ReturnType<typeof useAlerts>["
       </TableHeader>
       <TableBody>
         {rows.map((a) => {
-          const kind = a.payloadJson.kind as ActionFeedItem["kind"] | undefined;
+          const values = readAlertDisplayValues(a.payloadJson);
+          const kind = values?.actionKind;
           return (
             <TableRow key={String(a.id)}>
               <TableCell className="text-muted-foreground">{format.dateTime(a.sentAt)}</TableCell>
               <TableCell className="font-semibold">{a.coin ? coinLabel(a.coin) : "—"}</TableCell>
               <TableCell>{kind ? <KindBadge kind={kind} /> : "—"}</TableCell>
               <TableCell className="text-right">
-                {format.usd(a.payloadJson.notionalUsd as number | undefined, { compact: true })}
+                {format.usd(values?.notionalUsd, { compact: true })}
               </TableCell>
               <TableCell className="text-right">
                 <span

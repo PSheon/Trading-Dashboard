@@ -1,4 +1,4 @@
-import { actions, alertRules, alerts } from "@trading-dashboard/shared";
+import { actions, alertRules, alerts, readAlertDisplayValues } from "@trading-dashboard/shared";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderAlertMessage, tradeSideOf } from "../src/notify/message-template.js";
@@ -12,6 +12,18 @@ const ADDRESS = "0x" + "ab".repeat(20);
 function fakeTelegram(impl: TelegramHttpClient["sendMessage"]): TelegramHttpClient {
   return { sendMessage: vi.fn(impl) } as unknown as TelegramHttpClient;
 }
+
+describe("alert display contract", () => {
+  it("reads versioned and historical payloads without trusting unknown versions", () => {
+    const values = { actionKind: "open", notionalUsd: "60000" };
+    expect(readAlertDisplayValues({ version: 1, values })).toEqual(values);
+    expect(readAlertDisplayValues({ values })).toEqual(values);
+    expect(readAlertDisplayValues({ kind: "open", notionalUsd: "60000" })).toEqual(values);
+    expect(readAlertDisplayValues({ version: 2, values })).toBeUndefined();
+    expect(readAlertDisplayValues({ values: { actionKind: "bad", notionalUsd: {} } })).toBeUndefined();
+    expect(readAlertDisplayValues({})).toBeUndefined();
+  });
+});
 
 describe("message template", () => {
   const base = { address: ADDRESS, coin: "BTC", notionalUsd: "1250000", avgPx: "60123.5" };
@@ -131,6 +143,8 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ ruleId: null, userId, address: ADDRESS, coin: "BTC", sendStatus: "dry_run" });
     expect(rows[0].sentAt).not.toBeNull();
+    expect(readAlertDisplayValues(JSON.parse(JSON.stringify(rows[0].payloadJson)))).toEqual({ actionKind: "open", notionalUsd: "60000" });
+    expect(JSON.parse(JSON.stringify(rows[0].payloadJson))).toMatchObject({ version: 1, values: { actionKind: "open", notionalUsd: "60000" } });
   });
 
   it("a favorite alert goes to the recipient's own chat in their language: one row, no rule", async () => {

@@ -44,6 +44,15 @@ See [migration and permissions](auth-and-config.md) and the
 The broader [DonutMe comparison](donutme-architecture-audit.md) tracks deferred
 response contracts, repositories, config DI and authorization lifecycle work.
 
+## Data correctness batch
+
+Alert payloads now have a shared versioned display contract and historical reader.
+Actions support lossless timestamp/ID cursors. Settings patches serialize concurrent
+writers and commit all sections atomically. Browser sessions use a fresh QueryClient
+and reset UI state per Privy DID; identity changes abort previous requests. Imports
+validate address/rank semantics and cap rows/content before persistence or backfill.
+See the [ordered implementation ledger](superpowers/plans/2026-09-29-remaining-work.md).
+
 ## Remaining high-priority work
 
 1. Durable notification outbox, atomic cooldown reservation and replay after
@@ -52,9 +61,6 @@ response contracts, repositories, config DI and authorization lifecycle work.
    optional AbortSignal, but ordinary sendMessage calls provide none.
 3. Honor Telegram retry-after delays: the client records `retryAfterS`, but
    notification retries still use fixed 1/2/4-second delays.
-4. Reconcile real alert payloads (`values.actionKind`, `values.notionalUsd`) with
-   UI and fixtures, and type/version the payload contract.
-5. Clear/cancel private queries on identity changes and scope query keys by user.
 6. Inbound API rate limits, monitored-address quotas and bounded/cancellable
    upstream queues. The external API budgeter is not an inbound abuse limit.
 7. Dependency audit remediation: initial scan reported 8 high, 15 moderate and
@@ -78,7 +84,7 @@ response contracts, repositories, config DI and authorization lifecycle work.
   deployment sequencing; the current image still contains development packages.
 - Repo CI with disposable DB, contract tests and browser E2E tests covering real
   payloads, login/logout/account switching and cross-address isolation.
-- Security headers/CORS policy and import row semantic validation (valid Ethereum address, positive rank, size limits).
+- Security headers/CORS policy.
 - Toolchain alignment (TypeScript 5/6, Node type versions); remove unused CLI
   dependencies and evaluate Vite native tsconfig paths support.
 - Complete radio/tab keyboard semantics and browser accessibility review.

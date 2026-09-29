@@ -15,15 +15,27 @@ Railway Docker remains the documented delivery route. Vitest uses Vite's native
 tsconfigPaths resolution. shadcn is a build dependency (globals.css imports its
 Tailwind stylesheet), so it remains installed in build stages as a devDependency.
 
-`pnpm audit --json` changed from 8 high / 15 moderate / 4 low to **0 high /
-4 moderate / 0 low**. These are affected package instances, not four distinct
-exploitable application routes. Remaining advisories are explicitly unresolved:
+`pnpm audit --json` initially improved from 8 high / 15 moderate / 4 low to
+0 high / 4 moderate / 0 low. The follow-up now reports **0 known advisories
+at every severity** (2026-09-29). This is a lockfile advisory result, not proof
+that every dependency or live wallet flow is vulnerability-free.
 
-| Package/path | Assessment and next action |
+The additional overrides are scoped to inspected consumer versions:
+
+| Consumer | Change and compatibility evidence |
 | --- | --- |
-| esbuild 0.18, via Kit's legacy esm loader | Development server CORS advisory. We use schema generation/migration, not esbuild serve; keep tools off public interfaces. Await loader removal or verify a targeted replacement before overriding a pre-1.0 API. |
-| uuid 8/9 via Privy → x402 → wallet connectors | Buffer bounds issue in v3/v5/v6, not v4. Live wallet flows were not audited end-to-end. Await compatible upstream updates; a forced major upgrade is not evidence of compatibility. |
-| decode-uri-component 0.2 via legacy WalletConnect query-string | Malformed URI decoding DoS. Remains in a runtime dependency tree; do not label this harmless. Track upstream connector upgrade and test real wallet linking before replacing CommonJS with the fixed 0.5 ESM package. |
+| `@esbuild-kit/core-utils@3.3.2` | Replace esbuild 0.18.20 with 0.25.12, already used by Kit itself. Exercise the actual loader's sync CJS and async ESM TypeScript transforms and source maps; run real schema generation. |
+| MetaMask SDK / communication-layer 0.33.1, utils 8.5.0 / 9.3.0 / 11.12.1 | Resolve uuid 11.1.1, which retains CJS and ESM exports. Inspected consumers use v4/validate; smoke tests exercise generation, validation, version, output buffers and rejection of undersized v5 buffers through each consumer's resolution. |
+| WalletConnect utils 2.21.0 / 2.21.1 | Remove their unused query-string dependency using pnpm's `'-'` override. All three published CJS/ESM/UMD bundles have no query-string reference and URI parsing uses URLSearchParams. Exercise CJS and ESM URI formatting/parsing, including malformed percent input. The vulnerable decoder is removed from the lockfile rather than replaced by an incompatible ESM-only release. |
+
+`node --test scripts/dependency-compatibility.test.mjs` follows active installed
+dependency edges and checks these assumptions. It intentionally requires review
+when the pinned consumers disappear. Their existing empty `protocol` parse result
+is recorded as baseline behavior, not corrected by a dependency override.
+CI runs these checks and rejects moderate-or-higher advisories. No advisory is
+ignored. Remove each override when its upstream dependency graph is safe without
+it; do not extend the exact version scopes without re-inspecting published code.
+WalletConnect 2.22.4 and other consumer versions are not changed by this removal.
 
 Privy React 3.46.0 was the registry's latest release at review time. It declares
 Farcaster Solana as an optional peer; webpack warns when it is absent. This app

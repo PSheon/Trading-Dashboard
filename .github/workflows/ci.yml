@@ -39,8 +39,10 @@ jobs:
           run_install: false
       - name: Install from lockfile
         run: pnpm install --frozen-lockfile
-      - name: High-severity dependency audit
-        run: pnpm audit --audit-level high
+      - name: Dependency security audit
+        run: pnpm audit --audit-level moderate
+      - name: Dependency override compatibility
+        run: node --test scripts/dependency-compatibility.test.mjs
       - name: Build shared contracts
         run: pnpm --filter @trading-dashboard/shared build
       - name: Migration schema freshness

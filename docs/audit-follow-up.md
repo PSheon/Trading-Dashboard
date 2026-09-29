@@ -43,7 +43,7 @@
 | 32 | CI | 固定 action SHA、least privilege、tests/build/image；遠端尚未執行 |
 | 33 | DB isolation | 每次隨機 DB、真 migration、成功／失敗清理，平行 run 不互踩 |
 | 34 | Bootstrap／browser | 真 compiled API 200/503／SIGTERM；fixture browser login/logout |
-| 35 | Dependencies | 8 high → 0 high；仍 4 moderate，詳見依賴文件，未全數解決 |
+| 35 | Dependencies | 已知漏洞 8 high／15 moderate／4 low → 全部 0；限定 overrides 與相容性檢查 |
 | 36 | Image／migration | 已建置非 root 正式依賴映像；獨立鎖定 migration／實際容器 probe |
 | 37 | Query performance | 12 leaders 133 → 4 queries；migration 0010 索引；人工 EXPLAIN |
 | 38 | Accessibility | 對比／圖表語意／scroll focus／tabs/radios 修正；桌面手機 Axe |
@@ -57,7 +57,7 @@ Claude 的 Telegram bot linking、收藏警報設定、TWAP／冷 trader page �
 
 ## 尚未解決或尚待外部驗證
 
-- **依賴**：4 moderate 實例，涉及舊 esbuild loader、uuid 8/9、URI decoder；
+- **依賴**：已知 advisory 已清零；限定 overrides 仍需隨上游更新維護。
   Privy optional Farcaster 與 TypeScript／React peer 警告仍在。不能以 fixture 通過
   推論真錢包整合皆相容。[依賴評估](dependency-maintenance.md)
 - **正式環境**：遠端 CI／image registry／Railway/Vercel、production migration、

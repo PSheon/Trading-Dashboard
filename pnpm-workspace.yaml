@@ -9,3 +9,14 @@ ignoredBuiltDependencies:
 # All installed ws consumers use the compatible 8.x line; minimum security fix.
 overrides:
   'ws@>=8.0.0 <8.22.0': 8.22.0
+  # Kit's legacy loader only uses transform APIs; covered by dependency smoke tests.
+  '@esbuild-kit/core-utils@3.3.2>esbuild': 0.25.12
+  # These exact MetaMask consumers use v4/validate; retain dual CJS/ESM exports.
+  '@metamask/sdk@0.33.1>uuid': 11.1.1
+  '@metamask/sdk-communication-layer@0.33.1>uuid': 11.1.1
+  '@metamask/utils@8.5.0>uuid': 11.1.1
+  '@metamask/utils@9.3.0>uuid': 11.1.1
+  '@metamask/utils@11.12.1>uuid': 11.1.1
+  # Published CJS/ESM/UMD bundles use URLSearchParams, not this stale dependency.
+  '@walletconnect/utils@2.21.0>query-string': '-'
+  '@walletconnect/utils@2.21.1>query-string': '-'

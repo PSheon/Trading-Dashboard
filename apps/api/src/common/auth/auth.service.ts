@@ -68,7 +68,7 @@ export type SignInResult =
 
 /**
  * Turns a bearer token into a caller:
- * - equal to API_AUTH_TOKEN → `{ kind: "service" }` (server to server);
+ * - equal to AUTH_SERVICE_TOKEN → `{ kind: "service" }` (server to server);
  * - otherwise a Privy access token → the `users` row for that Privy DID,
  *   created on first sign-in (with a copy of the default alert rules)
  *   unless sign-ups are closed.
@@ -92,7 +92,7 @@ export class AuthService {
 
   /** Database errors propagate; token problems never do. */
   async authenticate(token: string): Promise<AuthOutcome> {
-    const serviceToken = env.apiAuthToken();
+    const serviceToken = env.serviceToken();
     if (serviceToken && tokensMatch(token, serviceToken)) {
       return { status: "user", user: { kind: "service" } };
     }
@@ -161,10 +161,10 @@ export class AuthService {
 
   /**
    * Returning user: bump `last_login_at` (unless disabled), and promote them
-   * if their email is in BOOTSTRAP_ADMIN_EMAILS (see `applyBootstrapAdmin`).
+   * if their email is in AUTH_ADMIN_EMAILS (see `applyBootstrapAdmin`).
    * New user: fetch
    * email/wallet from Privy (best effort); when sign-ups are closed only a
-   * BOOTSTRAP_ADMIN_EMAILS address gets in. The new row is admin when its
+   * AUTH_ADMIN_EMAILS address gets in. The new row is admin when its
    * email is in that list, and gets its own copy of the default rules
    * (`alert_rules` rows with no owner) in the same transaction, so a user
    * never exists without their rules.
@@ -182,7 +182,7 @@ export class AuthService {
 
     const profile = await this.privy.fetchProfile(privyUserId);
     const email = profile?.email ?? null;
-    const bootstrapAdmin = email !== null && env.bootstrapAdminEmails().includes(email);
+    const bootstrapAdmin = email !== null && env.adminEmails().includes(email);
     if (!bootstrapAdmin && !(await this.settings.get("general")).signupsOpen) {
       return { status: "signups_closed" };
     }
@@ -221,7 +221,7 @@ export class AuthService {
   }
 
   /**
-   * BOOTSTRAP_ADMIN_EMAILS is checked on every sign-in, not only the first:
+   * AUTH_ADMIN_EMAILS is checked on every sign-in, not only the first:
    * a first sign-in whose Privy profile fetch failed, or an address added to
    * the list later, still ends up admin. It only ever promotes; removing an
    * address from the list doesn't demote anyone (use the admin users page),
@@ -230,7 +230,7 @@ export class AuthService {
    * every PROFILE_RETRY_MS, and keeps the email it finds.
    */
   private async applyBootstrapAdmin(user: UserRow): Promise<UserRow> {
-    const admins = env.bootstrapAdminEmails();
+    const admins = env.adminEmails();
     if (user.role === "admin" || admins.length === 0) return user;
 
     let email = user.email;
@@ -250,7 +250,7 @@ export class AuthService {
       .set(promote ? { email, role: "admin" } : { email })
       .where(eq(users.id, user.id))
       .returning();
-    if (promote) this.logger.log(`User ${user.id} promoted to admin (BOOTSTRAP_ADMIN_EMAILS)`);
+    if (promote) this.logger.log(`User ${user.id} promoted to admin (AUTH_ADMIN_EMAILS)`);
     return updated ?? user;
   }
 

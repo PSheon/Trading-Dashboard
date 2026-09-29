@@ -24,7 +24,7 @@ describe("admin routes over HTTP", () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    process.env.API_AUTH_TOKEN = SERVICE_TOKEN;
+    process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
     const info = { referral: vi.fn(async () => { throw new Error("offline"); }) };
     ({ app } = await createAuthedApp({
       db,

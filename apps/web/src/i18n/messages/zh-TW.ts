@@ -508,7 +508,7 @@ export const zhTW = {
       fillsMissing: "API 缺漏的成交",
       fillsMissingValue: "{address} · 自 {time} 起漏 {count} 筆",
       none: "無",
-      dryRun: "DRY_RUN",
+      dryRun: "TELEGRAM_DRY_RUN",
       dryRunOn: "開啟（只記錄，不發送）",
       dryRunOff: "關閉",
       unreachable: "無法連線到 api：{message}",

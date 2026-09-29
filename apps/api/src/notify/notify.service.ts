@@ -44,7 +44,7 @@ function sleep(ms: number): Promise<void> {
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * Telegram sender (§4.4 N1/N2/N4). `DRY_RUN=true` (the default) makes sends
+ * Telegram sender (§4.4 N1/N2/N4). `TELEGRAM_DRY_RUN=true` (the default) makes sends
  * log-only; every attempt — dry-run or real — writes one `alerts` row per
  * matched rule (N2). A real send retries up to 3 times before recording
  * final failure (N4), without throwing back into RulesService (one rule/
@@ -84,7 +84,7 @@ export class NotifyService {
     const sinceTs = new Date(action.ts.getTime() - THIRTY_DAYS_MS);
     const winRate = await this.roundTrip.winRate(action.address, action.coin, sinceTs);
 
-    const dashboardUrl = `${env.dashboardBaseUrl()}/leaders/${action.address}`;
+    const dashboardUrl = `${env.telegramLinkBaseUrl()}/trader/${action.address}`;
     const text = renderRuleMessage({
       rules,
       leader,
@@ -108,8 +108,8 @@ export class NotifyService {
     };
     const payloadJson = { text, chatId: chatId ?? null, values };
 
-    if (env.dryRun()) {
-      this.logger.log(`[DRY_RUN] to user ${recipient.userId}: ${text}`);
+    if (env.telegramDryRun()) {
+      this.logger.log(`[TELEGRAM_DRY_RUN] to user ${recipient.userId}: ${text}`);
       await this.insertAlertRows(recipient.userId, rules, action, payloadJson, "dry_run");
       return;
     }
@@ -139,13 +139,13 @@ export class NotifyService {
   }
 
   /** Operational message (e.g. §8 feed-down self-alert) to the operator's
-   * TELEGRAM_CHAT_ID_REALTIME chat — the only use of that env chat now that
+   * TELEGRAM_SYSTEM_CHAT_ID chat — the only use of that env chat now that
    * user alerts go to each user's own channel. Not tied to a rule, so no
-   * `alerts` row. Honors DRY_RUN; never throws. */
+   * `alerts` row. Honors TELEGRAM_DRY_RUN; never throws. */
   async sendSystemMessage(text: string): Promise<void> {
-    const chatId = env.telegramChatIdRealtime();
-    if (env.dryRun() || !chatId) {
-      this.logger.warn(`[${env.dryRun() ? "DRY_RUN" : "no chat id"}] system message: ${text}`);
+    const chatId = env.telegramSystemChatId();
+    if (env.telegramDryRun() || !chatId) {
+      this.logger.warn(`[${env.telegramDryRun() ? "TELEGRAM_DRY_RUN" : "no chat id"}] system message: ${text}`);
       return;
     }
     if (!(await this.sendWithRetry(chatId, text))) {

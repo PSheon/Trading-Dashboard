@@ -4,7 +4,7 @@ import type { UserRole } from "@trading-dashboard/shared";
 /**
  * Who is calling. The global guard sets `request.user`:
  * - a signed-in person (Privy access token) → `{ kind: "user", … }`
- * - another server holding API_AUTH_TOKEN   → `{ kind: "service" }`
+ * - another server holding AUTH_SERVICE_TOKEN   → `{ kind: "service" }`
  * - nobody, on a @Public() route            → undefined
  */
 export type RequestUser =

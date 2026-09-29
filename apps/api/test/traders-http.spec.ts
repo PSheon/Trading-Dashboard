@@ -46,7 +46,7 @@ describe("public discovery routes over HTTP", () => {
   let settings: SettingsService;
 
   beforeAll(async () => {
-    process.env.API_AUTH_TOKEN = "service-token-for-traders-0123456789";
+    process.env.AUTH_SERVICE_TOKEN = "service-token-for-traders-0123456789";
     const info = {
       perpDexs: vi.fn(async () => [null]),
       clearinghouseState: vi.fn(async () => emptyState),

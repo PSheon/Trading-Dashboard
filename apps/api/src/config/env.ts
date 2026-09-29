@@ -31,26 +31,30 @@ export function getIntEnv(key: string, defaultValue: number): number {
 
 export const env = {
   databaseUrl: () => getEnv("DATABASE_URL"),
-  apiAuthToken: () => getEnv("API_AUTH_TOKEN"),
+  /** Server-to-server token; a request bearing it is the service caller
+   * (counts as admin). Never sent to a browser. */
+  serviceToken: () => getEnv("AUTH_SERVICE_TOKEN"),
   /** Privy sign-in. Both unset → Privy tokens are rejected (fail closed). */
   privyAppId: () => getEnv("PRIVY_APP_ID") || undefined,
   privyAppSecret: () => getEnv("PRIVY_APP_SECRET") || undefined,
   /** Optional: the app's verification key (PEM/SPKI) from the Privy
    * dashboard; verifies tokens locally instead of fetching the JWKS. */
   privyVerificationKey: () => getEnv("PRIVY_VERIFICATION_KEY")?.replace(/\\n/g, "\n") || undefined,
-  /** Comma-separated emails that become admins on their first sign-in. */
-  bootstrapAdminEmails: (): string[] =>
-    (getEnv("BOOTSTRAP_ADMIN_EMAILS") ?? "")
+  /** Comma-separated emails promoted to admin when they sign in. */
+  adminEmails: (): string[] =>
+    (getEnv("AUTH_ADMIN_EMAILS") ?? "")
       .split(",")
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
   telegramBotToken: () => getEnv("TELEGRAM_BOT_TOKEN"),
-  telegramChatIdRealtime: () => getEnv("TELEGRAM_CHAT_ID_REALTIME"),
-  telegramChatIdGroup: () => getEnv("TELEGRAM_CHAT_ID_GROUP"),
-  dryRun: () => getBoolEnv("DRY_RUN", true),
-  /** N1: base URL for the "dashboard 詳情連結" in a notification message —
-   * e.g. `https://dashboard.example.com`, no trailing slash. */
-  dashboardBaseUrl: () => getEnv("DASHBOARD_BASE_URL") ?? "http://localhost:3001",
+  /** The official bot's username without "@", for t.me links. */
+  telegramBotUsername: () => getEnv("TELEGRAM_BOT_USERNAME") || undefined,
+  /** Chat for system messages (feed outages etc.), not user alerts. */
+  telegramSystemChatId: () => getEnv("TELEGRAM_SYSTEM_CHAT_ID") || undefined,
+  /** Default true: messages are logged instead of sent. */
+  telegramDryRun: () => getBoolEnv("TELEGRAM_DRY_RUN", true),
+  /** Site origin for links inside Telegram messages, no trailing slash. */
+  telegramLinkBaseUrl: () => getEnv("TELEGRAM_LINK_BASE_URL") ?? "https://app.orbie.fun",
   hyperliquidApiUrl: () =>
     getEnv("HYPERLIQUID_API_URL") ?? "https://api.hyperliquid.xyz/info",
   hyperliquidWsUrl: () =>

@@ -1,18 +1,18 @@
 import type { NextRequest } from "next/server";
 
 /**
- * Same-origin forwarder: /api/hl/<path>?<query>  →  ${API_URL}/<path>?<query>.
+ * Same-origin forwarder: /api/hl/<path>?<query>  →  ${NEXT_API_URL}/<path>?<query>.
  * It exists so the browser never needs apps/api's URL or CORS.
  *
  * Auth (Stage 2 §3): the browser's own `Authorization` header (a Privy
  * access token) is passed through exactly as received, and apps/api
- * verifies it. This route never adds `API_AUTH_TOKEN` — that is the
+ * verifies it. This route never adds `AUTH_SERVICE_TOKEN` — that is the
  * service identity for server-to-server calls, and attaching it here would
  * hand every anonymous browser request admin-level access.
  *
  * The caller only controls path segments and the query string. Segments are
  * re-encoded one by one and `.`/`..`/empty segments are rejected, so the
- * target is always under API_URL's origin and base path.
+ * target is always under NEXT_API_URL's origin and base path.
  */
 
 const UPSTREAM_TIMEOUT_MS = 20_000;
@@ -49,8 +49,8 @@ async function forward(
   request: NextRequest,
   ctx: RouteContext<"/api/hl/[...path]">,
 ): Promise<Response> {
-  const apiUrl = process.env.API_URL;
-  if (!apiUrl) return json(500, "API_URL is not configured");
+  const apiUrl = process.env.NEXT_API_URL;
+  if (!apiUrl) return json(500, "NEXT_API_URL is not configured");
 
   const { path } = await ctx.params;
   const target = buildTarget(apiUrl, path, request.nextUrl.search);

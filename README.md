@@ -59,7 +59,7 @@ docs/       PRD, Stage 2 spec, competitor analysis, logo
 - **ORM**: Drizzle. Every table is defined in `packages/shared/src/schema/db.ts`,
   and migrations live in `packages/shared/drizzle/`. API request and response
   shapes are zod schemas in `packages/shared/src/schema/zod.ts`.
-- **Auth**: Stage 1 used a single bearer token (`API_AUTH_TOKEN`) and one
+- **Auth**: Stage 1 used a single bearer token (`AUTH_SERVICE_TOKEN`) and one
   shared web password. Stage 2 replaces the password with Privy accounts
   (roles `user` and `admin`). The service token stays server-to-server only
   and never reaches the browser.

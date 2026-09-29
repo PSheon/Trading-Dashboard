@@ -31,7 +31,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   let auth: AuthService;
 
   beforeAll(async () => {
-    process.env.API_AUTH_TOKEN = SERVICE_TOKEN;
+    process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
     ({ app, auth } = await createAuthedApp({
       db,
       privy,
@@ -54,7 +54,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   });
 
   afterAll(async () => {
-    delete process.env.API_AUTH_TOKEN;
+    delete process.env.AUTH_SERVICE_TOKEN;
     await app.close();
     await closeTestDb();
   });

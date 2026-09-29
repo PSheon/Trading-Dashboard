@@ -32,7 +32,7 @@ export class HealthService {
       weightLastMinute: budget.weightLastMinute,
       queuedRequests: this.budgeter.queued(),
       fillsUnavailable,
-      dryRun: env.dryRun(),
+      dryRun: env.telegramDryRun(),
       now: new Date(),
     };
   }

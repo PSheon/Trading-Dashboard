@@ -18,7 +18,7 @@ import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
  * MANUAL, against live Hyperliquid mainnet and a local Postgres; not part of
  * `pnpm test`. Run with:
  *
- *   RUN_LIVE_HYPERLIQUID_E2E=1 \
+ *   E2E_RUN_LIVE=1 \
  *   DATABASE_URL=postgres://postgres:postgres@localhost:5433/trading_dashboard_test \
  *     pnpm --filter @trading-dashboard/api test:e2e
  *
@@ -37,7 +37,7 @@ const DRAIN_MS = Number(process.env.E2E_DRAIN_MS ?? 120_000);
 
 const pct = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 
-describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real Postgres (manual)", () => {
+describe.skipIf(!process.env.E2E_RUN_LIVE)("live Hyperliquid + real Postgres (manual)", () => {
   it("detects live trades of watched addresses through the trades feed", { timeout: RUN_MS + DRAIN_MS + 60_000 }, async () => {
     const db = getTestDb();
     await truncateAll(db);

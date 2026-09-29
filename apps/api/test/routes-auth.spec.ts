@@ -40,8 +40,8 @@ describe("route access on the existing controllers", () => {
   let auth: AuthService;
 
   beforeAll(async () => {
-    process.env.API_AUTH_TOKEN = SERVICE_TOKEN;
-    process.env.BOOTSTRAP_ADMIN_EMAILS = "boss@example.com";
+    process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
+    process.env.AUTH_ADMIN_EMAILS = "boss@example.com";
     ({ app, auth } = await createAuthedApp({
       db,
       privy,
@@ -80,8 +80,8 @@ describe("route access on the existing controllers", () => {
   });
 
   afterAll(async () => {
-    delete process.env.API_AUTH_TOKEN;
-    delete process.env.BOOTSTRAP_ADMIN_EMAILS;
+    delete process.env.AUTH_SERVICE_TOKEN;
+    delete process.env.AUTH_ADMIN_EMAILS;
     await app.close();
     await closeTestDb();
   });

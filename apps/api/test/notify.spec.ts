@@ -25,10 +25,9 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
 
   beforeEach(async () => {
     await truncateAll(db);
-    process.env.DRY_RUN = "false";
+    process.env.TELEGRAM_DRY_RUN = "false";
     // Env chats are for system messages only; user alerts must never go there.
-    process.env.TELEGRAM_CHAT_ID_REALTIME = "chat-realtime";
-    process.env.TELEGRAM_CHAT_ID_GROUP = "chat-group";
+    process.env.TELEGRAM_SYSTEM_CHAT_ID = "chat-realtime";
 
     userId = (await insertUser(db)).id;
     const [rule] = await db
@@ -68,9 +67,8 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
   });
 
   afterEach(() => {
-    delete process.env.DRY_RUN;
-    delete process.env.TELEGRAM_CHAT_ID_REALTIME;
-    delete process.env.TELEGRAM_CHAT_ID_GROUP;
+    delete process.env.TELEGRAM_DRY_RUN;
+    delete process.env.TELEGRAM_SYSTEM_CHAT_ID;
   });
 
   afterAll(async () => {
@@ -86,8 +84,8 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     return { userId, telegramChatId };
   }
 
-  it("DRY_RUN=true never calls the network, and still writes an alerts row with send_status='dry_run'", async () => {
-    process.env.DRY_RUN = "true";
+  it("TELEGRAM_DRY_RUN=true never calls the network, and still writes an alerts row with send_status='dry_run'", async () => {
+    process.env.TELEGRAM_DRY_RUN = "true";
     const telegram = fakeTelegram(async () => {});
     const service = new NotifyService(db, roundTrip, telegram);
 
@@ -196,7 +194,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     expect(rows.every((r) => r.sendStatus === "sent")).toBe(true);
   });
 
-  it("system messages still go to TELEGRAM_CHAT_ID_REALTIME", async () => {
+  it("system messages still go to TELEGRAM_SYSTEM_CHAT_ID", async () => {
     const telegram = fakeTelegram(async () => {});
     const service = new NotifyService(db, roundTrip, telegram);
 

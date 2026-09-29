@@ -341,12 +341,12 @@ describe("RulesService — recipients, per-user cooldown and channel routing", (
 
 describe("RulesService + NotifyService — real sends routed per user (mocked Telegram)", () => {
   beforeEach(() => {
-    process.env.DRY_RUN = "false";
-    process.env.TELEGRAM_CHAT_ID_REALTIME = "env-chat";
+    process.env.TELEGRAM_DRY_RUN = "false";
+    process.env.TELEGRAM_SYSTEM_CHAT_ID = "env-chat";
   });
   afterEach(() => {
-    delete process.env.DRY_RUN;
-    delete process.env.TELEGRAM_CHAT_ID_REALTIME;
+    delete process.env.TELEGRAM_DRY_RUN;
+    delete process.env.TELEGRAM_SYSTEM_CHAT_ID;
   });
 
   it("sends each user's message to their own chat; a user without a channel gets a 'failed' row saying why", async () => {

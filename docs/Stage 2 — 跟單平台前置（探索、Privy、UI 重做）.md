@@ -39,8 +39,8 @@
 
 - 瀏覽器用 Privy 登入，呼叫 `apps/web` 的 `/api/hl/*` 時帶 Privy access token；`apps/web` 原樣轉給 `apps/api`，**不再附加服務 token**。
 - `apps/api` 以 `@privy-io/node` 的 `verifyAccessToken` 驗證（可設定 verification key 省去網路請求），首次登入建立 `users` 列並複製預設規則。
-- 權限：公開（探索、交易者頁、健康檢查）、登入（收藏、規則、通知設定、投資組合）、管理員（匯入名單、全站設定）。管理員由 `users.role` 決定；`BOOTSTRAP_ADMIN_EMAILS` 讓指定 email 首次登入即為管理員（設定，不寫死）。
-- 服務 token（`API_AUTH_TOKEN`）只給伺服器對伺服器使用，瀏覽器永遠拿不到。
+- 權限：公開（探索、交易者頁、健康檢查）、登入（收藏、規則、通知設定、投資組合）、管理員（匯入名單、全站設定）。管理員由 `users.role` 決定；`AUTH_ADMIN_EMAILS` 讓指定 email 首次登入即為管理員（設定，不寫死）。
+- 服務 token（`AUTH_SERVICE_TOKEN`）只給伺服器對伺服器使用，瀏覽器永遠拿不到。
 
 ## 4. 探索資料
 

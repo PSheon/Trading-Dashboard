@@ -1,4 +1,19 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { parseEnv } from "node:util";
+
 import type { NextConfig } from "next";
+
+// Local development keeps one .env at the repo root. apps/web takes only its
+// NEXT_ block from it, so the api's secrets (AUTH_SERVICE_TOKEN,
+// PRIVY_APP_SECRET, …) never enter this process. Values already set (the
+// shell, apps/web/.env.local, Vercel) win. On Vercel there is no root .env.
+const rootEnv = resolve(import.meta.dirname, "../../.env");
+if (existsSync(rootEnv)) {
+  for (const [key, value] of Object.entries(parseEnv(readFileSync(rootEnv, "utf8")))) {
+    if (key.startsWith("NEXT_") && process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 const fixtures = process.env.NEXT_PUBLIC_API_FIXTURES === "1";
 

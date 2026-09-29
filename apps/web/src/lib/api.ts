@@ -2,10 +2,10 @@
  * Thin fetch wrapper for calling apps/api from the browser.
  *
  * Calls go to this app's own `/api/hl/*` forwarder (same origin, hides
- * API_URL). When the user is signed in with Privy, the request carries
+ * NEXT_API_URL). When the user is signed in with Privy, the request carries
  * `Authorization: Bearer <Privy access token>`; the forwarder passes that
  * header through untouched and apps/api verifies it. The service token
- * (`API_AUTH_TOKEN`) never takes part in a browser request.
+ * (`AUTH_SERVICE_TOKEN`) never takes part in a browser request.
  */
 const API_BASE = "/api/hl";
 

@@ -33,12 +33,12 @@ Old routes (`/feed`, `/leaders[/…]`, `/alerts`, `/import`, `/lists`,
   a tooltip and everything public still works.
 - `src/lib/api.ts` calls this app's own `/api/hl/*` and, when signed in,
   sends `Authorization: Bearer <Privy access token>`.
-- **`/api/hl/[...path]`** forwards to `${API_URL}/<path>` (same origin, so
+- **`/api/hl/[...path]`** forwards to `${NEXT_API_URL}/<path>` (same origin, so
   the browser never needs the api's URL or CORS). It passes the browser's
-  `Authorization` header through as-is and **never** adds `API_AUTH_TOKEN`
+  `Authorization` header through as-is and **never** adds `AUTH_SERVICE_TOKEN`
   — that token is the service identity for server-to-server calls and must
   not reach a browser request. Path segments are re-encoded and `.`/`..`
-  rejected, so requests can't leave `API_URL`.
+  rejected, so requests can't leave `NEXT_API_URL`.
 - There is no page gating in the web app (no `proxy.ts`): browsing is
   public and apps/api enforces every signed-in / admin rule. The admin
   area also hides itself unless `GET /me` says `role: "admin"`.
@@ -47,15 +47,18 @@ Old routes (`/feed`, `/leaders[/…]`, `/alerts`, `/import`, `/lists`,
 
 | Var | Where | What |
 | --- | --- | --- |
-| `API_URL` | server only | Base URL of apps/api, e.g. `http://localhost:3000` or the Railway URL |
+| `NEXT_API_URL` | server only | Base URL of apps/api, e.g. `http://localhost:3000` or the Railway URL |
 | `NEXT_PUBLIC_PRIVY_APP_ID` | public | Privy app id (public by design). Unset → anonymous-only |
 | `NEXT_PUBLIC_APP_NAME` | public | Product name, default `Orbie` |
 | `NEXT_PUBLIC_APP_URL` | public | Canonical origin for metadata, default `https://app.orbie.fun` |
 | `NEXT_PUBLIC_API_FIXTURES` | public, dev only | `1` answers api calls from `src/fixtures` (see below) |
 
-Never give apps/web `API_AUTH_TOKEN`, and never prefix a secret with
-`NEXT_PUBLIC_` (those are inlined into the browser bundle). Set these in
-the Vercel project (Production and Preview) or `apps/web/.env.local`.
+Never give apps/web `AUTH_SERVICE_TOKEN`, and never prefix a secret with
+`NEXT_PUBLIC_` (those are inlined into the browser bundle). Locally they
+live in the `NEXT_` block of the repo-root `.env`: `next.config.ts` copies
+only the `NEXT_`-prefixed keys from it, so none of the api's secrets enter
+this process. `apps/web/.env.local` still works as a per-machine override.
+On Vercel, set them in the project (Production and Preview).
 
 ## Fixtures mode
 
@@ -104,7 +107,7 @@ a Fredoka subset (`src/assets/fredoka-600-subset.ttf`) that only covers
 ```bash
 pnpm install                                   # from the repo root
 pnpm --filter @trading-dashboard/shared build  # the web app imports its dist
-pnpm --filter @trading-dashboard/web dev -- -p 3001          # against API_URL
+pnpm --filter @trading-dashboard/web dev -- -p 3001          # against NEXT_API_URL
 NEXT_PUBLIC_API_FIXTURES=1 pnpm --filter @trading-dashboard/web dev -- -p 3001  # no backend
 ```
 

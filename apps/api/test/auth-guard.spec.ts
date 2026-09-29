@@ -82,13 +82,13 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     auth.clearCache();
     privy.verifyAccessToken.mockClear();
     privy.fetchProfile.mockClear();
-    process.env.API_AUTH_TOKEN = SERVICE_TOKEN;
-    process.env.BOOTSTRAP_ADMIN_EMAILS = " Boss@Example.com , other@example.com";
+    process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
+    process.env.AUTH_ADMIN_EMAILS = " Boss@Example.com , other@example.com";
   });
 
   afterEach(() => {
-    delete process.env.API_AUTH_TOKEN;
-    delete process.env.BOOTSTRAP_ADMIN_EMAILS;
+    delete process.env.AUTH_SERVICE_TOKEN;
+    delete process.env.AUTH_ADMIN_EMAILS;
   });
 
   afterAll(async () => {
@@ -128,8 +128,8 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(privy.verifyAccessToken).not.toHaveBeenCalled();
     });
 
-    it("an unset API_AUTH_TOKEN never matches (fail closed), even an empty-looking token", async () => {
-      delete process.env.API_AUTH_TOKEN;
+    it("an unset AUTH_SERVICE_TOKEN never matches (fail closed), even an empty-looking token", async () => {
+      delete process.env.AUTH_SERVICE_TOKEN;
       await get("/t/protected", SERVICE_TOKEN).expect(401);
       await get("/t/protected", "undefined").expect(401);
     });
@@ -179,7 +179,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       await get("/t/public-admin", "boss-token").expect(200);
     });
 
-    it("a bootstrap admin (email in BOOTSTRAP_ADMIN_EMAILS, case-insensitive) passes", async () => {
+    it("a bootstrap admin (email in AUTH_ADMIN_EMAILS, case-insensitive) passes", async () => {
       const res = await get("/t/admin", "boss-token").expect(200);
       expect(res.body.user).toMatchObject({ kind: "user", role: "admin" });
     });
@@ -235,11 +235,11 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(await db.select().from(alertRules)).toHaveLength(6);
     });
 
-    it("an email added to BOOTSTRAP_ADMIN_EMAILS later is promoted at its next sign-in; others stay users", async () => {
-      process.env.BOOTSTRAP_ADMIN_EMAILS = "";
+    it("an email added to AUTH_ADMIN_EMAILS later is promoted at its next sign-in; others stay users", async () => {
+      process.env.AUTH_ADMIN_EMAILS = "";
       await get("/t/protected", "boss-token").expect(200);
       await get("/t/protected", "alice-token").expect(200);
-      process.env.BOOTSTRAP_ADMIN_EMAILS = "boss@example.com";
+      process.env.AUTH_ADMIN_EMAILS = "boss@example.com";
       auth.clearCache();
       await get("/t/admin", "boss-token").expect(200);
       await get("/t/admin", "alice-token").expect(403);
@@ -358,7 +358,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       await get("/t/protected", "alice-token").expect(200);
     });
 
-    it("a BOOTSTRAP_ADMIN_EMAILS address still signs up (as admin)", async () => {
+    it("a AUTH_ADMIN_EMAILS address still signs up (as admin)", async () => {
       const res = await get("/t/admin", "boss-token").expect(200);
       expect(res.body.user).toMatchObject({ kind: "user", role: "admin" });
     });

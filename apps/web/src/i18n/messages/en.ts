@@ -505,7 +505,7 @@ export const en: Messages = {
       fillsMissing: "Fills missing from the API",
       fillsMissingValue: "{address} · {count} trades since {time}",
       none: "None",
-      dryRun: "DRY_RUN",
+      dryRun: "TELEGRAM_DRY_RUN",
       dryRunOn: "On (log only, nothing sent)",
       dryRunOff: "Off",
       unreachable: "Couldn't reach the api: {message}",

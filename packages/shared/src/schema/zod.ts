@@ -481,13 +481,56 @@ export const livePositionSchema = z.object({
 });
 export type LivePosition = z.infer<typeof livePositionSchema>;
 
+/**
+ * How an account holds collateral (Hyperliquid `userAbstraction`). In
+ * "unified" and "portfolioMargin" accounts the spot clearinghouse holds every
+ * balance, perp collateral included, so the per-dex perp states are views
+ * into it and must not be added to it. "standard" covers Hyperliquid's
+ * "disabled"/"default" (separate perp, per-dex and spot balances) and the
+ * discontinued "dexAbstraction".
+ */
+export const accountModeSchema = z.enum(["standard", "unified", "portfolioMargin"]);
+export type AccountMode = z.infer<typeof accountModeSchema>;
+
+/** One non-zero spot balance, valued at its USDC mark (USDC = 1). */
+export const spotBalanceSchema = z.object({
+  coin: z.string(),
+  /** Spot token index; null for prediction-market outcome tokens ("+123"). */
+  token: z.number().int().nullable(),
+  total: z.number(),
+  /** USD per unit; null when there is no priced market (valued at 0). */
+  px: z.number().nullable(),
+  value: z.number(),
+  /** The `allMids` key that tracks this balance's price live ("@107",
+   * "PURR/USDC", "#123"); null for USDC and unpriced tokens. */
+  priceKey: z.string().nullable(),
+});
+export type SpotBalance = z.infer<typeof spotBalanceSchema>;
+
 /** GET /traders/:address — the trader page's left column and header. Public;
  * `favorite` is false when signed out. */
 export const traderProfileResponseSchema = z.object({
   address: z.string(),
   displayName: z.string().nullable(),
   stats: traderStatsSchema.nullable(),
+  /** Total equity, as Hyperliquid's portfolio totals it: perp equity (except
+   * in unified / portfolio-margin accounts, where the spot balance already
+   * holds it) + spot value + staked HYPE. */
   accountValue: z.number(),
+  /** Sum of `marginSummary.accountValue` over every perp dex. Leverage and
+   * margin usage are relative to this. */
+  perpEquity: z.number(),
+  /** Spot balances at their USDC marks. */
+  spotValue: z.number(),
+  /** Staked HYPE (delegated, undelegated and pending withdrawal). */
+  stakedValue: z.number(),
+  accountMode: accountModeSchema,
+  /** Largest first. */
+  spotBalances: z.array(spotBalanceSchema),
+  /** Perp dexes queried: "" is the main dex, then every HIP-3 dex with a
+   * listed market. Live clients subscribe to the same set. */
+  perpDexes: z.array(z.string()),
+  /** Perp only, summed over dexes. */
   marginUsed: z.number(),
   withdrawable: z.number(),
   longNotional: z.number(),
@@ -578,6 +621,10 @@ export const portfolioResponseSchema = z.object({
   /** Mean ÷ stdev of per-point returns (PnL change ÷ prior account value),
    * annualized by the series' sampling interval; null with < 5 points. */
   sharpe: z.number().nullable(),
+  /** The window's PnL ÷ the capital in it: starting account value plus net
+   * deposits, i.e. last account value − PnL. Null when that is ≤ 0 or there
+   * is no data. The trader page's ROI, consistent with `pnl`. */
+  roi: z.number().nullable(),
 });
 export type PortfolioResponse = z.infer<typeof portfolioResponseSchema>;
 

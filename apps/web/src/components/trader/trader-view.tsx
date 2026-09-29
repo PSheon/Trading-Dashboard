@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { isBusy } from "@/lib/api";
 import { usePortfolio, useSiteSettings, useTraderActivity, useTraderProfile } from "@/lib/queries";
+import { useLiveTrader } from "@/lib/use-live-trader";
 import { ActivityTabs } from "./activity-tabs";
 import { CopyPanel } from "./copy-panel";
 import {
@@ -61,6 +62,9 @@ function TraderLoaded({ address }: { address: string }) {
   const portfolio = usePortfolio(address, window, market);
   const allTime = usePortfolio(address, "allTime", market);
   const settings = useSiteSettings();
+  // Positions, account value, fills and marks straight from Hyperliquid's
+  // WebSocket, over the REST profile (initial state and fallback).
+  const live = useLiveTrader(address, profile.data);
   const lowSample = activity.data?.sample.lowSample ?? false;
   const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
@@ -75,11 +79,13 @@ function TraderLoaded({ address }: { address: string }) {
   return (
     <div className="trader-grid -mx-1 md:-mx-3">
       <div data-area="profile">
-        {profile.data ? (
+        {live.profile ? (
           <ProfileCard
-            profile={profile.data}
+            profile={live.profile}
             activity={activity.isError ? null : activity.data}
             lowSampleThreshold={settings.data?.lowSampleThreshold ?? 20}
+            liveStatus={live.status}
+            allTimeVolume={allTime.data?.volume ?? null}
           />
         ) : (
           <Skeleton className="h-[640px] rounded-2xl" />
@@ -99,6 +105,7 @@ function TraderLoaded({ address }: { address: string }) {
             portfolio={portfolio.data}
             allTime={allTime.data}
             window={window}
+            market={market}
             lowSample={lowSample}
           />
         ) : (
@@ -120,9 +127,13 @@ function TraderLoaded({ address }: { address: string }) {
           market={market}
           onMarket={setMarket}
           muted={lowSample}
-          roi={profile.data ? windowRoi(profile.data, portfolio.data, window) : null}
+          roi={windowRoi(portfolio.data)}
         />
-        {profile.data ? <ActivityTabs profile={profile.data} /> : <Skeleton className="h-64 rounded-2xl" />}
+        {live.profile ? (
+          <ActivityTabs profile={live.profile} liveFills={live.fills} marks={live.mids} />
+        ) : (
+          <Skeleton className="h-64 rounded-2xl" />
+        )}
       </div>
 
       <div data-area="copy">

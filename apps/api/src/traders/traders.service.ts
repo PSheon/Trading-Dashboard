@@ -29,6 +29,8 @@ import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
+import { SpotPriceService } from "./spot-price.service.js";
+import { hypePrice, stakedHype, toAccountMode, totalAccountValue } from "./spot-prices.js";
 import {
   dbFillToTraderFill,
   downsample,
@@ -63,6 +65,11 @@ export const PORTFOLIO_TTL_MS = 60_000;
 export const FILLS_TTL_MS = 5 * 60_000;
 export const SPARKLINE_TTL_MS = 10 * 60_000;
 export const DEX_LIST_TTL_MS = 60 * 60_000;
+/** Account mode (unified / portfolio margin / standard) and staked HYPE:
+ * both change rarely and cost 20 weight each, so they are kept longer than
+ * the profile. Staking is revalued at the current HYPE price every time. */
+export const ACCOUNT_MODE_TTL_MS = 10 * 60_000;
+export const STAKING_TTL_MS = 10 * 60_000;
 export const SPARKLINE_MAX_POINTS = 40;
 /** Warmed every 10 min and kept 15, so a card never falls out of cache
  * between two warm runs (a run takes ~0.5 min at the default budget). */
@@ -122,6 +129,11 @@ export class TradersService implements OnApplicationBootstrap {
   readonly userFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS);
   readonly twapFillsCache = new TtlCache<HlUserFill[]>(FILLS_TTL_MS);
   readonly dexCache = new TtlCache<string[]>(DEX_LIST_TTL_MS, 1);
+  /** Hyperliquid's `userAbstraction` per address (rarely changes). */
+  readonly abstractionCache = new TtlCache<string>(ACCOUNT_MODE_TTL_MS);
+  /** Staked HYPE per address, in HYPE; valued with the live price book. */
+  readonly stakingCache = new TtlCache<number>(STAKING_TTL_MS);
+  readonly spotPrices: SpotPriceService;
 
   constructor(
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
@@ -130,7 +142,10 @@ export class TradersService implements OnApplicationBootstrap {
     private readonly ingest: LeaderboardIngestService,
     private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
-  ) {}
+    @Optional() spotPrices?: SpotPriceService,
+  ) {
+    this.spotPrices = spotPrices ?? new SpotPriceService(info);
+  }
 
   onApplicationBootstrap(): void {
     if (process.env.NODE_ENV === "test") return;
@@ -218,13 +233,26 @@ export class TradersService implements OnApplicationBootstrap {
     return { ...shared, favorite: favorites.has(address) };
   }
 
+  /**
+   * Account value = perp (every dex) + spot + staked HYPE, except that a
+   * unified or portfolio-margin account's spot balance already holds its
+   * perp collateral (`totalAccountValue`). Costs, per cold profile: 2 per
+   * dex and 2 for spot; the account mode and staking (20 each) are kept 10
+   * min, the spot price book (22) 30 s app-wide.
+   */
   private async loadProfile(address: string): Promise<SharedProfile> {
     const since = new Date(Date.now() - THIRTY_DAYS_MS);
     const [dexes, tracked] = await Promise.all([this.perpDexes(), this.isTracked(address)]);
-    const [states, statsRows, analytics] = await Promise.all([
+    const [states, spot, abstraction, staked, book, statsRows, analytics] = await Promise.all([
       Promise.all(
         dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile)),
       ),
+      this.info.spotClearinghouseState(address, LANE, PAGE_RANK.profile),
+      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.profile)),
+      this.stakingCache.get(address, async () =>
+        stakedHype(await this.info.delegatorSummary(address, LANE, PAGE_RANK.profile)),
+      ),
+      this.spotPrices.book(LANE, PAGE_RANK.profile),
       this.db
         .select()
         .from(traderStats)
@@ -235,11 +263,21 @@ export class TradersService implements OnApplicationBootstrap {
         : null,
     ]);
     const stats = statsRows[0] ? toTraderStats(statsRows[0]) : null;
+    const perp = summarizeAccount(states);
+    const { spotValue, balances } = this.spotPrices.value(spot.balances ?? [], book);
+    const stakedValue = staked * hypePrice(book);
+    const accountMode = toAccountMode(abstraction, spot.portfolioMarginEnabled ?? false);
     return {
       address,
       displayName: stats?.displayName ?? null,
       stats,
-      ...summarizeAccount(states),
+      ...perp,
+      accountValue: totalAccountValue(accountMode, perp.perpEquity, spotValue, stakedValue),
+      spotValue,
+      stakedValue,
+      accountMode,
+      spotBalances: balances,
+      perpDexes: dexes,
       tracked,
       isVault: stats?.isVault ?? this.ingest.isVault(address),
       analytics,

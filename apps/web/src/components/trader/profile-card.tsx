@@ -12,6 +12,7 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, traderName, truncateAddress } from "@/lib/format";
+import type { LiveStatus } from "@/lib/use-live-trader";
 import { useNow } from "@/lib/use-now";
 
 function useCopied() {
@@ -45,6 +46,49 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-muted-foreground">{label}</span>
       <span className="num text-right font-medium">{children}</span>
     </div>
+  );
+}
+
+/** A part of the account value, under the total. */
+function SubRow({ label, value, testId }: { label: string; value: string; testId?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-0.5">
+      <span className="flex items-center gap-1.5 text-muted-foreground">
+        <span aria-hidden className="h-px w-2.5 bg-border-strong" />
+        {label}
+      </span>
+      <span className="num font-medium" data-testid={testId}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** Green "Live" while the page streams from Hyperliquid's WebSocket; grey
+ * while it falls back to polling the api. */
+function LiveBadge({ status }: { status: LiveStatus }) {
+  const { t } = useI18n();
+  const live = status === "live";
+  return (
+    <span
+      role="status"
+      data-live={status}
+      title={t(live ? "trader.liveHint" : "trader.pollingHint")}
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-full px-2 text-[0.6875rem] font-semibold",
+        live ? "bg-positive-soft text-positive" : "bg-raised text-subtle-foreground",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          live ? "animate-pulse bg-positive" : "bg-subtle-foreground",
+          status === "connecting" && "animate-pulse",
+        )}
+      />
+      {t(live ? "trader.live" : status === "connecting" ? "trader.connecting" : "trader.polling")}
+    </span>
   );
 }
 
@@ -109,17 +153,24 @@ export function ProfileCard({
   profile,
   activity,
   lowSampleThreshold,
+  liveStatus,
+  allTimeVolume,
 }: {
   profile: TraderProfileResponse;
   activity: TraderActivityResponse | null | undefined;
   lowSampleThreshold: number;
+  liveStatus: LiveStatus;
+  /** From the same `portfolio` as the page's PnL (all-time window). */
+  allTimeVolume: number | null;
 }) {
   const { t, format } = useI18n();
   const { copied, copy } = useCopied();
   const [coinsView, setCoinsView] = useState<"best" | "worst">("best");
 
   const gross = profile.longNotional + profile.shortNotional;
-  const leverage = profile.accountValue > 0 ? gross / profile.accountValue : 0;
+  // Leverage and margin usage are perp figures: relative to perp equity,
+  // not the total (spot and staking don't margin the positions).
+  const leverage = profile.perpEquity > 0 ? gross / profile.perpEquity : 0;
   const longShare = gross > 0 ? profile.longNotional / gross : 0.5;
   const bias =
     gross === 0 || Math.abs(longShare - 0.5) < 0.1
@@ -182,18 +233,36 @@ export function ProfileCard({
             threshold={lowSampleThreshold}
           />
         ) : null}
+        <LiveBadge status={liveStatus} />
       </div>
 
       <div className="border-t border-border px-4 py-4">
-        <p className="text-xs text-muted-foreground">{profile.isVault ? t("common.tvl") : t("trader.accountValue")}</p>
-        <p className="num mt-1.5 text-[1.625rem] leading-none font-bold tracking-tight">
+        <p className="text-xs text-muted-foreground" title={profile.isVault ? undefined : t("trader.accountValueHint")}>
+          {profile.isVault ? t("common.tvl") : t("trader.accountValue")}
+        </p>
+        <p className="num mt-1.5 text-[1.625rem] leading-none font-bold tracking-tight" data-testid="account-value">
           {format.usd(profile.accountValue, { digits: 2 })}
         </p>
+        <div className="mt-2.5 flex flex-col text-xs">
+          <SubRow label={t("trader.accountPerp")} value={format.usd(profile.perpEquity, { digits: 2 })} testId="perp-equity" />
+          <SubRow label={t("trader.accountSpot")} value={format.usd(profile.spotValue, { digits: 2 })} testId="spot-value" />
+          {profile.stakedValue > 0 ? (
+            <SubRow label={t("trader.accountStaked")} value={format.usd(profile.stakedValue, { digits: 2 })} />
+          ) : null}
+        </div>
+        {profile.accountMode !== "standard" ? (
+          <p className="mt-2 text-[11px] leading-relaxed text-subtle-foreground">
+            {t(profile.accountMode === "unified" ? "trader.accountUnified" : "trader.accountPortfolioMargin")}
+          </p>
+        ) : null}
       </div>
 
       <Section title={t("trader.holdings")}>
         <div className="flex items-center justify-between text-[0.8125rem]">
-          <span className="text-muted-foreground">{t("trader.leverage")}</span>
+          <span className="text-muted-foreground">
+            {t("trader.leverage")}{" "}
+            <span className="text-[11px] text-subtle-foreground">({t("trader.perpBasis")})</span>
+          </span>
           <span className="num font-semibold text-primary">{format.num(leverage, 2)}×</span>
         </div>
         <div className="mt-2">
@@ -239,11 +308,11 @@ export function ProfileCard({
             {format.usd(unrealized, { sign: true, compact: Math.abs(unrealized) >= 1e6 })}
           </span>
         </Row>
-        <Row label={t("trader.marginUsage")}>
-          {format.pct(profile.accountValue > 0 ? profile.marginUsed / profile.accountValue : 0)}
+        <Row label={`${t("trader.marginUsage")} (${t("trader.perpBasis")})`}>
+          {format.pct(profile.perpEquity > 0 ? profile.marginUsed / profile.perpEquity : 0)}
         </Row>
         <Row label={t("trader.volume")}>
-          {profile.stats ? format.usd(profile.stats.volume.allTime, { compact: true }) : "—"}
+          {allTimeVolume === null ? "—" : format.usd(allTimeVolume, { compact: true })}
         </Row>
         <Row label={t("trader.withdrawable")}>{format.usd(profile.withdrawable, { compact: true })}</Row>
         <Row label={t("trader.openPositions")}>{profile.positions.length}</Row>

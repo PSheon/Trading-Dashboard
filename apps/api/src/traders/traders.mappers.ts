@@ -56,8 +56,11 @@ export function toTraderStats(row: TraderStatsRow): TraderStats {
   };
 }
 
+/** The perp side of an account, summed over dexes. */
 export interface AccountSummary {
-  accountValue: number;
+  /** Sum of every dex's `marginSummary.accountValue`; not the account's
+   * total (that adds spot and staking, see `totalAccountValue`). */
+  perpEquity: number;
   marginUsed: number;
   withdrawable: number;
   longNotional: number;
@@ -70,7 +73,7 @@ export interface AccountSummary {
  * largest first. */
 export function summarizeAccount(states: Iterable<HlClearinghouseStateResponse>): AccountSummary {
   const out: AccountSummary = {
-    accountValue: 0,
+    perpEquity: 0,
     marginUsed: 0,
     withdrawable: 0,
     longNotional: 0,
@@ -78,7 +81,7 @@ export function summarizeAccount(states: Iterable<HlClearinghouseStateResponse>)
     positions: [],
   };
   for (const state of states) {
-    out.accountValue += num(state.marginSummary?.accountValue);
+    out.perpEquity += num(state.marginSummary?.accountValue);
     out.marginUsed += num(state.marginSummary?.totalMarginUsed);
     out.withdrawable += num(state.withdrawable);
     for (const { position: p } of state.assetPositions ?? []) {
@@ -169,7 +172,34 @@ export function toPortfolioResponse(
   market: "all" | "perp",
 ): PortfolioResponse {
   const series = portfolioSeries(raw, window, market);
-  return { window, market, ...series, ...portfolioMetrics(series.pnl, series.accountValue) };
+  return {
+    window,
+    market,
+    ...series,
+    ...portfolioMetrics(series.pnl, series.accountValue),
+    roi: portfolioRoi(series.pnl, series.accountValue),
+  };
+}
+
+/**
+ * The window's return on the capital in it: PnL ÷ (starting account value +
+ * net deposits). Net deposits are the part of the account value's change
+ * that isn't PnL, so the denominator is simply last account value − PnL.
+ * Unlike PnL ÷ starting value it stays meaningful when the window starts at
+ * 0 ("all time") or money moved in or out during it. Null without data or
+ * when the capital is ≤ 0 (everything withdrawn).
+ *
+ * The leaderboard's own ROI uses an undocumented definition (it also
+ * includes subaccounts), so the trader page shows this one next to the
+ * `portfolio` PnL it is computed from.
+ */
+export function portfolioRoi(pnl: Point[], accountValue: Point[]): number | null {
+  const last = pnl.at(-1);
+  const lastValue = accountValue.at(-1);
+  if (!last || !lastValue) return null;
+  const gain = last[1] - pnl[0][1];
+  const capital = lastValue[1] - gain;
+  return capital > 0 ? gain / capital : null;
 }
 
 const YEAR_MS = 365 * 24 * 3_600_000;

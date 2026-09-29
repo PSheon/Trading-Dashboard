@@ -225,7 +225,10 @@ function withRisk(series: {
     const perYear = (365 * 86400_000) / Math.max(1, interval);
     sharpe = std > 0 ? (mean / std) * Math.sqrt(perYear) : null;
   }
-  return { ...series, maxDrawdownUsd, maxDrawdownPct, sharpe };
+  const gain = (pnl.at(-1)?.[1] ?? 0) - (pnl[0]?.[1] ?? 0);
+  const capital = (accountValue.at(-1)?.[1] ?? 0) - gain;
+  const roi = pnl.length > 0 && capital > 0 ? gain / capital : null;
+  return { ...series, maxDrawdownUsd, maxDrawdownPct, sharpe, roi };
 }
 
 export function sparklineFor(address: string, window: TraderWindow): [number, number][] {
@@ -352,13 +355,29 @@ export function profileFor(
   ];
   const merged = [...new Map(coinPnl.map((c) => [c.coin, c])).values()];
 
+  // A standard account: most of it perp, some USDC and HYPE in spot.
+  const usdc = Math.round(accountValue * 0.08 * 100) / 100;
+  const hype = Math.round((accountValue * 0.02) / 47.9);
+  const spotBalances = [
+    { coin: "USDC", token: 0, total: usdc, px: 1, value: usdc, priceKey: null },
+    { coin: "HYPE", token: 150, total: hype, px: 47.9, value: hype * 47.9, priceKey: "@107" },
+  ].filter((b) => b.total > 0);
+  const spotValue = spotBalances.reduce((sum, b) => sum + b.value, 0);
+  const perpEquity = accountValue - spotValue;
+
   return {
     address: address.toLowerCase(),
     displayName: stats?.displayName ?? null,
     stats,
     accountValue,
+    perpEquity,
+    spotValue,
+    stakedValue: 0,
+    accountMode: "standard",
+    spotBalances,
+    perpDexes: ["", "xyz"],
     marginUsed,
-    withdrawable: Math.max(0, accountValue - marginUsed),
+    withdrawable: Math.max(0, perpEquity - marginUsed),
     longNotional,
     shortNotional,
     positions,

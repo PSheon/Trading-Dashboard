@@ -4,6 +4,7 @@ import { AnalyticsModule } from "../analytics/analytics.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
 import { TradersController } from "./traders.controller.js";
+import { SpotPriceService } from "./spot-price.service.js";
 import { TradersService } from "./traders.service.js";
 
 /** Discovery of every Hyperliquid trader (Stage 2 §4): leaderboard ingest
@@ -13,7 +14,7 @@ import { TradersService } from "./traders.service.js";
 @Module({
   imports: [HyperliquidModule, AnalyticsModule],
   controllers: [TradersController],
-  providers: [TradersService, LeaderboardIngestService],
+  providers: [TradersService, LeaderboardIngestService, SpotPriceService],
   exports: [TradersService, LeaderboardIngestService],
 })
 export class TradersModule {}

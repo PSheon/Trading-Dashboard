@@ -1,3 +1,5 @@
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { and, eq, max, ne, sql } from "drizzle-orm";
@@ -29,8 +31,8 @@ export interface IngestResult {
   writeMs: number;
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {
+  const res = await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`${url} failed: HTTP ${res.status}`);
   return res.json();
 }
@@ -61,6 +63,7 @@ export class LeaderboardIngestService implements OnApplicationBootstrap {
   constructor(
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly settings: SettingsService,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   onApplicationBootstrap(): void {
@@ -104,6 +107,7 @@ export class LeaderboardIngestService implements OnApplicationBootstrap {
 
   /** Imports if the table is empty or older than the configured interval. */
   async refreshIfStale(now = Date.now()): Promise<IngestResult | null> {
+    if (this.jobs.stopping) return null;
     const [last, interval] = await Promise.all([this.lastImportAt(), this.refreshIntervalMs()]);
     if (last && now - last.getTime() < interval) return null;
     return this.refresh();
@@ -111,7 +115,7 @@ export class LeaderboardIngestService implements OnApplicationBootstrap {
 
   /** Fetches and imports; concurrent callers share one run. */
   refresh(): Promise<IngestResult> {
-    this.running ??= this.run().finally(() => {
+    this.running ??= this.jobs.run(() => this.run()).finally(() => {
       this.running = undefined;
     });
     return this.running;
@@ -119,14 +123,14 @@ export class LeaderboardIngestService implements OnApplicationBootstrap {
 
   /** Fetches the vault list and replaces the in-memory set. */
   async loadVaults(): Promise<Set<string>> {
-    const addresses = parseVaults(await fetchJson(VAULTS_URL));
+    const addresses = parseVaults(await fetchJson(VAULTS_URL, this.jobs.signal));
     this.vaults = { addresses, fetchedAt: new Date() };
     return addresses;
   }
 
   private async run(): Promise<IngestResult> {
     const started = Date.now();
-    const [board, vaultList] = await Promise.allSettled([fetchJson(LEADERBOARD_URL), this.loadVaults()]);
+    const [board, vaultList] = await Promise.allSettled([fetchJson(LEADERBOARD_URL, this.jobs.signal), this.loadVaults()]);
     if (board.status === "rejected") throw board.reason;
     const fetchMs = Date.now() - started;
     let vaults: Set<string> | null = null;

@@ -2,6 +2,8 @@ import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common"
 import { and, eq, inArray } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
+  addressSchema,
+  importLeaderListRequestSchema,
   leaderListItems,
   leaderLists,
   leaders,
@@ -61,14 +63,16 @@ function parseRows(rows: Record<string, unknown>[]): { parsed: ParsedRow[]; erro
       return;
     }
 
-    const address = String(addressField.value).trim().toLowerCase();
-    const rankNum = Number(rankField.value);
-    if (!address) {
-      errors.push({ index, reason: "empty address" });
+    const address = typeof addressField.value === "string" ? addressField.value.trim().toLowerCase() : "";
+    const rank = rankField.value;
+    const rankNum = typeof rank === "number" ? rank
+      : typeof rank === "string" && /^[1-9]\d*$/.test(rank.trim()) ? Number(rank.trim()) : NaN;
+    if (!addressSchema.safeParse(address).success) {
+      errors.push({ index, reason: "invalid Ethereum address" });
       return;
     }
-    if (!Number.isFinite(rankNum)) {
-      errors.push({ index, reason: `rank "${String(rankField.value)}" is not a number` });
+    if (!Number.isInteger(rankNum) || rankNum < 1 || rankNum > 2147483647) {
+      errors.push({ index, reason: "rank must be a positive 32-bit integer" });
       return;
     }
 
@@ -78,7 +82,7 @@ function parseRows(rows: Record<string, unknown>[]): { parsed: ParsedRow[]; erro
       statsJson[k] = v;
     }
 
-    parsed.push({ address, rank: Math.trunc(rankNum), statsJson });
+    parsed.push({ address, rank: rankNum, statsJson });
   });
 
   return { parsed, errors };
@@ -96,6 +100,12 @@ export class ImportService {
   ) {}
 
   async importLeaderList(request: ImportLeaderListRequest): Promise<ImportLeaderListResponse> {
+    const validated = importLeaderListRequestSchema.safeParse(request);
+    if (!validated.success) throw new BadRequestException({ message: "Invalid import", issues: validated.error.issues });
+    request = validated.data;
+    if (Buffer.byteLength(JSON.stringify(request), "utf8") > 100 * 1024) {
+      throw new BadRequestException("Import exceeds 100 KiB");
+    }
     const { parsed, errors } = parseRows(request.rows);
 
     if (errors.length > 0) {
@@ -103,7 +113,7 @@ export class ImportService {
       // (task requirement) — a partially-imported "version" would be a
       // worse outcome than making Paul fix the export and re-upload.
       throw new BadRequestException({
-        message: `${errors.length} row(s) missing address/rank`,
+        message: `${errors.length} invalid row(s)`,
         errors,
       });
     }

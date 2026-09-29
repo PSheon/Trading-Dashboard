@@ -53,7 +53,7 @@ function fakeWatcher(equityUsd: number | null): WatcherService {
 
 function fakeNotify() {
   const notifyAlert = vi.fn(async (_ctx: AlertContext) => {});
-  return { notify: { notifyAlert } as unknown as NotifyService, notifyAlert };
+  return { notify: { notifyAlert, deliverAction: async () => {} } as unknown as NotifyService, notifyAlert };
 }
 
 type NotifyMock = ReturnType<typeof fakeNotify>["notifyAlert"];

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   adminSettingsSchema,
@@ -17,21 +18,29 @@ const CACHE_TTL_MS = 30_000;
  * Site-wide settings an admin edits (`app_settings`, one jsonb row per
  * section). Reads merge the stored row over the zod defaults, so a section
  * nobody has saved yet, or a field added to the schema later, still gets a
- * value. Cached per process for 30 s; `patch` refreshes the cache.
+ * value. Cached per process for 30 s; `patch` invalidates the cache after commit.
  */
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
   private cache: { value: AdminSettings; expiresAt: number } | undefined;
+  private revision = 0;
   private inflight: Promise<AdminSettings> | undefined;
 
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
   async getAll(): Promise<AdminSettings> {
     if (this.cache && this.cache.expiresAt > Date.now()) return this.cache.value;
-    this.inflight ??= this.load().finally(() => {
-      this.inflight = undefined;
-    });
+    if (!this.inflight) {
+      const revision = this.revision;
+      const pending = this.load().then((value) => {
+        if (revision === this.revision) this.cache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
+        return value;
+      }).finally(() => {
+        if (this.inflight === pending) this.inflight = undefined;
+      });
+      this.inflight = pending;
+    }
     return this.inflight;
   }
 
@@ -58,30 +67,35 @@ export class SettingsService {
   /** Merges each given section over its current value, validates the result
    * (throws ZodError on invalid input) and saves only those sections. */
   async patch(request: PatchAdminSettingsRequest, userId: number | null): Promise<AdminSettings> {
-    const current = await this.load();
-    const merged = adminSettingsSchema.parse({
-      general: { ...current.general, ...request.general },
-      discovery: { ...current.discovery, ...request.discovery },
-      notifications: { ...current.notifications, ...request.notifications },
-      revenue: { ...current.revenue, ...request.revenue },
+    const merged = await this.db.transaction(async (tx) => {
+      // One transaction-scoped lock also protects sections that have no row yet.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(73104, 1)`);
+      const current = await this.load(tx);
+      const value = adminSettingsSchema.parse({
+        general: { ...current.general, ...request.general },
+        discovery: { ...current.discovery, ...request.discovery },
+        notifications: { ...current.notifications, ...request.notifications },
+        revenue: { ...current.revenue, ...request.revenue },
+      });
+      const keys = (Object.keys(request) as AppSettingsKey[]).filter((k) => request[k] !== undefined);
+      const now = new Date();
+      for (const key of keys) {
+        await tx.insert(appSettings)
+          .values({ key, value: value[key], updatedAt: now, updatedByUserId: userId })
+          .onConflictDoUpdate({ target: appSettings.key,
+            set: { value: value[key], updatedAt: now, updatedByUserId: userId } });
+      }
+      return value;
     });
-    const keys = (Object.keys(request) as AppSettingsKey[]).filter((k) => request[k] !== undefined);
-    const now = new Date();
-    for (const key of keys) {
-      await this.db
-        .insert(appSettings)
-        .values({ key, value: merged[key], updatedAt: now, updatedByUserId: userId })
-        .onConflictDoUpdate({
-          target: appSettings.key,
-          set: { value: merged[key], updatedAt: now, updatedByUserId: userId },
-        });
-    }
-    this.cache = { value: merged, expiresAt: Date.now() + CACHE_TTL_MS };
+    // An older in-flight read must not republish stale data after this commit.
+    this.revision++;
+    this.cache = undefined;
+    this.inflight = undefined;
     return merged;
   }
 
-  private async load(): Promise<AdminSettings> {
-    const rows = await this.db.select().from(appSettings);
+  private async load(db: Pick<DrizzleDb, "select"> = this.db): Promise<AdminSettings> {
+    const rows = await db.select().from(appSettings);
     const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     const raw = {
       general: stored.general ?? {},
@@ -106,7 +120,6 @@ export class SettingsService {
         revenue: shape.revenue.safeParse(raw.revenue).data ?? shape.revenue.parse({}),
       };
     }
-    this.cache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
     return value;
   }
 }

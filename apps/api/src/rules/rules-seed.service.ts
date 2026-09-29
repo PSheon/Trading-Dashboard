@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { sql } from "drizzle-orm";
 import { alertRules, type AlertRuleKind, type Tier } from "@trading-dashboard/shared";
 
@@ -53,10 +54,12 @@ const DEFAULT_RULES: SeedRow[] = [
  * Paul has since edited via D5.
  */
 @Injectable()
-export class RulesSeedService implements OnApplicationBootstrap {
+export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy {
+  private stopped = false;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly logger = new Logger(RulesSeedService.name);
 
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   onApplicationBootstrap(): void {
     if (process.env.NODE_ENV === "test") return;
@@ -67,11 +70,17 @@ export class RulesSeedService implements OnApplicationBootstrap {
    * process (an unhandled rejection exits Node); keep trying. */
   private async seedWithRetry(): Promise<void> {
     try {
-      await this.seedDefaultRules();
+      if (this.stopped || this.jobs.stopping) return;
+      await this.jobs.run(() => this.seedDefaultRules());
     } catch (error) {
       this.logger.error(`Seeding default rules failed, retrying in 30s: ${(error as Error).message}`);
-      setTimeout(() => void this.seedWithRetry(), 30_000);
+      if (!this.stopped && !this.jobs.stopping) this.retryTimer = setTimeout(() => void this.seedWithRetry(), 30_000);
     }
+  }
+
+  onModuleDestroy(): void {
+    this.stopped = true;
+    clearTimeout(this.retryTimer);
   }
 
   async seedDefaultRules(): Promise<void> {

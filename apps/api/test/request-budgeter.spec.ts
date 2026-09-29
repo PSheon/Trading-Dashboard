@@ -201,11 +201,11 @@ describe("RequestBudgeterService (W6)", () => {
     await budgeter.acquire(100, "live"); // 100 left
     const order: string[] = [];
     // A sweep's list: 120 up front (20 base + worst-case 100) needs 180.
-    void budgeter.acquire(120, "background", undefined, 20).then(() => order.push("sweep"));
+    void budgeter.acquire(120, "background", undefined, { known: 20 }).then(() => order.push("sweep"));
     await vi.advanceTimersByTimeAsync(0);
     expect(order).toEqual([]);
     // A trader page's list: goes on 20 + 60, taking the bucket to -20.
-    void budgeter.acquire(120, "background", PAGE_RANK.fills, 20).then(() => order.push("page"));
+    void budgeter.acquire(120, "background", PAGE_RANK.fills, { known: 20 }).then(() => order.push("page"));
     await vi.advanceTimersByTimeAsync(0);
     expect(order).toEqual(["page"]);
     expect(budgeter.introspect().tokensAvailable).toBe(-20);

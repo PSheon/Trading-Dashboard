@@ -1,3 +1,5 @@
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
@@ -39,6 +41,7 @@ export class RevenueService implements OnApplicationBootstrap {
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly settings: SettingsService,
     private readonly info: HyperliquidInfoClient,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   onApplicationBootstrap(): void {
@@ -64,6 +67,10 @@ export class RevenueService implements OnApplicationBootstrap {
 
   /** Takes one snapshot of the configured address. Never throws. */
   async snapshot(): Promise<SnapshotResult> {
+    if (this.jobs.stopping) return { status: "failed", error: "Shutting down" };
+    return this.jobs.run(() => this.takeSnapshot());
+  }
+  private async takeSnapshot(): Promise<SnapshotResult> {
     try {
       const { builderAddress } = await this.settings.get("revenue");
       if (!builderAddress) return { status: "skipped", reason: "no_address" };

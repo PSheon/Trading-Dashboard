@@ -112,3 +112,20 @@ Backups, retention jobs, readiness checks and durable notification recovery are
 not guaranteed by this repository's deployment config. Confirm platform settings
 and rehearse recovery before treating this as production-ready. Remaining work:
 [Audit follow-up](../../docs/audit-follow-up.md).
+
+### Feed cursors and imports
+
+For lossless `GET /actions` pagination, send both `before=<last row ts>` and
+`beforeId=<last row id>`. Ordering is timestamp descending, then ID descending.
+The legacy timestamp-only `before` remains an exclusive time cutoff, so callers
+using it cannot traverse a group sharing the exact same timestamp.
+
+`POST /import/lists` accepts 1–1000 rows and at most 100 KiB of serialized request
+content (the HTTP body parser also enforces its request limit). Addresses must
+be 20-byte hex Ethereum addresses; ranks must be positive 32-bit integers.
+Existing column aliases are supported, addresses normalize to lowercase, and
+duplicate addresses keep the lowest rank. Validation rejects the whole batch.
+
+New alert payloads use `version: 1` with action data in `values`. Shared
+`readAlertDisplayValues` also reads historical unversioned nested/flat payloads;
+unknown versions and malformed display fields are not interpreted by the UI.

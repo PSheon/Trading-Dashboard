@@ -1,3 +1,5 @@
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, like, max, notLike, or, sql, type SQL } from "drizzle-orm";
@@ -127,6 +129,7 @@ export class TradersService implements OnApplicationBootstrap {
     private readonly roundTrips: RoundTripService,
     private readonly ingest: LeaderboardIngestService,
     private readonly settings: SettingsService,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   onApplicationBootstrap(): void {
@@ -393,7 +396,8 @@ export class TradersService implements OnApplicationBootstrap {
    * Returns how many addresses were warmed. Overlapping runs share one.
    */
   warmHome(): Promise<number> {
-    this.warming ??= this.runWarm().finally(() => {
+    if (this.jobs.stopping) return Promise.resolve(0);
+    this.warming ??= this.jobs.run(() => this.runWarm()).finally(() => {
       this.warming = undefined;
     });
     return this.warming;

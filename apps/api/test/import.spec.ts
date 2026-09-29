@@ -22,9 +22,42 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     await closeTestDb();
   });
 
+  it.each([
+    { address: "0xinvalid", rank: 1 },
+    ...[0, -1, 1.5, true, "", "1e2", "0x10", "1.5", 2147483648].map((rank) => ({ address: "0x" + "ab".repeat(20), rank })),
+  ])("rejects invalid row %# before persistence or backfill", async (row) => {
+    await expect(importService.importLeaderList({ source: "copydog", fileName: "bad.csv", rows: [row] })).rejects.toThrow();
+    expect(await db.select().from(leaderLists)).toHaveLength(0);
+    expect(triggerSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized extra-column content", async () => {
+    await expect(importService.importLeaderList({ source: "copydog", fileName: "big.csv", rows: [{ address: "0x" + "ab".repeat(20), rank: 1, note: "x".repeat(102401) }] })).rejects.toThrow();
+    expect(await db.select().from(leaderLists)).toHaveLength(0);
+  });
+
+  it("accepts aliases, normalizes addresses and keeps the lowest duplicate rank", async () => {
+    const address = "0x" + "ab".repeat(20);
+    const result = await importService.importLeaderList({ source: "copydog", fileName: "aliases.csv", rows: [
+      { Wallet: " 0x" + "AB".repeat(20) + " ", Position: " 21 " },
+      { account: address, "#": "2", note: "winner" },
+    ] });
+    expect(result.itemCount).toBe(1);
+    expect(result.newAddresses).toEqual([address]);
+    expect(await db.select().from(leaderListItems)).toMatchObject([{ address, rank: 2, statsJson: { note: "winner" } }]);
+  });
+
+  it("rejects empty and oversized batches at the service boundary", async () => {
+    for (const rows of [[], Array.from({ length: 1001 }, () => ({ address: "0x" + "ab".repeat(20), rank: 1 }))]) {
+      await expect(importService.importLeaderList({ source: "copydog", fileName: "bad.csv", rows })).rejects.toThrow();
+    }
+    expect(await db.select().from(leaderLists)).toHaveLength(0);
+    expect(triggerSpy).not.toHaveBeenCalled();
+  });
+
   it("imports address+rank+extra columns into leader_lists/leader_list_items/leaders with correct tiering", async () => {
     const rows = Array.from({ length: 25 }, (_, i) => ({
-      address: `0x${(i + 1).toString().padStart(4, "0")}`,
+      address: `0x${(i + 1).toString().padStart(40, "0")}`,
       rank: i + 1,
       pnl30d: 1000 * (i + 1),
       note: "copydog export",
@@ -41,19 +74,19 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
 
     const items = await db.select().from(leaderListItems).where(eq(leaderListItems.listId, result.listId));
     expect(items).toHaveLength(25);
-    const item1 = items.find((i) => i.address === "0x0001");
+    const item1 = items.find((i) => i.address === "0x0000000000000000000000000000000000000001");
     expect(item1?.rank).toBe(1);
     expect(item1?.statsJson).toMatchObject({ pnl30d: 1000, note: "copydog export" });
 
     const allLeaders = await db.select().from(leaders);
     expect(allLeaders).toHaveLength(25);
 
-    const rank1 = allLeaders.find((l) => l.address === "0x0001");
+    const rank1 = allLeaders.find((l) => l.address === "0x0000000000000000000000000000000000000001");
     expect(rank1?.tier).toBe("A"); // rank <= 20
     expect(rank1?.active).toBe(true);
     expect(rank1?.chain).toBe("hyperliquid");
 
-    const rank21 = allLeaders.find((l) => l.address === (`0x${(21).toString().padStart(4, "0")}`));
+    const rank21 = allLeaders.find((l) => l.address === (`0x${(21).toString().padStart(40, "0")}`));
     expect(rank21?.tier).toBe("B"); // rank > 20
 
     // A5: backfill fired for every genuinely new address.
@@ -81,7 +114,7 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     await importService.importLeaderList({
       source: "copydog",
       fileName: "v1.csv",
-      rows: [{ address: "0xmanual", rank: 5 }], // rank <= 20 -> tier A on first import
+      rows: [{ address: "0xabababababababababababababababababababab", rank: 5 }], // rank <= 20 -> tier A on first import
     });
 
     triggerSpy.mockClear(); // only care about backfill calls from the re-import below
@@ -90,14 +123,14 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     await db
       .update(leaders)
       .set({ tier: "C", active: false, label: "watch closely" })
-      .where(and(eq(leaders.chain, "hyperliquid"), eq(leaders.address, "0xmanual")));
+      .where(and(eq(leaders.chain, "hyperliquid"), eq(leaders.address, "0xabababababababababababababababababababab")));
 
     // Re-import the same address at a still <=20 rank — A2 must not touch
     // the manually-edited fields on an existing leader.
     const result = await importService.importLeaderList({
       source: "copydog",
       fileName: "v2.csv",
-      rows: [{ address: "0xmanual", rank: 2 }],
+      rows: [{ address: "0xabababababababababababababababababababab", rank: 2 }],
     });
 
     expect(result.newAddresses).toHaveLength(0); // not "new" the second time
@@ -105,36 +138,36 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     const [row] = await db
       .select()
       .from(leaders)
-      .where(and(eq(leaders.chain, "hyperliquid"), eq(leaders.address, "0xmanual")));
+      .where(and(eq(leaders.chain, "hyperliquid"), eq(leaders.address, "0xabababababababababababababababababababab")));
     expect(row.tier).toBe("C");
     expect(row.active).toBe(false);
     expect(row.label).toBe("watch closely");
 
     // And A5 backfill must not re-fire for an address that wasn't new.
-    expect(triggerSpy).not.toHaveBeenCalledWith("0xmanual");
+    expect(triggerSpy).not.toHaveBeenCalledWith("0xabababababababababababababababababababab");
   });
 
   it("turns a favorited leader into an imported one, reactivating it, without re-backfilling", async () => {
     await db.insert(leaders).values([
-      { chain: "hyperliquid", address: "0xfav", source: "favorite", active: false, tier: "B" },
-      { chain: "hyperliquid", address: "0xoff", source: "import", active: false, tier: "C" },
+      { chain: "hyperliquid", address: "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", source: "favorite", active: false, tier: "B" },
+      { chain: "hyperliquid", address: "0xefefefefefefefefefefefefefefefefefefefef", source: "import", active: false, tier: "C" },
     ]);
 
     const result = await importService.importLeaderList({
       source: "copydog",
       fileName: "v3.csv",
       rows: [
-        { address: "0xfav", rank: 5 },
-        { address: "0xoff", rank: 6 },
+        { address: "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", rank: 5 },
+        { address: "0xefefefefefefefefefefefefefefefefefefefef", rank: 6 },
       ],
     });
 
     expect(result.newAddresses).toHaveLength(0);
     const rows = await db.select().from(leaders);
     const byAddress = new Map(rows.map((r) => [r.address, r]));
-    expect(byAddress.get("0xfav")).toMatchObject({ source: "import", active: true, tier: "B" });
+    expect(byAddress.get("0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")).toMatchObject({ source: "import", active: true, tier: "B" });
     // An admin's manual deactivation of an imported leader still survives.
-    expect(byAddress.get("0xoff")).toMatchObject({ source: "import", active: false, tier: "C" });
+    expect(byAddress.get("0xefefefefefefefefefefefefefefefefefefefef")).toMatchObject({ source: "import", active: false, tier: "C" });
     expect(triggerSpy).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,6 @@
+import { currentRequestSignal } from "../runtime/request-context.js";
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
 
 import { env } from "../config/env.js";
@@ -63,7 +66,7 @@ export function twapSliceToFill(slice: HlTwapSliceFill): HlUserFill {
 export class HyperliquidInfoClient {
   private readonly logger = new Logger(HyperliquidInfoClient.name);
 
-  constructor(private readonly budgeter: RequestBudgeterService) {}
+  constructor(private readonly budgeter: RequestBudgeterService, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   private async post<T>(
     body: HlInfoRequestBody,
@@ -73,15 +76,17 @@ export class HyperliquidInfoClient {
     /** The part of `weight` that is certain (list calls: the base). */
     known?: number,
   ): Promise<T> {
-    if (known === undefined) await this.budgeter.acquire(weight, priority, rank);
-    else await this.budgeter.acquire(weight, priority, rank, known);
+    const caller = currentRequestSignal();
+    const signal = AbortSignal.any([this.jobs.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...(caller ? [caller] : [])]);
+    await this.budgeter.acquire(weight, priority, rank, { known, signal });
+    signal.throwIfAborted();
 
     const url = env.hyperliquidApiUrl();
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal,
     });
 
     if (res.status === 429) {

@@ -538,7 +538,7 @@ export function alertsFor(address: string | undefined): AlertEntry[] {
       address: e.action.address,
       coin: e.action.coin,
       actionId: e.action.id,
-      payloadJson: { kind: e.action.kind, notionalUsd: Number(e.action.notionalUsd) },
+      payloadJson: { version: 1, values: { actionKind: e.action.kind, notionalUsd: String(e.action.notionalUsd) } },
       sentAt: new Date(new Date(e.action.ts).getTime() + 2_400),
       sendStatus: "dry_run",
       pxAtSend: e.action.avgPx,

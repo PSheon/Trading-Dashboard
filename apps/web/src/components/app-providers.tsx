@@ -1,7 +1,5 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
 
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages";
@@ -22,29 +20,9 @@ export function AppProviders({
   messages: Messages;
   children: React.ReactNode;
 }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            refetchInterval: 10_000,
-            refetchOnWindowFocus: false,
-            staleTime: 5_000,
-            retry: (count, error) => {
-              const status = (error as { status?: number }).status;
-              if (status && status >= 400 && status < 500) return false;
-              return count < 1;
-            },
-          },
-        },
-      }),
-  );
-
   return (
     <I18nProvider locale={locale} messages={messages}>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>{children}</AuthProvider>
-      </QueryClientProvider>
+      <AuthProvider>{children}</AuthProvider>
     </I18nProvider>
   );
 }

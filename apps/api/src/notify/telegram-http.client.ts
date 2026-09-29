@@ -1,4 +1,5 @@
-import { Injectable } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { Injectable, Optional } from "@nestjs/common";
 
 import { env } from "../config/env.js";
 
@@ -73,6 +74,7 @@ interface BotApiResponse<T> {
  */
 @Injectable()
 export class TelegramHttpClient {
+  constructor(@Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
   /** Whether a bot token is configured at all. */
   configured(): boolean {
     return Boolean(env.telegramBotToken());
@@ -85,13 +87,16 @@ export class TelegramHttpClient {
     const token = env.telegramBotToken();
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
 
+    const timeoutMs = method === "getUpdates" && typeof params.timeout === "number"
+      ? (Math.max(0, Math.min(params.timeout, 50)) + 15) * 1000 : 15_000;
+    const requestSignal = AbortSignal.any([this.jobs.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]);
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
-      signal,
+      signal: requestSignal,
     });
-    const body = (await res.json().catch(() => null)) as BotApiResponse<T> | null;
+    const body = (await res.json()) as BotApiResponse<T> | null;
     if (!res.ok || !body?.ok) {
       throw new TelegramApiError(
         method,

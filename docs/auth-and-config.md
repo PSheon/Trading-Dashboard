@@ -111,3 +111,19 @@ external messaging stubbed. They exercise permission restrictions, service
 scope narrowing, private alert isolation, and persistent manual demotion.
 These tests do not prove the remote Privy service or token cryptography; dedicated
 SDK integration coverage remains separately tracked.
+
+## Runtime deadlines and health
+
+Deployment readiness uses `/health/ready` (DB probe); `/health` remains the
+in-memory feed heartbeat. The pool waits at most 3s for a connection, applies
+15s server statement/idle-transaction limits and a 20s driver query timeout.
+Browser-facing API work has a 20s overall deadline; a disconnected caller aborts
+queued/in-flight Hyperliquid requests. Explicit background work is independent
+of the HTTP request that admitted it.
+
+SIGTERM/SIGINT stop new work, cancel upstream requests and drain tracked jobs.
+A 30s watchdog bounds the entire process shutdown; background drain has a 25s
+budget and pool close has 3s before remaining connections are closed. Deadline
+expiry can interrupt work, so this alone does not guarantee notification delivery.
+
+`GET /admin/outbox` requires `admin.access`; see [delivery recovery](notification-delivery.md).

@@ -19,7 +19,7 @@ reference material, not generated or verified by this change.
 - Fill sync retries process already-stored fills returned in the requested
   window, repairing interrupted action derivation while retaining action locks
   and deduplication. This does not recover data no longer returned by upstream
-  or guarantee delivery of an in-memory notification event across a crash.
+  alone guarantee delivery; the durable outbox described below recovers missed events.
 - Docker build context excludes secrets, dependencies and local artifacts.
 - Root dev builds shared first, watches contracts and uses separate API/web
   ports. Turbo tracks root env files and passes appropriate dev variables.
@@ -44,19 +44,36 @@ See [migration and permissions](auth-and-config.md) and the
 The broader [DonutMe comparison](donutme-architecture-audit.md) tracks deferred
 response contracts, repositories, config DI and authorization lifecycle work.
 
+## Data correctness batch
+
+Alert payloads now have a shared versioned display contract and historical reader.
+Actions support lossless timestamp/ID cursors. Settings patches serialize concurrent
+writers and commit all sections atomically. Browser sessions use a fresh QueryClient
+and reset UI state per Privy DID; identity changes abort previous requests. Imports
+validate address/rank semantics and cap rows/content before persistence or backfill.
+See the [ordered implementation ledger](superpowers/plans/2026-09-29-remaining-work.md).
+
+## Runtime reliability batch
+
+Shutdown now stops admission, aborts external/queued work and drains background
+jobs and the pool under deadlines. `/health/ready` checks DB availability; Railway
+configuration points there. Telegram calls have deadlines and respect retry-after.
+Snapshots/sweeps limit concurrency to four; overlapping sweeps retain follow-up
+windows, and snapshot attempt/success/failure timestamps are distinct. HTTP caller
+cancellation reaches Hyperliquid queue/fetch work. These repository changes have
+been tested locally; no Railway deployment was performed.
+
+## Durable notifications
+
+Recent action intents, evaluation context, cooldown reservations and delivery
+records now persist transactionally. Leased retries recover interrupted work and
+revalidate recipients before each send. See [delivery operations](notification-delivery.md)
+for additive migrations, limits and the possible duplicate after Telegram acceptance.
+
 ## Remaining high-priority work
 
-1. Durable notification outbox, atomic cooldown reservation and replay after
-   process failure; sending then logging is not a durable delivery contract.
-2. Add a default timeout for Telegram send calls. The HTTP client accepts an
-   optional AbortSignal, but ordinary sendMessage calls provide none.
-3. Honor Telegram retry-after delays: the client records `retryAfterS`, but
-   notification retries still use fixed 1/2/4-second delays.
-4. Reconcile real alert payloads (`values.actionKind`, `values.notionalUsd`) with
-   UI and fixtures, and type/version the payload contract.
-5. Clear/cancel private queries on identity changes and scope query keys by user.
-6. Inbound API rate limits, monitored-address quotas and bounded/cancellable
-   upstream queues. The external API budgeter is not an inbound abuse limit.
+6. Inbound API rate limits and monitored-address quotas. The external API
+   budgeter now has bounded/cancellable queues, but is not an inbound abuse limit.
 7. Dependency audit remediation: initial scan reported 8 high, 15 moderate and
    4 low. Drizzle 0.36.4 is below the identifier escaping patch (0.45.2); no
    untrusted dynamic identifier path was found in this review. Other findings
@@ -65,10 +82,6 @@ response contracts, repositories, config DI and authorization lifecycle work.
 
 ## Reliability and maintenance follow-up
 
-- Graceful shutdown and explicit pool lifecycle; separate readiness from the
-  public in-memory heartbeat used by Railway today.
-- Prevent overlapping snapshot/sweep schedules and cap concurrency; expose
-  last successful completion, not only last attempted processing.
 - Batch/reuse round-trip analytics, especially across notification recipients;
   avoid whole-history scans and unbounded IN bind lists. Measure index needs
   for actions by address and alerts by recipient/cooldown using real query plans.
@@ -78,7 +91,7 @@ response contracts, repositories, config DI and authorization lifecycle work.
   deployment sequencing; the current image still contains development packages.
 - Repo CI with disposable DB, contract tests and browser E2E tests covering real
   payloads, login/logout/account switching and cross-address isolation.
-- Security headers/CORS policy and import row semantic validation (valid Ethereum address, positive rank, size limits).
+- Security headers/CORS policy.
 - Toolchain alignment (TypeScript 5/6, Node type versions); remove unused CLI
   dependencies and evaluate Vite native tsconfig paths support.
 - Complete radio/tab keyboard semantics and browser accessibility review.

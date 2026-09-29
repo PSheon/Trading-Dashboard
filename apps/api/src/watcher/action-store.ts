@@ -1,6 +1,6 @@
 import type { EventEmitter2 } from "@nestjs/event-emitter";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { actions, CHAIN_DEFAULT, fills } from "@trading-dashboard/shared";
+import { actions, actionOutbox, CHAIN_DEFAULT, fills } from "@trading-dashboard/shared";
 
 import { env } from "../config/env.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -89,10 +89,15 @@ export function draftToRow(address: string, d: ActionDraft) {
   };
 }
 
-export async function insertActions(db: DbOrTx, address: string, drafts: ActionDraft[]): Promise<ActionRow[]> {
+export async function insertActions(db: DbOrTx, address: string, drafts: ActionDraft[], enqueue = false, equityUsd: number | null = null): Promise<ActionRow[]> {
   const rows: ActionRow[] = [];
   for (const chunk of chunks(drafts)) {
     rows.push(...(await db.insert(actions).values(chunk.map((d) => draftToRow(address, d))).returning()));
+  }
+  if (enqueue) {
+    const horizon = Date.now() - env.alertMaxActionAgeSeconds() * 1000;
+    const recent = rows.filter((row) => row.ts.getTime() >= horizon);
+    if (recent.length) await db.insert(actionOutbox).values(recent.map((row) => ({ actionId: row.id, equityUsd: equityUsd !== null && Number.isFinite(equityUsd) ? String(equityUsd) : null }))).onConflictDoNothing();
   }
   return rows;
 }

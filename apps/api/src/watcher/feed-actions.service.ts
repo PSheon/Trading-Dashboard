@@ -1,3 +1,4 @@
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 
@@ -35,6 +36,7 @@ export class FeedActionsService {
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly accounts: AccountStateService,
     @Optional() private readonly events?: EventEmitter2,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   /**
@@ -44,6 +46,11 @@ export class FeedActionsService {
    * action (replayed, or stored by a sweep first) gets none.
    */
   async process(address: string, trades: HlWsTrade[], rank?: number): Promise<number> {
+    if (this.jobs.stopping) return 0;
+    return this.jobs.run(() => this.processBurst(address, trades, rank));
+  }
+
+  private async processBurst(address: string, trades: HlWsTrade[], rank?: number): Promise<number> {
     const burst = this.normalize(address, trades);
     if (burst.length === 0) return 0;
     const book = this.accounts.book(address);
@@ -76,7 +83,7 @@ export class FeedActionsService {
           const covered = new Set(covering.flatMap((a) => a.fillIds));
           drafts = this.classify(address, burst, covered);
         }
-        return insertActions(tx, address, drafts);
+        return insertActions(tx, address, drafts, true, this.accounts.getEquityUsd(address));
       });
       emitRecent(this.events, rows);
       return rows.length;

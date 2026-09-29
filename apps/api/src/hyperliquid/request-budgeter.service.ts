@@ -92,6 +92,8 @@ interface Waiter {
   /** Tokens (beyond the reserves) the call waits for; see `acquire`. */
   gate: number;
   resolve: () => void;
+  reject: (reason: unknown) => void;
+  cleanup: () => void;
   /** Lower goes first within a lane; ties go in arrival order. */
   rank: number;
   seq: number;
@@ -117,6 +119,7 @@ export class RequestBudgeterService {
   private readonly queues: Record<RequestPriority, Waiter[]> = { live: [], background: [] };
   private pumpTimer: ReturnType<typeof setTimeout> | undefined;
   private seq = 0;
+  private stopped = false;
   /** Live dispatches in a row while background waiters existed. */
   private liveStreak = 0;
 
@@ -165,18 +168,46 @@ export class RequestBudgeterService {
    * an address that trades once an hour isn't stuck behind bots that trade
    * every second.
    */
-  acquire(weight: number, priority: RequestPriority = "background", rank?: number, known = weight): Promise<void> {
-    return new Promise((resolve) => {
+  acquire(
+    weight: number,
+    priority: RequestPriority = "background",
+    rank?: number,
+    { known = weight, signal }: { known?: number; signal?: AbortSignal } = {},
+  ): Promise<void> {
+    if (this.stopped) return Promise.reject(new Error("Budgeter stopped"));
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    if (this.queues.live.length + this.queues.background.length >= 1000) return Promise.reject(new Error("Hyperliquid queue is full"));
+    return new Promise((resolve, reject) => {
       const seq = this.seq++;
+      const queue = this.queues[priority];
       const defaultRank = priority === "background" ? UNRANKED_BASE + seq : seq;
       const r = rank ?? defaultRank;
       // A page's list call waits only for its known part; everything else
       // waits for its whole (worst-case) weight.
       const gate = priority === "background" && r <= PAGE_RANK.fills ? Math.min(known, weight) : weight;
-      this.queues[priority].push({ weight, gate, resolve, rank: r, seq });
+      const abort = () => {
+        const index = queue.indexOf(waiter);
+        if (index >= 0) queue.splice(index, 1);
+        waiter.cleanup();
+        reject(signal?.reason ?? new Error("Request cancelled"));
+        this.rearm();
+      };
+      const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq,
+        cleanup: () => signal?.removeEventListener("abort", abort) };
+      signal?.addEventListener("abort", abort, { once: true });
+      queue.push(waiter);
       // A newcomer may go before the waiter the pending timer is for.
       this.rearm();
     });
+  }
+
+  onModuleDestroy(): void {
+    this.stopped = true;
+    clearTimeout(this.pumpTimer);
+    this.pumpTimer = undefined;
+    for (const queue of Object.values(this.queues)) {
+      for (const waiter of queue.splice(0)) { waiter.cleanup(); waiter.reject(new Error("Budgeter stopped")); }
+    }
   }
 
   /** Waiters currently queued per lane (introspection and tests). */
@@ -236,6 +267,7 @@ export class RequestBudgeterService {
       this.tokens -= next.weight;
       this.liveStreak = pick.lane === "live" && this.queues.background.length > 0 ? this.liveStreak + 1 : 0;
       this.record(now, next.weight);
+      next.cleanup();
       next.resolve();
     }
   }

@@ -42,10 +42,17 @@ export function isBusy(error: unknown): error is ApiError {
 export type AccessTokenGetter = () => Promise<string | null>;
 
 let accessTokenGetter: AccessTokenGetter | null = null;
+let identityScope: string | null = null;
+let sessionController = new AbortController();
 
 /** Registered by the auth provider (Privy's `getAccessToken`, or the
  * fixture login). The getter itself returns null when signed out. */
-export function setAccessTokenGetter(getter: AccessTokenGetter | null) {
+export function setAccessTokenGetter(getter: AccessTokenGetter | null, scope: string | null = null) {
+  if (identityScope !== scope) {
+    sessionController.abort();
+    sessionController = new AbortController();
+    identityScope = scope;
+  }
   accessTokenGetter = getter;
 }
 
@@ -58,15 +65,20 @@ async function currentToken(): Promise<string | null> {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const requestSignal = signal ? AbortSignal.any([signal, sessionController.signal]) : sessionController.signal;
   const token = await currentToken();
+  requestSignal.throwIfAborted();
 
   // Fixture mode: answered in-process. The env var is read inline (not via
   // lib/config) so the bundler sees a literal and drops the branch — and
   // the fixture chunk — from any build without NEXT_PUBLIC_API_FIXTURES=1.
   if (process.env.NEXT_PUBLIC_API_FIXTURES === "1") {
     const { fixtureRequest } = await import("@/fixtures/handler");
-    return fixtureRequest<T>(method, path, body, token);
+    requestSignal.throwIfAborted();
+    const result = await fixtureRequest<T>(method, path, body, token);
+    requestSignal.throwIfAborted();
+    return result;
   }
 
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -75,6 +87,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   const res = await fetch(`${API_BASE}${path}`, {
     method,
+    signal: requestSignal,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "same-origin",
@@ -107,11 +120,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (res.status === 204) return undefined as T;
   const text = await res.text();
+  requestSignal.throwIfAborted();
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>("GET", path),
+  get: <T>(path: string, signal?: AbortSignal) => request<T>("GET", path, undefined, signal),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),

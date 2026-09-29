@@ -155,6 +155,8 @@ export function useTraderFills(address: string, limit = 100) {
 }
 
 export interface ActionsParams {
+  before?: string;
+  beforeId?: string;
   scope?: "all" | "favorites";
   address?: string;
   coin?: string;
@@ -165,6 +167,8 @@ export interface ActionsParams {
 
 export function useActions(params: ActionsParams, options: { enabled?: boolean } = {}) {
   const qs = new URLSearchParams();
+  if (params.before) qs.set("before", params.before);
+  if (params.beforeId) qs.set("beforeId", params.beforeId);
   if (params.scope && params.scope !== "all") qs.set("scope", params.scope);
   if (params.address) qs.set("address", params.address);
   if (params.coin) qs.set("coin", params.coin);

@@ -1,3 +1,4 @@
+import { OutboxModule } from "./outbox/outbox.module.js";
 import { Module } from "@nestjs/common";
 import { EventEmitterModule } from "@nestjs/event-emitter";
 
@@ -36,6 +37,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     TelegramModule,
     TradersModule,
     InsightsModule,
+    OutboxModule,
   ],
   providers: AUTH_GUARD_PROVIDERS,
 })

@@ -179,7 +179,9 @@ export function useLiveTrader(address: string, profile: TraderProfileResponse | 
     () => (profile && open ? deriveLiveProfile(profile, snap.state) : profile),
     [profile, open, snap.state],
   );
+  // A first connect shows "connecting"; a dropped connection retrying with
+  // backoff is a fallback to REST polling, and says so.
   const status: LiveStatus =
-    open && snap.state.updatedAt !== null ? "live" : snap.status === "idle" ? "polling" : "connecting";
+    open && snap.state.updatedAt !== null ? "live" : snap.status === "connecting" || open ? "connecting" : "polling";
   return { profile: merged, fills: open ? snap.state.fills : [], mids: snap.state.mids, status };
 }

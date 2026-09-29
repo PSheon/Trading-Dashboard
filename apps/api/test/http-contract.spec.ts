@@ -1,10 +1,19 @@
-import { BadRequestException, ConflictException, Controller, Get, HttpCode, Module, Post, StreamableFile } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Controller,
+  Get,
+  HttpCode,
+  Module,
+  Post,
+  StreamableFile,
+} from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { INestApplication } from "@nestjs/common";
 import { HttpModule } from "../src/common/http/http.module.js";
-import { addressSchema, httpRouteContracts } from "@trading-dashboard/shared";
+import { addressSchema, httpRouteContracts } from "@trading-dashboard/shared/contracts";
 import { parseOr400 } from "../src/common/http/validation.js";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";

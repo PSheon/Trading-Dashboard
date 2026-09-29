@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional, type OnApplicationBootstrap } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
-import { actionOutbox, actions } from "@trading-dashboard/shared";
+import { actionOutbox, actions } from "@trading-dashboard/shared/database";
 import { and, eq, lte, or, sql } from "drizzle-orm";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

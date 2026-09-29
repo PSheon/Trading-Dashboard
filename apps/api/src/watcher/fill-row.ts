@@ -1,4 +1,4 @@
-import { CHAIN_DEFAULT } from "@trading-dashboard/shared";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import type { HlUserFill } from "../hyperliquid/types.js";
 

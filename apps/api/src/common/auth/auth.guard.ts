@@ -7,7 +7,7 @@ import {
   type ExecutionContext,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { UserRole } from "@trading-dashboard/shared";
+import type { UserRole } from "@trading-dashboard/shared/contracts";
 import type { Request } from "express";
 
 import { AuthService, type AuthOutcome } from "./auth.service.js";

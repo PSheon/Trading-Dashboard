@@ -1,5 +1,7 @@
+import { SettingsRepository } from "../src/settings/settings.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { sql } from "drizzle-orm";
-import { appSettings } from "@trading-dashboard/shared";
+import { appSettings } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsService } from "../src/settings/settings.service.js";
@@ -17,7 +19,7 @@ describe("SettingsService — real Postgres", () => {
   });
 
   it("returns the schema defaults when nothing is stored", async () => {
-    const all = await new SettingsService(db).getAll();
+    const all = await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).getAll();
     expect(all.discovery.lowSampleThreshold).toBe(20);
     expect(all.discovery.hideVaults).toBe(true);
     expect(all.general.signupsOpen).toBe(true);
@@ -25,7 +27,7 @@ describe("SettingsService — real Postgres", () => {
   });
 
   it("merges a patch over the current section and saves only that section", async () => {
-    const service = new SettingsService(db);
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     await service.patch({ discovery: { lowSampleThreshold: 30 } }, null);
     const merged = await service.patch({ discovery: { hideVaults: false } }, null);
     expect(merged.discovery).toMatchObject({ lowSampleThreshold: 30, hideVaults: false });
@@ -33,7 +35,7 @@ describe("SettingsService — real Postgres", () => {
     const rows = await db.select().from(appSettings);
     expect(rows.map((r) => r.key)).toEqual(["discovery"]);
     // A fresh instance (no cache) reads the same thing back.
-    expect((await new SettingsService(db).get("discovery")).lowSampleThreshold).toBe(30);
+    expect((await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).get("discovery")).lowSampleThreshold).toBe(30);
   });
 
   it("preserves concurrent patches to different fields of an initially absent section", async () => {
@@ -42,10 +44,10 @@ describe("SettingsService — real Postgres", () => {
     await db.execute(sql`CREATE TRIGGER test_delay_settings BEFORE INSERT ON app_settings FOR EACH ROW EXECUTE FUNCTION test_delay_settings()`);
     try {
     await Promise.all([
-      new SettingsService(db).patch({ discovery: { lowSampleThreshold: 77 } }, null),
-      new SettingsService(db).patch({ discovery: { hideVaults: false } }, null),
+      new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).patch({ discovery: { lowSampleThreshold: 77 } }, null),
+      new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).patch({ discovery: { hideVaults: false } }, null),
     ]);
-    expect(await new SettingsService(db).get("discovery")).toMatchObject({ lowSampleThreshold: 77, hideVaults: false });
+    expect(await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).get("discovery")).toMatchObject({ lowSampleThreshold: 77, hideVaults: false });
     } finally {
       await db.execute(sql`DROP TRIGGER test_delay_settings ON app_settings`);
       await db.execute(sql`DROP FUNCTION test_delay_settings()`);
@@ -53,7 +55,7 @@ describe("SettingsService — real Postgres", () => {
   });
 
   it("does not publish an old pending read into cache after a successful patch", async () => {
-    const service = new SettingsService(db);
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     const select = db.select.bind(db);
     let fetched!: () => void;
     let release!: () => void;
@@ -76,7 +78,7 @@ describe("SettingsService — real Postgres", () => {
   });
 
   it("rolls back all sections and preserves the cache when a later write fails", async () => {
-    const service = new SettingsService(db);
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     const before = await service.getAll();
     await db.execute(sql`ALTER TABLE app_settings ADD CONSTRAINT test_reject_revenue CHECK (key <> 'revenue')`);
     try {
@@ -89,7 +91,7 @@ describe("SettingsService — real Postgres", () => {
   });
 
   it("rejects invalid values and leaves the stored row alone", async () => {
-    const service = new SettingsService(db);
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     await expect(service.patch({ revenue: { builderFeeTenthsBps: 101 } }, null)).rejects.toMatchObject({ name: "ZodError" });
     expect(await db.select().from(appSettings)).toHaveLength(0);
   });
@@ -99,13 +101,13 @@ describe("SettingsService — real Postgres", () => {
       { key: "discovery", value: { lowSampleThreshold: "lots" } },
       { key: "general", value: { signupsOpen: false } },
     ]);
-    const all = await new SettingsService(db).getAll();
+    const all = await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).getAll();
     expect(all.discovery.lowSampleThreshold).toBe(20);
     expect(all.general.signupsOpen).toBe(false);
   });
 
   it("exposes only the public subset", async () => {
-    const service = new SettingsService(db);
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     await service.patch({ revenue: { referralCode: "ORBIE", builderFeeTenthsBps: 10 } }, null);
     const pub = await service.getPublic();
     expect(pub.referralCode).toBe("ORBIE");

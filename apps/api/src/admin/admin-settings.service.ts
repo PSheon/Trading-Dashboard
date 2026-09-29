@@ -3,7 +3,7 @@ import {
   patchAdminSettingsRequestSchema,
   type AdminSettings,
   type PatchAdminSettingsRequest,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { userIdOf, type RequestUser } from "../common/auth/current-user.js";
 import { SettingsService } from "../settings/settings.service.js";

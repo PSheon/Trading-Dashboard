@@ -1,6 +1,8 @@
+import { SettingsRepository } from "../src/settings/settings.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { readFileSync } from "node:fs";
 
-import { appSettings, traderStats } from "@trading-dashboard/shared";
+import { appSettings, traderStats } from "@trading-dashboard/shared/database";
 import { asc, count, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -142,7 +144,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
   beforeEach(async () => {
     await db.execute(sql`TRUNCATE TABLE trader_stats`);
     await db.delete(appSettings);
-    settings = new SettingsService(db);
+    settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     service = new LeaderboardIngestService(db, settings);
   });
   afterEach(() => {

@@ -1,3 +1,4 @@
+import { UnitOfWork } from "./unit-of-work.js";
 import { Global, Module } from "@nestjs/common";
 
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
@@ -11,7 +12,7 @@ import { drizzleProvider, poolProvider } from "./drizzle.provider.js";
  */
 @Global()
 @Module({
-  providers: [poolProvider, drizzleProvider, BackgroundJobs, DatabaseLifecycle],
-  exports: [drizzleProvider, poolProvider, BackgroundJobs],
+  providers: [UnitOfWork, poolProvider, drizzleProvider, BackgroundJobs, DatabaseLifecycle],
+  exports: [UnitOfWork, drizzleProvider, poolProvider, BackgroundJobs],
 })
 export class DbModule {}

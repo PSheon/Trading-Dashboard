@@ -1,3 +1,7 @@
+import { LeadersRepository } from "../src/api/leaders/leaders.repository.js";
+import { AlertsRepository } from "../src/api/alerts/alerts.repository.js";
+import { FavoritesRepository } from "../src/users/favorites.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { HttpModule } from "../src/common/http/http.module.js";
 import { Global, Module, type INestApplication, type Type } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -46,13 +50,13 @@ export async function createAuthedApp(opts: {
   imports?: Parameters<typeof Test.createTestingModule>[0]["imports"];
 }): Promise<{ app: INestApplication; auth: AuthService; settings: SettingsService }> {
   @Global()
-  @Module({ providers: [{ provide: DRIZZLE_CLIENT, useValue: opts.db }], exports: [DRIZZLE_CLIENT] })
+  @Module({ providers: [UnitOfWork, { provide: DRIZZLE_CLIENT, useValue: opts.db }], exports: [DRIZZLE_CLIENT, UnitOfWork] })
   class TestDbModule {}
 
   const moduleRef = await Test.createTestingModule({
     imports: [HttpModule, TestDbModule, SettingsModule, AuthModule, ...(opts.imports ?? [])],
     controllers: opts.controllers ?? [],
-    providers: [...AUTH_GUARD_PROVIDERS, ...(opts.providers ?? [])],
+    providers: [LeadersRepository, AlertsRepository, FavoritesRepository, ...AUTH_GUARD_PROVIDERS, ...(opts.providers ?? [])],
   })
     .overrideProvider(PRIVY_VERIFIER)
     .useValue(opts.privy)

@@ -1,4 +1,5 @@
-import { adminOverviewSchema, alertRules, alerts, leaders } from "@trading-dashboard/shared";
+import { alertRules, alerts, leaders } from "@trading-dashboard/shared/database";
+import { adminOverviewSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminOverviewService } from "../src/admin/admin-overview.service.js";

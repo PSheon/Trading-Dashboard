@@ -1,4 +1,5 @@
-import type { actions, AlertRuleKind, Locale } from "@trading-dashboard/shared";
+import type { actions } from "@trading-dashboard/shared/database";
+import type { AlertRuleKind, Locale } from "@trading-dashboard/shared/contracts";
 
 type ActionRow = typeof actions.$inferSelect;
 

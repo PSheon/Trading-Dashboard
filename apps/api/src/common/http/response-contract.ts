@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
-import { API_CONTRACT_HEADER, API_CONTRACT_VERSION } from "@trading-dashboard/shared";
+import { API_CONTRACT_HEADER, API_CONTRACT_VERSION } from "@trading-dashboard/shared/contracts";
 
 export function usesEnvelope(req: Request): boolean {
   return req.header(API_CONTRACT_HEADER) === API_CONTRACT_VERSION && !/^\/health(?:\/|$)/.test(req.path);

@@ -1,7 +1,7 @@
 /** Browser values are JSON, never domain Date/BigInt instances. */
-import type * as Domain from "@trading-dashboard/shared";
-import type { JsonWire } from "@trading-dashboard/shared";
-export * from "@trading-dashboard/shared";
+import type * as Domain from "@trading-dashboard/shared/contracts";
+import type { JsonWire } from "@trading-dashboard/shared/contracts";
+export * from "@trading-dashboard/shared/contracts";
 export type LeaderList = JsonWire<Domain.LeaderList>;
 export type Leader = JsonWire<Domain.Leader>;
 export type Fill = Domain.WireFill;

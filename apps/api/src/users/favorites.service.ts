@@ -1,18 +1,9 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { and, count, desc, eq, sql } from "drizzle-orm";
-import {
-  CHAIN_DEFAULT,
-  leaders,
-  notificationChannels,
-  traderStats,
-  userFavorites,
-  users,
-  type Favorite,
-  type PatchFavoriteAlertRequest,
-} from "@trading-dashboard/shared";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { userFavorites } from "@trading-dashboard/shared/database";
+import { type Favorite, type PatchFavoriteAlertRequest } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { FavoritesRepository } from "./favorites.repository.js";
+import { UnitOfWork } from "../db/unit-of-work.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { BackfillService } from "../watcher/backfill.service.js";
 import { toTraderStats } from "../traders/traders.mappers.js";
@@ -30,23 +21,14 @@ export class FavoritesService {
   private readonly logger = new Logger(FavoritesService.name);
 
   constructor(
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: FavoritesRepository,
+    private readonly uow: UnitOfWork,
     private readonly backfill: BackfillService,
     private readonly settings: SettingsService,
   ) {}
 
   async list(userId: number, address?: string): Promise<Favorite[]> {
-    const rows = await this.db
-      .select({ favorite: userFavorites, stats: traderStats })
-      .from(userFavorites)
-      .leftJoin(
-        traderStats,
-        and(eq(traderStats.chain, userFavorites.chain), eq(traderStats.address, userFavorites.address)),
-      )
-      .where(
-        and(eq(userFavorites.userId, userId), address === undefined ? undefined : eq(userFavorites.address, address)),
-      )
-      .orderBy(desc(userFavorites.createdAt));
+    const rows = await this.repository.listOwned(userId, address);
     return rows.map((r) => ({
       address: r.favorite.address,
       createdAt: r.favorite.createdAt,
@@ -69,27 +51,15 @@ export class FavoritesService {
    * isn't counted again.
    */
   async setAlert(userId: number, address: string, patch: PatchFavoriteAlertRequest): Promise<Favorite> {
-    const chain = CHAIN_DEFAULT;
     const limit = (await this.settings.get("notifications")).maxAlertTraders;
 
-    await this.db.transaction(async (tx) => {
-      await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
-
-      const mine = and(eq(userFavorites.userId, userId), eq(userFavorites.chain, chain), eq(userFavorites.address, address));
-      const [current] = await tx.select().from(userFavorites).where(mine);
+    await this.uow.run(async (tx) => {
+      await this.repository.lockUser(tx, userId);
+      const current = await this.repository.findOwned(tx, userId, address);
       if (!current) throw new NotFoundException(`${address} is not a favorite`);
 
       if (patch.enabled === true && !current.alertEnabled) {
-        const [channel] = await tx
-          .select({ id: notificationChannels.id })
-          .from(notificationChannels)
-          .where(
-            and(
-              eq(notificationChannels.userId, userId),
-              eq(notificationChannels.kind, "telegram"),
-              eq(notificationChannels.enabled, true),
-            ),
-          );
+        const channel = await this.repository.hasTelegram(tx, userId);
         if (!channel) {
           throw new ConflictException({
             statusCode: 409,
@@ -97,10 +67,7 @@ export class FavoritesService {
             message: "Link Telegram before turning on alerts",
           });
         }
-        const [{ n }] = await tx
-          .select({ n: count() })
-          .from(userFavorites)
-          .where(and(eq(userFavorites.userId, userId), eq(userFavorites.alertEnabled, true)));
+        const n = await this.repository.countAlerts(tx, userId);
         if (n >= limit) {
           throw new ConflictException({
             statusCode: 409,
@@ -115,7 +82,7 @@ export class FavoritesService {
       if (patch.enabled !== undefined) set.alertEnabled = patch.enabled;
       if (patch.sides !== undefined) set.alertSides = patch.sides;
       if (patch.minUsd !== undefined) set.alertMinUsd = patch.minUsd === null ? null : String(patch.minUsd);
-      if (Object.keys(set).length > 0) await tx.update(userFavorites).set(set).where(mine);
+      if (Object.keys(set).length > 0) await this.repository.updateAlert(tx, userId, address, set);
     });
 
     const [favorite] = await this.list(userId, address);
@@ -125,30 +92,7 @@ export class FavoritesService {
 
   /** Idempotent. `address` must already be validated and lowercased. */
   async add(userId: number, address: string): Promise<Favorite> {
-    const chain = CHAIN_DEFAULT;
-    const createdLeader = await this.db.transaction(async (tx) => {
-      await tx.insert(userFavorites).values({ userId, chain, address }).onConflictDoNothing();
-
-      const inserted = await tx
-        .insert(leaders)
-        .values({ chain, address, active: true, source: "favorite" })
-        .onConflictDoNothing({ target: [leaders.chain, leaders.address] })
-        .returning({ address: leaders.address });
-      if (inserted.length > 0) return true;
-
-      await tx
-        .update(leaders)
-        .set({ active: true })
-        .where(
-          and(
-            eq(leaders.chain, chain),
-            eq(leaders.address, address),
-            eq(leaders.source, "favorite"),
-            eq(leaders.active, false),
-          ),
-        );
-      return false;
-    });
+    const createdLeader = await this.uow.run((tx) => this.repository.addAndWatch(tx, userId, address));
 
     if (createdLeader) {
       this.logger.log(`New favorite-sourced leader ${address} — starting backfill`);
@@ -162,38 +106,6 @@ export class FavoritesService {
 
   /** Idempotent; returns whether a favorite was removed. */
   async remove(userId: number, address: string): Promise<boolean> {
-    const chain = CHAIN_DEFAULT;
-    return this.db.transaction(async (tx) => {
-      const removed = await tx
-        .delete(userFavorites)
-        .where(
-          and(eq(userFavorites.userId, userId), eq(userFavorites.chain, chain), eq(userFavorites.address, address)),
-        )
-        .returning({ address: userFavorites.address });
-
-      // Lock the leader first so the check below runs on a fresh snapshot
-      // and can't miss a favorite another user is adding right now.
-      await tx
-        .select({ address: leaders.address })
-        .from(leaders)
-        .where(and(eq(leaders.chain, chain), eq(leaders.address, address)))
-        .for("update");
-
-      await tx
-        .update(leaders)
-        .set({ active: false })
-        .where(
-          and(
-            eq(leaders.chain, chain),
-            eq(leaders.address, address),
-            eq(leaders.source, "favorite"),
-            sql`not exists (
-              select 1 from ${userFavorites}
-              where ${userFavorites.chain} = ${chain} and ${userFavorites.address} = ${address}
-            )`,
-          ),
-        );
-      return removed.length > 0;
-    });
+    return this.uow.run((tx) => this.repository.removeAndUnwatch(tx, userId, address));
   }
 }

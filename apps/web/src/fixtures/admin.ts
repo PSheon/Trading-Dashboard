@@ -11,7 +11,7 @@ import {
   type AdminUser,
   type CrowdResponse,
   type PublicSettings,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { TIME_ZONE } from "@/i18n/config";
 import { LOW_SAMPLE_THRESHOLD, profileFor, traderStats } from "./data";

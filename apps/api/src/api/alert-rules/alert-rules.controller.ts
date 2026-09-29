@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post } from "@nestjs/common";
-import type { AlertRule } from "@trading-dashboard/shared";
+import type { AlertRule } from "@trading-dashboard/shared/contracts";
 
 import { RequirePermissions } from "../../common/auth/permissions.js";
 import { parseUpsertRule } from "../../rules/rule-validation.js";

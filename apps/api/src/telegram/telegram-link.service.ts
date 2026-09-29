@@ -9,15 +9,13 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { and, count, eq, gt, isNull, lt, ne } from "drizzle-orm";
+import { notificationChannels, telegramLinkTokens, users } from "@trading-dashboard/shared/database";
 import {
-  notificationChannels,
-  telegramLinkTokens,
-  users,
   type Locale,
   type TelegramLinkResponse,
   type TelegramStatus,
   type TelegramTestResponse,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";

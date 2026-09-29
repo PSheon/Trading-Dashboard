@@ -21,7 +21,7 @@ import {
   type TraderFill,
   type TraderProfileResponse,
   type TradersResponse,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, userIdOf, type RequestUser } from "../common/auth/current-user.js";
 import { Public } from "../common/auth/public.decorator.js";

@@ -1,15 +1,16 @@
+import { FavoritesRepository } from "./favorites.repository.js";
 import { Module } from "@nestjs/common";
 
-import { WatcherModule } from "../watcher/watcher.module.js";
+import { IngestionModule } from "../watcher/ingestion.module.js";
 import { FavoritesService } from "./favorites.service.js";
 import { MeController } from "./me.controller.js";
 import { ProfileService } from "./profile.service.js";
 
 /** /me/*: profile, favorites and their Telegram alerts. */
 @Module({
-  imports: [WatcherModule],
+  imports: [IngestionModule],
   controllers: [MeController],
-  providers: [ProfileService, FavoritesService],
+  providers: [FavoritesRepository, ProfileService, FavoritesService],
   exports: [FavoritesService],
 })
 export class UsersModule {}

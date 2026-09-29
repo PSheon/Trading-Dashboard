@@ -1,15 +1,14 @@
-import { sql } from "drizzle-orm";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   adminSettingsSchema,
-  appSettings,
   type AdminSettings,
   type AppSettingsKey,
   type PatchAdminSettingsRequest,
   type PublicSettings,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
+import { SettingsRepository } from "./settings.repository.js";
+import { UnitOfWork } from "../db/unit-of-work.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 
 const CACHE_TTL_MS = 30_000;
@@ -27,7 +26,7 @@ export class SettingsService {
   private revision = 0;
   private inflight: Promise<AdminSettings> | undefined;
 
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(private readonly repository: SettingsRepository, private readonly uow: UnitOfWork) {}
 
   async getAll(): Promise<AdminSettings> {
     if (this.cache && this.cache.expiresAt > Date.now()) return this.cache.value;
@@ -67,9 +66,9 @@ export class SettingsService {
   /** Merges each given section over its current value, validates the result
    * (throws ZodError on invalid input) and saves only those sections. */
   async patch(request: PatchAdminSettingsRequest, userId: number | null): Promise<AdminSettings> {
-    const merged = await this.db.transaction(async (tx) => {
+    const merged = await this.uow.run(async (tx) => {
       // One transaction-scoped lock also protects sections that have no row yet.
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(73104, 1)`);
+      await this.repository.lockSections(tx);
       const current = await this.load(tx);
       const value = adminSettingsSchema.parse({
         general: { ...current.general, ...request.general },
@@ -78,13 +77,7 @@ export class SettingsService {
         revenue: { ...current.revenue, ...request.revenue },
       });
       const keys = (Object.keys(request) as AppSettingsKey[]).filter((k) => request[k] !== undefined);
-      const now = new Date();
-      for (const key of keys) {
-        await tx.insert(appSettings)
-          .values({ key, value: value[key], updatedAt: now, updatedByUserId: userId })
-          .onConflictDoUpdate({ target: appSettings.key,
-            set: { value: value[key], updatedAt: now, updatedByUserId: userId } });
-      }
+      await this.repository.saveSections(tx, keys, value, userId);
       return value;
     });
     // An older in-flight read must not republish stale data after this commit.
@@ -94,8 +87,8 @@ export class SettingsService {
     return merged;
   }
 
-  private async load(db: Pick<DrizzleDb, "select"> = this.db): Promise<AdminSettings> {
-    const rows = await db.select().from(appSettings);
+  private async load(db?: Pick<DrizzleDb, "select">): Promise<AdminSettings> {
+    const rows = await this.repository.readSections(db);
     const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     const raw = {
       general: stored.general ?? {},

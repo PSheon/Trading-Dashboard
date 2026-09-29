@@ -1,4 +1,4 @@
-import * as schema from "@trading-dashboard/shared";
+import * as schema from "@trading-dashboard/shared/database";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import type { Provider } from "@nestjs/common";

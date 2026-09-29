@@ -1,4 +1,4 @@
-import { actions, fills } from "@trading-dashboard/shared";
+import { actions, fills } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { RoundTripService } from "../src/analytics/round-trip.service.js";

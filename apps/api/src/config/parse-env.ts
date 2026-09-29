@@ -1,4 +1,4 @@
-import { PERMISSIONS, type Permission } from "@trading-dashboard/shared";
+import { PERMISSIONS, type Permission } from "@trading-dashboard/shared/contracts";
 
 /** Errors name keys only: never interpolate secrets or connection strings. */
 export function booleanValue(key: string, raw: string | undefined, fallback: boolean): boolean {

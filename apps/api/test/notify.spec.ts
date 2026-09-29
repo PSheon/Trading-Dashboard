@@ -1,4 +1,12 @@
-import { actions, alertRules, alerts, notificationOutbox, notificationChannels, userFavorites, readAlertDisplayValues } from "@trading-dashboard/shared";
+import {
+  actions,
+  alertRules,
+  alerts,
+  notificationOutbox,
+  notificationChannels,
+  userFavorites,
+} from "@trading-dashboard/shared/database";
+import { readAlertDisplayValues } from "@trading-dashboard/shared/contracts";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderAlertMessage, tradeSideOf } from "../src/notify/message-template.js";

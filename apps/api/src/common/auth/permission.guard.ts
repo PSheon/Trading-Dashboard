@@ -1,6 +1,12 @@
-import { ForbiddenException, Injectable, UnauthorizedException, type CanActivate, type ExecutionContext } from "@nestjs/common";
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+  type CanActivate,
+  type ExecutionContext,
+} from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { Permission } from "@trading-dashboard/shared";
+import type { Permission } from "@trading-dashboard/shared/contracts";
 import type { RequestUser } from "./current-user.js";
 import { hasPermission, PERMISSIONS_KEY } from "./permissions.js";
 

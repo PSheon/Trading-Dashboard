@@ -7,7 +7,7 @@ import {
   Query,
   UnauthorizedException,
 } from "@nestjs/common";
-import { actionsFeedQuerySchema, type ActionFeedItem, type Fill } from "@trading-dashboard/shared";
+import { actionsFeedQuerySchema, type ActionFeedItem, type Fill } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";

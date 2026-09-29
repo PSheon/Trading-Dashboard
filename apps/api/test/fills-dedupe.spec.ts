@@ -1,4 +1,4 @@
-import { fills } from "@trading-dashboard/shared";
+import { fills } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";

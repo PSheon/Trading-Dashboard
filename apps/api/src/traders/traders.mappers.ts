@@ -1,3 +1,4 @@
+import type { traderStats } from "@trading-dashboard/shared/database";
 import type {
   LivePosition,
   PortfolioResponse,
@@ -5,8 +6,7 @@ import type {
   TraderActivity,
   TraderStats,
   TraderWindowInput,
-  traderStats,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import type { RoundTrip } from "../analytics/round-trip.service.js";
 import type {

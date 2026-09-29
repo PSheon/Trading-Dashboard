@@ -1,3 +1,18 @@
+import {
+  CHAIN_DEFAULT,
+  type LeaderSource,
+  type Tier,
+  type ActionKind,
+  type AlertRuleScope,
+  type AlertRuleKind,
+  type SendStatus,
+  type UserRole,
+  type Locale,
+  type AlertSides,
+  type NotificationChannelKind,
+  type AppSettingsKey,
+} from "../enums.js";
+export * from "../enums.js";
 /**
  * Drizzle ORM schema — single source of truth for the Postgres data model
  * defined in PRD §6 (資料模型).
@@ -32,7 +47,6 @@ import {
 import { sql } from "drizzle-orm";
 
 /** All core tables are chain-scoped; v1 only ever writes 'hyperliquid'. */
-export const CHAIN_DEFAULT = "hyperliquid" as const;
 
 // ---------------------------------------------------------------------------
 // leader_lists — 每次匯入一個版本
@@ -65,10 +79,6 @@ export const leaderListItems = pgTable(
 // ---------------------------------------------------------------------------
 // leaders — 地址池主檔
 // ---------------------------------------------------------------------------
-export const tierEnum = ["A", "B", "C"] as const;
-export const leaderSourceEnum = ["import", "favorite"] as const;
-export type LeaderSource = (typeof leaderSourceEnum)[number];
-export type Tier = (typeof tierEnum)[number];
 
 export const leaders = pgTable(
   "leaders",
@@ -121,15 +131,6 @@ export const fills = pgTable(
 // ---------------------------------------------------------------------------
 // actions — 聚合後的動作；規則與 Feed 只看這張表
 // ---------------------------------------------------------------------------
-export const actionKindEnum = [
-  "open",
-  "add",
-  "reduce",
-  "close",
-  "flip",
-  "liquidation",
-] as const;
-export type ActionKind = (typeof actionKindEnum)[number];
 
 export const actions = pgTable(
   "actions",
@@ -218,21 +219,7 @@ export const coinMeta = pgTable(
 // ---------------------------------------------------------------------------
 // alert_rules — 規則
 // ---------------------------------------------------------------------------
-export const alertRuleScopeEnum = ["address", "group"] as const;
-export type AlertRuleScope = (typeof alertRuleScopeEnum)[number];
 
-export const alertRuleKindEnum = [
-  "R1",
-  "R2",
-  "R3",
-  "R4",
-  "R5",
-  "R6",
-  "R7",
-  "R8",
-  "R9",
-] as const;
-export type AlertRuleKind = (typeof alertRuleKindEnum)[number];
 
 export const alertRules = pgTable(
   "alert_rules",
@@ -260,8 +247,6 @@ export const alertRules = pgTable(
 // ---------------------------------------------------------------------------
 // alerts — 日誌與評分
 // ---------------------------------------------------------------------------
-export const sendStatusEnum = ["pending", "sent", "failed", "dry_run"] as const;
-export type SendStatus = (typeof sendStatusEnum)[number];
 
 export const alerts = pgTable(
   "alerts",
@@ -293,10 +278,6 @@ export const alerts = pgTable(
 // ---------------------------------------------------------------------------
 // users — one row per Privy account (Stage 2)
 // ---------------------------------------------------------------------------
-export const userRoleEnum = ["user", "admin"] as const;
-export type UserRole = (typeof userRoleEnum)[number];
-export const localeEnum = ["zh-TW", "en"] as const;
-export type Locale = (typeof localeEnum)[number];
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -313,8 +294,6 @@ export const users = pgTable("users", {
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
 });
 
-export const alertSidesEnum = ["buy", "sell", "both"] as const;
-export type AlertSides = (typeof alertSidesEnum)[number];
 
 // ---------------------------------------------------------------------------
 // user_favorites — 收藏；收藏的地址也會進入監控清單（leaders.source='favorite'）
@@ -347,8 +326,6 @@ export const userFavorites = pgTable(
 // ---------------------------------------------------------------------------
 // notification_channels — 每位使用者自己的通知目的地
 // ---------------------------------------------------------------------------
-export const notificationChannelKindEnum = ["telegram"] as const;
-export type NotificationChannelKind = (typeof notificationChannelKindEnum)[number];
 
 export const notificationChannels = pgTable(
   "notification_channels",
@@ -371,8 +348,6 @@ export const notificationChannels = pgTable(
 // ---------------------------------------------------------------------------
 // trader_stats — 全站排行（官方 leaderboard 定期匯入），探索頁的資料來源
 // ---------------------------------------------------------------------------
-export const traderWindowEnum = ["day", "week", "month", "allTime"] as const;
-export type TraderWindow = (typeof traderWindowEnum)[number];
 
 export const traderStats = pgTable(
   "trader_stats",
@@ -408,8 +383,6 @@ export const traderStats = pgTable(
 // ---------------------------------------------------------------------------
 // app_settings — 管理員在後台調整的全站設定（每個區塊一列，value 由 zod 驗證）
 // ---------------------------------------------------------------------------
-export const appSettingsKeyEnum = ["general", "discovery", "notifications", "revenue"] as const;
-export type AppSettingsKey = (typeof appSettingsKeyEnum)[number];
 
 export const appSettings = pgTable("app_settings", {
   key: text("key").$type<AppSettingsKey>().primaryKey(),

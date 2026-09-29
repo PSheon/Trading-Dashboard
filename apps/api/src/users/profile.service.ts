@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
-import { users, type MeResponse, type PatchMeRequest } from "@trading-dashboard/shared";
+import { users } from "@trading-dashboard/shared/database";
+import { type MeResponse, type PatchMeRequest } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

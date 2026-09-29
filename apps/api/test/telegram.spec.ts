@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { INestApplication } from "@nestjs/common";
-import { notificationChannels, telegramLinkTokens, users } from "@trading-dashboard/shared";
+import { notificationChannels, telegramLinkTokens, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";

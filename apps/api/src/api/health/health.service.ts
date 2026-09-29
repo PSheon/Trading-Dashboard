@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { HeartbeatResponse } from "@trading-dashboard/shared";
+import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
 import { env } from "../../config/env.js";
 import { RequestBudgeterService } from "../../hyperliquid/request-budgeter.service.js";

@@ -1,6 +1,7 @@
 import type { EventEmitter2 } from "@nestjs/event-emitter";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { actions, actionOutbox, CHAIN_DEFAULT, fills } from "@trading-dashboard/shared";
+import { actions, actionOutbox, fills } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { env } from "../config/env.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

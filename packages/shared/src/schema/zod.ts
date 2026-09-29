@@ -525,20 +525,32 @@ export type SpotBalance = z.infer<typeof spotBalanceSchema>;
 /** GET /traders/:address — the trader page's left column and header. Public;
  * `favorite` is false when signed out. */
 export const traderProfileResponseSchema = z.object({
+  /** Source timestamps are observations, not the profile assembly time.
+   * Optional while rolling out older clients/fixtures. Nullable totals must
+   * not be interpreted as zero; positions may contain only available dexes. */
+  dataQuality: z.object({
+    partial: z.boolean(),
+    sources: z.record(z.object({
+      status: z.enum(["available", "unavailable"]),
+      asOf: z.string().datetime().nullable(),
+      stale: z.boolean(),
+      maxAgeMs: z.number().int().nonnegative(),
+    })),
+  }).optional(),
   address: z.string(),
   displayName: z.string().nullable(),
   stats: traderStatsSchema.nullable(),
   /** Total equity, as Hyperliquid's portfolio totals it: perp equity (except
    * in unified / portfolio-margin accounts, where the spot balance already
    * holds it) + spot value + staked HYPE. */
-  accountValue: z.number(),
+  accountValue: z.number().nullable(),
   /** Sum of `marginSummary.accountValue` over every perp dex. Leverage and
    * margin usage are relative to this. */
-  perpEquity: z.number(),
+  perpEquity: z.number().nullable(),
   /** Spot balances at their USDC marks. */
   spotValue: z.number(),
   /** Staked HYPE (delegated, undelegated and pending withdrawal). */
-  stakedValue: z.number(),
+  stakedValue: z.number().nullable(),
   accountMode: accountModeSchema,
   /** Largest first. */
   spotBalances: z.array(spotBalanceSchema),
@@ -546,10 +558,10 @@ export const traderProfileResponseSchema = z.object({
    * listed market. Live clients subscribe to the same set. */
   perpDexes: z.array(z.string()),
   /** Perp only, summed over dexes. */
-  marginUsed: z.number(),
-  withdrawable: z.number(),
-  longNotional: z.number(),
-  shortNotional: z.number(),
+  marginUsed: z.number().nullable(),
+  withdrawable: z.number().nullable(),
+  longNotional: z.number().nullable(),
+  shortNotional: z.number().nullable(),
   positions: z.array(livePositionSchema),
   /** Watched by the live pipeline (imported or someone's favorite). */
   tracked: z.boolean(),
@@ -626,6 +638,15 @@ export type PortfolioQuery = z.infer<typeof portfolioQuerySchema>;
 
 export const seriesPointSchema = z.tuple([z.number(), z.number()]);
 export const portfolioResponseSchema = z.object({
+  /** Additive during rolling deployment. Observed intervals do not prove complete source history. */
+  methodology: z.object({
+    version: z.literal("flow-neutral-v1"),
+    intervals: z.number().int().nonnegative(),
+    excludedIntervals: z.number().int().nonnegative(),
+    excludedFraction: z.number().min(0).max(1).nullable(),
+    capitalFloorUsd: z.number().nonnegative(),
+    quality: z.enum(["observed", "partial", "unavailable"]),
+  }).optional(),
   window: traderWindowSchema,
   market: z.enum(["all", "perp"]),
   accountValue: z.array(seriesPointSchema),
@@ -970,19 +991,27 @@ export type CopyDirection = z.infer<typeof copyDirectionSchema>;
  * From each tracked address's latest position snapshot. */
 export const crowdCoinSchema = z.object({
   coin: z.string(),
-  longNotional: z.number(),
-  shortNotional: z.number(),
+  longNotional: z.number().nullable(),
+  shortNotional: z.number().nullable(),
   longTraders: z.number().int(),
   shortTraders: z.number().int(),
   /** (long − short) ÷ (long + short) notional, −1…1. */
-  netBias: z.number(),
+  netBias: z.number().nullable(),
   /** Net notional (long − short) 24 h ago; null without a snapshot then. */
   netNotional24hAgo: z.number().nullable(),
+  /** Marked exposure difference for addresses observed in both periods, not trade flow.
+   * Optional only for rolling deployment compatibility. */
+  netNotionalChange24h: z.number().nullable().optional(),
 });
 export type CrowdCoin = z.infer<typeof crowdCoinSchema>;
 
 export const crowdResponseSchema = z.object({
   trackedTraders: z.number().int(),
+  comparison: z.object({
+    currentTraders: z.number().int().nonnegative(),
+    pastTraders: z.number().int().nonnegative(),
+    matchedTraders: z.number().int().nonnegative(),
+  }).optional(),
   coins: z.array(crowdCoinSchema),
   updatedAt: z.coerce.date().nullable(),
 });

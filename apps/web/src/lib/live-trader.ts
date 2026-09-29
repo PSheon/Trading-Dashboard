@@ -313,6 +313,9 @@ export function liveSpotBalances(
  *   unified / portfolio-margin account. Staking stays the REST value.
  */
 export function deriveLiveProfile(profile: TraderProfileResponse, state: LiveTraderState): TraderProfileResponse {
+  // A partial REST snapshot lacks verified coverage/accounting inputs. Keep it
+  // explicit until a complete REST refresh; socket ticks must not turn null into zero.
+  if (profile.dataQuality?.partial) return profile;
   const liveDexes = Object.keys(state.perp);
   const hasAccountData = liveDexes.length > 0 || state.spot !== null || Object.keys(state.mids).length > 0;
   if (!hasAccountData && state.abstraction === null) return profile;
@@ -330,7 +333,7 @@ export function deriveLiveProfile(profile: TraderProfileResponse, state: LiveTra
   const spotBalances = liveSpotBalances(profile.spotBalances, state.spot, state.mids);
   const spotValue = spotBalances.reduce((s, b) => s + b.value, 0);
   const accountMode = toAccountMode(state.abstraction, profile.accountMode);
-  const accountValue = (accountMode === "standard" ? perpEquity : 0) + spotValue + profile.stakedValue;
+  const accountValue = perpEquity === null || profile.stakedValue === null ? null : (accountMode === "standard" ? perpEquity : 0) + spotValue + profile.stakedValue;
 
   let longNotional = 0;
   let shortNotional = 0;

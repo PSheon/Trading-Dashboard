@@ -1,3 +1,4 @@
+import { InsightsRepository } from "../src/insights/insights.repository.js";
 import { equitySnapshots, leaders, positionSnapshots } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,7 +23,7 @@ describe("snapshotNotional", () => {
     expect(snapshotNotional(2, 60_000, 2_000)).toBe(122_000);
     // Short 10 @ 3,000 with +1,000 uPnL → mark 2,900 → 29,000.
     expect(snapshotNotional(-10, 3_000, 1_000)).toBe(29_000);
-    expect(snapshotNotional(100, 150, null)).toBe(15_000);
+    expect(snapshotNotional(100, 150, null)).toBeNull();
     expect(snapshotNotional(1, null, 5)).toBeNull();
   });
 });
@@ -46,7 +47,7 @@ describe("InsightsService.crowd — real Postgres", () => {
 
   beforeEach(async () => {
     await truncateAll(db);
-    service = new InsightsService(db);
+    service = new InsightsService(new InsightsRepository(db));
     await db.insert(leaders).values([
       { address: L1 },
       { address: L2, source: "favorite" },
@@ -87,9 +88,10 @@ describe("InsightsService.crowd — real Postgres", () => {
       shortTraders: 1,
       netBias: (122_000 - 61_500) / 183_500,
       netNotional24hAgo: null,
+      netNotionalChange24h: null,
     });
     expect(res.coins[1]).toMatchObject({ coin: "ETH", longNotional: 0, shortNotional: 29_000, netBias: -1, shortTraders: 1 });
-    expect(res.coins[2]).toMatchObject({ coin: "SOL", longNotional: 15_000, netBias: 1, longTraders: 1 });
+    expect(res.coins[2]).toMatchObject({ coin: "SOL", longNotional: null, netBias: null, longTraders: 1 });
   });
 
   it("compares with the snapshots closest to 24 h earlier", async () => {
@@ -99,14 +101,63 @@ describe("InsightsService.crowd — real Postgres", () => {
     await snapshot(L1, at(DAY_MIN + 40), [{ coin: "SOL", szi: "1000", entryPx: "100", uPnl: "0" }]); // out of range
 
     const byCoin = new Map((await service.computeCrowd(NOW)).coins.map((c) => [c.coin, c.netNotional24hAgo]));
-    expect(byCoin.get("BTC")).toBe(50_000);
-    expect(byCoin.get("ETH")).toBe(10_100);
-    expect(byCoin.get("SOL")).toBe(0);
+    expect(byCoin.get("BTC")).toBeNull();
+    expect(byCoin.get("ETH")).toBeNull();
+    expect(byCoin.get("SOL")).toBeNull();
+  });
+
+  it("retains fully closed coins and compares only addresses observed in both periods", async () => {
+    await snapshot(L1, at(DAY_MIN), [
+      { coin: "DOGE", szi: "1000", entryPx: "1", uPnl: "0" },
+      { coin: "BTC", szi: "2", entryPx: "50000", uPnl: "0" },
+    ]);
+    const res = await service.computeCrowd(NOW);
+    expect(res.comparison).toEqual({ currentTraders: 3, pastTraders: 1, matchedTraders: 1 });
+    const doge = res.coins.find(c => c.coin === "DOGE")!;
+    expect(doge).toMatchObject({ longNotional: 0, shortNotional: 0, netNotionalChange24h: -1000 });
+    const btc = res.coins.find(c => c.coin === "BTC")!;
+    expect(btc.netNotionalChange24h).toBe(22000); // L2's new sample must not look like a trade.
+    expect(btc.netNotional24hAgo).toBeNull(); // legacy clients cannot compare unlike cohorts.
+  });
+
+  it("does not turn a missing current snapshot into a liquidation", async () => {
+    await snapshot(L3, at(DAY_MIN), [{ coin: "ADA", szi: "100", entryPx: "1", uPnl: "0" }]);
+    const res = await service.computeCrowd(NOW);
+    expect(res.comparison?.matchedTraders).toBe(0);
+    expect(res.coins.find(c => c.coin === "ADA")?.netNotionalChange24h).toBeNull();
+  });
+
+  it("reports marked exposure change, including price moves without trades", async () => {
+    await snapshot(L1, at(DAY_MIN), [{ coin: "BTC", szi: "2", entryPx: "60000", uPnl: "0" }]);
+    const res = await service.computeCrowd(NOW);
+    expect(res.coins.find(c => c.coin === "BTC")?.netNotionalChange24h).toBe(2000);
+  });
+
+  it("does not treat an unpriced current position as closed", async () => {
+    await snapshot(L1, at(1), [{ coin: "DOGE", szi: "1000", entryPx: null, uPnl: null }]);
+    await snapshot(L1, at(DAY_MIN), [{ coin: "DOGE", szi: "1000", entryPx: "1", uPnl: "0" }]);
+    expect((await service.computeCrowd(NOW)).coins.find(c => c.coin === "DOGE")).toMatchObject({ longNotional: null, longTraders: 1, netBias: null, netNotionalChange24h: null });
+  });
+
+  it("keeps missing PnL unknown instead of manufacturing a price move", async () => {
+    await snapshot(L2, at(DAY_MIN), [{ coin: "SOL", szi: "100", entryPx: "150", uPnl: "100" }]);
+    expect((await service.computeCrowd(NOW)).coins.find(c => c.coin === "SOL")).toMatchObject({
+      longNotional: null, longTraders: 1, netBias: null, netNotionalChange24h: null,
+    });
+  });
+
+  it("preserves legacy prior totals when all cohort members match", async () => {
+    await snapshot(L1, at(DAY_MIN), [{ coin: "BTC", szi: "2", entryPx: "50000", uPnl: "0" }]);
+    await snapshot(L2, at(DAY_MIN), []);
+    await snapshot(L5, at(DAY_MIN), []);
+    const btc = (await service.computeCrowd(NOW)).coins.find(c => c.coin === "BTC")!;
+    expect(btc.netNotional24hAgo).toBe(100000);
+    expect(btc.netNotionalChange24h).toBe(-39500);
   });
 
   it("is empty without fresh snapshots", async () => {
     const res = await service.computeCrowd(new Date(NOW.getTime() + 60 * MIN));
-    expect(res).toEqual({ trackedTraders: 0, coins: [], updatedAt: null });
+    expect(res).toEqual({ trackedTraders: 0, coins: [], updatedAt: null, comparison: { currentTraders: 0, pastTraders: 0, matchedTraders: 0 } });
   });
 
   it("GET /insights/crowd is cached for 60 s", async () => {

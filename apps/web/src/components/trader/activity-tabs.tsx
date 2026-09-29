@@ -180,7 +180,7 @@ function markOf(p: TraderProfileResponse["positions"][number], marks: Readonly<R
 
 function Positions({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
   const { t, format } = useI18n();
-  if (profile.positions.length === 0) return <EmptyState title={t("trader.noPositions")} />;
+  if (profile.positions.length === 0) return <EmptyState title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} />;
   return (
     <Table>
       <TableHeader>

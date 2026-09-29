@@ -8,12 +8,13 @@ positions and history, follow them, and get Telegram alerts within seconds of
 their moves. Order execution comes in a later stage; today the copy panel is
 UI only.
 
-Where Orbie differs from CopyDog (see the
-[competitor analysis](./docs/%E7%AB%B6%E5%93%81%E5%88%86%E6%9E%90%20%E2%80%94%20CopyDog%20%E9%A1%9E%E7%94%A2%E5%93%81%E7%9A%84%E7%B5%90%E6%A7%8B%E6%80%A7%E5%BC%B1%E9%BB%9E%E8%88%87%E6%94%B9%E9%80%B2%E6%96%B9%E5%90%91.md)):
-it keeps its own history of fills and equity (Hyperliquid doesn't), shows
-drawdown and sample size next to every return, tags vaults, aggregates fills
-into actions before alerting, and shows what the tracked traders hold as a
-crowd, not just one address at a time.
+Current research features include retained fills and equity snapshots for tracked
+addresses, drawdown and sample indicators, vault labels, action-level alerts,
+and a crowd view of tracked positions. Hyperliquid also provides bounded
+historical data; local retention does not establish complete pre-tracking history.
+These features are not all unique to Copydog. See the
+[current capability comparison and engineering review](docs/copydog-gap-and-practices-review.md)
+for verified code, official competitor claims and remaining gaps.
 
 The repo directory is still named `Trading-Dashboard`, and the workspace
 packages are still `@trading-dashboard/*`.

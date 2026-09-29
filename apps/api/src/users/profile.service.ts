@@ -1,12 +1,9 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
-import { users } from "@trading-dashboard/shared/database";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { ROLE_PERMISSIONS, type MeResponse, type PatchMeRequest } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { ProfileRepository } from "./profile.repository.js";
 
-type UserRow = typeof users.$inferSelect;
+type UserRow = NonNullable<Awaited<ReturnType<ProfileRepository["findById"]>>>;
 
 function toMe(row: UserRow): MeResponse {
   return {
@@ -25,10 +22,10 @@ function toMe(row: UserRow): MeResponse {
 /** GET/PATCH /me. */
 @Injectable()
 export class ProfileService {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(private readonly repository: ProfileRepository) {}
 
   async get(userId: number): Promise<MeResponse> {
-    const [row] = await this.db.select().from(users).where(eq(users.id, userId));
+    const row = await this.repository.findById(userId);
     if (!row) throw new NotFoundException("User not found");
     return toMe(row);
   }
@@ -39,7 +36,7 @@ export class ProfileService {
     if (patch.displayName !== undefined) set.displayName = patch.displayName?.trim() || null;
     if (Object.keys(set).length === 0) return this.get(userId);
 
-    const [row] = await this.db.update(users).set(set).where(eq(users.id, userId)).returning();
+    const row = await this.repository.updatePreferences(userId, set);
     if (!row) throw new NotFoundException("User not found");
     return toMe(row);
   }

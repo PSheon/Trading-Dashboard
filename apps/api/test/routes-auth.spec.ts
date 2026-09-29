@@ -15,6 +15,7 @@ import { AlertsService } from "../src/api/alerts/alerts.service.js";
 import { HealthController } from "../src/api/health/health.controller.js";
 import { HealthService } from "../src/api/health/health.service.js";
 import { LeadersController } from "../src/api/leaders/leaders.controller.js";
+import { RoundTripService } from "../src/analytics/round-trip.service.js";
 import { LeadersService } from "../src/api/leaders/leaders.service.js";
 import { ListsController } from "../src/api/lists/lists.controller.js";
 import { ListsService } from "../src/api/lists/lists.service.js";
@@ -29,8 +30,8 @@ const SERVICE_TOKEN = "service-token-for-routes-0123456789";
 const WHALE = "0x" + "11".repeat(20);
 const OTHER = "0x" + "22".repeat(20);
 
-/** The real controllers with their decorators; market-data services that
- * need Hyperliquid are stubbed, the per-user ones run on the real DB. */
+/** Real controllers, authorization and leader/owned-resource queries run on
+ * the test DB; health/list/import orchestration uses valid DTO fixtures. */
 describe("route access on the existing controllers", () => {
   const db = getTestDb();
   const privy = stubPrivy({
@@ -63,14 +64,8 @@ describe("route access on the existing controllers", () => {
         AlertsService,
         AlertRulesService,
         { provide: HealthService, useValue: { heartbeat: async () => ({ ok: true }) } },
-        {
-          provide: LeadersService,
-          useValue: {
-            findAll: async () => [],
-            findDetail: async (_c: string, _a: string, _i: string, scope: unknown) => ({ scope }),
-            update: async () => ({ updated: true }),
-          },
-        },
+        LeadersService,
+        RoundTripService,
         { provide: ListsService, useValue: { findAll: async () => [], diff: async () => ({ entries: [] }) } },
         { provide: ImportService, useValue: { importLeaderList: async () => ({ listId: 1, itemCount: 0, newAddresses: [] }) } },
       ],
@@ -98,6 +93,7 @@ describe("route access on the existing controllers", () => {
   };
 
   it("public market data: /health, GET /leaders*, GET /actions* work anonymously and with a forged token", async () => {
+    await db.insert(leaders).values({ address: WHALE });
     for (const token of [undefined, "forged-token"]) {
       await call("get", "/health", token).expect(200);
       await call("get", "/leaders", token).expect(200);
@@ -108,6 +104,7 @@ describe("route access on the existing controllers", () => {
   });
 
   it("admin routes: anonymous 401, user 403, admin 200, service 200", async () => {
+    await db.insert(leaders).values({ address: WHALE });
     const adminRoutes: [("get" | "post" | "patch"), string, object?][] = [
       ["get", "/lists"],
       ["get", "/lists/diff?fromListId=1&toListId=2"],
@@ -168,10 +165,15 @@ describe("route access on the existing controllers", () => {
   });
 
   it("leader detail: alert history is the caller's own (none when anonymous, all for admins)", async () => {
-    expect((await call("get", `/leaders/hyperliquid/${WHALE}`).expect(200)).body.scope).toBe("none");
-    const aliceScope = (await call("get", `/leaders/hyperliquid/${WHALE}`, "alice-token").expect(200)).body.scope;
-    expect(aliceScope).toEqual({ userId: expect.any(Number) });
-    expect((await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.scope).toBe("all");
+    await db.insert(leaders).values({ address: WHALE });
+    for (const token of ["alice-token", "bob-token"]) await call("get", "/actions", token).expect(200);
+    const recipients = await db.select().from(users);
+    await db.insert(alerts).values(recipients.map(user => ({ userId: user.id, address: WHALE, coin: "BTC", payloadJson: { privateRecipient: user.privyUserId }, sendStatus: "sent" as const })));
+    expect((await call("get", `/leaders/hyperliquid/${WHALE}`).expect(200)).body.alerts).toEqual([]);
+    const mine = (await call("get", `/leaders/hyperliquid/${WHALE}`, "alice-token").expect(200)).body.alerts;
+    expect(mine).toHaveLength(1);
+    expect(mine[0].payloadJson.privateRecipient).toBe("did:privy:alice");
+    expect((await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.alerts).toHaveLength(2);
   });
 
   it("an unscoped service cannot read another user's alert payload", async () => {

@@ -23,6 +23,7 @@ import {
 import { useState } from "react";
 import { cn } from "cn";
 
+import { ProfileQuality } from "./profile-quality";
 import { AlertBell } from "@/components/alerts/alert-bell";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { TraderName } from "@/components/traders/trader-name";
@@ -198,18 +199,18 @@ export function ProfileCard({
   const { t, format } = useI18n();
   const { copied, copy } = useCopied();
 
-  const gross = profile.longNotional + profile.shortNotional;
+  const gross = profile.longNotional === null || profile.shortNotional === null ? null : profile.longNotional + profile.shortNotional;
   // Leverage and margin usage are perp figures: relative to perp equity,
   // not the total (spot and staking don't margin the positions).
-  const leverage = profile.perpEquity > 0 ? gross / profile.perpEquity : 0;
-  const longShare = gross > 0 ? profile.longNotional / gross : 0.5;
+  const leverage = profile.perpEquity === null || gross === null ? null : profile.perpEquity > 0 ? gross / profile.perpEquity : 0;
+  const longShare = gross !== null && gross > 0 && profile.longNotional !== null ? profile.longNotional / gross : 0.5;
   const bias =
-    gross === 0 || Math.abs(longShare - 0.5) < 0.1
+    gross === null ? "—" : gross === 0 || Math.abs(longShare - 0.5) < 0.1
       ? t("trader.biasNeutral")
       : longShare > 0.5
         ? t("trader.biasLong")
         : t("trader.biasShort");
-  const unrealized = profile.positions.reduce((s, p) => s + p.unrealizedPnl, 0);
+  const unrealized = profile.perpEquity === null ? null : profile.positions.reduce((s, p) => s + p.unrealizedPnl, 0);
 
   return (
     <aside className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -278,7 +279,7 @@ export function ProfileCard({
         <div className="mt-2.5 flex flex-col text-xs">
           <SubRow label={t("trader.accountPerp")} value={format.usd(profile.perpEquity, { digits: 2 })} testId="perp-equity" />
           <SubRow label={t("trader.accountSpot")} value={format.usd(profile.spotValue, { digits: 2 })} testId="spot-value" />
-          {profile.stakedValue > 0 ? (
+          {profile.stakedValue === null || profile.stakedValue > 0 ? (
             <SubRow label={t("trader.accountStaked")} value={format.usd(profile.stakedValue, { digits: 2 })} />
           ) : null}
         </div>
@@ -289,6 +290,7 @@ export function ProfileCard({
         ) : null}
       </div>
 
+      <ProfileQuality quality={profile.dataQuality} />
       <Section title={t("trader.holdings")}>
         <div className="flex items-center justify-between text-[0.8125rem]">
           <span className="text-muted-foreground">
@@ -298,7 +300,7 @@ export function ProfileCard({
           <span className="num font-semibold text-primary">{format.num(leverage, 2)}×</span>
         </div>
         <div className="mt-2">
-          <Meter fill={leverage / 10} />
+          <Meter fill={(leverage ?? 0) / 10} />
         </div>
         <p className="num mt-1.5 text-[11px] text-subtle-foreground">
           {t("trader.notional", { value: format.usd(gross, { compact: true }) })}
@@ -309,7 +311,7 @@ export function ProfileCard({
           <span className="font-semibold">{bias}</span>
         </div>
         <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-border">
-          {gross > 0 ? (
+          {gross !== null && gross > 0 ? (
             <>
               <div className="h-full bg-positive" style={{ width: `${longShare * 100}%` }} />
               <div className="h-full bg-negative" style={{ width: `${(1 - longShare) * 100}%` }} />
@@ -318,7 +320,7 @@ export function ProfileCard({
         </div>
         <div className="num mt-1.5 flex justify-between text-[11px]">
           <span>
-            <span className="text-positive">{format.pct(gross > 0 ? longShare : 0)}</span>
+            <span className="text-positive">{format.pct(gross === null ? null : gross > 0 ? longShare : 0)}</span>
             <span className="text-subtle-foreground">
               {" · "}
               {t("common.long")} {format.usd(profile.longNotional, { compact: true })}
@@ -329,25 +331,25 @@ export function ProfileCard({
               {format.usd(profile.shortNotional, { compact: true })} {t("common.short")}
               {" · "}
             </span>
-            <span className="text-negative">{format.pct(gross > 0 ? 1 - longShare : 0)}</span>
+            <span className="text-negative">{format.pct(gross === null ? null : gross > 0 ? 1 - longShare : 0)}</span>
           </span>
         </div>
       </Section>
 
       <Section title={t("trader.overview")}>
         <Row label={t("trader.unrealized")}>
-          <span className={unrealized > 0 ? "text-positive" : unrealized < 0 ? "text-negative" : ""}>
-            {format.usd(unrealized, { sign: true, compact: Math.abs(unrealized) >= 1e6 })}
+          <span className={unrealized !== null && unrealized > 0 ? "text-positive" : unrealized !== null && unrealized < 0 ? "text-negative" : ""}>
+            {format.usd(unrealized, { sign: true, compact: Math.abs(unrealized ?? 0) >= 1e6 })}
           </span>
         </Row>
         <Row label={`${t("trader.marginUsage")} (${t("trader.perpBasis")})`}>
-          {format.pct(profile.perpEquity > 0 ? profile.marginUsed / profile.perpEquity : 0)}
+          {format.pct(profile.perpEquity === null || profile.marginUsed === null ? null : profile.perpEquity > 0 ? profile.marginUsed / profile.perpEquity : 0)}
         </Row>
         <Row label={t("trader.volume")}>
           {allTimeVolume === null ? "—" : format.usd(allTimeVolume, { compact: true })}
         </Row>
         <Row label={t("trader.withdrawable")}>{format.usd(profile.withdrawable, { compact: true })}</Row>
-        <Row label={t("trader.openPositions")}>{profile.positions.length}</Row>
+        <Row label={t("trader.openPositions")}>{profile.perpEquity === null ? `≥ ${profile.positions.length}` : profile.positions.length}</Row>
       </Section>
 
       <GroupsSection trades={trades} computing={tradesComputing} />
@@ -387,6 +389,14 @@ function PendingRows({ rows = 3 }: { rows?: number }) {
       ))}
     </div>
   );
+}
+
+/** No analytics yet: placeholders while computing, else a load failure
+ * (never an empty history). */
+function Unavailable({ computing }: { computing: boolean }) {
+  const { t } = useI18n();
+  if (computing) return <PendingRows />;
+  return <p className="text-xs text-muted-foreground">{t("trader.analyticsFailed")}</p>;
 }
 
 function TierValue({ icon: Icon, label, hint, testId }: { icon?: LucideIcon; label: string; hint: string; testId: string }) {
@@ -479,8 +489,8 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
         </DropdownMenu>
       }
     >
-      {!trades && computing ? (
-        <PendingRows />
+      {!trades ? (
+        <Unavailable computing={computing} />
       ) : rows.length > 0 ? (
         <CoinFigureRows rows={rows.map((x) => ({ key: x.id, coin: x.coin, figure: signedUsd1(x.netPnl), className: pnlTone(x.netPnl) }))} />
       ) : (
@@ -496,8 +506,8 @@ function MostTradedSection({ trades, computing }: { trades: TraderAnalyticsRespo
   const rows = [...(trades?.summary.coins ?? [])].sort((a, b) => b.volume - a.volume).slice(0, 3);
   return (
     <Section title={t("trader.mostTraded")}>
-      {!trades && computing ? (
-        <PendingRows />
+      {!trades ? (
+        <Unavailable computing={computing} />
       ) : rows.length > 0 ? (
         <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: usd1(c.volume) }))} />
       ) : (

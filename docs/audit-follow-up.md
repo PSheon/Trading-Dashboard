@@ -5,6 +5,9 @@
 完整逐批證據見[執行紀錄](superpowers/plans/2026-09-29-remaining-work.md)。
 最終 rebase／整合及整合後測試結果以該紀錄末尾為準。
 
+後續針對 `9892464` 的[最佳實踐與 Copydog 差距複查](copydog-gap-and-practices-review.md)
+另列 22 項工程欠項與 12 個跟單工作包；原 40 項完成不代表沒有新發現或產品已完整。
+
 ## 40 項逐項結果
 
 | # | 項目 | 目前結果與邊界 |

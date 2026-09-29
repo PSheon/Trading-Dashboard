@@ -479,7 +479,8 @@ export class TradeAnalyticsService {
   private async liveAccount(address: string, cost: Cost): Promise<LiveAccount | null> {
     try {
       const profile = this.traders.profileCache.peek(address);
-      if (profile) {
+      // A partial profile (a dex state missing) can't vouch for positions.
+      if (profile && profile.value.perpEquity !== null && !profile.value.dataQuality?.partial) {
         return {
           time: new Date(profile.value.fetchedAt).getTime(),
           positions: new Map(profile.value.positions.map((p) => [p.coin, p.szi])),

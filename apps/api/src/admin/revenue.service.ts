@@ -1,13 +1,10 @@
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
+import { Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
-import { revenueSnapshots } from "@trading-dashboard/shared/database";
 import { type AdminRevenueResponse } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { RevenueRepository } from "./revenue.repository.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { toUnits, unitsToNumber } from "./decimal.js";
@@ -16,7 +13,6 @@ import {
   dailyRevenue,
   rangeStartDay,
   taipeiDayStart,
-  type RevenuePoint,
   type RevenueRange,
 } from "./revenue-daily.js";
 
@@ -39,7 +35,7 @@ export class RevenueService implements OnApplicationBootstrap {
   private readonly logger = new Logger(RevenueService.name);
 
   constructor(
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: RevenueRepository,
     private readonly settings: SettingsService,
     private readonly info: HyperliquidInfoClient,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
@@ -81,10 +77,7 @@ export class RevenueService implements OnApplicationBootstrap {
       const values = parseReferral(response);
       const takenAt = new Date(Math.floor(Date.now() / 1000) * 1000);
       const row = { ...values, raw: response };
-      await this.db
-        .insert(revenueSnapshots)
-        .values({ address, takenAt, ...row })
-        .onConflictDoUpdate({ target: [revenueSnapshots.address, revenueSnapshots.takenAt], set: row });
+      await this.repository.upsert({ address, takenAt, ...row });
       this.logger.log(
         `Revenue snapshot ${address}: builder ${values.builderRewards}, referral ${values.referralRewards}`,
       );
@@ -117,12 +110,7 @@ export class RevenueService implements OnApplicationBootstrap {
     };
     if (!address) return empty;
 
-    const [latest] = await this.db
-      .select()
-      .from(revenueSnapshots)
-      .where(eq(revenueSnapshots.address, address))
-      .orderBy(desc(revenueSnapshots.takenAt))
-      .limit(1);
+    const latest = await this.repository.latest(address);
     if (!latest) return empty;
 
     const { daily, total } = await this.earned(address, range, now);
@@ -152,28 +140,7 @@ export class RevenueService implements OnApplicationBootstrap {
 
   private async earned(address: string, range: RevenueRange, now: Date) {
     const fromDay = rangeStartDay(range, now);
-    const columns = {
-      takenAt: revenueSnapshots.takenAt,
-      builder: revenueSnapshots.builderRewards,
-      referral: revenueSnapshots.referralRewards,
-    };
-    const points: RevenuePoint[] = [];
-    let where = eq(revenueSnapshots.address, address);
-    if (fromDay !== null) {
-      const start = taipeiDayStart(fromDay);
-      // The baseline for the range's first day: the last snapshot before it.
-      const [baseline] = await this.db
-        .select(columns)
-        .from(revenueSnapshots)
-        .where(and(eq(revenueSnapshots.address, address), lt(revenueSnapshots.takenAt, start)))
-        .orderBy(desc(revenueSnapshots.takenAt))
-        .limit(1);
-      if (baseline) points.push(baseline);
-      where = and(where, gte(revenueSnapshots.takenAt, start))!;
-    }
-    points.push(
-      ...(await this.db.select(columns).from(revenueSnapshots).where(where).orderBy(asc(revenueSnapshots.takenAt))),
-    );
+    const points = await this.repository.pointsSince(address, fromDay === null ? null : taipeiDayStart(fromDay));
     return dailyRevenue(points, fromDay);
   }
 }

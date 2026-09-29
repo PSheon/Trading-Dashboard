@@ -6,7 +6,7 @@
  * then the oldest.
  */
 export class TtlCache<V> {
-  private readonly entries = new Map<string, { value: V; expiresAt: number }>();
+  private readonly entries = new Map<string, { value: V; expiresAt: number; observedAt: number }>();
   private readonly inflight = new Map<string, Promise<V>>();
 
   constructor(
@@ -15,10 +15,10 @@ export class TtlCache<V> {
     private readonly now: () => number = () => Date.now(),
   ) {}
 
-  get(key: string, load: () => Promise<V>): Promise<V> {
+  get(key: string, load: () => Promise<V>, ttlMs: number | ((value: V) => number) = this.ttlMs): Promise<V> {
     const hit = this.peek(key);
     if (hit !== undefined) return Promise.resolve(hit.value);
-    return this.inflight.get(key) ?? this.start(key, load);
+    return this.inflight.get(key) ?? this.start(key, load, ttlMs);
   }
 
   /** Reloads `key` even if fresh (joining a load already in flight) and
@@ -28,11 +28,11 @@ export class TtlCache<V> {
     return this.inflight.get(key) ?? this.start(key, load, ttlMs);
   }
 
-  private start(key: string, load: () => Promise<V>, ttlMs = this.ttlMs): Promise<V> {
+  private start(key: string, load: () => Promise<V>, ttlMs: number | ((value: V) => number) = this.ttlMs): Promise<V> {
     const promise = (async () => {
       try {
         const value = await load();
-        this.set(key, value, ttlMs);
+        this.set(key, value, typeof ttlMs === "function" ? ttlMs(value) : ttlMs);
         return value;
       } finally {
         this.inflight.delete(key);
@@ -56,7 +56,7 @@ export class TtlCache<V> {
 
   set(key: string, value: V, ttlMs = this.ttlMs): void {
     this.entries.delete(key);
-    this.entries.set(key, { value, expiresAt: this.now() + ttlMs });
+    this.entries.set(key, { value, expiresAt: this.now() + ttlMs, observedAt: this.now() });
     if (this.entries.size <= this.maxEntries) return;
     const now = this.now();
     for (const [k, e] of this.entries) if (e.expiresAt <= now) this.entries.delete(k);
@@ -66,6 +66,11 @@ export class TtlCache<V> {
       if (this.entries.size <= this.maxEntries) break;
       this.entries.delete(k);
     }
+  }
+
+  /** Observation time survives cache hits; never pretend a hit is a new fetch. */
+  observedAt(key: string): number | null {
+    return this.peek(key) === undefined ? null : this.entries.get(key)!.observedAt;
   }
 
   get size(): number {

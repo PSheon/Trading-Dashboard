@@ -2,6 +2,7 @@
 
 import type { PortfolioResponse, TradeWindow, TraderAnalyticsResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
 import { useMemo } from "react";
+import Link from "next/link";
 import { cn } from "cn";
 
 import { OrbieMark, Wordmark } from "@/components/brand/logo";
@@ -214,6 +215,11 @@ export function KpiTiles({
         }
       />
     </div>
+      <p className="px-1 text-[11px] leading-relaxed text-subtle-foreground">{t("trader.kpi.winRateBasis")}</p>
+      <p className="px-1 text-[11px] leading-relaxed text-subtle-foreground">
+        {portfolio?.methodology ? t("trader.kpi.estimateQuality", { excluded: portfolio.methodology.excludedIntervals, total: portfolio.methodology.intervals }) : null}{" "}
+        <Link href="/methodology" className="underline underline-offset-2">{t("methodology.title")}</Link>
+      </p>
       <p className="num px-1 text-[11px] leading-relaxed text-subtle-foreground">
         {t("trader.kpi.source", { market: t(market === "perp" ? "trader.chart.perp" : "trader.chart.all") })}
         {boardDiffers && profile.stats ? (

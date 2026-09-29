@@ -232,3 +232,12 @@ describe("traderSubscriptions", () => {
     expect(new Set(subs.flatMap((s) => ("user" in s ? [s.user] : []))).size).toBe(1);
   });
 });
+
+it("does not manufacture complete equity from a partial REST profile when live mids arrive", () => {
+  const partial = { ...profile, accountValue: null, stakedValue: null,
+    dataQuality: { partial: true, sources: { staking: { status: "unavailable" as const, asOf: null, stale: false, maxAgeMs: 600000 } } } };
+  const state = { ...initialLiveState, mids: { BTC: 90000 } };
+  const live = deriveLiveProfile(partial, state);
+  expect(live.accountValue).toBeNull();
+  expect(live.stakedValue).toBeNull();
+});

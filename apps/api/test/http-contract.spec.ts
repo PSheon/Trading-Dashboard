@@ -52,7 +52,13 @@ describe("negotiated HTTP contract", () => {
   it("keeps clients without negotiation on the legacy body", async () => {
     const res = await request(app.getHttpServer()).get("/actions").expect(200);
     expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body[0]).not.toHaveProperty("privateColumn");
     expect(res.headers["x-api-contract"]).toBeUndefined();
+  });
+  it("rejects invalid DTOs without envelope negotiation", async () => {
+    const res = await request(app.getHttpServer()).get("/settings").expect(500);
+    expect(res.body.code).toBe("internal_error");
+    expect(JSON.stringify(res.body)).not.toContain("secret");
   });
   it("normalizes field paths and preserves business codes/details", async () => {
     expect((await get("/bad").expect(400)).body.error).toMatchObject({ code: "validation_error", fields: [{ path: "" }] });

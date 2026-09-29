@@ -1,3 +1,4 @@
+import { readInfoJson, validateInfoResponse } from "./response-validation.js";
 import { AppConfig } from "../config/app-config.js";
 import { currentRequestSignal } from "../runtime/request-context.js";
 import { Optional } from "@nestjs/common";
@@ -122,8 +123,9 @@ export class HyperliquidInfoClient {
       throw new Error(`Hyperliquid info request failed: ${res.status}`);
     }
 
+    const parsed = validateInfoResponse(body.type, await readInfoJson(res, body.type));
     this.budgeter.onSuccess();
-    return (await res.json()) as T;
+    return parsed as T;
   }
 
   /**

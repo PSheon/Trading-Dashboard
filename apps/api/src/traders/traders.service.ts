@@ -21,7 +21,7 @@ import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
-import { SpotPriceService } from "./spot-price.service.js";
+import { SPOT_PRICE_TTL_MS, SpotPriceService } from "./spot-price.service.js";
 import { hypePrice, stakedHype, toAccountMode, totalAccountValue } from "./spot-prices.js";
 import {
   dbFillToTraderFill,
@@ -88,6 +88,7 @@ export class TradersService {
   private warming: Promise<number> | undefined;
   /** Settable for tests. */
   sparklineDeadlineMs = SPARKLINE_DEADLINE_MS;
+  profileSourceDeadlineMs = 4_000;
 
   readonly profileCache = new TtlCache<SharedProfile>(PROFILE_TTL_MS);
   readonly portfolioCache = new TtlCache<HlPortfolioResponse>(PORTFOLIO_TTL_MS);
@@ -148,10 +149,15 @@ export class TradersService {
    */
   async profile(address: string, userId: number | null): Promise<TraderProfileResponse> {
     const [shared, favorites] = await Promise.all([
-      this.profileCache.get(address, () => this.loadProfile(address)),
+      this.profileCache.get(address, () => this.loadProfile(address), value => value.dataQuality?.partial ? 5_000 : PROFILE_TTL_MS),
       this.repository.favoritesAmong(userId, [address]),
     ]);
-    return { ...shared, favorite: favorites.has(address) };
+    const dataQuality = shared.dataQuality && { ...shared.dataQuality, sources: Object.fromEntries(
+      Object.entries(shared.dataQuality.sources).map(([key, source]) => [key, { ...source,
+        stale: source.asOf !== null && Date.now() - Date.parse(source.asOf) > source.maxAgeMs,
+      }]),
+    ) };
+    return { ...shared, dataQuality, favorite: favorites.has(address) };
   }
 
   /**
@@ -163,39 +169,67 @@ export class TradersService {
    */
   private async loadProfile(address: string): Promise<SharedProfile> {
     const since = new Date(Date.now() - THIRTY_DAYS_MS);
+    const sources: NonNullable<SharedProfile["dataQuality"]>["sources"] = {};
+    const read = async <T>(key: string, load: () => Promise<T>, maxAgeMs: number,
+      optional = false, observedAt?: () => number | null): Promise<T | null> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const pending = load();
+        const value = optional ? await Promise.race([pending, new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Source deadline")), this.profileSourceDeadlineMs);
+        })]) : await pending;
+        const observed = observedAt ? observedAt() : Date.now();
+        sources[key] = { status: "available", asOf: observed === null ? null : new Date(observed).toISOString(), stale: false, maxAgeMs };
+        return value;
+      } catch (error) {
+        if (!optional) throw error;
+        sources[key] = { status: "unavailable", asOf: null, stale: false, maxAgeMs };
+        this.logger.warn(`Profile source unavailable: ${key}`);
+        return null;
+      } finally { clearTimeout(timer); }
+    };
+    // Identity/tracking, the dex universe, spot valuation and account mode are
+    // required. Without them the accounting scope itself would be a guess.
     const [dexes, tracked] = await Promise.all([this.perpDexes(), this.isTracked(address)]);
+    sources.dexes = { status: "available", asOf: new Date(this.dexCache.observedAt("dexes") ?? Date.now()).toISOString(), stale: false, maxAgeMs: DEX_LIST_TTL_MS };
+    let statsMaxAgeMs = PROFILE_TTL_MS;
     const [states, spot, abstraction, staked, book, statsRows, analytics] = await Promise.all([
-      Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile))),
-      this.info.spotClearinghouseState(address, LANE, PAGE_RANK.profile),
-      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.profile)),
-      this.stakingCache.get(address, async () =>
-        stakedHype(await this.info.delegatorSummary(address, LANE, PAGE_RANK.profile)),
-      ),
-      this.spotPrices.book(LANE, PAGE_RANK.profile),
-      this.repository.findStats(address),
-      tracked
-        ? this.roundTrips.reconstructRoundTrips(address).then((trips) => summarizeRoundTrips(trips, since))
-        : null,
+      Promise.all(dexes.map(dex => read(`perp:${dex || "main"}`,
+        () => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile), PROFILE_TTL_MS, true))),
+      read("spot", () => this.info.spotClearinghouseState(address, LANE, PAGE_RANK.profile), PROFILE_TTL_MS),
+      read("accountMode", () => this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.profile)),
+        ACCOUNT_MODE_TTL_MS, false, () => this.abstractionCache.observedAt(address)),
+      read("staking", () => this.stakingCache.get(address, async () => stakedHype(await this.info.delegatorSummary(address, LANE, PAGE_RANK.profile))),
+        STAKING_TTL_MS, true, () => this.stakingCache.observedAt(address)),
+      read("prices", () => this.spotPrices.book(LANE, PAGE_RANK.profile), SPOT_PRICE_TTL_MS, false, () => this.spotPrices.cache.observedAt("book")),
+      read("stats", async () => {
+        statsMaxAgeMs = await this.ingest.refreshIntervalMs();
+        return this.repository.findStats(address);
+      }, PROFILE_TTL_MS, true),
+      read("analytics", async () => tracked ? summarizeRoundTrips(await this.roundTrips.reconstructRoundTrips(address), since) : null, PROFILE_TTL_MS, true),
     ]);
-    const stats = statsRows[0] ? toTraderStats(statsRows[0]) : null;
-    const perp = summarizeAccount(states);
+    if (spot === null || abstraction === null || book === null) throw new Error("Required profile source unavailable");
+    const stats = statsRows?.[0] ? toTraderStats(statsRows[0]) : null;
+    if (statsRows?.[0]) {
+      sources.stats.asOf = statsRows[0].updatedAt.toISOString();
+      sources.stats.maxAgeMs = statsMaxAgeMs;
+    }
+    const perp = summarizeAccount(states.filter(state => state !== null));
+    const completePerps = states.every(state => state !== null);
     const { spotValue, balances } = this.spotPrices.value(spot.balances ?? [], book);
-    const stakedValue = staked * hypePrice(book);
+    const stakedValue = staked === null ? null : staked * hypePrice(book);
     const accountMode = toAccountMode(abstraction, spot.portfolioMarginEnabled ?? false);
     return {
-      address,
-      displayName: stats?.displayName ?? null,
-      stats,
-      ...perp,
-      accountValue: totalAccountValue(accountMode, perp.perpEquity, spotValue, stakedValue),
-      spotValue,
-      stakedValue,
-      accountMode,
-      spotBalances: balances,
-      perpDexes: dexes,
-      tracked,
-      isVault: stats?.isVault ?? this.ingest.isVault(address),
-      analytics,
+      address, displayName: stats?.displayName ?? null, stats, ...perp,
+      perpEquity: completePerps ? perp.perpEquity : null,
+      marginUsed: completePerps ? perp.marginUsed : null,
+      withdrawable: completePerps ? perp.withdrawable : null,
+      longNotional: completePerps ? perp.longNotional : null,
+      shortNotional: completePerps ? perp.shortNotional : null,
+      accountValue: completePerps && stakedValue !== null ? totalAccountValue(accountMode, perp.perpEquity, spotValue, stakedValue) : null,
+      spotValue, stakedValue, accountMode, spotBalances: balances, perpDexes: dexes, tracked,
+      isVault: stats?.isVault ?? this.ingest.isVault(address), analytics,
+      dataQuality: { partial: Object.values(sources).some(source => source.status === "unavailable"), sources },
       fetchedAt: new Date(),
     };
   }

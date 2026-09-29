@@ -1,0 +1,1 @@
+ALTER TABLE "alert_rules" ADD CONSTRAINT "alert_rules_kind_unique" UNIQUE("kind");

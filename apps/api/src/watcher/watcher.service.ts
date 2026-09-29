@@ -4,7 +4,9 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
+  Optional,
 } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { and, desc, eq } from "drizzle-orm";
 import {
   actions,
@@ -26,6 +28,7 @@ import {
   isOutOfScopeSpotFill,
   type PositionStateLookup,
 } from "./action-classifier.js";
+import { ACTION_CREATED_EVENT } from "./action-created.event.js";
 import { toFillRow } from "./fill-row.js";
 
 interface PositionState {
@@ -110,6 +113,10 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   constructor(
     private readonly info: HyperliquidInfoClient,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    // Optional: existing tests construct this service with just
+    // (info, db) — event emission is a no-op without it rather than a
+    // required 3rd constructor arg everywhere.
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   /** Auto-starts on real app boot (§8 可用性: "訂閱清單來自 DB，啟動即重建；不
@@ -252,20 +259,32 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     const drafts = classifyFillsIntoActions(inserted, stateLookup);
     if (drafts.length === 0) return;
 
-    await this.db.insert(actions).values(
-      drafts.map((d) => ({
-        chain: CHAIN_DEFAULT,
-        address,
-        coin: d.coin,
-        kind: d.kind,
-        side: d.side,
-        notionalUsd: d.notionalUsd,
-        avgPx: d.avgPx,
-        leverage: d.leverage,
-        fillIds: d.fillIds,
-        ts: d.ts,
-      })),
-    );
+    const insertedActions = await this.db
+      .insert(actions)
+      .values(
+        drafts.map((d) => ({
+          chain: CHAIN_DEFAULT,
+          address,
+          coin: d.coin,
+          kind: d.kind,
+          side: d.side,
+          notionalUsd: d.notionalUsd,
+          avgPx: d.avgPx,
+          leverage: d.leverage,
+          fillIds: d.fillIds,
+          ts: d.ts,
+        })),
+      )
+      .returning();
+
+    // Rules trigger mechanism (§1 of the M2 task): emit synchronously,
+    // in-process, right after the row is persisted — RulesModule listens
+    // via @OnEvent rather than polling `actions`. One event per action row
+    // (a single delta can classify into several actions, e.g. a close then
+    // a fresh open on the same coin in one poll window).
+    for (const row of insertedActions) {
+      this.eventEmitter?.emit(ACTION_CREATED_EVENT, row);
+    }
   }
 
   /** First-ever poll of an address in this process has no in-memory prior
@@ -325,6 +344,18 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
 
   getCachedStates(): ReadonlyMap<string, CachedClearinghouseState> {
     return this.cachedState;
+  }
+
+  /** Synchronous in-process accessor for R1/R3's `equityUsd` (§1 of the M2
+   * task): the Rules path needs fresher-than-`equity_snapshots` data, and
+   * this cache is already refreshed every poll cycle for free — no extra
+   * Hyperliquid call, no DB read. Returns `null` if this address hasn't
+   * completed a poll cycle yet (brand new leader, or process just started).
+   */
+  getEquityUsd(address: string): number | null {
+    const entry = this.cachedState.get(address);
+    if (!entry) return null;
+    return Number(entry.response.marginSummary.accountValue);
   }
 
   getHeartbeat(): {

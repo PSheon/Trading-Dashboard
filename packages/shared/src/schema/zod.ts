@@ -202,10 +202,11 @@ export const actionsFeedQuerySchema = z.object({
 });
 export type ActionsFeedQuery = z.infer<typeof actionsFeedQuerySchema>;
 
-/** GET /alerts — D5 log */
+/** GET /alerts — D5 log (filterable by rule/address/coin) */
 export const alertsQuerySchema = z.object({
-  ruleId: z.number().int().optional(),
+  ruleId: z.coerce.number().int().optional(),
   address: z.string().optional(),
+  coin: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 export type AlertsQuery = z.infer<typeof alertsQuerySchema>;
@@ -224,6 +225,86 @@ export const upsertAlertRuleRequestSchema = z.object({
 export type UpsertAlertRuleRequest = z.infer<
   typeof upsertAlertRuleRequestSchema
 >;
+
+// ---------------------------------------------------------------------------
+// M2 additions: rule params, rules-engine event payload, dashboard responses
+// ---------------------------------------------------------------------------
+
+/** R1/R3 share the identical "≥min(flat, equity%)" shape (§4.3, §11 決策紀錄
+ * "R1 門檻" — "A≥X or A≥Y" and "A≥min(X,Y)" are the same condition). */
+export const flatOrPctParamsSchema = z.object({
+  flatThresholdUsd: z.number().positive(),
+  pctThreshold: z.number().positive(),
+});
+export type FlatOrPctParams = z.infer<typeof flatOrPctParamsSchema>;
+
+/** GET /actions (D1) — enriched with the leader join needed for the tier
+ * filter and for showing a label instead of a bare address in the feed. */
+export const actionFeedItemSchema = actionSchema.extend({
+  leaderLabel: z.string().nullable().optional(),
+  leaderTier: tierSchema.nullable().optional(),
+});
+export type ActionFeedItem = z.infer<typeof actionFeedItemSchema>;
+
+/** GET /leaders (D2) — the plain `Leader` row plus everything the table
+ * needs, derived from position_snapshots/equity_snapshots/actions/fills
+ * (never from the Watcher's in-memory state — see leaders.service.ts). */
+export const leaderSummarySchema = leaderSchema.extend({
+  rank: z.number().int().nullable(),
+  openPositionCount: z.number().int(),
+  pnl7d: z.number(),
+  pnl30d: z.number(),
+  winRate: z.number().min(0).max(1).nullable(),
+  avgHoldTimeSeconds: z.number().nullable(),
+  lastActionAt: z.coerce.date().nullable(),
+});
+export type LeaderSummary = z.infer<typeof leaderSummarySchema>;
+
+/** GET /leaders/:chain/:address (D3) */
+export const positionRowSchema = z.object({
+  coin: z.string(),
+  szi: z.union([z.string(), z.number()]),
+  entryPx: z.union([z.string(), z.number()]).nullable(),
+  leverage: z.union([z.string(), z.number()]).nullable(),
+  marginMode: z.string().nullable(),
+  unrealizedPnl: z.union([z.string(), z.number()]).nullable(),
+  liqPx: z.union([z.string(), z.number()]).nullable(),
+  ts: z.coerce.date(),
+});
+export type PositionRow = z.infer<typeof positionRowSchema>;
+
+export const equityPointSchema = z.object({
+  ts: z.coerce.date(),
+  accountValue: z.union([z.string(), z.number()]),
+});
+export type EquityPoint = z.infer<typeof equityPointSchema>;
+
+export const coinDistributionEntrySchema = z.object({
+  coin: z.string(),
+  notionalUsd: z.number(),
+  shareOfTotal: z.number(),
+});
+export type CoinDistributionEntry = z.infer<typeof coinDistributionEntrySchema>;
+
+export const equityIntervalSchema = z.enum(["hour", "5m"]);
+export type EquityInterval = z.infer<typeof equityIntervalSchema>;
+
+export const leaderDetailQuerySchema = z.object({
+  equityInterval: equityIntervalSchema.default("hour").optional(),
+});
+export type LeaderDetailQuery = z.infer<typeof leaderDetailQuerySchema>;
+
+export const leaderDetailResponseSchema = z.object({
+  leader: leaderSchema,
+  rank: z.number().int().nullable(),
+  positions: z.array(positionRowSchema),
+  fills: z.array(fillSchema),
+  equityCurve: z.array(equityPointSchema),
+  coinDistribution: z.array(coinDistributionEntrySchema),
+  alerts: z.array(alertSchema),
+  winRate: z.number().min(0).max(1).nullable(),
+});
+export type LeaderDetailResponse = z.infer<typeof leaderDetailResponseSchema>;
 
 /**
  * GET /health — heartbeat per §8 可觀測.

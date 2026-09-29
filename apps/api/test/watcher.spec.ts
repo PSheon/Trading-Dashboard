@@ -1,4 +1,5 @@
 import { actions, fills, leaders } from "@trading-dashboard/shared";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +8,7 @@ import type {
   HlClearinghouseStateResponse,
   HlUserFill,
 } from "../src/hyperliquid/types.js";
+import { ACTION_CREATED_EVENT } from "../src/watcher/action-created.event.js";
 import { WatcherService } from "../src/watcher/watcher.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -105,6 +107,43 @@ describe("WatcherService.runPollCycle — real Postgres, mocked Hyperliquid clie
     const heartbeat = watcher.getHeartbeat();
     expect(heartbeat.lastFillAt).not.toBeNull();
     expect(heartbeat.cyclesCompleted).toBe(2);
+  });
+
+  it("emits one 'action.created' event per persisted action, carrying the full DB row (id included) — the Rules trigger mechanism", async () => {
+    await db.insert(leaders).values({ chain: "hyperliquid", address: ADDRESS, active: true, tier: "B" });
+
+    const clearinghouseState = vi
+      .fn()
+      .mockResolvedValueOnce(chState([]))
+      .mockResolvedValueOnce(chState([{ coin: "BTC", szi: "1", entryPx: "60000" }]));
+    const userFillsByTime = vi
+      .fn()
+      .mockResolvedValueOnce([hlFill({ dir: "Open Long", px: "60000", sz: "1" })]);
+    const fakeInfo = { clearinghouseState, userFillsByTime } as unknown as HyperliquidInfoClient;
+
+    const emitter = new EventEmitter2();
+    const received: unknown[] = [];
+    emitter.on(ACTION_CREATED_EVENT, (payload) => received.push(payload));
+
+    const watcher = new WatcherService(fakeInfo, db, emitter);
+    await watcher.runPollCycle();
+    await tick();
+    await watcher.runPollCycle();
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ kind: "open", coin: "BTC", address: ADDRESS });
+    expect((received[0] as { id: unknown }).id).toBeDefined();
+  });
+
+  it("getEquityUsd reads accountValue from the cached clearinghouseState, and is null before any poll cycle completes", async () => {
+    await db.insert(leaders).values({ chain: "hyperliquid", address: ADDRESS, active: true, tier: "B" });
+    const clearinghouseState = vi.fn().mockResolvedValueOnce(chState([]));
+    const fakeInfo = { clearinghouseState, userFillsByTime: vi.fn() } as unknown as HyperliquidInfoClient;
+    const watcher = new WatcherService(fakeInfo, db);
+
+    expect(watcher.getEquityUsd(ADDRESS)).toBeNull();
+    await watcher.runPollCycle();
+    expect(watcher.getEquityUsd(ADDRESS)).toBe(10000); // chState() helper's fixed marginSummary.accountValue
   });
 
   it("classifies a follow-up fill as 'add' once a position already exists", async () => {

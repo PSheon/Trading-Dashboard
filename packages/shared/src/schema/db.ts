@@ -227,7 +227,9 @@ export type AlertRuleKind = (typeof alertRuleKindEnum)[number];
 export const alertRules = pgTable("alert_rules", {
   id: serial("id").primaryKey(),
   scope: text("scope").$type<AlertRuleScope>().notNull(),
-  kind: text("kind").$type<AlertRuleKind>().notNull(),
+  // Unique: each rule kind (R1-R9) has exactly one global config row — the
+  // M2 seed relies on this for idempotent upserts (see rules-seed.service.ts).
+  kind: text("kind").$type<AlertRuleKind>().notNull().unique(),
   paramsJson: jsonb("params_json").$type<Record<string, unknown>>().notNull(),
   cooldownS: integer("cooldown_s").notNull(),
   quietHours: jsonb("quiet_hours").$type<Record<string, unknown> | null>(),

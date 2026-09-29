@@ -36,6 +36,9 @@ export const env = {
   telegramChatIdRealtime: () => getEnv("TELEGRAM_CHAT_ID_REALTIME"),
   telegramChatIdGroup: () => getEnv("TELEGRAM_CHAT_ID_GROUP"),
   dryRun: () => getBoolEnv("DRY_RUN", true),
+  /** N1: base URL for the "dashboard 詳情連結" in a notification message —
+   * e.g. `https://dashboard.example.com`, no trailing slash. */
+  dashboardBaseUrl: () => getEnv("DASHBOARD_BASE_URL") ?? "http://localhost:3001",
   hyperliquidApiUrl: () =>
     getEnv("HYPERLIQUID_API_URL") ?? "https://api.hyperliquid.xyz/info",
   hyperliquidWsUrl: () =>

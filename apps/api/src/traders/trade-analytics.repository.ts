@@ -75,7 +75,7 @@ const mine = (address: string) => and(eq(traderTrades.chain, CHAIN_DEFAULT), eq(
  * address's summary and cursors. */
 @Injectable()
 export class TradeAnalyticsRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) readonly db: DrizzleDb) {}
 
   transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
     return this.db.transaction(work);

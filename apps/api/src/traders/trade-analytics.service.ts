@@ -72,6 +72,14 @@ export interface Cost {
 }
 const listWeight = (items: number) => 20 + Math.ceil(items / 20);
 
+/** The account now: positions (signed size per coin) and perp value. */
+interface LiveAccount {
+  /** When the state was read (epoch ms). */
+  time: number;
+  positions: Map<string, number>;
+  perpAccountValue: number;
+}
+
 /** A computation's figures (logged; the last few kept per address).
  * `fills`: fills read (funding: payments read). */
 export interface ComputeLog {
@@ -233,7 +241,9 @@ export class TradeAnalyticsService {
       kind = "refresh";
       ({ next, fillCount } = await this.incrementalHyperliquid(address, state, cost));
     }
-    const classification = await this.classify(address, cost);
+    const live = await this.liveAccount(address, cost);
+    await this.dropClosedElsewhere(address, live);
+    const classification = await this.classify(address, live, cost);
     const { row, trades } = await this.store(address, next, classification);
     this.record(address, { kind, ms: Date.now() - started, ...cost, fills: fillCount, trades });
     return row;
@@ -426,22 +436,71 @@ export class TradeAnalyticsService {
   /**
    * CopyDog's tier inputs: Hyperliquid's leaderboard all-time PnL (ours in
    * `trader_stats`; the portfolio's all-time PnL for an address not on it)
-   * and the perp account value (the page's cached profile, else one
-   * `clearinghouseState` per dex, 2 weight each). A failure leaves a tier
-   * null rather than failing the trades.
+   * and the perp account value. A failure leaves a tier null rather than
+   * failing the trades.
    */
-  private async classify(address: string, cost: Cost): Promise<Omit<TraderClassification, "style">> {
-    const [allTimePnl, perpAccountValue] = await Promise.all([
-      this.allTimePnl(address, cost).catch((error: Error) => {
-        this.logger.warn(`All-time PnL for ${address} failed: ${error.message}`);
-        return null;
-      }),
-      this.perpAccountValue(address, cost).catch((error: Error) => {
-        this.logger.warn(`Perp account value for ${address} failed: ${error.message}`);
-        return null;
-      }),
-    ]);
+  private async classify(address: string, live: LiveAccount | null, cost: Cost): Promise<Omit<TraderClassification, "style">> {
+    const allTimePnl = await this.allTimePnl(address, cost).catch((error: Error) => {
+      this.logger.warn(`All-time PnL for ${address} failed: ${error.message}`);
+      return null;
+    });
+    const perpAccountValue = live?.perpAccountValue ?? null;
     return { allTimePnl, perpAccountValue, pnlTier: pnlTier(allTimePnl), sizeTier: sizeTier(perpAccountValue) };
+  }
+
+  /**
+   * An open trade the account no longer holds (no position in that coin, or
+   * one on the other side, in a state newer than the trade's last fill) was
+   * closed by fills we can't read — typically TWAP slices older than
+   * Hyperliquid keeps. It is dropped rather than shown open forever.
+   */
+  private async dropClosedElsewhere(address: string, live: LiveAccount | null): Promise<number> {
+    if (!live || !Number.isFinite(live.time)) return 0;
+    const open = await this.repository.openTrades(address);
+    const gone = open.filter((t) => {
+      if (t.lastFillTime >= live.time) return false;
+      const szi = live.positions.get(t.coin) ?? 0;
+      return szi === 0 || (szi > 0) !== (t.side === "long");
+    });
+    if (gone.length > 0) {
+      await this.repository.deleteTrades(this.repository.db, address, gone.map((t) => t.openTid));
+    }
+    return gone.length;
+  }
+
+  /** Positions and perp account value: the page's cached profile, else one
+   * `clearinghouseState` per dex (2 weight each). */
+  private async liveAccount(address: string, cost: Cost): Promise<LiveAccount | null> {
+    try {
+      const profile = this.traders.profileCache.peek(address);
+      if (profile) {
+        return {
+          time: new Date(profile.value.fetchedAt).getTime(),
+          positions: new Map(profile.value.positions.map((p) => [p.coin, p.szi])),
+          perpAccountValue: profile.value.perpEquity,
+        };
+      }
+      if (this.traders.dexCache.peek("dexes") === undefined) {
+        cost.calls += 1;
+        cost.weight += 20;
+      }
+      const dexes = await this.traders.perpDexes();
+      const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, RANK)));
+      cost.calls += states.length;
+      cost.weight += 2 * states.length;
+      const positions = new Map<string, number>();
+      for (const state of states) {
+        for (const { position } of state.assetPositions ?? []) positions.set(position.coin, Number(position.szi) || 0);
+      }
+      return {
+        time: Math.min(...states.map((state) => state.time)),
+        positions,
+        perpAccountValue: states.reduce((sum, state) => sum + (Number(state.marginSummary?.accountValue) || 0), 0),
+      };
+    } catch (error) {
+      this.logger.warn(`Account state for ${address} failed: ${(error as Error).message}`);
+      return null;
+    }
   }
 
   private async allTimePnl(address: string, cost: Cost): Promise<number | null> {
@@ -454,20 +513,6 @@ export class TradeAnalyticsService {
       cost.weight += 20;
     }
     return portfolioSeries(raw, "allTime", "all").pnl.at(-1)?.[1] ?? null;
-  }
-
-  private async perpAccountValue(address: string, cost: Cost): Promise<number> {
-    const profile = this.traders.profileCache.peek(address);
-    if (profile) return profile.value.perpEquity;
-    if (this.traders.dexCache.peek("dexes") === undefined) {
-      cost.calls += 1;
-      cost.weight += 20;
-    }
-    const dexes = await this.traders.perpDexes();
-    const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, RANK)));
-    cost.calls += states.length;
-    cost.weight += 2 * states.length;
-    return states.reduce((sum, state) => sum + (Number(state.marginSummary?.accountValue) || 0), 0);
   }
 
   // --- funding ----------------------------------------------------------------

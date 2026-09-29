@@ -71,6 +71,8 @@ describe("trade analytics for any address", () => {
   let fundingEvents: HlUserFundingEntry[];
   const tracked = new Set<string>();
   let latestGate: Promise<void> | null = null;
+  /** Main-dex positions Hyperliquid reports now. */
+  let livePositions: Array<[string, string]> = [];
 
   const info = {
     userFillsByTime: vi.fn(async (_address: string, start: number, end?: number) =>
@@ -79,7 +81,11 @@ describe("trade analytics for any address", () => {
     userTwapSliceFillsByTime: vi.fn(async (_address: string, start: number) =>
       history.filter((f) => f.twapId && f.time >= start).map((f) => ({ fill: { ...f, twapId: null }, twapId: f.twapId! })),
     ),
-    clearinghouseState: vi.fn(async () => ({ marginSummary: { accountValue: "1250000" } })),
+    clearinghouseState: vi.fn(async (_address: string, dex?: string) => ({
+      time: Date.now(),
+      marginSummary: { accountValue: "1250000" },
+      assetPositions: dex ? [] : livePositions.map(([coin, szi]) => ({ position: { coin, szi } })),
+    })),
     userFunding: vi.fn(async (_address: string, start: number) =>
       fundingEvents.filter((e) => e.time >= start).sort((a, b) => a.time - b.time),
     ),
@@ -120,6 +126,7 @@ describe("trade analytics for any address", () => {
     vi.clearAllMocks();
     tracked.clear();
     latestGate = null;
+    livePositions = [["SOL", "5"]];
     controller.pageDeadlineMs = PAGE_DEADLINE_MS;
     history = [
       // BTC long: +10 realized, 2 fees → a win.
@@ -173,7 +180,8 @@ describe("trade analytics for any address", () => {
 
     // Both closed within 7 days.
     expect((await get(`/traders/${X}/analytics?window=7d`).expect(200)).body.summary).toMatchObject({ trades: 2 });
-    expect((await get(`/traders/${X}/analytics?window=1d`).expect(200)).body.summary.trades).toBe(0);
+    // ETH closed 20 hours ago.
+    expect((await get(`/traders/${X}/analytics?window=1d`).expect(200)).body.summary.trades).toBe(1);
     expect((await get(`/traders/${X}/analytics?window=90d`)).status).toBe(400);
     expect((await get(`/traders/0x12/analytics`)).status).toBe(400);
   });
@@ -202,6 +210,7 @@ describe("trade analytics for any address", () => {
 
     history.push(fill("SOL", 5, -5, 12, T(1), { closedPnl: "10" }), fill("BTC", 0, -1, 100, T(0.5)));
     fundingEvents.push(funding(T(2), "SOL", -0.25));
+    livePositions = [["BTC", "-1"]];
     info.userFillsByTime.mockClear();
     traders.latestFills.mockClear();
     // Stale: a read serves the stored answer and starts a refresh.
@@ -222,6 +231,14 @@ describe("trade analytics for any address", () => {
     const eth = (await get(`/traders/${X}/trades?status=closed`)).body.items.find((t: { coin: string }) => t.coin === "ETH");
     expect(eth.funding).toBe(0.25);
     expect(res.body.coverage.fundingFrom).not.toBeNull();
+  });
+
+  it("drops an open trade the account no longer holds (closed by fills we can't read)", async () => {
+    livePositions = [];
+    await service.compute(X, true);
+    const res = await get(`/traders/${X}/trades?status=open`).expect(200);
+    expect(res.body.items).toEqual([]);
+    expect((await get(`/traders/${X}/analytics`)).body.summary).toMatchObject({ trades: 2, openTrades: 0 });
   });
 
   it("marks coverage truncated when history starts mid-position, and counts the partial trade", async () => {

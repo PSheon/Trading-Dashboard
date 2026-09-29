@@ -19,6 +19,8 @@ export const THRESHOLDS = { coverage: 0.99, side: 0.99, tokens: 0.95 };
 // GMGN reports the pool's side of the swap and we report what reached the
 // wallet, so a gap of that shape in the fee's direction is explained.
 const MAX_TOKEN_FEE = 0.031;
+// GMGN writes native SOL as So1…111 and wrapped SOL as the WSOL mint.
+const GMGN_SOL = new Set([WSOL_MINT, "So11111111111111111111111111111111111111111"]);
 
 export interface WalletCheck {
   wallet: string;
@@ -52,7 +54,7 @@ function gmgnLegs(rows: readonly GmgnActivity[], since: number): Map<string, Gmg
     const sign = a.event_type === "buy" ? 1 : -1;
     leg.tokens += sign * Number(a.token_amount);
     leg.sol += Number(a.quote_amount ?? 0);
-    leg.solQuoted &&= a.quote_token?.token_address === WSOL_MINT;
+    leg.solQuoted &&= GMGN_SOL.has(a.quote_token?.token_address ?? "");
     legs.set(k, leg);
   }
   return legs;

@@ -112,6 +112,73 @@ export type HlPerpDexsResponse = Array<{
 
 export type HlAllMidsResponse = Record<string, string>;
 
+/** One `spotClearinghouseState` balance. Prediction-market outcome tokens
+ * ("+12301") carry no `token` index; their price is `allMids["#12301"]`.
+ * Portfolio-margin accounts add `supplied`, `ltv` and `spotHold` (verified
+ * live 2026-09-29). */
+export interface HlSpotBalance {
+  coin: string;
+  token?: number;
+  total: string;
+  hold: string;
+  entryNtl: string;
+  supplied?: string;
+}
+
+/** `spotClearinghouseState`: weight 2 (rate-limits-and-user-limits). In
+ * unified and portfolio-margin accounts this holds every balance, perp
+ * collateral included ("Individual perp dex user states are not
+ * meaningful", account-abstraction-modes). */
+export interface HlSpotClearinghouseStateResponse {
+  balances: HlSpotBalance[];
+  portfolioMarginEnabled?: boolean;
+}
+
+export interface HlSpotToken {
+  name: string;
+  index: number;
+  szDecimals?: number;
+}
+
+/** A spot pair: `tokens` is [base, quote] by token index; `name` is
+ * "PURR/USDC" for the first pair and "@<index>" for the rest, which is also
+ * its `allMids` key. */
+export interface HlSpotPair {
+  name: string;
+  index: number;
+  tokens: [number, number];
+  isCanonical?: boolean;
+}
+
+export interface HlSpotMeta {
+  tokens: HlSpotToken[];
+  universe: HlSpotPair[];
+}
+
+/** A pair's market context. Matched to its pair by `coin` = pair name: the
+ * arrays are NOT index-aligned (verified live 2026-09-29: 71 of 330). */
+export interface HlSpotAssetCtx {
+  coin: string;
+  markPx: string;
+  midPx?: string | null;
+  prevDayPx?: string;
+  dayNtlVlm?: string;
+}
+
+export type HlSpotMetaAndAssetCtxsResponse = [HlSpotMeta, HlSpotAssetCtx[]];
+
+/** `userAbstraction`: "unifiedAccount", "portfolioMargin", "disabled",
+ * "default" or "dexAbstraction" (info-endpoint docs). */
+export type HlUserAbstractionResponse = string;
+
+/** `delegatorSummary`: the address's HYPE staking, in HYPE. */
+export interface HlDelegatorSummary {
+  delegated: string;
+  undelegated: string;
+  totalPendingWithdrawal: string;
+  nPendingWithdrawals: number;
+}
+
 export type HlInfoRequestBody =
   | { type: "meta"; dex?: string }
   | { type: "perpDexs" }
@@ -123,6 +190,10 @@ export type HlInfoRequestBody =
       endTime?: number;
     }
   | { type: "allMids" }
+  | { type: "spotClearinghouseState"; user: string }
+  | { type: "spotMetaAndAssetCtxs" }
+  | { type: "userAbstraction"; user: string }
+  | { type: "delegatorSummary"; user: string }
   | { type: "portfolio"; user: string }
   | { type: "userFills"; user: string }
   | { type: "userTwapSliceFills"; user: string }

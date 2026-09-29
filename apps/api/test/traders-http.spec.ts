@@ -1,5 +1,6 @@
 import { TradersRepository } from "../src/traders/traders.repository.js";
 import type { INestApplication } from "@nestjs/common";
+import { wireTraderProfileSchema } from "@trading-dashboard/shared/contracts";
 import { traderStats, userFavorites, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
@@ -55,6 +56,11 @@ describe("public discovery routes over HTTP", () => {
     portfolio: ReturnType<typeof vi.fn>;
     userFills: ReturnType<typeof vi.fn>;
     userTwapSliceFills: ReturnType<typeof vi.fn>;
+    spotClearinghouseState: ReturnType<typeof vi.fn>;
+    spotMetaAndAssetCtxs: ReturnType<typeof vi.fn>;
+    allMids: ReturnType<typeof vi.fn>;
+    userAbstraction: ReturnType<typeof vi.fn>;
+    delegatorSummary: ReturnType<typeof vi.fn>;
   };
 
   beforeAll(async () => {
@@ -65,6 +71,20 @@ describe("public discovery routes over HTTP", () => {
       portfolio: vi.fn(async () => []),
       userFills: vi.fn(async () => []),
       userTwapSliceFills: vi.fn(async () => []),
+      spotClearinghouseState: vi.fn(async () => ({
+        balances: [
+          { coin: "USDC", token: 0, total: "250.5", hold: "0", entryNtl: "0" },
+          { coin: "HYPE", token: 150, total: "2", hold: "0", entryNtl: "0" },
+          { coin: "+12301", total: "100", hold: "0", entryNtl: "0" },
+        ],
+      })),
+      spotMetaAndAssetCtxs: vi.fn(async () => [
+        { tokens: [{ name: "USDC", index: 0 }, { name: "HYPE", index: 150 }], universe: [{ name: "@107", index: 107, tokens: [150, 0] }] },
+        [{ coin: "@107", markPx: "50", midPx: "50" }],
+      ]),
+      allMids: vi.fn(async () => ({ "#12301": "0.25" })),
+      userAbstraction: vi.fn(async () => "unifiedAccount"),
+      delegatorSummary: vi.fn(async () => ({ delegated: "1", undelegated: "0", totalPendingWithdrawal: "0", nPendingWithdrawals: 0 })),
     };
     ({ app, auth, settings } = await createAuthedApp({
       db,
@@ -87,6 +107,30 @@ describe("public discovery routes over HTTP", () => {
       const res = await request(app.getHttpServer()).get(path).set("x-api-contract", "1").expect(200);
       expect(res.body.success, path).toBe(true);
     }
+  });
+
+  it("sends the profile's total, its parts and the spot balances through the wire contract", async () => {
+    const res = await request(app.getHttpServer()).get(`/traders/${A}`).set("x-api-contract", "1").expect(200);
+    const parsed = wireTraderProfileSchema.safeParse(res.body.data);
+    expect(parsed.success, parsed.success ? "" : parsed.error.message).toBe(true);
+    // Unified: spot (250.5 USDC + 2 HYPE × 50 + 100 outcome × 0.25) + 1
+    // staked HYPE; the (empty) perp state isn't added.
+    expect(res.body.data).toMatchObject({
+      accountMode: "unified",
+      perpEquity: 0,
+      spotValue: 375.5,
+      stakedValue: 50,
+      accountValue: 425.5,
+      perpDexes: [""],
+    });
+    expect(res.body.data.spotBalances).toEqual([
+      { coin: "USDC", token: 0, total: 250.5, px: 1, value: 250.5, priceKey: null },
+      { coin: "HYPE", token: 150, total: 2, px: 50, value: 100, priceKey: "@107" },
+      { coin: "+12301", token: null, total: 100, px: 0.25, value: 25, priceKey: "#12301" },
+    ]);
+    // A response without the new fields no longer satisfies the contract.
+    const { perpEquity: _p, ...stale } = res.body.data;
+    expect(wireTraderProfileSchema.safeParse(stale).success).toBe(false);
   });
 
   beforeEach(async () => {

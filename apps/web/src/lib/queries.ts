@@ -87,6 +87,22 @@ export function useTraders(params: TradersParams) {
   });
 }
 
+/** Asks again this often while some addresses are still loading … */
+export const SPARKLINE_RETRY_MS = 3_000;
+/** … at most this many times. */
+export const SPARKLINE_MAX_POLLS = 10;
+
+/** Addresses the api left out of a sparkline answer (still loading). */
+export function missingSparklines(addresses: string[], data: SparklinesResponse | undefined): string[] {
+  return data ? addresses.filter((a) => !(a in data)) : [];
+}
+
+/**
+ * PnL sparklines for a row of traders. The api answers within a few seconds
+ * with the ones it has and leaves the rest out while they load into its
+ * cache (a cold explore page), so this asks again until every address is
+ * in, rendering each as it arrives.
+ */
 export function useSparklines(addresses: string[], window: TraderWindow = "month") {
   const key = addresses.join(",");
   return useQuery({
@@ -97,7 +113,10 @@ export function useSparklines(addresses: string[], window: TraderWindow = "month
       ),
     enabled: addresses.length > 0,
     staleTime: 10 * 60_000,
-    refetchInterval: false,
+    refetchInterval: (query) =>
+      missingSparklines(addresses, query.state.data).length > 0 && query.state.dataUpdateCount <= SPARKLINE_MAX_POLLS
+        ? SPARKLINE_RETRY_MS
+        : false,
   });
 }
 

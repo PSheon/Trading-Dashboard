@@ -7,11 +7,12 @@ import { cn } from "cn";
 
 import { AlertBell } from "@/components/alerts/alert-bell";
 import { AddressAvatar } from "@/components/traders/address-avatar";
+import { TraderName } from "@/components/traders/trader-name";
 import { ACTIVITY_DOT, FavoriteButton, LowSampleTag, VaultBadge } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
-import { coinLabel, traderName, truncateAddress } from "@/lib/format";
+import { coinLabel, truncateAddress } from "@/lib/format";
 import type { LiveStatus } from "@/lib/use-live-trader";
 import { useNow } from "@/lib/use-now";
 
@@ -187,13 +188,15 @@ export function ProfileCard({
         <AddressAvatar seed={profile.address} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <h1 className="truncate text-[0.9375rem] font-bold">{traderName(profile)}</h1>
+            <h1 className="flex min-w-0 text-[0.9375rem] font-bold">
+              <TraderName trader={profile} />
+            </h1>
             {profile.isVault ? <VaultBadge /> : null}
           </div>
           <button
             type="button"
             onClick={() => copy("address", profile.address)}
-            className="mt-0.5 flex items-center gap-1 rounded font-mono text-[11px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="num mt-0.5 flex items-center gap-1 rounded font-mono text-[11px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             title={profile.address}
             aria-label={`${t("common.copy")} ${profile.address}`}
           >

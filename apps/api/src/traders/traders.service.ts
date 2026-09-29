@@ -63,6 +63,8 @@ export const DEX_LIST_TTL_MS = 60 * 60_000;
 export const ACCOUNT_MODE_TTL_MS = 10 * 60_000;
 export const STAKING_TTL_MS = 10 * 60_000;
 export const SPARKLINE_MAX_POINTS = 40;
+/** A sparkline batch answers with what is ready by then (see `sparklines`). */
+export const SPARKLINE_DEADLINE_MS = 8_000;
 /** Warmed every 10 min and kept 15, so a card never falls out of cache
  * between two warm runs (a run takes ~0.5 min at the default budget). */
 export const WARM_TTL_MS = 15 * 60_000;
@@ -84,6 +86,8 @@ type SharedProfile = Omit<TraderProfileResponse, "favorite">;
 export class TradersService {
   private readonly logger = new Logger(TradersService.name);
   private warming: Promise<number> | undefined;
+  /** Settable for tests. */
+  sparklineDeadlineMs = SPARKLINE_DEADLINE_MS;
 
   readonly profileCache = new TtlCache<SharedProfile>(PROFILE_TTL_MS);
   readonly portfolioCache = new TtlCache<HlPortfolioResponse>(PORTFOLIO_TTL_MS);
@@ -276,25 +280,48 @@ export class TradersService {
 
   // --- GET /traders/sparklines ---------------------------------------------
 
-  /** Whole-account PnL series per address (≤ 40 points). An address whose
+  /**
+   * Whole-account PnL series per address (≤ 40 points). An address whose
    * fetch fails gets an empty series rather than failing the whole row of
-   * cards. */
+   * cards. Answers within `sparklineDeadlineMs` with the addresses that are
+   * ready and leaves the others out: a cold page of 25 untracked traders
+   * costs 500 weight, more than the budget spends inside the 20 s request
+   * deadline, and waiting for all of them used to time the whole column out
+   * (the explore page's empty 走勢 column). The rest keep loading into the
+   * cache, so the client's retry for the missing ones is fast. A fetch that
+   * times out in the budget queue is left out too (asked for again); only a
+   * real failure answers [].
+   */
   async sparklines(addresses: string[], window: TraderWindowInput): Promise<SparklinesResponse> {
-    const entries = await Promise.all(
+    const ready: SparklinesResponse = {};
+    const all = Promise.all(
       addresses.map(async (address) => {
         try {
           // A fresh trader-page copy (60 s) is reused; either way one fetch.
           const raw = await this.sparklineCache.get(address, () =>
             this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.fills)),
           );
-          return [address, downsample(portfolioSeries(raw, window, "all").pnl, SPARKLINE_MAX_POINTS)] as const;
+          ready[address] = downsample(portfolioSeries(raw, window, "all").pnl, SPARKLINE_MAX_POINTS);
         } catch (error) {
+          // Timed out waiting for the request budget (or shutting down): still
+          // loading, not failed. Left out, so the client asks again.
+          const name = (error as Error | undefined)?.name;
+          if (name === "TimeoutError" || name === "AbortError") return;
           this.logger.warn(`Sparkline for ${address} failed: ${(error as Error).message}`);
-          return [address, []] as const;
+          ready[address] = [];
         }
       }),
     );
-    return Object.fromEntries(entries);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, this.sparklineDeadlineMs);
+    });
+    try {
+      await Promise.race([all, deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+    return { ...ready };
   }
 
   // --- home-page warming ------------------------------------------------------

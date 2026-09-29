@@ -206,9 +206,23 @@ export function createFormatter(locale: Locale): Formatter {
   };
 }
 
+/**
+ * An address as a head that may be cut and a tail that always shows:
+ * "0x30afce…393e" → { head: "0x30af…", tail: "393e" }. The ellipsis ends the
+ * head, so when CSS truncates the head (`AddressText`) its own ellipsis
+ * replaces this one and the result still has exactly one ("0x30a…393e").
+ * Strings that are already short, or already shortened, come back whole.
+ */
+export function splitAddress(address: string, head = 6, tail = 4): { head: string; tail: string } {
+  const value = address.trim();
+  if (value.includes("…") || value.length <= head + tail + 1 || head < 1 || tail < 1) return { head: value, tail: "" };
+  return { head: `${value.slice(0, head)}…`, tail: value.slice(-tail) };
+}
+
+/** "0x30af…393e": one ellipsis, never applied twice. */
 export function truncateAddress(address: string, head = 6, tail = 4): string {
-  if (address.length <= head + tail + 1) return address;
-  return `${address.slice(0, head)}…${address.slice(-tail)}`;
+  const parts = splitAddress(address, head, tail);
+  return parts.head + parts.tail;
 }
 
 export function traderName(trader: { displayName?: string | null; address: string }): string {

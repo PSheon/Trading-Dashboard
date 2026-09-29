@@ -10,9 +10,16 @@ import { useI18n } from "@/i18n/provider";
 import { useSiteSettings } from "@/lib/queries";
 
 type Direction = "follow" | "reverse";
+/** CopyDog's allocation methods: a fixed USDC amount per trade, or
+ * positions scaled by copy amount ÷ the trader's account value. */
+type Allocation = "fixed" | "ratio";
 
 /**
- * Copy panel (UI only in Stage 2 — nothing is signed or sent). The CTA
+ * Copy panel (UI only in Stage 2 — nothing is signed or sent). "More
+ * settings" shows CopyDog's options, disabled at their defaults: the
+ * allocation method (fixed amount / proportional) and "copy current
+ * positions" (on: the trader's open positions are mirrored when copying
+ * starts; off: only new opens are copied). The CTA
  * follows the admin's `copyTradingEnabled` switch for its look, but always
  * reads "coming soon" and does nothing.
  */
@@ -23,6 +30,10 @@ export function CopyPanel() {
   const [amount, setAmount] = useState("");
   const [percent, setPercent] = useState(0);
   const [more, setMore] = useState(false);
+  // UI only, like the rest of the panel: both are shown at their defaults and
+  // can't be changed until copy execution exists.
+  const allocation = "fixed" as Allocation;
+  const copyPositions = true as boolean;
   const balance = 0;
   const enabled = settings?.copyTradingEnabled ?? false;
 
@@ -106,6 +117,7 @@ export function CopyPanel() {
         <button
           type="button"
           aria-expanded={more}
+          aria-controls="copy-more"
           onClick={() => setMore((m) => !m)}
           className="flex w-full items-center justify-between rounded-lg py-1 text-[0.8125rem] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -113,17 +125,66 @@ export function CopyPanel() {
           <ChevronDown className={cn("size-4 transition-transform", more && "rotate-180")} />
         </button>
         {more ? (
-          <div className="mt-3 grid gap-2.5">
-            {(["leverage", "stopLoss", "takeProfit"] as const).map((field) => (
-              <label key={field} className="flex items-center justify-between gap-3 text-[0.8125rem]">
-                <span className="text-muted-foreground">{t(`trader.copy.${field}`)}</span>
-                <input
+          <div id="copy-more" className="mt-3 flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <span id="copy-allocation" className="text-[0.8125rem] text-muted-foreground">
+                {t("trader.copy.allocation")}
+              </span>
+              <div
+                role="radiogroup"
+                aria-labelledby="copy-allocation"
+                aria-disabled
+                className="grid grid-cols-2 gap-1 rounded-full bg-raised p-1"
+              >
+                {(["fixed", "ratio"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={allocation === m}
+                    disabled
+                    className={cn(
+                      "h-8 cursor-not-allowed rounded-full text-[0.8125rem] font-semibold",
+                      allocation === m ? "bg-card text-foreground/80 shadow-sm" : "text-subtle-foreground",
+                    )}
+                  >
+                    {t(m === "fixed" ? "trader.copy.allocationFixed" : "trader.copy.allocationRatio")}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] leading-relaxed text-subtle-foreground">
+                {t(allocation === "fixed" ? "trader.copy.allocationFixedHint" : "trader.copy.allocationRatioHint")}
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <span id="copy-positions" className="text-[0.8125rem] font-semibold">
+                  {t("trader.copy.copyPositions")}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={copyPositions}
+                  aria-labelledby="copy-positions"
+                  aria-describedby="copy-positions-hint"
                   disabled
-                  placeholder="—"
-                  className="h-9 w-28 rounded-xl border border-border bg-raised px-3 text-right text-sm disabled:opacity-60"
-                />
-              </label>
-            ))}
+                  className={cn(
+                    "relative h-6 w-11 shrink-0 cursor-not-allowed rounded-full transition-colors",
+                    copyPositions ? "bg-primary/60" : "bg-border-strong",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 left-0.5 size-5 rounded-full bg-primary-foreground transition-transform",
+                      copyPositions && "translate-x-5",
+                    )}
+                  />
+                </button>
+              </div>
+              <p id="copy-positions-hint" className="text-[11px] leading-relaxed text-subtle-foreground">
+                {t(copyPositions ? "trader.copy.copyPositionsOn" : "trader.copy.copyPositionsOff")}
+              </p>
+            </div>
           </div>
         ) : null}
       </div>

@@ -18,7 +18,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useI18n } from "@/i18n/provider";
 import { useTelegramStatus } from "@/lib/alerts";
 import { useAuth } from "@/lib/auth";
-import { traderName, truncateAddress } from "@/lib/format";
+import { TraderName } from "@/components/traders/trader-name";
+import { truncateAddress } from "@/lib/format";
 import { useFavorites, useLiveActions, useSiteSettings, useSparklines } from "@/lib/queries";
 
 export function FavoritesView() {
@@ -160,7 +161,6 @@ function FavoritesTable({ rows, sparklines }: { rows: Favorite[]; sparklines: Sp
       </TableHeader>
       <TableBody>
         {rows.map((f) => {
-          const name = traderName({ address: f.address, displayName: f.stats?.displayName ?? null });
           const roi = f.stats?.roi.month ?? null;
           const series = sparklines?.[f.address];
           return (
@@ -174,10 +174,12 @@ function FavoritesTable({ rows, sparklines }: { rows: Favorite[]; sparklines: Sp
                   <AddressAvatar seed={f.address} size={30} />
                   <span className="flex min-w-0 flex-col">
                     <span className="flex items-center gap-1.5">
-                      <span className="max-w-[7.5rem] truncate font-semibold text-foreground sm:max-w-[14rem]">{name}</span>
+                      <span className="flex max-w-[7.5rem] min-w-0 font-semibold text-foreground sm:max-w-[14rem]">
+                        <TraderName trader={{ address: f.address, displayName: f.stats?.displayName ?? null }} />
+                      </span>
                       {f.stats?.isVault ? <VaultBadge /> : null}
                     </span>
-                    <span className="font-mono text-[11px] text-subtle-foreground">
+                    <span className="num font-mono text-[11px] text-subtle-foreground">
                       {f.stats?.displayName ? truncateAddress(f.address) : null}
                       <span className="sm:hidden">
                         {f.stats?.displayName ? " · " : ""}

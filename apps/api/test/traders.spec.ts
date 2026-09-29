@@ -31,9 +31,11 @@ import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, TradersController } from "../src
 import {
   downsample,
   portfolioKey,
+  MIN_BASE_FRACTION,
+  periodReturns,
   portfolioMetrics,
-  portfolioRoi,
   portfolioSeries,
+  SHARPE_MIN_DAYS,
   sampleFromUserFills,
   toPortfolioResponse,
 } from "../src/traders/traders.mappers.js";
@@ -532,6 +534,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         maxDrawdownPct: null,
         sharpe: null,
         roi: null,
+        cumulativeReturn: [],
       });
     });
   });
@@ -561,6 +564,35 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(info.portfolio).toHaveBeenCalledTimes(2);
       expect(res[A].length).toBeGreaterThan(0);
       expect(res[C]).toEqual([]);
+    });
+
+    it("answers by the deadline with what is ready; the rest load into the cache for the retry", async () => {
+      service.sparklineDeadlineMs = 30;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      info.portfolio.mockImplementation(async (address: string) => {
+        if (address === C) await gate;
+        return portfolioFixture;
+      });
+      const first = await controller.sparklines({ addresses: `${A},${C}` });
+      expect(Object.keys(first)).toEqual([A]); // C is left out, not []
+      release();
+      await vi.waitFor(() => expect(service.sparklineCache.peek(C)).toBeDefined());
+      const retry = await controller.sparklines({ addresses: `${A},${C}` });
+      expect(Object.keys(retry).sort()).toEqual([A, C]);
+      expect(retry[C].length).toBeGreaterThan(0);
+      expect(info.portfolio).toHaveBeenCalledTimes(2);
+    });
+
+    it("leaves out an address whose fetch timed out in the budget queue; a real failure is []", async () => {
+      info.portfolio.mockImplementation(async (address: string) => {
+        if (address === C) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+        if (address === B) throw new Error("Hyperliquid info request failed: 500");
+        return portfolioFixture;
+      });
+      const res = await controller.sparklines({ addresses: `${A},${B},${C}` });
+      expect(Object.keys(res).sort()).toEqual([A, B]);
+      expect(res[B]).toEqual([]);
     });
 
     it("rejects more than 30 addresses, invalid ones, or none", async () => {
@@ -1071,93 +1103,150 @@ describe("TtlCache", () => {
   });
 });
 
-describe("portfolioMetrics — hand-computed", () => {
-  const H = 3_600_000;
-  const T0 = 1_790_000_000_000;
+describe("portfolioMetrics — flow-neutral time-weighted returns, hand-computed", () => {
+  const D = 24 * 3_600_000;
+  /** Noon UTC, so daily points fall on consecutive UTC days. */
+  const T0 = Date.UTC(2026, 8, 1, 12);
+  const pts = (vals: number[], step = D): Array<[number, number]> => vals.map((v, i) => [T0 + i * step, v]);
+  /** The whole account: value and PnL on the same timestamps. */
+  const acct = (av: number[], pnl: number[], step = D) => ({ pnl: pts(pnl, step), capital: { accountValue: pts(av, step), pnl: pts(pnl, step) } });
+  const metrics = (av: number[], pnl: number[], step = D) => {
+    const a = acct(av, pnl, step);
+    return portfolioMetrics(a.pnl, a.capital);
+  };
 
-  it("hourly series: drawdown from the 150 peak, Sharpe annualized by 8,760 periods", () => {
-    // t:        0h    1h    2h    3h    4h
-    // pnl:       0   100    50   150    30
-    // account: 1000  1100  1050  1150  1030
-    const pnl: Array<[number, number]> = [0, 100, 50, 150, 30].map((v, i) => [T0 + i * H, v]);
-    const av: Array<[number, number]> = [1000, 1100, 1050, 1150, 1030].map((v, i) => [T0 + i * H, v]);
-    const m = portfolioMetrics(pnl, av);
-
-    // Peaks 100→50 (fall 50) and 150→30 (fall 120): max 120, from the 150
-    // peak where account value was 1150.
-    expect(m.maxDrawdownUsd).toBe(120);
-    expect(m.maxDrawdownPct).toBeCloseTo(120 / 1150, 12); // 0.104347826…
-
-    // Returns: 100/1000 = 0.1, −50/1100 = −0.0454545…, 100/1050 = 0.0952380…,
-    // −120/1150 = −0.1043478…; mean 0.0113589309…, sample stdev
-    // 0.1024837842…; × √(365·24) → 10.3737161021.
-    expect(m.sharpe).toBeCloseTo(10.3737161021, 8);
+  it("no flows: returns chain, drawdown on the index, daily log-return Sharpe × √365", () => {
+    // Returns +10%, −5%, +10%, −20%, +5%, 0, +10% on 1,000.
+    const av = [1000, 1100, 1045, 1149.5, 919.6, 965.58, 965.58, 1062.138];
+    const pnl = av.map((v) => v - 1000);
+    const m = metrics(av, pnl);
+    expect(m.roi).toBeCloseTo(0.062138, 10);
+    // Peak 1.1495 → 0.9196: exactly the −20% interval.
+    expect(m.maxDrawdownPct).toBeCloseTo(0.2, 10);
+    // PnL peak 149.5 → −80.4.
+    expect(m.maxDrawdownUsd).toBeCloseTo(229.9, 9);
+    // 8 UTC days (the first has no return), as log returns: 0, ln 1.1,
+    // ln .95, ln 1.1, ln .8, ln 1.05, 0, ln 1.1; mean .0075355, sample stdev
+    // .1079698; .0075355 ÷ .1079698 × √365 = 1.3333838.
+    expect(m.sharpe).toBeCloseTo(1.3333837868, 8);
+    expect(m.cumulativeReturn[0]).toEqual([T0, 0]);
+    expect(m.cumulativeReturn.at(-1)![1]).toBeCloseTo(0.062138, 10);
+    expect(m.cumulativeReturn).toHaveLength(av.length);
   });
 
-  it("daily series: skips returns whose prior account value is 0; annualized by 365", () => {
-    const D = 24 * H;
-    const pnl: Array<[number, number]> = [0, 10, -5, 20, 20, 40].map((v, i) => [T0 + i * D, v]);
-    const av: Array<[number, number]> = [0, 500, 490, 520, 520, 540].map((v, i) => [T0 + i * D, v]);
-    const m = portfolioMetrics(pnl, av);
-    // Peak 10 (account 500) → −5: fall 15, 3%.
-    expect(m.maxDrawdownUsd).toBe(15);
-    expect(m.maxDrawdownPct).toBeCloseTo(0.03, 12);
-    // Returns (first skipped: prior account 0): −15/500 = −0.03, 25/490,
-    // 0/520 = 0, 20/520; mean 0.0148704867, stdev 0.0369587450; × √365.
-    expect(m.sharpe).toBeCloseTo(7.6869560544, 8);
+  it("a deposit mid-series is capital, not return: no fake gain or drawdown", () => {
+    // +100 on 1,000; a 9,000 deposit; +101 on 10,100.
+    const m = metrics([1000, 1100, 10_100, 10_201], [0, 100, 100, 201]);
+    expect(periodReturns(pts([0, 100, 100, 201]), acct([1000, 1100, 10_100, 10_201], [0, 100, 100, 201]).capital).map(([, r]) => r))
+      .toEqual([0.1, 0, 0.01]);
+    expect(m.roi).toBeCloseTo(1.1 * 1.01 - 1, 12); // 11.1%, not 201 / 1,000
+    expect(m.maxDrawdownPct).toBe(0);
   });
 
-  it("returns 0 / null at the edges", () => {
-    const pts = (vals: number[]): Array<[number, number]> => vals.map((v, i) => [T0 + i * H, v]);
-    // Empty.
-    expect(portfolioMetrics([], [])).toEqual({ maxDrawdownUsd: 0, maxDrawdownPct: null, sharpe: null });
-    // Monotonic up: no drawdown (0 % of the first point's account), fewer than 5 points → no Sharpe.
-    expect(portfolioMetrics(pts([0, 1, 2, 3]), pts([100, 101, 102, 103]))).toEqual({
+  it("a deposit and a loss in the same interval: the deposit is in the base", () => {
+    // 1,100 → +9,000 deposit, −91 PnL → 10,009: −91 ÷ (1,100 + 9,000) = −0.9%,
+    // not −91 ÷ 1,100 = −8.3%.
+    const m = metrics([1000, 1100, 10_009], [0, 100, 9]);
+    expect(m.roi).toBeCloseTo(1.1 * (1 - 91 / 10_100) - 1, 12);
+    expect(m.maxDrawdownPct).toBeCloseTo(91 / 10_100, 12);
+  });
+
+  it("a withdrawal is not a loss, and ROI exists after withdrawing more than was deposited", () => {
+    // +1,000 on 10,000; 10,000 withdrawn; −100 on 1,000.
+    const m = metrics([10_000, 11_000, 1000, 900], [0, 1000, 1000, 900]);
+    expect(m.roi).toBeCloseTo(1.1 * 0.9 - 1, 12); // −1%
+    // The index falls 10% (the −100 on 1,000), not 90% (11,000 → 1,000 of value).
+    expect(m.maxDrawdownPct).toBeCloseTo(0.1, 12);
+    // A withdrawal in a winning interval is counted at its end: +200 on 11,000.
+    expect(metrics([11_000, 1200], [0, 200]).roi).toBeCloseTo(200 / 11_000, 12);
+  });
+
+  it("a losing account: negative Sharpe, drawdown capped at 100% on a wipe-out", () => {
+    // −10%, −22.2%, +14.3%, wiped out (−100%), a 500 deposit, −10%, +4.4%.
+    const pnl = [0, -100, -300, -200, -1000, -1000, -1050, -1030];
+    const av = [1000, 900, 700, 800, 0, 500, 450, 470];
+    const m = metrics(av, pnl);
+    expect(m.maxDrawdownPct).toBe(1);
+    expect(m.roi).toBe(-1);
+    // Daily log returns 0, ln .9, ln(1 − 200/900), ln(1 + 100/700), ln 1e-4
+    // (the wipe-out, floored), 0, ln .9, ln(1 + 20/450) → −6.99: the sign
+    // follows the −100 % ROI.
+    expect(m.sharpe).toBeCloseTo(-6.9901359390, 8);
+    // Losing more than the account held never reads as more than −100%.
+    for (const [, r] of periodReturns(pts(pnl), acct(av, pnl).capital)) expect(r!).toBeGreaterThanOrEqual(-1);
+  });
+
+  it("the old failure: a loss bigger than the perp account's value stays within 0–100%", () => {
+    // Perp PnL −12M against a unified account holding 26M in total.
+    const m = metrics([20e6, 26e6, 14e6, 26.7e6], [0, 6e6, -6e6, 6.7e6]);
+    expect(m.maxDrawdownPct).toBeCloseTo(12e6 / 26e6, 12);
+    expect(m.maxDrawdownPct!).toBeLessThanOrEqual(1);
+  });
+
+  it("sparse samples: a week's return lands on its end day; the days between return 0", () => {
+    // Weekly points: +10%, −5%, +10% → 22 UTC days, 3 of them non-zero
+    // (ln 1.1, ln .95, ln 1.1 on days 7, 14, 21) → 3.9288027.
+    const av = [1000, 1100, 1045, 1149.5];
+    const m = metrics(av, av.map((v) => v - 1000), 7 * D);
+    expect(m.sharpe).toBeCloseTo(3.9288027192, 8);
+  });
+
+  it("guards: dust bases are skipped, short windows have no Sharpe, empty is null", () => {
+    expect(portfolioMetrics([], { accountValue: [], pnl: [] })).toEqual({
       maxDrawdownUsd: 0,
-      maxDrawdownPct: 0,
+      maxDrawdownPct: null,
       sharpe: null,
+      roi: null,
+      cumulativeReturn: [],
     });
-    // Constant returns: zero variance → null Sharpe.
-    expect(portfolioMetrics(pts([0, 10, 20, 30, 40]), pts([100, 100, 100, 100, 100])).sharpe).toBeNull();
-    // Account value ≤ 0 at the peak → null %.
-    expect(portfolioMetrics(pts([5, 0]), pts([0, -5])).maxDrawdownPct).toBeNull();
-    // Account series sampled at other times: the latest earlier value is used.
-    const m = portfolioMetrics(pts([0, 100, 40]), [[T0 + 0.5 * H, 2000]]);
-    expect(m.maxDrawdownUsd).toBe(60);
-    expect(m.maxDrawdownPct).toBeCloseTo(0.03, 12);
+    // A $5 account: every base is under $10.
+    const dust = metrics([0, 5, 8], [0, 0, 3]);
+    expect(dust).toMatchObject({ maxDrawdownPct: null, sharpe: null, roi: null });
+    // $5,000 left in a window that peaked at $1M (< 1%): that interval's
+    // +400% is dropped, the rest still count.
+    const m = metrics([1e6, 5000, 25_000, 26_000], [0, 0, 20_000, 21_000]);
+    expect(periodReturns(pts([0, 0, 20_000, 21_000]), acct([1e6, 5000, 25_000, 26_000], [0, 0, 20_000, 21_000]).capital).map(([, r]) => r))
+      .toEqual([0, null, 0.04]);
+    expect(MIN_BASE_FRACTION).toBe(0.01);
+    expect(m.roi).toBeCloseTo(0.04, 12);
+    // Hourly points over one day: fewer than SHARPE_MIN_DAYS daily returns.
+    const day = metrics([100, 110, 99, 120, 125], [0, 10, -1, 20, 25], 3_600_000);
+    expect(day.sharpe).toBeNull();
+    expect(day.roi).not.toBeNull();
+    // Constant daily returns: zero variance.
+    const flat = metrics([100, 100, 100, 100, 100, 100, 100, 100], [0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(flat.sharpe).toBeNull();
+    expect(flat.maxDrawdownPct).toBe(0);
+    expect(SHARPE_MIN_DAYS).toBe(7);
   });
 
-  it("the portfolio endpoint returns the metrics of the window it serves", async () => {
-    const series = portfolioSeries(portfolioFixture, "week", "all");
-    const res = toPortfolioResponse(portfolioFixture, "week", "all");
-    expect(res).toMatchObject(portfolioMetrics(series.pnl, series.accountValue));
+  it("a unified account's perp window is measured on the whole account's value", () => {
+    // Hyperliquid's perp account value history is "not meaningful" in
+    // unified accounts: a tiny, unrelated series here. PnL is the same.
+    const whole = { accountValueHistory: [[T0, "1000"], [T0 + D, "1100"], [T0 + 2 * D, "990"]], pnlHistory: [[T0, "0"], [T0 + D, "100"], [T0 + 2 * D, "-10"]], vlm: "0" };
+    const perp = { ...whole, accountValueHistory: [[T0, "1"], [T0 + D, "2"], [T0 + 2 * D, "0.5"]] };
+    const raw = [["week", whole], ["perpWeek", perp]] as unknown as HlPortfolioResponse;
+    const res = toPortfolioResponse(raw, "week", "perp");
+    // +10%, then −110 ÷ 1,100 = −10%: 0.99 − 1.
+    expect(res.roi).toBeCloseTo(-0.01, 12);
+    expect(res.maxDrawdownPct).toBeCloseTo(0.1, 12);
+    expect(res.accountValue).toEqual([[T0, 1], [T0 + D, 2], [T0 + 2 * D, 0.5]]); // the chart still shows the perp series
+    const all = toPortfolioResponse(raw, "week", "all");
+    expect({ ...res, market: "all", accountValue: all.accountValue }).toEqual(all);
+    // Without the whole-account series, the market's own is used.
+    const perpOnly = toPortfolioResponse([["perpWeek", whole]] as unknown as HlPortfolioResponse, "week", "perp");
+    expect(perpOnly.roi).toBeCloseTo(-0.01, 12);
+  });
+
+  it("the portfolio endpoint returns the metrics of the window it serves", () => {
+    const series = portfolioSeries(portfolioFixture, "week", "perp");
+    const whole = portfolioSeries(portfolioFixture, "week", "all");
+    const res = toPortfolioResponse(portfolioFixture, "week", "perp");
+    expect(res).toMatchObject(portfolioMetrics(series.pnl, whole));
     expect(res.maxDrawdownUsd).toBeGreaterThan(0);
+    expect(res.maxDrawdownPct!).toBeGreaterThanOrEqual(0);
+    expect(res.maxDrawdownPct!).toBeLessThanOrEqual(1);
     expect(res.sharpe).not.toBeNull();
-    expect(res.roi).toBe(portfolioRoi(series.pnl, series.accountValue));
-  });
-});
-
-describe("portfolioRoi — PnL over the capital in the window", () => {
-  const pts = (vals: number[]): Array<[number, number]> => vals.map((v, i) => [i, v]);
-
-  it("is PnL ÷ starting value without flows", () => {
-    // 1000 → 1100 on +100 PnL.
-    expect(portfolioRoi(pts([0, 40, 100]), pts([1000, 1040, 1100]))).toBeCloseTo(0.1, 12);
-  });
-
-  it("counts deposits as capital, not return", () => {
-    // Starts at 1000, +50 PnL, then a 9,000 deposit: 10,050 at the end.
-    // PnL ÷ (1000 + 9000) = 0.5 %, not 50 ÷ 1000 = 5 %.
-    expect(portfolioRoi(pts([0, 50, 50]), pts([1000, 1050, 10_050]))).toBeCloseTo(0.005, 12);
-  });
-
-  it("works for all-time windows that start at 0", () => {
-    // Deposited 2,000, made 600 → 2,600.
-    expect(portfolioRoi(pts([0, 0, 600]), pts([0, 2000, 2600]))).toBeCloseTo(0.3, 12);
-  });
-
-  it("is null without data or when everything was withdrawn", () => {
-    expect(portfolioRoi([], [])).toBeNull();
-    expect(portfolioRoi(pts([0, 100]), pts([1000, 0]))).toBeNull(); // capital −100
+    expect(res.roi).toBe(res.cumulativeReturn.at(-1)![1]);
   });
 });

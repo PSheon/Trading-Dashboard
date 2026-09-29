@@ -9,7 +9,8 @@ import { cn } from "cn";
 import { AreaChart } from "@/components/charts/area-chart";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
-import { traderName, truncateAddress } from "@/lib/format";
+import { TraderName } from "@/components/traders/trader-name";
+import { truncateAddress } from "@/lib/format";
 import type { TraderSort } from "@/lib/queries";
 import { AddressAvatar } from "./address-avatar";
 import { ActivityBadge, FavoriteButton, PnlValue, VaultBadge } from "./bits";
@@ -110,14 +111,14 @@ export function TradersTable({
                   <AddressAvatar seed={row.address} size={30} />
                   <span className="flex min-w-0 flex-col">
                     <span className="flex items-center gap-1.5">
-                      <span className="max-w-[6.5rem] truncate font-semibold text-foreground sm:max-w-[14rem]">
-                        {traderName(row)}
+                      <span className="flex max-w-[6.5rem] min-w-0 font-semibold text-foreground sm:max-w-[14rem]">
+                        <TraderName trader={row} />
                       </span>
                       {row.isVault ? <VaultBadge /> : null}
                     </span>
                     <span className="mt-0.5 flex min-w-0 items-center gap-2">
                       {row.displayName ? (
-                        <span className="hidden font-mono text-[11px] text-subtle-foreground sm:inline">
+                        <span className="num hidden font-mono text-[11px] text-subtle-foreground sm:inline">
                           {truncateAddress(row.address)}
                         </span>
                       ) : null}

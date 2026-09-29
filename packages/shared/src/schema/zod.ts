@@ -631,15 +631,36 @@ export const portfolioResponseSchema = z.object({
   volume: z.number(),
   /** Largest peak-to-trough fall of the window's cumulative PnL (USD, ≥ 0). */
   maxDrawdownUsd: z.number(),
-  /** maxDrawdownUsd ÷ account value at the peak; null when that is ≤ 0. */
+  /**
+   * Largest peak-to-trough fall of the time-weighted return index (see
+   * `cumulativeReturn`), 0–1; 1 = the account was wiped out at some point.
+   * Deposits and withdrawals don't move it. Null without a usable interval.
+   */
   maxDrawdownPct: z.number().nullable(),
-  /** Mean ÷ stdev of per-point returns (PnL change ÷ prior account value),
-   * annualized by the series' sampling interval; null with < 5 points. */
+  /**
+   * Annualized Sharpe ratio of the time-weighted returns resampled to UTC
+   * days, as log returns (days without a point return 0; a wiped-out day
+   * counts as −99.99 %): mean ÷ sample stdev × √365, risk-free rate 0. Its
+   * sign always matches `roi`'s. Null with fewer than 7 daily returns (e.g.
+   * the "day" window) or zero variance.
+   */
   sharpe: z.number().nullable(),
-  /** The window's PnL ÷ the capital in it: starting account value plus net
-   * deposits, i.e. last account value − PnL. Null when that is ≤ 0 or there
-   * is no data. The trader page's ROI, consistent with `pnl`. */
+  /**
+   * The window's time-weighted return: the last `cumulativeReturn` value,
+   * what a dollar kept in the account for the whole window would have
+   * returned. Flow-neutral, so defined even when more was withdrawn than
+   * deposited. Null without a usable interval. The trader page's ROI.
+   */
   roi: z.number().nullable(),
+  /**
+   * Time-weighted return index − 1 at each `pnl` point, starting at 0.
+   * Interval i returns ΔPnLᵢ ÷ (whole-account value at its start + any net
+   * deposit during it), where net deposit = Δaccount value − ΔPnL of the
+   * whole account ("all" market, also for "perp": perp account value isn't
+   * meaningful in unified / portfolio-margin accounts). Intervals whose base
+   * is under $10 or 1% of the window's largest account value count as 0.
+   */
+  cumulativeReturn: z.array(seriesPointSchema),
 });
 export type PortfolioResponse = z.infer<typeof portfolioResponseSchema>;
 
@@ -652,6 +673,9 @@ export const sparklinesQuerySchema = z.object({
     .pipe(z.array(z.string()).max(30)),
   window: traderWindowSchema.default("month"),
 });
+/** Address → PnL series; [] when its fetch failed. Addresses whose
+ * portfolio isn't ready within the api's deadline (8 s) are left out and
+ * keep loading into the cache: ask again for them. */
 export const sparklinesResponseSchema = z.record(z.string(), z.array(seriesPointSchema));
 export type SparklinesResponse = z.infer<typeof sparklinesResponseSchema>;
 

@@ -62,10 +62,11 @@ const signText = (n: number | null | undefined, muted: boolean) =>
 const signBar = (n: number | null | undefined, muted: boolean) =>
   muted ? "bg-subtle-foreground" : (n ?? 0) >= 0 ? "bg-positive" : "bg-negative";
 
-/** The window's ROI, from the same `portfolio` series as its PnL (PnL ÷
- * the capital in the window; see the api's `portfolioRoi`). The trader page
- * never mixes in the leaderboard's ROI: that one adds up subaccounts and is
- * up to 15 minutes old. Shared by the ROI tile and the chart's pill. */
+/** The window's ROI: the api's flow-neutral, time-weighted return over the
+ * same `portfolio` series as its PnL (deposits and withdrawals don't count,
+ * so it exists even when more was withdrawn than deposited). The trader
+ * page never mixes in the leaderboard's ROI: that one adds up subaccounts
+ * and is up to 15 minutes old. Shared by the ROI tile and the chart's pill. */
 export function windowRoi(portfolio: PortfolioResponse | undefined): number | null {
   return portfolio?.roi ?? null;
 }
@@ -243,10 +244,8 @@ export function PerformanceChart({
     if (!portfolio) return [];
     const raw = mode === "pnl" ? portfolio.pnl : portfolio.accountValue;
     if (unit === "usd") return raw;
-    if (mode === "pnl") {
-      const base = portfolio.accountValue[0]?.[1] || 1;
-      return raw.map(([ts, v]) => [ts, v / base] as [number, number]);
-    }
+    // PnL in % is the time-weighted return, so the line ends at the ROI.
+    if (mode === "pnl") return portfolio.cumulativeReturn;
     const base = raw[0]?.[1] || 1;
     return raw.map(([ts, v]) => [ts, v / base - 1] as [number, number]);
   }, [portfolio, mode, unit]);
@@ -334,7 +333,7 @@ export function PerformanceChart({
             </div>
             {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} className="mt-2.5" muted={muted} /> : null}
           </div>
-          {last ? <p className="num text-xs text-subtle-foreground">{format.dateTime(last[0])}</p> : null}
+          {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.dateTime(last[0])}</p> : null}
         </div>
       </div>
 

@@ -187,49 +187,60 @@ export function portfolioFor(address: string, window: TraderWindow, market: "all
   return withRisk({ accountValue, pnl, volume: stats.volume[window] });
 }
 
-/** Max drawdown and Sharpe, computed the way the contract describes them. */
+/** Drawdown, Sharpe and ROI, computed the way the contract describes them
+ * (flow-neutral time-weighted returns; a simplified copy of the api's
+ * `portfolioMetrics`, without its dust guard). */
 function withRisk(series: {
   accountValue: [number, number][];
   pnl: [number, number][];
   volume: number;
 }) {
   const { pnl, accountValue } = series;
-  let peak = -Infinity;
-  let peakIndex = 0;
+  let peakPnl = -Infinity;
   let maxDrawdownUsd = 0;
-  let ddPeakIndex = 0;
-  pnl.forEach(([, v], i) => {
-    if (v > peak) {
-      peak = v;
-      peakIndex = i;
-    }
-    if (peak - v > maxDrawdownUsd) {
-      maxDrawdownUsd = peak - v;
-      ddPeakIndex = peakIndex;
-    }
-  });
-  const valueAtPeak = accountValue[ddPeakIndex]?.[1] ?? 0;
-  const maxDrawdownPct = valueAtPeak > 0 ? maxDrawdownUsd / valueAtPeak : null;
-
-  let sharpe: number | null = null;
-  if (pnl.length >= 5) {
-    const returns: number[] = [];
-    for (let i = 1; i < pnl.length; i++) {
-      const prior = accountValue[i - 1]?.[1] ?? 0;
-      if (prior > 0) returns.push((pnl[i][1] - pnl[i - 1][1]) / prior);
-    }
-    const mean = returns.reduce((a, b) => a + b, 0) / Math.max(1, returns.length);
-    const variance =
-      returns.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, returns.length - 1);
-    const std = Math.sqrt(variance);
-    const interval = (pnl.at(-1)![0] - pnl[0][0]) / Math.max(1, pnl.length - 1);
-    const perYear = (365 * 86400_000) / Math.max(1, interval);
-    sharpe = std > 0 ? (mean / std) * Math.sqrt(perYear) : null;
+  for (const [, v] of pnl) {
+    peakPnl = Math.max(peakPnl, v);
+    maxDrawdownUsd = Math.max(maxDrawdownUsd, peakPnl - v);
   }
-  const gain = (pnl.at(-1)?.[1] ?? 0) - (pnl[0]?.[1] ?? 0);
-  const capital = (accountValue.at(-1)?.[1] ?? 0) - gain;
-  const roi = pnl.length > 0 && capital > 0 ? gain / capital : null;
-  return { ...series, maxDrawdownUsd, maxDrawdownPct, sharpe, roi };
+  const cumulativeReturn: [number, number][] = pnl.length > 0 ? [[pnl[0][0], 0]] : [];
+  const daily = new Map<number, number>();
+  let index = 1;
+  let peak = 1;
+  let maxDrawdownPct = 0;
+  let usable = false;
+  for (let i = 1; i < pnl.length; i++) {
+    const prior = accountValue[i - 1]?.[1] ?? 0;
+    const gain = pnl[i][1] - pnl[i - 1][1];
+    const flow = (accountValue[i]?.[1] ?? prior) - prior - gain;
+    const base = prior + Math.max(flow, 0);
+    const r = base > 0 ? Math.max(-1, gain / base) : 0;
+    usable ||= base > 0;
+    index *= 1 + r;
+    peak = Math.max(peak, index);
+    maxDrawdownPct = Math.max(maxDrawdownPct, 1 - index / peak);
+    cumulativeReturn.push([pnl[i][0], index - 1]);
+    const day = Math.floor(pnl[i][0] / 86400_000);
+    daily.set(day, (daily.get(day) ?? 1) * (1 + r));
+  }
+  let sharpe: number | null = null;
+  if (pnl.length > 1) {
+    const first = Math.floor(pnl[0][0] / 86400_000);
+    const days = Math.floor(pnl.at(-1)![0] / 86400_000) - first + 1;
+    if (days >= 7) {
+      const returns = Array.from({ length: days }, (_, d) => Math.log(Math.max(1e-4, daily.get(first + d) ?? 1)));
+      const mean = returns.reduce((a, b) => a + b, 0) / days;
+      const std = Math.sqrt(returns.reduce((a, b) => a + (b - mean) ** 2, 0) / (days - 1));
+      sharpe = std > 0 ? (mean / std) * Math.sqrt(365) : null;
+    }
+  }
+  return {
+    ...series,
+    maxDrawdownUsd,
+    maxDrawdownPct: usable ? maxDrawdownPct : null,
+    sharpe: usable ? sharpe : null,
+    roi: usable ? index - 1 : null,
+    cumulativeReturn,
+  };
 }
 
 export function sparklineFor(address: string, window: TraderWindow): [number, number][] {

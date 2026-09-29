@@ -234,7 +234,7 @@ function Fills({ rows }: { rows: TraderFill[] }) {
       <TableBody>
         {rows.map((f) => (
           <TableRow key={f.tid}>
-            <TableCell className="text-muted-foreground">{format.dateTime(f.ts)}</TableCell>
+            <TableCell className="num font-mono text-xs text-muted-foreground">{format.dateTime(f.ts)}</TableCell>
             <TableCell>
               <span className="flex items-center gap-2 font-semibold">
                 <CoinIcon coin={f.coin} size={18} />
@@ -288,7 +288,7 @@ function AlertsList({ rows }: { rows: NonNullable<ReturnType<typeof useAlerts>["
           const kind = values?.actionKind;
           return (
             <TableRow key={String(a.id)}>
-              <TableCell className="text-muted-foreground">{format.dateTime(a.sentAt)}</TableCell>
+              <TableCell className="num font-mono text-xs text-muted-foreground">{format.dateTime(a.sentAt)}</TableCell>
               <TableCell className="font-semibold">{a.coin ? coinLabel(a.coin) : "—"}</TableCell>
               <TableCell>{kind ? <KindBadge kind={kind} /> : "—"}</TableCell>
               <TableCell className="text-right">

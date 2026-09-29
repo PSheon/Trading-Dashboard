@@ -6,7 +6,7 @@ import { cn } from "cn";
 
 import { AreaChart, type SeriesPoint } from "@/components/charts/area-chart";
 import { useI18n } from "@/i18n/provider";
-import { traderName } from "@/lib/format";
+import { TraderName } from "@/components/traders/trader-name";
 import { AddressAvatar } from "./address-avatar";
 import { ActivityBadge, PnlValue, RoiPill, VaultBadge } from "./bits";
 
@@ -44,7 +44,7 @@ export function TraderCard({
         <AddressAvatar seed={trader.address} size={28} />
         <span className="flex min-w-0 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate text-[0.875rem] font-semibold">{traderName(trader)}</span>
+            <TraderName trader={trader} className="text-[0.875rem] font-semibold" />
             {trader.isVault ? <VaultBadge /> : null}
           </span>
           {trader.activity ? <ActivityBadge activity={trader.activity} className="mt-1" /> : null}

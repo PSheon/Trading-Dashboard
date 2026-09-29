@@ -13,11 +13,12 @@ import { AddressAvatar } from "@/components/traders/address-avatar";
 import { RoiPill } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { TraderCard, TraderCardSkeleton, type TraderCardData } from "@/components/traders/trader-card";
+import { TraderName } from "@/components/traders/trader-name";
 import { TradersTable } from "@/components/traders/traders-table";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
 import { api } from "@/lib/api";
-import { coinDex, coinLabel, toNumber, traderName } from "@/lib/format";
+import { coinDex, coinLabel, toNumber } from "@/lib/format";
 import { useSiteSettings, useSparklines, useTraders } from "@/lib/queries";
 import { useLiveMids } from "@/lib/use-live-mids";
 import { useNow } from "@/lib/use-now";
@@ -250,7 +251,9 @@ function HeroCard({
           <AddressAvatar seed={trader.address} size={30} />
           <span className="min-w-0">
             <span className="block text-[11px] text-muted-foreground">{t("home.heroFollowing")}</span>
-            <span className="block truncate text-sm font-semibold">{traderName(trader)}</span>
+            <span className="flex min-w-0 text-sm font-semibold">
+              <TraderName trader={trader} />
+            </span>
           </span>
         </Link>
         <div className="ml-auto flex items-center gap-1.5" aria-hidden>

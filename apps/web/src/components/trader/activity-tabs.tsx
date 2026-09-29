@@ -119,6 +119,7 @@ export function ActivityTabs({
             error={analytics.error}
             onRetry={() => analytics.refetch()}
             view={perfView}
+            onView={setPerfView}
           />
         ) : null}
         {tab === "trades" ? <TradesTab address={profile.address} /> : null}

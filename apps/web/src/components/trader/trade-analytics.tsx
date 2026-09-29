@@ -277,7 +277,7 @@ export function PerfSwitch({ value, onChange }: { value: PerfView; onChange: (v:
     ["asset", t("trader.perf.mostTraded")],
   ];
   return (
-    <div role="radiogroup" aria-label={t("trader.tabs.performance")} className="flex shrink-0 items-center gap-2.5">
+    <div role="radiogroup" aria-label={t("trader.tabs.performance")} className="hidden shrink-0 items-center gap-2.5 sm:flex">
       {options.map(([v, label]) => (
         <button
           key={v}
@@ -316,7 +316,7 @@ function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
   return (
     <>
       <ul className="sm:hidden">
-        {sorted.map((trade) => (
+        {sorted.filter((trade) => (dir === "desc" ? shownPnl(trade) > 0 : shownPnl(trade) < 0)).map((trade) => (
           <TradeCard key={trade.id} trade={trade} />
         ))}
       </ul>
@@ -458,12 +458,14 @@ export function PerformanceTab({
   error,
   onRetry,
   view,
+  onView,
 }: {
   analytics: TraderAnalyticsResponse | undefined;
   computing: boolean;
   error: Error | null;
   onRetry: () => void;
   view: PerfView;
+  onView: (view: PerfView) => void;
 }) {
   const { t } = useI18n();
   if (!analytics) {
@@ -478,6 +480,20 @@ export function PerformanceTab({
   }
   return (
     <div>
+      {/* Below sm the switch sits here, full width, as on CopyDog's app. */}
+      <div className="px-4 pt-3 sm:hidden">
+        <Segmented
+          value={view}
+          onChange={onView}
+          variant="pill"
+          label={t("trader.tabs.performance")}
+          options={[
+            { value: "best", label: t("trader.perf.best") },
+            { value: "worst", label: t("trader.perf.worst") },
+            { value: "asset", label: t("trader.perf.byAsset") },
+          ]}
+        />
+      </div>
       <CoverageNote analytics={analytics} className="px-4 pt-2 sm:px-5" />
       {view === "best" ? <TradeTable rows={best} dir="desc" /> : null}
       {view === "worst" ? <TradeTable rows={worst} dir="asc" /> : null}

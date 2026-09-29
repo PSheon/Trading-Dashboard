@@ -295,7 +295,7 @@ export const en: Messages = {
     entryApproxHint: "Entry estimated: the position predates the available fill history",
     showMore: "Show more ({shown} of {total})",
     tradeFilters: { all: "All", closed: "Closed", open: "Open" },
-    perf: { best: "Best", worst: "Worst", mostTraded: "Most traded" },
+    perf: { best: "Best", worst: "Worst", mostTraded: "Most traded", byAsset: "By asset" },
     tradeCols: {
       asset: "Asset",
       side: "Side",

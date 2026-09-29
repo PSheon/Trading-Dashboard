@@ -299,7 +299,7 @@ export const zhTW = {
     entryApproxHint: "進場價為估計值：倉位早於可取得的成交紀錄",
     showMore: "顯示更多（{shown} / {total}）",
     tradeFilters: { all: "全部", closed: "已平倉", open: "持倉中" },
-    perf: { best: "最佳", worst: "最差", mostTraded: "最常交易" },
+    perf: { best: "最佳", worst: "最差", mostTraded: "最常交易", byAsset: "依幣種" },
     tradeCols: {
       asset: "資產",
       side: "買賣",

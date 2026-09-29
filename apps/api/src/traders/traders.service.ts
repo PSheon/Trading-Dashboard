@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { and, asc, count, desc, eq, gte, ilike, inArray, like, notLike, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, like, max, notLike, or, type SQL } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
   fills,
@@ -31,6 +31,7 @@ import {
   isPerpCoin,
   portfolioSeries,
   sampleFromUserFills,
+  type FillSample,
   summarizeAccount,
   summarizeRoundTrips,
   toPortfolioResponse,
@@ -212,7 +213,8 @@ export class TradersService implements OnApplicationBootstrap {
       ...summarizeAccount(states),
       tracked,
       isVault: stats?.isVault ?? this.ingest.isVault(address),
-      sample,
+      lastTradeAt: sample.lastTradeAt === null ? null : new Date(sample.lastTradeAt),
+      sample: { fills30d: sample.fills30d, capped: sample.capped },
       analytics,
       fetchedAt: new Date(),
     };
@@ -222,21 +224,23 @@ export class TradersService implements OnApplicationBootstrap {
    * fills. Ours can have holes (an address imported less than 30 days ago,
    * backfill limits, downtime), and a hole must not make an active trader
    * look like a low sample; Hyperliquid's list stops at 2,000. */
-  private async trackedSample(address: string, since: Date): Promise<SharedProfile["sample"]> {
-    const [[{ n }], upstream] = await Promise.all([
-      this.db
-        .select({ n: count() })
-        .from(fills)
-        .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), gte(fills.ts, since), ...perpFillsOnly)),
+  private async trackedSample(address: string, since: Date): Promise<FillSample> {
+    const mine = and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), ...perpFillsOnly);
+    const [[{ n }], [{ last }], upstream] = await Promise.all([
+      this.db.select({ n: count() }).from(fills).where(and(mine, gte(fills.ts, since))),
+      this.db.select({ last: max(fills.ts) }).from(fills).where(mine),
       // Our count alone is still an answer if Hyperliquid is unavailable.
-      this.untrackedSample(address, since).catch(() => ({ fills30d: 0, capped: false })),
+      this.untrackedSample(address, since).catch((): FillSample => ({ fills30d: 0, capped: false, lastTradeAt: null })),
     ]);
-    return n >= upstream.fills30d ? { fills30d: n, capped: false } : upstream;
+    const ours = last ? new Date(last).getTime() : null;
+    const lastTradeAt = Math.max(ours ?? -1, upstream.lastTradeAt ?? -1);
+    const count30d = n >= upstream.fills30d ? { fills30d: n, capped: false } : upstream;
+    return { fills30d: count30d.fills30d, capped: count30d.capped, lastTradeAt: lastTradeAt < 0 ? null : lastTradeAt };
   }
 
   /** From Hyperliquid's latest fills, through the same cache the fills tab
    * reads, so opening the page pays for `userFills` once. */
-  private async untrackedSample(address: string, since: Date): Promise<SharedProfile["sample"]> {
+  private async untrackedSample(address: string, since: Date): Promise<FillSample> {
     return sampleFromUserFills(await this.userFills(address), since.getTime());
   }
 

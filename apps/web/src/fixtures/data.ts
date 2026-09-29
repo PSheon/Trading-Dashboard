@@ -88,9 +88,18 @@ export const traderStats: TraderStats[] = leaderboard.leaderboardRows.map((row, 
     roi: pick("roi"),
     volume: pick("vlm"),
     isVault: FIXTURE_VAULT_RANKS.has(i),
+    activity: activityOf(pick("vlm")),
     updatedAt: leaderboardUpdatedAt,
   };
 });
+
+/** Same rule as the api: the shortest window with volume. */
+function activityOf(volume: Record<TraderWindow, number>): TraderStats["activity"] {
+  if (volume.day > 0) return "day";
+  if (volume.week > 0) return "week";
+  if (volume.month > 0) return "month";
+  return "inactive";
+}
 
 const statsByAddress = new Map(traderStats.map((s) => [s.address, s]));
 
@@ -336,6 +345,7 @@ export function profileFor(
     tracked,
     isVault: stats?.isVault ?? false,
     sample: sampleFor(address, tracked),
+    lastTradeAt: findStats(address)?.activity === "inactive" ? null : new Date(NOW - 45 * 60_000),
     favorite,
     analytics: tracked
       ? {

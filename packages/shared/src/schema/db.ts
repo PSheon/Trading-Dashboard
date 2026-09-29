@@ -311,6 +311,9 @@ export const users = pgTable("users", {
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
 });
 
+export const alertSidesEnum = ["buy", "sell", "both"] as const;
+export type AlertSides = (typeof alertSidesEnum)[number];
+
 // ---------------------------------------------------------------------------
 // user_favorites — 收藏；收藏的地址也會進入監控清單（leaders.source='favorite'）
 // ---------------------------------------------------------------------------
@@ -323,8 +326,20 @@ export const userFavorites = pgTable(
     chain: text("chain").notNull().default(CHAIN_DEFAULT),
     address: text("address").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Telegram trade alerts for this trader (CopyDog-style): on/off, which
+     * side, and an optional minimum notional. How many a user may switch on
+     * is `app_settings.notifications.maxAlertTraders`. */
+    alertEnabled: boolean("alert_enabled").notNull().default(false),
+    alertSides: text("alert_sides").$type<AlertSides>().notNull().default("both"),
+    alertMinUsd: numeric("alert_min_usd"),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.chain, table.address] })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.chain, table.address] }),
+    // Who to alert when this address acts.
+    index("user_favorites_alerting_idx")
+      .on(table.chain, table.address)
+      .where(sql`${table.alertEnabled}`),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -343,6 +358,8 @@ export const notificationChannels = pgTable(
     kind: text("kind").$type<NotificationChannelKind>().notNull(),
     /** Telegram chat id. */
     target: text("target").notNull(),
+    /** Telegram @username at link time (without "@"), for display. */
+    username: text("username"),
     enabled: boolean("enabled").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -422,4 +439,23 @@ export const revenueSnapshots = pgTable(
     raw: jsonb("raw").notNull(),
   },
   (table) => [primaryKey({ columns: [table.address, table.takenAt] })],
+);
+
+// ---------------------------------------------------------------------------
+// telegram_link_tokens — one-time tokens for linking a Telegram chat to a
+// user through the official bot (t.me/<bot>?start=<token>). Only a hash is
+// stored; a token is valid for 10 minutes and used once.
+// ---------------------------------------------------------------------------
+export const telegramLinkTokens = pgTable(
+  "telegram_link_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => [index("telegram_link_tokens_user_idx").on(table.userId)],
 );

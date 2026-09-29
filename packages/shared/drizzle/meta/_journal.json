@@ -36,6 +36,13 @@
       "when": 1790666001605,
       "tag": "0004_admin_revenue_vaults",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790671041549,
+      "tag": "0005_telegram_alerts",
+      "breakpoints": true
     }
   ]
 }

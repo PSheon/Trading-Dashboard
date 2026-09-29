@@ -2,6 +2,7 @@ import type {
   LivePosition,
   PortfolioResponse,
   TraderFill,
+  TraderActivity,
   TraderStats,
   TraderWindowInput,
   traderStats,
@@ -27,6 +28,15 @@ const numOrNull = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** The shortest leaderboard window with volume: when the account last
+ * traded, to a day. No volume in 30 days = a holder, not a trader. */
+export function activityOf(row: Pick<TraderStatsRow, "volumeDay" | "volumeWeek" | "volumeMonth">): TraderActivity {
+  if (num(row.volumeDay) > 0) return "day";
+  if (num(row.volumeWeek) > 0) return "week";
+  if (num(row.volumeMonth) > 0) return "month";
+  return "inactive";
+}
+
 export function toTraderStats(row: TraderStatsRow): TraderStats {
   return {
     address: row.address,
@@ -41,6 +51,7 @@ export function toTraderStats(row: TraderStatsRow): TraderStats {
       allTime: num(row.volumeAllTime),
     },
     isVault: row.isVault,
+    activity: activityOf(row),
     updatedAt: row.updatedAt,
   };
 }
@@ -254,14 +265,24 @@ export const USER_FILLS_CAP = 2_000;
 /** Perp fills since `since` in a `userFills` response. `capped`: the list is
  * full and even its oldest fill is inside the window, so the true count may
  * be higher. */
-export function sampleFromUserFills(raw: HlUserFill[], since: number): { fills30d: number; capped: boolean } {
+export interface FillSample {
+  fills30d: number;
+  capped: boolean;
+  /** Newest perp fill in the list, epoch ms. */
+  lastTradeAt: number | null;
+}
+
+export function sampleFromUserFills(raw: HlUserFill[], since: number): FillSample {
   let fills30d = 0;
   let oldest = Infinity;
+  let lastTradeAt: number | null = null;
   for (const f of raw) {
     oldest = Math.min(oldest, f.time);
-    if (f.time >= since && isPerpCoin(f.coin)) fills30d += 1;
+    if (!isPerpCoin(f.coin)) continue;
+    if (f.time >= since) fills30d += 1;
+    if (lastTradeAt === null || f.time > lastTradeAt) lastTradeAt = f.time;
   }
-  return { fills30d, capped: raw.length >= USER_FILLS_CAP && oldest >= since };
+  return { fills30d, capped: raw.length >= USER_FILLS_CAP && oldest >= since, lastTradeAt };
 }
 
 export function hlFillToTraderFill(f: HlUserFill): TraderFill {

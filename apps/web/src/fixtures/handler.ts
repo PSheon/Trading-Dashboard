@@ -82,6 +82,8 @@ import {
 } from "./admin";
 
 // Mutable demo state (per browser tab).
+const NO_ALERT = { enabled: false, sides: "both", minUsd: null } as const;
+
 const favorites = new Map<string, Date>(
   initialFavorites.map((a, i) => [a, new Date(Date.now() - (i + 1) * 86400_000)]),
 );
@@ -215,7 +217,7 @@ export async function fixtureRequest<T>(
         z.array(favoriteSchema),
         [...favorites.entries()]
           .sort((a, b) => b[1].getTime() - a[1].getTime())
-          .map(([address, createdAt]) => ({ address, createdAt, stats: findStats(address) })),
+          .map(([address, createdAt]) => ({ address, createdAt, stats: findStats(address), alert: NO_ALERT })),
       );
     case "PUT /me/favorites/:address": {
       requireUser(token);
@@ -225,6 +227,7 @@ export async function fixtureRequest<T>(
         address,
         createdAt: favorites.get(address),
         stats: findStats(address),
+        alert: NO_ALERT,
       });
     }
     case "DELETE /me/favorites/:address": {

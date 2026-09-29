@@ -40,7 +40,7 @@ export class SettingsService {
   }
 
   async getPublic(): Promise<PublicSettings> {
-    const { general, discovery, revenue } = await this.getAll();
+    const { general, discovery, notifications, revenue } = await this.getAll();
     return {
       announcement: general.announcement,
       signupsOpen: general.signupsOpen,
@@ -49,6 +49,8 @@ export class SettingsService {
       homeMarkets: discovery.homeMarkets,
       hideVaults: discovery.hideVaults,
       lowSampleThreshold: discovery.lowSampleThreshold,
+      defaultActiveWithin: discovery.defaultActiveWithin,
+      maxAlertTraders: notifications.maxAlertTraders,
       referralCode: revenue.referralCode,
     };
   }

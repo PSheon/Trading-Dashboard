@@ -382,6 +382,12 @@ export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 export const traderWindowSchema = z.enum(["day", "week", "month", "allTime"]);
 export type TraderWindowInput = z.infer<typeof traderWindowSchema>;
 
+export const traderActivitySchema = z.enum(["day", "week", "month", "inactive"]);
+export type TraderActivity = z.infer<typeof traderActivitySchema>;
+/** Filter: traded within this window; "any" includes inactive accounts. */
+export const activeWithinSchema = z.enum(["day", "week", "month", "any"]);
+export type ActiveWithin = z.infer<typeof activeWithinSchema>;
+
 /** One row of `trader_stats` (official leaderboard), numbers as JS numbers. */
 export const traderStatsSchema = z.object({
   address: z.string(),
@@ -392,6 +398,10 @@ export const traderStatsSchema = z.object({
   volume: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
   /** A Hyperliquid vault: account value is TVL, not one trader's equity. */
   isVault: z.boolean(),
+  /** Most recent leaderboard window with volume > 0: traded in the last
+   * day / week / month, or not at all in 30 days ("inactive": a holder, not
+   * a trader). */
+  activity: traderActivitySchema,
   updatedAt: z.coerce.date(),
 });
 export type TraderStats = z.infer<typeof traderStatsSchema>;
@@ -406,6 +416,8 @@ export const tradersQuerySchema = z.object({
   minAccountValue: z.coerce.number().min(0).optional(),
   /** "true" / "false"; omitted → the admin's `discovery.hideVaults` setting. */
   hideVaults: booleanQuerySchema.optional(),
+  /** Omitted → the admin's `discovery.defaultActiveWithin` setting. */
+  active: activeWithinSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -448,6 +460,8 @@ export const traderProfileResponseSchema = z.object({
   /** Watched by the live pipeline (imported or someone's favorite). */
   tracked: z.boolean(),
   isVault: z.boolean(),
+  /** Latest perp fill we know of (ours or Hyperliquid's latest list). */
+  lastTradeAt: z.coerce.date().nullable(),
   /** Sample size, so a 3-trade 300% ROI doesn't look like a 300-trade one
    * (競品分析 §3.2). Tracked: our fills; untracked: Hyperliquid's latest
    * `userFills` (at most 2,000, so `capped` means "at least"). */
@@ -529,16 +543,73 @@ export type TraderFill = z.infer<typeof traderFillSchema>;
 // --- favorites (signed in) --------------------------------------------------
 
 /** GET /me/favorites; PUT and DELETE /me/favorites/:address */
+export const alertSidesSchema = z.enum(["buy", "sell", "both"]);
+export type AlertSidesInput = z.infer<typeof alertSidesSchema>;
+
+/** Telegram trade alert for one favorite (CopyDog-style). `sides`: buy =
+ * actions on the buy side (open/add long, reduce/close short), sell = the
+ * sell side. `minUsd`: skip actions below this notional; null = any. */
+export const favoriteAlertSchema = z.object({
+  enabled: z.boolean(),
+  sides: alertSidesSchema,
+  minUsd: z.number().nullable(),
+});
+export type FavoriteAlert = z.infer<typeof favoriteAlertSchema>;
+
 export const favoriteSchema = z.object({
   address: z.string(),
   createdAt: z.coerce.date(),
   stats: traderStatsSchema.nullable(),
+  alert: favoriteAlertSchema,
 });
 export type Favorite = z.infer<typeof favoriteSchema>;
 
+/** PATCH /me/favorites/:address/alert → the updated `favoriteSchema`.
+ * Turning alerts on answers 409 `{code:"telegram_not_linked"}` without a
+ * linked Telegram, and 409 `{code:"alert_limit", limit}` when the user
+ * already has `notifications.maxAlertTraders` switched on. */
+export const patchFavoriteAlertRequestSchema = z.object({
+  enabled: z.boolean().optional(),
+  sides: alertSidesSchema.optional(),
+  minUsd: z.number().min(0).max(1e12).nullable().optional(),
+});
+export type PatchFavoriteAlertRequest = z.infer<typeof patchFavoriteAlertRequestSchema>;
+
 // --- notifications (signed in) ----------------------------------------------
 
-/** GET /me/notification-channels; PUT /me/notification-channels/telegram */
+/** GET /me/telegram — the official bot and whether this user's chat is
+ * linked to it. */
+export const telegramStatusSchema = z.object({
+  /** Bot username without "@" (TELEGRAM_BOT_USERNAME); null = not set up. */
+  bot: z.string().nullable(),
+  linked: z.boolean(),
+  /** The chat's @username at link time, without "@". */
+  username: z.string().nullable(),
+  enabled: z.boolean(),
+  linkedAt: z.coerce.date().nullable(),
+});
+export type TelegramStatus = z.infer<typeof telegramStatusSchema>;
+
+/** POST /me/telegram/link — a one-time deep link (10 min). Opening it and
+ * pressing Start in Telegram links that chat; the page polls GET
+ * /me/telegram. DELETE /me/telegram unlinks (204). */
+export const telegramLinkResponseSchema = z.object({
+  url: z.string().url(),
+  expiresAt: z.coerce.date(),
+});
+export type TelegramLinkResponse = z.infer<typeof telegramLinkResponseSchema>;
+
+/** POST /me/telegram/test — sends a test message to the linked chat. */
+export const telegramTestResponseSchema = z.object({
+  sent: z.boolean(),
+  /** TELEGRAM_DRY_RUN is on: logged, not sent. */
+  dryRun: z.boolean(),
+});
+export type TelegramTestResponse = z.infer<typeof telegramTestResponseSchema>;
+
+/** @deprecated Replaced by the bot link flow (`/me/telegram*`); removed
+ * once apps/web no longer uses it.
+ * GET /me/notification-channels; PUT /me/notification-channels/telegram */
 export const notificationChannelSchema = z.object({
   kind: z.literal("telegram"),
   target: z.string(),
@@ -546,6 +617,7 @@ export const notificationChannelSchema = z.object({
 });
 export type NotificationChannel = z.infer<typeof notificationChannelSchema>;
 
+/** @deprecated See `notificationChannelSchema`. */
 export const putTelegramChannelRequestSchema = z.object({
   /** Telegram chat id: digits, optionally negative (groups). */
   target: z.string().regex(/^-?\d{1,20}$/),
@@ -612,12 +684,18 @@ export const discoverySettingsSchema = z.object({
   /** Fewer 30-day fills than this → greyed out with a "low sample" tag. */
   lowSampleThreshold: z.number().int().min(0).max(1000).default(20),
   leaderboardRefreshMinutes: z.number().int().min(5).max(240).default(15),
+  /** Default activity filter on explore and home lists: "month" hides
+   * accounts with no volume in 30 days (holders, not traders). */
+  defaultActiveWithin: activeWithinSchema.default("month"),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 
 export const notificationSettingsSchema = z.object({
   /** Global kill switch for user alerts (system messages still go out). */
   alertsEnabled: z.boolean().default(true),
+  /** How many favorites one user may have Telegram alerts switched on for
+   * (CopyDog allows 3). Lowering it doesn't switch existing ones off. */
+  maxAlertTraders: z.number().int().min(1).max(1000).default(3),
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 
@@ -660,6 +738,8 @@ export const publicSettingsSchema = z.object({
   homeMarkets: z.array(z.string()),
   hideVaults: z.boolean(),
   lowSampleThreshold: z.number().int(),
+  defaultActiveWithin: activeWithinSchema,
+  maxAlertTraders: z.number().int(),
   referralCode: z.string().nullable(),
 });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;

@@ -60,7 +60,7 @@ export function setAdminSettings(next: AdminSettings) {
 }
 
 export function publicSettings(): PublicSettings {
-  const { general, discovery, revenue } = adminSettings;
+  const { general, discovery, notifications, revenue } = adminSettings;
   return {
     announcement: general.announcement,
     signupsOpen: general.signupsOpen,
@@ -69,6 +69,8 @@ export function publicSettings(): PublicSettings {
     homeMarkets: discovery.homeMarkets,
     hideVaults: discovery.hideVaults,
     lowSampleThreshold: discovery.lowSampleThreshold,
+    defaultActiveWithin: discovery.defaultActiveWithin,
+    maxAlertTraders: notifications.maxAlertTraders,
     referralCode: revenue.referralCode,
   };
 }

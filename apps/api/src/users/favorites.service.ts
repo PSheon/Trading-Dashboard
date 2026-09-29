@@ -38,6 +38,11 @@ export class FavoritesService {
       address: r.favorite.address,
       createdAt: r.favorite.createdAt,
       stats: r.stats ? toTraderStats(r.stats) : null,
+      alert: {
+        enabled: r.favorite.alertEnabled,
+        sides: r.favorite.alertSides,
+        minUsd: r.favorite.alertMinUsd === null ? null : Number(r.favorite.alertMinUsd),
+      },
     }));
   }
 
@@ -75,7 +80,7 @@ export class FavoritesService {
 
     const favorite = (await this.list(userId)).find((f) => f.address === address);
     // Just written in this request; only a concurrent DELETE could remove it.
-    return favorite ?? { address, createdAt: new Date(), stats: null };
+    return favorite ?? { address, createdAt: new Date(), stats: null, alert: { enabled: false, sides: "both", minUsd: null } };
   }
 
   /** Idempotent; returns whether a favorite was removed. */

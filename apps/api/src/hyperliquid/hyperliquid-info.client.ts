@@ -1,9 +1,9 @@
+import { AppConfig } from "../config/app-config.js";
 import { currentRequestSignal } from "../runtime/request-context.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
 
-import { env } from "../config/env.js";
 import { RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
   HlAllMidsResponse,
@@ -76,7 +76,7 @@ export function twapSliceToFill(slice: HlTwapSliceFill): HlUserFill {
 export class HyperliquidInfoClient {
   private readonly logger = new Logger(HyperliquidInfoClient.name);
 
-  constructor(private readonly budgeter: RequestBudgeterService, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
+  constructor(private readonly config: AppConfig, private readonly budgeter: RequestBudgeterService, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   private async post<T>(
     body: HlInfoRequestBody,
@@ -91,7 +91,7 @@ export class HyperliquidInfoClient {
     await this.budgeter.acquire(weight, priority, rank, { known, signal });
     signal.throwIfAborted();
 
-    const url = env.hyperliquidApiUrl();
+    const url = this.config.value.hyperliquid.apiUrl;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

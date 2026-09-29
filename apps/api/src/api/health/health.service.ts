@@ -1,7 +1,7 @@
+import { AppConfig } from "../../config/app-config.js";
 import { Injectable } from "@nestjs/common";
 import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
-import { env } from "../../config/env.js";
 import { RequestBudgeterService } from "../../hyperliquid/request-budgeter.service.js";
 import { SchedulerService } from "../../scheduler/scheduler.service.js";
 import { WatcherService } from "../../watcher/watcher.service.js";
@@ -10,6 +10,7 @@ import { WatcherService } from "../../watcher/watcher.service.js";
 @Injectable()
 export class HealthService {
   constructor(
+    private readonly config: AppConfig,
     private readonly watcher: WatcherService,
     private readonly scheduler: SchedulerService,
     private readonly budgeter: RequestBudgeterService,
@@ -34,7 +35,7 @@ export class HealthService {
       weightLastMinute: budget.weightLastMinute,
       queuedRequests: this.budgeter.queued(),
       fillsUnavailable,
-      dryRun: env.telegramDryRun(),
+      dryRun: this.config.value.telegram.dryRun,
       now: new Date(),
     };
   }

@@ -68,3 +68,10 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 - Pre-rebase full run resumed successfully: 40 API files / 446 tests passed; shared build, API typecheck/build/lint passed. Final combined-tree verification remains required after rebasing Claude's new commits.
 
 - Combined-tree verification after rebasing onto Claude commit 89ce646: 40 API files / 463 tests passed; web 11 tests passed; API/web typecheck and lint, API build and web webpack production build passed. Contract documentation freshness check passed. Actual compiled Nest bootstrap on an allocated loopback port returned readiness 200 and terminated promptly on SIGTERM (Nest re-emits the signal; subprocess return code -15). Independent review found no blocking regression in transactions, ownership predicates, module composition, TWAP mapping or cold-page behavior.
+
+## Batch 6 configuration
+
+- Task 24: RuntimeConfigModule injects a deeply frozen AppConfig snapshot into authentication, database, HTTP/upstream clients, Telegram, runtime jobs and ingestion. Pure action helpers receive alert horizons explicitly; no production service imports dynamic env readers. Telegram system chat ID is included in the validated snapshot.
+- Test fixtures explicitly inject a mutable double for historical tests that alter env within a case; production has no optional env fallback. Added mutation isolation and real-client snapshot regression tests. Initial new-config test failed before implementation; parser/config tests now 38/38. Actual compiled application resolves the new dependencies, returns readiness 200 on the isolated DB and exits promptly on SIGTERM.
+
+- Task 24 verification: 41 API test files / 466 tests passed; API typecheck, lint and production build passed. No frontend contract changes. Initial full run caught one obsolete direct pool-factory test, which now tests validation before construction; targeted and full reruns pass.

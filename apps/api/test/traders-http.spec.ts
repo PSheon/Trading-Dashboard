@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { TradersRepository } from "../src/traders/traders.repository.js";
 import type { INestApplication } from "@nestjs/common";
 import { wireTraderProfileSchema } from "@trading-dashboard/shared/contracts";
@@ -94,7 +95,7 @@ describe("public discovery routes over HTTP", () => {
         {
           provide: TradersService,
           useFactory: (s: SettingsService) =>
-            new TradersService(new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(db), new LeaderboardIngestService(db, s), s),
+            new TradersService(testConfig(), new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(db), new LeaderboardIngestService(testConfig(), db, s), s),
           inject: [SettingsService],
         },
         { provide: InsightsService, useValue: new InsightsService(db) },

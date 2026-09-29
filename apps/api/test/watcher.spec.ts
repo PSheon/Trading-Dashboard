@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { leaders } from "@trading-dashboard/shared/database";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,7 +40,7 @@ describe("WatcherService", () => {
     fastPath = vi.fn(async () => 1);
     dropBooks = vi.fn();
     feed = { setWatched: vi.fn(), status: () => ({}), stop: () => {} };
-    watcher = new WatcherService(
+    watcher = new WatcherService(testConfig(),
       feed as unknown as TradeFeedService,
       { sync, getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
       { getEquityUsd: () => null, dropBooks } as unknown as AccountStateService,

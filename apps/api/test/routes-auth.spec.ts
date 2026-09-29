@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
 import { actions, alertRules, alerts, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
@@ -78,7 +79,7 @@ describe("route access on the existing controllers", () => {
 
   beforeEach(async () => {
     await truncateAll(db);
-    await new RulesSeedService(db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), db).seedDefaultRules();
     auth.clearCache();
   });
 

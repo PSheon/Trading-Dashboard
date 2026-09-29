@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
@@ -33,6 +34,7 @@ export class FeedActionsService {
   private readonly logger = new Logger(FeedActionsService.name);
 
   constructor(
+    private readonly config: AppConfig,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly accounts: AccountStateService,
     @Optional() private readonly events?: EventEmitter2,
@@ -83,9 +85,9 @@ export class FeedActionsService {
           const covered = new Set(covering.flatMap((a) => a.fillIds));
           drafts = this.classify(address, burst, covered);
         }
-        return insertActions(tx, address, drafts, true, this.accounts.getEquityUsd(address));
+        return insertActions(tx, address, drafts, true, this.accounts.getEquityUsd(address), this.config.value.alert.maxActionAgeSeconds);
       });
-      emitRecent(this.events, rows);
+      emitRecent(this.events, rows, this.config.value.alert.maxActionAgeSeconds);
       return rows.length;
     } finally {
       // Whether or not actions were written, the position moved.

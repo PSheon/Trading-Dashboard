@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
@@ -97,6 +98,7 @@ export class TradersService {
   readonly spotPrices: SpotPriceService;
 
   constructor(
+    private readonly config: AppConfig,
     private readonly repository: TradersRepository,
     private readonly info: HyperliquidInfoClient,
     private readonly roundTrips: RoundTripService,
@@ -109,7 +111,7 @@ export class TradersService {
   }
 
   startWarming(): void {
-    if (process.env.NODE_ENV === "test") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     // The first trader page after a deploy then needs one request, not two.
     this.perpDexes().catch(() => undefined);
     // After the startup import, so "top by month PnL" has data.

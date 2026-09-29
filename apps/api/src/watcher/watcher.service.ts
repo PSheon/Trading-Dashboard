@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
@@ -101,6 +102,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   private pendingSweepStart: number | undefined;
 
   constructor(
+    private readonly config: AppConfig,
     private readonly feed: TradeFeedService,
     private readonly fillSync: FillSyncService,
     private readonly accounts: AccountStateService,
@@ -112,7 +114,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   /** Starts on app boot; not under `NODE_ENV=test`, where tests drive the
    * pieces directly. */
   onApplicationBootstrap(): void {
-    if (process.env.NODE_ENV === "test") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     void this.start();
   }
 

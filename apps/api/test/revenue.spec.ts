@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { readFileSync } from "node:fs";
@@ -121,7 +122,7 @@ describe("HyperliquidInfoClient.referral (mocked HTTP)", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(NEED_TO_TRADE), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const budgeter = { acquire: vi.fn(async () => {}), onSuccess: vi.fn(), onRateLimited: vi.fn() };
-    const client = new HyperliquidInfoClient(budgeter as unknown as RequestBudgeterService);
+    const client = new HyperliquidInfoClient(testConfig(), budgeter as unknown as RequestBudgeterService);
 
     expect(await client.referral(ZERO, "background", 0)).toEqual(NEED_TO_TRADE);
     expect(budgeter.acquire).toHaveBeenCalledWith(20, "background", 0, { known: undefined, signal: expect.any(AbortSignal) });

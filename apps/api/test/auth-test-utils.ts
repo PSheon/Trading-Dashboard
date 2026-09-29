@@ -1,3 +1,5 @@
+import { AppConfig } from "../src/config/app-config.js";
+import { testConfig } from "./config-test-utils.js";
 import { LeadersRepository } from "../src/api/leaders/leaders.repository.js";
 import { AlertsRepository } from "../src/api/alerts/alerts.repository.js";
 import { FavoritesRepository } from "../src/users/favorites.repository.js";
@@ -52,7 +54,7 @@ export async function createAuthedApp(opts: {
   beforeListen?: (app: INestApplication) => void;
 }): Promise<{ app: INestApplication; auth: AuthService; settings: SettingsService }> {
   @Global()
-  @Module({ providers: [UnitOfWork, { provide: DRIZZLE_CLIENT, useValue: opts.db }], exports: [DRIZZLE_CLIENT, UnitOfWork] })
+  @Module({ providers: [{ provide: AppConfig, useValue: testConfig() }, UnitOfWork, { provide: DRIZZLE_CLIENT, useValue: opts.db }], exports: [AppConfig, DRIZZLE_CLIENT, UnitOfWork] })
   class TestDbModule {}
 
   const moduleRef = await Test.createTestingModule({

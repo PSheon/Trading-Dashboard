@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { DbOrTx } from "../watcher/action-store.js";
@@ -15,7 +16,6 @@ import {
 } from "@trading-dashboard/shared/database";
 import { notificationDeliveryPayloadSchema, type Locale } from "@trading-dashboard/shared/contracts";
 
-import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { renderAlertMessage, renderTestMessage, tradeSideOf } from "./message-template.js";
@@ -80,6 +80,7 @@ export class NotifyService {
   private readonly logger = new Logger(NotifyService.name);
 
   constructor(
+    private readonly config: AppConfig,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly telegram: TelegramHttpClient,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
@@ -95,7 +96,7 @@ export class NotifyService {
 
   private async enqueue(ctx: AlertContext, db: DbOrTx): Promise<void> {
     const { action, recipient, rules } = ctx;
-    const dashboardUrl = `${env.telegramLinkBaseUrl()}/trader/${action.address}`;
+    const dashboardUrl = `${this.config.value.telegram.linkBaseUrl}/trader/${action.address}`;
     const ruleKinds = rules.map((r) => r.kind);
     const text = renderAlertMessage({
       locale: recipient.locale,
@@ -167,7 +168,7 @@ export class NotifyService {
       else if (!(await this.deliveryStillAllowed(row, payload, recipient.role))) {
         retry.permanent = true; reason = "alert authorization withdrawn";
       }
-      else if (env.telegramDryRun()) { status = "dry_run"; }
+      else if (this.config.value.telegram.dryRun) { status = "dry_run"; }
       else {
         const [channel] = await this.db.select().from(notificationChannels).where(and(
           eq(notificationChannels.userId, row.userId), eq(notificationChannels.kind, "telegram"), eq(notificationChannels.enabled, true),
@@ -223,8 +224,8 @@ export class NotifyService {
   /** POST /me/telegram/test: one attempt, so the page answers quickly.
    * Honors dry run like any alert. */
   async sendTestMessage(chatId: string, locale: Locale): Promise<{ sent: boolean; dryRun: boolean }> {
-    const text = renderTestMessage(locale, env.telegramLinkBaseUrl());
-    if (env.telegramDryRun()) {
+    const text = renderTestMessage(locale, this.config.value.telegram.linkBaseUrl);
+    if (this.config.value.telegram.dryRun) {
       this.logger.log(`[TELEGRAM_DRY_RUN] test message to ${chatId}: ${text}`);
       return { sent: false, dryRun: true };
     }
@@ -241,9 +242,9 @@ export class NotifyService {
    * TELEGRAM_SYSTEM_CHAT_ID chat. Not an alert, so no `alerts` row.
    * Honors TELEGRAM_DRY_RUN; never throws. */
   async sendSystemMessage(text: string): Promise<void> {
-    const chatId = env.telegramSystemChatId();
-    if (env.telegramDryRun() || !chatId) {
-      this.logger.warn(`[${env.telegramDryRun() ? "TELEGRAM_DRY_RUN" : "no chat id"}] system message: ${text}`);
+    const chatId = this.config.value.telegram.systemChatId;
+    if (this.config.value.telegram.dryRun || !chatId) {
+      this.logger.warn(`[${this.config.value.telegram.dryRun ? "TELEGRAM_DRY_RUN" : "no chat id"}] system message: ${text}`);
       return;
     }
     if (!(await this.sendWithRetry(chatId, text))) {

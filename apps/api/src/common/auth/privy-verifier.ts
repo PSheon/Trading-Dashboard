@@ -1,7 +1,7 @@
+import { AppConfig } from "../../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { PrivyClient, type LinkedAccount } from "@privy-io/node";
 
-import { env } from "../../config/env.js";
 
 /** A Privy access token that passed signature, issuer, audience and expiry
  * checks. */
@@ -68,9 +68,9 @@ export class SdkPrivyVerifier implements PrivyVerifier {
   private readonly logger = new Logger(SdkPrivyVerifier.name);
   private readonly client: PrivyClient | null;
 
-  constructor() {
-    const appId = env.privyAppId();
-    const appSecret = env.privyAppSecret();
+  constructor(private readonly config: AppConfig) {
+    const appId = this.config.value.auth.appId;
+    const appSecret = this.config.value.auth.appSecret;
     if (!appId || !appSecret) {
       this.logger.warn("PRIVY_APP_ID / PRIVY_APP_SECRET not set — Privy sign-in is disabled");
       this.client = null;
@@ -79,7 +79,7 @@ export class SdkPrivyVerifier implements PrivyVerifier {
     this.client = new PrivyClient({
       appId,
       appSecret,
-      jwtVerificationKey: env.privyVerificationKey(),
+      jwtVerificationKey: this.config.value.auth.verificationKey,
     });
   }
 

@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { createHash, randomBytes } from "node:crypto";
 
 import {
@@ -17,7 +18,6 @@ import {
   type TelegramTestResponse,
 } from "@trading-dashboard/shared/contracts";
 
-import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { NotifyService } from "../notify/notify.service.js";
@@ -63,14 +63,15 @@ export function notLinked(): ConflictException {
 @Injectable()
 export class TelegramLinkService {
   constructor(
+    private readonly config: AppConfig,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly notify: NotifyService,
   ) {}
 
   /** The bot's username when the bot is usable (token and username set). */
   bot(): string | null {
-    const username = env.telegramBotUsername()?.replace(/^@/, "");
-    return username && env.telegramBotToken() ? username : null;
+    const username = this.config.value.telegram.botUsername?.replace(/^@/, "");
+    return username && this.config.value.telegram.botToken ? username : null;
   }
 
   async status(userId: number): Promise<TelegramStatus> {

@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
@@ -108,6 +109,7 @@ export class FillSyncService {
   private readonly twapSeenAt = new Map<string, number>();
 
   constructor(
+    private readonly config: AppConfig,
     private readonly info: HyperliquidInfoClient,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly accounts: AccountStateService,
@@ -305,13 +307,13 @@ export class FillSyncService {
         });
         await this.verify(tx, address, action, real, action.fillIds.some((tid) => freshTids.has(tid)), corrections);
       }
-      return drafts.length > 0 ? insertActions(tx, address, drafts, reason !== "backfill", this.accounts.getEquityUsd(address)) : [];
+      return drafts.length > 0 ? insertActions(tx, address, drafts, reason !== "backfill", this.accounts.getEquityUsd(address), this.config.value.alert.maxActionAgeSeconds) : [];
     });
 
     // Committed: pages showing a corrected row can fix it (never an alert).
     if (corrections.updated.length > 0 || corrections.inserted.length > 0) this.events?.emit(ACTION_CORRECTED_EVENT, corrections);
     // Backfill is history: stored for analytics, never alerted on.
-    if (reason !== "backfill") emitRecent(this.events, rows);
+    if (reason !== "backfill") emitRecent(this.events, rows, this.config.value.alert.maxActionAgeSeconds);
     return rows.length;
   }
 

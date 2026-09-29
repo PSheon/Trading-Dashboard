@@ -1,10 +1,10 @@
+import { AppConfig } from "../../config/app-config.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, isNull } from "drizzle-orm";
 import { users } from "@trading-dashboard/shared/database";
 
-import { env } from "../../config/env.js";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 import { SettingsService } from "../../settings/settings.service.js";
@@ -84,6 +84,7 @@ export class AuthService {
   private readonly profileRetryAt = new Map<number, number>();
 
   constructor(
+    private readonly config: AppConfig,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     @Inject(PRIVY_VERIFIER) private readonly privy: PrivyVerifier,
     private readonly settings: SettingsService,
@@ -91,9 +92,9 @@ export class AuthService {
 
   /** Database errors propagate; token problems never do. */
   async authenticate(token: string): Promise<AuthOutcome> {
-    const serviceToken = env.serviceToken();
+    const serviceToken = this.config.value.auth.serviceToken;
     if (serviceToken && tokensMatch(token, serviceToken)) {
-      return { status: "user", user: { kind: "service", permissions: env.servicePermissions() } };
+      return { status: "user", user: { kind: "service", permissions: this.config.value.auth.permissions } };
     }
 
     const key = tokenKey(token);
@@ -180,7 +181,7 @@ export class AuthService {
 
     const profile = await this.privy.fetchProfile(privyUserId);
     const email = profile?.email ?? null;
-    const bootstrapAdmin = email !== null && env.adminEmails().includes(email);
+    const bootstrapAdmin = email !== null && this.config.value.auth.adminEmails.includes(email);
     if (!bootstrapAdmin && !(await this.settings.get("general")).signupsOpen) {
       return { status: "signups_closed" };
     }

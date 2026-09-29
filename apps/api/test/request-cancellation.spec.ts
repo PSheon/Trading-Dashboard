@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 
@@ -5,7 +6,7 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 it("removes aborted waiters without spending tokens", async () => {
   vi.useFakeTimers();
   vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "1");
-  const budget = new RequestBudgeterService();
+  const budget = new RequestBudgeterService(testConfig());
   await budget.acquire(1, "live");
   const abort = new AbortController();
   const waiting = budget.acquire(1, "background", undefined, { signal: abort.signal });
@@ -18,7 +19,7 @@ it("removes aborted waiters without spending tokens", async () => {
 it("rejects excess queued requests and clears all waiters on shutdown", async () => {
   vi.useFakeTimers();
   vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "1");
-  const budget = new RequestBudgeterService();
+  const budget = new RequestBudgeterService(testConfig());
   await budget.acquire(1, "live");
   const waiting = Array.from({ length: 1000 }, () => budget.acquire(1).catch(() => "stopped"));
   await expect(budget.acquire(1)).rejects.toThrow(/queue/i);
@@ -31,10 +32,10 @@ it("propagates HTTP caller cancellation through the info client's queue", async 
   const { withRequestSignal } = await import("../src/runtime/request-context.js");
   const { HyperliquidInfoClient } = await import("../src/hyperliquid/hyperliquid-info.client.js");
   vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "1");
-  const budget = new RequestBudgeterService();
+  const budget = new RequestBudgeterService(testConfig());
   await budget.acquire(1, "live");
   const abort = new AbortController();
-  const client = new HyperliquidInfoClient(budget);
+  const client = new HyperliquidInfoClient(testConfig(), budget);
   const waiting = withRequestSignal(abort.signal, () => client.portfolio("0x" + "ab".repeat(20)));
   const rejected = expect(waiting).rejects.toMatchObject({ name: "AbortError" });
   abort.abort();

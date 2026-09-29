@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { RequirePermissions } from "../src/common/auth/permissions.js";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
 import { alertRules, users } from "@trading-dashboard/shared/database";
@@ -82,7 +83,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
 
   beforeEach(async () => {
     await truncateAll(db);
-    await new RulesSeedService(db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), db).seedDefaultRules();
     // The settings cache outlives the truncate: reset it explicitly.
     await settings.patch({ general: { signupsOpen: true } }, null);
     auth.clearCache();
@@ -180,7 +181,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     it("Privy not configured: SdkPrivyVerifier rejects every token (fail closed)", async () => {
       delete process.env.PRIVY_APP_ID;
       delete process.env.PRIVY_APP_SECRET;
-      const sdk = new SdkPrivyVerifier();
+      const sdk = new SdkPrivyVerifier(testConfig());
       await expect(sdk.verifyAccessToken("anything")).rejects.toThrow(/not configured/);
       expect(await sdk.fetchProfile("did:privy:x")).toBeNull();
     });

@@ -1,6 +1,6 @@
+import { AppConfig } from "../config/app-config.js";
 import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 
-import { env } from "../config/env.js";
 import {
   TelegramApiError,
   TelegramHttpClient,
@@ -55,13 +55,14 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   private loopDone: Promise<void> | undefined;
 
   constructor(
+    private readonly config: AppConfig,
     private readonly telegram: TelegramHttpClient,
     private readonly link: TelegramLinkService,
   ) {}
 
   onApplicationBootstrap(): void {
     // Tests start the loop themselves, against a stubbed Telegram.
-    if (process.env.NODE_ENV === "test") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     this.start();
   }
 
@@ -82,7 +83,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
    * set; returns whether it is running. */
   start(): boolean {
     if (this.running) return true;
-    if (!env.telegramBotPolling()) {
+    if (!this.config.value.telegram.polling) {
       this.logger.log("TELEGRAM_BOT_POLLING=false: not receiving bot updates (linking happens on another process)");
       return false;
     }
@@ -181,7 +182,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   private async handleMessage(message: TelegramMessage): Promise<void> {
-    const site = env.telegramLinkBaseUrl();
+    const site = this.config.value.telegram.linkBaseUrl;
     const chatId = String(message.chat.id);
     const command = COMMAND_PATTERN.exec(message.text?.trim() ?? "");
     const name = command?.[1].toLowerCase();
@@ -219,7 +220,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   private async startWithToken(token: string, chatId: string, username: string | null): Promise<string> {
-    const site = env.telegramLinkBaseUrl();
+    const site = this.config.value.telegram.linkBaseUrl;
     if (!TOKEN_PATTERN.test(token)) return botMessages.invalidToken(site);
     const result = await this.link.consumeStartToken(token, chatId, username);
     switch (result.kind) {

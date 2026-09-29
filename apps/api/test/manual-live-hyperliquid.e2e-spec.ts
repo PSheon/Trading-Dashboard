@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { writeFileSync } from "node:fs";
 
 import { EventEmitter2 } from "@nestjs/event-emitter";
@@ -42,8 +43,8 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("live Hyperliquid + real Postgres (ma
     const db = getTestDb();
     await truncateAll(db);
 
-    const budgeter = new RequestBudgeterService();
-    const info = new HyperliquidInfoClient(budgeter);
+    const budgeter = new RequestBudgeterService(testConfig());
+    const info = new HyperliquidInfoClient(testConfig(), budgeter);
     const counts = new Map<string, number>();
     for (const coin of ["BTC", "ETH", "SOL", "HYPE"]) {
       const res = await fetch("https://api.hyperliquid.xyz/info", {
@@ -105,10 +106,10 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("live Hyperliquid + real Postgres (ma
       return emitter;
     };
     const accounts = new AccountStateService(info, db);
-    const fillSync = new FillSyncService(info, db, accounts, tagged("slow"));
-    const feed = new TradeFeedService(info);
-    const feedActions = new FeedActionsService(db, accounts, tagged("fast"));
-    const watcher = new WatcherService(feed, fillSync, accounts, feedActions, db);
+    const fillSync = new FillSyncService(testConfig(), info, db, accounts, tagged("slow"));
+    const feed = new TradeFeedService(testConfig(), info);
+    const feedActions = new FeedActionsService(testConfig(), db, accounts, tagged("fast"));
+    const watcher = new WatcherService(testConfig(), feed, fillSync, accounts, feedActions, db);
 
     await watcher.refreshWatched();
     startedAt = Date.now();

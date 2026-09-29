@@ -1,3 +1,4 @@
+import { RuntimeConfigModule } from "./config/runtime-config.module.js";
 import { TradersWorkerModule } from "./traders/traders-worker.module.js";
 import { HttpModule } from "./common/http/http.module.js";
 import { OutboxModule } from "./outbox/outbox.module.js";
@@ -20,7 +21,7 @@ import { UsersModule } from "./users/users.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
 
 @Module({
-  imports: [
+  imports: [RuntimeConfigModule,
     // Global (per @nestjs/event-emitter) — backs the Watcher's
     // `action.created` event that RulesModule listens for (§1 of the M2
     // task's rules-engine trigger mechanism).

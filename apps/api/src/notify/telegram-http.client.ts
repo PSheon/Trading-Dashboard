@@ -1,7 +1,7 @@
+import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Optional } from "@nestjs/common";
 
-import { env } from "../config/env.js";
 
 /** A Bot API call that Telegram answered with `ok: false`, or an HTTP
  * error. `status` is the HTTP status (409 = another getUpdates poller or a
@@ -74,17 +74,17 @@ interface BotApiResponse<T> {
  */
 @Injectable()
 export class TelegramHttpClient {
-  constructor(@Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
+  constructor(private readonly config: AppConfig, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
   /** Whether a bot token is configured at all. */
   configured(): boolean {
-    return Boolean(env.telegramBotToken());
+    return Boolean(this.config.value.telegram.botToken);
   }
 
   /** Calls `method` and returns its `result`; throws TelegramApiError on
    * `ok: false` or an HTTP error, and the fetch error on network failure
    * or abort. */
   async call<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
-    const token = env.telegramBotToken();
+    const token = this.config.value.telegram.botToken;
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
 
     const timeoutMs = method === "getUpdates" && typeof params.timeout === "number"

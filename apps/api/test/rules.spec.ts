@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import {
@@ -117,7 +118,7 @@ async function resetWithLeader(source: LeaderSource = "import") {
   await truncateAll(db);
   nextActionId = 1n;
   await db.insert(leaders).values({ chain: CHAIN, address: ADDRESS, active: true, tier: "B", source });
-  await new RulesSeedService(db).seedDefaultRules();
+  await new RulesSeedService(testConfig(), db).seedDefaultRules();
 }
 
 function rulesWith(notify: NotifyService, equity: number | null = 1_000_000) {
@@ -390,7 +391,7 @@ describe("RulesService + NotifyService — real sends (mocked Telegram)", () => 
 
   function realNotify() {
     const telegram = { sendMessage: vi.fn(async () => {}) } as unknown as TelegramHttpClient;
-    return { telegram, notify: new NotifyService(db, telegram) };
+    return { telegram, notify: new NotifyService(testConfig(), db, telegram) };
   }
 
   it("each recipient's message goes to their own chat; no linked chat → a 'failed' row saying why", async () => {
@@ -475,7 +476,7 @@ describe("RulesSeedService — real Postgres", () => {
   });
 
   it("seeds R1/R2/R3 with the documented defaults", async () => {
-    await new RulesSeedService(db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), db).seedDefaultRules();
     const rows = await db.select().from(alertRules);
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.userId === null)).toBe(true);
@@ -492,7 +493,7 @@ describe("RulesSeedService — real Postgres", () => {
   });
 
   it("is idempotent — running it again never duplicates rows or clobbers edited params", async () => {
-    const seed = new RulesSeedService(db);
+    const seed = new RulesSeedService(testConfig(), db);
     await seed.seedDefaultRules();
     await db.update(alertRules).set({ cooldownS: 1234 }).where(eq(alertRules.kind, "R1"));
     await seed.seedDefaultRules();

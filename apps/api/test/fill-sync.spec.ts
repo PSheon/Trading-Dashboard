@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
@@ -79,7 +80,7 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     emitted = [];
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
     const client = info as unknown as HyperliquidInfoClient;
-    sync = new FillSyncService(client, db, new AccountStateService(client, db), events);
+    sync = new FillSyncService(testConfig(), client, db, new AccountStateService(client, db), events);
   });
 
   afterAll(async () => {
@@ -180,7 +181,7 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
 
   it("queries the HIP-3 dex of a traded coin and sums equity across dexes", async () => {
     const accounts = new AccountStateService(info as unknown as HyperliquidInfoClient, db);
-    const s = new FillSyncService(info as unknown as HyperliquidInfoClient, db, accounts, events);
+    const s = new FillSyncService(testConfig(), info as unknown as HyperliquidInfoClient, db, accounts, events);
     byAddress.set(A, [fill({ coin: "xyz:TSLA", side: "A", dir: "Open Short", time: Date.now() })]);
 
     await s.sync(A, "live", 0);
@@ -283,7 +284,7 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
       await sync.sync(A, "sweep", t);
       expect(info.userTwapSliceFillsByTime).toHaveBeenCalledTimes(3);
       // …and so does a fresh process, from the stored slice.
-      const restarted = new FillSyncService(info as unknown as HyperliquidInfoClient, db, new AccountStateService(info as unknown as HyperliquidInfoClient, db), events);
+      const restarted = new FillSyncService(testConfig(), info as unknown as HyperliquidInfoClient, db, new AccountStateService(info as unknown as HyperliquidInfoClient, db), events);
       await restarted.sync(A, "sweep", t);
       expect(info.userTwapSliceFillsByTime).toHaveBeenCalledTimes(4);
       // B never used one.

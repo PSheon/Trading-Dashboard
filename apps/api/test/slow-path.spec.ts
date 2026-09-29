@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills } from "@trading-dashboard/shared/database";
 import { asc } from "drizzle-orm";
@@ -58,8 +59,8 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
     corrected = [];
     events.on(ACTION_CORRECTED_EVENT, (event) => corrected.push(event));
-    fast = new FeedActionsService(db, accounts, events);
-    sync = new FillSyncService(client, db, accounts, events);
+    fast = new FeedActionsService(testConfig(), db, accounts, events);
+    sync = new FillSyncService(testConfig(), client, db, accounts, events);
   });
 
   afterAll(async () => {
@@ -201,7 +202,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
         results.push(r);
         return r;
       });
-      const watcher = new WatcherService(
+      const watcher = new WatcherService(testConfig(),
         { setWatched: () => {}, status: () => ({}), stop: () => {} } as unknown as TradeFeedService,
         sync,
         new AccountStateService(info as unknown as HyperliquidInfoClient, db),

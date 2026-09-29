@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -25,7 +26,7 @@ const db = getTestDb();
 const address = "0x" + "ab".repeat(20);
 const sendMessage = vi.fn(async () => {});
 let userId: number;
-const notify = () => new NotifyService(db, { sendMessage } as unknown as TelegramHttpClient);
+const notify = () => new NotifyService(testConfig(), db, { sendMessage } as unknown as TelegramHttpClient);
 const rules = (sender = notify()) => new RulesService(db, { getEquityUsd: () => null } as unknown as WatcherService, sender, new SettingsService(new SettingsRepository(db), new UnitOfWork(db)));
 const create = () => withActionLock(db, address, (tx) => insertActions(tx, address, [{
   coin: "BTC", kind: "open", side: "long", notionalUsd: "60000", avgPx: "60000", leverage: null, fillIds: [], ts: new Date(),
@@ -46,8 +47,8 @@ it("recovers an action whose in-memory event was lost and sends only one persist
   const action = await create();
   expect(await db.select().from(actionOutbox)).toMatchObject([{ actionId: action.id, status: "pending" }]);
   const sender = notify();
-  await new OutboxService(db, rules(sender), sender).drain();
-  await new OutboxService(db, rules(), notify()).drain();
+  await new OutboxService(testConfig(), db, rules(sender), sender).drain();
+  await new OutboxService(testConfig(), db, rules(), notify()).drain();
   expect(sendMessage).toHaveBeenCalledTimes(1);
   expect(await db.select().from(notificationOutbox)).toMatchObject([{ status: "sent", attempts: 1 }]);
   expect(await db.select().from(alerts)).toHaveLength(1);
@@ -144,12 +145,12 @@ it("replays percentage rules using the equity captured with the action", async (
   await db.update(users).set({ role: "admin" });
   await db.delete(userFavorites);
   await db.update(leaders).set({ source: "import", tier: "A" });
-  await new RulesSeedService(db).seedDefaultRules();
+  await new RulesSeedService(testConfig(), db).seedDefaultRules();
   const [action] = await withActionLock(db, address, (tx) => insertActions(tx, address, [{
     coin: "BTC", kind: "open", side: "long", notionalUsd: "10000", avgPx: "60000", leverage: null, fillIds: [], ts: new Date(),
   }], true, 50000));
   expect(await db.select().from(actionOutbox)).toMatchObject([{ equityUsd: "50000" }]);
-  await new OutboxService(db, rules(), notify()).drain();
+  await new OutboxService(testConfig(), db, rules(), notify()).drain();
   expect(sendMessage).toHaveBeenCalledTimes(1);
   const [delivery] = await db.select().from(notificationOutbox);
   expect(delivery.payloadJson).toMatchObject({ reasons: { rules: ["R1", "R3"] } });

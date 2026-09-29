@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
 import {
   alertRules,
@@ -52,7 +53,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
 
   beforeEach(async () => {
     await truncateAll(db);
-    await new RulesSeedService(db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), db).seedDefaultRules();
     await settings.patch({ notifications: { alertsEnabled: true, maxAlertTraders: 3 } }, null);
     auth.clearCache();
     backfill.trigger.mockClear();

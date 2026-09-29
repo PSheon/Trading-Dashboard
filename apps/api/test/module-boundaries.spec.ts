@@ -1,3 +1,5 @@
+import { AppConfig } from "../src/config/app-config.js";
+import { testConfig } from "./config-test-utils.js";
 import { Global, Module } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { expect, it, vi } from "vitest";
@@ -14,7 +16,7 @@ it("feature modules initialize without a watcher, ingestion schedule or network 
   const fetcher = vi.fn();
   vi.stubGlobal("fetch", fetcher);
   vi.stubEnv("NODE_ENV", "development");
-  @Global() @Module({ providers: [{ provide: DRIZZLE_CLIENT, useValue: {} }, UnitOfWork], exports: [DRIZZLE_CLIENT, UnitOfWork] })
+  @Global() @Module({ providers: [{ provide: AppConfig, useValue: testConfig() }, { provide: DRIZZLE_CLIENT, useValue: {} }, UnitOfWork], exports: [AppConfig, DRIZZLE_CLIENT, UnitOfWork] })
   class TestDatabase {}
   const ref = await Test.createTestingModule({ imports: [TestDatabase, SettingsModule, UsersModule, TradersModule] }).compile();
   const app = ref.createNestApplication({ logger: false });

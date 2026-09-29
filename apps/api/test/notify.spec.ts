@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import {
   actions,
   alertRules,
@@ -146,7 +147,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
   it("TELEGRAM_DRY_RUN=true never calls the network, and still writes an alerts row with send_status='dry_run'", async () => {
     process.env.TELEGRAM_DRY_RUN = "true";
     const telegram = fakeTelegram(async () => {});
-    await new NotifyService(db, telegram).notifyAlert(ctx());
+    await new NotifyService(testConfig(), db, telegram).notifyAlert(ctx());
 
     expect(telegram.sendMessage).not.toHaveBeenCalled();
     const rows = await db.select().from(alerts);
@@ -161,7 +162,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
   it("waits for Telegram retry_after instead of retrying early", async () => {
     vi.useFakeTimers();
     const send = vi.fn().mockRejectedValueOnce(new TelegramApiError("sendMessage", 429, "rate limited", 10)).mockResolvedValue(undefined);
-    const service = new NotifyService(db, fakeTelegram(send));
+    const service = new NotifyService(testConfig(), db, fakeTelegram(send));
     try {
       const pending = service.sendSystemMessage("test retry");
       await vi.advanceTimersByTimeAsync(9999);
@@ -174,7 +175,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
 
   it("a favorite alert goes to the recipient's own chat in their language: one row, no rule", async () => {
     const telegram = fakeTelegram(async () => {});
-    await new NotifyService(db, telegram).notifyAlert(
+    await new NotifyService(testConfig(), db, telegram).notifyAlert(
       ctx({ recipient: { userId, telegramChatId: "chat-user", locale: "en" } }),
     );
 
@@ -192,7 +193,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
   it("an admin's rule alert: one message, one row per matched rule, rules named in the message", async () => {
     const [r1, r3] = [await defaultRule("R1"), await defaultRule("R3")];
     const telegram = fakeTelegram(async () => {});
-    await new NotifyService(db, telegram).notifyAlert(ctx({ rules: [r1, r3], favorite: true }));
+    await new NotifyService(testConfig(), db, telegram).notifyAlert(ctx({ rules: [r1, r3], favorite: true }));
 
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
     expect(telegram.sendMessage).toHaveBeenCalledWith("chat-user", expect.stringContaining("規則 R1+R3"));
@@ -204,7 +205,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
 
   it("a recipient with no Telegram channel gets a 'failed' row with the reason, and nothing is sent", async () => {
     const telegram = fakeTelegram(async () => {});
-    await new NotifyService(db, telegram).notifyAlert(
+    await new NotifyService(testConfig(), db, telegram).notifyAlert(
       ctx({ recipient: { userId, telegramChatId: null, locale: "zh-TW" } }),
     );
 
@@ -219,7 +220,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
       throw new Error("network down");
     });
     const start = Date.now();
-    await expect(new NotifyService(db, telegram).notifyAlert(ctx())).resolves.toBeUndefined();
+    await expect(new NotifyService(testConfig(), db, telegram).notifyAlert(ctx())).resolves.toBeUndefined();
 
     expect(telegram.sendMessage).toHaveBeenCalledTimes(4);
     // backoff schedule is 1s/2s/4s between attempts = 7s minimum.
@@ -232,7 +233,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     const telegram = fakeTelegram(async () => {
       throw new TelegramApiError("sendMessage", 403, "Forbidden: bot was blocked by the user");
     });
-    await new NotifyService(db, telegram).notifyAlert(ctx());
+    await new NotifyService(testConfig(), db, telegram).notifyAlert(ctx());
 
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
     const [row] = await db.select().from(alerts);
@@ -241,7 +242,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
 
   it("test messages honor dry run and report the outcome", async () => {
     const telegram = fakeTelegram(async () => {});
-    const service = new NotifyService(db, telegram);
+    const service = new NotifyService(testConfig(), db, telegram);
     expect(await service.sendTestMessage("chat-user", "en")).toEqual({ sent: true, dryRun: false });
     expect(telegram.sendMessage).toHaveBeenCalledWith("chat-user", expect.stringContaining("Orbie test message"));
 
@@ -253,7 +254,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
 
   it("system messages still go to TELEGRAM_SYSTEM_CHAT_ID", async () => {
     const telegram = fakeTelegram(async () => {});
-    await new NotifyService(db, telegram).sendSystemMessage("feed down");
+    await new NotifyService(testConfig(), db, telegram).sendSystemMessage("feed down");
 
     expect(telegram.sendMessage).toHaveBeenCalledWith("chat-system", "feed down");
     expect(await db.select().from(alerts)).toHaveLength(0);

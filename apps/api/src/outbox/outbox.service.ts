@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { Inject, Injectable, Logger, Optional, type OnApplicationBootstrap } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
 import { actionOutbox, actions } from "@trading-dashboard/shared/database";
@@ -12,11 +13,11 @@ import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 export class OutboxService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OutboxService.name);
   private running: Promise<void> | undefined;
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+  constructor(private readonly config: AppConfig, @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly rules: RulesService, private readonly notify: NotifyService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
-  onApplicationBootstrap() { if (process.env.NODE_ENV !== "test") void this.drain(); }
+  onApplicationBootstrap() { if (this.config.value.app.nodeEnv !== "test") void this.drain(); }
 
   @Interval(5000)
   async drain(): Promise<void> {

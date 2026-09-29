@@ -35,3 +35,10 @@ not table definitions; no migration is required for this extraction.
 Tests verify isolated feature initialization starts no watcher/network work and
 check browser import boundaries. Existing real PostgreSQL rollback, overlap,
 ownership and quota tests remain the semantic gate for repository changes.
+
+RuntimeConfigModule supplies one deeply frozen AppConfig snapshot to production
+providers. Startup validation runs before constructing the pool or workers;
+configuration changes require a restart. Services use typed namespaces rather
+than reading process.env. Pure action storage helpers receive the alert horizon
+explicitly from ingestion services. Legacy env readers remain only for parser
+regressions and injected test doubles; they are not production provider inputs.

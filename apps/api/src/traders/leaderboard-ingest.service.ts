@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger } from "@nestjs/common";
@@ -61,13 +62,14 @@ export class LeaderboardIngestService {
   readonly startup = new Promise<void>((resolve) => (this.startupDone = resolve));
 
   constructor(
+    private readonly config: AppConfig,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   start(): void {
-    if (process.env.NODE_ENV === "test") return this.startupDone();
+    if (this.config.value.app.nodeEnv === "test") return this.startupDone();
     this.bootstrap()
       .catch((error: unknown) => this.logger.error(`Startup leaderboard import failed: ${(error as Error).message}`))
       .finally(() => this.startupDone());

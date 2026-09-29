@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { createHash } from "node:crypto";
 
 import type { INestApplication } from "@nestjs/common";
@@ -92,7 +93,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
     process.env.TELEGRAM_DRY_RUN = "true";
     delete process.env.TELEGRAM_BOT_POLLING;
     tg = stubTelegramHttp();
-    bot = new TelegramBotService(new TelegramHttpClient(), link);
+    bot = new TelegramBotService(testConfig(), new TelegramHttpClient(testConfig()), link);
   });
 
   afterEach(async () => {

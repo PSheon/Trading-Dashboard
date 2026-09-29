@@ -52,7 +52,7 @@ export function validateEnvironment(source: Environment = process.env) {
   const polling = booleanValue("TELEGRAM_BOT_POLLING", source.TELEGRAM_BOT_POLLING, true);
   if (botToken && (!botUsername || !/^[a-zA-Z0-9_]{5,32}$/.test(botUsername))) throw new Error("TELEGRAM_BOT_USERNAME is required and must be a valid bot username when a token is configured");
   if (!dryRun && !botToken) throw new Error("TELEGRAM_BOT_TOKEN is required when TELEGRAM_DRY_RUN is false");
-  const telegram = { botToken, botUsername, dryRun, polling,
+  const telegram = { botToken, botUsername, dryRun, polling, systemChatId: optional(source.TELEGRAM_SYSTEM_CHAT_ID),
     linkBaseUrl: urlValue("TELEGRAM_LINK_BASE_URL", source.TELEGRAM_LINK_BASE_URL, "https://app.orbie.fun", ["http:", "https:"]),
   };
   const hyperliquid = {

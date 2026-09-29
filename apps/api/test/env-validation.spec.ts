@@ -1,7 +1,7 @@
 import { validateEnvironment } from "../src/config/runtime-config.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env, getBoolEnv, getIntEnv } from "../src/config/env.js";
-import { poolProvider } from "../src/db/drizzle.provider.js";
+import { AppConfig } from "../src/config/app-config.js";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -16,8 +16,7 @@ describe("unsafe runtime configuration", () => {
   });
   it("does not construct a pool against a fallback database", () => {
     vi.stubEnv("DATABASE_URL", undefined);
-    const factory = poolProvider as { useFactory: () => unknown };
-    expect(() => factory.useFactory()).toThrow(/DATABASE_URL/);
+    expect(() => new AppConfig(validateEnvironment())).toThrow(/DATABASE_URL/);
   });
 });
 

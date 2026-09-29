@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { readFileSync } from "node:fs";
@@ -145,7 +146,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     await db.execute(sql`TRUNCATE TABLE trader_stats`);
     await db.delete(appSettings);
     settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
-    service = new LeaderboardIngestService(db, settings);
+    service = new LeaderboardIngestService(testConfig(), db, settings);
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -215,7 +216,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     vi.restoreAllMocks();
 
     // A fresh process (no in-memory list) whose vault fetch fails.
-    const restarted = new LeaderboardIngestService(db, settings);
+    const restarted = new LeaderboardIngestService(testConfig(), db, settings);
     mockFetch("oops", 503);
     const result = await restarted.refresh();
     expect(result.vaults).toBeNull();

@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { TradersRepository } from "../src/traders/traders.repository.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -200,7 +201,7 @@ async function expectStatus(promise: Promise<unknown> | (() => unknown), status:
 describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   const db = getTestDb();
   const settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
-  const ingest = new LeaderboardIngestService(db, settings);
+  const ingest = new LeaderboardIngestService(testConfig(), db, settings);
   let info: ReturnType<typeof fakeInfo>;
   let service: TradersService;
   let controller: TradersController;
@@ -212,7 +213,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     await db.delete(appSettings);
     await settings.patch({ discovery: {} }, null); // resets the 30 s settings cache to the defaults
     info = fakeInfo();
-    service = new TradersService(
+    service = new TradersService(testConfig(),
       new TradersRepository(db),
       info as unknown as HyperliquidInfoClient,
       new RoundTripService(db),

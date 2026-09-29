@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import type { AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -53,7 +54,7 @@ describe("TradeFeedService — against a local WebSocket server", () => {
     server = fake.server;
     process.env.HYPERLIQUID_WS_URL = fake.url;
     const seen: Array<[string, number]> = [];
-    feed = new TradeFeedService(markets(["BTC", "ETH"], ["xyz:TSLA"]));
+    feed = new TradeFeedService(testConfig(), markets(["BTC", "ETH"], ["xyz:TSLA"]));
     feed.setWatched(["0xAbC"]);
     await feed.start({ onTrade: (a, t) => seen.push([a, t.tid]), onGap: () => {} });
 
@@ -78,7 +79,7 @@ describe("TradeFeedService — against a local WebSocket server", () => {
     server = fake.server;
     process.env.HYPERLIQUID_WS_URL = fake.url;
     const gaps: number[] = [];
-    feed = new TradeFeedService(markets(["BTC"], []));
+    feed = new TradeFeedService(testConfig(), markets(["BTC"], []));
     await feed.start({ onTrade: () => {}, onGap: (since) => gaps.push(since) });
     await until(() => fake.subscriptions.length === 1);
 
@@ -97,7 +98,7 @@ describe("TradeFeedService — against a local WebSocket server", () => {
     server = fake.server;
     process.env.HYPERLIQUID_WS_URL = fake.url;
     const main = Array.from({ length: 250 }, (_, i) => `C${i}`);
-    feed = new TradeFeedService(markets(main, ["xyz:A"]));
+    feed = new TradeFeedService(testConfig(), markets(main, ["xyz:A"]));
     await feed.start({ onTrade: () => {}, onGap: () => {} });
     await until(() => fake.subscriptions.length === 251);
     expect(fake.sockets).toHaveLength(2);

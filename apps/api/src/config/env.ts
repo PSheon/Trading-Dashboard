@@ -1,7 +1,7 @@
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
 
-/** Runtime readers. Startup validates the complete environment in runtime-config.
- * Keep parsing strict for CLI callers and independently constructed providers too. */
+/** Legacy readers retained for parser regression tests and explicit test doubles.
+ * Production providers must use injected AppConfig, never these dynamic readers. */
 export function getEnv(key: string): string | undefined {
   return process.env[key]?.trim() || undefined;
 }

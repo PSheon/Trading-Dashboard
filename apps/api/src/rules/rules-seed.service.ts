@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { sql } from "drizzle-orm";
@@ -60,10 +61,10 @@ export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly logger = new Logger(RulesSeedService.name);
 
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
+  constructor(private readonly config: AppConfig, @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   onApplicationBootstrap(): void {
-    if (process.env.NODE_ENV === "test") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     void this.seedWithRetry();
   }
 

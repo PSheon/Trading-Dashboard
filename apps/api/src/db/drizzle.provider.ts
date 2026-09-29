@@ -3,7 +3,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import type { Provider } from "@nestjs/common";
 
-import { env } from "../config/env.js";
+import { AppConfig } from "../config/app-config.js";
 import { DRIZZLE_CLIENT } from "./db.constants.js";
 
 export type DrizzleDb = NodePgDatabase<typeof schema>;
@@ -13,7 +13,8 @@ export type DrizzleDb = NodePgDatabase<typeof schema>;
 export const DATABASE_POOL = Symbol("DATABASE_POOL");
 export const poolProvider: Provider = {
   provide: DATABASE_POOL,
-  useFactory: () => new Pool({ connectionString: env.databaseUrl(),
+  inject: [AppConfig],
+  useFactory: (config: AppConfig) => new Pool({ connectionString: config.value.database.url,
     connectionTimeoutMillis: 3000, statement_timeout: 15000,
     idle_in_transaction_session_timeout: 15000, query_timeout: 20000 }),
 };

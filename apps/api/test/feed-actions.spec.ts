@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills } from "@trading-dashboard/shared/database";
 import { asc } from "drizzle-orm";
@@ -37,7 +38,7 @@ describe("FeedActionsService (fast path) — real Postgres, fake Hyperliquid", (
     const events = new EventEmitter2();
     emitted = [];
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
-    fast = new FeedActionsService(db, accounts, events);
+    fast = new FeedActionsService(testConfig(), db, accounts, events);
   });
 
   afterAll(async () => {

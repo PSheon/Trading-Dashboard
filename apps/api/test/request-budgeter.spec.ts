@@ -1,3 +1,4 @@
+import { testConfig } from "./config-test-utils.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PAGE_RANK, RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
@@ -28,14 +29,14 @@ describe("RequestBudgeterService (W6)", () => {
   /** A budgeter whose bucket starts empty (tests of ordering under load). */
   async function drained(burst = 20): Promise<RequestBudgeterService> {
     process.env.HYPERLIQUID_WEIGHT_BURST = String(burst);
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
     await budgeter.acquire(burst, "live");
     return budgeter;
   }
 
   it("lets a burst up to the bucket go out at once", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "200";
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
     const released: number[] = [];
     const calls = Array.from({ length: 12 }, (_, i) => budgeter.acquire(20, "live").then(() => released.push(i)));
     await vi.advanceTimersByTimeAsync(0);
@@ -51,7 +52,7 @@ describe("RequestBudgeterService (W6)", () => {
 
   it("caps the sustained rate at the budget (plus one bucket)", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "200";
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
     // Demand of 800 calls × 2 = 1600 weight, far over 600/min.
     let done = 0;
     const calls = Array.from({ length: 800 }, () =>
@@ -76,11 +77,11 @@ describe("RequestBudgeterService (W6)", () => {
   it("keeps the burst under Hyperliquid's 1200/min when the budget is set high", () => {
     process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = "1100";
     process.env.HYPERLIQUID_WEIGHT_BURST = "500";
-    expect(new RequestBudgeterService().introspect().burstCapacity).toBe(100);
+    expect(new RequestBudgeterService(testConfig()).introspect().burstCapacity).toBe(100);
   });
 
   it("backs off the effective budget on a real 429 and recovers gradually on sustained success", async () => {
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
 
     expect(budgeter.introspect().effectiveBudgetPerMin).toBe(600);
 
@@ -98,14 +99,14 @@ describe("RequestBudgeterService (W6)", () => {
   });
 
   it("never backs off below the configured floor even under repeated 429s", () => {
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
 
     for (let i = 0; i < 20; i++) budgeter.onRateLimited();
     expect(budgeter.introspect().effectiveBudgetPerMin).toBeGreaterThanOrEqual(600 * 0.2 - 1);
   });
 
   it("records additional (post-hoc) weight without delaying the call that reported it", async () => {
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
 
     await budgeter.acquire(20); // base userFillsByTime weight
     budgeter.recordAdditionalWeight(5); // e.g. a 100-item response surcharge
@@ -161,7 +162,7 @@ describe("RequestBudgeterService (W6)", () => {
 
   it("leaves the last 10% of the bucket to live and 20% more to first paints: page loads can't drain it", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "200";
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
     const released: string[] = [];
     // Unranked background (sweeps, backfill) leaves 20 + 40: seven calls of
     // 20 fit in 140; the eighth would eat the reserves.
@@ -197,7 +198,7 @@ describe("RequestBudgeterService (W6)", () => {
 
   it("lets a page's list call go on its known base; a background list waits for its whole worst case", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "200"; // reserves: live 20 + page 40; 14 tokens/s at 840/min
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
     await budgeter.acquire(100, "live"); // 100 left
     const order: string[] = [];
     // A sweep's list: 120 up front (20 base + worst-case 100) needs 180.
@@ -213,7 +214,7 @@ describe("RequestBudgeterService (W6)", () => {
 
   it("settles a worst-case estimate: a refund goes back to the bucket and wakes waiters", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "200";
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
     await budgeter.acquire(120); // a list call's base + worst-case surcharge
     const released: string[] = [];
     void budgeter.acquire(100, "background", PAGE_RANK.profile).then(() => released.push("next"));
@@ -240,7 +241,7 @@ describe("RequestBudgeterService (W6)", () => {
 
   it("runs a call heavier than the whole bucket once the bucket is full, taking it into debt", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "50";
-    const budgeter = new RequestBudgeterService();
+    const budgeter = new RequestBudgeterService(testConfig());
     const order: string[] = [];
     await budgeter.acquire(10, "live");
     const oversize = budgeter.acquire(120, "background").then(() => order.push("oversize"));

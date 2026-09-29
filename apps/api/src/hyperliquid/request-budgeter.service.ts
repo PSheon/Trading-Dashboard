@@ -1,6 +1,6 @@
+import { AppConfig } from "../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 
-import { env, getIntEnv } from "../config/env.js";
 
 /**
  * Shared request-weight budgeter for every Hyperliquid `info` call (W6,
@@ -71,7 +71,6 @@ export type RequestPriority = "live" | "background";
 
 /** Hyperliquid's documented REST limit per IP. */
 const HARD_LIMIT_PER_MIN = 1200;
-const DEFAULT_BURST = 200;
 /** Share of the bucket only `live` may spend. */
 const LIVE_RESERVE_SHARE = 0.1;
 /** Further share that only live and interactive page loads may spend. */
@@ -126,11 +125,11 @@ export class RequestBudgeterService {
   private consecutiveSuccesses = 0;
   private lastRateLimitedAt: number | undefined;
 
-  constructor() {
-    this.configuredBudgetPerMin = env.hyperliquidWeightBudgetPerMin();
+  constructor(private readonly config: AppConfig) {
+    this.configuredBudgetPerMin = this.config.value.hyperliquid.budgetPerMin;
     this.effectiveBudgetPerMin = this.configuredBudgetPerMin;
     this.floorBudgetPerMin = Math.max(1, Math.round(this.configuredBudgetPerMin * 0.2));
-    const burst = getIntEnv("HYPERLIQUID_WEIGHT_BURST", DEFAULT_BURST, 1, 1200);
+    const burst = this.config.value.hyperliquid.burst;
     this.capacity = Math.max(1, Math.min(burst, HARD_LIMIT_PER_MIN - this.configuredBudgetPerMin));
     this.liveReserve = Math.floor(this.capacity * LIVE_RESERVE_SHARE);
     this.interactiveReserve = Math.floor(this.capacity * INTERACTIVE_RESERVE_SHARE);

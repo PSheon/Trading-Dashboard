@@ -1,7 +1,7 @@
+import { AppConfig } from "../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { WebSocket } from "ws";
 
-import { env } from "../config/env.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
 import type { HlWsIncomingMessage, HlWsTrade } from "../hyperliquid/types.js";
 
@@ -67,7 +67,7 @@ export class TradeFeedService {
   private lastTradeAt: Date | null = null;
   private stopped = true;
 
-  constructor(private readonly info: HyperliquidInfoClient) {}
+  constructor(private readonly config: AppConfig, private readonly info: HyperliquidInfoClient) {}
 
   async start(handlers: TradeFeedHandlers): Promise<void> {
     this.handlers = handlers;
@@ -159,7 +159,7 @@ export class TradeFeedService {
   }
 
   private open(shard: Shard): void {
-    const socket = new WebSocket(env.hyperliquidWsUrl());
+    const socket = new WebSocket(this.config.value.hyperliquid.wsUrl);
     shard.socket = socket;
 
     socket.on("open", () => {

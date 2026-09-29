@@ -1,3 +1,6 @@
+import { forEachConcurrent } from "../runtime/concurrency.js";
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { and, eq, gt, inArray } from "drizzle-orm";
@@ -36,6 +39,9 @@ export class SchedulerService {
   private feedDownAlerted = false;
   private feedMissingSince: number | null = null;
   lastSnapshotAt: Date | null = null;
+  lastSnapshotAttemptAt: Date | null = null;
+  lastSnapshotFailureAt: Date | null = null;
+  private snapshotFlight: Promise<{ written: number; reconciled: number; failed: number }> | undefined;
 
   constructor(
     private readonly watcher: WatcherService,
@@ -44,22 +50,29 @@ export class SchedulerService {
     private readonly feed: TradeFeedService,
     private readonly notify: NotifyService,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async snapshotAll(): Promise<{ written: number; reconciled: number; failed: number }> {
+    if (this.jobs.stopping) return { written: 0, reconciled: 0, failed: 0 };
+    this.snapshotFlight ??= this.jobs.run(() => this.takeSnapshots()).finally(() => { this.snapshotFlight = undefined; });
+    return this.snapshotFlight;
+  }
+  private async takeSnapshots(): Promise<{ written: number; reconciled: number; failed: number }> {
+    this.lastSnapshotAttemptAt = new Date();
     let addresses: string[];
     try {
       addresses = await this.watcher.activeAddresses();
     } catch (error) {
       this.logger.error(`Snapshot could not read leaders: ${(error as Error).message}`);
-      return { written: 0, reconciled: 0, failed: 0 };
+      this.lastSnapshotFailureAt = new Date();
+      return { written: 0, reconciled: 0, failed: 1 };
     }
     let written = 0;
     let reconciled = 0;
     let failed = 0;
-    await Promise.all(
-      addresses.map(async (address) => {
+    await forEachConcurrent(addresses, 4, async (address) => {
         try {
           const previous = this.accounts.get(address);
           const state = await this.accounts.refresh(address, "background");
@@ -70,15 +83,16 @@ export class SchedulerService {
           failed += 1;
           this.logger.error(`Snapshot failed for ${address}: ${(error as Error).message}`);
         }
-      }),
-    );
-    this.lastSnapshotAt = new Date();
+      }, this.jobs.signal);
+    if (written > 0) this.lastSnapshotAt = new Date();
+    if (failed > 0) this.lastSnapshotFailureAt = new Date();
     this.logger.log(`Snapshots: ${written} written, ${reconciled} reconciled, ${failed} failed`);
     return { written, reconciled, failed };
   }
 
   @Cron(CronExpression.EVERY_HOUR)
   async hourly(): Promise<void> {
+    if (this.jobs.stopping) return;
     try {
       await this.feed.refreshMarkets();
     } catch (error) {
@@ -90,6 +104,7 @@ export class SchedulerService {
 
   @Cron(CronExpression.EVERY_MINUTE)
   async checkFeed(now = Date.now()): Promise<void> {
+    if (this.jobs.stopping) return;
     try {
       await this.checkFeedOnce(now);
     } catch (error) {

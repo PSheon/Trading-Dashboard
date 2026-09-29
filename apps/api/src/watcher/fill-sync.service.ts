@@ -1,3 +1,4 @@
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills } from "@trading-dashboard/shared";
@@ -86,6 +87,7 @@ export class FillSyncService {
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly accounts: AccountStateService,
     @Optional() private readonly events?: EventEmitter2,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   getLastFillAt(): Date | null {
@@ -105,9 +107,10 @@ export class FillSyncService {
     expectTids: Iterable<bigint> = [],
     rank?: number,
   ): Promise<SyncResult> {
-    if (reason === "backfill") return this.run(address, reason, startTime, expectTids, rank);
+    if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
+    if (reason === "backfill") return this.jobs.run(() => this.run(address, reason, startTime, expectTids, rank));
     const previous = this.chains.get(address) ?? Promise.resolve();
-    const next = previous.catch(() => undefined).then(() => this.run(address, reason, startTime, expectTids, rank));
+    const next = this.jobs.run(() => previous.catch(() => undefined).then(() => this.run(address, reason, startTime, expectTids, rank)));
     this.chains.set(address, next);
     // `.finally()` returns a promise that rejects when `next` does; the
     // caller handles `next`, so swallow this copy or Node exits on an

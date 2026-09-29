@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { actions, alertRules, alerts, alertPayloadSchema, type Locale } from "@trading-dashboard/shared";
 
 import { env } from "../config/env.js";
@@ -38,8 +39,13 @@ export interface AlertContext {
  * after the first attempt = 4 attempts in all. */
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function errorText(error: unknown): string {
@@ -63,6 +69,7 @@ export class NotifyService {
   constructor(
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly telegram: TelegramHttpClient,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   /** Never throws: a failure is recorded in the `alerts` rows, so one
@@ -164,6 +171,7 @@ export class NotifyService {
    * whether the message was delivered — never throws. */
   private async sendWithRetry(chatId: string, text: string): Promise<boolean> {
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      if (this.jobs.stopping) return false;
       try {
         await this.telegram.sendMessage(chatId, text);
         return true;
@@ -172,7 +180,14 @@ export class NotifyService {
           `Telegram send attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1} failed: ${errorText(error)}`,
         );
         if (error instanceof TelegramApiError && !error.retryable) return false;
-        if (attempt < RETRY_DELAYS_MS.length) await sleep(RETRY_DELAYS_MS[attempt]);
+        if (attempt < RETRY_DELAYS_MS.length) {
+          const retryAfterMs = error instanceof TelegramApiError && Number.isFinite(error.retryAfterS)
+            ? Math.max(0, error.retryAfterS! * 1000) : 0;
+          // Long rate limits are recorded as failed, never retried earlier than Telegram permits.
+          if (retryAfterMs > 60_000) return false;
+          try { await delay(Math.max(RETRY_DELAYS_MS[attempt], retryAfterMs), this.jobs.signal); }
+          catch { return false; }
+        }
       }
     }
     return false;

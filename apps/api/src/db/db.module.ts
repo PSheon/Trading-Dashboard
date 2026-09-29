@@ -1,6 +1,8 @@
 import { Global, Module } from "@nestjs/common";
 
-import { drizzleProvider } from "./drizzle.provider.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { DatabaseLifecycle } from "./database-lifecycle.service.js";
+import { drizzleProvider, poolProvider } from "./drizzle.provider.js";
 
 /**
  * Global module exposing the single Drizzle client (DRIZZLE_CLIENT token)
@@ -9,7 +11,7 @@ import { drizzleProvider } from "./drizzle.provider.js";
  */
 @Global()
 @Module({
-  providers: [drizzleProvider],
-  exports: [drizzleProvider],
+  providers: [poolProvider, drizzleProvider, BackgroundJobs, DatabaseLifecycle],
+  exports: [drizzleProvider, poolProvider, BackgroundJobs],
 })
 export class DbModule {}

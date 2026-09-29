@@ -27,6 +27,8 @@ export class HealthService {
       lastTradeAt: feed.lastTradeAt,
       lastFillAt,
       lastSnapshotAt: this.scheduler.lastSnapshotAt,
+      lastSnapshotAttemptAt: this.scheduler.lastSnapshotAttemptAt,
+      lastSnapshotFailureAt: this.scheduler.lastSnapshotFailureAt,
       lastSweepAt,
       requestsLastMinute: budget.requestsLastMinute,
       weightLastMinute: budget.weightLastMinute,

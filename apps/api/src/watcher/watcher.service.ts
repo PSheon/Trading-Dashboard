@@ -1,3 +1,6 @@
+import { forEachConcurrent } from "../runtime/concurrency.js";
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import {
   Inject,
   Injectable,
@@ -93,6 +96,8 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   private feedRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private running = false;
   private lastSweepAt: Date | null = null;
+  private sweepFlight: Promise<{ addresses: number; inserted: number; failed: number }> | undefined;
+  private pendingSweepStart: number | undefined;
 
   constructor(
     private readonly feed: TradeFeedService,
@@ -100,6 +105,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly accounts: AccountStateService,
     private readonly feedActions: FeedActionsService,
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   /** Starts on app boot; not under `NODE_ENV=test`, where tests drive the
@@ -110,6 +116,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
+    this.jobs.stop();
     this.stop();
   }
 
@@ -117,8 +124,10 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     await this.refreshWatched();
+    if (!this.running || this.jobs.stopping) return;
     this.watchedTimer = setInterval(() => void this.refreshWatched(), WATCHED_REFRESH_MS);
     await this.startFeed();
+    if (!this.running || this.jobs.stopping) { this.feed.stop(); return; }
     // Covers whatever happened while the process was down (e.g. a deploy).
     void this.sweep(Date.now() - SWEEP_WINDOW_MS);
   }
@@ -133,6 +142,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private later(ms: number, fn: () => void): void {
+    if (this.jobs.stopping) return;
     const timer = setTimeout(() => {
       this.timers.delete(timer);
       fn();
@@ -172,6 +182,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Called by the feed for every trade a watched address is part of. */
   onTrade(address: string, trade: HlWsTrade): void {
+    if (this.jobs.stopping) return;
     const burst = this.pending.get(address) ?? new Map<number, HlWsTrade>();
     if (!burst.has(trade.tid)) burst.set(trade.tid, trade);
     this.pending.set(address, burst);
@@ -185,6 +196,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
    * position book is dropped (the next burst reads state afresh) and the
    * outage is swept. */
   onGap(since: number): void {
+    if (this.jobs.stopping) return;
     this.accounts.dropBooks();
     void this.sweep(since - GAP_OVERLAP_MS);
   }
@@ -301,6 +313,24 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Re-reads fills since `startTime` for every active address. */
   async sweep(startTime: number): Promise<{ addresses: number; inserted: number; failed: number }> {
+    if (this.jobs.stopping) return { addresses: 0, inserted: 0, failed: 0 };
+    // Even a newer window may contain fills that arrived after an address
+    // was processed earlier in the active sweep. Retain a follow-up pass.
+    this.pendingSweepStart = Math.min(this.pendingSweepStart ?? Infinity, startTime);
+    this.sweepFlight ??= this.jobs.run(async () => {
+      const total = { addresses: 0, inserted: 0, failed: 0 };
+      while (this.pendingSweepStart !== undefined && !this.jobs.stopping) {
+        const start = this.pendingSweepStart;
+        this.pendingSweepStart = undefined;
+        const result = await this.runSweep(start);
+        total.addresses += result.addresses; total.inserted += result.inserted; total.failed += result.failed;
+      }
+      return total;
+    }).finally(() => { this.sweepFlight = undefined; });
+    return this.sweepFlight;
+  }
+
+  private async runSweep(startTime: number): Promise<{ addresses: number; inserted: number; failed: number }> {
     let addresses: string[];
     try {
       addresses = await this.activeAddresses();
@@ -311,8 +341,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     }
     let inserted = 0;
     let failed = 0;
-    await Promise.all(
-      addresses.map(async (address) => {
+    await forEachConcurrent(addresses, 4, async (address) => {
         try {
           // Await first: `x += await f()` reads x before awaiting, so
           // concurrent sweeps would overwrite each other's counts.
@@ -322,9 +351,8 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
           failed += 1;
           this.logger.warn(`Sweep failed for ${address}: ${(error as Error).message}`);
         }
-      }),
-    );
-    this.lastSweepAt = new Date();
+      }, this.jobs.signal);
+    if (addresses.length > 0 && failed < addresses.length) this.lastSweepAt = new Date();
     if (inserted > 0) this.logger.warn(`Sweep stored ${inserted} fill(s) the feed had missed`);
     return { addresses: addresses.length, inserted, failed };
   }

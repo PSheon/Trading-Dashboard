@@ -157,6 +157,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       signal,
     );
     for (const update of updates) {
+      if (signal.aborted) break;
       this.offset = update.update_id + 1;
       try {
         await this.handleUpdate(update);

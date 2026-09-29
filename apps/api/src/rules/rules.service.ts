@@ -1,3 +1,5 @@
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { and, eq, inArray, isNull, max } from "drizzle-orm";
@@ -68,6 +70,7 @@ export class RulesService {
     private readonly watcher: WatcherService,
     private readonly notify: NotifyService,
     private readonly settings: SettingsService,
+    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   @OnEvent(ACTION_CREATED_EVENT)
@@ -85,6 +88,11 @@ export class RulesService {
    * one message. Sends run concurrently, and NotifyService never throws, so
    * one recipient never delays or stops another. */
   async evaluateAction(action: ActionCreatedEvent): Promise<void> {
+    if (this.jobs.stopping) return;
+    return this.jobs.run(() => this.evaluate(action));
+  }
+
+  private async evaluate(action: ActionCreatedEvent): Promise<void> {
     if (!(await this.settings.get("notifications")).alertsEnabled) return;
 
     const leader = await this.getLeader(action.chain, action.address);

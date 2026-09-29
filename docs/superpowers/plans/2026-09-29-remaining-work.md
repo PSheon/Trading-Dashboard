@@ -28,3 +28,16 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 
 - Independent read-only review: no blocking findings. Added the two identified coverage gaps: old Settings read resolving after commit, and mounted React StrictMode direct account-switch/logout tests (private query data, local draft state and late writes to the retired client).
 - Batch verification: API full suite 406/406, plus new stale-read regression 8/8 settings tests; web 4/4 tests; API/web typecheck, API lint and both production builds passed. Web lint rerun after correcting the test createElement children convention.
+
+## Batch 2 runtime work
+
+- Tasks 6–10: shared background job tracking, stop admission, cancel upstream/queue waits, seed retry cleanup, DB drain/connection closure and a 30-second process watchdog starting on SIGTERM/SIGINT. Existing Telegram poll shutdown now stops consuming the rest of a fetched update batch after cancellation.
+- Runtime pool uses 3s connection wait, 15s PostgreSQL statement/idle-transaction limits and 20s driver query timeout. Background drain is bounded at 25s; pool close gets 3s then force-closes tracked connections. The total process watchdog bounds other stuck lifecycle hooks. Deadline expiry may interrupt unfinished work; this is not durable notification delivery.
+- Public /health heartbeat remains; /health/ready probes DB and returns 503 on failure/shutdown. Railway healthcheck path updated in source (not deployed).
+- Task 8 Ruling: queue cancellation and Telegram default timeout were pulled into task 6 because otherwise shutdown could wait indefinitely. HTTP AsyncLocalStorage supplies caller cancellation + a 20s overall deadline to nested Hyperliquid calls; explicitly admitted background jobs detach from HTTP scope. Each upstream info call also has its own 20s bound and the queue caps at 1000.
+- Telegram waits at least retry_after; delays >60s fail the current delivery instead of retrying early. Long polling gets its declared timeout +15s, other calls 15s. Body transport errors remain transient; shutdown cancels retry sleeps.
+- Snapshots coalesce overlapping runs with concurrency 4; success timestamp advances only after actual writes, attempt/failure timestamps are separate. Sweeps use concurrency 4 and retain another pass when a catch-up arrives during a run, including newer windows.
+- Regression evidence: seed retry failed before fix; queue cancellation/overflow two failures before fix; Telegram retry_after failed before fix; scheduler overlap/concurrency failed before fix. Reviewer found lost overlapping catch-up window, unbounded pool close, body timeout misclassification and missing caller propagation; each has a reproduced failing test followed by passing fix.
+- Compiled real bootstrap probes: isolated healthy DB -> /health/ready 200; unavailable DB -> 503; SIGTERM terminated both within 0.02s. Final rebuild/probe after review fixes remains to run.
+
+- Final runtime verification: 37 API test files / 422 tests passed; API typecheck/build/lint passed. Rebuilt real-bootstrap probes again returned 200/503 as expected and both exited on SIGTERM in 0.01s. Existing web tests/typecheck rerun for the additive heartbeat fields.

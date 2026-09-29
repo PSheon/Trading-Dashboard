@@ -356,6 +356,8 @@ export const heartbeatResponseSchema = z.object({
   lastTradeAt: z.coerce.date().nullable(),
   lastFillAt: z.coerce.date().nullable(),
   lastSnapshotAt: z.coerce.date().nullable(),
+  lastSnapshotAttemptAt: z.coerce.date().nullable().optional(),
+  lastSnapshotFailureAt: z.coerce.date().nullable().optional(),
   lastSweepAt: z.coerce.date().nullable(),
   requestsLastMinute: z.number().int(),
   weightLastMinute: z.number(),

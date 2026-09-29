@@ -147,6 +147,20 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     expect(JSON.parse(JSON.stringify(rows[0].payloadJson))).toMatchObject({ version: 1, values: { actionKind: "open", notionalUsd: "60000" } });
   });
 
+  it("waits for Telegram retry_after instead of retrying early", async () => {
+    vi.useFakeTimers();
+    const send = vi.fn().mockRejectedValueOnce(new TelegramApiError("sendMessage", 429, "rate limited", 10)).mockResolvedValue(undefined);
+    const service = new NotifyService(db, fakeTelegram(send));
+    try {
+      const pending = service.sendSystemMessage("test retry");
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(send).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+      expect(send).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("a favorite alert goes to the recipient's own chat in their language: one row, no rule", async () => {
     const telegram = fakeTelegram(async () => {});
     await new NotifyService(db, telegram).notifyAlert(

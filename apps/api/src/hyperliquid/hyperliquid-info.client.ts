@@ -1,3 +1,6 @@
+import { currentRequestSignal } from "../runtime/request-context.js";
+import { Optional } from "@nestjs/common";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
 
 import { env } from "../config/env.js";
@@ -46,7 +49,7 @@ const REQUEST_TIMEOUT_MS = 20_000;
 export class HyperliquidInfoClient {
   private readonly logger = new Logger(HyperliquidInfoClient.name);
 
-  constructor(private readonly budgeter: RequestBudgeterService) {}
+  constructor(private readonly budgeter: RequestBudgeterService, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   private async post<T>(
     body: HlInfoRequestBody,
@@ -54,14 +57,17 @@ export class HyperliquidInfoClient {
     priority: RequestPriority = "background",
     rank?: number,
   ): Promise<T> {
-    await this.budgeter.acquire(weight, priority, rank);
+    const caller = currentRequestSignal();
+    const signal = AbortSignal.any([this.jobs.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...(caller ? [caller] : [])]);
+    await this.budgeter.acquire(weight, priority, rank, signal);
+    signal.throwIfAborted();
 
     const url = env.hyperliquidApiUrl();
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal,
     });
 
     if (res.status === 429) {

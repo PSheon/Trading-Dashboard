@@ -53,16 +53,22 @@ and reset UI state per Privy DID; identity changes abort previous requests. Impo
 validate address/rank semantics and cap rows/content before persistence or backfill.
 See the [ordered implementation ledger](superpowers/plans/2026-09-29-remaining-work.md).
 
+## Runtime reliability batch
+
+Shutdown now stops admission, aborts external/queued work and drains background
+jobs and the pool under deadlines. `/health/ready` checks DB availability; Railway
+configuration points there. Telegram calls have deadlines and respect retry-after.
+Snapshots/sweeps limit concurrency to four; overlapping sweeps retain follow-up
+windows, and snapshot attempt/success/failure timestamps are distinct. HTTP caller
+cancellation reaches Hyperliquid queue/fetch work. These repository changes have
+been tested locally; no Railway deployment was performed.
+
 ## Remaining high-priority work
 
 1. Durable notification outbox, atomic cooldown reservation and replay after
    process failure; sending then logging is not a durable delivery contract.
-2. Add a default timeout for Telegram send calls. The HTTP client accepts an
-   optional AbortSignal, but ordinary sendMessage calls provide none.
-3. Honor Telegram retry-after delays: the client records `retryAfterS`, but
-   notification retries still use fixed 1/2/4-second delays.
-6. Inbound API rate limits, monitored-address quotas and bounded/cancellable
-   upstream queues. The external API budgeter is not an inbound abuse limit.
+6. Inbound API rate limits and monitored-address quotas. The external API
+   budgeter now has bounded/cancellable queues, but is not an inbound abuse limit.
 7. Dependency audit remediation: initial scan reported 8 high, 15 moderate and
    4 low. Drizzle 0.36.4 is below the identifier escaping patch (0.45.2); no
    untrusted dynamic identifier path was found in this review. Other findings
@@ -71,10 +77,6 @@ See the [ordered implementation ledger](superpowers/plans/2026-09-29-remaining-w
 
 ## Reliability and maintenance follow-up
 
-- Graceful shutdown and explicit pool lifecycle; separate readiness from the
-  public in-memory heartbeat used by Railway today.
-- Prevent overlapping snapshot/sweep schedules and cap concurrency; expose
-  last successful completion, not only last attempted processing.
 - Batch/reuse round-trip analytics, especially across notification recipients;
   avoid whole-history scans and unbounded IN bind lists. Measure index needs
   for actions by address and alerts by recipient/cooldown using real query plans.

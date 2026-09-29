@@ -33,6 +33,9 @@ function tokenKey(token: string): string {
  * `invalidateUser` / `clearCache`). */
 const CACHE_TTL_MS = 30_000;
 const CACHE_MAX_ENTRIES = 5_000;
+/** A returning user with no email on file is looked up at Privy again at
+ * most this often (they may have linked one since). */
+const PROFILE_RETRY_MS = 10 * 60_000;
 
 /**
  * What a bearer token amounts to:
@@ -79,6 +82,7 @@ export type SignInResult =
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly profileRetryAt = new Map<number, number>();
 
   constructor(
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
@@ -156,7 +160,9 @@ export class AuthService {
   }
 
   /**
-   * Returning user: bump `last_login_at` (unless disabled). New user: fetch
+   * Returning user: bump `last_login_at` (unless disabled), and promote them
+   * if their email is in BOOTSTRAP_ADMIN_EMAILS (see `applyBootstrapAdmin`).
+   * New user: fetch
    * email/wallet from Privy (best effort); when sign-ups are closed only a
    * BOOTSTRAP_ADMIN_EMAILS address gets in. The new row is admin when its
    * email is in that list, and gets its own copy of the default rules
@@ -169,7 +175,7 @@ export class AuthService {
       .set({ lastLoginAt: new Date() })
       .where(and(eq(users.privyUserId, privyUserId), isNull(users.disabledAt)))
       .returning();
-    if (existing) return { status: "ok", user: existing };
+    if (existing) return { status: "ok", user: await this.applyBootstrapAdmin(existing) };
 
     const known = await this.findByPrivyId(privyUserId);
     if (known) return this.asResult(known);
@@ -212,6 +218,40 @@ export class AuthService {
     const raced = await this.findByPrivyId(privyUserId);
     if (!raced) throw new Error(`User ${privyUserId} vanished during sign-in`);
     return this.asResult(raced);
+  }
+
+  /**
+   * BOOTSTRAP_ADMIN_EMAILS is checked on every sign-in, not only the first:
+   * a first sign-in whose Privy profile fetch failed, or an address added to
+   * the list later, still ends up admin. It only ever promotes; removing an
+   * address from the list doesn't demote anyone (use the admin users page),
+   * and an address still in the list is promoted again at its next sign-in.
+   * An account with no email on file gets one more Privy lookup, at most
+   * every PROFILE_RETRY_MS, and keeps the email it finds.
+   */
+  private async applyBootstrapAdmin(user: UserRow): Promise<UserRow> {
+    const admins = env.bootstrapAdminEmails();
+    if (user.role === "admin" || admins.length === 0) return user;
+
+    let email = user.email;
+    if (email === null) {
+      const now = Date.now();
+      if ((this.profileRetryAt.get(user.id) ?? 0) > now) return user;
+      this.profileRetryAt.set(user.id, now + PROFILE_RETRY_MS);
+      email = (await this.privy.fetchProfile(user.privyUserId))?.email ?? null;
+      if (email === null) return user;
+      this.profileRetryAt.delete(user.id);
+    }
+
+    const promote = admins.includes(email);
+    if (!promote && email === user.email) return user;
+    const [updated] = await this.db
+      .update(users)
+      .set(promote ? { email, role: "admin" } : { email })
+      .where(eq(users.id, user.id))
+      .returning();
+    if (promote) this.logger.log(`User ${user.id} promoted to admin (BOOTSTRAP_ADMIN_EMAILS)`);
+    return updated ?? user;
   }
 
   private async findByPrivyId(privyUserId: string): Promise<UserRow | undefined> {

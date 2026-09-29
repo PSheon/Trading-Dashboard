@@ -31,21 +31,28 @@ export interface PrivyVerifier {
 export const PRIVY_VERIFIER = Symbol("PRIVY_VERIFIER");
 
 /** Picks the email and an Ethereum wallet from a Privy user's linked
- * accounts. An external (self-custodied) wallet wins over the embedded one:
- * it's the address the person trades from. */
+ * accounts. The email is the email-login address, else the one from a
+ * Google or Apple login (verified by that provider). An external
+ * (self-custodied) wallet wins over the embedded one: it's the address the
+ * person trades from. */
 export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfile {
   let email: string | null = null;
+  let oauthEmail: string | null = null;
   let external: string | null = null;
   let embedded: string | null = null;
   for (const account of accounts) {
     if (account.type === "email" && !email) email = account.address;
+    if ((account.type === "google_oauth" || account.type === "apple_oauth") && account.email) {
+      oauthEmail ??= account.email;
+    }
     if (account.type === "wallet" && "chain_type" in account && account.chain_type === "ethereum") {
       if (account.wallet_client === "privy") embedded ??= account.address;
       else external ??= account.address;
     }
   }
   const wallet = external ?? embedded;
-  return { email: email?.toLowerCase() ?? null, walletAddress: wallet?.toLowerCase() ?? null };
+  const chosen = email ?? oauthEmail;
+  return { email: chosen?.toLowerCase() ?? null, walletAddress: wallet?.toLowerCase() ?? null };
 }
 
 /**

@@ -235,12 +235,48 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(await db.select().from(alertRules)).toHaveLength(6);
     });
 
-    it("bootstrap admin email only applies on creation, and a non-listed email stays a user", async () => {
+    it("an email added to BOOTSTRAP_ADMIN_EMAILS later is promoted at its next sign-in; others stay users", async () => {
       process.env.BOOTSTRAP_ADMIN_EMAILS = "";
       await get("/t/protected", "boss-token").expect(200);
+      await get("/t/protected", "alice-token").expect(200);
       process.env.BOOTSTRAP_ADMIN_EMAILS = "boss@example.com";
       auth.clearCache();
+      await get("/t/admin", "boss-token").expect(200);
+      await get("/t/admin", "alice-token").expect(403);
+    });
+
+    it("a user whose first profile fetch failed gets their email and admin role on a later sign-in", async () => {
+      privy.fetchProfile.mockResolvedValueOnce(null); // Privy unavailable at first sign-in
       await get("/t/admin", "boss-token").expect(403);
+      const [before] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:boss"));
+      expect(before).toMatchObject({ email: null, role: "user" });
+
+      auth.clearCache();
+      await get("/t/admin", "boss-token").expect(200);
+      const [after] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:boss"));
+      expect(after).toMatchObject({ email: "boss@example.com", role: "admin" });
+    });
+
+    it("looks a user with no email up at Privy at most every 10 minutes", async () => {
+      privy.fetchProfile.mockResolvedValue(null);
+      try {
+        await get("/t/protected", "alice-token").expect(200); // created without an email
+        auth.clearCache();
+        await get("/t/protected", "alice-token").expect(200); // one retry
+        auth.clearCache();
+        await get("/t/protected", "alice-token").expect(200); // too soon: no lookup
+        expect(privy.fetchProfile).toHaveBeenCalledTimes(2);
+      } finally {
+        privy.fetchProfile.mockReset();
+        privy.fetchProfile.mockImplementation(
+          async (did: string) =>
+            ({
+              "did:privy:alice": { email: "alice@example.com", walletAddress: "0xa11ce00000000000000000000000000000000000" },
+              "did:privy:boss": { email: "boss@example.com", walletAddress: null },
+              "did:privy:newbie": { email: "newbie@example.com", walletAddress: null },
+            })[did] ?? null,
+        );
+      }
     });
   });
 
@@ -360,6 +396,18 @@ describe("profileFromLinkedAccounts", () => {
       { type: "wallet", chain_type: "ethereum", wallet_client: "unknown", address: "0xEXTERNAL" },
     ] as never);
     expect(profile).toEqual({ email: "me@example.com", walletAddress: "0xexternal" });
+  });
+
+  it("uses a Google or Apple login's email when there is no email login", () => {
+    expect(
+      profileFromLinkedAccounts([{ type: "google_oauth", email: "G@Example.com", subject: "1" }] as never).email,
+    ).toBe("g@example.com");
+    expect(
+      profileFromLinkedAccounts([
+        { type: "apple_oauth", email: "a@example.com", subject: "2" },
+        { type: "email", address: "e@example.com" },
+      ] as never).email,
+    ).toBe("e@example.com");
   });
 
   it("falls back to the embedded wallet, and nulls when nothing is linked", () => {

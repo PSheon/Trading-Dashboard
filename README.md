@@ -17,14 +17,18 @@ decisions.
 
 ## Status
 
-This is the **M1 scaffold**: repo structure, data model, and empty-but-wired
-modules only. No Watcher polling/WS logic, rule evaluation, or Telegram
-sending is implemented yet — every service method that isn't a simple
-read/wire-up throws `not implemented`. Per the PRD's ordering principle
-("Engine 先於 UI"), the dashboard currently only has an import page and a
-system-status page; every other page (Live Feed, Leaders, Leader detail,
-Heatmap, Alerts, Lists) is a "coming soon" placeholder so the nav is
-complete for later milestones to fill in.
+M1 and M2 are in: leader lists (import, backfill), the watcher, rules
+R1–R3 with Telegram notifications, and the Live Feed, Leaders, Leader
+detail, Alerts and Status pages. Heatmap, list diffs, alert scoring and the
+group rules (R4–R9) are later milestones.
+
+How the watcher works: it subscribes to the `trades` WebSocket channel of
+every perp market on every Hyperliquid dex. When a watched address is one
+side of a trade, it pulls that address's fills (`userFillsByTime`), stores
+them keyed on (address, tid), and turns new fills into actions using each
+fill's `startPosition`. Missed trades are recovered by a sweep after a feed
+outage, at startup and hourly, and by the 5-minute position snapshots. Why
+it isn't per-address `userFills` subscriptions: see PRD §11.1.
 
 ## Repo layout
 

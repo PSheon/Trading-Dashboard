@@ -185,6 +185,14 @@ export class TradeAnalyticsRepository {
     }
   }
 
+  async count(address: string, status: "all" | "open" | "closed"): Promise<number> {
+    const conditions: SQL[] = [mine(address)!];
+    if (status === "open") conditions.push(isNull(traderTrades.exitTime));
+    if (status === "closed") conditions.push(isNotNull(traderTrades.exitTime));
+    const [row] = await this.db.select({ n: sql<number>`count(*)::int` }).from(traderTrades).where(and(...conditions));
+    return row?.n ?? 0;
+  }
+
   /** Latest first by exit time (open trades by entry time), as CopyDog
    * lists them; `cursor` is the last row's (that time, openTid). */
   async page(

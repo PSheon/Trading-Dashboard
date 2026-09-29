@@ -39,11 +39,22 @@ against the position's average entry (long: px − closedPnl / size, short: px +
 closedPnl / size), so the entry price is exact. Until a closing fill arrives,
 the entry price covers only the fills we hold (`entryApprox`, "≈").
 
+**Exchange-forced closes.** A trade that ends in an `Auto-Deleveraging` or
+`Settlement` fill (ADL against a liquidation, a delisted market) is left out,
+as CopyDog does (0xf62e…'s ETH ADL of 2025-10-10 and ZEREBRO settlement and
+0xeadc…'s hyna settlements are all missing from its ledger).
+
+**Open trades the account no longer holds** (no position in that coin in a
+newer clearinghouse state) were closed by fills Hyperliquid no longer serves,
+usually TWAP slices, whose retention is short; they are dropped.
+
 **Summary.** Trade count = closed trades; win rate = wins ÷ closed trades;
 windows count trades by exit time; average and median hold over closed trades.
-Best / worst: closed trades by net PnL (> 0 / < 0), 10 each (the rail shows 3).
-Coins (`byAsset`): trades, wins, losses, volume, net PnL, ordered by net PnL;
-the rail's 最常交易 sorts them by volume (top 3).
+Best / worst: the 10 closed trades with the highest / lowest net PnL, whatever
+the sign (CopyDog's 表現 tab shows them so, with PnL = net + funding); the rail
+shows the top 3 winners / losers by net PnL. Coins (`byAsset`): trades, wins,
+losses, volume, net PnL, ordered by net PnL; the rail's 最常交易 sorts them by
+volume (top 3).
 
 ## Classification thresholds
 
@@ -52,6 +63,19 @@ the rail's 最常交易 sorts them by volume (top 3).
 | Trading style | median hold of closed trades | 剝頭皮 < 15 min ≤ 日內 < 24 h ≤ 波段 < 14 days ≤ 部位 | CopyDog computes it server-side and publishes only "seconds to minutes / hours, same day / days to weeks / weeks or longer". Fitted to its labels on 48 traders (12 per style): medians 0–8.4 min scalp, 28 min–23.6 h intraday, 25 h–9.9 days swing, 14.3–54 days position. These cut-offs separate all 48. |
 | PnL tier | Hyperliquid's leaderboard all-time PnL (`trader_stats.pnl_all_time`; the portfolio's all-time PnL for an address not on it) | 極度盈利 ≥ $1M; 高度盈利 ≥ $100K; 盈利 > $0; 持平 = $0; 虧損 > −$100K; 高度虧損 > −$1M; 爆倉級虧損 ≤ −$1M | Bundle labels ("+$1M+ PNL", "+$100K to +$1M PNL", "$0 to +$100K PNL", "$0 to −$100K PNL", "−$100K to −$1M PNL", "−$1M+ PNL"). CopyDog's `totalPnl` equals the leaderboard's all-time PnL (checked on 50 traders). |
 | Size tier | perp account value: Σ `marginSummary.accountValue` over dexes | 頂級 ≥ $5M; 巨鯨 ≥ $1M; 大戶 ≥ $100K; 中戶 ≥ $10K; 小戶 < $10K | Bundle labels ("$5M+ Equity" …). CopyDog tiers on its `accountValue`, the perp figure: a unified account holding everything in spot is 小戶 there (e.g. 0xa381…: $0 perp, $140K spot → small). |
+
+## UI
+
+The win-rate tile, the rail's 分組 / 最佳與最差 / 最常交易 and the 表現 / 交易
+tabs follow CopyDog's layout, labels (its zh-TW locale), column order and
+formats (`apps/web/src/lib/trade-format.ts`: "Sep 19, 06:52", "20d 17h",
+"+$54.05K", prices by magnitude, win rate ≥ 50% green / ≥ 35% amber / red),
+sortable headers, mobile trade cards and empty states, in Orbie's palette.
+Tier icons are the Lucide equivalents of the Remix Icon glyphs CopyDog uses.
+Differences: the 交易 tab keeps an 全部 / 已平倉 / 持倉中 filter (CopyDog's live
+bundle shows closed trades only; its locale still has the filter strings) and
+defaults to 已平倉; the per-row share copies a text summary and link (CopyDog
+renders an image card).
 
 ## Data and cost
 
@@ -68,9 +92,9 @@ the rail's 最常交易 sorts them by volume (top 3).
   2026-04-17, though that account has traded since 2024).
 - **Funding** (`userFunding`: 500 per call, 20 + 1 per 20 items; hourly for
   about a week, then one entry per coin and day) is a second, unranked step
-  after the trades are stored, for trades opened in the last 30 days. An
-  account holding 40 positions costs ~34 calls (~1,500 weight) for a year, so
-  older holds show no funding.
+  after the trades are stored, from the start of coverage, 40 calls per step
+  (a long history completes over later refreshes). An account holding 40
+  positions costs ~34 calls (~1,500 weight) for a year; a light account 1–2.
 - Stored in `trader_trades` and `trader_analytics` (migration 0011), served
   from there; an answer older than 10 minutes is served while a refresh runs.
   A cold address answers 503 busy (Retry-After 5 s) after 12 s; the work runs

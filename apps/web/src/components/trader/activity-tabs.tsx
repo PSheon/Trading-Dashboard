@@ -20,7 +20,7 @@ import { downloadCsv, toCsv } from "@/lib/csv";
 import { coinLabel } from "@/lib/format";
 import { mergeLiveFills } from "@/lib/live-trader";
 import { isComputing, useAlerts, useLiveActions, useTraderAnalytics, useTraderFills } from "@/lib/queries";
-import { PerformanceTab, TradesTab } from "./trade-analytics";
+import { PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 
 type Tab = "positions" | "performance" | "trades" | "fills" | "actions" | "alerts";
 /** CopyDog's order: positions, performance, then the lists. */
@@ -46,6 +46,7 @@ export function ActivityTabs({
   const { t } = useI18n();
   const panelId = useId();
   const [tab, setTab] = useState<Tab>("positions");
+  const [perfView, setPerfView] = useState<PerfView>("best");
   const { status } = useAuth();
   const fills = useTraderFills(profile.address, 200);
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
@@ -91,6 +92,7 @@ export function ActivityTabs({
           ))}
         </div>
         {tab === "actions" ? <LiveBadge status={actionsStream} className="ml-auto" /> : null}
+        {tab === "performance" ? <PerfSwitch value={perfView} onChange={setPerfView} /> : null}
         {exportable && exportable.length > 0 ? (
           <Button
             variant="ghost"
@@ -116,6 +118,7 @@ export function ActivityTabs({
             computing={isComputing(analytics)}
             error={analytics.error}
             onRetry={() => analytics.refetch()}
+            view={perfView}
           />
         ) : null}
         {tab === "trades" ? <TradesTab address={profile.address} /> : null}

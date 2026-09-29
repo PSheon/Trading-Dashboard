@@ -17,8 +17,9 @@ import type {
  * - Trade count: closed trades. Win: net PnL (gross − fees) > 0; win rate =
  *   wins ÷ closed trades. Windows count trades by exit time. Average and
  *   median hold over closed trades (partial ones from their first held fill).
- * - Best / worst: closed trades by net PnL (> 0 / < 0), 10 each; the rail
- *   shows 3. Coins (`byAsset`): trades, wins, losses, volume = Σ size × entry
+ * - Best / worst: the 10 closed trades with the highest / lowest net PnL,
+ *   whatever the sign (CopyDog's 表現 tab lists them so); the rail keeps
+ *   the winners / losers among them and shows 3. Coins (`byAsset`): trades, wins, losses, volume = Σ size × entry
  *   price, net PnL; ordered by net PnL, the rail's "most traded" by volume,
  *   the 表現 tab's by trade count.
  * - Trading style, on the median hold: CopyDog computes it server-side and
@@ -134,8 +135,8 @@ export function summarize(trades: RoundTrip[], window: TradeWindow, now: number)
     netPnl: closed.reduce((s, t) => s + t.netPnl, 0),
     volume: closed.reduce((s, t) => s + t.volume, 0),
     openTrades: trades.filter((t) => t.status === "open").length,
-    best: [...wins].sort((a, b) => b.netPnl - a.netPnl).slice(0, LIST_SIZE),
-    worst: [...losses].sort((a, b) => a.netPnl - b.netPnl).slice(0, LIST_SIZE),
+    best: [...closed].sort((a, b) => b.netPnl - a.netPnl).slice(0, LIST_SIZE),
+    worst: [...closed].sort((a, b) => a.netPnl - b.netPnl).slice(0, LIST_SIZE),
     coins: [...coins.values()].sort((a, b) => b.netPnl - a.netPnl),
   };
 }

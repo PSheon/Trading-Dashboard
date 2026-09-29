@@ -96,6 +96,19 @@ describe("round-trip reconstruction", () => {
     expect(t).toMatchObject({ side: "short", liquidated: true, realizedPnl: -200, exitTime: T0 + HOUR });
   });
 
+  it("leaves out a trade the exchange closed (auto-deleveraging, settlement), as CopyDog", () => {
+    const open = new Map<string, Trade>();
+    const result = applyFills(ME, open, [
+      fill(0, -2, 100, T0),
+      fill(-2, 2, 90, T0 + HOUR, { dir: "Auto-Deleveraging", closedPnl: "20" }),
+      { ...fill(0, 1, 5, T0), coin: "ZER" },
+      { ...fill(1, -1, 1, T0 + HOUR, { dir: "Settlement", closedPnl: "-4" }), coin: "ZER" },
+      fill(0, 1, 100, T0 + 2 * HOUR),
+    ]);
+    expect(result.touched.map((t) => [t.coin, t.side])).toEqual([["BTC", "long"]]);
+    expect(result.dropped).toHaveLength(2);
+  });
+
   it("a position still open is an open trade with no exit", () => {
     const trades = reconstructTrades(ME, [fill(0, 3, 100, T0), fill(3, -1, 120, T0 + MIN, { closedPnl: "20" })]);
     expect(trades).toHaveLength(1);
@@ -227,8 +240,8 @@ describe("trade metrics and classification", () => {
     expect(all.profitFactor).toBeCloseTo(400 / 75);
     expect(all.medianHoldSeconds).toBe(120);
     expect(all.avgHoldSeconds).toBeCloseTo((60 + 120 + 600 + 3600 + 30) / 5);
-    expect(all.best.map((t) => t.netPnl)).toEqual([300, 100]);
-    expect(all.worst.map((t) => t.netPnl)).toEqual([-50, -25]);
+    expect(all.best.map((t) => t.netPnl)).toEqual([300, 100, 0, -25, -50]);
+    expect(all.worst.map((t) => t.netPnl)).toEqual([-50, -25, 0, 100, 300]);
     // CopyDog's byAsset: by net PnL.
     expect(all.coins).toEqual([
       { coin: "BTC", trades: 2, wins: 2, losses: 0, volume: 10000, netPnl: 400, winRate: 1 },

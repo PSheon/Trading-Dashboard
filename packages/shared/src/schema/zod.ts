@@ -826,8 +826,8 @@ export const tradeSummarySchema = z.object({
   volume: z.number(),
   /** Open trades now (not window-dependent). */
   openTrades: z.number().int(),
-  /** Up to 10 each: closed winners by net PnL, largest first; losers,
-   * largest loss first. */
+  /** The 10 closed trades with the highest net PnL (highest first) and
+   * the 10 with the lowest (lowest first), whatever the sign. */
   best: z.array(roundTripSchema),
   worst: z.array(roundTripSchema),
   /** Every coin with a closed trade in the window, by net PnL (highest
@@ -885,6 +885,8 @@ export const traderTradesResponseSchema = z.object({
   address: z.string(),
   items: z.array(roundTripSchema),
   nextCursor: z.string().nullable(),
+  /** Trades matching `status` in all ("Show more (50 / 120)"). */
+  total: z.number().int(),
   coverage: tradeCoverageSchema,
   computedAt: z.coerce.date(),
 });

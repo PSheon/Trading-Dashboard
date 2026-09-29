@@ -42,6 +42,9 @@ import {
  * fill arrives its entry price covers only the fills we hold
  * (`entryApprox`).
  *
+ * A trade the exchange closed (auto-deleveraging, settlement of a delisted
+ * market) is dropped, as CopyDog leaves it out.
+ *
  * A fill that doesn't start where the running trade stands (a fill missing
  * from the data) resyncs to it: a same-side jump just continues, anything
  * else drops the trade rather than guessing.
@@ -82,6 +85,12 @@ export interface Trade {
   fills: number;
   lastFillTime: number;
 }
+
+/** Closes the exchange forces on a position (auto-deleveraging against a
+ * liquidation, a delisted market's settlement). CopyDog counts no trade
+ * that ends in one (checked: 0xf62e…'s ETH ADL of 2025-10-10 and ZEREBRO
+ * settlement, 0xeadc…'s hyna settlements are all missing from its ledger). */
+export const FORCED_CLOSE_DIRS = new Set(["Auto-Deleveraging", "Settlement"]);
 
 const sign = (v: bigint): -1 | 0 | 1 => (v > 0n ? 1 : v < 0n ? -1 : 0);
 const abs = (v: bigint): bigint => (v < 0n ? -v : v);
@@ -271,6 +280,11 @@ export function applyFills(
       trade.position = 0n;
       trade.exitTime = fill.time;
       open.delete(coin);
+      if (FORCED_CLOSE_DIRS.has(fill.dir)) {
+        // Closed by the exchange, not the trader: CopyDog leaves it out.
+        touched.delete(trade.openTid);
+        dropped.push(trade);
+      }
       if (end !== 0n) {
         const opened = newTrade(fill, end, 0n, fundingFrom);
         const rest = toNumber(abs(end));

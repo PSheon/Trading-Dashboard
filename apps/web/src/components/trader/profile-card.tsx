@@ -1,7 +1,25 @@
 "use client";
 
-import type { PnlTier, TraderActivity, TraderActivityResponse, TraderAnalyticsResponse, TraderProfileResponse } from "@/lib/contracts";
-import { Check, Copy, Radio, Share2 } from "lucide-react";
+import type { PnlTier, SizeTier, TraderActivity, TraderActivityResponse, TraderAnalyticsResponse, TraderProfileResponse } from "@/lib/contracts";
+import {
+  Anchor,
+  Check,
+  ChevronDown,
+  CircleDollarSign,
+  CircleDot,
+  Copy,
+  Crown,
+  Frown,
+  Gem,
+  Ghost,
+  Orbit,
+  Radio,
+  Sailboat,
+  Share2,
+  Ship,
+  Skull,
+  type LucideIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 
@@ -10,12 +28,18 @@ import { AddressAvatar } from "@/components/traders/address-avatar";
 import { TraderName } from "@/components/traders/trader-name";
 import { ACTIVITY_DOT, FavoriteButton, LowSampleTag, VaultBadge } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
-import { Segmented } from "@/components/ui/segmented";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import type { LiveStatus } from "@/lib/use-live-trader";
 import { useNow } from "@/lib/use-now";
-import { ComputingState, CoverageNote } from "./trade-analytics";
+import { pnlTone, signedUsd1, usd1 } from "@/lib/trade-format";
 
 function useCopied() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -333,17 +357,25 @@ export function ProfileCard({
   );
 }
 
-const PNL_TONE: Record<PnlTier, string> = {
-  extremely_profitable: "text-primary",
-  very_profitable: "text-positive",
-  profitable: "text-positive",
-  break_even: "",
-  unprofitable: "text-negative",
-  very_unprofitable: "text-negative",
-  rekt: "text-negative",
+/** CopyDog's tier icons (Remix Icon glyphs in its bundle), drawn with the
+ * matching Lucide icons Orbie already uses. Break even has none there. */
+const PNL_ICON: Partial<Record<PnlTier, LucideIcon>> = {
+  extremely_profitable: Crown,
+  very_profitable: Gem,
+  profitable: CircleDollarSign,
+  unprofitable: Ghost,
+  very_unprofitable: Frown,
+  rekt: Skull,
+};
+const SIZE_ICON: Record<SizeTier, LucideIcon> = {
+  apex: Orbit,
+  whale: Ship,
+  large: Sailboat,
+  medium: Anchor,
+  small: CircleDot,
 };
 
-/** Placeholder rows while the api computes a cold address. */
+/** Placeholder bars while the api computes a cold address. */
 function PendingRows({ rows = 3 }: { rows?: number }) {
   return (
     <div className="flex flex-col gap-2 py-1" aria-hidden>
@@ -357,80 +389,100 @@ function PendingRows({ rows = 3 }: { rows?: number }) {
   );
 }
 
+function TierValue({ icon: Icon, label, hint, testId }: { icon?: LucideIcon; label: string; hint: string; testId: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5" title={hint} data-testid={testId}>
+      {Icon ? <Icon className="size-3.5" aria-hidden /> : null}
+      {label}
+    </span>
+  );
+}
+
 /** 分組: CopyDog's trading style, PnL cohort and size cohort. */
 function GroupsSection({ trades, computing }: { trades: TraderAnalyticsResponse | undefined; computing: boolean }) {
   const { t } = useI18n();
   const c = trades?.classification;
+  if (!trades && computing) {
+    return (
+      <Section title={t("trader.groups")}>
+        <span className="sr-only" role="status">{t("trader.computing")}</span>
+        <PendingRows />
+      </Section>
+    );
+  }
   return (
     <Section title={t("trader.groups")}>
-      {!trades && computing ? (
-        <>
-          <PendingRows />
-          <ComputingState compact />
-        </>
-      ) : (
-        <>
-          <Row label={t("trader.tradingStyle")}>
-            <span title={c?.style ? t(`trader.styleHints.${c.style}`) : undefined} data-testid="trading-style">
-              {c?.style ? t(`trader.styles.${c.style}`) : "—"}
-            </span>
-          </Row>
-          <Row label={t("trader.pnlTier")}>
-            <span
-              className={c?.pnlTier ? PNL_TONE[c.pnlTier] : ""}
-              title={c?.pnlTier ? t(`trader.pnlTierHints.${c.pnlTier}`) : undefined}
-              data-testid="pnl-tier"
-            >
-              {c?.pnlTier ? t(`trader.pnlTiers.${c.pnlTier}`) : "—"}
-            </span>
-          </Row>
-          <Row label={t("trader.sizeTier")}>
-            <span title={c?.sizeTier ? t(`trader.sizeTierHints.${c.sizeTier}`) : undefined} data-testid="size-tier">
-              {c?.sizeTier ? t(`trader.sizeTiers.${c.sizeTier}`) : "—"}
-            </span>
-          </Row>
-        </>
-      )}
+      <Row label={t("trader.tradingStyle")}>
+        <span title={c?.style ? t(`trader.styleHints.${c.style}`) : undefined} data-testid="trading-style">
+          {c?.style ? t(`trader.styles.${c.style}`) : "—"}
+        </span>
+      </Row>
+      <Row label={t("trader.pnlTier")}>
+        {c?.pnlTier ? (
+          <TierValue icon={PNL_ICON[c.pnlTier]} label={t(`trader.pnlTiers.${c.pnlTier}`)} hint={t(`trader.pnlTierHints.${c.pnlTier}`)} testId="pnl-tier" />
+        ) : (
+          "—"
+        )}
+      </Row>
+      <Row label={t("trader.sizeTier")}>
+        {c?.sizeTier ? (
+          <TierValue icon={SIZE_ICON[c.sizeTier]} label={t(`trader.sizeTiers.${c.sizeTier}`)} hint={t(`trader.sizeTierHints.${c.sizeTier}`)} testId="size-tier" />
+        ) : (
+          "—"
+        )}
+      </Row>
     </Section>
   );
 }
 
-/** 最佳與最差: the three best or worst closed trades by net PnL. */
+function CoinFigureRows({ rows }: { rows: Array<{ key: string; coin: string; figure: string; className?: string }> }) {
+  return (
+    <ul className="flex flex-col gap-1">
+      {rows.map((row) => (
+        <li key={row.key} className="flex items-center justify-between py-1 text-[0.8125rem]">
+          <span className="flex items-center gap-1.5">
+            <CoinIcon coin={row.coin} size={16} />
+            {coinLabel(row.coin)}
+          </span>
+          <span className={cn("num font-medium", row.className)}>{row.figure}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** 最佳與最差: the three best or worst closed trades by net PnL, picked
+ * with a small dropdown as on CopyDog. */
 function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsResponse | undefined; computing: boolean }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const [view, setView] = useState<"best" | "worst">("best");
-  const rows = (view === "best" ? trades?.summary.best : trades?.summary.worst)?.slice(0, 3) ?? [];
+  const list = view === "best" ? trades?.summary.best.filter((x) => x.netPnl > 0) : trades?.summary.worst.filter((x) => x.netPnl < 0);
+  const rows = (list ?? []).slice(0, 3);
   return (
     <Section
       title={t("trader.bestWorst")}
       action={
-        <Segmented
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "best", label: t("trader.best") },
-            { value: "worst", label: t("trader.worst") },
-          ]}
-          label={t("trader.bestWorst")}
-        />
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label={t("trader.bestWorst")}
+            className="inline-flex items-center gap-0.5 rounded text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t(view === "best" ? "trader.best" : "trader.worst")}
+            <ChevronDown className="size-3.5" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="min-w-28">
+            <DropdownMenuRadioGroup value={view} onValueChange={(v) => setView(v as "best" | "worst")}>
+              <DropdownMenuRadioItem value="best">{t("trader.best")}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="worst">{t("trader.worst")}</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       }
     >
       {!trades && computing ? (
         <PendingRows />
       ) : rows.length > 0 ? (
-        <ul className="flex flex-col gap-1">
-          {rows.map((trade) => (
-            <li key={trade.id} className="flex items-center justify-between py-1 text-[0.8125rem]">
-              <span className="flex items-center gap-2 font-medium">
-                <CoinIcon coin={trade.coin} size={18} />
-                {coinLabel(trade.coin)}
-              </span>
-              <span className={cn("num font-semibold", trade.netPnl >= 0 ? "text-positive" : "text-negative")}>
-                {format.usd(trade.netPnl, { sign: true, compact: true })}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <CoinFigureRows rows={rows.map((x) => ({ key: x.id, coin: x.coin, figure: signedUsd1(x.netPnl), className: pnlTone(x.netPnl) }))} />
       ) : (
         <p className="text-xs text-muted-foreground">{t("trader.noClosedTrades")}</p>
       )}
@@ -440,27 +492,14 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
 
 /** 最常交易: the three coins with the most volume (Σ size × entry). */
 function MostTradedSection({ trades, computing }: { trades: TraderAnalyticsResponse | undefined; computing: boolean }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const rows = [...(trades?.summary.coins ?? [])].sort((a, b) => b.volume - a.volume).slice(0, 3);
   return (
     <Section title={t("trader.mostTraded")}>
       {!trades && computing ? (
         <PendingRows />
       ) : rows.length > 0 ? (
-        <>
-          <ul className="flex flex-col gap-1">
-            {rows.map((coin) => (
-              <li key={coin.coin} className="flex items-center justify-between py-1 text-[0.8125rem]">
-                <span className="flex items-center gap-2 font-medium">
-                  <CoinIcon coin={coin.coin} size={18} />
-                  {coinLabel(coin.coin)}
-                </span>
-                <span className="num font-semibold">{format.usd(coin.volume, { compact: true })}</span>
-              </li>
-            ))}
-          </ul>
-          {trades ? <CoverageNote analytics={trades} className="mt-2" /> : null}
-        </>
+        <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: usd1(c.volume) }))} />
       ) : (
         <p className="text-xs text-muted-foreground">{t("trader.noClosedTrades")}</p>
       )}

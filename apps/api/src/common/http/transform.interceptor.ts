@@ -1,5 +1,11 @@
-import { findHttpContract } from "@trading-dashboard/shared";
-import { Injectable, StreamableFile, type CallHandler, type ExecutionContext, type NestInterceptor } from "@nestjs/common";
+import { findHttpContract } from "@trading-dashboard/shared/contracts";
+import {
+  Injectable,
+  StreamableFile,
+  type CallHandler,
+  type ExecutionContext,
+  type NestInterceptor,
+} from "@nestjs/common";
 import type { Request, Response } from "express";
 import { map } from "rxjs/operators";
 import { contractHeaders, responseMeta, usesEnvelope } from "./response-contract.js";

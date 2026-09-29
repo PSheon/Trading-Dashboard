@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, setAccessTokenGetter } from "../src/lib/api";
-import { findHttpContract } from "@trading-dashboard/shared";
+import { findHttpContract } from "@trading-dashboard/shared/contracts";
 import { fixtureRequest } from "../src/fixtures/handler";
 import { initialFavorites } from "../src/fixtures/data";
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); setAccessTokenGetter(null); });

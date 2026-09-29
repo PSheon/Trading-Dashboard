@@ -4,12 +4,8 @@ import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { and, eq, gt, inArray } from "drizzle-orm";
-import {
-  CHAIN_DEFAULT,
-  equitySnapshots,
-  fills,
-  positionSnapshots,
-} from "@trading-dashboard/shared";
+import { equitySnapshots, fills, positionSnapshots } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

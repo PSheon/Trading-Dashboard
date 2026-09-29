@@ -1,5 +1,11 @@
 import type { INestApplication } from "@nestjs/common";
-import { alertRules, leaders, notificationChannels, traderStats, userFavorites } from "@trading-dashboard/shared";
+import {
+  alertRules,
+  leaders,
+  notificationChannels,
+  traderStats,
+  userFavorites,
+} from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";

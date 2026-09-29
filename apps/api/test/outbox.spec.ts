@@ -1,6 +1,17 @@
+import { SettingsRepository } from "../src/settings/settings.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { actions, actionOutbox, alerts, leaders, notificationChannels, notificationCooldowns, notificationOutbox, userFavorites } from "@trading-dashboard/shared";
+import {
+  actions,
+  actionOutbox,
+  alerts,
+  leaders,
+  notificationChannels,
+  notificationCooldowns,
+  notificationOutbox,
+  userFavorites,
+} from "@trading-dashboard/shared/database";
 import { NotifyService } from "../src/notify/notify.service.js";
 import type { TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 import { OutboxService } from "../src/outbox/outbox.service.js";
@@ -15,7 +26,7 @@ const address = "0x" + "ab".repeat(20);
 const sendMessage = vi.fn(async () => {});
 let userId: number;
 const notify = () => new NotifyService(db, { sendMessage } as unknown as TelegramHttpClient);
-const rules = (sender = notify()) => new RulesService(db, { getEquityUsd: () => null } as unknown as WatcherService, sender, new SettingsService(db));
+const rules = (sender = notify()) => new RulesService(db, { getEquityUsd: () => null } as unknown as WatcherService, sender, new SettingsService(new SettingsRepository(db), new UnitOfWork(db)));
 const create = () => withActionLock(db, address, (tx) => insertActions(tx, address, [{
   coin: "BTC", kind: "open", side: "long", notionalUsd: "60000", avgPx: "60000", leverage: null, fillIds: [], ts: new Date(),
 }], true)).then(([row]) => row);
@@ -128,7 +139,7 @@ it("claims a delivery once even when another sender polls while Telegram is pend
 });
 
 it("replays percentage rules using the equity captured with the action", async () => {
-  const { users } = await import("@trading-dashboard/shared");
+  const { users } = await import("@trading-dashboard/shared/database");
   const { RulesSeedService } = await import("../src/rules/rules-seed.service.js");
   await db.update(users).set({ role: "admin" });
   await db.delete(userFavorites);

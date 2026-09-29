@@ -1,5 +1,5 @@
 import { SetMetadata } from "@nestjs/common";
-import { ROLE_PERMISSIONS, type Permission } from "@trading-dashboard/shared";
+import { ROLE_PERMISSIONS, type Permission } from "@trading-dashboard/shared/contracts";
 import type { RequestUser } from "./current-user.js";
 
 export const PERMISSIONS_KEY = "app:permissions";

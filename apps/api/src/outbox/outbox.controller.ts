@@ -1,5 +1,5 @@
 import { Controller, Get, Inject } from "@nestjs/common";
-import { actionOutbox, notificationOutbox } from "@trading-dashboard/shared";
+import { actionOutbox, notificationOutbox } from "@trading-dashboard/shared/database";
 import { count } from "drizzle-orm";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

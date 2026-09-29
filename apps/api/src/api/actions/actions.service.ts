@@ -1,16 +1,13 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, desc, eq, gt, gte, inArray, lt, or, type SQL } from "drizzle-orm";
+import { actions, fills, leaders, userFavorites } from "@trading-dashboard/shared/database";
 import {
   CHAIN_DEFAULT,
-  actions,
-  fills,
-  leaders,
-  userFavorites,
   type ActionFeedItem,
   type ActionsFeedQuery,
   type ActionsStreamQuery,
   type Fill,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";

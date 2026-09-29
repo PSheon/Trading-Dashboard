@@ -1,6 +1,7 @@
 import { Controller, Get, type INestApplication } from "@nestjs/common";
 import { EventEmitter2, EventEmitterModule } from "@nestjs/event-emitter";
-import { actions, leaders, userFavorites, users, wireActionSchema } from "@trading-dashboard/shared";
+import { actions, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
+import { wireActionSchema } from "@trading-dashboard/shared/contracts";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";

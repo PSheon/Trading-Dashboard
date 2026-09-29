@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, HttpCode, Post } from "@nestjs/common";
-import type { TelegramLinkResponse, TelegramStatus, TelegramTestResponse } from "@trading-dashboard/shared";
+import type { TelegramLinkResponse, TelegramStatus, TelegramTestResponse } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { requireUserId } from "../common/auth/current-user.js";

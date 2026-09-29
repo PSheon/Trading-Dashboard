@@ -1,10 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import {
-  alertRules,
-  type AlertRule,
-  type UpsertAlertRuleRequest,
-} from "@trading-dashboard/shared";
+import { alertRules } from "@trading-dashboard/shared/database";
+import { type AlertRule, type UpsertAlertRuleRequest } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";

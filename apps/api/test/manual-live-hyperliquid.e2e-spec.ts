@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { actions, fills, leaders } from "@trading-dashboard/shared";
+import { actions, fills, leaders } from "@trading-dashboard/shared/database";
 import { describe, expect, it } from "vitest";
 
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";

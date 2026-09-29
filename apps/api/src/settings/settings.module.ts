@@ -1,3 +1,4 @@
+import { SettingsRepository } from "./settings.repository.js";
 import { Global, Module } from "@nestjs/common";
 
 import { SettingsService } from "./settings.service.js";
@@ -5,7 +6,7 @@ import { SettingsService } from "./settings.service.js";
 /** Global: discovery, auth, rules and admin all read site settings. */
 @Global()
 @Module({
-  providers: [SettingsService],
+  providers: [SettingsRepository, SettingsService],
   exports: [SettingsService],
 })
 export class SettingsModule {}

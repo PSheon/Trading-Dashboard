@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional, type OnModuleDestroy } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
-import { actionStreamEventSchemas, type ActionFeedItem, type ActionStreamEventName } from "@trading-dashboard/shared";
+import { actionStreamEventSchemas, type ActionFeedItem, type ActionStreamEventName } from "@trading-dashboard/shared/contracts";
 import type { Request, Response } from "express";
 import { isIP } from "node:net";
 

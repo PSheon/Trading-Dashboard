@@ -16,7 +16,7 @@ import {
   actionsStreamQuerySchema,
   type ActionFeedItem,
   type Fill,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 import type { Request, Response } from "express";
 
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";

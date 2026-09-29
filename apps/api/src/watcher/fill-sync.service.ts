@@ -1,7 +1,8 @@
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { actions, CHAIN_DEFAULT, fills } from "@trading-dashboard/shared";
+import { actions, fills } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { and, eq, gte, sql } from "drizzle-orm";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";

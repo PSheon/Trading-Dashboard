@@ -1,15 +1,13 @@
 import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, inArray } from "drizzle-orm";
+import { leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
 import {
   CHAIN_DEFAULT,
   addressSchema,
   importLeaderListRequestSchema,
-  leaderListItems,
-  leaderLists,
-  leaders,
   type ImportLeaderListRequest,
   type ImportLeaderListResponse,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

@@ -1,4 +1,4 @@
-import { leaders } from "@trading-dashboard/shared";
+import { leaders } from "@trading-dashboard/shared/database";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HlWsTrade } from "../src/hyperliquid/types.js";

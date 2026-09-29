@@ -1,7 +1,10 @@
+import { SettingsRepository } from "../src/settings/settings.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { adminRevenueResponseSchema, revenueSnapshots } from "@trading-dashboard/shared";
+import { revenueSnapshots } from "@trading-dashboard/shared/database";
+import { adminRevenueResponseSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fromUnits, toUnits } from "../src/admin/decimal.js";
@@ -222,7 +225,7 @@ describe("RevenueService — real Postgres", () => {
 
   beforeEach(async () => {
     await truncateAdminTables(db);
-    settings = new SettingsService(db);
+    settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     referral = vi.fn(async () => NEED_TO_TRADE);
     service = new RevenueService(db, settings, { referral } as unknown as HyperliquidInfoClient);
   });

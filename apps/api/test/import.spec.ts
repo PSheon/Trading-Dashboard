@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared";
+import { leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BackfillService } from "../src/watcher/backfill.service.js";

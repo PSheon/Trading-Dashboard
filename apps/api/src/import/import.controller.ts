@@ -1,9 +1,7 @@
 import { Body, Controller, Post } from "@nestjs/common";
-import type {
-  ImportLeaderListResponse,
-} from "@trading-dashboard/shared";
+import type { ImportLeaderListResponse } from "@trading-dashboard/shared/contracts";
 
-import { importLeaderListRequestSchema } from "@trading-dashboard/shared";
+import { importLeaderListRequestSchema } from "@trading-dashboard/shared/contracts";
 import { parseOr400 } from "../common/http/validation.js";
 import { RequirePermissions } from "../common/auth/permissions.js";
 import { ImportService } from "./import.service.js";

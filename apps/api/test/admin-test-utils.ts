@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { users } from "@trading-dashboard/shared";
+import { users } from "@trading-dashboard/shared/database";
 
 import type { TestDb } from "./db-test-utils.js";
 

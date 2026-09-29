@@ -1,9 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  LeaderList,
-  ListDiffRequest,
-  ListDiffResponse,
-} from "@trading-dashboard/shared";
+import type { LeaderList, ListDiffRequest, ListDiffResponse } from "@trading-dashboard/shared/contracts";
 
 /** D6 Lists — version history + diff (A4). Import itself lives in ImportModule. */
 @Injectable()

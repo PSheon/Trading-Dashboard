@@ -1,5 +1,5 @@
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { actions, fills } from "@trading-dashboard/shared";
+import { actions, fills } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 

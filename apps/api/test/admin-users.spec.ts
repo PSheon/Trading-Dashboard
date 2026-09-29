@@ -1,11 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException, type HttpException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
-import {
-  adminUsersResponseSchema,
-  notificationChannels,
-  userFavorites,
-  users,
-} from "@trading-dashboard/shared";
+import { notificationChannels, userFavorites, users } from "@trading-dashboard/shared/database";
+import { adminUsersResponseSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminUsersService, escapeLike } from "../src/admin/admin-users.service.js";

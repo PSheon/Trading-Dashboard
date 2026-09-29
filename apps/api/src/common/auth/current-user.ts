@@ -1,5 +1,11 @@
-import { ForbiddenException, UnauthorizedException, createParamDecorator, SetMetadata, type ExecutionContext } from "@nestjs/common";
-import type { Permission, UserRole } from "@trading-dashboard/shared";
+import {
+  ForbiddenException,
+  UnauthorizedException,
+  createParamDecorator,
+  SetMetadata,
+  type ExecutionContext,
+} from "@nestjs/common";
+import type { Permission, UserRole } from "@trading-dashboard/shared/contracts";
 
 /**
  * Who is calling. The global guard sets `request.user`:

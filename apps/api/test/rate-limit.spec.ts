@@ -1,0 +1,67 @@
+import { describe, expect, it } from "vitest";
+import { RequestRateLimiter } from "../src/common/auth/rate-limit.guard.js";
+
+describe("bounded inbound rate limits", () => {
+  it("rejects overflow with a retry delay and admits after expiration", () => {
+    const limiter = new RequestRateLimiter();
+    expect(limiter.consume("alice", 2, 1000)).toBe(0);
+    expect(limiter.consume("alice", 2, 1001)).toBe(0);
+    expect(limiter.consume("alice", 2, 2000)).toBe(59);
+    expect(limiter.consume("bob", 2, 2000)).toBe(0);
+    expect(limiter.consume("alice", 2, 61000)).toBe(0);
+  });
+  it("refuses new buckets at capacity without evicting active limits", () => {
+    const limiter = new RequestRateLimiter();
+    for (let i = 0; i < 10000; i++) expect(limiter.consume(String(i), 1, 0)).toBe(0);
+    expect(limiter.consume("new", 1, 1)).toBe(60);
+    expect(limiter.consume("0", 1, 1)).toBe(60);
+    expect(limiter.consume("new", 1, 60000)).toBe(0);
+  });
+});
+
+import { CallerRateGuard, IngressRateGuard } from "../src/common/auth/rate-limit.guard.js";
+import { AppConfig } from "../src/config/app-config.js";
+import { validateEnvironment } from "../src/config/runtime-config.js";
+import type { ExecutionContext } from "@nestjs/common";
+import { vi } from "vitest";
+
+const config = new AppConfig(validateEnvironment({ DATABASE_URL: "postgres://test@localhost/test", API_READ_PER_MINUTE: "1", API_INGRESS_PER_MINUTE: "1" }));
+function context(request: object) {
+  const setHeader = vi.fn();
+  return { setHeader, ctx: { switchToHttp: () => ({ getRequest: () => ({ method: "GET", path: "/traders", ip: "127.0.0.1", socket: {}, ...request }), getResponse: () => ({ setHeader }) }) } as unknown as ExecutionContext };
+}
+it("uses verified user identity across token/IP rotation, separating different users", () => {
+  const guard = new CallerRateGuard(new RequestRateLimiter(), config);
+  expect(guard.canActivate(context({ user: { kind: "user", id: 1 } }).ctx)).toBe(true);
+  const second = context({ user: { kind: "user", id: 1 }, ip: "203.0.113.1", headers: { authorization: "Bearer different" } });
+  expect(() => guard.canActivate(second.ctx)).toThrow("Too many requests");
+  expect(second.setHeader).toHaveBeenCalledWith("Retry-After", expect.any(String));
+  expect(guard.canActivate(context({ user: { kind: "user", id: 2 } }).ctx)).toBe(true);
+});
+it("does not accept forged forwarded headers as an IP identity", () => {
+  const guard = new IngressRateGuard(new RequestRateLimiter(), config);
+  expect(guard.canActivate(context({ headers: { "x-forwarded-for": "203.0.113.1" } }).ctx)).toBe(true);
+  expect(() => guard.canActivate(context({ headers: { "x-forwarded-for": "203.0.113.2" } }).ctx)).toThrow();
+});
+
+import { Controller, Get } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { Test } from "@nestjs/testing";
+import request from "supertest";
+import { HttpModule } from "../src/common/http/http.module.js";
+
+it("returns negotiated 429 and Retry-After through the actual HTTP filter", async () => {
+  @Controller("rate-probe") class Probe { @Get() read() { return { ok: true }; } }
+  const module = await Test.createTestingModule({
+    imports: [HttpModule], controllers: [Probe],
+    providers: [RequestRateLimiter, { provide: AppConfig, useValue: config }, { provide: APP_GUARD, useClass: IngressRateGuard }],
+  }).compile();
+  const app = module.createNestApplication({ logger: false });
+  await app.listen(0, "127.0.0.1");
+  try {
+    await request(app.getHttpServer()).get("/rate-probe").set("x-forwarded-for", "203.0.113.1").expect(200);
+    const res = await request(app.getHttpServer()).get("/rate-probe").set("x-forwarded-for", "203.0.113.2").set("x-api-contract", "1").expect(429);
+    expect(res.body.error.code).toBe("rate_limited");
+    expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
+  } finally { await app.close(); }
+});

@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { ConflictException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { userFavorites } from "@trading-dashboard/shared/database";
@@ -27,6 +28,7 @@ export class FavoritesService {
   private readonly logger = new Logger(FavoritesService.name);
 
   constructor(
+    private readonly config: AppConfig,
     private readonly repository: FavoritesRepository,
     private readonly uow: UnitOfWork,
     private readonly backfill: BackfillService,
@@ -99,7 +101,13 @@ export class FavoritesService {
 
   /** Idempotent. `address` must already be validated and lowercased. */
   async add(userId: number, address: string): Promise<Favorite> {
-    const createdLeader = await this.uow.run((tx) => this.repository.addAndWatch(tx, userId, address));
+    const createdLeader = await this.uow.run(async (tx) => {
+      await this.repository.lockUser(tx, userId);
+      if (!await this.repository.findOwned(tx, userId, address) && await this.repository.countOwned(tx, userId) >= this.config.value.limits.favoritesPerUser) {
+        throw new ConflictException({ statusCode: 409, code: "favorite_limit", limit: this.config.value.limits.favoritesPerUser, message: "Favorite trader limit reached" });
+      }
+      return this.repository.addAndWatch(tx, userId, address);
+    });
 
     this.events?.emit(FAVORITES_CHANGED_EVENT, { userId } satisfies FavoritesChangedEvent);
     if (createdLeader) {

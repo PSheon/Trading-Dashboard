@@ -27,6 +27,7 @@ async function bootstrap() {
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   app.enableShutdownHooks(['SIGTERM', 'SIGINT']);
+  app.getHttpAdapter().getInstance().set("trust proxy", config.app.trustedProxyCidrs.length ? config.app.trustedProxyCidrs : false);
   app.use(requestContext(jobs));
   // ids, tids and fill_ids are Postgres bigints (JS BigInt), which
   // JSON.stringify rejects; send them as strings (the shared contracts

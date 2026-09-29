@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { createPublicKey } from "node:crypto";
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
 
@@ -27,7 +28,15 @@ export function validateEnvironment(source: Environment = process.env) {
   const nodeEnv = source.NODE_ENV ?? "development";
   if (!["development", "test", "staging", "production"].includes(nodeEnv)) throw new Error("NODE_ENV is invalid");
   const production = nodeEnv === "production" || nodeEnv === "staging";
-  const app = { nodeEnv, port: integerValue("PORT", source.PORT, 3000, 1, 65535) };
+  const trustedProxyCidrs = (source.API_TRUSTED_PROXY_CIDRS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  for (const cidr of trustedProxyCidrs) {
+    const [address, mask, extra] = cidr.split("/");
+    const version = isIP(address!);
+    if (!version || extra !== undefined || (mask !== undefined && (!/^\d+$/.test(mask) || Number(mask) < 1 || Number(mask) > (version === 4 ? 32 : 128)))) {
+      throw new Error("API_TRUSTED_PROXY_CIDRS must contain explicit IP addresses or non-universal CIDRs");
+    }
+  }
+  const app = { nodeEnv, trustedProxyCidrs, port: integerValue("PORT", source.PORT, 3000, 1, 65535) };
   const database = { url: databaseUrl(source.DATABASE_URL) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
   const permissions = servicePermissions(source.AUTH_SERVICE_PERMISSIONS);
@@ -68,6 +77,13 @@ export function validateEnvironment(source: Environment = process.env) {
     trustedProxyHops: integerValue("STREAM_TRUSTED_PROXY_HOPS", source.STREAM_TRUSTED_PROXY_HOPS, 0, 0, 10),
   };
   if (stream.maxPerIp > stream.maxTotal) throw new Error("STREAM_MAX_PER_IP must not exceed STREAM_MAX_TOTAL");
-  return { app, database, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream };
+  const limits = {
+    ingressPerMinute: integerValue("API_INGRESS_PER_MINUTE", source.API_INGRESS_PER_MINUTE, 3000, 1, 1000000),
+    readPerMinute: integerValue("API_READ_PER_MINUTE", source.API_READ_PER_MINUTE, 300, 1, 1000000),
+    writePerMinute: integerValue("API_WRITE_PER_MINUTE", source.API_WRITE_PER_MINUTE, 60, 1, 1000000),
+    expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
+    favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
+  };
+  return { app, database, limits, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

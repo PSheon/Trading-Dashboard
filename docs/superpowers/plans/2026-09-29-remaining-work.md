@@ -75,3 +75,11 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 - Test fixtures explicitly inject a mutable double for historical tests that alter env within a case; production has no optional env fallback. Added mutation isolation and real-client snapshot regression tests. Initial new-config test failed before implementation; parser/config tests now 38/38. Actual compiled application resolves the new dependencies, returns readiness 200 on the isolated DB and exits promptly on SIGTERM.
 
 - Task 24 verification: 41 API test files / 466 tests passed; API typecheck, lint and production build passed. No frontend contract changes. Initial full run caught one obsolete direct pool-factory test, which now tests validation before construction; targeted and full reruns pass.
+
+## Batch 7 security — in progress
+
+- Task 25: pre-auth IP and verified-caller/category request limits, bounded active bucket memory, 429/Retry-After, explicit proxy IP/CIDR trust and per-user monitored-favorite quota with transactional row locking. Per-minute defaults and restart/multi-replica/anonymous-proxy limitations are documented in rate-limits.md.
+- Ruling: default to no forwarded-IP trust instead of copying DonutMe's numeric Fastify proxy hops. Deployment topology is not verified; cost is a shared anonymous allowance behind the current Next forwarder. Account quotas do not claim a global cap across users or privileged imports. No live proxy policy was changed.
+- Targeted limiter/real-DB favorites tests: 25 passed, including simultaneous last-slot additions, idempotent retries and no rejected backfill. Added actual HTTP envelope/Retry-After probe and strict environment regressions before the full gate.
+
+- Task 25 full gate: 42 API files / 477 tests passed; API typecheck/build/lint passed. Real HTTP probe verifies forged forwarded IP cannot bypass the default limiter and v1 429 retains Retry-After.

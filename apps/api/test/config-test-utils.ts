@@ -5,7 +5,8 @@ import { env, getIntEnv } from "../src/config/env.js";
  * double; production always uses AppConfig's frozen validated snapshot. */
 export function testConfig(): AppConfig {
   return { get value() { return {
-    app: { nodeEnv: process.env.NODE_ENV ?? "test", port: 3000 },
+    limits: { ingressPerMinute: 100000, readPerMinute: 100000, writePerMinute: 100000, expensivePerMinute: 100000, favoritesPerUser: getIntEnv("MAX_FAVORITES_PER_USER", 100, 1, 10000) },
+    app: { trustedProxyCidrs: [], nodeEnv: process.env.NODE_ENV ?? "test", port: 3000 },
     database: { url: "postgres://unused@localhost/unused_test" },
     auth: { serviceToken: env.serviceToken(), permissions: env.servicePermissions(), adminEmails: env.adminEmails(), appId: env.privyAppId(), appSecret: env.privyAppSecret(), verificationKey: env.privyVerificationKey() },
     telegram: { botToken: env.telegramBotToken(), botUsername: env.telegramBotUsername(), systemChatId: env.telegramSystemChatId(), dryRun: env.telegramDryRun(), polling: env.telegramBotPolling(), linkBaseUrl: env.telegramLinkBaseUrl() },

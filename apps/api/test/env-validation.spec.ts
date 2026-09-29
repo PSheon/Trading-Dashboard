@@ -29,6 +29,8 @@ describe("startup environment", () => {
     expect(result.auth.permissions).toEqual([]);
   });
   it.each([
+    ["API_READ_PER_MINUTE", "0"], ["MAX_FAVORITES_PER_USER", "1.5"],
+    ["API_TRUSTED_PROXY_CIDRS", "true"], ["API_TRUSTED_PROXY_CIDRS", "0.0.0.0/0"], ["API_TRUSTED_PROXY_CIDRS", "::/129"],
     ["DATABASE_URL", ""], ["DATABASE_URL", "https://example.com/db"],
     ["PORT", "0"], ["PORT", "65536"], ["PORT", "3000oops"],
     ["NODE_ENV", "prodution"], ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "0"],

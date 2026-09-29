@@ -77,6 +77,23 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   const alice = as("alice-token");
   const bob = as("bob-token");
 
+  it("serializes favorite quota checks, preserves idempotency and rejects before backfill", async () => {
+    vi.stubEnv("MAX_FAVORITES_PER_USER", "1");
+    try {
+      await alice.get("/me").expect(200);
+      const responses = await Promise.all([alice.put(`/me/favorites/${ADDR}`), alice.put(`/me/favorites/${OTHER}`)]);
+      expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect(responses.find((r) => r.status === 409)?.body.code).toBe("favorite_limit");
+      const winner = responses.find((r) => r.status === 200)!.body.address;
+      await alice.put(`/me/favorites/${winner}`).expect(200);
+      expect(await db.select().from(userFavorites)).toHaveLength(1);
+      expect(await db.select().from(leaders)).toHaveLength(1);
+      expect(backfill.trigger).toHaveBeenCalledTimes(1);
+      await alice.delete(`/me/favorites/${winner}`).expect(204);
+      await alice.put(`/me/favorites/${winner === ADDR ? OTHER : ADDR}`).expect(200);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it("serves validated v1 profile and favorite DTOs with string timestamps", async () => {
     const me = await alice.get("/me").set("x-api-contract", "1").expect(200);
     expect(typeof me.body.data.createdAt).toBe("string");

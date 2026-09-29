@@ -24,6 +24,10 @@ export class FavoritesRepository {
       eq(notificationChannels.userId, userId), eq(notificationChannels.kind, "telegram"), eq(notificationChannels.enabled, true)));
     return Boolean(row);
   }
+  async countOwned(tx: DbTransaction, userId: number) {
+    const [{ n }] = await tx.select({ n: count() }).from(userFavorites).where(eq(userFavorites.userId, userId));
+    return n;
+  }
   async countAlerts(tx: DbTransaction, userId: number) {
     const [{ n }] = await tx.select({ n: count() }).from(userFavorites).where(and(eq(userFavorites.userId, userId), eq(userFavorites.alertEnabled, true)));
     return n;

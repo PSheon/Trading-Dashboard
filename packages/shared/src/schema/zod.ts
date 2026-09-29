@@ -66,6 +66,7 @@ export const leaderSchema = z.object({
   tier: tierSchema,
   notes: z.string().nullable().optional(),
   active: z.boolean(),
+  source: z.enum(["import", "favorite"]).default("import"),
   firstSeenAt: z.coerce.date(),
 });
 export type Leader = z.infer<typeof leaderSchema>;
@@ -104,6 +105,8 @@ export type Action = z.infer<typeof actionSchema>;
 
 export const alertRuleSchema = z.object({
   id: z.number().int(),
+  /** Owner; null for the defaults copied to each new user. */
+  userId: z.number().int().nullable().optional(),
   scope: alertRuleScopeSchema,
   kind: alertRuleKindSchema,
   paramsJson: z.record(z.string(), z.unknown()),
@@ -117,6 +120,7 @@ export type AlertRule = z.infer<typeof alertRuleSchema>;
 export const alertSchema = z.object({
   id: z.union([z.bigint(), z.string(), z.number()]),
   ruleId: z.number().int(),
+  userId: z.number().int().nullable().optional(),
   chain: chainSchema,
   address: z.string().nullable().optional(),
   coin: z.string().nullable().optional(),
@@ -194,6 +198,9 @@ export type PatchLeaderRequest = z.infer<typeof patchLeaderRequestSchema>;
 
 /** GET /actions (Live Feed) — D1 */
 export const actionsFeedQuerySchema = z.object({
+  /** `favorites`: only addresses the signed-in user favorited. */
+  scope: z.enum(["all", "favorites"]).default("all"),
+  address: z.string().optional(),
   coin: z.string().optional(),
   kind: actionKindSchema.optional(),
   tier: tierSchema.optional(),
@@ -333,3 +340,196 @@ export const heartbeatResponseSchema = z.object({
   now: z.coerce.date(),
 });
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
+
+// ===========================================================================
+// Stage 2 — users (Privy), favorites, notification channels, discovery
+// See docs/Stage 2 — 跟單平台前置（探索、Privy、UI 重做）.md
+// ===========================================================================
+
+export const userRoleSchema = z.enum(["user", "admin"]);
+export const localeSchema = z.enum(["zh-TW", "en"]);
+export type LocaleInput = z.infer<typeof localeSchema>;
+
+/** GET /me */
+export const meResponseSchema = z.object({
+  id: z.number().int(),
+  privyUserId: z.string(),
+  email: z.string().nullable(),
+  walletAddress: z.string().nullable(),
+  displayName: z.string().nullable(),
+  role: userRoleSchema,
+  locale: localeSchema,
+  createdAt: z.coerce.date(),
+});
+export type MeResponse = z.infer<typeof meResponseSchema>;
+
+/** PATCH /me */
+export const patchMeRequestSchema = z.object({
+  locale: localeSchema.optional(),
+  displayName: z.string().max(64).nullable().optional(),
+});
+export type PatchMeRequest = z.infer<typeof patchMeRequestSchema>;
+
+/** Hyperliquid address, normalized to lowercase by the api. */
+export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+
+// --- discovery -------------------------------------------------------------
+
+export const traderWindowSchema = z.enum(["day", "week", "month", "allTime"]);
+export type TraderWindowInput = z.infer<typeof traderWindowSchema>;
+
+/** One row of `trader_stats` (official leaderboard), numbers as JS numbers. */
+export const traderStatsSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  accountValue: z.number(),
+  pnl: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
+  roi: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
+  volume: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
+  updatedAt: z.coerce.date(),
+});
+export type TraderStats = z.infer<typeof traderStatsSchema>;
+
+/** GET /traders — the discovery table. Public. */
+export const tradersQuerySchema = z.object({
+  window: traderWindowSchema.default("month"),
+  sort: z.enum(["pnl", "roi", "volume", "accountValue"]).default("pnl"),
+  order: z.enum(["asc", "desc"]).default("desc"),
+  /** Address prefix or display-name substring. */
+  q: z.string().max(64).optional(),
+  minAccountValue: z.coerce.number().min(0).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type TradersQuery = z.infer<typeof tradersQuerySchema>;
+
+export const tradersResponseSchema = z.object({
+  total: z.number().int(),
+  /** When the leaderboard was last imported. */
+  updatedAt: z.coerce.date().nullable(),
+  items: z.array(traderStatsSchema.extend({ favorite: z.boolean() })),
+});
+export type TradersResponse = z.infer<typeof tradersResponseSchema>;
+
+/** Current position across all dexes (live `clearinghouseState`). */
+export const livePositionSchema = z.object({
+  coin: z.string(),
+  szi: z.number(),
+  side: z.enum(["long", "short"]),
+  entryPx: z.number().nullable(),
+  positionValue: z.number(),
+  unrealizedPnl: z.number(),
+  leverage: z.number().nullable(),
+  marginMode: z.string().nullable(),
+  liqPx: z.number().nullable(),
+});
+export type LivePosition = z.infer<typeof livePositionSchema>;
+
+/** GET /traders/:address — the trader page's left column and header. Public;
+ * `favorite` is false when signed out. */
+export const traderProfileResponseSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  stats: traderStatsSchema.nullable(),
+  accountValue: z.number(),
+  marginUsed: z.number(),
+  withdrawable: z.number(),
+  longNotional: z.number(),
+  shortNotional: z.number(),
+  positions: z.array(livePositionSchema),
+  /** Watched by the live pipeline (imported or someone's favorite). */
+  tracked: z.boolean(),
+  favorite: z.boolean(),
+  /** From this system's own records; null when not tracked. */
+  analytics: z
+    .object({
+      winRate30d: z.number().nullable(),
+      roundTrips30d: z.number().int(),
+      realizedPnl30d: z.number(),
+      avgHoldSeconds: z.number().nullable(),
+      bestCoins: z.array(z.object({ coin: z.string(), pnl: z.number() })),
+      worstCoins: z.array(z.object({ coin: z.string(), pnl: z.number() })),
+    })
+    .nullable(),
+  fetchedAt: z.coerce.date(),
+});
+export type TraderProfileResponse = z.infer<typeof traderProfileResponseSchema>;
+
+/** GET /traders/:address/portfolio?window=&market= — PnL and account value
+ * history from Hyperliquid's `portfolio`. Points are [epoch ms, value]. */
+export const portfolioQuerySchema = z.object({
+  window: traderWindowSchema.default("month"),
+  market: z.enum(["all", "perp"]).default("perp"),
+});
+export type PortfolioQuery = z.infer<typeof portfolioQuerySchema>;
+
+export const seriesPointSchema = z.tuple([z.number(), z.number()]);
+export const portfolioResponseSchema = z.object({
+  window: traderWindowSchema,
+  market: z.enum(["all", "perp"]),
+  accountValue: z.array(seriesPointSchema),
+  pnl: z.array(seriesPointSchema),
+  volume: z.number(),
+});
+export type PortfolioResponse = z.infer<typeof portfolioResponseSchema>;
+
+/** GET /traders/sparklines?addresses=a,b,c&window= — small PnL series for
+ * trader cards, one request for a whole row of cards. */
+export const sparklinesQuerySchema = z.object({
+  addresses: z
+    .string()
+    .transform((v) => v.split(",").filter(Boolean))
+    .pipe(z.array(z.string()).max(30)),
+  window: traderWindowSchema.default("month"),
+});
+export const sparklinesResponseSchema = z.record(z.string(), z.array(seriesPointSchema));
+export type SparklinesResponse = z.infer<typeof sparklinesResponseSchema>;
+
+/** GET /traders/:address/fills?limit= — recent perp fills (ours when
+ * tracked, else Hyperliquid's latest). */
+export const traderFillSchema = z.object({
+  tid: z.string(),
+  coin: z.string(),
+  side: z.enum(["buy", "sell"]),
+  dir: z.string(),
+  px: z.number(),
+  sz: z.number(),
+  notionalUsd: z.number(),
+  closedPnl: z.number().nullable(),
+  fee: z.number().nullable(),
+  ts: z.coerce.date(),
+});
+export type TraderFill = z.infer<typeof traderFillSchema>;
+
+// --- favorites (signed in) --------------------------------------------------
+
+/** GET /me/favorites; PUT and DELETE /me/favorites/:address */
+export const favoriteSchema = z.object({
+  address: z.string(),
+  createdAt: z.coerce.date(),
+  stats: traderStatsSchema.nullable(),
+});
+export type Favorite = z.infer<typeof favoriteSchema>;
+
+// --- notifications (signed in) ----------------------------------------------
+
+/** GET /me/notification-channels; PUT /me/notification-channels/telegram */
+export const notificationChannelSchema = z.object({
+  kind: z.literal("telegram"),
+  target: z.string(),
+  enabled: z.boolean(),
+});
+export type NotificationChannel = z.infer<typeof notificationChannelSchema>;
+
+export const putTelegramChannelRequestSchema = z.object({
+  /** Telegram chat id: digits, optionally negative (groups). */
+  target: z.string().regex(/^-?\d{1,20}$/),
+  enabled: z.boolean().default(true),
+});
+export type PutTelegramChannelRequest = z.infer<typeof putTelegramChannelRequestSchema>;
+
+// --- copy trading (panel only in Stage 2; nothing is executed) ------------
+
+export const copyDirectionSchema = z.enum(["follow", "reverse"]);
+export type CopyDirection = z.infer<typeof copyDirectionSchema>;
+

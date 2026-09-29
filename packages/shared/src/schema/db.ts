@@ -27,7 +27,9 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /** All core tables are chain-scoped; v1 only ever writes 'hyperliquid'. */
 export const CHAIN_DEFAULT = "hyperliquid" as const;
@@ -64,6 +66,8 @@ export const leaderListItems = pgTable(
 // leaders — 地址池主檔
 // ---------------------------------------------------------------------------
 export const tierEnum = ["A", "B", "C"] as const;
+export const leaderSourceEnum = ["import", "favorite"] as const;
+export type LeaderSource = (typeof leaderSourceEnum)[number];
 export type Tier = (typeof tierEnum)[number];
 
 export const leaders = pgTable(
@@ -75,6 +79,8 @@ export const leaders = pgTable(
     tier: text("tier").$type<Tier>().notNull().default("B"),
     notes: text("notes"),
     active: boolean("active").notNull().default(true),
+    /** Why it is watched: imported by an admin, or favorited by a user. */
+    source: text("source").$type<LeaderSource>().notNull().default("import"),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -228,18 +234,26 @@ export const alertRuleKindEnum = [
 ] as const;
 export type AlertRuleKind = (typeof alertRuleKindEnum)[number];
 
-export const alertRules = pgTable("alert_rules", {
-  id: serial("id").primaryKey(),
-  scope: text("scope").$type<AlertRuleScope>().notNull(),
-  // Unique: each rule kind (R1-R9) has exactly one global config row — the
-  // M2 seed relies on this for idempotent upserts (see rules-seed.service.ts).
-  kind: text("kind").$type<AlertRuleKind>().notNull().unique(),
-  paramsJson: jsonb("params_json").$type<Record<string, unknown>>().notNull(),
-  cooldownS: integer("cooldown_s").notNull(),
-  quietHours: jsonb("quiet_hours").$type<Record<string, unknown> | null>(),
-  tiers: text("tiers").array().$type<Tier[]>().notNull(),
-  enabled: boolean("enabled").notNull().default(true),
-});
+export const alertRules = pgTable(
+  "alert_rules",
+  {
+    id: serial("id").primaryKey(),
+    /** Owner. NULL rows are the defaults copied to each new user. */
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
+    scope: text("scope").$type<AlertRuleScope>().notNull(),
+    kind: text("kind").$type<AlertRuleKind>().notNull(),
+    paramsJson: jsonb("params_json").$type<Record<string, unknown>>().notNull(),
+    cooldownS: integer("cooldown_s").notNull(),
+    quietHours: jsonb("quiet_hours").$type<Record<string, unknown> | null>(),
+    tiers: text("tiers").array().$type<Tier[]>().notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+  },
+  // One row per (user, kind), and one default row per kind.
+  (table) => [
+    uniqueIndex("alert_rules_user_kind_uq").on(table.userId, table.kind),
+    uniqueIndex("alert_rules_default_kind_uq").on(table.kind).where(sql`${table.userId} is null`),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // alerts — 日誌與評分
@@ -254,6 +268,8 @@ export const alerts = pgTable(
     ruleId: integer("rule_id")
       .notNull()
       .references(() => alertRules.id, { onDelete: "restrict" }),
+    /** Recipient; NULL for system messages and alerts from before users. */
+    userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
     chain: text("chain").notNull().default(CHAIN_DEFAULT),
     address: text("address"),
     coin: text("coin"),
@@ -271,3 +287,98 @@ export const alerts = pgTable(
   },
   (table) => [index("alerts_sent_at_idx").on(table.sentAt.desc())],
 );
+
+// ---------------------------------------------------------------------------
+// users — one row per Privy account (Stage 2)
+// ---------------------------------------------------------------------------
+export const userRoleEnum = ["user", "admin"] as const;
+export type UserRole = (typeof userRoleEnum)[number];
+export const localeEnum = ["zh-TW", "en"] as const;
+export type Locale = (typeof localeEnum)[number];
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  /** Privy DID, e.g. "did:privy:…". */
+  privyUserId: text("privy_user_id").notNull().unique(),
+  email: text("email"),
+  walletAddress: text("wallet_address"),
+  displayName: text("display_name"),
+  role: text("role").$type<UserRole>().notNull().default("user"),
+  locale: text("locale").$type<Locale>().notNull().default("zh-TW"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// user_favorites — 收藏；收藏的地址也會進入監控清單（leaders.source='favorite'）
+// ---------------------------------------------------------------------------
+export const userFavorites = pgTable(
+  "user_favorites",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.chain, table.address] })],
+);
+
+// ---------------------------------------------------------------------------
+// notification_channels — 每位使用者自己的通知目的地
+// ---------------------------------------------------------------------------
+export const notificationChannelKindEnum = ["telegram"] as const;
+export type NotificationChannelKind = (typeof notificationChannelKindEnum)[number];
+
+export const notificationChannels = pgTable(
+  "notification_channels",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<NotificationChannelKind>().notNull(),
+    /** Telegram chat id. */
+    target: text("target").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("notification_channels_user_kind_uq").on(table.userId, table.kind)],
+);
+
+// ---------------------------------------------------------------------------
+// trader_stats — 全站排行（官方 leaderboard 定期匯入），探索頁的資料來源
+// ---------------------------------------------------------------------------
+export const traderWindowEnum = ["day", "week", "month", "allTime"] as const;
+export type TraderWindow = (typeof traderWindowEnum)[number];
+
+export const traderStats = pgTable(
+  "trader_stats",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    displayName: text("display_name"),
+    accountValue: numeric("account_value").notNull(),
+    pnlDay: numeric("pnl_day").notNull(),
+    pnlWeek: numeric("pnl_week").notNull(),
+    pnlMonth: numeric("pnl_month").notNull(),
+    pnlAllTime: numeric("pnl_all_time").notNull(),
+    roiDay: numeric("roi_day").notNull(),
+    roiWeek: numeric("roi_week").notNull(),
+    roiMonth: numeric("roi_month").notNull(),
+    roiAllTime: numeric("roi_all_time").notNull(),
+    volumeDay: numeric("volume_day").notNull(),
+    volumeWeek: numeric("volume_week").notNull(),
+    volumeMonth: numeric("volume_month").notNull(),
+    volumeAllTime: numeric("volume_all_time").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.chain, table.address] }),
+    index("trader_stats_pnl_month_idx").on(table.pnlMonth.desc()),
+    index("trader_stats_pnl_all_time_idx").on(table.pnlAllTime.desc()),
+    index("trader_stats_account_value_idx").on(table.accountValue.desc()),
+  ],
+);
+

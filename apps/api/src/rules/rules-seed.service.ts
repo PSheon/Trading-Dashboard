@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { sql } from "drizzle-orm";
 import { alertRules, type AlertRuleKind, type Tier } from "@trading-dashboard/shared";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -46,8 +47,8 @@ const DEFAULT_RULES: SeedRow[] = [
  * Idempotent one-time seed for the M2 default rules. Runs on app bootstrap
  * (skipped under `NODE_ENV=test`, same pattern as `WatcherService` — tests
  * call `seedDefaultRules()` directly against a controlled db instance).
- * Idempotency relies on `alert_rules.kind` being UNIQUE (see
- * packages/shared/src/schema/db.ts) — `onConflictDoNothing` means re-running
+ * Idempotency relies on the partial unique index on `alert_rules.kind` where
+ * `user_id` is null (see packages/shared/src/schema/db.ts) — `onConflictDoNothing` means re-running
  * this on every restart never duplicates rows, and never clobbers params
  * Paul has since edited via D5.
  */
@@ -77,7 +78,9 @@ export class RulesSeedService implements OnApplicationBootstrap {
     const inserted = await this.db
       .insert(alertRules)
       .values(DEFAULT_RULES)
-      .onConflictDoNothing({ target: alertRules.kind })
+      // Default rows are the ones with no owner; their uniqueness is a
+      // partial index, so the conflict target repeats its predicate.
+      .onConflictDoNothing({ target: alertRules.kind, where: sql`${alertRules.userId} is null` })
       .returning({ kind: alertRules.kind });
 
     if (inserted.length > 0) {

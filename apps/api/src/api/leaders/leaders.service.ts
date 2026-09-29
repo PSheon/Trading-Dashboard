@@ -24,6 +24,7 @@ import {
 } from "@trading-dashboard/shared";
 
 import { RoundTripService } from "../../analytics/round-trip.service.js";
+import type { AlertsScope } from "../alerts/alerts.service.js";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 
@@ -132,7 +133,12 @@ export class LeadersService {
 
   /** D3: current positions, fill history, self-stored equity curve, coin
    * distribution, and this address's alert history. */
-  async findDetail(chain: string, address: string, equityInterval: EquityInterval): Promise<LeaderDetailResponse> {
+  async findDetail(
+    chain: string,
+    address: string,
+    equityInterval: EquityInterval,
+    alertsScope: AlertsScope = "all",
+  ): Promise<LeaderDetailResponse> {
     const [leader] = await this.db
       .select()
       .from(leaders)
@@ -147,7 +153,7 @@ export class LeadersService {
       this.currentPositions(chain, address),
       this.fillsHistory(chain, address),
       this.equityCurve(chain, address, equityInterval),
-      this.alertsHistory(address),
+      this.alertsHistory(address, alertsScope),
       this.roundTrip.winRate(address, undefined, new Date(Date.now() - 30 * DAY_MS)),
     ]);
 
@@ -237,11 +243,16 @@ export class LeadersService {
     return [...byHour.values()].sort((a, b) => a.ts.getTime() - b.ts.getTime());
   }
 
-  private async alertsHistory(address: string): Promise<AlertEntry[]> {
+  private async alertsHistory(address: string, scope: AlertsScope): Promise<AlertEntry[]> {
+    if (scope === "none") return [];
     const rows = await this.db
       .select()
       .from(alertsTable)
-      .where(eq(alertsTable.address, address))
+      .where(
+        scope === "all"
+          ? eq(alertsTable.address, address)
+          : and(eq(alertsTable.address, address), eq(alertsTable.userId, scope.userId)),
+      )
       .orderBy(desc(alertsTable.sentAt))
       .limit(ALERTS_HISTORY_LIMIT);
     return rows as unknown as AlertEntry[];

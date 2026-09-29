@@ -4,6 +4,7 @@ import { EventEmitterModule } from "@nestjs/event-emitter";
 
 import { ApiModule } from "./api/api.module.js";
 import { AuthGuard } from "./common/auth/auth.guard.js";
+import { AuthModule } from "./common/auth/auth.module.js";
 import { DbModule } from "./db/db.module.js";
 import { ImportModule } from "./import/import.module.js";
 import { InsightsModule } from "./insights/insights.module.js";
@@ -12,6 +13,7 @@ import { RulesModule } from "./rules/rules.module.js";
 import { SchedulerModule } from "./scheduler/scheduler.module.js";
 import { SettingsModule } from "./settings/settings.module.js";
 import { TradersModule } from "./traders/traders.module.js";
+import { UsersModule } from "./users/users.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
 
 @Module({
@@ -22,19 +24,23 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     EventEmitterModule.forRoot(),
     DbModule,
     SettingsModule,
+    AuthModule,
     ApiModule,
     ImportModule,
     WatcherModule,
     SchedulerModule,
     RulesModule,
     NotifyModule,
+    UsersModule,
     TradersModule,
     InsightsModule,
   ],
   providers: [
+    // Resolves the caller (service token or Privy) on every request and
+    // enforces @Public() / @Roles(); see common/auth/auth.guard.ts.
     {
       provide: APP_GUARD,
-      useClass: AuthGuard,
+      useExisting: AuthGuard,
     },
   ],
 })

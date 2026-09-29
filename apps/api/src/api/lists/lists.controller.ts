@@ -5,8 +5,10 @@ import type {
   ListDiffResponse,
 } from "@trading-dashboard/shared";
 
+import { Roles } from "../../common/auth/current-user.js";
 import { ListsService } from "./lists.service.js";
 
+@Roles("admin")
 @Controller("lists")
 export class ListsController {
   constructor(private readonly listsService: ListsService) {}

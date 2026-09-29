@@ -1,5 +1,5 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { asc, eq } from "drizzle-orm";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
   alertRules,
   type AlertRule,
@@ -9,15 +9,20 @@ import {
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 
-/** D5 rule editor: list + enable/disable + inline edit of params/cooldown/
- * tiers for R1–R3 (R4–R9 will appear here automatically once seeded in a
- * later milestone — this is generic over `kind`). */
+/** D5 rule editor for the DEFAULT rules (`user_id IS NULL`): the template
+ * copied to each new user at first sign-in. Editing a default doesn't
+ * change existing users' copies. Users' own rules are never listed or
+ * edited here (see users/user-alert-rules.service.ts). */
 @Injectable()
 export class AlertRulesService {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
   async findAll(): Promise<AlertRule[]> {
-    const rows = await this.db.select().from(alertRules).orderBy(asc(alertRules.kind));
+    const rows = await this.db
+      .select()
+      .from(alertRules)
+      .where(isNull(alertRules.userId))
+      .orderBy(asc(alertRules.kind));
     return rows as unknown as AlertRule[];
   }
 
@@ -34,11 +39,11 @@ export class AlertRulesService {
           tiers: request.tiers,
           enabled: request.enabled ?? true,
         })
-        .where(eq(alertRules.id, request.id))
+        .where(and(eq(alertRules.id, request.id), isNull(alertRules.userId)))
         .returning();
 
       if (!updated) {
-        throw new NotFoundException(`No alert rule ${request.id}`);
+        throw new NotFoundException(`No default alert rule ${request.id}`);
       }
       return updated as unknown as AlertRule;
     }
@@ -54,8 +59,12 @@ export class AlertRulesService {
         tiers: request.tiers,
         enabled: request.enabled ?? true,
       })
+      .onConflictDoNothing({ target: alertRules.kind, where: sql`${alertRules.userId} is null` })
       .returning();
 
+    if (!inserted) {
+      throw new ConflictException(`A default ${request.kind} rule already exists; update it by id`);
+    }
     return inserted as unknown as AlertRule;
   }
 }

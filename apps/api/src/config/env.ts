@@ -32,6 +32,18 @@ export function getIntEnv(key: string, defaultValue: number): number {
 export const env = {
   databaseUrl: () => getEnv("DATABASE_URL"),
   apiAuthToken: () => getEnv("API_AUTH_TOKEN"),
+  /** Privy sign-in. Both unset → Privy tokens are rejected (fail closed). */
+  privyAppId: () => getEnv("PRIVY_APP_ID") || undefined,
+  privyAppSecret: () => getEnv("PRIVY_APP_SECRET") || undefined,
+  /** Optional: the app's verification key (PEM/SPKI) from the Privy
+   * dashboard; verifies tokens locally instead of fetching the JWKS. */
+  privyVerificationKey: () => getEnv("PRIVY_VERIFICATION_KEY")?.replace(/\\n/g, "\n") || undefined,
+  /** Comma-separated emails that become admins on their first sign-in. */
+  bootstrapAdminEmails: (): string[] =>
+    (getEnv("BOOTSTRAP_ADMIN_EMAILS") ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
   telegramBotToken: () => getEnv("TELEGRAM_BOT_TOKEN"),
   telegramChatIdRealtime: () => getEnv("TELEGRAM_CHAT_ID_REALTIME"),
   telegramChatIdGroup: () => getEnv("TELEGRAM_CHAT_ID_GROUP"),

@@ -3,7 +3,8 @@ import { SetMetadata } from "@nestjs/common";
 export const IS_PUBLIC_KEY = "isPublic";
 
 /**
- * Marks a route as exempt from the global bearer-token guard.
- * Used on the `/health` route per §8 (auth applies everywhere else).
+ * Open to anonymous callers (market data, health). A valid token still
+ * attaches the caller, so `@CurrentUser()` works for personalisation; an
+ * invalid one is ignored.
  */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);

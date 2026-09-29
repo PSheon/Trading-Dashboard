@@ -370,6 +370,10 @@ export const patchMeRequestSchema = z.object({
 });
 export type PatchMeRequest = z.infer<typeof patchMeRequestSchema>;
 
+/** Query-string boolean: only the literals "true" and "false" (z.coerce.boolean
+ * would turn "false" into true). */
+export const booleanQuerySchema = z.enum(["true", "false"]).transform((v) => v === "true");
+
 /** Hyperliquid address, normalized to lowercase by the api. */
 export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 
@@ -386,6 +390,8 @@ export const traderStatsSchema = z.object({
   pnl: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
   roi: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
   volume: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
+  /** A Hyperliquid vault: account value is TVL, not one trader's equity. */
+  isVault: z.boolean(),
   updatedAt: z.coerce.date(),
 });
 export type TraderStats = z.infer<typeof traderStatsSchema>;
@@ -398,6 +404,8 @@ export const tradersQuerySchema = z.object({
   /** Address prefix or display-name substring. */
   q: z.string().max(64).optional(),
   minAccountValue: z.coerce.number().min(0).optional(),
+  /** "true" / "false"; omitted → the admin's `discovery.hideVaults` setting. */
+  hideVaults: booleanQuerySchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -439,6 +447,16 @@ export const traderProfileResponseSchema = z.object({
   positions: z.array(livePositionSchema),
   /** Watched by the live pipeline (imported or someone's favorite). */
   tracked: z.boolean(),
+  isVault: z.boolean(),
+  /** Sample size, so a 3-trade 300% ROI doesn't look like a 300-trade one
+   * (競品分析 §3.2). Tracked: our fills; untracked: Hyperliquid's latest
+   * `userFills` (at most 2,000, so `capped` means "at least"). */
+  sample: z.object({
+    fills30d: z.number().int(),
+    capped: z.boolean(),
+    /** fills30d below the admin's `discovery.lowSampleThreshold`. */
+    lowSample: z.boolean(),
+  }),
   favorite: z.boolean(),
   /** From this system's own records; null when not tracked. */
   analytics: z
@@ -470,6 +488,13 @@ export const portfolioResponseSchema = z.object({
   accountValue: z.array(seriesPointSchema),
   pnl: z.array(seriesPointSchema),
   volume: z.number(),
+  /** Largest peak-to-trough fall of the window's cumulative PnL (USD, ≥ 0). */
+  maxDrawdownUsd: z.number(),
+  /** maxDrawdownUsd ÷ account value at the peak; null when that is ≤ 0. */
+  maxDrawdownPct: z.number().nullable(),
+  /** Mean ÷ stdev of per-point returns (PnL change ÷ prior account value),
+   * annualized by the series' sampling interval; null with < 5 points. */
+  sharpe: z.number().nullable(),
 });
 export type PortfolioResponse = z.infer<typeof portfolioResponseSchema>;
 
@@ -533,3 +558,194 @@ export type PutTelegramChannelRequest = z.infer<typeof putTelegramChannelRequest
 export const copyDirectionSchema = z.enum(["follow", "reverse"]);
 export type CopyDirection = z.infer<typeof copyDirectionSchema>;
 
+// --- insights: crowd view (競品分析 §3.4) -------------------------------------
+
+/** GET /insights/crowd — what the tracked traders hold, per coin. Public.
+ * From each tracked address's latest position snapshot. */
+export const crowdCoinSchema = z.object({
+  coin: z.string(),
+  longNotional: z.number(),
+  shortNotional: z.number(),
+  longTraders: z.number().int(),
+  shortTraders: z.number().int(),
+  /** (long − short) ÷ (long + short) notional, −1…1. */
+  netBias: z.number(),
+  /** Net notional (long − short) 24 h ago; null without a snapshot then. */
+  netNotional24hAgo: z.number().nullable(),
+});
+export type CrowdCoin = z.infer<typeof crowdCoinSchema>;
+
+export const crowdResponseSchema = z.object({
+  trackedTraders: z.number().int(),
+  coins: z.array(crowdCoinSchema),
+  updatedAt: z.coerce.date().nullable(),
+});
+export type CrowdResponse = z.infer<typeof crowdResponseSchema>;
+
+// --- site settings (admin) -------------------------------------------------------
+
+export const localizedTextSchema = z.object({
+  "zh-TW": z.string().max(280),
+  en: z.string().max(280),
+});
+
+/** One schema per `app_settings.key`; `.default()`s are the values before
+ * an admin saves anything. */
+export const generalSettingsSchema = z.object({
+  /** Banner across the top of every page. */
+  announcement: z
+    .object({ enabled: z.boolean(), text: localizedTextSchema })
+    .default({ enabled: false, text: { "zh-TW": "", en: "" } }),
+  /** New Privy users may sign up; existing users can always sign in. */
+  signupsOpen: z.boolean().default(true),
+  /** The copy panel's CTA; nothing is executed in Stage 2 regardless. */
+  copyTradingEnabled: z.boolean().default(false),
+});
+export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
+
+export const discoverySettingsSchema = z.object({
+  /** Trader cards on the home page, in order; empty → top by month PnL. */
+  featuredAddresses: z.array(addressSchema).max(12).default([]),
+  /** "Browse by market" chips on the home page. */
+  homeMarkets: z.array(z.string().min(1).max(24)).max(16).default(["BTC", "ETH", "SOL", "HYPE"]),
+  hideVaults: z.boolean().default(true),
+  /** Fewer 30-day fills than this → greyed out with a "low sample" tag. */
+  lowSampleThreshold: z.number().int().min(0).max(1000).default(20),
+  leaderboardRefreshMinutes: z.number().int().min(5).max(240).default(15),
+});
+export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
+
+export const notificationSettingsSchema = z.object({
+  /** Global kill switch for user alerts (system messages still go out). */
+  alertsEnabled: z.boolean().default(true),
+});
+export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
+
+export const revenueSettingsSchema = z.object({
+  /** The platform's Hyperliquid address: builder code and referrer. */
+  builderAddress: addressSchema.nullable().default(null),
+  /** Builder fee in tenths of a basis point (Hyperliquid's unit; perps max
+   * 100 = 0.1%). Charged on copy-trade orders once execution ships. */
+  builderFeeTenthsBps: z.number().int().min(0).max(100).default(0),
+  /** Hyperliquid referral code shown to new users. */
+  referralCode: z.string().regex(/^[A-Za-z0-9]{1,20}$/).nullable().default(null),
+});
+export type RevenueSettings = z.infer<typeof revenueSettingsSchema>;
+
+/** GET /admin/settings (admin) → every section; PATCH /admin/settings with
+ * any subset of sections, each section a partial that is merged, validated
+ * as a whole, and saved. */
+export const adminSettingsSchema = z.object({
+  general: generalSettingsSchema,
+  discovery: discoverySettingsSchema,
+  notifications: notificationSettingsSchema,
+  revenue: revenueSettingsSchema,
+});
+export type AdminSettings = z.infer<typeof adminSettingsSchema>;
+
+export const patchAdminSettingsRequestSchema = z.object({
+  general: generalSettingsSchema.partial().optional(),
+  discovery: discoverySettingsSchema.partial().optional(),
+  notifications: notificationSettingsSchema.partial().optional(),
+  revenue: revenueSettingsSchema.partial().optional(),
+});
+export type PatchAdminSettingsRequest = z.infer<typeof patchAdminSettingsRequestSchema>;
+
+/** GET /settings — the public subset the web needs before anyone signs in. */
+export const publicSettingsSchema = z.object({
+  announcement: generalSettingsSchema.shape.announcement,
+  signupsOpen: z.boolean(),
+  copyTradingEnabled: z.boolean(),
+  featuredAddresses: z.array(z.string()),
+  homeMarkets: z.array(z.string()),
+  hideVaults: z.boolean(),
+  lowSampleThreshold: z.number().int(),
+  referralCode: z.string().nullable(),
+});
+export type PublicSettings = z.infer<typeof publicSettingsSchema>;
+
+// --- users (admin) -----------------------------------------------------------
+
+/** GET /admin/users?q=&role=&limit=&offset= */
+export const adminUsersQuerySchema = z.object({
+  /** Email, wallet or display-name substring (case-insensitive). */
+  q: z.string().max(64).optional(),
+  role: userRoleSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type AdminUsersQuery = z.infer<typeof adminUsersQuerySchema>;
+
+export const adminUserSchema = z.object({
+  id: z.number().int(),
+  email: z.string().nullable(),
+  walletAddress: z.string().nullable(),
+  displayName: z.string().nullable(),
+  role: userRoleSchema,
+  locale: localeSchema,
+  favorites: z.number().int(),
+  telegramEnabled: z.boolean(),
+  disabled: z.boolean(),
+  createdAt: z.coerce.date(),
+  lastLoginAt: z.coerce.date(),
+});
+export type AdminUser = z.infer<typeof adminUserSchema>;
+
+export const adminUsersResponseSchema = z.object({
+  total: z.number().int(),
+  items: z.array(adminUserSchema),
+});
+export type AdminUsersResponse = z.infer<typeof adminUsersResponseSchema>;
+
+/** PATCH /admin/users/:id — an admin can't demote or disable themself. */
+export const patchAdminUserRequestSchema = z.object({
+  role: userRoleSchema.optional(),
+  disabled: z.boolean().optional(),
+});
+export type PatchAdminUserRequest = z.infer<typeof patchAdminUserRequestSchema>;
+
+// --- overview + revenue (admin) ------------------------------------------------
+
+/** GET /admin/overview — the admin home's KPI row. */
+export const adminOverviewSchema = z.object({
+  users: z.object({ total: z.number().int(), new7d: z.number().int(), active7d: z.number().int() }),
+  trackedTraders: z.object({
+    total: z.number().int(),
+    imported: z.number().int(),
+    favorited: z.number().int(),
+  }),
+  alerts24h: z.object({ sent: z.number().int(), failed: z.number().int(), dryRun: z.number().int() }),
+  revenue30dUsd: z.number(),
+  generatedAt: z.coerce.date(),
+});
+export type AdminOverview = z.infer<typeof adminOverviewSchema>;
+
+export const revenueRangeSchema = z.enum(["7d", "30d", "90d", "all"]);
+
+/** GET /admin/revenue?range= — from `revenue_snapshots`. */
+export const adminRevenueQuerySchema = z.object({ range: revenueRangeSchema.default("30d") });
+export type AdminRevenueQuery = z.infer<typeof adminRevenueQuerySchema>;
+
+export const adminRevenueResponseSchema = z.object({
+  /** null until an admin sets `revenue.builderAddress`. */
+  address: z.string().nullable(),
+  builderFeeTenthsBps: z.number().int(),
+  referralCode: z.string().nullable(),
+  /** Cumulative, as of the latest snapshot. */
+  totals: z.object({
+    builderUsd: z.number(),
+    referralUsd: z.number(),
+    claimedUsd: z.number(),
+    unclaimedUsd: z.number(),
+    referredUsers: z.number().int(),
+    referredVolumeUsd: z.number(),
+  }),
+  /** Earned within the range. */
+  rangeUsd: z.object({ builder: z.number(), referral: z.number() }),
+  /** Per day (Asia/Taipei), earned that day. */
+  daily: z.array(
+    z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), builder: z.number(), referral: z.number() }),
+  ),
+  lastSnapshotAt: z.coerce.date().nullable(),
+});
+export type AdminRevenueResponse = z.infer<typeof adminRevenueResponseSchema>;

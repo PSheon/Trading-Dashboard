@@ -41,6 +41,7 @@ describe("route access on the existing controllers", () => {
 
   beforeAll(async () => {
     process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
+    process.env.AUTH_SERVICE_PERMISSIONS = "lists.read,leaders.import,leaders.manage,rules.read,alerts.readAll";
     process.env.AUTH_ADMIN_EMAILS = "boss@example.com";
     ({ app, auth } = await createAuthedApp({
       db,
@@ -81,6 +82,7 @@ describe("route access on the existing controllers", () => {
 
   afterAll(async () => {
     delete process.env.AUTH_SERVICE_TOKEN;
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
     delete process.env.AUTH_ADMIN_EMAILS;
     await app.close();
     await closeTestDb();
@@ -111,7 +113,8 @@ describe("route access on the existing controllers", () => {
       ["get", "/alert-rules"],
     ];
     for (const [method, path, body] of adminRoutes) {
-      await call(method, path, undefined, body).expect(401);
+      const anonymous = await call(method, path, undefined, body);
+      expect(anonymous.status, `${method.toUpperCase()} ${path}: ${JSON.stringify(anonymous.body)}`).toBe(401);
       await call(method, path, "alice-token", body).expect(403);
       const ok = method === "post" ? 201 : 200;
       await call(method, path, "boss-token", body).expect(ok);
@@ -120,24 +123,21 @@ describe("route access on the existing controllers", () => {
   });
 
   it("/alert-rules lists and edits only the defaults, with validation", async () => {
-    await call("get", "/alerts", "alice-token").expect(200); // signs alice in → she owns copies
+    await call("get", "/alerts", "alice-token").expect(200); // signs alice in
+    const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+    // Sign-up no longer copies rules; a leftover owned row is still never
+    // listed or edited here.
+    expect(await db.select().from(alertRules).where(eq(alertRules.userId, alice.id))).toEqual([]);
+    const [owned] = await db
+      .insert(alertRules)
+      .values({ userId: alice.id, scope: "address", kind: "R1", paramsJson: { flatThresholdUsd: 1, pctThreshold: 0.1 }, cooldownS: 900, tiers: ["A"] })
+      .returning();
+
     const listed = (await call("get", "/alert-rules", "boss-token").expect(200)).body as { userId: number | null; id: number }[];
     expect(listed).toHaveLength(3);
     expect(listed.every((r) => r.userId === null)).toBe(true);
 
-    const [aliceRow] = await db
-      .select()
-      .from(alertRules)
-      .innerJoin(users, eq(users.id, alertRules.userId))
-      .where(eq(users.privyUserId, "did:privy:alice"));
-    const body = {
-      id: aliceRow.alert_rules.id,
-      scope: "address",
-      kind: aliceRow.alert_rules.kind,
-      paramsJson: aliceRow.alert_rules.paramsJson,
-      cooldownS: 1,
-      tiers: ["A"],
-    };
+    const body = { id: owned.id, scope: "address", kind: owned.kind, paramsJson: owned.paramsJson, cooldownS: 1, tiers: ["A"] };
     await call("post", "/alert-rules", "boss-token", body).expect(404); // not a default
 
     await call("post", "/alert-rules", "boss-token", { ...body, id: listed[0].id, cooldownS: -5 }).expect(400);
@@ -151,11 +151,11 @@ describe("route access on the existing controllers", () => {
     const all = await db.select().from(users);
     const alice = all.find((u) => u.privyUserId === "did:privy:alice")!;
     const bob = all.find((u) => u.privyUserId === "did:privy:bob")!;
-    const [rule] = await db.select().from(alertRules).where(eq(alertRules.userId, alice.id));
-    const [bobRule] = await db.select().from(alertRules).where(eq(alertRules.userId, bob.id));
+    const [defaultRule] = await db.select().from(alertRules);
     await db.insert(alerts).values([
-      { ruleId: rule.id, userId: alice.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "a" }, sendStatus: "sent", sentAt: new Date() },
-      { ruleId: bobRule.id, userId: bob.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "b" }, sendStatus: "sent", sentAt: new Date() },
+      // A favorite alert has no rule; an admin-style one references a default.
+      { ruleId: null, userId: alice.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "a" }, sendStatus: "sent", sentAt: new Date() },
+      { ruleId: defaultRule.id, userId: bob.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "b" }, sendStatus: "sent", sentAt: new Date() },
     ]);
 
     const mine = (await call("get", "/alerts", "alice-token").expect(200)).body as { userId: number }[];
@@ -169,6 +169,19 @@ describe("route access on the existing controllers", () => {
     const aliceScope = (await call("get", `/leaders/hyperliquid/${WHALE}`, "alice-token").expect(200)).body.scope;
     expect(aliceScope).toEqual({ userId: expect.any(Number) });
     expect((await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.scope).toBe("all");
+  });
+
+  it("an unscoped service cannot read another user's alert payload", async () => {
+    await call("get", "/alerts", "alice-token").expect(200);
+    const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+    await db.insert(alerts).values({ userId: alice.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "private-chat" }, sendStatus: "sent", sentAt: new Date() });
+    const previous = process.env.AUTH_SERVICE_PERMISSIONS;
+    try {
+      process.env.AUTH_SERVICE_PERMISSIONS = "users.read";
+      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body).toEqual([]);
+      process.env.AUTH_SERVICE_PERMISSIONS = "alerts.readAll";
+      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body).toHaveLength(1);
+    } finally { process.env.AUTH_SERVICE_PERMISSIONS = previous; }
   });
 
   it("GET /actions?scope=favorites: anonymous 401, service 403, a user sees only their favorites' actions", async () => {
@@ -191,4 +204,27 @@ describe("route access on the existing controllers", () => {
     expect((await call("get", "/actions", "alice-token").expect(200)).body).toHaveLength(2);
     expect((await call("get", "/actions?scope=favorites", "bob-token").expect(200)).body).toEqual([]);
   });
+  it("filters a trader's actions by normalized address", async () => {
+    const address = "0x" + "ab".repeat(20);
+    const base = { coin: "BTC", kind: "open" as const, side: "long", notionalUsd: "1", avgPx: "1", fillIds: [], ts: new Date() };
+    await db.insert(actions).values([{ ...base, address }, { ...base, address: OTHER }]);
+    const result = await call("get", `/actions?address=0x${"AB".repeat(20)}`).expect(200);
+    expect(result.body.map((a: { address: string }) => a.address)).toEqual([address]);
+  });
+
+  it.each(["limit=0", "limit=-1", "limit=501", "limit=abc", "before=invalid", "kind=bogus", "scope=bogus", "address=invalid"])(
+    "rejects malformed action query %s", async (query) => {
+      await call("get", `/actions?${query}`).expect(400);
+    },
+  );
+
+  it("validates alert queries and administrative input", async () => {
+    await call("get", "/alerts?limit=1000000", "alice-token").expect(400);
+    await call("get", "/lists/diff?fromListId=oops&toListId=2", "boss-token").expect(400);
+    await call("get", "/leaders?active=maybe").expect(400);
+    await call("patch", `/leaders/hyperliquid/${WHALE}`, "boss-token", { active: "false" }).expect(400);
+    await call("patch", `/leaders/hyperliquid/${WHALE}`, "boss-token", { address: OTHER }).expect(400);
+    await call("post", "/import/lists", "boss-token", { fileName: "x.csv", rows: [null] }).expect(400);
+  });
+
 });

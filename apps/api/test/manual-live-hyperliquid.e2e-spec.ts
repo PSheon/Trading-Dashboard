@@ -19,7 +19,7 @@ import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
  * `pnpm test`. Run with:
  *
  *   E2E_RUN_LIVE=1 \
- *   DATABASE_URL=postgres://postgres:postgres@localhost:5433/trading_dashboard_test \
+ *   TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/trading_dashboard_test \
  *     pnpm --filter @trading-dashboard/api test:e2e
  *
  * Picks the most active addresses from recent BTC/ETH/SOL/HYPE trades as

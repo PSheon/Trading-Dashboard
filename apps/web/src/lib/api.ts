@@ -9,18 +9,28 @@
  */
 const API_BASE = "/api/hl";
 
+/** A non-2xx answer. `details` is the api's JSON error body when it had
+ * one, e.g. 409 `{code: "alert_limit", limit: 3}`. */
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    /** Machine-readable error code from the body, e.g. "busy". */
-    public code?: string,
+    public details: Record<string, unknown> = {},
     /** From a Retry-After header (seconds), in ms. */
     public retryAfterMs?: number,
   ) {
     super(message);
     this.name = "ApiError";
   }
+
+  get code(): string | undefined {
+    return typeof this.details.code === "string" ? this.details.code : undefined;
+  }
+}
+
+/** The api's error code, when `error` is an ApiError that has one. */
+export function apiErrorCode(error: unknown): string | undefined {
+  return error instanceof ApiError ? error.code : undefined;
 }
 
 /** 503 `{code: "busy"}`: Hyperliquid's request budget couldn't serve the
@@ -74,13 +84,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let message = text || res.statusText;
-    let code: string | undefined;
+    let details: Record<string, unknown> = {};
     const retryAfter = Number(res.headers.get("retry-after"));
     const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined;
     try {
       // Nest errors: {statusCode, message, code?} or {…, issues: zod issues}.
-      const parsed = JSON.parse(text) as { message?: unknown; issues?: unknown; code?: unknown };
-      if (typeof parsed.code === "string") code = parsed.code;
+      const parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
+      if (parsed && typeof parsed === "object") details = parsed as Record<string, unknown>;
       if (typeof parsed.message === "string") message = parsed.message;
       else if (Array.isArray(parsed.message)) message = parsed.message.join("; ");
       if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
@@ -92,7 +102,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     } catch {
       // not JSON; keep the raw text
     }
-    throw new ApiError(res.status, message, code, retryAfterMs);
+    throw new ApiError(res.status, message, details, retryAfterMs);
   }
 
   if (res.status === 204) return undefined as T;

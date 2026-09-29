@@ -84,12 +84,12 @@ export interface SyncResult {
 
 /**
  * Pulls an address's fills from `startTime` to now into `fills`, and turns
- * the ones that were not already stored into `actions`.
+ * fills not already covered by actions into `actions`.
  *
  * Windows overlap on purpose (every caller starts a little before the time it
- * cares about): insert-with-returning makes the overlap free, since only rows
- * that were actually inserted get classified. That is what makes fills
- * exactly-once regardless of clock skew or which path saw them first.
+ * cares about): the fill primary key dedupes raw data, and the
+ * address action lock dedupes derived actions. Replaying a window also
+ * repairs action creation interrupted after raw fills were committed.
  *
  * Syncs of one address run one at a time (except backfill, which only
  * touches history and runs alongside), so two overlapping windows never race
@@ -155,12 +155,14 @@ export class FillSyncService {
     const fetchedTids = new Set<bigint>();
     let latestFillTime: number | null = null;
     const newFills: HlUserFill[] = [];
+    const candidates = new Map<bigint, HlUserFill>();
     let fetched = 0;
     const take = async (batch: HlUserFill[]) => {
       fetched += batch.length;
       for (const f of batch) {
         fetchedTids.add(BigInt(f.tid));
         if (latestFillTime === null || f.time > latestFillTime) latestFillTime = f.time;
+        if (!isOutOfScopeSpotFill(f)) candidates.set(BigInt(f.tid), f);
       }
       newFills.push(...(await this.store(address, batch)));
     };
@@ -193,7 +195,11 @@ export class FillSyncService {
       missingTids = expected.filter((tid) => !fetchedTids.has(tid));
     }
 
-    const created = newFills.length > 0 ? await this.createActions(address, reason, newFills, rank) : 0;
+    // Revisit returned fills even when they were already stored: a previous
+    // sync may have failed after storing a page but before deriving actions.
+    // The action lock and coverage check make replay idempotent.
+    const candidateFills = [...candidates.values()];
+    const created = candidateFills.length > 0 ? await this.createActions(address, reason, candidateFills, new Set(newFills.map((f) => BigInt(f.tid))), rank) : 0;
     return { fetched, inserted: newFills.length, actions: created, missingTids, latestFillTime };
   }
 
@@ -262,7 +268,7 @@ export class FillSyncService {
    * corrected in place, without an alert, if the fast path got it wrong.
    * Fills no action covers (the feed missed them) become actions as before.
    */
-  private async createActions(address: string, reason: SyncReason, newFills: HlUserFill[], rank?: number): Promise<number> {
+  private async createActions(address: string, reason: SyncReason, newFills: HlUserFill[], freshTids: Set<bigint>, rank?: number): Promise<number> {
     const leverage = (coin: string) => this.accounts.leverageFor(address, coin);
     if (reason === "live" && this.needsAccountRefresh(address, newFills, classifyFills(address, newFills, leverage))) {
       // Positions and equity as of right after these fills: R1/R3 compare
@@ -283,7 +289,16 @@ export class FillSyncService {
         newFills.filter((f) => !covered.has(BigInt(f.tid))),
         leverage,
       );
-      for (const action of covering) await this.verify(tx, address, action);
+      // Replay may cover thousands of existing actions. Read their stored fills
+      // once instead of holding the shared fast-path lock for N round trips.
+      const realByTid = new Map((await storedFills(tx, address, [...covered])).map((f) => [BigInt(f.tid), f]));
+      for (const action of covering) {
+        const real = action.fillIds.flatMap((tid) => {
+          const fill = realByTid.get(tid);
+          return fill ? [fill] : [];
+        });
+        await this.verify(tx, address, action, real, action.fillIds.some((tid) => freshTids.has(tid)));
+      }
       return drafts.length > 0 ? insertActions(tx, address, drafts) : [];
     });
 
@@ -296,14 +311,16 @@ export class FillSyncService {
    * and corrects kind/side (a liquidation, or a book that was off) in place.
    * No event: the alert already went out, and a second one would read as a
    * new trade. */
-  private async verify(tx: DbOrTx, address: string, action: ActionRow): Promise<void> {
-    const real = await storedFills(tx, address, action.fillIds);
+  private async verify(tx: DbOrTx, address: string, action: ActionRow, real: HlUserFill[], hasFreshFill: boolean): Promise<void> {
     if (real.length < action.fillIds.length) return; // the rest come in a later sync
     const drafts = classifyFills(address, real);
     if (drafts.length === 0) return;
-    this.fastPath.verified += 1;
     const [first, ...rest] = drafts;
-    if (rest.length === 0 && first.kind === action.kind && first.side === action.side) return;
+    const unchanged = rest.length === 0 && first.kind === action.kind && first.side === action.side;
+    // Count new confirmations and recovered corrections, not unchanged history
+    // on every overlapping sweep. Replay still repairs a failed correction.
+    if (hasFreshFill || !unchanged) this.fastPath.verified += 1;
+    if (unchanged) return;
 
     this.fastPath.corrected += 1;
     const { leverage: _leverage, ...shape } = draftToRow(address, first);

@@ -1,4 +1,4 @@
-import { equitySnapshots, fills, positionSnapshots } from "@trading-dashboard/shared";
+import { equitySnapshots, fills, leaders, positionSnapshots } from "@trading-dashboard/shared";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
@@ -10,6 +10,9 @@ import type { FillSyncService } from "../src/watcher/fill-sync.service.js";
 import type { TradeFeedService, TradeFeedStatus } from "../src/watcher/trade-feed.service.js";
 import type { WatcherService } from "../src/watcher/watcher.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+
+import { LeadersService } from "../src/api/leaders/leaders.service.js";
+import { RoundTripService } from "../src/analytics/round-trip.service.js";
 
 const A = "0xsched";
 
@@ -113,4 +116,25 @@ describe("SchedulerService — real Postgres", () => {
     await scheduler.checkFeed(t + 10 * 60_000);
     expect(notify.sendSystemMessage).toHaveBeenCalledTimes(1);
   });
+  it("rolls back equity when a position cannot be persisted", async () => {
+    const bad = state({ BTC: "1" }, "600");
+    bad.assetPositions[0].position.unrealizedPnl = "invalid numeric value";
+    vi.mocked(info.clearinghouseState).mockResolvedValue(bad);
+    expect((await scheduler.snapshotAll()).failed).toBe(1);
+    expect(await db.select().from(equitySnapshots)).toEqual([]);
+    expect(await db.select().from(positionSnapshots)).toEqual([]);
+  });
+
+  it("reports no positions after a complete flat snapshot", async () => {
+    await db.insert(leaders).values({ address: A });
+    await scheduler.snapshotAll();
+    await new Promise((r) => setTimeout(r, 5));
+    main = {};
+    await scheduler.snapshotAll();
+    const service = new LeadersService(db, new RoundTripService(db));
+    const detail = await service.findDetail("hyperliquid", A, "hour", "none");
+    expect(detail.positions).toEqual([]);
+    expect((await service.findAll({}))[0].openPositionCount).toBe(0);
+  });
+
 });

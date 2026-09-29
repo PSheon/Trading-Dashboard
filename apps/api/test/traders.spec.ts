@@ -257,7 +257,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       const mine = await controller.list({}, user);
       expect(mine.items.filter((i) => i.favorite).map((i) => i.address).sort()).toEqual([A, C]);
       expect((await controller.list({}, null)).items.some((i) => i.favorite)).toBe(false);
-      expect((await controller.list({}, { kind: "service" })).items.some((i) => i.favorite)).toBe(false);
+      expect((await controller.list({}, { kind: "service", permissions: [] })).items.some((i) => i.favorite)).toBe(false);
     });
 
     it("rejects an invalid query with 400", async () => {

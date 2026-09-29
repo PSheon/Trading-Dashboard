@@ -1,3 +1,4 @@
+import { hasPermission } from "../../common/auth/permissions.js";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import { alerts, type AlertEntry, type AlertsQuery } from "@trading-dashboard/shared";
@@ -13,7 +14,8 @@ export type AlertsScope = "all" | { userId: number } | "none";
 
 export function alertsVisibleTo(user: RequestUser | null): AlertsScope {
   if (!user) return "none";
-  if (user.kind === "service" || user.role === "admin") return "all";
+  if (hasPermission(user, "alerts.readAll")) return "all";
+  if (user.kind === "service") return "none";
   return { userId: user.id };
 }
 

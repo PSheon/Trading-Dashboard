@@ -27,7 +27,7 @@ describe("admin settings — real Postgres", () => {
   let settings: SettingsService;
   let triggerSnapshot: ReturnType<typeof vi.fn>;
   let service: AdminSettingsService;
-  const service_: RequestUser = { kind: "service" };
+  const service_: RequestUser = { kind: "service", permissions: [] };
 
   beforeEach(async () => {
     await truncateAdminTables(db);

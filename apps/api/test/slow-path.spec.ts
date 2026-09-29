@@ -79,6 +79,10 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     expect(await db.select().from(actions)).toHaveLength(1);
     expect(emitted).toHaveLength(1);
     expect(sync.getFastPathStats()).toEqual({ verified: 1, corrected: 0 });
+
+    await sync.sync(A, "sweep", t - 10_000);
+    expect(sync.getFastPathStats()).toEqual({ verified: 1, corrected: 0 });
+    expect(emitted).toHaveLength(1);
   });
 
   it("corrects an action the book got wrong, in place and without a second alert", async () => {

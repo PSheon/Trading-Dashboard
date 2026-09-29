@@ -8,7 +8,8 @@ import { RuleEditor } from "@/components/rules/rule-editor";
 import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
 
-/** Default rules (userId null), copied to each new user on first login. */
+/** Default rules (userId null): what admins are alerted on for imported
+ * traders. Users set alerts on their favorites instead. */
 export function AdminRules() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -32,7 +33,7 @@ export function AdminRules() {
         ) : !rules.data ? (
           <Skeleton className="h-48" />
         ) : rules.data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("settings.noRules")}</p>
+          <p className="text-sm text-muted-foreground">{t("admin.rules.empty")}</p>
         ) : (
           rules.data.map((rule) => (
             <RuleEditor

@@ -9,6 +9,8 @@
 
 import { z } from "zod";
 
+export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+
 export const chainSchema = z.literal("hyperliquid");
 export type Chain = z.infer<typeof chainSchema>;
 
@@ -119,7 +121,8 @@ export type AlertRule = z.infer<typeof alertRuleSchema>;
 
 export const alertSchema = z.object({
   id: z.union([z.bigint(), z.string(), z.number()]),
-  ruleId: z.number().int(),
+  /** Null: triggered by the recipient's favorite alert, not a rule. */
+  ruleId: z.number().int().nullable(),
   userId: z.number().int().nullable().optional(),
   chain: chainSchema,
   address: z.string().nullable().optional(),
@@ -161,8 +164,8 @@ export type ImportLeaderListResponse = z.infer<
 
 /** GET /lists/diff?from=<listId>&to=<listId> — A4 */
 export const listDiffRequestSchema = z.object({
-  fromListId: z.number().int(),
-  toListId: z.number().int(),
+  fromListId: z.coerce.number().int().positive(),
+  toListId: z.coerce.number().int().positive(),
 });
 export type ListDiffRequest = z.infer<typeof listDiffRequestSchema>;
 
@@ -182,7 +185,7 @@ export type ListDiffResponse = z.infer<typeof listDiffResponseSchema>;
 /** GET /leaders — D2 */
 export const leadersQuerySchema = z.object({
   tier: tierSchema.optional(),
-  active: z.coerce.boolean().optional(),
+  active: z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional(),
 });
 export type LeadersQuery = z.infer<typeof leadersQuerySchema>;
 
@@ -193,14 +196,14 @@ export const patchLeaderRequestSchema = z.object({
   tier: tierSchema.optional(),
   notes: z.string().nullable().optional(),
   active: z.boolean().optional(),
-});
+}).strict();
 export type PatchLeaderRequest = z.infer<typeof patchLeaderRequestSchema>;
 
 /** GET /actions (Live Feed) — D1 */
 export const actionsFeedQuerySchema = z.object({
   /** `favorites`: only addresses the signed-in user favorited. */
   scope: z.enum(["all", "favorites"]).default("all"),
-  address: z.string().optional(),
+  address: addressSchema.transform((v) => v.toLowerCase()).optional(),
   coin: z.string().optional(),
   kind: actionKindSchema.optional(),
   tier: tierSchema.optional(),
@@ -212,7 +215,7 @@ export type ActionsFeedQuery = z.infer<typeof actionsFeedQuerySchema>;
 /** GET /alerts — D5 log (filterable by rule/address/coin) */
 export const alertsQuerySchema = z.object({
   ruleId: z.coerce.number().int().optional(),
-  address: z.string().optional(),
+  address: addressSchema.transform((v) => v.toLowerCase()).optional(),
   coin: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
@@ -375,7 +378,6 @@ export type PatchMeRequest = z.infer<typeof patchMeRequestSchema>;
 export const booleanQuerySchema = z.enum(["true", "false"]).transform((v) => v === "true");
 
 /** Hyperliquid address, normalized to lowercase by the api. */
-export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 
 // --- discovery -------------------------------------------------------------
 
@@ -641,24 +643,6 @@ export const telegramTestResponseSchema = z.object({
   dryRun: z.boolean(),
 });
 export type TelegramTestResponse = z.infer<typeof telegramTestResponseSchema>;
-
-/** @deprecated Replaced by the bot link flow (`/me/telegram*`); removed
- * once apps/web no longer uses it.
- * GET /me/notification-channels; PUT /me/notification-channels/telegram */
-export const notificationChannelSchema = z.object({
-  kind: z.literal("telegram"),
-  target: z.string(),
-  enabled: z.boolean(),
-});
-export type NotificationChannel = z.infer<typeof notificationChannelSchema>;
-
-/** @deprecated See `notificationChannelSchema`. */
-export const putTelegramChannelRequestSchema = z.object({
-  /** Telegram chat id: digits, optionally negative (groups). */
-  target: z.string().regex(/^-?\d{1,20}$/),
-  enabled: z.boolean().default(true),
-});
-export type PutTelegramChannelRequest = z.infer<typeof putTelegramChannelRequestSchema>;
 
 // --- copy trading (panel only in Stage 2; nothing is executed) ------------
 

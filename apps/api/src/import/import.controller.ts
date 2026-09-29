@@ -1,13 +1,14 @@
 import { Body, Controller, Post } from "@nestjs/common";
 import type {
-  ImportLeaderListRequest,
   ImportLeaderListResponse,
 } from "@trading-dashboard/shared";
 
-import { Roles } from "../common/auth/current-user.js";
+import { importLeaderListRequestSchema } from "@trading-dashboard/shared";
+import { parseOr400 } from "../users/validation.js";
+import { RequirePermissions } from "../common/auth/permissions.js";
 import { ImportService } from "./import.service.js";
 
-@Roles("admin")
+@RequirePermissions("leaders.import")
 @Controller("import")
 export class ImportController {
   constructor(private readonly importService: ImportService) {}
@@ -15,8 +16,8 @@ export class ImportController {
   /** A1: upload a CopyDog CSV/JSON export (parsed to rows client-side). */
   @Post("lists")
   importList(
-    @Body() body: ImportLeaderListRequest,
+    @Body() body: unknown,
   ): Promise<ImportLeaderListResponse> {
-    return this.importService.importLeaderList(body);
+    return this.importService.importLeaderList(parseOr400(importLeaderListRequestSchema, body));
   }
 }

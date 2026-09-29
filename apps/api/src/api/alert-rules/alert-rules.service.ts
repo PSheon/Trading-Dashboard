@@ -9,10 +9,10 @@ import {
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 
-/** D5 rule editor for the DEFAULT rules (`user_id IS NULL`): the template
- * copied to each new user at first sign-in. Editing a default doesn't
- * change existing users' copies. Users' own rules are never listed or
- * edited here (see users/user-alert-rules.service.ts). */
+/** D5 rule editor for the DEFAULT rules (`user_id IS NULL`), which
+ * RulesService evaluates for admins on imported leaders. Rows with an
+ * owner are no longer created (migration 0006 removed the old per-user
+ * copies) and are never listed or edited here. */
 @Injectable()
 export class AlertRulesService {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}

@@ -1,3 +1,4 @@
+import { RequirePermissions } from "../common/auth/permissions.js";
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Query } from "@nestjs/common";
 import {
   adminRevenueQuerySchema,
@@ -9,7 +10,7 @@ import {
   type PublicSettings,
 } from "@trading-dashboard/shared";
 
-import { CurrentUser, Roles, type RequestUser } from "../common/auth/current-user.js";
+import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Public } from "../common/auth/public.decorator.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { AdminOverviewService } from "./admin-overview.service.js";
@@ -18,13 +19,9 @@ import { AdminUsersService } from "./admin-users.service.js";
 import { RevenueService } from "./revenue.service.js";
 import { parseOr400 } from "./validation.js";
 
-/**
- * Admin area (Stage 2 §6 管理). Admin-only on the class and again on each
- * route, so it holds whether the guard reads roles from the handler, the
- * class, or both. The service token counts as admin, so `user` may be a
- * service caller with no user id.
- */
-@Roles("admin")
+/** Administrative actions require explicit permissions. Human admins receive
+ * the role's catalog; service callers receive only configured scopes. */
+@RequirePermissions("admin.access")
 @Controller("admin")
 export class AdminController {
   constructor(
@@ -34,25 +31,25 @@ export class AdminController {
     private readonly revenue: RevenueService,
   ) {}
 
-  @Roles("admin")
+  @RequirePermissions("settings.read")
   @Get("settings")
   getSettings(): Promise<AdminSettings> {
     return this.settings.getAll();
   }
 
-  @Roles("admin")
+  @RequirePermissions("settings.write")
   @Patch("settings")
   patchSettings(@Body() body: unknown, @CurrentUser() user: RequestUser | null): Promise<AdminSettings> {
     return this.settings.patch(body, user);
   }
 
-  @Roles("admin")
+  @RequirePermissions("users.read")
   @Get("users")
   listUsers(@Query() query: unknown): Promise<AdminUsersResponse> {
     return this.users.list(query);
   }
 
-  @Roles("admin")
+  @RequirePermissions("users.manage")
   @Patch("users/:id")
   patchUser(
     @Param("id", ParseIntPipe) id: number,
@@ -62,13 +59,13 @@ export class AdminController {
     return this.users.patch(id, body, user);
   }
 
-  @Roles("admin")
+  @RequirePermissions("overview.read")
   @Get("overview")
   overview(): Promise<AdminOverview> {
     return this.overviewService.overview();
   }
 
-  @Roles("admin")
+  @RequirePermissions("revenue.read")
   @Get("revenue")
   revenueReport(@Query() query: unknown): Promise<AdminRevenueResponse> {
     const { range } = parseOr400(adminRevenueQuerySchema, query);

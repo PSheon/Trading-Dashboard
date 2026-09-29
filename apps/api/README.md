@@ -1,114 +1,114 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Orbie API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS service for public trader discovery, authenticated user data, admin APIs,
+Hyperliquid monitoring and Telegram notifications. Deployed as one Railway
+replica with PostgreSQL; the web app forwards the browser's Privy bearer token.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Local development
 
-## Description
+From the repository root, use Node 22+ and pnpm 10.17.1:
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ pnpm install
+```sh
+pnpm install --frozen-lockfile
+cp .env.example .env
+# Set DATABASE_URL and any optional integrations in .env.
+pnpm db:migrate
+pnpm dev
 ```
 
-## Compile and run the project
+Provide your own development PostgreSQL or create a disposable instance:
 
-```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+```sh
+docker run --name orbie-postgres-dev --rm -d \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=trading_dashboard \
+  -p 127.0.0.1:5432:5432 postgres:16-alpine
 ```
 
-## Run tests
+For that container, set `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/trading_dashboard`.
+The API listens on `PORT` (default 3000); web dev uses 3001. Root `pnpm dev`
+builds shared contracts before starting both apps and the shared compiler watch.
+The API and migration config load the repo-root `.env`; exported values win.
+API startup validates configuration before creating Nest providers. A missing
+DATABASE_URL, malformed boolean/integer, partial Privy credentials or unsafe
+production service token stops startup. No implicit database fallback is used.
+See [auth/config policy](../../docs/auth-and-config.md) for the role/permission
+matrix and service-token migration requirements.
+Build/typecheck do not require a live database. Use `pnpm db:generate` only after
+changing the database schema; review generated SQL before applying it.
 
-```bash
-# unit tests
-$ pnpm run test
+## Automated tests: a separate database
 
-# e2e tests
-$ pnpm run test:e2e
+Tests truncate tables. They **never use DATABASE_URL**. `TEST_DATABASE_URL` is
+required, must point to `localhost`, `127.0.0.1` or `::1`, have a database name
+ending in `_test`, and contain no query options. Tests do not load `.env`.
+Use a disposable instance and avoid sharing it with other agents or test runs.
 
-# test coverage
-$ pnpm run test:cov
+```sh
+docker run --name orbie-postgres-test --rm -d \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=trading_dashboard_test \
+  -p 127.0.0.1:55432:5432 postgres:16-alpine
+# Wait until: docker exec orbie-postgres-test pg_isready -U postgres
+export TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/trading_dashboard_test
+DATABASE_URL="$TEST_DATABASE_URL" pnpm db:migrate
+pnpm test
+# Stop only this disposable container when finished:
+docker stop orbie-postgres-test
 ```
 
-## Deployment
+For a subset, pass filters directly to Vitest (no extra `--`):
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+```sh
+pnpm --filter @trading-dashboard/api exec vitest run test/routes-auth.spec.ts
+pnpm --filter @trading-dashboard/api test:cov
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+`vitest.config.ts` runs test files sequentially because they share a database.
+Hyperliquid and Telegram are replaced in automated tests; local HTTP/WS servers
+require loopback socket permission. `test:e2e` is a separate manual mainnet
+read-only test and requires explicit opt-in described in its source; it is not
+part of the normal suite.
 
-## Observability
+## Service boundaries
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+- `common/auth`: global default-deny guard, Privy verification, role checks and
+  a hashed-token cache. Public routes explicitly opt in. `AUTH_SERVICE_TOKEN`
+  is a server-only admin identity, never added by the browser proxy.
+- `traders`, `insights`: public discovery, cached Hyperliquid views, crowd data.
+- `users`, `admin`, `settings`: owner-scoped data and administrative controls.
+- `watcher`: WS `trades` → position book → actions; background fills confirm
+  and correct actions. Fill primary keys and per-address transaction locks
+  deduplicate overlapping processing. Replaying a returned fill window repairs
+  actions missing after an interrupted sync; this is not a durable replay queue.
+- `scheduler`: complete equity/position snapshots in one transaction, periodic
+  reconciliation/sweeps and feed outage checks.
+- `rules`, `notify`: evaluate persisted actions and deliver notifications.
+  Telegram feature changes are specified in Stage 2 §11; see current controllers
+  and the audit follow-up for implementation limits.
+- `packages/shared`: PostgreSQL schema/migrations and Zod request contracts.
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+Invalid legacy actions/alerts/leaders/lists/import request shapes now return 400.
+Public leader positions use the latest equity snapshot timestamp, including a
+flat snapshot with no position rows. Alert history remains owner-scoped (admins
+can view all).
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+## Deployment and operations
 
-## Resources
+Use the repo root as Docker build context, `apps/api/Dockerfile`, and
+`apps/api/railway.json`. The Docker ignore file excludes environment files,
+local dependencies, Git metadata and build output. Set secrets in Railway.
+Run migrations against the intended deployment database before releasing code
+that requires them; the runtime image does not run migrations automatically.
 
-Check out a few resources that may come in handy when working with NestJS:
+`/health` is a public operational heartbeat, not a database readiness guarantee.
+Keep one replica: caches, watcher state and notification coordination currently
+assume one process. Do not scale replicas without distributed ownership.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+`AUTH_ADMIN_EMAILS` promotes matching verified emails on subsequent authenticated
+requests as well as first registration. Remove an email from this setting before
+demoting its account, or it can be promoted again. `TELEGRAM_DRY_RUN=true` is the
+default; review it deliberately before enabling real delivery.
 
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Backups, retention jobs, readiness checks and durable notification recovery are
+not guaranteed by this repository's deployment config. Confirm platform settings
+and rehearse recovery before treating this as production-ready. Remaining work:
+[Audit follow-up](../../docs/audit-follow-up.md).

@@ -1,16 +1,15 @@
 import type { INestApplication } from "@nestjs/common";
 import { alertRules, leaders, notificationChannels, traderStats, userFavorites } from "@trading-dashboard/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthService } from "../src/common/auth/auth.service.js";
+import type { SettingsService } from "../src/settings/settings.service.js";
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
 import { FavoritesService } from "../src/users/favorites.service.js";
 import { MeController } from "../src/users/me.controller.js";
-import { NotificationChannelsService } from "../src/users/notification-channels.service.js";
 import { ProfileService } from "../src/users/profile.service.js";
-import { UserAlertRulesService } from "../src/users/user-alert-rules.service.js";
 import { BackfillService } from "../src/watcher/backfill.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -29,18 +28,17 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   const backfill = { trigger: vi.fn() };
   let app: INestApplication;
   let auth: AuthService;
+  let settings: SettingsService;
 
   beforeAll(async () => {
     process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
-    ({ app, auth } = await createAuthedApp({
+    ({ app, auth, settings } = await createAuthedApp({
       db,
       privy,
       controllers: [MeController],
       providers: [
         ProfileService,
         FavoritesService,
-        NotificationChannelsService,
-        UserAlertRulesService,
         { provide: BackfillService, useValue: backfill },
       ],
     }));
@@ -49,6 +47,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   beforeEach(async () => {
     await truncateAll(db);
     await new RulesSeedService(db).seedDefaultRules();
+    await settings.patch({ notifications: { alertsEnabled: true, maxAlertTraders: 3 } }, null);
     auth.clearCache();
     backfill.trigger.mockClear();
   });
@@ -83,6 +82,11 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await as(SERVICE_TOKEN).get("/me").expect(403);
       await as("forged").get("/me").expect(401);
     });
+  });
+
+  it("sign-up doesn't copy the default rules", async () => {
+    const me = (await alice.get("/me").expect(200)).body as { id: number };
+    expect(await db.select().from(alertRules).where(eq(alertRules.userId, me.id))).toEqual([]);
   });
 
   describe("GET/PATCH /me", () => {
@@ -204,76 +208,124 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
     });
   });
 
-  describe("notification channels", () => {
-    it("PUT telegram upserts one row per user; GET lists it", async () => {
-      expect((await alice.get("/me/notification-channels").expect(200)).body).toEqual([]);
+  describe("favorite alerts: PATCH /me/favorites/:address/alert", () => {
+    async function aliceId() {
+      const me = (await alice.get("/me").expect(200)).body as { id: number };
+      return me.id;
+    }
+    async function linkTelegram(userId: number, enabled = true) {
+      await db.insert(notificationChannels).values({ userId, kind: "telegram", target: "555", enabled });
+    }
+    const addr = (i: number) => "0x" + i.toString(16).padStart(2, "0").repeat(20);
 
-      expect((await alice.put("/me/notification-channels/telegram", { target: "12345" }).expect(200)).body).toEqual({
-        kind: "telegram",
-        target: "12345",
-        enabled: true,
-      });
-      await alice.put("/me/notification-channels/telegram", { target: "-100987", enabled: false }).expect(200);
-
-      expect((await alice.get("/me/notification-channels").expect(200)).body).toEqual([
-        { kind: "telegram", target: "-100987", enabled: false },
-      ]);
-      const rows = await db.select().from(notificationChannels);
-      expect(rows).toHaveLength(1);
-      expect((await bob.get("/me/notification-channels").expect(200)).body).toEqual([]);
+    it("404 when the address isn't a favorite; 400 on a bad address or body", async () => {
+      await linkTelegram(await aliceId());
+      await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(404);
+      await alice.patch(`/me/favorites/not-an-address/alert`, { enabled: true }).expect(400);
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      await alice.patch(`/me/favorites/${ADDR}/alert`, { minUsd: -1 }).expect(400);
+      await alice.patch(`/me/favorites/${ADDR}/alert`, { sides: "up" }).expect(400);
     });
 
-    it("rejects a non-numeric chat id with 400", async () => {
-      await alice.put("/me/notification-channels/telegram", { target: "@mychannel" }).expect(400);
-      await alice.put("/me/notification-channels/telegram", {}).expect(400);
+    it("turning on without a linked, enabled Telegram → 409 telegram_not_linked", async () => {
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      const res = await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(409);
+      expect(res.body).toMatchObject({ code: "telegram_not_linked" });
+
+      await linkTelegram(await aliceId(), false); // paused with /stop
+      expect((await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(409)).body.code).toBe(
+        "telegram_not_linked",
+      );
+      // Side and minimum can still be set while off.
+      const off = (await alice.patch(`/me/favorites/${ADDR}/alert`, { sides: "sell", minUsd: 5000 }).expect(200)).body;
+      expect(off.alert).toEqual({ enabled: false, sides: "sell", minUsd: 5000 });
+    });
+
+    it("with Telegram linked: switches on, sets side and minimum, and GET /me/favorites shows it", async () => {
+      await linkTelegram(await aliceId());
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      const res = await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true, sides: "buy", minUsd: 25000 }).expect(200);
+      expect(res.body).toMatchObject({ address: ADDR, alert: { enabled: true, sides: "buy", minUsd: 25000 } });
+
+      await alice.patch(`/me/favorites/${ADDR}/alert`, { minUsd: null }).expect(200);
+      const [fav] = (await alice.get("/me/favorites").expect(200)).body as { alert: unknown }[];
+      expect(fav.alert).toEqual({ enabled: true, sides: "buy", minUsd: null });
+    });
+
+    it("the limit (notifications.maxAlertTraders, default 3) → 409 alert_limit with the limit", async () => {
+      await linkTelegram(await aliceId());
+      for (let i = 1; i <= 4; i++) await alice.put(`/me/favorites/${addr(i)}`).expect(200);
+      for (let i = 1; i <= 3; i++) await alice.patch(`/me/favorites/${addr(i)}/alert`, { enabled: true }).expect(200);
+
+      const res = await alice.patch(`/me/favorites/${addr(4)}/alert`, { enabled: true }).expect(409);
+      expect(res.body).toMatchObject({ code: "alert_limit", limit: 3 });
+
+      // Editing one that is already on isn't counted again; switching one off frees a slot.
+      await alice.patch(`/me/favorites/${addr(1)}/alert`, { enabled: true, sides: "sell" }).expect(200);
+      await alice.patch(`/me/favorites/${addr(2)}/alert`, { enabled: false }).expect(200);
+      await alice.patch(`/me/favorites/${addr(4)}/alert`, { enabled: true }).expect(200);
+    });
+
+    it("concurrent requests can't both take the last slot", async () => {
+      await linkTelegram(await aliceId());
+      for (let i = 1; i <= 6; i++) await alice.put(`/me/favorites/${addr(i)}`).expect(200);
+      await alice.patch(`/me/favorites/${addr(1)}/alert`, { enabled: true }).expect(200);
+      await alice.patch(`/me/favorites/${addr(2)}/alert`, { enabled: true }).expect(200);
+
+      const results = await Promise.all(
+        [3, 4, 5, 6].map((i) => alice.patch(`/me/favorites/${addr(i)}/alert`, { enabled: true })),
+      );
+      expect(results.map((r) => r.status).sort()).toEqual([200, 409, 409, 409]);
+      const on = await db.select().from(userFavorites).where(eq(userFavorites.alertEnabled, true));
+      expect(on).toHaveLength(3);
+    });
+
+    it("lowering the limit keeps existing alerts on; only new ones are refused", async () => {
+      await linkTelegram(await aliceId());
+      for (let i = 1; i <= 3; i++) {
+        await alice.put(`/me/favorites/${addr(i)}`).expect(200);
+      }
+      await alice.patch(`/me/favorites/${addr(1)}/alert`, { enabled: true }).expect(200);
+      await alice.patch(`/me/favorites/${addr(2)}/alert`, { enabled: true }).expect(200);
+
+      await settings.patch({ notifications: { maxAlertTraders: 1 } }, null);
+      const list = (await alice.get("/me/favorites").expect(200)).body as { alert: { enabled: boolean } }[];
+      expect(list.filter((f) => f.alert.enabled)).toHaveLength(2);
+      await alice.patch(`/me/favorites/${addr(2)}/alert`, { minUsd: 10 }).expect(200);
+      expect((await alice.patch(`/me/favorites/${addr(3)}/alert`, { enabled: true }).expect(409)).body).toMatchObject({
+        code: "alert_limit",
+        limit: 1,
+      });
+    });
+
+    it("the limit is per user", async () => {
+      await linkTelegram(await aliceId());
+      await settings.patch({ notifications: { maxAlertTraders: 1 } }, null);
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(200);
+
+      const bobMe = (await bob.get("/me").expect(200)).body as { id: number };
+      await linkTelegram(bobMe.id);
+      await bob.put(`/me/favorites/${ADDR}`).expect(200);
+      await bob.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(200);
+    });
+
+    it("unfavoriting deletes the alert with the row", async () => {
+      await linkTelegram(await aliceId());
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true, sides: "sell" }).expect(200);
+      await alice.delete(`/me/favorites/${ADDR}`).expect(204);
+      expect(await db.select().from(userFavorites)).toHaveLength(0);
+
+      const again = (await alice.put(`/me/favorites/${ADDR}`).expect(200)).body;
+      expect(again.alert).toEqual({ enabled: false, sides: "both", minUsd: null });
     });
   });
 
-  describe("alert rules", () => {
-    it("GET lists only the caller's own copies", async () => {
-      const aliceRules = (await alice.get("/me/alert-rules").expect(200)).body as { userId: number; kind: string }[];
-      const bobRules = (await bob.get("/me/alert-rules").expect(200)).body as { userId: number }[];
-      expect(aliceRules.map((r) => r.kind)).toEqual(["R1", "R2", "R3"]);
-      expect(new Set(aliceRules.map((r) => r.userId)).size).toBe(1);
-      expect(aliceRules[0].userId).not.toBe(bobRules[0].userId);
-    });
-
-    it("PATCH updates only the given fields of the caller's own rule", async () => {
-      const [r1] = (await alice.get("/me/alert-rules").expect(200)).body as { id: number; kind: string }[];
-      const res = await alice
-        .patch(`/me/alert-rules/${r1.id}`, { cooldownS: 60, paramsJson: { flatThresholdUsd: 1000, pctThreshold: 0.05 } })
-        .expect(200);
-      expect(res.body).toMatchObject({ id: r1.id, cooldownS: 60, enabled: true, tiers: ["A", "B", "C"] });
-
-      await alice.patch(`/me/alert-rules/${r1.id}`, { enabled: false }).expect(200);
-      const [row] = await db.select().from(alertRules).where(eq(alertRules.id, r1.id));
-      expect(row).toMatchObject({ enabled: false, cooldownS: 60, paramsJson: { flatThresholdUsd: 1000, pctThreshold: 0.05 } });
-
-      // The default template is untouched.
-      const [template] = await db
-        .select()
-        .from(alertRules)
-        .where(and(eq(alertRules.kind, "R1"), isNull(alertRules.userId)));
-      expect(template).toMatchObject({ cooldownS: 900, enabled: true });
-    });
-
-    it("another user's rule is a 404, and so is the default template", async () => {
-      const [bobR1] = (await bob.get("/me/alert-rules").expect(200)).body as { id: number }[];
-      await alice.patch(`/me/alert-rules/${bobR1.id}`, { enabled: false }).expect(404);
-      const defaults = (await db.select().from(alertRules)).filter((r) => r.userId === null);
-      await alice.patch(`/me/alert-rules/${defaults[0].id}`, { enabled: false }).expect(404);
-      const [row] = await db.select().from(alertRules).where(eq(alertRules.id, bobR1.id));
-      expect(row.enabled).toBe(true);
-    });
-
-    it("validates like the admin editor: bad fields, bad R1/R3 params, kind changes → 400", async () => {
-      const rules = (await alice.get("/me/alert-rules").expect(200)).body as { id: number; kind: string }[];
-      const r1 = rules.find((r) => r.kind === "R1")!;
-      await alice.patch(`/me/alert-rules/${r1.id}`, { cooldownS: -1 }).expect(400);
-      await alice.patch(`/me/alert-rules/${r1.id}`, { tiers: ["Z"] }).expect(400);
-      await alice.patch(`/me/alert-rules/${r1.id}`, { paramsJson: { flatThresholdUsd: "lots" } }).expect(400);
-      await alice.patch(`/me/alert-rules/${r1.id}`, { kind: "R2" }).expect(400);
-      await alice.patch(`/me/alert-rules/abc`, { enabled: false }).expect(400);
-    });
+  it("the old endpoints are gone", async () => {
+    await alice.get("/me/notification-channels").expect(404);
+    await alice.put("/me/notification-channels/telegram", { target: "1" }).expect(404);
+    await alice.get("/me/alert-rules").expect(404);
+    await alice.patch("/me/alert-rules/1", { enabled: false }).expect(404);
   });
 });

@@ -1,3 +1,4 @@
+import { RequirePermissions } from "../src/common/auth/permissions.js";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
 import { alertRules, users } from "@trading-dashboard/shared";
 import { eq } from "drizzle-orm";
@@ -27,6 +28,11 @@ class ProbeController {
   closed(@CurrentUser() user: RequestUser | null) {
     return { user };
   }
+
+  @Public()
+  @RequirePermissions("users.read", "settings.read")
+  @Get("permission-probe")
+  permissions() { return { ok: true }; }
 
   @Roles("admin")
   @Get("admin")
@@ -82,6 +88,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     auth.clearCache();
     privy.verifyAccessToken.mockClear();
     privy.fetchProfile.mockClear();
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
     process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
     process.env.AUTH_ADMIN_EMAILS = " Boss@Example.com , other@example.com";
   });
@@ -121,10 +128,10 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
   });
 
   describe("service token", () => {
-    it("passes protected and admin routes as { kind: 'service' }", async () => {
-      expect((await get("/t/protected", SERVICE_TOKEN).expect(200)).body).toEqual({ user: { kind: "service" } });
-      await get("/t/admin", SERVICE_TOKEN).expect(200);
-      await get("/admin-class", SERVICE_TOKEN).expect(200);
+    it("authenticates a service without granting human admin roles", async () => {
+      expect((await get("/t/protected", SERVICE_TOKEN).expect(200)).body).toEqual({ user: { kind: "service", permissions: [] } });
+      await get("/t/admin", SERVICE_TOKEN).expect(403);
+      await get("/admin-class", SERVICE_TOKEN).expect(403);
       expect(privy.verifyAccessToken).not.toHaveBeenCalled();
     });
 
@@ -133,6 +140,18 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       await get("/t/protected", SERVICE_TOKEN).expect(401);
       await get("/t/protected", "undefined").expect(401);
     });
+  });
+
+  it("permission metadata overrides Public and requires every permission", async () => {
+    await get("/t/permission-probe").expect(401);
+    await get("/t/permission-probe", "alice-token").expect(403);
+    await get("/t/permission-probe", "boss-token").expect(200);
+    process.env.AUTH_SERVICE_PERMISSIONS = "users.read";
+    await get("/t/permission-probe", SERVICE_TOKEN).expect(403);
+    process.env.AUTH_SERVICE_PERMISSIONS = "users.read,settings.read";
+    await get("/t/permission-probe", SERVICE_TOKEN).expect(200);
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
+    await get("/t/permission-probe", SERVICE_TOKEN).expect(403);
   });
 
   describe("Privy tokens", () => {
@@ -193,7 +212,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
   });
 
   describe("first sign-in", () => {
-    it("creates the user with Privy email/wallet and copies the default rules to them", async () => {
+    it("creates the user with Privy email/wallet, and no alert rules (sign-up no longer copies them)", async () => {
       await get("/t/protected", "alice-token").expect(200);
 
       const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
@@ -204,18 +223,12 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
         locale: "zh-TW",
       });
 
-      const defaults = await db.select().from(alertRules);
-      const own = defaults.filter((r) => r.userId === alice.id);
-      const templates = defaults.filter((r) => r.userId === null);
-      expect(own.map((r) => r.kind).sort()).toEqual(["R1", "R2", "R3"]);
-      for (const rule of own) {
-        const template = templates.find((t) => t.kind === rule.kind)!;
-        expect(rule.id).not.toBe(template.id);
-        expect({ ...rule, id: 0, userId: null }).toEqual({ ...template, id: 0 });
-      }
+      const rules = await db.select().from(alertRules);
+      expect(rules.map((r) => r.kind).sort()).toEqual(["R1", "R2", "R3"]);
+      expect(rules.every((r) => r.userId === null)).toBe(true);
     });
 
-    it("a returning user: last_login_at bumps, rules are not copied twice, profile is not re-fetched", async () => {
+    it("a returning user: last_login_at bumps, profile is not re-fetched", async () => {
       await get("/t/protected", "alice-token").expect(200);
       const [first] = await db.select().from(users);
       auth.clearCache();
@@ -225,36 +238,44 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       const rows = await db.select().from(users);
       expect(rows).toHaveLength(1);
       expect(rows[0].lastLoginAt.getTime()).toBeGreaterThan(first.lastLoginAt.getTime());
-      expect((await db.select().from(alertRules).where(eq(alertRules.userId, first.id))).length).toBe(3);
+      expect(await db.select().from(alertRules).where(eq(alertRules.userId, first.id))).toEqual([]);
       expect(privy.fetchProfile).toHaveBeenCalledTimes(1);
     });
 
     it("concurrent first requests create exactly one user", async () => {
       await Promise.all([1, 2, 3, 4].map(() => get("/t/protected", "alice-token").expect(200)));
       expect(await db.select().from(users)).toHaveLength(1);
-      expect(await db.select().from(alertRules)).toHaveLength(6);
+      expect(await db.select().from(alertRules)).toHaveLength(3); // the defaults only
     });
 
-    it("an email added to AUTH_ADMIN_EMAILS later is promoted at its next sign-in; others stay users", async () => {
+    it("does not restore a demoted bootstrap admin while the email remains allowlisted", async () => {
+      await get("/t/admin", "boss-token").expect(200);
+      await db.update(users).set({ role: "user" }).where(eq(users.privyUserId, "did:privy:boss"));
+      auth.clearCache();
+      await get("/t/admin", "boss-token").expect(403);
+      expect((await db.select().from(users))[0].role).toBe("user");
+    });
+
+    it("adding an email to the bootstrap list does not promote an existing user", async () => {
       process.env.AUTH_ADMIN_EMAILS = "";
       await get("/t/protected", "boss-token").expect(200);
       await get("/t/protected", "alice-token").expect(200);
       process.env.AUTH_ADMIN_EMAILS = "boss@example.com";
       auth.clearCache();
-      await get("/t/admin", "boss-token").expect(200);
+      await get("/t/admin", "boss-token").expect(403);
       await get("/t/admin", "alice-token").expect(403);
     });
 
-    it("a user whose first profile fetch failed gets their email and admin role on a later sign-in", async () => {
+    it("profile recovery fills email without granting an existing user admin", async () => {
       privy.fetchProfile.mockResolvedValueOnce(null); // Privy unavailable at first sign-in
       await get("/t/admin", "boss-token").expect(403);
       const [before] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:boss"));
       expect(before).toMatchObject({ email: null, role: "user" });
 
       auth.clearCache();
-      await get("/t/admin", "boss-token").expect(200);
+      await get("/t/admin", "boss-token").expect(403);
       const [after] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:boss"));
-      expect(after).toMatchObject({ email: "boss@example.com", role: "admin" });
+      expect(after).toMatchObject({ email: "boss@example.com", role: "user" });
     });
 
     it("looks a user with no email up at Privy at most every 10 minutes", async () => {

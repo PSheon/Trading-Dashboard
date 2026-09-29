@@ -4,7 +4,7 @@ import { Reflector } from "@nestjs/core";
 import { describe, expect, it } from "vitest";
 
 import { AdminController, PublicSettingsController } from "../src/admin/admin.controller.js";
-import { ROLES_KEY } from "../src/common/auth/current-user.js";
+import { PERMISSIONS_KEY } from "../src/common/auth/permissions.js";
 import { IS_PUBLIC_KEY } from "../src/common/auth/public.decorator.js";
 
 type Handler = (...args: unknown[]) => unknown;
@@ -39,21 +39,24 @@ describe("admin route metadata", () => {
     ]);
   });
 
-  it("marks every admin route @Roles('admin') on the handler and the class, and none @Public()", () => {
-    expect(Reflect.getMetadata(ROLES_KEY, AdminController)).toEqual(["admin"]);
+  it("requires a specific permission on every administrative handler", () => {
+    const expected: Record<string, string> = {
+      getSettings: "settings.read", patchSettings: "settings.write",
+      listUsers: "users.read", patchUser: "users.manage",
+      overview: "overview.read", revenueReport: "revenue.read",
+    };
     for (const { name, handler } of routesOf(AdminController)) {
-      expect(reflector.get(ROLES_KEY, handler), name).toEqual(["admin"]);
-      expect(reflector.getAllAndOverride(ROLES_KEY, [handler, AdminController]), name).toEqual(["admin"]);
+      expect(reflector.get(PERMISSIONS_KEY, handler), name).toEqual([expected[name]]);
       expect(reflector.getAllAndOverride(IS_PUBLIC_KEY, [handler, AdminController]), name).toBeUndefined();
     }
   });
 
-  it("marks GET /settings @Public() with no role", () => {
+  it("marks GET /settings @Public() with no permission requirement", () => {
     expect(Reflect.getMetadata(PATH_METADATA, PublicSettingsController)).toBe("settings");
     const routes = routesOf(PublicSettingsController);
     expect(routes.map((r) => r.method)).toEqual(["GET"]);
     const [{ handler }] = routes;
     expect(reflector.getAllAndOverride(IS_PUBLIC_KEY, [handler, PublicSettingsController])).toBe(true);
-    expect(reflector.getAllAndOverride(ROLES_KEY, [handler, PublicSettingsController])).toBeUndefined();
+    expect(reflector.getAllAndOverride(PERMISSIONS_KEY, [handler, PublicSettingsController])).toBeUndefined();
   });
 });

@@ -5,19 +5,34 @@ import { Pool } from "pg";
 
 export type TestDb = NodePgDatabase<typeof schema>;
 
-const TEST_DATABASE_URL =
-  process.env.DATABASE_URL ??
-  "postgres://postgres:postgres@localhost:5432/trading_dashboard_test";
+/** Destructive tests may only use an explicitly named, local test database.
+ * Never inherit DATABASE_URL: it may belong to a development or live service.
+ * Query options are forbidden because pg supports host/database overrides. */
+function testDatabaseUrl(): string {
+  const raw = process.env.TEST_DATABASE_URL;
+  if (!raw) throw new Error("TEST_DATABASE_URL is required for the test database");
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("Invalid test database URL");
+  }
+  if (
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
+    !/^\/[a-zA-Z0-9_]+_test$/.test(url.pathname) || url.search || url.hash
+  ) {
+    throw new Error("Unsafe test database: use a loopback host, a database ending in _test, and no URL options");
+  }
+  return raw;
+}
 
 let pool: Pool | undefined;
 
-/** Real Postgres connection for tests — see AGENT report for how the local
- * instance is stood up (`docker run postgres:16-alpine` + the drizzle
- * migration applied once). Every test that touches the DB uses this, not a
- * mock, per the task's explicit "exercise actual DB writes" requirement. */
+/** Real PostgreSQL; setup and migration instructions are in apps/api/README.md. */
 export function getTestDb(): TestDb {
   if (!pool) {
-    pool = new Pool({ connectionString: TEST_DATABASE_URL });
+    pool = new Pool({ connectionString: testDatabaseUrl() });
   }
   return drizzle(pool, { schema });
 }
@@ -30,7 +45,7 @@ export async function truncateAll(db: TestDb): Promise<void> {
       alerts, alert_rules, actions, position_snapshots, equity_snapshots,
       fills, coin_meta, leader_list_items, leader_lists, leaders,
       notification_channels, user_favorites, users, trader_stats,
-      app_settings, revenue_snapshots
+      app_settings, revenue_snapshots, telegram_link_tokens
     RESTART IDENTITY CASCADE
   `);
 }

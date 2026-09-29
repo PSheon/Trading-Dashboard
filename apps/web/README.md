@@ -16,14 +16,17 @@ trading is UI only in Stage 2. Spec:
 | `/explore` | The whole leaderboard: window, sort, search, min account value, hide-vaults toggle, paging, favorites |
 | `/trader/[address]` | Profile · KPIs (PnL, ROI, Sharpe + max drawdown, win rate) + PnL/value chart + positions/fills/actions/alerts (CSV export) · copy panel ("coming soon") |
 | `/portfolio` | Copy-trading placeholder |
-| `/favorites` | Your starred traders and their latest actions (signed in) |
+| `/favorites` | Your starred traders, latest actions and per-trader alert preferences (signed in) |
 | `/insights` | Crowd view (long vs short notional per coin, 24 h change) and the live action feed with expandable fills |
-| `/settings` | Language; Telegram chat id and your alert rules (signed in) |
+| `/settings` | Language; official Telegram bot linking, status and test messages (signed in) |
 | `/admin/*` | Admins only: overview, revenue, users, site settings, lists (import + versions), default rules, system status |
 
 Old routes (`/feed`, `/leaders[/…]`, `/alerts`, `/import`, `/lists`,
 `/status`, `/heatmap`, `/login`) redirect to their new homes
 (`next.config.ts`), so Telegram links to `/leaders/<address>` keep working.
+
+Stage 2 §11 bot linking and per-favorite alerts are implemented, as is activity
+filtering (§12). Earlier chat-id/per-user-rule screens are historical designs.
 
 ## Auth (Privy)
 
@@ -61,6 +64,9 @@ this process. `apps/web/.env.local` still works as a per-machine override.
 On Vercel, set them in the project (Production and Preview).
 
 ## Fixtures mode
+
+Never set `NEXT_PUBLIC_API_FIXTURES=1` on a production deployment: the flag
+selects fixture behavior at build time; `NODE_ENV` does not disable it.
 
 `NEXT_PUBLIC_API_FIXTURES=1` makes `src/lib/api.ts` answer every endpoint
 the UI calls from `src/fixtures/` instead of the api — for UI work without
@@ -107,8 +113,8 @@ a Fredoka subset (`src/assets/fredoka-600-subset.ttf`) that only covers
 ```bash
 pnpm install                                   # from the repo root
 pnpm --filter @trading-dashboard/shared build  # the web app imports its dist
-pnpm --filter @trading-dashboard/web dev -- -p 3001          # against NEXT_API_URL
-NEXT_PUBLIC_API_FIXTURES=1 pnpm --filter @trading-dashboard/web dev -- -p 3001  # no backend
+pnpm --filter @trading-dashboard/web dev          # against NEXT_API_URL
+NEXT_PUBLIC_API_FIXTURES=1 pnpm --filter @trading-dashboard/web dev  # no backend
 ```
 
-`pnpm --filter @trading-dashboard/web typecheck | lint | build` must stay clean.
+Run `pnpm --filter @trading-dashboard/web typecheck`, `pnpm --filter @trading-dashboard/web lint`, and `pnpm --filter @trading-dashboard/web build` separately.

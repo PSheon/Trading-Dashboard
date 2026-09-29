@@ -156,34 +156,36 @@ export class SchedulerService {
       accountValue += Number(response.marginSummary.accountValue);
       totalMarginUsed += Number(response.marginSummary.totalMarginUsed);
     }
-    await this.db
-      .insert(equitySnapshots)
-      .values({
-        chain: CHAIN_DEFAULT,
-        address,
-        ts: state.fetchedAt,
-        accountValue: accountValue.toString(),
-        totalMarginUsed: totalMarginUsed.toString(),
-        withdrawable: state.byDex.get(MAIN_DEX)?.withdrawable ?? "0",
-      })
-      .onConflictDoNothing();
+    await this.db.transaction(async (tx) => {
+      await tx
+        .insert(equitySnapshots)
+        .values({
+          chain: CHAIN_DEFAULT,
+          address,
+          ts: state.fetchedAt,
+          accountValue: accountValue.toString(),
+          totalMarginUsed: totalMarginUsed.toString(),
+          withdrawable: state.byDex.get(MAIN_DEX)?.withdrawable ?? "0",
+        })
+        .onConflictDoNothing();
 
-    const rows = [...state.byDex.values()]
-      .flatMap((response) => response.assetPositions)
-      .filter((ap) => Number(ap.position.szi) !== 0)
-      .map((ap) => ({
-        chain: CHAIN_DEFAULT,
-        address,
-        coin: ap.position.coin,
-        ts: state.fetchedAt,
-        szi: ap.position.szi,
-        entryPx: ap.position.entryPx ?? null,
-        leverage: ap.position.leverage?.value?.toString() ?? null,
-        marginMode: ap.position.leverage?.type ?? null,
-        unrealizedPnl: ap.position.unrealizedPnl,
-        liqPx: ap.position.liquidationPx ?? null,
-      }));
-    if (rows.length > 0) await this.db.insert(positionSnapshots).values(rows).onConflictDoNothing();
+      const rows = [...state.byDex.values()]
+        .flatMap((response) => response.assetPositions)
+        .filter((ap) => Number(ap.position.szi) !== 0)
+        .map((ap) => ({
+          chain: CHAIN_DEFAULT,
+          address,
+          coin: ap.position.coin,
+          ts: state.fetchedAt,
+          szi: ap.position.szi,
+          entryPx: ap.position.entryPx ?? null,
+          leverage: ap.position.leverage?.value?.toString() ?? null,
+          marginMode: ap.position.leverage?.type ?? null,
+          unrealizedPnl: ap.position.unrealizedPnl,
+          liqPx: ap.position.liquidationPx ?? null,
+        }));
+      if (rows.length > 0) await tx.insert(positionSnapshots).values(rows).onConflictDoNothing();
+    });
   }
 
   /** Refreshes coin_meta from `meta()` (szDecimals, max leverage). M3. */

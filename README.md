@@ -26,7 +26,7 @@ packages are still `@trading-dashboard/*`.
 
 ## Status
 
-**Stage 1 (done):** leader lists (import, backfill), the watcher, rules
+**Stage 1 (core monitoring delivered; not every PRD item):** leader lists (import, backfill), the watcher, rules
 R1–R3 with Telegram notifications, and the first dashboard.
 
 **Stage 2 (in progress):**
@@ -37,13 +37,17 @@ R1–R3 with Telegram notifications, and the first dashboard.
 - A CopyDog-style redesign in zh-TW and English.
 - An admin area for site settings, users, and revenue from Hyperliquid builder fees and referral rebates.
 
-How the watcher works: it subscribes to the `trades` WebSocket channel of
-every perp market on every Hyperliquid dex. When a watched address is one
-side of a trade, it pulls that address's fills (`userFillsByTime`), stores
-them keyed on (address, tid), and turns new fills into actions using each
-fill's `startPosition`. Missed trades are recovered by a sweep after a feed
-outage, at startup and hourly, and by the 5-minute position snapshots. Why
-it isn't per-address `userFills` subscriptions: see PRD §11.1.
+How the watcher works: it subscribes to perp-market `trades` WebSocket
+channels. The fast path combines those trades with a position book to persist
+actions and evaluate notifications without waiting for the fill index.
+Background `userFillsByTime` calls store raw fills keyed by (chain, address, tid)
+and correct provisional actions without repeating alerts. Startup, reconnect
+and hourly sweeps repair missed data; five-minute snapshots reconcile positions.
+See Stage 2 §5 for the current design and PRD §11.1 for its historical rationale.
+
+The PRD is a historical specification, not a completion checklist. Stage 2 §11
+supersedes the earlier Telegram UI and §12 adds activity filtering. See
+[the audit follow-up](docs/audit-follow-up.md) for remaining reliability work.
 
 ## Repo layout
 
@@ -66,21 +70,19 @@ docs/       PRD, Stage 2 spec, competitor analysis, logo
 
 ## Running locally
 
-Requires Node ≥22 (repo pinned to `v22.19.0`), pnpm and Docker (Postgres).
+Requires Node ≥22, pnpm 10.17.1 and PostgreSQL. For disposable Docker
+instances and isolated test setup, see [apps/api/README.md](apps/api/README.md).
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 
 # copy env and fill in real values (DATABASE_URL at minimum to run the api)
 cp .env.example .env
 
-# generate/inspect the SQL migration (works offline, no DB needed)
-pnpm db:generate
-
 # apply migrations to a real Postgres (DATABASE_URL must point at one)
 pnpm db:migrate
 
-# start both apps in dev mode
+# build/watch shared contracts, start API :3000 and web :3001
 pnpm dev
 
 # typecheck / lint / build everything
@@ -88,6 +90,10 @@ pnpm typecheck
 pnpm lint
 pnpm build
 ```
+
+Run `pnpm db:generate` only after database schema changes, and review the SQL.
+Tests require an explicitly exported, separate `TEST_DATABASE_URL`; run `pnpm test`.
+Never point tests at a development or production database.
 
 See `apps/web/README.md` for the web app's env vars. Never give apps/web a
 `NEXT_PUBLIC_*` copy of the api token: `NEXT_PUBLIC_` vars are inlined into

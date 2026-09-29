@@ -25,6 +25,10 @@ Old routes (`/feed`, `/leaders[/…]`, `/alerts`, `/import`, `/lists`,
 `/status`, `/heatmap`, `/login`) redirect to their new homes
 (`next.config.ts`), so Telegram links to `/leaders/<address>` keep working.
 
+Telegram descriptions above reflect the earlier UI. Stage 2 §11 supersedes it
+with bot linking and per-favorite alerts; track implementation separately from
+the shared contracts. Activity filtering (§12) is implemented.
+
 ## Auth (Privy)
 
 - `@privy-io/react-auth` wraps the app when `NEXT_PUBLIC_PRIVY_APP_ID` is
@@ -61,6 +65,9 @@ this process. `apps/web/.env.local` still works as a per-machine override.
 On Vercel, set them in the project (Production and Preview).
 
 ## Fixtures mode
+
+Never set `NEXT_PUBLIC_API_FIXTURES=1` on a production deployment: the flag
+selects fixture behavior at build time; `NODE_ENV` does not disable it.
 
 `NEXT_PUBLIC_API_FIXTURES=1` makes `src/lib/api.ts` answer every endpoint
 the UI calls from `src/fixtures/` instead of the api — for UI work without
@@ -107,8 +114,8 @@ a Fredoka subset (`src/assets/fredoka-600-subset.ttf`) that only covers
 ```bash
 pnpm install                                   # from the repo root
 pnpm --filter @trading-dashboard/shared build  # the web app imports its dist
-pnpm --filter @trading-dashboard/web dev -- -p 3001          # against NEXT_API_URL
-NEXT_PUBLIC_API_FIXTURES=1 pnpm --filter @trading-dashboard/web dev -- -p 3001  # no backend
+pnpm --filter @trading-dashboard/web dev          # against NEXT_API_URL
+NEXT_PUBLIC_API_FIXTURES=1 pnpm --filter @trading-dashboard/web dev  # no backend
 ```
 
-`pnpm --filter @trading-dashboard/web typecheck | lint | build` must stay clean.
+Run `pnpm --filter @trading-dashboard/web typecheck`, `pnpm --filter @trading-dashboard/web lint`, and `pnpm --filter @trading-dashboard/web build` separately.

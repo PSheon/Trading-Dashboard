@@ -1,5 +1,8 @@
 # PRD — Hyperliquid 大戶監控與警報 Dashboard
 
+> 歷史 Stage 1 規格。當前多使用者認證、頁面與 WS 快速通道以 Stage 2 為準；本文需求並非全部已實作。
+
+
 Sep 29, 2026 · @Paul
 
 ## 1. 背景與目標

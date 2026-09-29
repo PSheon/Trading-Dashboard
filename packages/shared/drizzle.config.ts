@@ -1,20 +1,23 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig } from "drizzle-kit";
 
-/**
- * drizzle-kit config for the M1 scaffold.
- *
- * `drizzle-kit generate` only diffs against the schema file + the migrations
- * folder and does not need a live database connection. `dbCredentials.url`
- * is only read by commands that do connect (e.g. `migrate`, `push`, `studio`),
- * which is why it's safe to point at an env var that may be unset at
- * generate-time.
- */
+// Match apps/api's local setup. Explicit shell/platform values win.
+const rootEnv = resolve(__dirname, "../../.env");
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
+
+// Schema generation is offline; connection commands must never silently
+// choose a different database when DATABASE_URL is missing.
+const databaseUrl = process.env.DATABASE_URL;
+const needsDatabase = process.argv.some((arg) => ["migrate", "push", "studio", "pull", "introspect"].includes(arg));
+if (needsDatabase && !databaseUrl) throw new Error("DATABASE_URL is required for database commands");
+
 export default defineConfig({
   dialect: "postgresql",
   schema: "./src/schema/db.ts",
   out: "./drizzle",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "postgres://localhost:5432/placeholder",
+    url: databaseUrl ?? "",
   },
   strict: true,
   verbose: true,

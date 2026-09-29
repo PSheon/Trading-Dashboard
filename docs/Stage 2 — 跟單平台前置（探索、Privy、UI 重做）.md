@@ -1,5 +1,8 @@
 # Stage 2 — 跟單平台前置（探索、Privy、UI 重做）
 
+> 決策優先序：§11 取代 §3／§6／§8 中的舊 Telegram 與個人規則流程；§12 補充探索／首頁活躍度篩選。規格與 shared schema 不代表功能已驗收，請對照目前程式與 audit-follow-up.md。
+
+
 2026-09-29 · 依據：[PRD](PRD%20%E2%80%94%20Hyperliquid%20%E5%A4%A7%E6%88%B6%E7%9B%A3%E6%8E%A7%E8%88%87%E8%AD%A6%E5%A0%B1%20Dashboard.md) §11.1 與 Paul 2026-09-29 的決定
 
 ## 1. 方向

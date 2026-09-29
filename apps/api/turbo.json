@@ -1,0 +1,19 @@
+{
+  "extends": [
+    "//"
+  ],
+  "tasks": {
+    "dev": {
+      "passThroughEnv": [
+        "PORT",
+        "NODE_ENV",
+        "DATABASE_URL",
+        "AUTH_*",
+        "PRIVY_*",
+        "TELEGRAM_*",
+        "ALERT_*",
+        "HYPERLIQUID_*"
+      ]
+    }
+  }
+}

@@ -5,6 +5,7 @@ import { Check, ChevronDown, Copy, Radio, Share2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 
+import { AlertBell } from "@/components/alerts/alert-bell";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { ACTIVITY_DOT, FavoriteButton, LowSampleTag, VaultBadge } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -136,6 +137,7 @@ export function ProfileCard({
           </button>
         </div>
         <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
+        <AlertBell address={profile.address} className="-ml-1.5" />
         <button
           type="button"
           onClick={() => copy("link", window.location.href)}

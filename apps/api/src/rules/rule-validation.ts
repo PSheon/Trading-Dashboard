@@ -38,25 +38,3 @@ export function parseUpsertRule(body: unknown): UpsertAlertRuleRequest {
   assertRuleParams(result.data.kind, result.data.paramsJson);
   return result.data;
 }
-
-const patchRuleSchema = upsertAlertRuleRequestSchema.partial();
-export type PatchAlertRule = Partial<UpsertAlertRuleRequest>;
-
-/** Body of PATCH /me/alert-rules/:id: the same contract as the admin
- * editor, every field optional. `id`, `scope` and `kind` may be sent but
- * can't change (one rule per kind per user). */
-export function parsePatchRule(
-  body: unknown,
-  current: { id: number; scope: string; kind: AlertRuleKind },
-): PatchAlertRule {
-  const result = patchRuleSchema.safeParse(body);
-  if (!result.success) throw badRequest(result.error.issues);
-  const patch = result.data;
-  for (const field of ["id", "scope", "kind"] as const) {
-    if (patch[field] !== undefined && patch[field] !== current[field]) {
-      throw badRequest([{ path: [field], message: `${field} cannot be changed` }]);
-    }
-  }
-  if (patch.paramsJson !== undefined) assertRuleParams(current.kind, patch.paramsJson);
-  return patch;
-}

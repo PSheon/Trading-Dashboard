@@ -34,21 +34,24 @@ import {
   importLeaderListResponseSchema,
   leaderListSchema,
   meResponseSchema,
-  notificationChannelSchema,
+  patchFavoriteAlertRequestSchema,
   patchMeRequestSchema,
   portfolioQuerySchema,
   portfolioResponseSchema,
-  putTelegramChannelRequestSchema,
   sparklinesQuerySchema,
   sparklinesResponseSchema,
+  telegramLinkResponseSchema,
+  telegramStatusSchema,
+  telegramTestResponseSchema,
   traderFillSchema,
   traderProfileResponseSchema,
   tradersQuerySchema,
   tradersResponseSchema,
   upsertAlertRuleRequestSchema,
   type AlertRule,
+  type FavoriteAlert,
   type LocaleInput,
-  type NotificationChannel,
+  type TelegramStatus,
 } from "@trading-dashboard/shared";
 import { z, type ZodTypeAny } from "zod";
 
@@ -82,14 +85,51 @@ import {
 } from "./admin";
 
 // Mutable demo state (per browser tab).
-const NO_ALERT = { enabled: false, sides: "both", minUsd: null } as const;
+const NO_ALERT: FavoriteAlert = { enabled: false, sides: "both", minUsd: null };
+const FIXTURE_BOT = "orbie_fun_bot";
+/** Pretend the user presses Start this long after asking for a link. */
+const FIXTURE_LINK_DELAY_MS = 6_000;
 
-const favorites = new Map<string, Date>(
-  initialFavorites.map((a, i) => [a, new Date(Date.now() - (i + 1) * 86400_000)]),
+/** Two starting favorites already alert (buy ≥ $250K, both sides). */
+const favorites = new Map<string, { createdAt: Date; alert: FavoriteAlert }>(
+  initialFavorites.map((a, i) => [
+    a,
+    {
+      createdAt: new Date(Date.now() - (i + 1) * 86400_000),
+      alert:
+        i === 0
+          ? { enabled: true, sides: "buy", minUsd: 250_000 }
+          : i === 1
+            ? { enabled: true, sides: "both", minUsd: null }
+            : NO_ALERT,
+    },
+  ]),
 );
-let channels: NotificationChannel[] = [];
-let rules: AlertRule[] = alertRules.map((r) => ({ ...r }));
-let defaultRules: AlertRule[] = alertRules.map((r) => ({ ...r, userId: null }));
+
+// `?tg=linked` in the page URL starts with a linked chat (screenshots and
+// quick checks); otherwise the demo account starts unlinked.
+const startLinked =
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tg") === "linked";
+let telegram: Omit<TelegramStatus, "bot"> = startLinked
+  ? { linked: true, username: "orbie_demo", enabled: true, linkedAt: new Date(Date.now() - 3 * 86400_000) }
+  : { linked: false, username: null, enabled: false, linkedAt: null };
+/** Set by POST /me/telegram/link: when the fixture "presses Start". */
+let pendingLinkAt: number | null = null;
+
+function telegramStatus(): TelegramStatus {
+  if (pendingLinkAt !== null && Date.now() >= pendingLinkAt) {
+    telegram = { linked: true, username: "orbie_demo", enabled: true, linkedAt: new Date() };
+    pendingLinkAt = null;
+  }
+  return { bot: FIXTURE_BOT, ...telegram };
+}
+
+function favoriteOf(address: string) {
+  const entry = favorites.get(address);
+  return entry ? { address, createdAt: entry.createdAt, stats: findStats(address), alert: entry.alert } : null;
+}
+
+let defaultRules: AlertRule[] = alertRules.map((r) => ({ ...r }));
 // The demo account's saved locale starts as whatever the UI is showing, so
 // adopting it at sign-in doesn't flip the language.
 let meLocale: LocaleInput =
@@ -218,52 +258,71 @@ export async function fixtureRequest<T>(
       return wire(
         z.array(favoriteSchema),
         [...favorites.entries()]
-          .sort((a, b) => b[1].getTime() - a[1].getTime())
-          .map(([address, createdAt]) => ({ address, createdAt, stats: findStats(address), alert: NO_ALERT })),
+          .sort((a, b) => b[1].createdAt.getTime() - a[1].createdAt.getTime())
+          .map(([address]) => favoriteOf(address)),
       );
     case "PUT /me/favorites/:address": {
       requireUser(token);
       const address = addressSchema.parse(parts[2]).toLowerCase();
-      if (!favorites.has(address)) favorites.set(address, new Date());
-      return wire(favoriteSchema, {
-        address,
-        createdAt: favorites.get(address),
-        stats: findStats(address),
-        alert: NO_ALERT,
-      });
+      if (!favorites.has(address)) favorites.set(address, { createdAt: new Date(), alert: NO_ALERT });
+      return wire(favoriteSchema, favoriteOf(address));
+    }
+    case "PATCH /me/favorites/:address/alert": {
+      // Same rules as the api: 404 unless a favorite; switching on needs a
+      // linked, enabled chat and room under maxAlertTraders.
+      requireUser(token);
+      const address = addressSchema.parse(parts[2]).toLowerCase();
+      const entry = favorites.get(address);
+      if (!entry) throw new ApiError(404, `${address} is not a favorite`);
+      const parsed = patchFavoriteAlertRequestSchema.safeParse(body ?? {});
+      if (!parsed.success) throw new ApiError(400, parsed.error.message);
+      const patch = parsed.data;
+      if (patch.enabled === true && !entry.alert.enabled) {
+        if (!telegramStatus().linked || !telegram.enabled) {
+          throw new ApiError(409, "Link Telegram before turning on alerts", { code: "telegram_not_linked" });
+        }
+        const limit = adminSettings.notifications.maxAlertTraders;
+        const on = [...favorites.values()].filter((f) => f.alert.enabled).length;
+        if (on >= limit) {
+          throw new ApiError(409, `Alerts are limited to ${limit} traders`, { code: "alert_limit", limit });
+        }
+      }
+      entry.alert = {
+        enabled: patch.enabled ?? entry.alert.enabled,
+        sides: patch.sides ?? entry.alert.sides,
+        minUsd: patch.minUsd === undefined ? entry.alert.minUsd : patch.minUsd,
+      };
+      return wire(favoriteSchema, favoriteOf(address));
     }
     case "DELETE /me/favorites/:address": {
       requireUser(token);
       favorites.delete(addressSchema.parse(parts[2]).toLowerCase());
       return undefined as T;
     }
-    case "GET /me/notification-channels":
+    case "GET /me/telegram":
       requireUser(token);
-      return wire(z.array(notificationChannelSchema), channels);
-    case "PUT /me/notification-channels/telegram": {
+      return wire(telegramStatusSchema, telegramStatus());
+    case "POST /me/telegram/link": {
       requireUser(token);
-      const req = putTelegramChannelRequestSchema.parse(body);
-      const channel: NotificationChannel = { kind: "telegram", target: req.target, enabled: req.enabled };
-      channels = [channel];
-      return wire(notificationChannelSchema, channel);
+      const tokenPart = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, "0")).join("");
+      pendingLinkAt = Date.now() + FIXTURE_LINK_DELAY_MS;
+      return wire(telegramLinkResponseSchema, {
+        url: `https://t.me/${FIXTURE_BOT}?start=${tokenPart}`,
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      });
     }
-    case "GET /me/alert-rules":
+    case "DELETE /me/telegram":
       requireUser(token);
-      return wire(z.array(alertRuleSchema), rules);
-    case "PATCH /me/alert-rules/:id": {
-      // The api merges a partial {paramsJson, cooldownS, quietHours, tiers,
-      // enabled} into the user's own copy of a rule.
+      telegram = { linked: false, username: null, enabled: false, linkedAt: null };
+      pendingLinkAt = null;
+      return undefined as T;
+    case "POST /me/telegram/test":
       requireUser(token);
-      const current = rules.find((r) => r.id === Number(parts[2]));
-      if (!current) throw new ApiError(404, "Rule not found");
-      const patch = upsertAlertRuleRequestSchema
-        .pick({ paramsJson: true, cooldownS: true, quietHours: true, tiers: true, enabled: true })
-        .partial()
-        .parse(body);
-      const saved: AlertRule = { ...current, ...patch, quietHours: patch.quietHours ?? current.quietHours };
-      rules = rules.map((r) => (r.id === saved.id ? saved : r));
-      return wire(alertRuleSchema, saved);
-    }
+      if (!telegramStatus().linked || !telegram.enabled) {
+        throw new ApiError(409, "No Telegram chat is linked", { code: "telegram_not_linked" });
+      }
+      // The fixture health reports dry run on.
+      return wire(telegramTestResponseSchema, { sent: false, dryRun: true });
 
     // --- public settings + crowd -----------------------------------------------
     case "GET /settings":

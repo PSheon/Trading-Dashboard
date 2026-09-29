@@ -238,7 +238,9 @@ export const alertRules = pgTable(
   "alert_rules",
   {
     id: serial("id").primaryKey(),
-    /** Owner. NULL rows are the defaults copied to each new user. */
+    /** Owner. NULL rows are the defaults, evaluated for admins on imported
+     * leaders. Per-user copies are no longer made (migration 0006 removed
+     * them); users set alerts on their favorites instead. */
     userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope").$type<AlertRuleScope>().notNull(),
     kind: text("kind").$type<AlertRuleKind>().notNull(),
@@ -265,9 +267,9 @@ export const alerts = pgTable(
   "alerts",
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
-    ruleId: integer("rule_id")
-      .notNull()
-      .references(() => alertRules.id, { onDelete: "restrict" }),
+    /** The default rule that fired (admins, imported leaders); NULL for an
+     * alert only a user's favorite alert triggered. */
+    ruleId: integer("rule_id").references(() => alertRules.id, { onDelete: "restrict" }),
     /** Recipient; NULL for system messages and alerts from before users. */
     userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
     chain: text("chain").notNull().default(CHAIN_DEFAULT),

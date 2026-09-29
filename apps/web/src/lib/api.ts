@@ -9,14 +9,26 @@
  */
 const API_BASE = "/api/hl";
 
+/** A non-2xx answer. `details` is the api's JSON error body when it had
+ * one, e.g. 409 `{code: "alert_limit", limit: 3}`. */
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "ApiError";
   }
+
+  get code(): string | undefined {
+    return typeof this.details.code === "string" ? this.details.code : undefined;
+  }
+}
+
+/** The api's error code, when `error` is an ApiError that has one. */
+export function apiErrorCode(error: unknown): string | undefined {
+  return error instanceof ApiError ? error.code : undefined;
 }
 
 export type AccessTokenGetter = () => Promise<string | null>;
@@ -64,9 +76,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let message = text || res.statusText;
+    let details: Record<string, unknown> = {};
     try {
       // Nest errors: {statusCode, message, code?} or {…, issues: zod issues}.
       const parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
+      if (parsed && typeof parsed === "object") details = parsed as Record<string, unknown>;
       if (typeof parsed.message === "string") message = parsed.message;
       else if (Array.isArray(parsed.message)) message = parsed.message.join("; ");
       if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
@@ -78,7 +92,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     } catch {
       // not JSON; keep the raw text
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, details);
   }
 
   if (res.status === 204) return undefined as T;

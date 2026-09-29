@@ -13,6 +13,7 @@ import { NotifyModule } from "./notify/notify.module.js";
 import { RulesModule } from "./rules/rules.module.js";
 import { SchedulerModule } from "./scheduler/scheduler.module.js";
 import { SettingsModule } from "./settings/settings.module.js";
+import { TelegramModule } from "./telegram/telegram.module.js";
 import { TradersModule } from "./traders/traders.module.js";
 import { UsersModule } from "./users/users.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
@@ -34,6 +35,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     RulesModule,
     NotifyModule,
     UsersModule,
+    TelegramModule,
     TradersModule,
     InsightsModule,
   ],

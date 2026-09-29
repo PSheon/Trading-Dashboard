@@ -119,7 +119,8 @@ export type AlertRule = z.infer<typeof alertRuleSchema>;
 
 export const alertSchema = z.object({
   id: z.union([z.bigint(), z.string(), z.number()]),
-  ruleId: z.number().int(),
+  /** Null: triggered by the recipient's favorite alert, not a rule. */
+  ruleId: z.number().int().nullable(),
   userId: z.number().int().nullable().optional(),
   chain: chainSchema,
   address: z.string().nullable().optional(),
@@ -606,24 +607,6 @@ export const telegramTestResponseSchema = z.object({
   dryRun: z.boolean(),
 });
 export type TelegramTestResponse = z.infer<typeof telegramTestResponseSchema>;
-
-/** @deprecated Replaced by the bot link flow (`/me/telegram*`); removed
- * once apps/web no longer uses it.
- * GET /me/notification-channels; PUT /me/notification-channels/telegram */
-export const notificationChannelSchema = z.object({
-  kind: z.literal("telegram"),
-  target: z.string(),
-  enabled: z.boolean(),
-});
-export type NotificationChannel = z.infer<typeof notificationChannelSchema>;
-
-/** @deprecated See `notificationChannelSchema`. */
-export const putTelegramChannelRequestSchema = z.object({
-  /** Telegram chat id: digits, optionally negative (groups). */
-  target: z.string().regex(/^-?\d{1,20}$/),
-  enabled: z.boolean().default(true),
-});
-export type PutTelegramChannelRequest = z.infer<typeof putTelegramChannelRequestSchema>;
 
 // --- copy trading (panel only in Stage 2; nothing is executed) ------------
 

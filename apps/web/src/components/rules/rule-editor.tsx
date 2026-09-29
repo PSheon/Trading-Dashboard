@@ -52,7 +52,7 @@ export function RuleEditor({
       paramsJson = JSON.parse(paramsText) as Record<string, unknown>;
       setParamsError(undefined);
     } catch {
-      setParamsError(t("settings.paramsInvalid"));
+      setParamsError(t("admin.rules.paramsInvalid"));
       return;
     }
     onSave({ paramsJson, cooldownS, tiers, enabled });
@@ -63,7 +63,7 @@ export function RuleEditor({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="rounded-lg bg-background px-2 py-1 font-mono text-sm font-bold text-primary">{rule.kind}</span>
-          <span className="text-xs text-muted-foreground">{t(`settings.scopes.${rule.scope}`)}</span>
+          <span className="text-xs text-muted-foreground">{t(`admin.rules.scopes.${rule.scope}`)}</span>
         </div>
         <button
           type="button"
@@ -88,7 +88,7 @@ export function RuleEditor({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="grid gap-2">
-          <Label htmlFor={`params-${rule.id}`}>{t("settings.params")}</Label>
+          <Label htmlFor={`params-${rule.id}`}>{t("admin.rules.params")}</Label>
           <Textarea
             id={`params-${rule.id}`}
             value={paramsText}
@@ -100,7 +100,7 @@ export function RuleEditor({
         </div>
         <div className="flex flex-col gap-4">
           <div className="grid gap-2">
-            <Label htmlFor={`cooldown-${rule.id}`}>{t("settings.cooldown")}</Label>
+            <Label htmlFor={`cooldown-${rule.id}`}>{t("admin.rules.cooldown")}</Label>
             <Input
               id={`cooldown-${rule.id}`}
               type="number"
@@ -110,7 +110,7 @@ export function RuleEditor({
             />
           </div>
           <div className="grid gap-2">
-            <Label>{t("settings.tiers")}</Label>
+            <Label>{t("admin.rules.tiers")}</Label>
             <div className="flex gap-2">
               {TIERS.map((tier) => {
                 const on = tiers.includes(tier);

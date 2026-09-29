@@ -1,5 +1,7 @@
+import { TradersRepository } from "../src/traders/traders.repository.js";
 import type { INestApplication } from "@nestjs/common";
-import { traderStats, userFavorites, users, wireTraderProfileSchema } from "@trading-dashboard/shared";
+import { wireTraderProfileSchema } from "@trading-dashboard/shared/contracts";
+import { traderStats, userFavorites, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -92,7 +94,7 @@ describe("public discovery routes over HTTP", () => {
         {
           provide: TradersService,
           useFactory: (s: SettingsService) =>
-            new TradersService(db, info as unknown as HyperliquidInfoClient, new RoundTripService(db), new LeaderboardIngestService(db, s), s),
+            new TradersService(new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(db), new LeaderboardIngestService(db, s), s),
           inject: [SettingsService],
         },
         { provide: InsightsService, useValue: new InsightsService(db) },
@@ -216,6 +218,11 @@ describe("public discovery routes over HTTP", () => {
       const activity = await request(app.getHttpServer()).get(`/traders/${C}/activity`);
       expect(activity.status).toBe(503);
       expect(activity.headers["retry-after"]).toBe("5");
+
+      const versioned = await request(app.getHttpServer()).get(`/traders/${C}`).set("x-api-contract", "1");
+      expect(versioned.status).toBe(503);
+      expect(versioned.headers["retry-after"]).toBe("5");
+      expect(versioned.body).toMatchObject({ success: false, error: { code: "busy", details: { retryAfterSeconds: 5 } } });
 
       releaseState(emptyState);
       releaseTwap([]);

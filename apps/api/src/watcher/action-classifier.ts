@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import type { ActionKind } from "@trading-dashboard/shared";
+import type { ActionKind } from "@trading-dashboard/shared/contracts";
 
 import type { HlUserFill } from "../hyperliquid/types.js";
 

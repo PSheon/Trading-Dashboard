@@ -3,7 +3,17 @@ import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
 import type { DbOrTx } from "../watcher/action-store.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
-import { actions, alertRules, alerts, notificationOutbox, notificationChannels, userFavorites, appSettings, users, notificationDeliveryPayloadSchema, type Locale } from "@trading-dashboard/shared";
+import {
+  actions,
+  alertRules,
+  alerts,
+  notificationOutbox,
+  notificationChannels,
+  userFavorites,
+  appSettings,
+  users,
+} from "@trading-dashboard/shared/database";
+import { notificationDeliveryPayloadSchema, type Locale } from "@trading-dashboard/shared/contracts";
 
 import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";

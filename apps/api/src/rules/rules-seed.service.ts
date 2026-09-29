@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { sql } from "drizzle-orm";
-import { alertRules, type AlertRuleKind, type Tier } from "@trading-dashboard/shared";
+import { alertRules } from "@trading-dashboard/shared/database";
+import { type AlertRuleKind, type Tier } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

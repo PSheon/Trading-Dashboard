@@ -1,4 +1,5 @@
-import { actions, actionsFeedQuerySchema } from "@trading-dashboard/shared";
+import { actions } from "@trading-dashboard/shared/database";
+import { actionsFeedQuerySchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, expect, it } from "vitest";
 import { ActionsService } from "../src/api/actions/actions.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";

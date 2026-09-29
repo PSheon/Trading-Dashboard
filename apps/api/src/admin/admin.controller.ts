@@ -8,7 +8,7 @@ import {
   type AdminUser,
   type AdminUsersResponse,
   type PublicSettings,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Public } from "../common/auth/public.decorator.js";

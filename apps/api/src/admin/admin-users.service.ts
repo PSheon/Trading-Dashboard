@@ -6,13 +6,13 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { and, asc, count, desc, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { users } from "@trading-dashboard/shared/database";
 import {
   adminUsersQuerySchema,
   patchAdminUserRequestSchema,
-  users,
   type AdminUser,
   type AdminUsersResponse,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { AuthService } from "../common/auth/auth.service.js";
 import { userIdOf, type RequestUser } from "../common/auth/current-user.js";

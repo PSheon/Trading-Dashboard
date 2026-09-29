@@ -1,3 +1,4 @@
+import { TradersWorkerModule } from "./traders/traders-worker.module.js";
 import { HttpModule } from "./common/http/http.module.js";
 import { OutboxModule } from "./outbox/outbox.module.js";
 import { Module } from "@nestjs/common";
@@ -38,6 +39,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     UsersModule,
     TelegramModule,
     TradersModule,
+    TradersWorkerModule,
     InsightsModule,
     OutboxModule,
   ],

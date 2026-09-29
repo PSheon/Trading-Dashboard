@@ -1,3 +1,5 @@
+import { SettingsRepository } from "../src/settings/settings.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
 import {
   actions,
   alertRules,
@@ -7,9 +9,8 @@ import {
   traderStats,
   userFavorites,
   users,
-  type AlertSides,
-  type LeaderSource,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/database";
+import { type AlertSides, type LeaderSource } from "@trading-dashboard/shared/contracts";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,7 +70,7 @@ function byUser(mock: NotifyMock): Map<number, { favorite: boolean; rules: strin
 }
 
 const db = getTestDb();
-const settings = new SettingsService(db);
+const settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
 
 /** A user, optionally an admin, with an optional alert on ADDRESS and a
  * linked Telegram chat. */

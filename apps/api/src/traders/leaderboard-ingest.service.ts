@@ -1,9 +1,9 @@
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
-import { Cron, CronExpression } from "@nestjs/schedule";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, max, ne, sql } from "drizzle-orm";
-import { CHAIN_DEFAULT, traderStats } from "@trading-dashboard/shared";
+import { traderStats } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -51,7 +51,7 @@ async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {
  * host is not the info API, so this costs no REST weight.
  */
 @Injectable()
-export class LeaderboardIngestService implements OnApplicationBootstrap {
+export class LeaderboardIngestService {
   private readonly logger = new Logger(LeaderboardIngestService.name);
   private running: Promise<IngestResult> | undefined;
   private vaults: { addresses: Set<string>; fetchedAt: Date } | undefined;
@@ -66,7 +66,7 @@ export class LeaderboardIngestService implements OnApplicationBootstrap {
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
-  onApplicationBootstrap(): void {
+  start(): void {
     if (process.env.NODE_ENV === "test") return this.startupDone();
     this.bootstrap()
       .catch((error: unknown) => this.logger.error(`Startup leaderboard import failed: ${(error as Error).message}`))
@@ -78,7 +78,6 @@ export class LeaderboardIngestService implements OnApplicationBootstrap {
     if (!(await this.refreshIfStale())) await this.loadVaults();
   }
 
-  @Cron(CronExpression.EVERY_MINUTE)
   async onTick(): Promise<void> {
     try {
       await this.refreshIfStale();

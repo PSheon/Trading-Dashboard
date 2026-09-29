@@ -1,6 +1,7 @@
+import { sendHttpError } from "../common/http/response-contract.js";
 import { type ArgumentsHost, Catch, type ExceptionFilter, ServiceUnavailableException } from "@nestjs/common";
-import type { BusyError } from "@trading-dashboard/shared";
-import type { Response } from "express";
+import type { BusyError } from "@trading-dashboard/shared/contracts";
+import type { Request, Response } from "express";
 
 /** 503 for a page load that couldn't get Hyperliquid budget in time. The
  * body is the shared `BusyError`; `BusyFilter` adds `Retry-After`. */
@@ -25,7 +26,9 @@ export class BusyException extends ServiceUnavailableException {
 export class BusyFilter implements ExceptionFilter {
   catch(exception: BusyException, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
+    if (res.headersSent) return;
     res.setHeader("Retry-After", String(exception.retryAfterSeconds));
-    res.status(503).json(exception.getResponse());
+    const req = host.switchToHttp().getRequest<Request>();
+    sendHttpError(req, res, 503, exception.message, "busy", { retryAfterSeconds: exception.retryAfterSeconds });
   }
 }

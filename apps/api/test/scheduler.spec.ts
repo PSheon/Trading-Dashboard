@@ -1,4 +1,5 @@
-import { equitySnapshots, fills, leaders, positionSnapshots } from "@trading-dashboard/shared";
+import { LeadersRepository } from "../src/api/leaders/leaders.repository.js";
+import { equitySnapshots, fills, leaders, positionSnapshots } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
@@ -131,7 +132,7 @@ describe("SchedulerService — real Postgres", () => {
     await new Promise((r) => setTimeout(r, 5));
     main = {};
     await scheduler.snapshotAll();
-    const service = new LeadersService(db, new RoundTripService(db));
+    const service = new LeadersService(new LeadersRepository(db), new RoundTripService(db));
     const detail = await service.findDetail("hyperliquid", A, "hour", "none");
     expect(detail.positions).toEqual([]);
     expect((await service.findAll({}))[0].openPositionCount).toBe(0);

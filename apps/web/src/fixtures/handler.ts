@@ -53,7 +53,7 @@ import {
   type FavoriteAlert,
   type LocaleInput,
   type TelegramStatus,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 import { z, type ZodTypeAny } from "zod";
 
 import { ApiError } from "@/lib/api";

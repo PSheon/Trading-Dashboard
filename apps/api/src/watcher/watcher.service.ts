@@ -9,7 +9,8 @@ import {
   OnModuleDestroy,
 } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
-import { CHAIN_DEFAULT, leaders } from "@trading-dashboard/shared";
+import { leaders } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

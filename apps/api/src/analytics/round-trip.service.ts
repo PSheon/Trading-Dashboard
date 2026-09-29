@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, inArray } from "drizzle-orm";
-import { CHAIN_DEFAULT, actions, fills } from "@trading-dashboard/shared";
+import { actions, fills } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

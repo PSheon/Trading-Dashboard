@@ -25,7 +25,7 @@ import type {
   TraderProfileResponse,
   TraderStats,
   TraderWindow,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import clearinghouse from "./clearinghouse-sample.json";
 import fillsSample from "./fills-sample.json";

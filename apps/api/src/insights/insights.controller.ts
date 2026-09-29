@@ -1,5 +1,5 @@
 import { Controller, Get } from "@nestjs/common";
-import type { CrowdResponse } from "@trading-dashboard/shared";
+import type { CrowdResponse } from "@trading-dashboard/shared/contracts";
 
 import { Public } from "../common/auth/public.decorator.js";
 import { InsightsService } from "./insights.service.js";

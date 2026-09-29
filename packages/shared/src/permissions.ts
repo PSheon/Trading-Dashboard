@@ -1,4 +1,4 @@
-import type { UserRole } from "./schema/db.js";
+import type { UserRole } from "./enums.js";
 
 /** Application authorization. Privy authenticates identity, not these grants. */
 export const PERMISSIONS = [

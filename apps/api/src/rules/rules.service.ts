@@ -13,10 +13,8 @@ import {
   traderStats,
   userFavorites,
   users,
-  flatOrPctParamsSchema,
-  type AlertRuleKind,
-  type Locale,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/database";
+import { type AlertRuleKind, type Locale } from "@trading-dashboard/shared/contracts";
 
 import type { DbOrTx } from "../watcher/action-store.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -24,7 +22,8 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { tradeSideOf } from "../notify/message-template.js";
 import { NotifyService } from "../notify/notify.service.js";
 import { SettingsService } from "../settings/settings.service.js";
-import { WatcherService } from "../watcher/watcher.service.js";
+import { AccountStateService } from "../watcher/account-state.service.js";
+import { ruleMatches } from "./rule-policy.js";
 import { ACTION_CREATED_EVENT, type ActionCreatedEvent } from "../watcher/action-created.event.js";
 
 type AlertRuleRow = typeof alertRules.$inferSelect;
@@ -66,7 +65,7 @@ export class RulesService {
 
   constructor(
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
-    private readonly watcher: WatcherService,
+    @Inject(AccountStateService) private readonly accounts: Pick<AccountStateService, "getEquityUsd">,
     private readonly notify: NotifyService,
     private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
@@ -96,7 +95,7 @@ export class RulesService {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(73105, hashtext(${`${action.chain}|${action.address}|${action.coin}`}))`);
       const [event] = await tx.select().from(actionOutbox).where(eq(actionOutbox.actionId, action.id));
       if (event?.status === "done") return;
-      const equityUsd = event ? (event.equityUsd === null ? null : Number(event.equityUsd)) : this.watcher.getEquityUsd(action.address);
+      const equityUsd = event ? (event.equityUsd === null ? null : Number(event.equityUsd)) : this.accounts.getEquityUsd(action.address);
       await this.evaluateInTransaction(action, tx, equityUsd);
       await tx.update(actionOutbox).set({ status: "done", lockedUntil: null, lastError: null }).where(eq(actionOutbox.actionId, action.id));
     });
@@ -208,7 +207,7 @@ export class RulesService {
 
     const matching = rules.filter((rule) => {
       try {
-        return this.matches(rule, action, equityUsd);
+        return ruleMatches(rule, action, equityUsd);
       } catch (error) {
         this.logger.error(
           `Rule evaluation failed for rule ${rule.id} (${rule.kind}) / ${action.address} / ${action.coin}: ${errorText(error)}`,
@@ -237,41 +236,6 @@ export class RulesService {
       if (firing.length > 0) hits.set(userId, firing);
     }
     return hits;
-  }
-
-  private matches(rule: AlertRuleRow, action: ActionCreatedEvent, equityUsd: number | null): boolean {
-    switch (rule.kind) {
-      case "R1": {
-        if (action.kind !== "open") return false;
-        return this.meetsFlatOrPctThreshold(rule, action, equityUsd);
-      }
-      case "R2":
-        return action.kind === "flip";
-      case "R3":
-        return this.meetsFlatOrPctThreshold(rule, action, equityUsd);
-      default:
-        return false;
-    }
-  }
-
-  /** R1/R3: notional ≥ min(flatThresholdUsd, equityUsd × pctThreshold).
-   * Without a cached equity for the address, the flat threshold alone
-   * (harder to fire, not easier). */
-  private meetsFlatOrPctThreshold(
-    rule: AlertRuleRow,
-    action: ActionCreatedEvent,
-    equityUsd: number | null,
-  ): boolean {
-    const params = flatOrPctParamsSchema.safeParse(rule.paramsJson);
-    if (!params.success) {
-      this.logger.error(`Rule ${rule.id} (${rule.kind}) has invalid params_json — skipping: ${params.error.message}`);
-      return false;
-    }
-    const threshold =
-      equityUsd === null
-        ? params.data.flatThresholdUsd
-        : Math.min(params.data.flatThresholdUsd, equityUsd * params.data.pctThreshold);
-    return Number(action.notionalUsd) >= threshold;
   }
 
   /** Preserve cooldowns from pre-outbox alerts as well as new durable reservations.

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "drizzle-orm";
-import { CHAIN_DEFAULT, type CrowdCoin, type CrowdResponse } from "@trading-dashboard/shared";
+import { CHAIN_DEFAULT, type CrowdCoin, type CrowdResponse } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

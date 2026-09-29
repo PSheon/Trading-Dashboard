@@ -21,6 +21,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/traders/sparklines` | 200 | public |
 | GET | `/traders/:address` | 200 | public |
 | GET | `/traders/:address/portfolio` | 200 | public |
+| GET | `/traders/:address/activity` | 200 | public |
 | GET | `/traders/:address/fills` | 200 | public |
 | GET | `/me` | 200 | user |
 | PATCH | `/me` | 200 | user |

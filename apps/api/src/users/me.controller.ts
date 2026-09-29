@@ -5,7 +5,7 @@ import {
   patchMeRequestSchema,
   type Favorite,
   type MeResponse,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
 import { FavoritesService } from "./favorites.service.js";

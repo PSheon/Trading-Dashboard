@@ -1,4 +1,4 @@
-import { equitySnapshots, leaders, positionSnapshots } from "@trading-dashboard/shared";
+import { equitySnapshots, leaders, positionSnapshots } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InsightsController } from "../src/insights/insights.controller.js";

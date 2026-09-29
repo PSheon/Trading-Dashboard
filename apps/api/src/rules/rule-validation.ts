@@ -4,7 +4,7 @@ import {
   upsertAlertRuleRequestSchema,
   type AlertRuleKind,
   type UpsertAlertRuleRequest,
-} from "@trading-dashboard/shared";
+} from "@trading-dashboard/shared/contracts";
 
 /** Params shape each evaluated rule kind needs (see RulesService.matches).
  * Kinds not listed take any object. */

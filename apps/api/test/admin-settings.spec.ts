@@ -1,5 +1,8 @@
+import { SettingsRepository } from "../src/settings/settings.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { BadRequestException } from "@nestjs/common";
-import { adminSettingsSchema, appSettings, publicSettingsSchema } from "@trading-dashboard/shared";
+import { appSettings } from "@trading-dashboard/shared/database";
+import { adminSettingsSchema, publicSettingsSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminSettingsService } from "../src/admin/admin-settings.service.js";
@@ -31,7 +34,7 @@ describe("admin settings — real Postgres", () => {
 
   beforeEach(async () => {
     await truncateAdminTables(db);
-    settings = new SettingsService(db);
+    settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     triggerSnapshot = vi.fn();
     service = new AdminSettingsService(settings, { triggerSnapshot } as unknown as RevenueService);
   });
@@ -80,7 +83,7 @@ describe("admin settings — real Postgres", () => {
       service_,
     );
     expect(saved.discovery.featuredAddresses).toEqual([B.toLowerCase(), A.toLowerCase()]);
-    expect((await new SettingsService(db).get("discovery")).featuredAddresses).toEqual([
+    expect((await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).get("discovery")).featuredAddresses).toEqual([
       B.toLowerCase(),
       A.toLowerCase(),
     ]);

@@ -1,6 +1,6 @@
 import { RequirePermissions } from "../src/common/auth/permissions.js";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
-import { alertRules, users } from "@trading-dashboard/shared";
+import { alertRules, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";

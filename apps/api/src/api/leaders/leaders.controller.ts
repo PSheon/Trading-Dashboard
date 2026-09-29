@@ -1,16 +1,18 @@
 import { RequirePermissions } from "../../common/auth/permissions.js";
 import { Body, Controller, Get, Param, Patch, Query } from "@nestjs/common";
-import type {
-  Leader,
-  LeaderDetailResponse,
-  LeaderSummary,
-} from "@trading-dashboard/shared";
+import type { Leader, LeaderDetailResponse, LeaderSummary } from "@trading-dashboard/shared/contracts";
 
-import { addressSchema, chainSchema, leaderDetailQuerySchema, leadersQuerySchema, patchLeaderRequestSchema } from "@trading-dashboard/shared";
+import {
+  addressSchema,
+  chainSchema,
+  leaderDetailQuerySchema,
+  leadersQuerySchema,
+  patchLeaderRequestSchema,
+} from "@trading-dashboard/shared/contracts";
 import { parseOr400 } from "../../common/http/validation.js";
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
-import { alertsVisibleTo } from "../alerts/alerts.service.js";
+import { alertsVisibleTo } from "../../common/auth/alerts-scope.js";
 import { LeadersService } from "./leaders.service.js";
 
 @Controller("leaders")

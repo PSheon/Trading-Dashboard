@@ -1,4 +1,4 @@
-import type { AccountMode, SpotBalance } from "@trading-dashboard/shared";
+import type { AccountMode, SpotBalance } from "@trading-dashboard/shared/contracts";
 
 import type {
   HlAllMidsResponse,

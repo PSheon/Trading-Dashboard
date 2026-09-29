@@ -1,4 +1,4 @@
-import type { actions } from "@trading-dashboard/shared";
+import type { actions } from "@trading-dashboard/shared/database";
 
 /**
  * Rules trigger mechanism (§1 of the M2 task): the Watcher emits this event,

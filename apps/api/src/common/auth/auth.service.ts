@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, isNull } from "drizzle-orm";
-import { users } from "@trading-dashboard/shared";
+import { users } from "@trading-dashboard/shared/database";
 
 import { env } from "../../config/env.js";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { eq, gte, sql } from "drizzle-orm";
-import { alerts, leaders, users, type AdminOverview } from "@trading-dashboard/shared";
+import { alerts, leaders, users } from "@trading-dashboard/shared/database";
+import { type AdminOverview } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

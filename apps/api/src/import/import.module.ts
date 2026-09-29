@@ -1,11 +1,11 @@
 import { Module } from "@nestjs/common";
 
-import { WatcherModule } from "../watcher/watcher.module.js";
+import { IngestionModule } from "../watcher/ingestion.module.js";
 import { ImportController } from "./import.controller.js";
 import { ImportService } from "./import.service.js";
 
 @Module({
-  imports: [WatcherModule],
+  imports: [IngestionModule],
   controllers: [ImportController],
   providers: [ImportService],
   exports: [ImportService],

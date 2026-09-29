@@ -1,4 +1,5 @@
-import { CHAIN_DEFAULT, traderStats } from "@trading-dashboard/shared";
+import { traderStats } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 /** Official leaderboard (stats host, not the rate-limited info API). */
 export const LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";

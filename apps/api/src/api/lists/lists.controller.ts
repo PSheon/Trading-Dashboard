@@ -1,10 +1,7 @@
 import { Controller, Get, Query } from "@nestjs/common";
-import type {
-  LeaderList,
-  ListDiffResponse,
-} from "@trading-dashboard/shared";
+import type { LeaderList, ListDiffResponse } from "@trading-dashboard/shared/contracts";
 
-import { listDiffRequestSchema } from "@trading-dashboard/shared";
+import { listDiffRequestSchema } from "@trading-dashboard/shared/contracts";
 import { parseOr400 } from "../../common/http/validation.js";
 import { RequirePermissions } from "../../common/auth/permissions.js";
 import { ListsService } from "./lists.service.js";

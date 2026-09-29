@@ -3,7 +3,8 @@ import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
-import { revenueSnapshots, type AdminRevenueResponse } from "@trading-dashboard/shared";
+import { revenueSnapshots } from "@trading-dashboard/shared/database";
+import { type AdminRevenueResponse } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";

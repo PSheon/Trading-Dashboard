@@ -289,6 +289,10 @@ export const en: Messages = {
     loadingFills: "Loading fills…",
     noFills: "No fills recorded for this action",
     tier: "Tier {tier}",
+    live: "Live",
+    liveHint: "New actions appear the moment they happen",
+    polling: "Refreshing",
+    pollingHint: "Live updates are reconnecting; the list refreshes every few seconds meanwhile",
   },
   portfolio: {
     title: "Portfolio",
@@ -321,7 +325,7 @@ export const en: Messages = {
   },
   insights: {
     title: "Insights",
-    subtitle: "Live actions from every watched address, newest first. Refreshes every 10 seconds.",
+    subtitle: "Live actions from every watched address, newest first, as they happen.",
     coin: "Coin (e.g. BTC)",
     allKinds: "All actions",
     allTiers: "All tiers",

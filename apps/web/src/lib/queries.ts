@@ -17,8 +17,12 @@ import type {
   TraderWindow,
 } from "@/lib/contracts";
 
+import { useState } from "react";
+
+import { actionsQueryString, mergeFetched, type ActionsParams } from "@/lib/action-stream";
 import { api, isBusy } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useActionStream } from "@/lib/use-action-stream";
 
 /**
  * React Query hooks for the Stage 2 endpoints. Polling follows how fast the
@@ -154,33 +158,43 @@ export function useTraderFills(address: string, limit = 100) {
   });
 }
 
-export interface ActionsParams {
-  before?: string;
-  beforeId?: string;
-  scope?: "all" | "favorites";
-  address?: string;
-  coin?: string;
-  kind?: string;
-  tier?: string;
-  limit?: number;
+export type { ActionsParams };
+
+/** Poll interval of an /actions list: the stream down (or none) → 10 s;
+ * the stream live → a slow safety net. */
+export const ACTIONS_POLL_MS = 10_000;
+export const ACTIONS_LIVE_POLL_MS = 60_000;
+
+export function useActions(params: ActionsParams, options: { enabled?: boolean; refetchInterval?: number } = {}) {
+  const queryClient = useQueryClient();
+  const qs = actionsQueryString(params);
+  const queryKey = ["actions", qs];
+  return useQuery({
+    queryKey,
+    queryFn: async ({ signal }) => {
+      const fetched = await api.get<ActionFeedItem[]>(`/actions?${qs}`, signal);
+      // Keep rows the live stream added after the server read this answer.
+      return params.before ? fetched : mergeFetched(fetched, queryClient.getQueryData<ActionFeedItem[]>(queryKey), params.limit ?? 100);
+    },
+    enabled: options.enabled ?? true,
+    refetchInterval: options.refetchInterval ?? ACTIONS_POLL_MS,
+  });
 }
 
-export function useActions(params: ActionsParams, options: { enabled?: boolean } = {}) {
-  const qs = new URLSearchParams();
-  if (params.before) qs.set("before", params.before);
-  if (params.beforeId) qs.set("beforeId", params.beforeId);
-  if (params.scope && params.scope !== "all") qs.set("scope", params.scope);
-  if (params.address) qs.set("address", params.address);
-  if (params.coin) qs.set("coin", params.coin);
-  if (params.kind) qs.set("kind", params.kind);
-  if (params.tier) qs.set("tier", params.tier);
-  qs.set("limit", String(params.limit ?? 100));
-  return useQuery({
-    queryKey: ["actions", qs.toString()],
-    queryFn: () => api.get<ActionFeedItem[]>(`/actions?${qs.toString()}`),
-    enabled: options.enabled ?? true,
-    refetchInterval: 10_000,
-  });
+/**
+ * An /actions list kept live by GET /actions/stream (new rows pushed within
+ * a second or two, corrections applied in place), with polling as the
+ * fallback: every 10 s while the stream is down, every 60 s while it's live.
+ * `highlight`: ids of rows that just arrived.
+ */
+export function useLiveActions(params: ActionsParams, options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled ?? true;
+  const [live, setLive] = useState(false);
+  const query = useActions(params, { enabled, refetchInterval: live ? ACTIONS_LIVE_POLL_MS : ACTIONS_POLL_MS });
+  const stream = useActionStream(params, enabled && query.isSuccess);
+  const isLive = stream.status === "live";
+  if (isLive !== live) setLive(isLive);
+  return { query, status: stream.status, highlight: stream.highlight };
 }
 
 export function useAlerts(address: string | undefined, options: { enabled?: boolean } = {}) {

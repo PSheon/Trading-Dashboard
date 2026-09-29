@@ -224,25 +224,38 @@ export const patchLeaderRequestSchema = z.object({
 }).strict();
 export type PatchLeaderRequest = z.infer<typeof patchLeaderRequestSchema>;
 
-/** GET /actions (Live Feed) — D1 */
-export const actionsFeedQuerySchema = z.object({
+/** A positive Postgres bigint action id, as a decimal string. */
+export const actionIdCursorSchema = z.string().regex(/^[1-9]\d{0,18}$/).refine(
+  (value) => /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n,
+  "Invalid action cursor id",
+);
+
+/** Filters shared by GET /actions and GET /actions/stream. */
+const actionsFeedFilterShape = {
   /** `favorites`: only addresses the signed-in user favorited. */
   scope: z.enum(["all", "favorites"]).default("all"),
   address: addressSchema.transform((v) => v.toLowerCase()).optional(),
   coin: z.string().optional(),
   kind: actionKindSchema.optional(),
   tier: tierSchema.optional(),
+};
+
+/** GET /actions (Live Feed) — D1 */
+export const actionsFeedQuerySchema = z.object({
+  ...actionsFeedFilterShape,
   limit: z.coerce.number().int().min(1).max(500).default(100),
   before: z.coerce.date().optional(),
   /** Pair with before using the last row's timestamp and id for lossless pagination. */
-  beforeId: z.string().regex(/^[1-9]\d{0,18}$/).refine(
-    (value) => /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n,
-    "Invalid action cursor id",
-  ).optional(),
+  beforeId: actionIdCursorSchema.optional(),
 }).refine((value) => value.beforeId === undefined || value.before !== undefined, {
   message: "before is required with beforeId", path: ["before"],
 });
 export type ActionsFeedQuery = z.infer<typeof actionsFeedQuerySchema>;
+
+/** GET /actions/stream — the live feed's filters (no paging). Resuming uses
+ * the SSE `Last-Event-ID` header: an action id (`actionIdCursorSchema`). */
+export const actionsStreamQuerySchema = z.object(actionsFeedFilterShape);
+export type ActionsStreamQuery = z.infer<typeof actionsStreamQuerySchema>;
 
 /** GET /alerts — D5 log (filterable by rule/address/coin) */
 export const alertsQuerySchema = z.object({

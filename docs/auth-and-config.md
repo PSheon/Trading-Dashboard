@@ -97,6 +97,12 @@ migration is separate work.
   dry-run/public-only local development remains supported. Polling defaults true
   but the bot does not start without a token; bot conversation replies are not
   suppressed by alert dry-run.
+- STREAM_MAX_PER_IP (1–1000, default 8) and STREAM_MAX_TOTAL (1–100000,
+  default 500; not below the per-IP value) bound open `GET /actions/stream`
+  connections; STREAM_TRUSTED_PROXY_HOPS (0–10, default 0) says how many
+  X-Forwarded-For entries (from the right) were appended by trusted proxies,
+  including the web forwarder. Only that entry names the client; anything
+  further left is client-supplied and ignored.
 - Upstream HTTP/WS URLs and Telegram link URLs must use the expected protocols,
   have a host, and contain no credentials or fragment.
 
@@ -120,6 +126,12 @@ in-memory feed heartbeat. The pool waits at most 3s for a connection, applies
 Browser-facing API work has a 20s overall deadline; a disconnected caller aborts
 queued/in-flight Hyperliquid requests. Explicit background work is independent
 of the HTTP request that admitted it.
+
+`GET /actions/stream` (server-sent events) is the one exemption from the 20s
+deadline: once admitted it calls `releaseRequestDeadline`, and it lives until
+the client disconnects (which still aborts the request signal and frees its
+slot) or shutdown begins, which ends every open stream immediately so the HTTP
+server can close; clients reconnect with `Last-Event-ID`.
 
 SIGTERM/SIGINT stop new work, cancel upstream requests and drain tracked jobs.
 A 30s watchdog bounds the entire process shutdown; background drain has a 25s

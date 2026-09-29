@@ -6,10 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { ACTION_KINDS, ActionsTable } from "@/components/actions/actions-table";
+import { LiveBadge } from "@/components/actions/live-badge";
 import { EmptyState, ErrorState, PageHeader, Panel, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
-import { useActions } from "@/lib/queries";
+import { useLiveActions } from "@/lib/queries";
 import { CrowdView } from "./crowd-view";
 
 const TIERS = ["A", "B", "C"] as const;
@@ -33,7 +34,12 @@ export function InsightsView() {
   }
 
   const coinFilter = coin.trim().toUpperCase();
-  const actions = useActions({ coin: coinFilter || undefined, kind: kind || undefined, tier: tier || undefined, limit: 100 });
+  const { query: actions, status: streamStatus, highlight } = useLiveActions({
+    coin: coinFilter || undefined,
+    kind: kind || undefined,
+    tier: tier || undefined,
+    limit: 100,
+  });
   const filtered = Boolean(coinFilter || kind || tier);
 
   return (
@@ -45,11 +51,8 @@ export function InsightsView() {
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
           <h2 className="mr-2 flex items-center gap-2 text-lg font-bold tracking-tight">
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
-              <span className="relative inline-flex size-2 rounded-full bg-primary" />
-            </span>
             {t("insights.liveFeed")}
+            <LiveBadge status={streamStatus} />
           </h2>
           <input
             value={coin}
@@ -116,7 +119,7 @@ export function InsightsView() {
           ) : actions.data.length === 0 ? (
             <EmptyState icon={Activity} title={t("insights.empty")} />
           ) : (
-            <ActionsTable rows={actions.data} />
+            <ActionsTable rows={actions.data} highlight={highlight} />
           )}
         </Panel>
       </section>

@@ -7,6 +7,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/health` | 200 | public; raw |
 | GET | `/health/ready` | 200 | public; raw |
 | GET | `/actions` | 200 | public; favorites requires user |
+| GET | `/actions/stream` | 200 | public; favorites requires user; SSE |
 | GET | `/actions/:id/fills` | 200 | public |
 | GET | `/alerts` | 200 | user own; alerts.readAll for all |
 | GET | `/leaders` | 200 | public |
@@ -21,6 +22,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/traders/sparklines` | 200 | public |
 | GET | `/traders/:address` | 200 | public |
 | GET | `/traders/:address/portfolio` | 200 | public |
+| GET | `/traders/:address/activity` | 200 | public |
 | GET | `/traders/:address/fills` | 200 | public |
 | GET | `/me` | 200 | user |
 | PATCH | `/me` | 200 | user |

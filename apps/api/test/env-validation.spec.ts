@@ -35,6 +35,8 @@ describe("startup environment", () => {
     ["NODE_ENV", "prodution"], ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "0"],
     ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "-1"], ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "1200"],
     ["HYPERLIQUID_WEIGHT_BURST", "0"], ["ALERT_MAX_ACTION_AGE_SECONDS", "-1"],
+    ["STREAM_MAX_PER_IP", "0"], ["STREAM_MAX_TOTAL", "5x"], ["STREAM_TRUSTED_PROXY_HOPS", "11"],
+    ["STREAM_MAX_PER_IP", "600"],
     ["TELEGRAM_DRY_RUN", "typo"], ["TELEGRAM_BOT_POLLING", "yes"],
     ["HYPERLIQUID_API_URL", "file:///tmp/info"], ["HYPERLIQUID_WS_URL", "https://example.com"],
     ["TELEGRAM_LINK_BASE_URL", "https://user:secret@example.com"],

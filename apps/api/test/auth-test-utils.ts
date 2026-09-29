@@ -44,6 +44,8 @@ export async function createAuthedApp(opts: {
   controllers?: Type<unknown>[];
   providers?: Parameters<typeof Test.createTestingModule>[0]["providers"];
   imports?: Parameters<typeof Test.createTestingModule>[0]["imports"];
+  /** Runs before listening, e.g. to add main.ts's request middleware. */
+  beforeListen?: (app: INestApplication) => void;
 }): Promise<{ app: INestApplication; auth: AuthService; settings: SettingsService }> {
   @Global()
   @Module({ providers: [{ provide: DRIZZLE_CLIENT, useValue: opts.db }], exports: [DRIZZLE_CLIENT] })
@@ -66,6 +68,7 @@ export async function createAuthedApp(opts: {
   // Keep one loopback listener for the suite. Letting Supertest start/close
   // the server per request churns ephemeral ports and can race socket reuse
   // when many HTTP integration requests run back-to-back.
+  opts.beforeListen?.(app);
   await app.listen(0, "127.0.0.1");
   return { app, auth: app.get(AuthService), settings: app.get(SettingsService) };
 }

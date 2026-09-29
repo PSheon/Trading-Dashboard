@@ -25,12 +25,32 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
 });
 const outboxCounts = z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
-export interface HttpRouteContract { method: string; path: string; status: number; auth: string; response: z.ZodTypeAny }
+/** GET /actions/stream (text/event-stream). Each SSE `event:` name maps to the
+ * schema of its JSON `data:`; both ends validate every event.
+ * - `action`: a new row, exactly as GET /actions returns it; its SSE `id:` is the action id (the resume cursor).
+ * - `update`: the slow path corrected a row in place (kind/side); no SSE id.
+ * - `reset`: the resume gap was larger than the replay bound; refetch the list. */
+export const actionStreamEventSchemas = {
+  action: wireActionSchema,
+  update: wireActionSchema,
+  reset: z.object({ reason: z.literal("replay_truncated") }),
+} as const;
+export type ActionStreamEventName = keyof typeof actionStreamEventSchemas;
+export interface HttpStreamContract { contentType: "text/event-stream"; events: Record<string, z.ZodTypeAny> }
+export interface HttpRouteContract {
+  method: string; path: string; status: number; auth: string;
+  /** JSON body schema; `z.never()` for a stream (no JSON body). */
+  response: z.ZodTypeAny;
+  /** Set for server-sent-event routes. */
+  stream?: HttpStreamContract;
+}
 /** One registry drives server output validation, browser validation and route docs. */
 export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/health", status: 200, auth: "public; raw", response: wireHeartbeatSchema },
   { method: "GET", path: "/health/ready", status: 200, auth: "public; raw", response: z.object({ ready: z.literal(true) }) },
   { method: "GET", path: "/actions", status: 200, auth: "public; favorites requires user", response: z.array(wireActionSchema) },
+  { method: "GET", path: "/actions/stream", status: 200, auth: "public; favorites requires user; SSE", response: z.never(),
+    stream: { contentType: "text/event-stream", events: actionStreamEventSchemas } },
   { method: "GET", path: "/actions/:id/fills", status: 200, auth: "public", response: z.array(wireFillSchema) },
   { method: "GET", path: "/alerts", status: 200, auth: "user own; alerts.readAll for all", response: z.array(wireAlertSchema) },
   { method: "GET", path: "/leaders", status: 200, auth: "public", response: z.array(wireLeaderSummarySchema) },

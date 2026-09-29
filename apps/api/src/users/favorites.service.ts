@@ -1,4 +1,5 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
@@ -17,6 +18,11 @@ import { SettingsService } from "../settings/settings.service.js";
 import { BackfillService } from "../watcher/backfill.service.js";
 import { toTraderStats } from "../traders/traders.mappers.js";
 
+/** A user's favorites changed (after commit), so live `scope=favorites`
+ * streams (GET /actions/stream) reload the set they filter by. */
+export const FAVORITES_CHANGED_EVENT = "favorites.changed";
+export interface FavoritesChangedEvent { userId: number }
+
 /**
  * A user's favorites. A favorited address joins the watch list (`leaders`):
  * - not there yet → created with `source='favorite'` and backfilled;
@@ -33,6 +39,7 @@ export class FavoritesService {
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
     private readonly backfill: BackfillService,
     private readonly settings: SettingsService,
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   async list(userId: number, address?: string): Promise<Favorite[]> {
@@ -150,6 +157,7 @@ export class FavoritesService {
       return false;
     });
 
+    this.events?.emit(FAVORITES_CHANGED_EVENT, { userId } satisfies FavoritesChangedEvent);
     if (createdLeader) {
       this.logger.log(`New favorite-sourced leader ${address} — starting backfill`);
       this.backfill.trigger(address);
@@ -194,6 +202,9 @@ export class FavoritesService {
           ),
         );
       return removed.length > 0;
+    }).then((removed) => {
+      if (removed) this.events?.emit(FAVORITES_CHANGED_EVENT, { userId } satisfies FavoritesChangedEvent);
+      return removed;
     });
   }
 }

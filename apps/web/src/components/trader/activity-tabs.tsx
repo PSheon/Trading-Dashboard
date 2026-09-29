@@ -8,6 +8,7 @@ import { useState } from "react";
 import { cn } from "cn";
 
 import { ActionsTable, KindBadge, SideText } from "@/components/actions/actions-table";
+import { LiveBadge } from "@/components/actions/live-badge";
 import { EmptyState, ErrorState, SignInPrompt, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { coinLabel } from "@/lib/format";
-import { useActions, useAlerts, useTraderFills } from "@/lib/queries";
+import { useAlerts, useLiveActions, useTraderFills } from "@/lib/queries";
 
 type Tab = "positions" | "fills" | "actions" | "alerts";
 const TABS: Tab[] = ["positions", "fills", "actions", "alerts"];
@@ -28,7 +29,11 @@ export function ActivityTabs({ profile }: { profile: TraderProfileResponse }) {
   const [tab, setTab] = useState<Tab>("positions");
   const { status } = useAuth();
   const fills = useTraderFills(profile.address, 200);
-  const actions = useActions({ address: profile.address, limit: 200 }, { enabled: tab === "actions" });
+  const {
+    query: actions,
+    status: actionsStream,
+    highlight: newActions,
+  } = useLiveActions({ address: profile.address, limit: 200 }, { enabled: tab === "actions" });
   const alerts = useAlerts(profile.address, { enabled: tab === "alerts" && status === "signedIn" });
 
   const exportable = tab === "fills" ? fills.data : tab === "actions" ? actions.data : undefined;
@@ -59,6 +64,7 @@ export function ActivityTabs({ profile }: { profile: TraderProfileResponse }) {
             </button>
           ))}
         </div>
+        {tab === "actions" ? <LiveBadge status={actionsStream} className="ml-auto" /> : null}
         {exportable && exportable.length > 0 ? (
           <Button
             variant="ghost"
@@ -96,7 +102,7 @@ export function ActivityTabs({ profile }: { profile: TraderProfileResponse }) {
           ) : actions.data.length === 0 ? (
             <EmptyState title={t("trader.noActions")} />
           ) : (
-            <ActionsTable rows={actions.data} showTrader={false} />
+            <ActionsTable rows={actions.data} showTrader={false} highlight={newActions} />
           )
         ) : null}
         {tab === "alerts" ? (

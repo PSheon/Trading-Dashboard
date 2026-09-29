@@ -6,7 +6,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import { AccountStateService } from "../src/watcher/account-state.service.js";
-import { ACTION_CREATED_EVENT } from "../src/watcher/action-created.event.js";
+import { ACTION_CORRECTED_EVENT, ACTION_CREATED_EVENT, type ActionCorrectedEvent } from "../src/watcher/action-created.event.js";
 import { FeedActionsService } from "../src/watcher/feed-actions.service.js";
 import { FillSyncService } from "../src/watcher/fill-sync.service.js";
 import type { TradeFeedService } from "../src/watcher/trade-feed.service.js";
@@ -30,6 +30,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     userTwapSliceFillsByTime: ReturnType<typeof vi.fn>;
   };
   let emitted: Array<typeof actions.$inferSelect>;
+  let corrected: ActionCorrectedEvent[];
   let fast: FeedActionsService;
   let sync: FillSyncService;
 
@@ -55,6 +56,8 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     const events = new EventEmitter2();
     emitted = [];
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
+    corrected = [];
+    events.on(ACTION_CORRECTED_EVENT, (event) => corrected.push(event));
     fast = new FeedActionsService(db, accounts, events);
     sync = new FillSyncService(client, db, accounts, events);
   });
@@ -83,6 +86,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     await sync.sync(A, "sweep", t - 10_000);
     expect(sync.getFastPathStats()).toEqual({ verified: 1, corrected: 0 });
     expect(emitted).toHaveLength(1);
+    expect(corrected).toEqual([]); // a confirmed action is not an update
   });
 
   it("corrects an action the book got wrong, in place and without a second alert", async () => {
@@ -101,6 +105,8 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     expect(btc).toHaveLength(1);
     expect(btc[0]).toMatchObject({ id: wrong.id, kind: "reduce", side: "long", fillIds: wrong.fillIds });
     expect(emitted).toHaveLength(2);
+    // Open pages hear about the fix (GET /actions/stream `update`), after commit.
+    expect(corrected).toEqual([{ updated: [expect.objectContaining({ id: wrong.id, kind: "reduce", side: "long" })], inserted: [] }]);
     expect(sync.getFastPathStats()).toEqual({ verified: 1, corrected: 1 });
   });
 
@@ -117,6 +123,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     await sync.sync(A, "confirm", t - 1000, tidsOf(liquidation.fills));
     expect((await db.select().from(actions))[0]).toMatchObject({ kind: "liquidation", side: "long" });
     expect(emitted).toHaveLength(1);
+    expect(corrected.flatMap((c) => c.updated.map((r) => r.kind))).toEqual(["liquidation"]);
   });
 
   it("re-derives an action only once all its fills are stored", async () => {

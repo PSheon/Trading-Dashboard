@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "cn";
 
 import { ActionsTable } from "@/components/actions/actions-table";
+import { LiveBadge } from "@/components/actions/live-badge";
 import { AlertBell } from "@/components/alerts/alert-bell";
 import { AreaChart } from "@/components/charts/area-chart";
 import { EmptyState, ErrorState, PageHeader, Panel, SectionHeader, SignInPrompt, Skeleton } from "@/components/page";
@@ -18,7 +19,7 @@ import { useI18n } from "@/i18n/provider";
 import { useTelegramStatus } from "@/lib/alerts";
 import { useAuth } from "@/lib/auth";
 import { traderName, truncateAddress } from "@/lib/format";
-import { useActions, useFavorites, useSiteSettings, useSparklines } from "@/lib/queries";
+import { useFavorites, useLiveActions, useSiteSettings, useSparklines } from "@/lib/queries";
 
 export function FavoritesView() {
   const { t } = useI18n();
@@ -27,7 +28,7 @@ export function FavoritesView() {
   const favorites = useFavorites();
   const settings = useSiteSettings();
   const telegram = useTelegramStatus();
-  const actions = useActions({ scope: "favorites", limit: 50 }, { enabled: signedIn });
+  const { query: actions, status: streamStatus, highlight } = useLiveActions({ scope: "favorites", limit: 50 }, { enabled: signedIn });
   const sparklines = useSparklines(favorites.data?.map((f) => f.address).slice(0, 30) ?? [], "month");
 
   if (!signedIn) {
@@ -110,7 +111,14 @@ export function FavoritesView() {
       </section>
 
       <section>
-        <SectionHeader title={t("favorites.recentActions")} />
+        <SectionHeader
+          title={
+            <span className="flex items-center gap-2">
+              {t("favorites.recentActions")}
+              <LiveBadge status={streamStatus} />
+            </span>
+          }
+        />
         <Panel className="overflow-hidden">
           {actions.isError ? (
             <ErrorState message={actions.error.message} onRetry={() => actions.refetch()} />
@@ -123,7 +131,7 @@ export function FavoritesView() {
           ) : actions.data.length === 0 ? (
             <EmptyState icon={Activity} title={t("favorites.noActions")} />
           ) : (
-            <ActionsTable rows={actions.data} />
+            <ActionsTable rows={actions.data} highlight={highlight} />
           )}
         </Panel>
       </section>

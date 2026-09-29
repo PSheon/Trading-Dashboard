@@ -51,6 +51,8 @@ jobs:
         run: node --test scripts/test-database.test.mjs
       - name: API tests with disposable migrated database
         run: pnpm test:api:isolated
+      - name: Concurrent release migration smoke
+        run: node scripts/migration-smoke.mjs
       - name: Web tests
         run: pnpm --filter @trading-dashboard/web test
       - name: Compiled API bootstrap and shutdown
@@ -61,3 +63,5 @@ jobs:
         run: pnpm --filter @trading-dashboard/web test:e2e
       - name: Production builds
         run: pnpm build
+      - name: API runtime image
+        run: docker build -f apps/api/Dockerfile -t orbie-api:ci .

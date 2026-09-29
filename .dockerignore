@@ -16,3 +16,7 @@
 **/.env.*
 !**/.env.example
 .DS_Store
+
+**/.next-e2e
+**/test-results
+**/playwright-report

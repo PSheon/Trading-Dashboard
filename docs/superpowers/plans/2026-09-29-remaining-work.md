@@ -109,5 +109,12 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 
 ## Batch 9 dependency maintenance
 
-- Task 35: Drizzle ORM 0.45.3 / Kit 0.31.11, ws 8.22.0 with bounded same-major override, removed unused Nest Cloud tooling, native Vitest alias resolution, Node 22 typings/.nvmrc, shadcn build-only placement. Full isolated API 500/500, workspace types/lints, web 13 tests and no-op schema generation passed. Production build is repeated with the image work next.
+- Task 35: Drizzle ORM 0.45.3 / Kit 0.31.11, ws 8.22.0 with bounded same-major override, removed unused Nest Cloud tooling, native Vitest alias resolution, Node 22 typings/.nvmrc, shadcn build-only placement. Full isolated API 500/500, workspace types, web 13 tests and no-op schema generation passed. Production build is repeated with the image work next.
 - Audit improved from 8 high / 15 moderate / 4 low to 0 high / 4 moderate / 0 low. Remaining esbuild/uuid/URI-decoder paths and wallet peer warnings are explicitly tracked in dependency-maintenance.md; no unsafe major override or blanket advisory ignore. This is not a claim of zero vulnerabilities or live wallet compatibility.
+
+- Post-browser lint initially included generated .next-e2e bundles. Added explicit generated-output ignores; source lint is rerun before the next gate.
+
+## Batch 10 image and release migrations
+
+- Task 36: pinned Node image, API/shared-only build and production dependency deployment, non-root runtime, explicit locked migration command bundled with SQL/journal, Docker update tracking and CI image build. No automatic migration at API startup.
+- Local Docker build passed; runtime excludes compiler/test/frontend packages. Image migration/readiness 200/graceful exit 0 passed against a created-and-dropped DB; concurrent local migration retries preserve journal count. Web webpack production build passed after dependency changes. Generated-output lint exclusion fixed and workspace lint passed. Production release-hook setup and external deployment remain unverified.

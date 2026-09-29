@@ -99,7 +99,50 @@ export type HlInfoRequestBody =
       startTime: number;
       endTime?: number;
     }
-  | { type: "allMids" };
+  | { type: "allMids" }
+  | { type: "referral"; user: string };
+
+/** Cumulative reward counters. The top-level fields of the `referral`
+ * response are USDC (token 0) only; other tokens appear in `tokenToState`. */
+export interface HlReferralRewardState {
+  cumVlm: string;
+  /** Includes unclaimed builder rewards (verified live 2026-09-29: an
+   * address with only builder income has unclaimed = builderRewards). */
+  unclaimedRewards: string;
+  claimedRewards: string;
+  builderRewards: string;
+}
+
+/** One user referred by the queried address (stage "ready"). */
+export interface HlReferralState {
+  /** The referred user's cumulative volume, USDC (token 0). */
+  cumVlm: string;
+  cumRewardedFeesSinceReferred: string;
+  /** Fees paid to the referrer (the queried address) by this user, USDC. */
+  cumFeesRewardedToReferrer: string;
+  timeJoined: number;
+  user: string;
+  tokenToState?: Array<[number, Partial<HlReferralState>]>;
+}
+
+/** `referrerState`: "needToTrade" (below the $10k volume needed to create a
+ * code; data = {required}), "needToCreateCode" (no data), "ready" (has a
+ * code; data = {code, nReferrals, referralStates}). Verified live
+ * 2026-09-29 against the docs' "Query a user's referral information". */
+export type HlReferrerState =
+  | { stage: "ready"; data: { code: string; nReferrals?: number; referralStates: HlReferralState[] } }
+  | { stage: "needToTrade"; data?: { required: string } }
+  | { stage: "needToCreateCode"; data?: unknown }
+  | { stage: string; data?: unknown };
+
+/** `info {"type":"referral","user":…}`. */
+export interface HlReferralResponse extends HlReferralRewardState {
+  referredBy: { referrer: string; code: string } | null;
+  referrerState: HlReferrerState;
+  /** Legacy. */
+  rewardHistory: unknown[];
+  tokenToState: Array<[number, HlReferralRewardState]>;
+}
 
 // ---------------------------------------------------------------------------
 // WS: wss://api.hyperliquid.xyz/ws

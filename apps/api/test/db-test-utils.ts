@@ -28,9 +28,25 @@ export async function truncateAll(db: TestDb): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
       alerts, alert_rules, actions, position_snapshots, equity_snapshots,
-      fills, coin_meta, leader_list_items, leader_lists, leaders
+      fills, coin_meta, leader_list_items, leader_lists, leaders,
+      notification_channels, user_favorites, users, trader_stats
     RESTART IDENTITY CASCADE
   `);
+}
+
+let userSeq = 0;
+
+/** Inserts a user row directly (no Privy); returns it. */
+export async function insertUser(
+  db: TestDb,
+  overrides: Partial<typeof schema.users.$inferInsert> = {},
+): Promise<typeof schema.users.$inferSelect> {
+  userSeq += 1;
+  const [row] = await db
+    .insert(schema.users)
+    .values({ privyUserId: `did:privy:test-${userSeq}-${Date.now()}`, ...overrides })
+    .returning();
+  return row;
 }
 
 export async function closeTestDb(): Promise<void> {

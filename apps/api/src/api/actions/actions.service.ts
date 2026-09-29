@@ -5,6 +5,7 @@ import {
   actions,
   fills,
   leaders,
+  userFavorites,
   type ActionFeedItem,
   type ActionsFeedQuery,
   type Fill,
@@ -20,8 +21,20 @@ import type { DrizzleDb } from "../../db/drizzle.provider.js";
 export class ActionsService {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
-  async findFeed(query: ActionsFeedQuery): Promise<ActionFeedItem[]> {
+  /** `favoritesOf`: only addresses this user favorited. */
+  async findFeed(query: ActionsFeedQuery, favoritesOf?: number): Promise<ActionFeedItem[]> {
     const conditions = [eq(actions.chain, CHAIN_DEFAULT)];
+    if (favoritesOf !== undefined) {
+      conditions.push(
+        inArray(
+          actions.address,
+          this.db
+            .select({ address: userFavorites.address })
+            .from(userFavorites)
+            .where(and(eq(userFavorites.userId, favoritesOf), eq(userFavorites.chain, CHAIN_DEFAULT))),
+        ),
+      );
+    }
     if (query.coin) conditions.push(eq(actions.coin, query.coin));
     if (query.kind) conditions.push(eq(actions.kind, query.kind));
     if (query.tier) conditions.push(eq(leaders.tier, query.tier));

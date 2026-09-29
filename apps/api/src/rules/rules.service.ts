@@ -1,17 +1,19 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq, inArray, max } from "drizzle-orm";
 import {
   alertRules,
   alerts,
   leaders,
+  notificationChannels,
+  userFavorites,
+  users,
   flatOrPctParamsSchema,
   type AlertRuleKind,
 } from "@trading-dashboard/shared";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import { chatIdForRuleKind } from "../notify/chat-routing.js";
 import { NotifyService } from "../notify/notify.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { ACTION_CREATED_EVENT, type ActionCreatedEvent } from "../watcher/action-created.event.js";
@@ -25,10 +27,16 @@ type LeaderRow = typeof leaders.$inferSelect;
 const ADDRESS_SCOPE_KINDS_IN_SCOPE: AlertRuleKind[] = ["R1", "R2", "R3"];
 
 /**
- * Reads `actions` and decides whether to push a Telegram notification
- * (§4.3 R1–R3 for M2). Rules evaluate synchronously, in-process, driven by
- * the Watcher's `action.created` event (§1 of the M2 task) — no polling of
- * the `actions` table, no queue (§8 延遲: ≤5s fill-to-Telegram).
+ * Reads `actions` and decides who gets a Telegram notification (§4.3 R1–R3).
+ * Rules evaluate synchronously, in-process, driven by the Watcher's
+ * `action.created` event — no polling of the `actions` table, no queue
+ * (§8 延遲: ≤5s fill-to-Telegram).
+ *
+ * Rules are per user. For each action the recipients are the users who
+ * favorited that address, plus every admin when an admin imported it
+ * (`leaders.source = 'import'`). Each recipient's own enabled rules are
+ * evaluated, with their own cooldowns, and all of a recipient's matching
+ * rules go out as ONE message to that recipient's Telegram channel.
  */
 @Injectable()
 export class RulesService {
@@ -45,68 +53,91 @@ export class RulesService {
     await this.evaluateAction(action);
   }
 
-  /** Evaluates every enabled, tier-applicable address-scope rule (R1–R3)
-   * against one newly-persisted action. Isolated per-rule try/catch for the
-   * condition+cooldown check: one rule's evaluation failure must never stop
-   * the others. Rules that end up matching (condition true AND each rule's
-   * OWN cooldown independently not active) are then grouped by chat
-   * destination and sent as ONE combined Telegram message per destination
-   * — e.g. R1 and R3 both matching the same large `open` (or R2 and R3 both
-   * matching the same `flip`) must not send two separate messages for one
-   * action, even though each still gets its own `alerts` row (N2). */
+  /** Evaluates every recipient's enabled, tier-applicable address-scope
+   * rules (R1–R3) against one newly-persisted action. One rule's
+   * evaluation failure never stops the others; one recipient's send never
+   * delays another's (sends run concurrently, and NotifyService never
+   * throws). Each matching rule still gets its own `alerts` row (N2). */
   async evaluateAction(action: ActionCreatedEvent): Promise<void> {
     const leader = await this.getLeader(action.chain, action.address);
     if (!leader) {
-      // Shouldn't happen (an action can only exist for a polled, and thus
-      // leaders-table-present, address) — defensive no-op rather than a
-      // crash if a leader row is deleted mid-flight.
+      // Shouldn't happen (an action only exists for a watched address) —
+      // defensive no-op if a leader row is deleted mid-flight.
       return;
     }
 
-    const rules = await this.getApplicableAddressRules(leader.tier);
-    const equityUsd = this.watcher.getEquityUsd(action.address);
+    const recipientIds = await this.recipientsFor(leader);
+    if (recipientIds.length === 0) return;
 
-    const firingRules: AlertRuleRow[] = [];
+    const rules = await this.getApplicableAddressRules(recipientIds, leader.tier);
+    if (rules.length === 0) return;
+
+    const [lastSentByRule, chatIdByUser] = await Promise.all([
+      this.lastSentByRule(
+        rules.map((r) => r.id),
+        action,
+      ),
+      this.telegramChatIds(recipientIds),
+    ]);
+    const equityUsd = this.watcher.getEquityUsd(action.address);
+    const now = Date.now();
+
+    const firingByUser = new Map<number, AlertRuleRow[]>();
     for (const rule of rules) {
       try {
         if (!this.matches(rule, action, equityUsd)) continue;
-        if (await this.isInCooldown(rule, action)) continue;
-        firingRules.push(rule);
+        const lastSent = lastSentByRule.get(rule.id);
+        if (lastSent && (now - lastSent.getTime()) / 1000 < rule.cooldownS) continue;
+        const userId = rule.userId as number;
+        firingByUser.set(userId, [...(firingByUser.get(userId) ?? []), rule]);
       } catch (error) {
         this.logger.error(
-          `Rule evaluation failed for ${rule.kind} / ${action.address} / ${action.coin}: ${
+          `Rule evaluation failed for rule ${rule.id} (${rule.kind}) / ${action.address} / ${action.coin}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
       }
     }
-    if (firingRules.length === 0) return;
 
-    const byChatId = new Map<string | undefined, AlertRuleRow[]>();
-    for (const rule of firingRules) {
-      const chatId = chatIdForRuleKind(rule.kind);
-      const group = byChatId.get(chatId) ?? [];
-      group.push(rule);
-      byChatId.set(chatId, group);
-    }
-
-    for (const group of byChatId.values()) {
-      try {
-        await this.notify.notifyRulesFire({ rules: group, action, leader });
-      } catch (error) {
-        this.logger.error(
-          `notifyRulesFire failed for [${group.map((r) => r.kind).join(",")}] / ${action.address} / ${action.coin}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
+    await Promise.all(
+      [...firingByUser].map(async ([userId, firing]) => {
+        try {
+          await this.notify.notifyRulesFire({
+            rules: firing,
+            action,
+            leader,
+            recipient: { userId, telegramChatId: chatIdByUser.get(userId) ?? null },
+          });
+        } catch (error) {
+          this.logger.error(
+            `notifyRulesFire failed for user ${userId} [${firing.map((r) => r.kind).join(",")}] / ${action.address} / ${action.coin}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }),
+    );
   }
 
   /** R6–R9 (group rules) are out of scope for M2 — no caller wires this up
    * yet; left as the M1 scaffold's not-implemented stub. */
   async evaluateGroupRules(): Promise<void> {
     throw new Error("not implemented — R6-R9 are out of scope for M2");
+  }
+
+  /** Users who favorited this address, plus every admin for an imported
+   * leader. */
+  async recipientsFor(leader: Pick<LeaderRow, "chain" | "address" | "source">): Promise<number[]> {
+    const [favoriters, admins] = await Promise.all([
+      this.db
+        .select({ userId: userFavorites.userId })
+        .from(userFavorites)
+        .where(and(eq(userFavorites.chain, leader.chain), eq(userFavorites.address, leader.address))),
+      leader.source === "import"
+        ? this.db.select({ userId: users.id }).from(users).where(eq(users.role, "admin"))
+        : Promise.resolve([]),
+    ]);
+    return [...new Set([...favoriters, ...admins].map((r) => r.userId))];
   }
 
   private matches(rule: AlertRuleRow, action: ActionCreatedEvent, equityUsd: number | null): boolean {
@@ -150,20 +181,34 @@ export class RulesService {
     return Number(action.notionalUsd) >= threshold;
   }
 
-  /** Cooldown source-of-truth is the DB (`alerts.sent_at`), not in-memory
-   * state, so a process restart doesn't cause a burst of duplicate
-   * re-alerts (task's explicit instruction). */
-  private async isInCooldown(rule: AlertRuleRow, action: ActionCreatedEvent): Promise<boolean> {
-    const [last] = await this.db
-      .select({ sentAt: alerts.sentAt })
+  /** Cooldown source of truth is the DB (`alerts.sent_at`), not memory, so
+   * a restart doesn't burst duplicate alerts. Rule rows are per user, so
+   * keying by rule id makes the cooldown per (user, rule, address, coin). */
+  private async lastSentByRule(ruleIds: number[], action: ActionCreatedEvent): Promise<Map<number, Date>> {
+    const rows = await this.db
+      .select({ ruleId: alerts.ruleId, lastSentAt: max(alerts.sentAt) })
       .from(alerts)
-      .where(and(eq(alerts.ruleId, rule.id), eq(alerts.address, action.address), eq(alerts.coin, action.coin)))
-      .orderBy(desc(alerts.sentAt))
-      .limit(1);
+      .where(
+        and(inArray(alerts.ruleId, ruleIds), eq(alerts.address, action.address), eq(alerts.coin, action.coin)),
+      )
+      .groupBy(alerts.ruleId);
+    const result = new Map<number, Date>();
+    for (const row of rows) if (row.lastSentAt) result.set(row.ruleId, new Date(row.lastSentAt));
+    return result;
+  }
 
-    if (!last?.sentAt) return false;
-    const elapsedSeconds = (Date.now() - last.sentAt.getTime()) / 1000;
-    return elapsedSeconds < rule.cooldownS;
+  private async telegramChatIds(userIds: number[]): Promise<Map<number, string>> {
+    const rows = await this.db
+      .select({ userId: notificationChannels.userId, target: notificationChannels.target })
+      .from(notificationChannels)
+      .where(
+        and(
+          inArray(notificationChannels.userId, userIds),
+          eq(notificationChannels.kind, "telegram"),
+          eq(notificationChannels.enabled, true),
+        ),
+      );
+    return new Map(rows.map((r) => [r.userId, r.target]));
   }
 
   private async getLeader(chain: string, address: string): Promise<LeaderRow | undefined> {
@@ -175,15 +220,19 @@ export class RulesService {
     return row;
   }
 
-  /** Enabled, address-scope, in-M2-scope rules whose `tiers[]` includes
-   * this leader's current tier. Fetched-then-filtered-in-JS rather than an
-   * array-contains SQL predicate — rule-row volume is tiny (3 rows for
-   * M2), not worth the query complexity. */
-  private async getApplicableAddressRules(tier: LeaderRow["tier"]): Promise<AlertRuleRow[]> {
+  /** The recipients' enabled, address-scope, in-scope rules whose `tiers[]`
+   * include this leader's tier. Filtered in JS: a few rows per user. */
+  private async getApplicableAddressRules(userIds: number[], tier: LeaderRow["tier"]): Promise<AlertRuleRow[]> {
     const rows = await this.db
       .select()
       .from(alertRules)
-      .where(and(eq(alertRules.scope, "address"), eq(alertRules.enabled, true)));
+      .where(
+        and(
+          inArray(alertRules.userId, userIds),
+          eq(alertRules.scope, "address"),
+          eq(alertRules.enabled, true),
+        ),
+      );
     return rows.filter(
       (r) => ADDRESS_SCOPE_KINDS_IN_SCOPE.includes(r.kind) && r.tiers.includes(tier),
     );

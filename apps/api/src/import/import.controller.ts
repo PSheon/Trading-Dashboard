@@ -4,8 +4,10 @@ import type {
   ImportLeaderListResponse,
 } from "@trading-dashboard/shared";
 
+import { Roles } from "../common/auth/current-user.js";
 import { ImportService } from "./import.service.js";
 
+@Roles("admin")
 @Controller("import")
 export class ImportController {
   constructor(private readonly importService: ImportService) {}

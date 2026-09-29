@@ -4,11 +4,13 @@ import { EventEmitterModule } from "@nestjs/event-emitter";
 
 import { ApiModule } from "./api/api.module.js";
 import { AuthGuard } from "./common/auth/auth.guard.js";
+import { AuthModule } from "./common/auth/auth.module.js";
 import { DbModule } from "./db/db.module.js";
 import { ImportModule } from "./import/import.module.js";
 import { NotifyModule } from "./notify/notify.module.js";
 import { RulesModule } from "./rules/rules.module.js";
 import { SchedulerModule } from "./scheduler/scheduler.module.js";
+import { UsersModule } from "./users/users.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
 
 @Module({
@@ -18,17 +20,21 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     // task's rules-engine trigger mechanism).
     EventEmitterModule.forRoot(),
     DbModule,
+    AuthModule,
     ApiModule,
     ImportModule,
     WatcherModule,
     SchedulerModule,
     RulesModule,
     NotifyModule,
+    UsersModule,
   ],
   providers: [
+    // Resolves the caller (service token or Privy) on every request and
+    // enforces @Public() / @Roles(); see common/auth/auth.guard.ts.
     {
       provide: APP_GUARD,
-      useClass: AuthGuard,
+      useExisting: AuthGuard,
     },
   ],
 })

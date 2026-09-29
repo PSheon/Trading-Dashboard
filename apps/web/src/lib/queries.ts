@@ -3,6 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ActionFeedItem,
+  ActiveWithin,
   AlertEntry,
   CrowdResponse,
   Favorite,
@@ -25,7 +26,8 @@ import { useAuth } from "@/lib/auth";
  */
 
 /** GET /settings — public site settings (announcement, featured traders,
- * market chips, vault default, low-sample threshold, referral code). */
+ * market chips, vault and activity defaults, low-sample threshold, referral
+ * code). */
 export function useSiteSettings() {
   return useQuery({
     queryKey: ["site-settings"],
@@ -53,6 +55,8 @@ export interface TradersParams {
   minAccountValue?: number;
   /** Undefined → the api applies the admin default. */
   hideVaults?: boolean;
+  /** Traded within this window (§12); undefined → the admin default. */
+  active?: ActiveWithin;
   limit: number;
   offset: number;
 }
@@ -68,6 +72,7 @@ export function useTraders(params: TradersParams) {
   if (params.q) qs.set("q", params.q);
   if (params.minAccountValue) qs.set("minAccountValue", String(params.minAccountValue));
   if (params.hideVaults !== undefined) qs.set("hideVaults", String(params.hideVaults));
+  if (params.active !== undefined) qs.set("active", params.active);
   return useQuery({
     queryKey: ["traders", qs.toString()],
     queryFn: () => api.get<TradersResponse>(`/traders?${qs.toString()}`),

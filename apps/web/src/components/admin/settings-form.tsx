@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  activeWithinSchema,
   addressSchema,
   discoverySettingsSchema,
   generalSettingsSchema,
@@ -20,6 +21,7 @@ import { AddressAvatar } from "@/components/traders/address-avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
@@ -360,6 +362,25 @@ function DiscoveryForm({ value: original }: { value: AdminSettings["discovery"] 
         checked={value.hideVaults}
         onChange={(hideVaults) => set({ hideVaults })}
       />
+
+      <div className="grid gap-2">
+        <Label>{t("admin.settings.discovery.defaultActiveWithin")}</Label>
+        <Segmented
+          variant="pill"
+          size="md"
+          label={t("admin.settings.discovery.defaultActiveWithin")}
+          value={value.defaultActiveWithin}
+          onChange={(defaultActiveWithin) => set({ defaultActiveWithin })}
+          options={activeWithinSchema.options.map((a) => ({
+            value: a,
+            label: t(`admin.settings.discovery.activeOptions.${a}`),
+          }))}
+          className="flex-wrap justify-self-start rounded-2xl sm:rounded-full"
+        />
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("admin.settings.discovery.defaultActiveWithinHint")}
+        </p>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">

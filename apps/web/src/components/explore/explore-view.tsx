@@ -1,6 +1,6 @@
 "use client";
 
-import type { TraderWindow } from "@trading-dashboard/shared";
+import { activeWithinSchema, type ActiveWithin, type TraderWindow } from "@trading-dashboard/shared";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -16,6 +16,7 @@ import { useSiteSettings, useSparklines, useTraders, type TraderSort } from "@/l
 const PAGE_SIZE = 25;
 const MIN_VALUES = [0, 10_000, 100_000, 1_000_000, 10_000_000];
 const WINDOWS: TraderWindow[] = ["day", "week", "month", "allTime"];
+const ACTIVE_WITHIN: ActiveWithin[] = activeWithinSchema.options;
 
 export function ExploreView() {
   const { t, format } = useI18n();
@@ -30,6 +31,12 @@ export function ExploreView() {
   const settings = useSiteSettings();
   const [hideVaultsChoice, setHideVaultsChoice] = useState<boolean | null>(null);
   const hideVaults = hideVaultsChoice ?? settings.data?.hideVaults;
+  // Activity (§12): ?active= when linked, else the admin's default, which
+  // hides accounts that haven't traded in 30 days.
+  const [activeChoice, setActiveChoice] = useState<ActiveWithin | null>(
+    () => activeWithinSchema.safeParse(params.get("active")).data ?? null,
+  );
+  const active = activeChoice ?? settings.data?.defaultActiveWithin;
 
   // The top-bar search lands here with ?q= (also while already on Explore).
   const urlQ = params.get("q") ?? "";
@@ -57,6 +64,7 @@ export function ExploreView() {
     q: q || undefined,
     minAccountValue: minValue || undefined,
     hideVaults,
+    active,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   });
@@ -88,6 +96,21 @@ export function ExploreView() {
           }}
           options={WINDOWS.map((w) => ({ value: w, label: t(`windows.${w}`) }))}
         />
+        <div className="flex h-10 items-center rounded-full bg-raised pl-3.5" title={t("explore.activeHint")}>
+          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-positive" />
+          <span className="ml-2 text-sm whitespace-nowrap text-muted-foreground">{t("explore.activeWithin")}</span>
+          <Segmented
+            variant="pill"
+            size="md"
+            label={t("explore.activeWithin")}
+            value={active ?? "month"}
+            onChange={(next) => {
+              setActiveChoice(next);
+              setPage(0);
+            }}
+            options={ACTIVE_WITHIN.map((a) => ({ value: a, label: t(`explore.active.${a}`) }))}
+          />
+        </div>
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle-foreground" />
           <input

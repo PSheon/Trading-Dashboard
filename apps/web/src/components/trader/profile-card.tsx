@@ -1,17 +1,18 @@
 "use client";
 
-import type { TraderProfileResponse } from "@trading-dashboard/shared";
+import type { TraderActivity, TraderProfileResponse } from "@trading-dashboard/shared";
 import { Check, ChevronDown, Copy, Radio, Share2 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 
 import { AlertBell } from "@/components/alerts/alert-bell";
 import { AddressAvatar } from "@/components/traders/address-avatar";
-import { FavoriteButton, LowSampleTag, VaultBadge } from "@/components/traders/bits";
+import { ACTIVITY_DOT, FavoriteButton, LowSampleTag, VaultBadge } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, traderName, truncateAddress } from "@/lib/format";
+import { useNow } from "@/lib/use-now";
 
 function useCopied() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -58,8 +59,40 @@ function Meter({ fill, className }: { fill: number; className?: string }) {
   );
 }
 
-/** Left column: identity, account value, leverage, bias, overview, our own
- * analytics, best / worst coins. */
+const HOUR_MS = 3_600_000;
+
+/** How recent a timestamp is, in the same buckets as the list badges. */
+function activityAt(at: Date | string | null, now: number): TraderActivity {
+  if (at === null) return "inactive";
+  const age = now - new Date(at).getTime();
+  if (age < 24 * HOUR_MS) return "day";
+  if (age < 7 * 24 * HOUR_MS) return "week";
+  if (age < 30 * 24 * HOUR_MS) return "month";
+  return "inactive";
+}
+
+/** "最後交易 3 小時前" (Stage 2 §12): the latest perp fill, relative, in
+ * the locale's Intl.RelativeTimeFormat; exact time on hover. */
+function LastTrade({ at }: { at: Date | string | null }) {
+  const { t, format } = useI18n();
+  const now = useNow();
+  const bucket = activityAt(at, now);
+  return (
+    <span
+      title={at === null ? undefined : t("trader.lastTradeHint", { time: format.dateTime(at) })}
+      className={cn(
+        "num inline-flex h-6 items-center gap-1.5 rounded-full bg-raised px-2 text-[0.6875rem] font-semibold",
+        bucket === "inactive" ? "text-subtle-foreground" : "text-muted-foreground",
+      )}
+    >
+      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", ACTIVITY_DOT[bucket])} />
+      {at === null ? t("trader.noTrades") : t("trader.lastTrade", { time: format.relative(at, now) })}
+    </span>
+  );
+}
+
+/** Left column: identity, last trade, account value, leverage, bias,
+ * overview, our own analytics, best / worst coins. */
 export function ProfileCard({
   profile,
   lowSampleThreshold,
@@ -116,23 +149,22 @@ export function ProfileCard({
         </button>
       </div>
 
-      {profile.sample.lowSample || profile.tracked ? (
-        <div className="flex flex-wrap gap-1.5 px-4 pb-3.5">
-          {profile.tracked ? (
-            <span className="inline-flex h-6 items-center gap-1 rounded-full bg-primary-soft px-2 text-[0.6875rem] font-semibold text-primary">
-              <Radio className="size-3" />
-              {t("trader.tracked")}
-            </span>
-          ) : null}
-          {profile.sample.lowSample ? (
-            <LowSampleTag
-              fills={profile.sample.fills30d}
-              capped={profile.sample.capped}
-              threshold={lowSampleThreshold}
-            />
-          ) : null}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3.5">
+        <LastTrade at={profile.lastTradeAt} />
+        {profile.tracked ? (
+          <span className="inline-flex h-6 items-center gap-1 rounded-full bg-primary-soft px-2 text-[0.6875rem] font-semibold text-primary">
+            <Radio className="size-3" />
+            {t("trader.tracked")}
+          </span>
+        ) : null}
+        {profile.sample.lowSample ? (
+          <LowSampleTag
+            fills={profile.sample.fills30d}
+            capped={profile.sample.capped}
+            threshold={lowSampleThreshold}
+          />
+        ) : null}
+      </div>
 
       <div className="border-t border-border px-4 py-4">
         <p className="text-xs text-muted-foreground">{profile.isVault ? t("common.tvl") : t("trader.accountValue")}</p>

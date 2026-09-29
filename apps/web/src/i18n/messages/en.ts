@@ -80,6 +80,18 @@ export const en: Messages = {
     all: "All",
     search: "Search",
     optional: "optional",
+    activity: {
+      day: "Traded <24h",
+      week: "Traded <7d",
+      month: "Traded <30d",
+      inactive: "No trades 30d",
+    },
+    activityHint: {
+      day: "Volume in the last 24 hours (official leaderboard)",
+      week: "Volume in the last 7 days, none in the last 24 hours",
+      month: "Volume in the last 30 days, none in the last 7",
+      inactive: "Zero volume in 30 days: most likely a holder whose assets went up, not a trader",
+    },
   },
   windows: {
     day: "24h",
@@ -123,6 +135,14 @@ export const en: Messages = {
     noResults: "No traders match these filters",
     hideVaults: "Hide vaults",
     sortBy: "Sort by {column}",
+    activeWithin: "Traded in",
+    active: {
+      day: "24h",
+      week: "7d",
+      month: "30d",
+      any: "All",
+    },
+    activeHint: "Only accounts that traded in this period; All includes holders who don't trade",
     cols: {
       rank: "#",
       trader: "Trader",
@@ -158,6 +178,9 @@ export const en: Messages = {
     avgHold: "Avg hold",
     notTracked: "This address isn't watched yet. Favorite it and we'll start tracking its actions and win rate live.",
     tracked: "Watched live",
+    lastTrade: "Last trade {time}",
+    lastTradeHint: "Latest perp fill: {time}",
+    noTrades: "No trades on record",
     bestWorst: "Best & worst",
     best: "Best",
     worst: "Worst",
@@ -497,6 +520,15 @@ export const en: Messages = {
         hideVaults: "Hide vaults in Explore by default",
         lowSample: "Low-sample threshold (fills in 30 days)",
         refresh: "Leaderboard refresh (minutes)",
+        defaultActiveWithin: "Explore and home list only",
+        defaultActiveWithinHint:
+          "accounts that traded in this period. About 60% of the official leaderboard hasn't traded in 30 days (holders whose assets went up); All brings them back. Users can still switch on Explore.",
+        activeOptions: {
+          day: "Traded in 24h",
+          week: "Traded in 7 days",
+          month: "Traded in 30 days",
+          any: "All",
+        },
       },
       notifications: {
         title: "Notifications",

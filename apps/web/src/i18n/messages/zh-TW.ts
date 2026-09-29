@@ -83,6 +83,19 @@ export const zhTW = {
     all: "全部",
     search: "搜尋",
     optional: "選填",
+    /** Activity badge (Stage 2 §12), from the leaderboard's volume windows. */
+    activity: {
+      day: "24h 內交易",
+      week: "7 天內交易",
+      month: "30 天內交易",
+      inactive: "30 天未交易",
+    },
+    activityHint: {
+      day: "過去 24 小時有成交量（官方排行榜）",
+      week: "過去 7 天有成交量，但近 24 小時沒有",
+      month: "過去 30 天有成交量，但近 7 天沒有",
+      inactive: "過去 30 天成交量為 0：多半是持有資產上漲的大戶，而不是交易員",
+    },
   },
   windows: {
     day: "24小時",
@@ -126,6 +139,14 @@ export const zhTW = {
     noResults: "沒有符合條件的交易員",
     hideVaults: "隱藏 Vault",
     sortBy: "依 {column} 排序",
+    activeWithin: "最近交易",
+    active: {
+      day: "24 小時",
+      week: "7 天",
+      month: "30 天",
+      any: "全部",
+    },
+    activeHint: "只列出這段期間內有交易的帳戶；「全部」包含只持有、不交易的大戶",
     cols: {
       rank: "#",
       trader: "交易員",
@@ -161,6 +182,9 @@ export const zhTW = {
     avgHold: "平均持有",
     notTracked: "尚未監控這個地址。加入收藏後，系統會開始即時追蹤它的動作與勝率。",
     tracked: "即時監控中",
+    lastTrade: "最後交易 {time}",
+    lastTradeHint: "最近一筆永續合約成交：{time}",
+    noTrades: "查無交易紀錄",
     bestWorst: "最佳與最差",
     best: "最佳",
     worst: "最差",
@@ -500,6 +524,15 @@ export const zhTW = {
         hideVaults: "探索頁預設隱藏 Vault",
         lowSample: "低樣本門檻（30 天成交筆數）",
         refresh: "排行榜更新頻率（分鐘）",
+        defaultActiveWithin: "探索與首頁預設只列出",
+        defaultActiveWithinHint:
+          "這段期間內有交易的帳戶。官方排行榜約六成帳戶 30 天沒有交易（持有資產上漲的大戶）；選「全部」會把他們列回來。使用者仍可在探索頁切換。",
+        activeOptions: {
+          day: "24 小時內有交易",
+          week: "7 天內有交易",
+          month: "30 天內有交易",
+          any: "全部",
+        },
       },
       notifications: {
         title: "通知",

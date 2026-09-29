@@ -639,9 +639,10 @@ export const portfolioResponseSchema = z.object({
   maxDrawdownPct: z.number().nullable(),
   /**
    * Annualized Sharpe ratio of the time-weighted returns resampled to UTC
-   * days (days without a point return 0): mean ÷ sample stdev × √365,
-   * risk-free rate 0. Null with fewer than 7 daily returns (e.g. the "day"
-   * window) or zero variance.
+   * days, as log returns (days without a point return 0; a wiped-out day
+   * counts as −99.99 %): mean ÷ sample stdev × √365, risk-free rate 0. Its
+   * sign always matches `roi`'s. Null with fewer than 7 daily returns (e.g.
+   * the "day" window) or zero variance.
    */
   sharpe: z.number().nullable(),
   /**
@@ -657,7 +658,7 @@ export const portfolioResponseSchema = z.object({
    * deposit during it), where net deposit = Δaccount value − ΔPnL of the
    * whole account ("all" market, also for "perp": perp account value isn't
    * meaningful in unified / portfolio-margin accounts). Intervals whose base
-   * is under $10 or 0.1% of the window's largest account value count as 0.
+   * is under $10 or 1% of the window's largest account value count as 0.
    */
   cumulativeReturn: z.array(seriesPointSchema),
 });

@@ -227,7 +227,7 @@ function withRisk(series: {
     const first = Math.floor(pnl[0][0] / 86400_000);
     const days = Math.floor(pnl.at(-1)![0] / 86400_000) - first + 1;
     if (days >= 7) {
-      const returns = Array.from({ length: days }, (_, d) => (daily.get(first + d) ?? 1) - 1);
+      const returns = Array.from({ length: days }, (_, d) => Math.log(Math.max(1e-4, daily.get(first + d) ?? 1)));
       const mean = returns.reduce((a, b) => a + b, 0) / days;
       const std = Math.sqrt(returns.reduce((a, b) => a + (b - mean) ** 2, 0) / (days - 1));
       sharpe = std > 0 ? (mean / std) * Math.sqrt(365) : null;

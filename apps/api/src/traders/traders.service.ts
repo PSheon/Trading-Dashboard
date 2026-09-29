@@ -288,7 +288,9 @@ export class TradersService {
    * costs 500 weight, more than the budget spends inside the 20 s request
    * deadline, and waiting for all of them used to time the whole column out
    * (the explore page's empty 走勢 column). The rest keep loading into the
-   * cache, so the client's retry for the missing ones is fast.
+   * cache, so the client's retry for the missing ones is fast. A fetch that
+   * times out in the budget queue is left out too (asked for again); only a
+   * real failure answers [].
    */
   async sparklines(addresses: string[], window: TraderWindowInput): Promise<SparklinesResponse> {
     const ready: SparklinesResponse = {};
@@ -301,6 +303,10 @@ export class TradersService {
           );
           ready[address] = downsample(portfolioSeries(raw, window, "all").pnl, SPARKLINE_MAX_POINTS);
         } catch (error) {
+          // Timed out waiting for the request budget (or shutting down): still
+          // loading, not failed. Left out, so the client asks again.
+          const name = (error as Error | undefined)?.name;
+          if (name === "TimeoutError" || name === "AbortError") return;
           this.logger.warn(`Sparkline for ${address} failed: ${(error as Error).message}`);
           ready[address] = [];
         }

@@ -31,6 +31,7 @@ import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, TradersController } from "../src
 import {
   downsample,
   portfolioKey,
+  MIN_BASE_FRACTION,
   periodReturns,
   portfolioMetrics,
   portfolioSeries,
@@ -583,6 +584,17 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(info.portfolio).toHaveBeenCalledTimes(2);
     });
 
+    it("leaves out an address whose fetch timed out in the budget queue; a real failure is []", async () => {
+      info.portfolio.mockImplementation(async (address: string) => {
+        if (address === C) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+        if (address === B) throw new Error("Hyperliquid info request failed: 500");
+        return portfolioFixture;
+      });
+      const res = await controller.sparklines({ addresses: `${A},${B},${C}` });
+      expect(Object.keys(res).sort()).toEqual([A, B]);
+      expect(res[B]).toEqual([]);
+    });
+
     it("rejects more than 30 addresses, invalid ones, or none", async () => {
       const many = Array.from({ length: 31 }, (_, i) => `0x${i.toString(16).padStart(40, "0")}`).join(",");
       await expectStatus(() => controller.sparklines({ addresses: many }), 400);
@@ -1103,7 +1115,7 @@ describe("portfolioMetrics — flow-neutral time-weighted returns, hand-computed
     return portfolioMetrics(a.pnl, a.capital);
   };
 
-  it("no flows: returns chain, drawdown on the index, daily Sharpe × √365", () => {
+  it("no flows: returns chain, drawdown on the index, daily log-return Sharpe × √365", () => {
     // Returns +10%, −5%, +10%, −20%, +5%, 0, +10% on 1,000.
     const av = [1000, 1100, 1045, 1149.5, 919.6, 965.58, 965.58, 1062.138];
     const pnl = av.map((v) => v - 1000);
@@ -1113,9 +1125,10 @@ describe("portfolioMetrics — flow-neutral time-weighted returns, hand-computed
     expect(m.maxDrawdownPct).toBeCloseTo(0.2, 10);
     // PnL peak 149.5 → −80.4.
     expect(m.maxDrawdownUsd).toBeCloseTo(229.9, 9);
-    // 8 UTC days (the first has no return): 0, .1, −.05, .1, −.2, .05, 0, .1;
-    // mean .0125, Σ(r − mean)² = .07375, sample stdev √(.07375 / 7).
-    expect(m.sharpe).toBeCloseTo((0.0125 / Math.sqrt(0.07375 / 7)) * Math.sqrt(365), 10);
+    // 8 UTC days (the first has no return), as log returns: 0, ln 1.1,
+    // ln .95, ln 1.1, ln .8, ln 1.05, 0, ln 1.1; mean .0075355, sample stdev
+    // .1079698; .0075355 ÷ .1079698 × √365 = 1.3333838.
+    expect(m.sharpe).toBeCloseTo(1.3333837868, 8);
     expect(m.cumulativeReturn[0]).toEqual([T0, 0]);
     expect(m.cumulativeReturn.at(-1)![1]).toBeCloseTo(0.062138, 10);
     expect(m.cumulativeReturn).toHaveLength(av.length);
@@ -1155,8 +1168,10 @@ describe("portfolioMetrics — flow-neutral time-weighted returns, hand-computed
     const m = metrics(av, pnl);
     expect(m.maxDrawdownPct).toBe(1);
     expect(m.roi).toBe(-1);
-    expect(m.sharpe).not.toBeNull();
-    expect(m.sharpe!).toBeLessThan(0);
+    // Daily log returns 0, ln .9, ln(1 − 200/900), ln(1 + 100/700), ln 1e-4
+    // (the wipe-out, floored), 0, ln .9, ln(1 + 20/450) → −6.99: the sign
+    // follows the −100 % ROI.
+    expect(m.sharpe).toBeCloseTo(-6.9901359390, 8);
     // Losing more than the account held never reads as more than −100%.
     for (const [, r] of periodReturns(pts(pnl), acct(av, pnl).capital)) expect(r!).toBeGreaterThanOrEqual(-1);
   });
@@ -1169,12 +1184,11 @@ describe("portfolioMetrics — flow-neutral time-weighted returns, hand-computed
   });
 
   it("sparse samples: a week's return lands on its end day; the days between return 0", () => {
-    // Weekly points: +10%, −5%, +10% → 22 UTC days, 3 of them non-zero.
+    // Weekly points: +10%, −5%, +10% → 22 UTC days, 3 of them non-zero
+    // (ln 1.1, ln .95, ln 1.1 on days 7, 14, 21) → 3.9288027.
     const av = [1000, 1100, 1045, 1149.5];
     const m = metrics(av, av.map((v) => v - 1000), 7 * D);
-    const mean = 0.15 / 22;
-    const variance = (0.0225 - 22 * mean ** 2) / 21;
-    expect(m.sharpe).toBeCloseTo((mean / Math.sqrt(variance)) * Math.sqrt(365), 10);
+    expect(m.sharpe).toBeCloseTo(3.9288027192, 8);
   });
 
   it("guards: dust bases are skipped, short windows have no Sharpe, empty is null", () => {
@@ -1188,11 +1202,12 @@ describe("portfolioMetrics — flow-neutral time-weighted returns, hand-computed
     // A $5 account: every base is under $10.
     const dust = metrics([0, 5, 8], [0, 0, 3]);
     expect(dust).toMatchObject({ maxDrawdownPct: null, sharpe: null, roi: null });
-    // $500 left in a window that peaked at $1M (< 0.1%): that interval's
+    // $5,000 left in a window that peaked at $1M (< 1%): that interval's
     // +400% is dropped, the rest still count.
-    const m = metrics([1e6, 500, 2500, 2600], [0, 0, 2000, 2100]);
-    expect(periodReturns(pts([0, 0, 2000, 2100]), acct([1e6, 500, 2500, 2600], [0, 0, 2000, 2100]).capital).map(([, r]) => r))
+    const m = metrics([1e6, 5000, 25_000, 26_000], [0, 0, 20_000, 21_000]);
+    expect(periodReturns(pts([0, 0, 20_000, 21_000]), acct([1e6, 5000, 25_000, 26_000], [0, 0, 20_000, 21_000]).capital).map(([, r]) => r))
       .toEqual([0, null, 0.04]);
+    expect(MIN_BASE_FRACTION).toBe(0.01);
     expect(m.roi).toBeCloseTo(0.04, 12);
     // Hourly points over one day: fewer than SHARPE_MIN_DAYS daily returns.
     const day = metrics([100, 110, 99, 120, 125], [0, 10, -1, 20, 25], 3_600_000);

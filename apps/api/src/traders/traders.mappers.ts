@@ -197,8 +197,10 @@ export const SHARPE_MIN_DAYS = 7;
 export const MIN_BASE_USD = 10;
 /** … or below this fraction of the window's largest account value is
  * skipped: dust balances, or a deposit, trade and withdrawal netting out
- * inside one sampling interval, would otherwise produce absurd returns. */
-export const MIN_BASE_FRACTION = 0.001;
+ * inside one sampling interval, would otherwise produce absurd returns, and
+ * a few hundred dollars lost before an account grew to millions would
+ * otherwise set its all-time return to −100 % for good. */
+export const MIN_BASE_FRACTION = 0.01;
 
 export interface PortfolioMetrics {
   maxDrawdownUsd: number;
@@ -275,10 +277,12 @@ export function periodReturns(pnl: Point[], capital: CapitalSeries): Array<[numb
  *   Null without a usable interval.
  * - `maxDrawdownUsd`: separately, the largest fall of cumulative PnL from a
  *   running peak (USD, ≥ 0).
- * - `sharpe`: the index resampled to UTC days (each day's return compounds
- *   the intervals ending that day; days without a point return 0), mean ÷
- *   sample stdev (n − 1), risk-free rate 0, × √365. Null with fewer than
- *   SHARPE_MIN_DAYS daily returns or zero variance.
+ * - `sharpe`: the index resampled to UTC days (each day's growth compounds
+ *   the intervals ending that day; days without a point return 0), as log
+ *   returns ln(growth) (a wiped-out day floored at WIPEOUT_FLOOR); mean ÷
+ *   sample stdev (n − 1), risk-free rate 0, × √365. Log returns keep its
+ *   sign equal to the ROI's. Null with fewer than SHARPE_MIN_DAYS daily
+ *   returns or zero variance.
  */
 export function portfolioMetrics(pnl: Point[], capital: CapitalSeries): PortfolioMetrics {
   let maxDrawdownUsd = 0;
@@ -312,15 +316,23 @@ export function portfolioMetrics(pnl: Point[], capital: CapitalSeries): Portfoli
   };
 }
 
-/** Annualized Sharpe of the daily-resampled returns (see `portfolioMetrics`). */
+/** A day that lost everything counts as this much growth (−99.99 %) in
+ * the Sharpe ratio, whose log return would otherwise be −∞. */
+export const WIPEOUT_FLOOR = 1e-4;
+
+/** Annualized Sharpe of the daily-resampled log returns (see
+ * `portfolioMetrics`). */
 function dailySharpe(start: number, returns: Array<[number, number | null]>): number | null {
   if (returns.length === 0) return null;
   const firstDay = Math.floor(start / DAY_MS);
   const days = Math.floor(returns[returns.length - 1][0] / DAY_MS) - firstDay + 1;
   if (days < SHARPE_MIN_DAYS) return null;
-  const growth = new Array<number>(days).fill(1);
+  const growth = Array.from({ length: days }, () => 1);
   for (const [ts, r] of returns) growth[Math.floor(ts / DAY_MS) - firstDay] *= 1 + (r ?? 0);
-  const daily = growth.map((g) => g - 1);
+  // Log returns: their mean has the sign of the window's compounded return,
+  // so the Sharpe never contradicts the ROI next to it (a simple-return mean
+  // can stay positive through a −100% day). A wiped-out day is floored.
+  const daily = growth.map((g) => Math.log(Math.max(g, WIPEOUT_FLOOR)));
   const mean = daily.reduce((s, r) => s + r, 0) / days;
   const variance = daily.reduce((s, r) => s + (r - mean) ** 2, 0) / (days - 1);
   const stdev = Math.sqrt(variance);

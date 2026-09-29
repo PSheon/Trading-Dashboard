@@ -1,3 +1,4 @@
+import { RequirePermissions } from "../../common/auth/permissions.js";
 import { Body, Controller, Get, Param, Patch, Query } from "@nestjs/common";
 import type {
   Leader,
@@ -7,7 +8,7 @@ import type {
 
 import { addressSchema, chainSchema, leaderDetailQuerySchema, leadersQuerySchema, patchLeaderRequestSchema } from "@trading-dashboard/shared";
 import { parseOr400 } from "../../users/validation.js";
-import { CurrentUser, Roles, type RequestUser } from "../../common/auth/current-user.js";
+import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
 import { alertsVisibleTo } from "../alerts/alerts.service.js";
 import { LeadersService } from "./leaders.service.js";
@@ -44,7 +45,7 @@ export class LeadersController {
   }
 
   /** A3: label/tier/notes/active. */
-  @Roles("admin")
+  @RequirePermissions("leaders.manage")
   @Patch(":chain/:address")
   update(
     @Param("chain") chain: string,

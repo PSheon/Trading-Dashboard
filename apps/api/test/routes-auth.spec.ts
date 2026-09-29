@@ -41,6 +41,7 @@ describe("route access on the existing controllers", () => {
 
   beforeAll(async () => {
     process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
+    process.env.AUTH_SERVICE_PERMISSIONS = "lists.read,leaders.import,leaders.manage,rules.read,alerts.readAll";
     process.env.AUTH_ADMIN_EMAILS = "boss@example.com";
     ({ app, auth } = await createAuthedApp({
       db,
@@ -81,6 +82,7 @@ describe("route access on the existing controllers", () => {
 
   afterAll(async () => {
     delete process.env.AUTH_SERVICE_TOKEN;
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
     delete process.env.AUTH_ADMIN_EMAILS;
     await app.close();
     await closeTestDb();
@@ -167,6 +169,19 @@ describe("route access on the existing controllers", () => {
     const aliceScope = (await call("get", `/leaders/hyperliquid/${WHALE}`, "alice-token").expect(200)).body.scope;
     expect(aliceScope).toEqual({ userId: expect.any(Number) });
     expect((await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.scope).toBe("all");
+  });
+
+  it("an unscoped service cannot read another user's alert payload", async () => {
+    await call("get", "/alerts", "alice-token").expect(200);
+    const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+    await db.insert(alerts).values({ userId: alice.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "private-chat" }, sendStatus: "sent", sentAt: new Date() });
+    const previous = process.env.AUTH_SERVICE_PERMISSIONS;
+    try {
+      process.env.AUTH_SERVICE_PERMISSIONS = "users.read";
+      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body).toEqual([]);
+      process.env.AUTH_SERVICE_PERMISSIONS = "alerts.readAll";
+      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body).toHaveLength(1);
+    } finally { process.env.AUTH_SERVICE_PERMISSIONS = previous; }
   });
 
   it("GET /actions?scope=favorites: anonymous 401, service 403, a user sees only their favorites' actions", async () => {

@@ -92,7 +92,7 @@ export class RequestBudgeterService {
     this.configuredBudgetPerMin = env.hyperliquidWeightBudgetPerMin();
     this.effectiveBudgetPerMin = this.configuredBudgetPerMin;
     this.floorBudgetPerMin = Math.max(1, Math.round(this.configuredBudgetPerMin * 0.2));
-    const burst = getIntEnv("HYPERLIQUID_WEIGHT_BURST", DEFAULT_BURST);
+    const burst = getIntEnv("HYPERLIQUID_WEIGHT_BURST", DEFAULT_BURST, 1, 1200);
     this.capacity = Math.max(1, Math.min(burst, HARD_LIMIT_PER_MIN - this.configuredBudgetPerMin));
     this.liveReserve = Math.floor(this.capacity * LIVE_RESERVE_SHARE);
     this.tokens = this.capacity;

@@ -1,3 +1,4 @@
+import { RequirePermissions } from "../src/common/auth/permissions.js";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
 import { alertRules, users } from "@trading-dashboard/shared";
 import { eq } from "drizzle-orm";
@@ -27,6 +28,11 @@ class ProbeController {
   closed(@CurrentUser() user: RequestUser | null) {
     return { user };
   }
+
+  @Public()
+  @RequirePermissions("users.read", "settings.read")
+  @Get("permission-probe")
+  permissions() { return { ok: true }; }
 
   @Roles("admin")
   @Get("admin")
@@ -82,6 +88,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     auth.clearCache();
     privy.verifyAccessToken.mockClear();
     privy.fetchProfile.mockClear();
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
     process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
     process.env.AUTH_ADMIN_EMAILS = " Boss@Example.com , other@example.com";
   });
@@ -121,10 +128,10 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
   });
 
   describe("service token", () => {
-    it("passes protected and admin routes as { kind: 'service' }", async () => {
-      expect((await get("/t/protected", SERVICE_TOKEN).expect(200)).body).toEqual({ user: { kind: "service" } });
-      await get("/t/admin", SERVICE_TOKEN).expect(200);
-      await get("/admin-class", SERVICE_TOKEN).expect(200);
+    it("authenticates a service without granting human admin roles", async () => {
+      expect((await get("/t/protected", SERVICE_TOKEN).expect(200)).body).toEqual({ user: { kind: "service", permissions: [] } });
+      await get("/t/admin", SERVICE_TOKEN).expect(403);
+      await get("/admin-class", SERVICE_TOKEN).expect(403);
       expect(privy.verifyAccessToken).not.toHaveBeenCalled();
     });
 
@@ -133,6 +140,18 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       await get("/t/protected", SERVICE_TOKEN).expect(401);
       await get("/t/protected", "undefined").expect(401);
     });
+  });
+
+  it("permission metadata overrides Public and requires every permission", async () => {
+    await get("/t/permission-probe").expect(401);
+    await get("/t/permission-probe", "alice-token").expect(403);
+    await get("/t/permission-probe", "boss-token").expect(200);
+    process.env.AUTH_SERVICE_PERMISSIONS = "users.read";
+    await get("/t/permission-probe", SERVICE_TOKEN).expect(403);
+    process.env.AUTH_SERVICE_PERMISSIONS = "users.read,settings.read";
+    await get("/t/permission-probe", SERVICE_TOKEN).expect(200);
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
+    await get("/t/permission-probe", SERVICE_TOKEN).expect(403);
   });
 
   describe("Privy tokens", () => {
@@ -229,26 +248,34 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(await db.select().from(alertRules)).toHaveLength(3); // the defaults only
     });
 
-    it("an email added to AUTH_ADMIN_EMAILS later is promoted at its next sign-in; others stay users", async () => {
+    it("does not restore a demoted bootstrap admin while the email remains allowlisted", async () => {
+      await get("/t/admin", "boss-token").expect(200);
+      await db.update(users).set({ role: "user" }).where(eq(users.privyUserId, "did:privy:boss"));
+      auth.clearCache();
+      await get("/t/admin", "boss-token").expect(403);
+      expect((await db.select().from(users))[0].role).toBe("user");
+    });
+
+    it("adding an email to the bootstrap list does not promote an existing user", async () => {
       process.env.AUTH_ADMIN_EMAILS = "";
       await get("/t/protected", "boss-token").expect(200);
       await get("/t/protected", "alice-token").expect(200);
       process.env.AUTH_ADMIN_EMAILS = "boss@example.com";
       auth.clearCache();
-      await get("/t/admin", "boss-token").expect(200);
+      await get("/t/admin", "boss-token").expect(403);
       await get("/t/admin", "alice-token").expect(403);
     });
 
-    it("a user whose first profile fetch failed gets their email and admin role on a later sign-in", async () => {
+    it("profile recovery fills email without granting an existing user admin", async () => {
       privy.fetchProfile.mockResolvedValueOnce(null); // Privy unavailable at first sign-in
       await get("/t/admin", "boss-token").expect(403);
       const [before] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:boss"));
       expect(before).toMatchObject({ email: null, role: "user" });
 
       auth.clearCache();
-      await get("/t/admin", "boss-token").expect(200);
+      await get("/t/admin", "boss-token").expect(403);
       const [after] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:boss"));
-      expect(after).toMatchObject({ email: "boss@example.com", role: "admin" });
+      expect(after).toMatchObject({ email: "boss@example.com", role: "user" });
     });
 
     it("looks a user with no email up at Privy at most every 10 minutes", async () => {

@@ -66,7 +66,8 @@ docs/       PRD, Stage 2 spec, competitor analysis, logo
 - **Auth**: Stage 1 used a single bearer token (`AUTH_SERVICE_TOKEN`) and one
   shared web password. Stage 2 replaces the password with Privy accounts
   (roles `user` and `admin`). The service token stays server-to-server only
-  and never reaches the browser.
+  and never reaches the browser. It requires explicit `AUTH_SERVICE_PERMISSIONS`;
+  it no longer inherits admin access. See [auth/config policy](docs/auth-and-config.md).
 
 ## Running locally
 

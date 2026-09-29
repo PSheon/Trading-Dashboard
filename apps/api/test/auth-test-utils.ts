@@ -1,10 +1,8 @@
 import { Global, Module, type INestApplication, type Type } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
 import { vi } from "vitest";
 
-import { AuthGuard } from "../src/common/auth/auth.guard.js";
-import { AuthModule } from "../src/common/auth/auth.module.js";
+import { AuthModule, AUTH_GUARD_PROVIDERS } from "../src/common/auth/auth.module.js";
 import { AuthService } from "../src/common/auth/auth.service.js";
 import { PRIVY_VERIFIER, type PrivyProfile, type PrivyVerifier } from "../src/common/auth/privy-verifier.js";
 import { DRIZZLE_CLIENT } from "../src/db/db.constants.js";
@@ -53,7 +51,7 @@ export async function createAuthedApp(opts: {
   const moduleRef = await Test.createTestingModule({
     imports: [TestDbModule, SettingsModule, AuthModule, ...(opts.imports ?? [])],
     controllers: opts.controllers ?? [],
-    providers: [{ provide: APP_GUARD, useExisting: AuthGuard }, ...(opts.providers ?? [])],
+    providers: [...AUTH_GUARD_PROVIDERS, ...(opts.providers ?? [])],
   })
     .overrideProvider(PRIVY_VERIFIER)
     .useValue(opts.privy)

@@ -1,3 +1,4 @@
+import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,11 +23,12 @@ describe("admin routes over HTTP", () => {
     "user-token": { privyUserId: "did:privy:user" },
   });
   let app: INestApplication;
+  let auth: AuthService;
 
   beforeAll(async () => {
     process.env.AUTH_SERVICE_TOKEN = SERVICE_TOKEN;
     const info = { referral: vi.fn(async () => { throw new Error("offline"); }) };
-    ({ app } = await createAuthedApp({
+    ({ app, auth } = await createAuthedApp({
       db,
       privy,
       controllers: [AdminController, PublicSettingsController],
@@ -41,12 +43,16 @@ describe("admin routes over HTTP", () => {
   });
 
   beforeEach(async () => {
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
+    auth.clearCache();
     await truncateAll(db);
     await insertUser(db, { privyUserId: "did:privy:admin", role: "admin" });
     await insertUser(db, { privyUserId: "did:privy:user" });
   });
 
   afterAll(async () => {
+    delete process.env.AUTH_SERVICE_TOKEN;
+    delete process.env.AUTH_SERVICE_PERMISSIONS;
     await app.close();
     await truncateAll(db);
     await closeTestDb();
@@ -57,7 +63,23 @@ describe("admin routes over HTTP", () => {
     return token ? req.set("Authorization", `Bearer ${token}`) : req;
   };
 
-  it("lets admins and the service token in, and keeps everyone else out", async () => {
+  it("a service token without permissions cannot read administrative data", async () => {
+    await request(app.getHttpServer()).get("/admin/users").set("Authorization", `Bearer ${SERVICE_TOKEN}`).expect(403);
+  });
+
+  it("a read-scoped service cannot mutate users or read unrelated settings", async () => {
+    process.env.AUTH_SERVICE_PERMISSIONS = "users.read";
+    try {
+      await request(app.getHttpServer()).get("/admin/users").set("Authorization", `Bearer ${SERVICE_TOKEN}`).expect(200);
+      await request(app.getHttpServer()).patch("/admin/users/1").set("Authorization", `Bearer ${SERVICE_TOKEN}`).send({ role: "user" }).expect(403);
+      await request(app.getHttpServer()).get("/admin/settings").set("Authorization", `Bearer ${SERVICE_TOKEN}`).expect(403);
+    } finally {
+      delete process.env.AUTH_SERVICE_PERMISSIONS;
+    }
+  });
+
+  it("lets admins and explicitly scoped services in, and keeps everyone else out", async () => {
+    process.env.AUTH_SERVICE_PERMISSIONS = "settings.read,users.read,overview.read,revenue.read";
     for (const path of ["/admin/settings", "/admin/users", "/admin/overview", "/admin/revenue"]) {
       expect((await get(path)).status, path).toBe(401);
       expect((await get(path, "forged")).status, path).toBe(401);

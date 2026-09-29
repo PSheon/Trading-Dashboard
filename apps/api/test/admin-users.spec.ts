@@ -14,7 +14,7 @@ import type { RequestUser } from "../src/common/auth/current-user.js";
 import { insertUser, truncateAdminTables } from "./admin-test-utils.js";
 import { closeTestDb, getTestDb } from "./db-test-utils.js";
 
-const SERVICE: RequestUser = { kind: "service" };
+const SERVICE: RequestUser = { kind: "service", permissions: [] };
 const asUser = (row: { id: number; privyUserId: string; role: "user" | "admin" }): RequestUser => ({
   kind: "user",
   id: row.id,

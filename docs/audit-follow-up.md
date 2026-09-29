@@ -33,6 +33,17 @@ being verified; this branch was rebased onto that commit. Bot linking,
 per-favorite preferences, alert-trader limits and disabled-recipient filtering
 are now implemented and are not outstanding implementation items.
 
+## Env and Privy/RBAC follow-up
+
+Startup validation now rejects invalid settings before Nest starts; runtime DB
+fallback is removed. Permissions map local user/admin roles to actions, and service
+callers require explicit AUTH_SERVICE_PERMISSIONS. Admin email bootstrap applies
+only when creating a local account, so demotion survives later authentication.
+See [migration and permissions](auth-and-config.md) and the
+[verification ledger](superpowers/plans/2026-09-29-env-rbac.md).
+The broader [DonutMe comparison](donutme-architecture-audit.md) tracks deferred
+response contracts, repositories, config DI and authorization lifecycle work.
+
 ## Remaining high-priority work
 
 1. Durable notification outbox, atomic cooldown reservation and replay after
@@ -67,8 +78,7 @@ are now implemented and are not outstanding implementation items.
   deployment sequencing; the current image still contains development packages.
 - Repo CI with disposable DB, contract tests and browser E2E tests covering real
   payloads, login/logout/account switching and cross-address isolation.
-- Central startup config validation, security headers/CORS policy and import
-  row semantic validation (valid Ethereum address, positive rank, size limits).
+- Security headers/CORS policy and import row semantic validation (valid Ethereum address, positive rank, size limits).
 - Toolchain alignment (TypeScript 5/6, Node type versions); remove unused CLI
   dependencies and evaluate Vite native tsconfig paths support.
 - Complete radio/tab keyboard semantics and browser accessibility review.

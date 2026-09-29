@@ -28,6 +28,11 @@ For that container, set `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:543
 The API listens on `PORT` (default 3000); web dev uses 3001. Root `pnpm dev`
 builds shared contracts before starting both apps and the shared compiler watch.
 The API and migration config load the repo-root `.env`; exported values win.
+API startup validates configuration before creating Nest providers. A missing
+DATABASE_URL, malformed boolean/integer, partial Privy credentials or unsafe
+production service token stops startup. No implicit database fallback is used.
+See [auth/config policy](../../docs/auth-and-config.md) for the role/permission
+matrix and service-token migration requirements.
 Build/typecheck do not require a live database. Use `pnpm db:generate` only after
 changing the database schema; review generated SQL before applying it.
 

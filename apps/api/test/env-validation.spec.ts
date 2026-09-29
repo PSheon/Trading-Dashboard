@@ -1,0 +1,82 @@
+import { validateEnvironment } from "../src/config/runtime-config.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { env, getBoolEnv, getIntEnv } from "../src/config/env.js";
+import { drizzleProvider } from "../src/db/drizzle.provider.js";
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe("unsafe runtime configuration", () => {
+  it.each(["typo", "yes", "", "2"])("rejects ambiguous dry-run value %j", (value) => {
+    vi.stubEnv("TELEGRAM_DRY_RUN", value);
+    expect(() => getBoolEnv("TELEGRAM_DRY_RUN", true)).toThrow(/TELEGRAM_DRY_RUN/);
+  });
+  it.each(["840oops", "1.9", "", "NaN"])("rejects partial integer %j", (value) => {
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", value);
+    expect(() => getIntEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", 840)).toThrow(/HYPERLIQUID_WEIGHT_BUDGET_PER_MIN/);
+  });
+  it("does not construct a pool against a fallback database", () => {
+    vi.stubEnv("DATABASE_URL", undefined);
+    const factory = drizzleProvider as { useFactory: () => unknown };
+    expect(() => factory.useFactory()).toThrow(/DATABASE_URL/);
+  });
+});
+
+const base = { DATABASE_URL: "postgres://audit:password@127.0.0.1:55439/audit_test" };
+describe("startup environment", () => {
+  it("supports local public-only mode and safe dry-run defaults", () => {
+    const result = validateEnvironment(base);
+    expect(result.app.port).toBe(3000);
+    expect(result.telegram.dryRun).toBe(true);
+    expect(result.auth.permissions).toEqual([]);
+  });
+  it.each([
+    ["DATABASE_URL", ""], ["DATABASE_URL", "https://example.com/db"],
+    ["PORT", "0"], ["PORT", "65536"], ["PORT", "3000oops"],
+    ["NODE_ENV", "prodution"], ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "0"],
+    ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "-1"], ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "1200"],
+    ["HYPERLIQUID_WEIGHT_BURST", "0"], ["ALERT_MAX_ACTION_AGE_SECONDS", "-1"],
+    ["TELEGRAM_DRY_RUN", "typo"], ["TELEGRAM_BOT_POLLING", "yes"],
+    ["HYPERLIQUID_API_URL", "file:///tmp/info"], ["HYPERLIQUID_WS_URL", "https://example.com"],
+    ["TELEGRAM_LINK_BASE_URL", "https://user:secret@example.com"],
+    ["AUTH_SERVICE_PERMISSIONS", "*"], ["AUTH_ADMIN_EMAILS", "not-an-email"],
+  ])("rejects invalid %s without echoing its value", (key, value) => {
+    expect(() => validateEnvironment({ ...base, [key]: value })).toThrow(key);
+  });
+  it("requires a database explicitly", () => {
+    expect(() => validateEnvironment({})).toThrow("DATABASE_URL");
+  });
+  it("does not leak database credentials in an error", () => {
+    const secret = "never-print-this-password";
+    try { validateEnvironment({ DATABASE_URL: `https://user:${secret}@host/db` }); }
+    catch (error) { expect(String(error)).not.toContain(secret); return; }
+    throw new Error("Expected validation failure");
+  });
+  it("requires Privy credentials as a pair and validates the optional public key", () => {
+    expect(() => validateEnvironment({ ...base, PRIVY_APP_ID: "app" })).toThrow("PRIVY");
+    expect(() => validateEnvironment({ ...base, PRIVY_APP_ID: "app", PRIVY_APP_SECRET: "secret", PRIVY_VERIFICATION_KEY: "not-a-key" })).toThrow("PRIVY_VERIFICATION_KEY");
+  });
+  it("requires credentials for real Telegram sending and a username for linking", () => {
+    expect(() => validateEnvironment({ ...base, TELEGRAM_DRY_RUN: "false" })).toThrow("TELEGRAM_BOT_TOKEN");
+    expect(() => validateEnvironment({ ...base, TELEGRAM_BOT_TOKEN: "test-token" })).toThrow("TELEGRAM_BOT_USERNAME");
+  });
+  it("rejects production placeholder tokens and scopes without a token", () => {
+    expect(() => validateEnvironment({ ...base, NODE_ENV: "production", AUTH_SERVICE_TOKEN: "change-me-to-a-long-random-string" })).toThrow("AUTH_SERVICE_TOKEN");
+    expect(() => validateEnvironment({ ...base, NODE_ENV: "staging", AUTH_SERVICE_TOKEN: "short" })).toThrow("AUTH_SERVICE_TOKEN");
+    expect(() => validateEnvironment({ ...base, AUTH_SERVICE_PERMISSIONS: "users.read" })).toThrow("AUTH_SERVICE_TOKEN");
+  });
+  it("uses the same normalized optional values at startup and during authentication", () => {
+    const input = { ...base, AUTH_SERVICE_TOKEN: "  scoped-token  ", PRIVY_APP_ID: "  ", PRIVY_APP_SECRET: "  ", TELEGRAM_BOT_TOKEN: "  " };
+    for (const [key, value] of Object.entries(input)) vi.stubEnv(key, value);
+    const config = validateEnvironment(input);
+    expect(config.auth.serviceToken).toBe("scoped-token");
+    expect(env.serviceToken()).toBe(config.auth.serviceToken);
+    expect(env.privyAppId()).toBeUndefined();
+    expect(env.privyAppSecret()).toBeUndefined();
+    expect(env.telegramBotToken()).toBeUndefined();
+  });
+
+  it("accepts explicit service permissions without implicitly granting all permissions", () => {
+    const result = validateEnvironment({ ...base, AUTH_SERVICE_TOKEN: "test-token", AUTH_SERVICE_PERMISSIONS: "users.read, users.read,settings.read" });
+    expect(result.auth.permissions).toEqual(["users.read", "settings.read"]);
+  });
+});

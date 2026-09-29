@@ -1,14 +1,14 @@
 import { Body, Controller, Get, Post } from "@nestjs/common";
 import type { AlertRule } from "@trading-dashboard/shared";
 
-import { Roles } from "../../common/auth/current-user.js";
+import { RequirePermissions } from "../../common/auth/permissions.js";
 import { parseUpsertRule } from "../../rules/rule-validation.js";
 import { AlertRulesService } from "./alert-rules.service.js";
 
 /** The default rules (no owner): what admins are alerted on for imported
  * leaders. Admin only. Users set CopyDog-style alerts on their favorites
  * instead (PATCH /me/favorites/:address/alert). */
-@Roles("admin")
+@RequirePermissions("rules.read")
 @Controller("alert-rules")
 export class AlertRulesController {
   constructor(private readonly alertRulesService: AlertRulesService) {}
@@ -18,6 +18,7 @@ export class AlertRulesController {
     return this.alertRulesService.findAll();
   }
 
+  @RequirePermissions("rules.manage")
   @Post()
   upsert(@Body() body: unknown): Promise<AlertRule> {
     return this.alertRulesService.upsert(parseUpsertRule(body));

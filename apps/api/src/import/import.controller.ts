@@ -5,10 +5,10 @@ import type {
 
 import { importLeaderListRequestSchema } from "@trading-dashboard/shared";
 import { parseOr400 } from "../users/validation.js";
-import { Roles } from "../common/auth/current-user.js";
+import { RequirePermissions } from "../common/auth/permissions.js";
 import { ImportService } from "./import.service.js";
 
-@Roles("admin")
+@RequirePermissions("leaders.import")
 @Controller("import")
 export class ImportController {
   constructor(private readonly importService: ImportService) {}

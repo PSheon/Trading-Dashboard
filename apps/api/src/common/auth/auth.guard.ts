@@ -12,6 +12,7 @@ import type { Request } from "express";
 
 import { AuthService, type AuthOutcome } from "./auth.service.js";
 import { ROLES_KEY, type RequestUser } from "./current-user.js";
+import { PERMISSIONS_KEY } from "./permissions.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 
 function bearerToken(request: Request): string | undefined {
@@ -29,8 +30,8 @@ function bearerToken(request: Request): string | undefined {
  *   stale token must not block browsing; a valid one → caller attached.
  * - everything else: 401 without a caller, except a new Privy user while
  *   sign-ups are closed: 403 `{ code: "signups_closed" }`.
- * - `@Roles(...)`: additionally 403 unless the user's role is listed; the
- *   service token counts as admin. `@Roles` wins over `@Public`.
+ * - `@Roles(...)`: human-role restriction; service principals cannot satisfy it.
+ * - Permission metadata also overrides @Public; PermissionGuard runs next.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -46,7 +47,8 @@ export class AuthGuard implements CanActivate {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets) ?? false;
     const roles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, targets);
     const needsRole = roles !== undefined && roles.length > 0;
-    const open = isPublic && !needsRole;
+    const required = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, targets);
+    const open = isPublic && !needsRole && !required?.length;
 
     const request = context.switchToHttp().getRequest<Request & { user?: RequestUser }>();
     const token = bearerToken(request);
@@ -70,7 +72,7 @@ export class AuthGuard implements CanActivate {
       throw new ForbiddenException({ statusCode: 403, code: "signups_closed", message: "Sign-ups are closed" });
     }
     if (!user) throw new UnauthorizedException("Sign in required");
-    if (needsRole && user.kind === "user" && !roles.includes(user.role)) {
+    if (needsRole && (user.kind !== "user" || !roles.includes(user.role))) {
       throw new ForbiddenException(`Requires role: ${roles.join(" or ")}`);
     }
     return true;

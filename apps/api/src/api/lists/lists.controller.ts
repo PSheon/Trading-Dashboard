@@ -6,10 +6,10 @@ import type {
 
 import { listDiffRequestSchema } from "@trading-dashboard/shared";
 import { parseOr400 } from "../../users/validation.js";
-import { Roles } from "../../common/auth/current-user.js";
+import { RequirePermissions } from "../../common/auth/permissions.js";
 import { ListsService } from "./lists.service.js";
 
-@Roles("admin")
+@RequirePermissions("lists.read")
 @Controller("lists")
 export class ListsController {
   constructor(private readonly listsService: ListsService) {}

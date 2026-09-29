@@ -1,15 +1,13 @@
-/**
- * Minimal env access helpers. No framework config library is introduced
- * for M1 — just typed getters so every module reads env the same way.
- * See root `.env.example` for the full list of variables this project needs.
- */
+import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
 
+/** Runtime readers. Startup validates the complete environment in runtime-config.
+ * Keep parsing strict for CLI callers and independently constructed providers too. */
 export function getEnv(key: string): string | undefined {
-  return process.env[key];
+  return process.env[key]?.trim() || undefined;
 }
 
 export function requireEnv(key: string): string {
-  const value = process.env[key];
+  const value = getEnv(key);
   if (!value) {
     throw new Error(`Missing required environment variable: ${key}`);
   }
@@ -17,30 +15,26 @@ export function requireEnv(key: string): string {
 }
 
 export function getBoolEnv(key: string, defaultValue = false): boolean {
-  const raw = process.env[key];
-  if (raw === undefined) return defaultValue;
-  return raw.toLowerCase() === "true" || raw === "1";
+  return booleanValue(key, process.env[key], defaultValue);
 }
 
-export function getIntEnv(key: string, defaultValue: number): number {
-  const raw = process.env[key];
-  if (raw === undefined) return defaultValue;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : defaultValue;
+export function getIntEnv(key: string, defaultValue: number, min = 0, max = Number.MAX_SAFE_INTEGER): number {
+  return integerValue(key, process.env[key], defaultValue, min, max);
 }
 
 export const env = {
-  databaseUrl: () => getEnv("DATABASE_URL"),
+  databaseUrl: () => databaseUrl(getEnv("DATABASE_URL")),
   /** Server-to-server token; a request bearing it is the service caller
-   * (counts as admin). Never sent to a browser. */
-  serviceToken: () => getEnv("AUTH_SERVICE_TOKEN"),
+   * (requires explicit permissions). Never sent to a browser. */
+  serviceToken: () => getEnv("AUTH_SERVICE_TOKEN") || undefined,
+  servicePermissions: () => servicePermissions(getEnv("AUTH_SERVICE_PERMISSIONS")),
   /** Privy sign-in. Both unset → Privy tokens are rejected (fail closed). */
   privyAppId: () => getEnv("PRIVY_APP_ID") || undefined,
   privyAppSecret: () => getEnv("PRIVY_APP_SECRET") || undefined,
   /** Optional: the app's verification key (PEM/SPKI) from the Privy
    * dashboard; verifies tokens locally instead of fetching the JWKS. */
   privyVerificationKey: () => getEnv("PRIVY_VERIFICATION_KEY")?.replace(/\\n/g, "\n") || undefined,
-  /** Comma-separated emails promoted to admin when they sign in. */
+  /** Comma-separated emails bootstrapped as admin only at account creation. */
   adminEmails: (): string[] =>
     (getEnv("AUTH_ADMIN_EMAILS") ?? "")
       .split(",")
@@ -67,8 +61,8 @@ export const env = {
 
   /** W6: REST weight per minute, default 70% of Hyperliquid's 1200 (§8). */
   hyperliquidWeightBudgetPerMin: () =>
-    getIntEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", 840),
+    getIntEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", 840, 1, 1199),
   /** Actions older than this are stored but never alerted on (catch-up
    * sweeps find fills late; a stale alert would read as news). */
-  alertMaxActionAgeSeconds: () => getIntEnv("ALERT_MAX_ACTION_AGE_SECONDS", 120),
+  alertMaxActionAgeSeconds: () => getIntEnv("ALERT_MAX_ACTION_AGE_SECONDS", 120, 1, 86400),
 };

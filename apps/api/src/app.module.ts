@@ -1,11 +1,9 @@
 import { Module } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
 import { EventEmitterModule } from "@nestjs/event-emitter";
 
 import { AdminModule } from "./admin/admin.module.js";
 import { ApiModule } from "./api/api.module.js";
-import { AuthGuard } from "./common/auth/auth.guard.js";
-import { AuthModule } from "./common/auth/auth.module.js";
+import { AuthModule, AUTH_GUARD_PROVIDERS } from "./common/auth/auth.module.js";
 import { DbModule } from "./db/db.module.js";
 import { ImportModule } from "./import/import.module.js";
 import { InsightsModule } from "./insights/insights.module.js";
@@ -39,13 +37,6 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     TradersModule,
     InsightsModule,
   ],
-  providers: [
-    // Resolves the caller (service token or Privy) on every request and
-    // enforces @Public() / @Roles(); see common/auth/auth.guard.ts.
-    {
-      provide: APP_GUARD,
-      useExisting: AuthGuard,
-    },
-  ],
+  providers: AUTH_GUARD_PROVIDERS,
 })
 export class AppModule {}

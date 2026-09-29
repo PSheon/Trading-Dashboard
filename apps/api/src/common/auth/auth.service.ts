@@ -93,7 +93,7 @@ export class AuthService {
   async authenticate(token: string): Promise<AuthOutcome> {
     const serviceToken = env.serviceToken();
     if (serviceToken && tokensMatch(token, serviceToken)) {
-      return { status: "user", user: { kind: "service" } };
+      return { status: "user", user: { kind: "service", permissions: env.servicePermissions() } };
     }
 
     const key = tokenKey(token);
@@ -159,8 +159,8 @@ export class AuthService {
   }
 
   /**
-   * Returning user: bump `last_login_at` (unless disabled), and promote them
-   * if their email is in AUTH_ADMIN_EMAILS (see `applyBootstrapAdmin`).
+   * Returning user: bump `last_login_at` (unless disabled), and refresh a
+   * missing profile without changing their role.
    * New user: fetch
    * email/wallet from Privy (best effort); when sign-ups are closed only a
    * AUTH_ADMIN_EMAILS address gets in. The new row is admin when its
@@ -173,7 +173,7 @@ export class AuthService {
       .set({ lastLoginAt: new Date() })
       .where(and(eq(users.privyUserId, privyUserId), isNull(users.disabledAt)))
       .returning();
-    if (existing) return { status: "ok", user: await this.applyBootstrapAdmin(existing) };
+    if (existing) return { status: "ok", user: await this.refreshMissingProfile(existing) };
 
     const known = await this.findByPrivyId(privyUserId);
     if (known) return this.asResult(known);
@@ -206,20 +206,13 @@ export class AuthService {
     return this.asResult(raced);
   }
 
-  /**
-   * AUTH_ADMIN_EMAILS is checked on every sign-in, not only the first:
-   * a first sign-in whose Privy profile fetch failed, or an address added to
-   * the list later, still ends up admin. It only ever promotes; removing an
-   * address from the list doesn't demote anyone (use the admin users page),
-   * and an address still in the list is promoted again at its next sign-in.
-   * An account with no email on file gets one more Privy lookup, at most
-   * every PROFILE_RETRY_MS, and keeps the email it finds.
-   */
-  private async applyBootstrapAdmin(user: UserRow): Promise<UserRow> {
-    const admins = env.adminEmails();
-    if (user.role === "admin" || admins.length === 0) return user;
+  /** Retry missing profile data without changing authorization. Admin bootstrap
+   * applies only when inserting a new user; a persisted demotion must survive
+   * future authentication even when the email remains allowlisted. */
+  private async refreshMissingProfile(user: UserRow): Promise<UserRow> {
+    if (user.email !== null) return user;
 
-    let email = user.email;
+    let email: string | null = user.email;
     if (email === null) {
       const now = Date.now();
       if ((this.profileRetryAt.get(user.id) ?? 0) > now) return user;
@@ -229,14 +222,12 @@ export class AuthService {
       this.profileRetryAt.delete(user.id);
     }
 
-    const promote = admins.includes(email);
-    if (!promote && email === user.email) return user;
+    if (email === user.email) return user;
     const [updated] = await this.db
       .update(users)
-      .set(promote ? { email, role: "admin" } : { email })
+      .set({ email })
       .where(eq(users.id, user.id))
       .returning();
-    if (promote) this.logger.log(`User ${user.id} promoted to admin (AUTH_ADMIN_EMAILS)`);
     return updated ?? user;
   }
 

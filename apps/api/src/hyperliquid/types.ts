@@ -32,6 +32,8 @@ export interface HlAssetPosition {
     liquidationPx?: string | null;
     marginUsed: string;
     unrealizedPnl: string;
+    /** |szi| × mark price, USD. */
+    positionValue?: string;
   };
   type: string;
 }
@@ -85,7 +87,11 @@ export type HlUserFillsByTimeResponse = HlUserFill[];
 
 /** `perpDexs`: index 0 is the main dex (returned as null); the rest are
  * HIP-3 builder dexes whose coins are named "<dex>:<COIN>". */
-export type HlPerpDexsResponse = Array<{ name: string } | null>;
+export type HlPerpDexsResponse = Array<{
+  name: string;
+  /** One entry per listed market; empty for a dex with nothing listed. */
+  assetToStreamingOiCap?: Array<[string, string]>;
+} | null>;
 
 export type HlAllMidsResponse = Record<string, string>;
 
@@ -99,7 +105,20 @@ export type HlInfoRequestBody =
       startTime: number;
       endTime?: number;
     }
-  | { type: "allMids" };
+  | { type: "allMids" }
+  | { type: "portfolio"; user: string }
+  | { type: "userFills"; user: string };
+
+/** One `portfolio` history: [epoch ms, decimal string] points. */
+export interface HlPortfolioHistory {
+  accountValueHistory: Array<[number, string]>;
+  pnlHistory: Array<[number, string]>;
+  vlm: string;
+}
+
+/** `portfolio`: `[["day", …], ["week", …], ["month", …], ["allTime", …],
+ * ["perpDay", …], ["perpWeek", …], ["perpMonth", …], ["perpAllTime", …]]`. */
+export type HlPortfolioResponse = Array<[string, HlPortfolioHistory]>;
 
 // ---------------------------------------------------------------------------
 // WS: wss://api.hyperliquid.xyz/ws

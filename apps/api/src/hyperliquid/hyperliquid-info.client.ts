@@ -8,6 +8,8 @@ import type {
   HlInfoRequestBody,
   HlMetaResponse,
   HlPerpDexsResponse,
+  HlPortfolioResponse,
+  HlUserFill,
   HlUserFillsByTimeResponse,
 } from "./types.js";
 
@@ -18,6 +20,8 @@ const WEIGHT_USER_FILLS_BY_TIME_BASE = 20;
 const WEIGHT_META = 20;
 const WEIGHT_PERP_DEXS = 20;
 const WEIGHT_ALL_MIDS = 20;
+const WEIGHT_PORTFOLIO = 20;
+const WEIGHT_USER_FILLS_BASE = 20;
 /** Assumed per-docs multiplier for the "additional weight per 20 items
  * returned" surcharge on userFillsByTime — see the budgeter's doc comment
  * for why this is 1 and not something else. */
@@ -79,8 +83,8 @@ export class HyperliquidInfoClient {
   }
 
   /** All perp dexes: `[null, {name: "xyz"}, …]`, main dex first. */
-  perpDexs(): Promise<HlPerpDexsResponse> {
-    return this.post<HlPerpDexsResponse>({ type: "perpDexs" }, WEIGHT_PERP_DEXS);
+  perpDexs(priority: RequestPriority = "background", rank?: number): Promise<HlPerpDexsResponse> {
+    return this.post<HlPerpDexsResponse>({ type: "perpDexs" }, WEIGHT_PERP_DEXS, priority, rank);
   }
 
   /** Positions + equity for one address on ONE dex. Without `dex` only the
@@ -131,5 +135,34 @@ export class HyperliquidInfoClient {
   /** Mid prices for every coin, used for alert scoring (N3). */
   allMids(): Promise<HlAllMidsResponse> {
     return this.post<HlAllMidsResponse>({ type: "allMids" }, WEIGHT_ALL_MIDS);
+  }
+
+  /** Account value and PnL history per window (day/week/month/allTime, and
+   * the same prefixed `perp`), used by the trader page and card sparklines.
+   * Weight 20. */
+  portfolio(
+    address: string,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlPortfolioResponse> {
+    return this.post<HlPortfolioResponse>({ type: "portfolio", user: address }, WEIGHT_PORTFOLIO, priority, rank);
+  }
+
+  /** The address's most recent fills (up to 2000, newest first), spot and
+   * every perp dex. Weight 20 plus the per-20-items surcharge, reported
+   * after the response like `userFillsByTime`. */
+  async userFills(
+    address: string,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlUserFill[]> {
+    const result = await this.post<HlUserFill[]>(
+      { type: "userFills", user: address },
+      WEIGHT_USER_FILLS_BASE,
+      priority,
+      rank,
+    );
+    this.budgeter.recordAdditionalWeight(Math.ceil(result.length / 20) * EXTRA_WEIGHT_PER_20_ITEMS);
+    return result;
   }
 }

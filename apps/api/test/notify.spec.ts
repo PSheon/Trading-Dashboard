@@ -1,6 +1,8 @@
+import { sql } from "drizzle-orm";
 import { testConfig } from "./config-test-utils.js";
 import {
   actions,
+  appSettings,
   alertRules,
   alerts,
   notificationOutbox,
@@ -157,6 +159,14 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     expect(await db.select().from(notificationOutbox)).toMatchObject([{ actionId: actionRow.id, userId, status: "dry_run" }]);
     expect(readAlertDisplayValues(JSON.parse(JSON.stringify(rows[0].payloadJson)))).toEqual({ actionKind: "open", notionalUsd: "60000" });
     expect(JSON.parse(JSON.stringify(rows[0].payloadJson))).toMatchObject({ version: 1, values: { actionKind: "open", notionalUsd: "60000" } });
+  });
+
+  it.each([null, {}, { alertsEnabled: "true" }, { alertsEnabled: false, maxAlertTraders: "bad" }])("blocks delivery for malformed or disabled stored switches: %j", async value => {
+    await db.insert(appSettings).values({ key: "notifications", value: value === null ? sql`'null'::jsonb` : value });
+    const telegram = fakeTelegram(async () => {});
+    await new NotifyService(testConfig(), db, telegram).notifyAlert(ctx());
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    expect(await db.select().from(notificationOutbox)).toMatchObject([{ status: "failed", lastError: "alert authorization withdrawn" }]);
   });
 
   it("waits for Telegram retry_after instead of retrying early", async () => {

@@ -98,6 +98,28 @@ describe("admin routes over HTTP", () => {
     }
   });
 
+  it("rejects stale section edits and leaves unrelated settings intact", async () => {
+    const initial = (await get("/admin/settings", "admin-token").expect(200)).body;
+    expect(initial.revisions?.general).toEqual(expect.any(String));
+    const patch = (body: object) => request(app.getHttpServer()).patch("/admin/settings")
+      .set("Authorization", "Bearer admin-token").send(body);
+    await patch({ general: { signupsOpen: false }, expectedRevisions: { general: initial.revisions.general } }).expect(200);
+    await patch({ general: { ...initial.general, copyTradingEnabled: true }, expectedRevisions: { general: initial.revisions.general } }).expect(409);
+    const latest = (await get("/admin/settings", "admin-token").expect(200)).body;
+    expect(latest.general).toMatchObject({ signupsOpen: false, copyTradingEnabled: false });
+    await patch({ discovery: { lowSampleThreshold: 42 }, expectedRevisions: { discovery: initial.revisions.discovery } }).expect(200);
+  });
+
+  it("requires preconditions and rejects unknown fields or empty writes", async () => {
+    const patch = (body: object) => request(app.getHttpServer()).patch("/admin/settings")
+      .set("Authorization", "Bearer admin-token").send(body);
+    await patch({ general: { signupsOpen: false } }).expect(428);
+    for (const body of [{}, { general: {} }, { general: { copyTradingEnable: true } }, { typo: {} },
+      { general: { announcement: { enabled: true, text: { en: "", "zh-TW": "", typo: "x" } } } }]) {
+      await patch(body).expect(400);
+    }
+  });
+
   it("serves the public settings to anyone", async () => {
     const res = await get("/settings");
     expect(res.status).toBe(200);

@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { appSettingsKeyEnum } from "../enums.js";
 import { PERMISSIONS } from "../permissions.js";
 
 export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -1095,11 +1096,30 @@ export const adminSettingsSchema = z.object({
 });
 export type AdminSettings = z.infer<typeof adminSettingsSchema>;
 
+const settingsRevisionSchema = z.string().regex(/^[a-f0-9]{64}$/);
+export const adminSettingsSnapshotSchema = adminSettingsSchema.extend({
+  revisions: z.object({ general: settingsRevisionSchema, discovery: settingsRevisionSchema,
+    notifications: settingsRevisionSchema, revenue: settingsRevisionSchema }),
+  invalidSections: z.array(z.enum(appSettingsKeyEnum)),
+});
+export type AdminSettingsSnapshot = z.infer<typeof adminSettingsSnapshotSchema>;
+
 export const patchAdminSettingsRequestSchema = z.object({
-  general: generalSettingsSchema.partial().optional(),
-  discovery: discoverySettingsSchema.partial().optional(),
-  notifications: notificationSettingsSchema.partial().optional(),
-  revenue: revenueSettingsSchema.partial().optional(),
+  general: generalSettingsSchema.partial().extend({
+    announcement: z.object({ enabled: z.boolean(), text: localizedTextSchema.strict() }).strict().optional(),
+  }).strict().optional(),
+  discovery: discoverySettingsSchema.partial().strict().optional(),
+  notifications: notificationSettingsSchema.partial().strict().optional(),
+  revenue: revenueSettingsSchema.partial().strict().optional(),
+  expectedRevisions: z.record(z.enum(appSettingsKeyEnum), settingsRevisionSchema).optional(),
+}).strict().superRefine((value, ctx) => {
+  const keys = appSettingsKeyEnum.filter(key => value[key] !== undefined);
+  if (!keys.length) ctx.addIssue({ code: "custom", message: "At least one settings field is required" });
+  for (const key of keys) {
+    if (!Object.values(value[key]!).some(field => field !== undefined)) {
+      ctx.addIssue({ code: "custom", path: [key], message: "Empty settings section" });
+    }
+  }
 });
 export type PatchAdminSettingsRequest = z.infer<typeof patchAdminSettingsRequestSchema>;
 

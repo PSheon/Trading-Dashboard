@@ -5,6 +5,7 @@
  */
 import {
   adminSettingsSchema,
+  type AdminSettingsSnapshot,
   type AdminOverview,
   type AdminRevenueResponse,
   type AdminSettings,
@@ -55,7 +56,14 @@ export let adminSettings: AdminSettings = adminSettingsSchema.parse({
   },
 });
 
-export function setAdminSettings(next: AdminSettings) {
+const revisions = { general: 0, discovery: 0, notifications: 0, revenue: 0 };
+export function adminSettingsSnapshot(): AdminSettingsSnapshot {
+  return { ...adminSettings, invalidSections: [], revisions: Object.fromEntries(
+    Object.entries(revisions).map(([key, value]) => [key, value.toString(16).padStart(64, "0")]),
+  ) as AdminSettingsSnapshot["revisions"] };
+}
+export function setAdminSettings(next: AdminSettings, sections: (keyof AdminSettings)[]) {
+  for (const section of sections) revisions[section]++;
   adminSettings = next;
 }
 

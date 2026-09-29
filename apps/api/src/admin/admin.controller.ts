@@ -4,7 +4,7 @@ import {
   adminRevenueQuerySchema,
   type AdminOverview,
   type AdminRevenueResponse,
-  type AdminSettings,
+  type AdminSettingsSnapshot,
   type AdminUser,
   type AdminUsersResponse,
   type PublicSettings,
@@ -33,13 +33,13 @@ export class AdminController {
 
   @RequirePermissions("settings.read")
   @Get("settings")
-  getSettings(): Promise<AdminSettings> {
+  getSettings(): Promise<AdminSettingsSnapshot> {
     return this.settings.getAll();
   }
 
   @RequirePermissions("settings.write")
   @Patch("settings")
-  patchSettings(@Body() body: unknown, @CurrentUser() user: RequestUser | null): Promise<AdminSettings> {
+  patchSettings(@Body() body: unknown, @CurrentUser() user: RequestUser | null): Promise<AdminSettingsSnapshot> {
     return this.settings.patch(body, user);
   }
 

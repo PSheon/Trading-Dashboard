@@ -643,6 +643,9 @@ export const zhTW = {
     settings: {
       saveSection: "儲存此區",
       saved: "已儲存",
+      conflict: "此區塊已被其他人修改，已保留你的草稿。請載入最新設定後再儲存。",
+      reload: "重新載入此區塊（捨棄草稿）",
+      invalid: "儲存的設定需要修復：{sections}。無效的安全開關已停用。",
       unsaved: "有未儲存的變更",
       failed: "儲存失敗：{message}",
       general: {

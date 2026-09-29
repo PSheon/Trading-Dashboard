@@ -1,3 +1,4 @@
+import { recoverSettingsSection } from "../settings/settings-recovery.js";
 import { AppConfig } from "../config/app-config.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
@@ -208,7 +209,7 @@ export class NotifyService {
     role: string,
   ): Promise<boolean> {
     const [config] = await this.db.select().from(appSettings).where(eq(appSettings.key, "notifications"));
-    if (config?.value && typeof config.value === "object" && "alertsEnabled" in config.value && config.value.alertsEnabled === false) return false;
+    if (!recoverSettingsSection("notifications", config ? config.value : {}, Boolean(config)).value.alertsEnabled) return false;
     if (role === "admin" && payload.reasons.rules.length > 0) return true;
     if (!payload.reasons.favorite) return false;
     const [action] = await this.db.select().from(actions).where(eq(actions.id, row.actionId));

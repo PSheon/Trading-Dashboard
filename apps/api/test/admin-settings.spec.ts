@@ -2,7 +2,7 @@ import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { BadRequestException } from "@nestjs/common";
 import { appSettings } from "@trading-dashboard/shared/database";
-import { adminSettingsSchema, publicSettingsSchema } from "@trading-dashboard/shared/contracts";
+import { adminSettingsSnapshotSchema, publicSettingsSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminSettingsService } from "../src/admin/admin-settings.service.js";
@@ -32,6 +32,10 @@ describe("admin settings — real Postgres", () => {
   let service: AdminSettingsService;
   const service_: RequestUser = { kind: "service", permissions: [] };
 
+  async function patch(body: object, actor: RequestUser | null) {
+    return service.patch({ ...body, expectedRevisions: (await service.getAll()).revisions }, actor);
+  }
+
   beforeEach(async () => {
     await truncateAdminTables(db);
     settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
@@ -46,12 +50,12 @@ describe("admin settings — real Postgres", () => {
 
   it("GET /admin/settings returns every section with defaults", async () => {
     const all = await service.getAll();
-    expect(adminSettingsSchema.parse(all)).toEqual(all);
+    expect(adminSettingsSnapshotSchema.parse(all)).toEqual(all);
     expect(all.revenue.builderAddress).toBeNull();
   });
 
   it("GET /settings returns the public subset", async () => {
-    await service.patch({ discovery: { featuredAddresses: [A] }, revenue: { referralCode: "ORBIE" } }, service_);
+    await patch({ discovery: { featuredAddresses: [A] }, revenue: { referralCode: "ORBIE" } }, service_);
     const pub = await new PublicSettingsController(settings).get();
     expect(publicSettingsSchema.strict().parse(pub)).toEqual(pub);
     expect(pub.featuredAddresses).toEqual([A.toLowerCase()]);
@@ -61,8 +65,8 @@ describe("admin settings — real Postgres", () => {
   it("merges a partial section over the stored one and records who saved it", async () => {
     const admin = await insertUser(db, { role: "admin" });
     const user: RequestUser = { kind: "user", id: admin.id, privyUserId: admin.privyUserId, role: "admin" };
-    await service.patch({ general: { signupsOpen: false } }, user);
-    const saved = await service.patch({ general: { copyTradingEnabled: true } }, user);
+    await patch({ general: { signupsOpen: false } }, user);
+    const saved = await patch({ general: { copyTradingEnabled: true } }, user);
     expect(saved.general).toMatchObject({ signupsOpen: false, copyTradingEnabled: true });
     expect(saved.general.announcement.enabled).toBe(false);
 
@@ -71,14 +75,14 @@ describe("admin settings — real Postgres", () => {
   });
 
   it("stores null as the editor for the service token", async () => {
-    await service.patch({ notifications: { alertsEnabled: false } }, service_);
-    await service.patch({ notifications: { alertsEnabled: true } }, null);
+    await patch({ notifications: { alertsEnabled: false } }, service_);
+    await patch({ notifications: { alertsEnabled: true } }, null);
     const [row] = await db.select().from(appSettings);
     expect(row.updatedByUserId).toBeNull();
   });
 
   it("lowercases and de-duplicates featured addresses, keeping the order", async () => {
-    const saved = await service.patch(
+    const saved = await patch(
       { discovery: { featuredAddresses: [B, A, B.toLowerCase(), A.toUpperCase().replace("0X", "0x")] } },
       service_,
     );
@@ -90,21 +94,21 @@ describe("admin settings — real Postgres", () => {
   });
 
   it("lowercases the builder address and snapshots when it changes", async () => {
-    const saved = await service.patch({ revenue: { builderAddress: A } }, service_);
+    const saved = await patch({ revenue: { builderAddress: A } }, service_);
     expect(saved.revenue.builderAddress).toBe(A.toLowerCase());
     expect(triggerSnapshot).toHaveBeenCalledTimes(1);
 
     // Same address, different case: not a change.
-    await service.patch({ revenue: { builderAddress: A.toLowerCase() } }, service_);
+    await patch({ revenue: { builderAddress: A.toLowerCase() } }, service_);
     // Another section: not a change.
-    await service.patch({ revenue: { builderFeeTenthsBps: 10 } }, service_);
+    await patch({ revenue: { builderFeeTenthsBps: 10 } }, service_);
     expect(triggerSnapshot).toHaveBeenCalledTimes(1);
 
-    await service.patch({ revenue: { builderAddress: B } }, service_);
+    await patch({ revenue: { builderAddress: B } }, service_);
     expect(triggerSnapshot).toHaveBeenCalledTimes(2);
 
     // Clearing the address takes no snapshot.
-    const cleared = await service.patch({ revenue: { builderAddress: null } }, service_);
+    const cleared = await patch({ revenue: { builderAddress: null } }, service_);
     expect(cleared.revenue.builderAddress).toBeNull();
     expect(triggerSnapshot).toHaveBeenCalledTimes(2);
   });

@@ -15,6 +15,8 @@ import {
   adminRevenueQuerySchema,
   adminRevenueResponseSchema,
   adminSettingsSchema,
+  adminSettingsSnapshotSchema,
+  appSettingsKeyEnum,
   adminUsersQuerySchema,
   adminUsersResponseSchema,
   adminUserSchema,
@@ -81,6 +83,7 @@ import {
 } from "./data";
 import {
   adminSettings,
+  adminSettingsSnapshot,
   adminUsers,
   crowd,
   overview,
@@ -392,12 +395,17 @@ export async function fixtureRequest<T>(
     }
     case "GET /admin/settings":
       requireAdmin(token);
-      return wire(adminSettingsSchema, adminSettings);
+      return wire(adminSettingsSnapshotSchema, adminSettingsSnapshot());
     case "PATCH /admin/settings": {
       requireAdmin(token);
       const parsed = patchAdminSettingsRequestSchema.safeParse(body);
       if (!parsed.success) throw new ApiError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
       const patch = parsed.data;
+      const sections = appSettingsKeyEnum.filter(key => patch[key] !== undefined);
+      for (const key of sections) {
+        if (!patch.expectedRevisions?.[key]) throw new ApiError(428, "Reload settings before saving");
+        if (patch.expectedRevisions[key] !== adminSettingsSnapshot().revisions[key]) throw new ApiError(409, "Settings changed. Reload before saving");
+      }
       const merged = adminSettingsSchema.safeParse({
         general: { ...adminSettings.general, ...patch.general },
         discovery: { ...adminSettings.discovery, ...patch.discovery },
@@ -405,8 +413,8 @@ export async function fixtureRequest<T>(
         revenue: { ...adminSettings.revenue, ...patch.revenue },
       });
       if (!merged.success) throw new ApiError(400, merged.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
-      setAdminSettings(merged.data);
-      return wire(adminSettingsSchema, merged.data);
+      setAdminSettings(merged.data, sections);
+      return wire(adminSettingsSnapshotSchema, adminSettingsSnapshot());
     }
     case "GET /alert-rules":
       requireAdmin(token);

@@ -106,6 +106,51 @@ describe("SettingsService — real Postgres", () => {
     expect(all.general.signupsOpen).toBe(false);
   });
 
+  it("preserves a closed signup when an unrelated stored announcement is corrupt", async () => {
+    await db.insert(appSettings).values({ key: "general", value: { signupsOpen: false, announcement: { enabled: "bad" } } });
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    expect((await service.get("general")).signupsOpen).toBe(false);
+  });
+
+  it("fails closed for missing security flags in a corrupt stored section", async () => {
+    await db.insert(appSettings).values({ key: "general", value: { announcement: { enabled: "bad" } } });
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    expect((await service.get("general")).signupsOpen).toBe(false);
+  });
+
+  it.each([null, [], "bad", {}, { signupsOpen: "yes", copyTradingEnabled: true }])("flags damaged stored general settings: %j", async value => {
+    await db.insert(appSettings).values({ key: "general", value: value === null ? sql`'null'::jsonb` : value });
+    const snapshot = await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).getSnapshot();
+    expect(snapshot.general.signupsOpen).toBe(false);
+    expect(snapshot.invalidSections).toContain("general");
+  });
+
+  it("allows only one concurrent writer using the same section revision", async () => {
+    const first = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    const second = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    const expectedRevisions = (await first.getSnapshot()).revisions;
+    const results = await Promise.allSettled([
+      first.patch({ general: { signupsOpen: false }, expectedRevisions }, null),
+      second.patch({ general: { copyTradingEnabled: true }, expectedRevisions }, null),
+    ]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find(result => result.status === "rejected")).toMatchObject({ reason: { status: 409 } });
+  });
+
+  it("rejects all sections when one revision conflicts and reloads independently of cache", async () => {
+    const first = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    const second = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    const initial = await first.getAll();
+    await second.patch({ general: { signupsOpen: false } }, null);
+    await expect(first.patch({ general: { copyTradingEnabled: true }, discovery: { hideVaults: false }, expectedRevisions: initial.revisions }, null)).rejects.toMatchObject({ status: 409 });
+    const latest = await first.getSnapshot();
+    expect(latest.general.signupsOpen).toBe(false);
+    expect(latest.general.copyTradingEnabled).toBe(false);
+    expect(latest.discovery.hideVaults).toBe(true);
+    expect(latest.revisions.discovery).toBe(initial.revisions.discovery);
+    expect(latest.revisions.general).not.toBe(initial.revisions.general);
+  });
+
   it("exposes only the public subset", async () => {
     const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     await service.patch({ revenue: { referralCode: "ORBIE", builderFeeTenthsBps: 10 } }, null);

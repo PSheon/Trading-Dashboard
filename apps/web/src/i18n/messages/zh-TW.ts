@@ -9,6 +9,7 @@ export const zhTW = {
     description: "探索 Hyperliquid 最會賺的交易員：持倉、成交、權益走勢、即時動作與警報。",
   },
   nav: {
+    skip: "跳至主要內容",
     home: "首頁",
     explore: "探索",
     portfolio: "投資組合",
@@ -234,6 +235,7 @@ export const zhTW = {
       pnlLabel: "盈虧",
       valueLabel: "帳戶價值",
     },
+    tabsLabel: "交易活動",
     tabs: {
       positions: "持倉",
       fills: "成交",

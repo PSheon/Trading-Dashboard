@@ -4,8 +4,9 @@ import { readAlertDisplayValues } from "@/lib/contracts";
 
 import type { ActionFeedItem, TraderFill, TraderProfileResponse } from "@/lib/contracts";
 import { Download } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { cn } from "cn";
+import { rovingFocus } from "@/lib/roving-focus";
 
 import { ActionsTable, KindBadge, SideText } from "@/components/actions/actions-table";
 import { LiveBadge } from "@/components/actions/live-badge";
@@ -39,6 +40,7 @@ export function ActivityTabs({
   marks?: Readonly<Record<string, number>>;
 }) {
   const { t } = useI18n();
+  const panelId = useId();
   const [tab, setTab] = useState<Tab>("positions");
   const { status } = useAuth();
   const fills = useTraderFills(profile.address, 200);
@@ -55,12 +57,16 @@ export function ActivityTabs({
   return (
     <section className="rounded-2xl border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-3">
-        <div role="tablist" className="flex overflow-x-auto no-scrollbar">
+        <div role="tablist" aria-label={t("trader.tabsLabel")} className="flex overflow-x-auto no-scrollbar">
           {TABS.map((id) => (
             <button
               key={id}
               role="tab"
               type="button"
+              id={`${panelId}-${id}`}
+              aria-controls={panelId}
+              tabIndex={tab === id ? 0 : -1}
+              onKeyDown={rovingFocus}
               aria-selected={tab === id}
               onClick={() => setTab(id)}
               className={cn(
@@ -82,6 +88,7 @@ export function ActivityTabs({
         {exportable && exportable.length > 0 ? (
           <Button
             variant="ghost"
+            aria-label={t("common.exportCsv")}
             size="sm"
             onClick={() =>
               tab === "fills"
@@ -95,7 +102,7 @@ export function ActivityTabs({
         ) : null}
       </div>
 
-      <div role="tabpanel" className="min-h-[180px]">
+      <div role="tabpanel" id={panelId} aria-labelledby={`${panelId}-${tab}`} tabIndex={0} className="min-h-[180px]">
         {tab === "positions" ? <Positions profile={profile} marks={marks} /> : null}
         {tab === "fills" ? (
           fills.isError ? (

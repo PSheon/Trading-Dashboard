@@ -159,7 +159,8 @@ export function AreaChart({
           width={width}
           height={height}
           className="block overflow-visible"
-          role="img"
+          role={ariaLabel ? "img" : undefined}
+          aria-hidden={!ariaLabel}
           aria-label={ariaLabel}
           onPointerMove={onPointerMove}
           onPointerLeave={() => setHover(null)}

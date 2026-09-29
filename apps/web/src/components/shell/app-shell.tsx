@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         href="#main"
         className="sr-only z-50 rounded-full bg-primary px-4 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
       >
-        {t("nav.primary")}
+        {t("nav.skip")}
       </a>
 
       <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-xl md:h-[72px] md:gap-6 md:px-5">
@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="pt-16 pb-[calc(68px+env(safe-area-inset-bottom))] md:pt-[72px] md:pb-0 md:pl-[76px]">
         <AnnouncementBanner />
-        <main id="main" className="mx-auto w-full max-w-[1600px] px-4 py-5 md:px-8 md:py-7">
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] px-4 py-5 md:px-8 md:py-7">
           {children}
         </main>
       </div>

@@ -6,6 +6,7 @@ export const en: Messages = {
     description: "Find Hyperliquid's most profitable traders: positions, fills, equity curves, live actions and alerts.",
   },
   nav: {
+    skip: "Skip to main content",
     home: "Home",
     explore: "Explore",
     portfolio: "Portfolio",
@@ -230,6 +231,7 @@ export const en: Messages = {
       pnlLabel: "PnL",
       valueLabel: "Account value",
     },
+    tabsLabel: "Trading activity",
     tabs: {
       positions: "Positions",
       fills: "Fills",

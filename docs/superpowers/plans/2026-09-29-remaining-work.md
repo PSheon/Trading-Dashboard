@@ -123,3 +123,8 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 
 - Task 37: bounded 200-address metadata/round-trip batches, address-scoped fill PnL, stable timestamp/id ordering, capped fill bind lists and two query indexes (migration 0010). The new 12-leader test failed at 133 queries before the change and passed at 4; cross-address shared tids and latest-flat snapshot semantics are covered.
 - Full isolated API 47 files / 501 tests passed, then the added empty-history/latest-snapshot case passed (2 targeted tests); API typecheck/lint passed. Synthetic 100k-row latest-action EXPLAIN changed sequential scan to new index (8.254 ms → 0.074 ms in one local run). These numbers do not represent production latency. Full-history memory and index rollout limits are documented; no production DB altered.
+
+## Batch 12 accessibility
+
+- Task 38: browser Axe checks at 1280/390px and signed-in admin/settings routes; corrected secondary-text contrast, redundant SVG semantics, scrolling-table focus, tab/panel relationships, roving tab/radio keyboard focus, mobile export label and translated skip link. Keyboard and initial Axe tests failed before fixes.
+- Five combined browser tests passed, then the added signed-in route scan passed; web typecheck/lint passed. No full WCAG certification or live Privy modal/device-reader coverage is claimed. Existing Playwright TS runner was reused for CI rather than introducing a second Python test stack.

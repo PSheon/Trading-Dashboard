@@ -1,5 +1,7 @@
 "use client"
 
+import { rovingFocus } from "@/lib/roving-focus"
+
 import * as React from "react"
 import { cn } from "cn"
 
@@ -49,6 +51,8 @@ function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            onKeyDown={rovingFocus}
             onClick={() => onChange(option.value)}
             className={cn(
               "rounded-full font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",

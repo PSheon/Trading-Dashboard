@@ -1,4 +1,6 @@
-"use client";
+"use client"
+
+import { rovingFocus } from "@/lib/roving-focus";
 
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Gift } from "lucide-react";
 import { useState } from "react";
@@ -36,6 +38,8 @@ export function CopyPanel() {
               type="button"
               role="radio"
               aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            onKeyDown={rovingFocus}
               onClick={() => setDirection(d)}
               className={cn(
                 "flex h-12 items-center justify-center gap-1.5 rounded-full text-[0.9375rem] font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",

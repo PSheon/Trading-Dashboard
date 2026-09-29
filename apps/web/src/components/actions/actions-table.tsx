@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { ActionFeedItem, ActionKind, Fill } from "@trading-dashboard/shared";
+import type { ActionFeedItem, ActionKind, Fill } from "@/lib/contracts";
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";

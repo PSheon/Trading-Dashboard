@@ -4,7 +4,7 @@ import type {
 } from "@trading-dashboard/shared";
 
 import { importLeaderListRequestSchema } from "@trading-dashboard/shared";
-import { parseOr400 } from "../users/validation.js";
+import { parseOr400 } from "../common/http/validation.js";
 import { RequirePermissions } from "../common/auth/permissions.js";
 import { ImportService } from "./import.service.js";
 

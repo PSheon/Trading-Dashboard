@@ -1,6 +1,6 @@
 "use client";
 
-import type { TraderActivity } from "@trading-dashboard/shared";
+import type { TraderActivity } from "@/lib/contracts";
 import { ArrowDownRight, ArrowUpRight, Landmark, Star } from "lucide-react";
 import { cn } from "cn";
 

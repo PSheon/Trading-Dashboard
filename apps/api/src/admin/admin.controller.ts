@@ -17,7 +17,7 @@ import { AdminOverviewService } from "./admin-overview.service.js";
 import { AdminSettingsService } from "./admin-settings.service.js";
 import { AdminUsersService } from "./admin-users.service.js";
 import { RevenueService } from "./revenue.service.js";
-import { parseOr400 } from "./validation.js";
+import { parseOr400 } from "../common/http/validation.js";
 
 /** Administrative actions require explicit permissions. Human admins receive
  * the role's catalog; service callers receive only configured scopes. */

@@ -2,9 +2,9 @@
  * Zod schemas + inferred TS types for the §6 data model and for the
  * API request/response shapes shared between apps/web and apps/api.
  *
- * These are intentionally permissive placeholders for the M1 scaffold —
- * no business logic validates against them yet, but the shapes are wired
- * so both apps can import the same contracts.
+ * Request/domain contracts used by controllers and business policies.
+ * Strict JSON output schemas live in wire-contracts.ts; Date coercion here
+ * describes domain values, not browser transport types.
  */
 
 import { z } from "zod";

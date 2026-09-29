@@ -2,7 +2,7 @@ import { Controller, Get, Query } from "@nestjs/common";
 import { alertsQuerySchema, type AlertEntry } from "@trading-dashboard/shared";
 
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
-import { parseOr400 } from "../../users/validation.js";
+import { parseOr400 } from "../../common/http/validation.js";
 import { AlertsService, alertsVisibleTo } from "./alerts.service.js";
 
 @Controller("alerts")

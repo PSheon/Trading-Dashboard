@@ -72,6 +72,13 @@ describe("public discovery routes over HTTP", () => {
     }));
   });
 
+  it("serves validated v1 discovery, profile, portfolio and insight DTOs", async () => {
+    for (const path of ["/traders", `/traders/${A}`, `/traders/${A}/portfolio`, `/traders/${A}/fills`, "/insights/crowd"]) {
+      const res = await request(app.getHttpServer()).get(path).set("x-api-contract", "1").expect(200);
+      expect(res.body.success, path).toBe(true);
+    }
+  });
+
   beforeEach(async () => {
     await truncateAll(db);
     auth.clearCache();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ImportLeaderListResponse, LeaderList } from "@trading-dashboard/shared";
+import type { ImportLeaderListResponse, LeaderList } from "@/lib/contracts";
 import { FileUp, ListOrdered } from "lucide-react";
 import { useState } from "react";
 

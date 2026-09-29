@@ -7,7 +7,7 @@ import type {
 } from "@trading-dashboard/shared";
 
 import { addressSchema, chainSchema, leaderDetailQuerySchema, leadersQuerySchema, patchLeaderRequestSchema } from "@trading-dashboard/shared";
-import { parseOr400 } from "../../users/validation.js";
+import { parseOr400 } from "../../common/http/validation.js";
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
 import { alertsVisibleTo } from "../alerts/alerts.service.js";

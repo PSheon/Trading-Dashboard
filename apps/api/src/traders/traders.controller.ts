@@ -1,3 +1,4 @@
+import { parseOr400 as parse } from "../common/http/validation.js";
 import {
   BadGatewayException,
   BadRequestException,
@@ -26,21 +27,6 @@ import { TradersService } from "./traders.service.js";
 
 export const DEFAULT_FILLS_LIMIT = 50;
 export const MAX_FILLS_LIMIT = 200;
-
-interface SafeParser<T> {
-  safeParse(input: unknown):
-    | { success: true; data: T }
-    | { success: false; error: { issues: Array<{ path: Array<string | number>; message: string }> } };
-}
-
-/** Parses with a shared zod contract; 400 with the issues otherwise. */
-function parse<T>(schema: SafeParser<T>, input: unknown): T {
-  const result = schema.safeParse(input);
-  if (result.success) return result.data;
-  throw new BadRequestException(
-    result.error.issues.map((i) => `${i.path.join(".") || "value"}: ${i.message}`),
-  );
-}
 
 function parseAddress(raw: string): string {
   if (!addressSchema.safeParse(raw).success) throw new BadRequestException("Invalid address");

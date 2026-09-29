@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import type { AdminRevenueResponse } from "@trading-dashboard/shared";
+import type { AdminRevenueResponse } from "@/lib/contracts";
 import { Coins, Settings, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";

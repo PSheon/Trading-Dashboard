@@ -63,6 +63,13 @@ describe("admin routes over HTTP", () => {
     return token ? req.set("Authorization", `Bearer ${token}`) : req;
   };
 
+  it("serves validated v1 DTOs for all admin reads", async () => {
+    for (const path of ["/admin/settings", "/admin/users", "/admin/overview", "/admin/revenue", "/settings"]) {
+      const res = await get(path, "admin-token").set("x-api-contract", "1").expect(200);
+      expect(res.body.success, path).toBe(true);
+    }
+  });
+
   it("a service token without permissions cannot read administrative data", async () => {
     await request(app.getHttpServer()).get("/admin/users").set("Authorization", `Bearer ${SERVICE_TOKEN}`).expect(403);
   });

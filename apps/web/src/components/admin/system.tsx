@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { HeartbeatResponse } from "@trading-dashboard/shared";
+import type { HeartbeatResponse } from "@/lib/contracts";
 import { cn } from "cn";
 
 import { Panel, Skeleton } from "@/components/page";

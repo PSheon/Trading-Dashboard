@@ -1,3 +1,5 @@
+import { API_CONTRACT_HEADER, API_CONTRACT_VERSION, errorEnvelopeSchema, successEnvelopeSchema, findHttpContract, type JsonWire } from "@/lib/contracts";
+
 /**
  * Thin fetch wrapper for calling apps/api from the browser.
  *
@@ -57,7 +59,7 @@ async function currentToken(): Promise<string | null> {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<JsonWire<T>> {
   const requestSignal = signal ? AbortSignal.any([signal, sessionController.signal]) : sessionController.signal;
   const token = await currentToken();
   requestSignal.throwIfAborted();
@@ -70,10 +72,11 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     requestSignal.throwIfAborted();
     const result = await fixtureRequest<T>(method, path, body, token);
     requestSignal.throwIfAborted();
-    return result;
+    const json = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
+    return validateData<T>(method, path, json);
   }
 
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -92,13 +95,15 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     let details: Record<string, unknown> = {};
     try {
       // Nest errors: {statusCode, message, code?} or {…, issues: zod issues}.
-      const parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
+      let parsed = JSON.parse(text) as { message?: unknown; issues?: unknown };
+      const envelope = errorEnvelopeSchema.safeParse(parsed);
+      if (envelope.success) parsed = { ...envelope.data.error.details, code: envelope.data.error.code, message: envelope.data.message, issues: envelope.data.error.fields } as typeof parsed;
       if (parsed && typeof parsed === "object") details = parsed as Record<string, unknown>;
       if (typeof parsed.message === "string") message = parsed.message;
       else if (Array.isArray(parsed.message)) message = parsed.message.join("; ");
       if (Array.isArray(parsed.issues) && parsed.issues.length > 0) {
         const detail = (parsed.issues as { path?: unknown[]; message?: string }[])
-          .map((i) => `${Array.isArray(i.path) ? i.path.join(".") : ""}: ${i.message ?? ""}`)
+          .map((i) => `${Array.isArray(i.path) ? i.path.join(".") : typeof i.path === "string" ? i.path : ""}: ${i.message ?? ""}`)
           .join("; ");
         message = `${message} (${detail})`;
       }
@@ -108,10 +113,25 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     throw new ApiError(res.status, message, details);
   }
 
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) return undefined as JsonWire<T>;
   const text = await res.text();
   requestSignal.throwIfAborted();
-  return (text ? JSON.parse(text) : undefined) as T;
+  let parsed: unknown;
+  try { parsed = text ? JSON.parse(text) : undefined; }
+  catch { throw new ApiError(502, "Invalid API response", { code: "invalid_response" }); }
+  const envelope = successEnvelopeSchema.safeParse(parsed);
+  if (res.headers.get(API_CONTRACT_HEADER) === API_CONTRACT_VERSION && !envelope.success) {
+    throw new ApiError(502, "Invalid API response", { code: "invalid_response" });
+  }
+  return validateData<T>(method, path, envelope.success ? envelope.data.data : parsed);
+}
+
+function validateData<T>(method: string, path: string, data: unknown): JsonWire<T> {
+  const contract = findHttpContract(method, path);
+  if (!contract) throw new ApiError(502, "Missing API contract", { code: "invalid_response" });
+  const result = contract.response.safeParse(data);
+  if (!result.success) throw new ApiError(502, "Invalid API response", { code: "invalid_response" });
+  return result.data as JsonWire<T>;
 }
 
 export const api = {

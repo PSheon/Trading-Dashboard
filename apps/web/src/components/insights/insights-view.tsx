@@ -1,6 +1,6 @@
 "use client";
 
-import type { ActionKind } from "@trading-dashboard/shared";
+import type { ActionKind } from "@/lib/contracts";
 import { Activity, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";

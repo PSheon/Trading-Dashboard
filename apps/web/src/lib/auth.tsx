@@ -2,7 +2,7 @@
 
 import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
 import { useQuery } from "@tanstack/react-query";
-import type { MeResponse } from "@trading-dashboard/shared";
+import type { MeResponse } from "@/lib/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { SessionQueries } from "@/lib/session-queries";

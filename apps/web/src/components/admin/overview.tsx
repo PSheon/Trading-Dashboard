@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { AdminOverview as Overview } from "@trading-dashboard/shared";
+import type { AdminOverview as Overview } from "@/lib/contracts";
 import { BellRing, CircleDollarSign, Radar, Users } from "lucide-react";
 
 import { ErrorState, Panel, Skeleton } from "@/components/page";

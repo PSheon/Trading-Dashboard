@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AdminUser, AdminUsersResponse, PatchAdminUserRequest, UserRole } from "@trading-dashboard/shared";
+import type { AdminUser, AdminUsersResponse, PatchAdminUserRequest, UserRole } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "cn";

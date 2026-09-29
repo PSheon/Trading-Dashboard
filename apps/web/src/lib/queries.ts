@@ -14,7 +14,7 @@ import type {
   TraderProfileResponse,
   TradersResponse,
   TraderWindow,
-} from "@trading-dashboard/shared";
+} from "@/lib/contracts";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";

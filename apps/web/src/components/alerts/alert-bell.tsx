@@ -1,6 +1,6 @@
 "use client";
 
-import type { AlertSidesInput, FavoriteAlert } from "@trading-dashboard/shared";
+import type { AlertSidesInput, FavoriteAlert } from "@/lib/contracts";
 import { Bell, BellRing, Send } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";

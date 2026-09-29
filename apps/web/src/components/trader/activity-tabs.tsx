@@ -1,8 +1,8 @@
 "use client";
 
-import { readAlertDisplayValues } from "@trading-dashboard/shared";
+import { readAlertDisplayValues } from "@/lib/contracts";
 
-import type { ActionFeedItem, TraderFill, TraderProfileResponse } from "@trading-dashboard/shared";
+import type { ActionFeedItem, TraderFill, TraderProfileResponse } from "@/lib/contracts";
 import { Download } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";

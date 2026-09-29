@@ -1,3 +1,4 @@
+import { HttpModule } from "../src/common/http/http.module.js";
 import { Global, Module, type INestApplication, type Type } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { vi } from "vitest";
@@ -49,7 +50,7 @@ export async function createAuthedApp(opts: {
   class TestDbModule {}
 
   const moduleRef = await Test.createTestingModule({
-    imports: [TestDbModule, SettingsModule, AuthModule, ...(opts.imports ?? [])],
+    imports: [HttpModule, TestDbModule, SettingsModule, AuthModule, ...(opts.imports ?? [])],
     controllers: opts.controllers ?? [],
     providers: [...AUTH_GUARD_PROVIDERS, ...(opts.providers ?? [])],
   })

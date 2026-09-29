@@ -1,0 +1,28 @@
+/** Browser values are JSON, never domain Date/BigInt instances. */
+import type * as Domain from "@trading-dashboard/shared";
+import type { JsonWire } from "@trading-dashboard/shared";
+export * from "@trading-dashboard/shared";
+export type LeaderList = JsonWire<Domain.LeaderList>;
+export type Leader = JsonWire<Domain.Leader>;
+export type Fill = Domain.WireFill;
+export type Action = Domain.WireAction;
+export type AlertEntry = Domain.WireAlert;
+export type ActionFeedItem = Domain.WireAction;
+export type LeaderSummary = JsonWire<Domain.LeaderSummary>;
+export type PositionRow = JsonWire<Domain.PositionRow>;
+export type EquityPoint = JsonWire<Domain.EquityPoint>;
+export type LeaderDetailResponse = JsonWire<Domain.LeaderDetailResponse>;
+export type HeartbeatResponse = JsonWire<Domain.HeartbeatResponse>;
+export type MeResponse = JsonWire<Domain.MeResponse>;
+export type TraderStats = JsonWire<Domain.TraderStats>;
+export type TradersResponse = JsonWire<Domain.TradersResponse>;
+export type TraderProfileResponse = JsonWire<Domain.TraderProfileResponse>;
+export type TraderFill = JsonWire<Domain.TraderFill>;
+export type Favorite = JsonWire<Domain.Favorite>;
+export type TelegramStatus = JsonWire<Domain.TelegramStatus>;
+export type TelegramLinkResponse = JsonWire<Domain.TelegramLinkResponse>;
+export type CrowdResponse = JsonWire<Domain.CrowdResponse>;
+export type AdminUser = JsonWire<Domain.AdminUser>;
+export type AdminUsersResponse = JsonWire<Domain.AdminUsersResponse>;
+export type AdminOverview = JsonWire<Domain.AdminOverview>;
+export type AdminRevenueResponse = JsonWire<Domain.AdminRevenueResponse>;

@@ -10,7 +10,7 @@ import {
   revenueSettingsSchema,
   type AdminSettings,
   type PatchAdminSettingsRequest,
-} from "@trading-dashboard/shared";
+} from "@/lib/contracts";
 import { ArrowDown, ArrowUp, Check, Plus, X } from "lucide-react";
 import { useState } from "react";
 import type { ZodTypeAny } from "zod";

@@ -32,6 +32,8 @@ export interface HlAssetPosition {
     liquidationPx?: string | null;
     marginUsed: string;
     unrealizedPnl: string;
+    /** |szi| × mark price, USD. */
+    positionValue?: string;
   };
   type: string;
 }
@@ -85,7 +87,11 @@ export type HlUserFillsByTimeResponse = HlUserFill[];
 
 /** `perpDexs`: index 0 is the main dex (returned as null); the rest are
  * HIP-3 builder dexes whose coins are named "<dex>:<COIN>". */
-export type HlPerpDexsResponse = Array<{ name: string } | null>;
+export type HlPerpDexsResponse = Array<{
+  name: string;
+  /** One entry per listed market; empty for a dex with nothing listed. */
+  assetToStreamingOiCap?: Array<[string, string]>;
+} | null>;
 
 export type HlAllMidsResponse = Record<string, string>;
 
@@ -99,7 +105,63 @@ export type HlInfoRequestBody =
       startTime: number;
       endTime?: number;
     }
-  | { type: "allMids" };
+  | { type: "allMids" }
+  | { type: "portfolio"; user: string }
+  | { type: "userFills"; user: string }
+  | { type: "referral"; user: string };
+
+/** One `portfolio` history: [epoch ms, decimal string] points. */
+export interface HlPortfolioHistory {
+  accountValueHistory: Array<[number, string]>;
+  pnlHistory: Array<[number, string]>;
+  vlm: string;
+}
+
+/** `portfolio`: `[["day", …], ["week", …], ["month", …], ["allTime", …],
+ * ["perpDay", …], ["perpWeek", …], ["perpMonth", …], ["perpAllTime", …]]`. */
+export type HlPortfolioResponse = Array<[string, HlPortfolioHistory]>;
+
+/** Cumulative reward counters. The top-level fields of the `referral`
+ * response are USDC (token 0) only; other tokens appear in `tokenToState`. */
+export interface HlReferralRewardState {
+  cumVlm: string;
+  /** Includes unclaimed builder rewards (verified live 2026-09-29: an
+   * address with only builder income has unclaimed = builderRewards). */
+  unclaimedRewards: string;
+  claimedRewards: string;
+  builderRewards: string;
+}
+
+/** One user referred by the queried address (stage "ready"). */
+export interface HlReferralState {
+  /** The referred user's cumulative volume, USDC (token 0). */
+  cumVlm: string;
+  cumRewardedFeesSinceReferred: string;
+  /** Fees paid to the referrer (the queried address) by this user, USDC. */
+  cumFeesRewardedToReferrer: string;
+  timeJoined: number;
+  user: string;
+  tokenToState?: Array<[number, Partial<HlReferralState>]>;
+}
+
+/** `referrerState`: "needToTrade" (below the $10k volume needed to create a
+ * code; data = {required}), "needToCreateCode" (no data), "ready" (has a
+ * code; data = {code, nReferrals, referralStates}). Verified live
+ * 2026-09-29 against the docs' "Query a user's referral information". */
+export type HlReferrerState =
+  | { stage: "ready"; data: { code: string; nReferrals?: number; referralStates: HlReferralState[] } }
+  | { stage: "needToTrade"; data?: { required: string } }
+  | { stage: "needToCreateCode"; data?: unknown }
+  | { stage: string; data?: unknown };
+
+/** `info {"type":"referral","user":…}`. */
+export interface HlReferralResponse extends HlReferralRewardState {
+  referredBy: { referrer: string; code: string } | null;
+  referrerState: HlReferrerState;
+  /** Legacy. */
+  rewardHistory: unknown[];
+  tokenToState: Array<[number, HlReferralRewardState]>;
+}
 
 // ---------------------------------------------------------------------------
 // WS: wss://api.hyperliquid.xyz/ws

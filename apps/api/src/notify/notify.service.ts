@@ -10,7 +10,6 @@ import { RoundTripService } from "../analytics/round-trip.service.js";
 import { env } from "../config/env.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import { chatIdForRuleKind } from "./chat-routing.js";
 import { leaderDisplayLabel, renderRuleMessage } from "./message-template.js";
 import { TelegramHttpClient } from "./telegram-http.client.js";
 
@@ -18,17 +17,20 @@ type ActionRow = typeof actions.$inferSelect;
 type LeaderRow = typeof leaders.$inferSelect;
 type AlertRuleRow = typeof alertRules.$inferSelect;
 
-/** Every rule in `rules` must route to the same chat destination — the
- * caller (RulesService) groups by `chatIdForRuleKind` before calling this,
- * so one action never sends two Telegram messages even when e.g. R1 and R3
- * both match the same large `open` (or R2 and R3 both match the same
- * `flip`). One combined message is sent, but one `alerts` row is still
- * written per rule (N2) — each rule's cooldown was already applied
- * independently by the caller when deciding whether it "matched". */
+/** Every rule in `rules` belongs to `recipient` and matched this one
+ * action — the caller (RulesService) groups by recipient, so one action
+ * sends each person ONE Telegram message even when e.g. R1 and R3 both
+ * match the same large `open`. One `alerts` row is still written per rule
+ * (N2) — each rule's cooldown was already applied by the caller. */
 export interface RulesFireContext {
   rules: AlertRuleRow[];
   action: ActionRow;
   leader: LeaderRow;
+  recipient: {
+    userId: number;
+    /** The user's enabled Telegram channel, or null when they have none. */
+    telegramChatId: string | null;
+  };
 }
 
 /** Simple backoff schedule for N4 (task's own suggestion: "1s/2s/4s, don't
@@ -60,7 +62,7 @@ export class NotifyService {
   ) {}
 
   /** Entry point RulesService calls once it has decided which rules fire
-   * for one action, already grouped to a single chat destination. Never
+   * for one action, already grouped to a single recipient. Never
    * throws — a failure here is recorded in each `alerts` row's
    * send_status, not propagated (so one destination's failure can't stop
    * other destinations/addresses in the same evaluateAction() call from
@@ -70,7 +72,7 @@ export class NotifyService {
       await this.doNotify(ctx);
     } catch (error) {
       this.logger.error(
-        `notifyRulesFire failed for rules [${ctx.rules.map((r) => r.kind).join(",")}] / ${ctx.action.address} / ${ctx.action.coin}: ${
+        `notifyRulesFire failed for user ${ctx.recipient.userId} rules [${ctx.rules.map((r) => r.kind).join(",")}] / ${ctx.action.address} / ${ctx.action.coin}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -78,7 +80,7 @@ export class NotifyService {
   }
 
   private async doNotify(ctx: RulesFireContext): Promise<void> {
-    const { rules, action, leader } = ctx;
+    const { rules, action, leader, recipient } = ctx;
     const sinceTs = new Date(action.ts.getTime() - THIRTY_DAYS_MS);
     const winRate = await this.roundTrip.winRate(action.address, action.coin, sinceTs);
 
@@ -90,9 +92,7 @@ export class NotifyService {
       winRate30dForCoin: winRate,
       dashboardUrl,
     });
-    // Every rule in `rules` was grouped by the same chat destination by the
-    // caller — any one of them resolves to the same chatId.
-    const chatId = chatIdForRuleKind(rules[0].kind);
+    const chatId = recipient.telegramChatId;
 
     const values = {
       leaderLabel: leaderDisplayLabel(leader),
@@ -109,26 +109,39 @@ export class NotifyService {
     const payloadJson = { text, chatId: chatId ?? null, values };
 
     if (env.dryRun()) {
-      this.logger.log(`[DRY_RUN] ${text}`);
-      await this.insertAlertRows(rules, action, payloadJson, "dry_run");
+      this.logger.log(`[DRY_RUN] to user ${recipient.userId}: ${text}`);
+      await this.insertAlertRows(recipient.userId, rules, action, payloadJson, "dry_run");
       return;
     }
 
     if (!chatId) {
-      this.logger.error(
-        `No chat id configured for rule kinds [${rules.map((r) => r.kind).join(",")}] — recording as failed without attempting a send`,
+      this.logger.warn(
+        `User ${recipient.userId} has no enabled Telegram channel — recording [${rules.map((r) => r.kind).join(",")}] as failed`,
       );
-      await this.insertAlertRows(rules, action, payloadJson, "failed");
+      await this.insertAlertRows(
+        recipient.userId,
+        rules,
+        action,
+        { ...payloadJson, reason: "no enabled Telegram channel" },
+        "failed",
+      );
       return;
     }
 
     const sent = await this.sendWithRetry(chatId, text);
-    await this.insertAlertRows(rules, action, payloadJson, sent ? "sent" : "failed");
+    await this.insertAlertRows(
+      recipient.userId,
+      rules,
+      action,
+      sent ? payloadJson : { ...payloadJson, reason: "Telegram send failed after retries" },
+      sent ? "sent" : "failed",
+    );
   }
 
-  /** Operational message (e.g. §8 feed-down self-alert) to the realtime
-   * chat. Not tied to a rule, so no `alerts` row. Honors DRY_RUN; never
-   * throws. */
+  /** Operational message (e.g. §8 feed-down self-alert) to the operator's
+   * TELEGRAM_CHAT_ID_REALTIME chat — the only use of that env chat now that
+   * user alerts go to each user's own channel. Not tied to a rule, so no
+   * `alerts` row. Honors DRY_RUN; never throws. */
   async sendSystemMessage(text: string): Promise<void> {
     const chatId = env.telegramChatIdRealtime();
     if (env.dryRun() || !chatId) {
@@ -164,6 +177,7 @@ export class NotifyService {
   /** One `alerts` row per matched rule (N2), all sharing the same rendered
    * payload/outcome since they were sent as a single combined message. */
   private async insertAlertRows(
+    userId: number,
     rules: AlertRuleRow[],
     action: ActionRow,
     payloadJson: Record<string, unknown>,
@@ -178,6 +192,7 @@ export class NotifyService {
     await this.db.insert(alerts).values(
       rules.map((rule) => ({
         ruleId: rule.id,
+        userId,
         chain: action.chain,
         address: action.address,
         coin: action.coin,

@@ -1,63 +1,78 @@
-import { createHash, timingSafeEqual } from "node:crypto";
-
 import {
+  ForbiddenException,
   Injectable,
+  Logger,
+  UnauthorizedException,
   type CanActivate,
   type ExecutionContext,
-  UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import type { UserRole } from "@trading-dashboard/shared";
 import type { Request } from "express";
 
-import { env } from "../../config/env.js";
+import { AuthService, type AuthOutcome } from "./auth.service.js";
+import { ROLES_KEY, type RequestUser } from "./current-user.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 
-/**
- * Constant-time string equality. `timingSafeEqual` itself throws on unequal
- * buffer lengths (which would leak the token's length through the branch,
- * even if not through timing), so both sides are hashed to a fixed-size
- * digest first.
- */
-function tokensMatch(a: string, b: string): boolean {
-  const digestA = createHash("sha256").update(a).digest();
-  const digestB = createHash("sha256").update(b).digest();
-  return timingSafeEqual(digestA, digestB);
+function bearerToken(request: Request): string | undefined {
+  const header = request.headers["authorization"];
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return undefined;
+  const token = header.slice("Bearer ".length).trim();
+  return token || undefined;
 }
 
 /**
- * Single-env-token auth guard (§8 安全: "前端以 env token 呼叫，Nest 以 guard
- * 驗證"). No login system, no per-user sessions — this is a single-operator
- * deployment. Applied globally in AppModule except routes marked @Public()
- * (i.e. /health).
+ * Global guard (applied in AppModule). Sets `request.user` (see
+ * `RequestUser`) and enforces:
+ * - `@Public()`: anyone. No token, or one that doesn't give a caller
+ *   (invalid, expired, disabled user, sign-ups closed) → anonymous — a
+ *   stale token must not block browsing; a valid one → caller attached.
+ * - everything else: 401 without a caller, except a new Privy user while
+ *   sign-ups are closed: 403 `{ code: "signups_closed" }`.
+ * - `@Roles(...)`: additionally 403 unless the user's role is listed; the
+ *   service token counts as admin. `@Roles` wins over `@Public`.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  private readonly logger = new Logger(AuthGuard.name);
 
-  canActivate(context: ExecutionContext): boolean {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(
-      IS_PUBLIC_KEY,
-      [context.getHandler(), context.getClass()],
-    );
-    if (isPublic) return true;
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly auth: AuthService,
+  ) {}
 
-    const expectedToken = env.apiAuthToken();
-    if (!expectedToken) {
-      // Fail closed: an unconfigured token must never mean "open API".
-      throw new UnauthorizedException("API_AUTH_TOKEN is not configured");
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const targets = [context.getHandler(), context.getClass()];
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets) ?? false;
+    const roles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, targets);
+    const needsRole = roles !== undefined && roles.length > 0;
+    const open = isPublic && !needsRole;
+
+    const request = context.switchToHttp().getRequest<Request & { user?: RequestUser }>();
+    const token = bearerToken(request);
+
+    let outcome: AuthOutcome = { status: "invalid" };
+    if (token) {
+      try {
+        outcome = await this.auth.authenticate(token);
+      } catch (error) {
+        // Only infrastructure failures get here (e.g. the database is down
+        // while signing a user in). Public data stays reachable.
+        if (!open) throw error;
+        this.logger.warn(`Treating caller as anonymous on a public route: ${(error as Error).message}`);
+      }
     }
+    const user = outcome.status === "user" ? outcome.user : null;
+    if (user) request.user = user;
 
-    const request = context.switchToHttp().getRequest<Request>();
-    const header = request.headers["authorization"];
-    const presentedToken =
-      typeof header === "string" && header.startsWith("Bearer ")
-        ? header.slice("Bearer ".length)
-        : undefined;
-
-    if (!presentedToken || !tokensMatch(presentedToken, expectedToken)) {
-      throw new UnauthorizedException("Invalid or missing bearer token");
+    if (open) return true;
+    if (outcome.status === "signups_closed") {
+      throw new ForbiddenException({ statusCode: 403, code: "signups_closed", message: "Sign-ups are closed" });
     }
-
+    if (!user) throw new UnauthorizedException("Sign in required");
+    if (needsRole && user.kind === "user" && !roles.includes(user.role)) {
+      throw new ForbiddenException(`Requires role: ${roles.join(" or ")}`);
+    }
     return true;
   }
 }

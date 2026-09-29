@@ -1,4 +1,4 @@
-import { actions, alertRules, alerts, readAlertDisplayValues } from "@trading-dashboard/shared";
+import { actions, alertRules, alerts, notificationOutbox, notificationChannels, userFavorites, readAlertDisplayValues } from "@trading-dashboard/shared";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderAlertMessage, tradeSideOf } from "../src/notify/message-template.js";
@@ -82,6 +82,8 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     process.env.TELEGRAM_SYSTEM_CHAT_ID = "chat-system";
 
     userId = (await insertUser(db)).id;
+    await db.insert(userFavorites).values({ userId, address: ADDRESS, alertEnabled: true });
+    await db.insert(notificationChannels).values({ userId, kind: "telegram", target: "chat-user", enabled: true });
     [actionRow] = await db
       .insert(actions)
       .values({
@@ -143,6 +145,7 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ ruleId: null, userId, address: ADDRESS, coin: "BTC", sendStatus: "dry_run" });
     expect(rows[0].sentAt).not.toBeNull();
+    expect(await db.select().from(notificationOutbox)).toMatchObject([{ actionId: actionRow.id, userId, status: "dry_run" }]);
     expect(readAlertDisplayValues(JSON.parse(JSON.stringify(rows[0].payloadJson)))).toEqual({ actionKind: "open", notionalUsd: "60000" });
     expect(JSON.parse(JSON.stringify(rows[0].payloadJson))).toMatchObject({ version: 1, values: { actionKind: "open", notionalUsd: "60000" } });
   });

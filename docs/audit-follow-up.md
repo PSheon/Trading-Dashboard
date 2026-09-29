@@ -19,7 +19,7 @@ reference material, not generated or verified by this change.
 - Fill sync retries process already-stored fills returned in the requested
   window, repairing interrupted action derivation while retaining action locks
   and deduplication. This does not recover data no longer returned by upstream
-  or guarantee delivery of an in-memory notification event across a crash.
+  alone guarantee delivery; the durable outbox described below recovers missed events.
 - Docker build context excludes secrets, dependencies and local artifacts.
 - Root dev builds shared first, watches contracts and uses separate API/web
   ports. Turbo tracks root env files and passes appropriate dev variables.
@@ -63,10 +63,15 @@ windows, and snapshot attempt/success/failure timestamps are distinct. HTTP call
 cancellation reaches Hyperliquid queue/fetch work. These repository changes have
 been tested locally; no Railway deployment was performed.
 
+## Durable notifications
+
+Recent action intents, evaluation context, cooldown reservations and delivery
+records now persist transactionally. Leased retries recover interrupted work and
+revalidate recipients before each send. See [delivery operations](notification-delivery.md)
+for additive migrations, limits and the possible duplicate after Telegram acceptance.
+
 ## Remaining high-priority work
 
-1. Durable notification outbox, atomic cooldown reservation and replay after
-   process failure; sending then logging is not a durable delivery contract.
 6. Inbound API rate limits and monitored-address quotas. The external API
    budgeter now has bounded/cancellable queues, but is not an inbound abuse limit.
 7. Dependency audit remediation: initial scan reported 8 high, 15 moderate and

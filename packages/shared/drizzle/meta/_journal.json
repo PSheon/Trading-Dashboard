@@ -50,6 +50,20 @@
       "when": 1790672233396,
       "tag": "0006_favorite_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790680795760,
+      "tag": "0007_notification_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790681523039,
+      "tag": "0008_action_evaluation_context",
+      "breakpoints": true
     }
   ]
 }

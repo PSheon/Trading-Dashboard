@@ -37,6 +37,12 @@ export const alertPayloadSchema = z.object({
   values: alertDisplayValuesSchema.passthrough(),
 }).passthrough();
 
+export const notificationDeliveryPayloadSchema = alertPayloadSchema.extend({
+  text: z.string(),
+  chatId: z.string().nullable(),
+  reasons: z.object({ favorite: z.boolean(), rules: z.array(z.string()) }),
+});
+
 export function readAlertDisplayValues(payload: Record<string, unknown>) {
   if (payload.version !== undefined && payload.version !== 1) return undefined;
   const candidate = payload.values ?? (payload.version === undefined

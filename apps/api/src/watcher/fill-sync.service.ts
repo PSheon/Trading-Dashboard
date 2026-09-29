@@ -232,7 +232,7 @@ export class FillSyncService {
         });
         await this.verify(tx, address, action, real, action.fillIds.some((tid) => freshTids.has(tid)));
       }
-      return drafts.length > 0 ? insertActions(tx, address, drafts) : [];
+      return drafts.length > 0 ? insertActions(tx, address, drafts, reason !== "backfill", this.accounts.getEquityUsd(address)) : [];
     });
 
     // Backfill is history: stored for analytics, never alerted on.

@@ -41,3 +41,11 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 - Compiled real bootstrap probes: isolated healthy DB -> /health/ready 200; unavailable DB -> 503; SIGTERM terminated both within 0.02s. Final rebuild/probe after review fixes remains to run.
 
 - Final runtime verification: 37 API test files / 422 tests passed; API typecheck/build/lint passed. Rebuilt real-bootstrap probes again returned 200/503 as expected and both exited on SIGTERM in 0.01s. Existing web tests/typecheck rerun for the additive heartbeat fields.
+
+## Batch 3 durable delivery
+
+- Tasks 11–12: transactional action outbox and per-recipient delivery intents, leased claims, bounded retry and terminal failure, DB cooldown reservations and admin aggregate status. Backfill never enqueues historical alerts.
+- Evaluation context persists equity at action creation; replay preserves percentage-rule behavior with an empty watcher cache. Each external retry checks current user, channel and notification policy. All failures retain Telegram Retry-After, including the last immediate attempt.
+- Isolated test DB migrated through 0008. No application/production DB migration or external Telegram send performed. Recovery, transaction rollback, concurrent claims/reservations, expired leases, revocation, percentage replay and final-attempt delay covered.
+- Verification: 38 API files / 433 tests passed; API typecheck, lint and production build passed. Independent review's three findings fixed and reviewed again without blockers.
+- Operational limits and duplicate-on-crash ambiguity documented in notification-delivery.md. Retention automation and actual deployment remain outstanding.

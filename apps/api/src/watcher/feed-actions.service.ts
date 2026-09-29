@@ -83,7 +83,7 @@ export class FeedActionsService {
           const covered = new Set(covering.flatMap((a) => a.fillIds));
           drafts = this.classify(address, burst, covered);
         }
-        return insertActions(tx, address, drafts);
+        return insertActions(tx, address, drafts, true, this.accounts.getEquityUsd(address));
       });
       emitRecent(this.events, rows);
       return rows.length;

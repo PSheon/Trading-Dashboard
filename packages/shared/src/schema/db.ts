@@ -461,3 +461,36 @@ export const telegramLinkTokens = pgTable(
   },
   (table) => [index("telegram_link_tokens_user_idx").on(table.userId)],
 );
+
+// Durable work: action evaluation and per-recipient Telegram delivery.
+export const actionOutbox = pgTable("action_outbox", {
+  equityUsd: numeric("equity_usd"),
+  actionId: bigint("action_id", { mode: "bigint" }).primaryKey().references(() => actions.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  lastError: text("last_error"),
+}, (table) => [index("action_outbox_pending_idx").on(table.status, table.availableAt)]);
+
+export const notificationOutbox = pgTable("notification_outbox", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  actionId: bigint("action_id", { mode: "bigint" }).notNull().references(() => actions.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  leaseToken: text("lease_token"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("notification_outbox_action_user_uq").on(table.actionId, table.userId),
+  index("notification_outbox_pending_idx").on(table.status, table.availableAt),
+]);
+
+export const notificationCooldowns = pgTable("notification_cooldowns", {
+  key: text("key").primaryKey(),
+  reservedAt: timestamp("reserved_at", { withTimezone: true }).notNull(),
+});

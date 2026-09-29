@@ -1,0 +1,1 @@
+ALTER TABLE "action_outbox" ADD COLUMN "equity_usd" numeric;

@@ -125,3 +125,5 @@ SIGTERM/SIGINT stop new work, cancel upstream requests and drain tracked jobs.
 A 30s watchdog bounds the entire process shutdown; background drain has a 25s
 budget and pool close has 3s before remaining connections are closed. Deadline
 expiry can interrupt work, so this alone does not guarantee notification delivery.
+
+`GET /admin/outbox` requires `admin.access`; see [delivery recovery](notification-delivery.md).

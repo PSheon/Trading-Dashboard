@@ -6,7 +6,7 @@
 
 本批已完成第 2–6 項的設定防護，以及第 1 項的啟動前驗證；typed config 注入各 service（第 7 項）仍待後續。RBAC-1／2／4 已加入 permission catalog、依序執行的 guards 與明列 service scopes；RBAC-3 已改為僅建立帳號時 bootstrap，管理稽核記錄仍待補。RBAC-6 已補 service scopes、路由矩陣與降權回歸，真實 SDK 驗簽及其餘測試邊界仍未完成。
 
-後續資料正確性批次已修正第 13、14、23 項，補第 10 項匯入語意／批量驗證，並完成 RBAC-5 的前端身份切換快取隔離。執行期批次另補第 27–30 項的關機／readiness、逾時取消與排程並行防護；多副本 worker 協調仍未導入。API response envelope、repository/module 重構、RBAC-5 的多副本撤銷與其他未列明項目尚未實作。部署差異與完整權限表見 [Auth and config](auth-and-config.md)，本批驗證見 [實作紀錄](superpowers/plans/2026-09-29-env-rbac.md)。以下「現有」均指上述稽核基準，避免將歷史問題誤認為目前狀態。
+後續資料正確性批次已修正第 13、14、23 項，補第 10 項匯入語意／批量驗證，並完成 RBAC-5 的前端身份切換快取隔離。執行期批次另補第 27–30 項的關機／readiness、逾時取消與排程並行防護；多副本 worker 協調仍未導入。通知持久化批次已補第 25–26 項的 transactional outbox、重放情境與原子 cooldown；操作限制見 [通知交付](notification-delivery.md)。API response envelope、repository/module 重構、RBAC-5 的多副本撤銷與其他未列明項目尚未實作。部署差異與完整權限表見 [Auth and config](auth-and-config.md)，本批驗證見 [實作紀錄](superpowers/plans/2026-09-29-env-rbac.md)。以下「現有」均指上述稽核基準，避免將歷史問題誤認為目前狀態。
 
 ## 範圍與方法
 

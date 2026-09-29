@@ -113,4 +113,28 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     // And A5 backfill must not re-fire for an address that wasn't new.
     expect(triggerSpy).not.toHaveBeenCalledWith("0xmanual");
   });
+
+  it("turns a favorited leader into an imported one, reactivating it, without re-backfilling", async () => {
+    await db.insert(leaders).values([
+      { chain: "hyperliquid", address: "0xfav", source: "favorite", active: false, tier: "B" },
+      { chain: "hyperliquid", address: "0xoff", source: "import", active: false, tier: "C" },
+    ]);
+
+    const result = await importService.importLeaderList({
+      source: "copydog",
+      fileName: "v3.csv",
+      rows: [
+        { address: "0xfav", rank: 5 },
+        { address: "0xoff", rank: 6 },
+      ],
+    });
+
+    expect(result.newAddresses).toHaveLength(0);
+    const rows = await db.select().from(leaders);
+    const byAddress = new Map(rows.map((r) => [r.address, r]));
+    expect(byAddress.get("0xfav")).toMatchObject({ source: "import", active: true, tier: "B" });
+    // An admin's manual deactivation of an imported leader still survives.
+    expect(byAddress.get("0xoff")).toMatchObject({ source: "import", active: false, tier: "C" });
+    expect(triggerSpy).not.toHaveBeenCalled();
+  });
 });

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   CHAIN_DEFAULT,
   leaderListItems,
@@ -151,6 +152,24 @@ export class ImportService {
         )
         .onConflictDoNothing({ target: [leaders.chain, leaders.address] })
         .returning({ address: leaders.address });
+
+      // An address someone favorited before it was imported is now an
+      // imported leader: admins get its alerts, and it stays watched when
+      // the last favorite goes. Its favorite-managed `active` flag is reset
+      // to true; imported rows (manual A3 edits) are still left alone.
+      await tx
+        .update(leaders)
+        .set({ source: "import", active: true })
+        .where(
+          and(
+            eq(leaders.chain, CHAIN_DEFAULT),
+            eq(leaders.source, "favorite"),
+            inArray(
+              leaders.address,
+              dedupedRows.map((row) => row.address),
+            ),
+          ),
+        );
 
       return { listId: list.id, itemCount: dedupedRows.length, newAddresses: inserted.map((r) => r.address) };
     });

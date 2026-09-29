@@ -42,6 +42,9 @@ const C = `0x${"c3".repeat(20)}`;
 const D = `0x${"d4".repeat(20)}`;
 /** A vault: biggest account value and month PnL, hidden by default. */
 const V = `0x${"f6".repeat(20)}`;
+/** A holder: no volume in 30 days, the biggest account and month PnL of all
+ * (its assets went up); hidden by the default activity filter (§12). */
+const H = `0x${"09".repeat(20)}`;
 const UNKNOWN = `0x${"e5".repeat(20)}`;
 
 const mainState: HlClearinghouseStateResponse = {
@@ -106,15 +109,25 @@ function fakeInfo() {
 
 function statsRow(
   address: string,
-  o: { av: number; name?: string; day: number; week: number; month: number; roiMonth: number; vlmMonth: number },
+  o: {
+    av: number;
+    name?: string;
+    day: number;
+    week: number;
+    month: number;
+    roiMonth: number;
+    vlmMonth: number;
+    vlmDay?: number;
+    vlmWeek?: number;
+  },
 ) {
   return {
     ethAddress: address,
     accountValue: String(o.av),
     displayName: o.name ?? null,
     windowPerformances: [
-      ["day", { pnl: String(o.day), roi: "0", vlm: "0" }],
-      ["week", { pnl: String(o.week), roi: "0", vlm: "0" }],
+      ["day", { pnl: String(o.day), roi: "0", vlm: String(o.vlmDay ?? 0) }],
+      ["week", { pnl: String(o.week), roi: "0", vlm: String(o.vlmWeek ?? 0) }],
       ["month", { pnl: String(o.month), roi: String(o.roiMonth), vlm: String(o.vlmMonth) }],
       ["allTime", { pnl: "0", roi: "0", vlm: "0" }],
     ] as Array<[string, { pnl: string; roi: string; vlm: string }]>,
@@ -161,11 +174,13 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       parseLeaderboard(
         {
           leaderboardRows: [
-            statsRow(A, { av: 1_000_000, name: "Alpha Whale", day: 5, week: 100, month: 50, roiMonth: 0.5, vlmMonth: 10 }),
-            statsRow(B, { av: 50_000, day: 30, week: 10, month: 300, roiMonth: 3, vlmMonth: 40 }),
+            // Activity: A traded today, B this week, C and D this month, H not in 30 days.
+            statsRow(A, { av: 1_000_000, name: "Alpha Whale", day: 5, week: 100, month: 50, roiMonth: 0.5, vlmMonth: 10, vlmWeek: 4, vlmDay: 2 }),
+            statsRow(B, { av: 50_000, day: 30, week: 10, month: 300, roiMonth: 3, vlmMonth: 40, vlmWeek: 5 }),
             statsRow(C, { av: 10, name: "alphabet", day: 1, week: 50, month: 200, roiMonth: -0.1, vlmMonth: 30 }),
             statsRow(D, { av: 2_000_000, name: "Delta_1", day: -5, week: -20, month: -10, roiMonth: 0.2, vlmMonth: 20 }),
             statsRow(V, { av: 9_000_000, name: "HLP-like", day: 9, week: 900, month: 900, roiMonth: 0.1, vlmMonth: 1 }),
+            statsRow(H, { av: 2_860_000_000, name: "Holder", day: 1e6, week: 5e6, month: 9e7, roiMonth: 0.04, vlmMonth: 0 }),
           ],
         },
         IMPORTED_AT,
@@ -557,6 +572,70 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     });
   });
 
+  describe("activity (§12)", () => {
+    it("tags each row with the latest leaderboard window that has volume", async () => {
+      const res = await controller.list({ active: "any" }, null);
+      const activity = Object.fromEntries(res.items.map((i) => [i.address, i.activity]));
+      expect(activity).toEqual({ [H]: "inactive", [B]: "week", [C]: "month", [A]: "day", [D]: "month" });
+    });
+
+    it("filters by each `active` value, and `total` counts the filtered rows", async () => {
+      const day = await controller.list({ active: "day" }, null);
+      expect(addresses(day)).toEqual([A]);
+      expect(day.total).toBe(1);
+
+      const week = await controller.list({ active: "week" }, null);
+      expect(addresses(week)).toEqual([B, A]);
+      expect(week.total).toBe(2);
+
+      const month = await controller.list({ active: "month" }, null);
+      expect(addresses(month)).toEqual([B, C, A, D]);
+      expect(month.total).toBe(4);
+
+      const any = await controller.list({ active: "any" }, null);
+      expect(addresses(any)).toEqual([H, B, C, A, D]);
+      expect(any.total).toBe(5);
+
+      // Combined with the other filters and pagination.
+      const page = await controller.list({ active: "any", sort: "accountValue", limit: "1" }, null);
+      expect(addresses(page)).toEqual([H]);
+      expect(page.total).toBe(5);
+      const rich = await controller.list({ active: "week", minAccountValue: "100000" }, null);
+      expect(addresses(rich)).toEqual([A]);
+      expect(rich.total).toBe(1);
+      const withVaults = await controller.list({ active: "any", hideVaults: "false" }, null);
+      expect(withVaults.total).toBe(6);
+    });
+
+    it("defaults to the admin's discovery.defaultActiveWithin (month) when `active` is omitted", async () => {
+      expect((await settings.get("discovery")).defaultActiveWithin).toBe("month");
+      const byDefault = await controller.list({}, null);
+      expect(addresses(byDefault)).not.toContain(H);
+      expect(byDefault.total).toBe(4);
+
+      await settings.patch({ discovery: { defaultActiveWithin: "week" } }, null);
+      const week = await controller.list({}, null);
+      expect(addresses(week)).toEqual([B, A]);
+      expect(week.total).toBe(2);
+      // The query still overrides the setting.
+      expect((await controller.list({ active: "month" }, null)).total).toBe(4);
+
+      await settings.patch({ discovery: { defaultActiveWithin: "any" } }, null);
+      const all = await controller.list({}, null);
+      expect(addresses(all)[0]).toBe(H);
+      expect(all.total).toBe(5);
+      expect(addresses(await controller.list({ active: "day" }, null))).toEqual([A]);
+
+      await settings.patch({ discovery: { defaultActiveWithin: "day" } }, null);
+      expect((await controller.list({}, null)).total).toBe(1);
+    });
+
+    it("rejects an unknown `active` value with 400", async () => {
+      await expectStatus(() => controller.list({ active: "year" }, null), 400);
+      await expectStatus(() => controller.list({ active: "inactive" }, null), 400);
+    });
+  });
+
   describe("profile sample", () => {
     const hl = (hoursAgo: number, coin = "BTC", tid = Math.floor(Math.random() * 1e12)): HlUserFill => ({
       ...userFillsFixture[0],
@@ -673,6 +752,27 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
 
       await settings.patch({ discovery: { hideVaults: false } }, null);
       expect((await service.homeAddresses())[0]).toBe(V);
+    });
+
+    it("skips accounts outside the default activity window in the fallback (a holder isn't warmed)", async () => {
+      // H has the highest month PnL but no volume in 30 days.
+      const fallback = await service.homeAddresses();
+      expect(fallback).not.toContain(H);
+      expect(fallback).toEqual([B, C, A, D]);
+      await service.warmHome();
+      expect(info.portfolio.mock.calls.map((c) => c[0])).not.toContain(H);
+
+      await settings.patch({ discovery: { defaultActiveWithin: "week" } }, null);
+      expect(await service.homeAddresses()).toEqual([B, A]);
+      await settings.patch({ discovery: { defaultActiveWithin: "any" } }, null);
+      expect((await service.homeAddresses())[0]).toBe(H);
+    });
+
+    it("always keeps explicitly featured addresses, inactive ones included", async () => {
+      await settings.patch({ discovery: { featuredAddresses: [H, A], defaultActiveWithin: "day" } }, null);
+      expect(await service.homeAddresses()).toEqual([H, A]);
+      expect(await service.warmHome()).toBe(2);
+      expect(info.portfolio.mock.calls.map((c) => c[0]).sort()).toEqual([A, H].sort());
     });
 
     it("uses the admin's featured list when set, and survives a failing address", async () => {

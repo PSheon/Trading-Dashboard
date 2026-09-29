@@ -12,7 +12,7 @@ import { useI18n } from "@/i18n/provider";
 import { traderName, truncateAddress } from "@/lib/format";
 import type { TraderSort } from "@/lib/queries";
 import { AddressAvatar } from "./address-avatar";
-import { FavoriteButton, PnlValue, VaultBadge } from "./bits";
+import { ActivityBadge, FavoriteButton, PnlValue, VaultBadge } from "./bits";
 
 type Row = TraderStats & { favorite?: boolean };
 
@@ -23,7 +23,8 @@ export interface SortState {
 
 /**
  * Leaderboard table shared by Home (top 10) and Explore (sortable, paged).
- * Rows open the trader page; the star toggles a favorite.
+ * Rows open the trader page; the star toggles a favorite. Under each name:
+ * how recently the account traded (§12).
  */
 export function TradersTable({
   rows,
@@ -114,11 +115,14 @@ export function TradersTable({
                       </span>
                       {row.isVault ? <VaultBadge /> : null}
                     </span>
-                    {row.displayName ? (
-                      <span className="font-mono text-[11px] text-subtle-foreground">
-                        {truncateAddress(row.address)}
-                      </span>
-                    ) : null}
+                    <span className="mt-0.5 flex min-w-0 items-center gap-2">
+                      {row.displayName ? (
+                        <span className="hidden font-mono text-[11px] text-subtle-foreground sm:inline">
+                          {truncateAddress(row.address)}
+                        </span>
+                      ) : null}
+                      <ActivityBadge activity={row.activity} />
+                    </span>
                   </span>
                 </Link>
               </TableCell>

@@ -307,6 +307,8 @@ export const users = pgTable("users", {
   locale: text("locale").$type<Locale>().notNull().default("zh-TW"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Set by an admin; a disabled user is treated as signed out. */
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
 });
 
 // ---------------------------------------------------------------------------
@@ -372,6 +374,8 @@ export const traderStats = pgTable(
     volumeWeek: numeric("volume_week").notNull(),
     volumeMonth: numeric("volume_month").notNull(),
     volumeAllTime: numeric("volume_all_time").notNull(),
+    /** Listed in Hyperliquid's vault list: its "account value" is TVL, not one trader's equity. */
+    isVault: boolean("is_vault").notNull().default(false),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => [
@@ -382,3 +386,40 @@ export const traderStats = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// app_settings — 管理員在後台調整的全站設定（每個區塊一列，value 由 zod 驗證）
+// ---------------------------------------------------------------------------
+export const appSettingsKeyEnum = ["general", "discovery", "notifications", "revenue"] as const;
+export type AppSettingsKey = (typeof appSettingsKeyEnum)[number];
+
+export const appSettings = pgTable("app_settings", {
+  key: text("key").$type<AppSettingsKey>().primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedByUserId: integer("updated_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// revenue_snapshots — 平台地址在 Hyperliquid 的累計 builder fee 與推薦返佣
+// （info `referral`），每小時一筆；收入 = 相鄰快照的差
+// ---------------------------------------------------------------------------
+export const revenueSnapshots = pgTable(
+  "revenue_snapshots",
+  {
+    address: text("address").notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull(),
+    /** Cumulative builder fees earned (USDC). */
+    builderRewards: numeric("builder_rewards").notNull(),
+    /** Cumulative referral rebates earned (USDC), builder fees excluded. */
+    referralRewards: numeric("referral_rewards").notNull(),
+    claimedRewards: numeric("claimed_rewards").notNull(),
+    unclaimedRewards: numeric("unclaimed_rewards").notNull(),
+    referredUsers: integer("referred_users").notNull().default(0),
+    /** Cumulative volume of referred users (USD). */
+    referredVolume: numeric("referred_volume").notNull().default("0"),
+    raw: jsonb("raw").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.address, table.takenAt] })],
+);

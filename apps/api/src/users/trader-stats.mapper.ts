@@ -26,6 +26,7 @@ export function toTraderStats(row: TraderStatsRow): TraderStats {
       month: Number(row.volumeMonth),
       allTime: Number(row.volumeAllTime),
     },
+    isVault: row.isVault,
     updatedAt: row.updatedAt,
   };
 }

@@ -13,6 +13,10 @@ import { Segmented } from "@/components/ui/segmented";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
 import { useNow } from "@/lib/use-now";
+import { pct1, winRateTone } from "@/lib/trade-format";
+
+const WIN_TEXT = { positive: "text-positive", warning: "text-warning", negative: "text-negative" } as const;
+const WIN_BAR = { positive: "bg-positive", warning: "bg-warning", negative: "bg-negative" } as const;
 
 export type ChartMode = "pnl" | "value";
 export type ChartUnit = "usd" | "pct";
@@ -137,6 +141,8 @@ export function KpiTiles({
 
   const sharpe = portfolio?.sharpe ?? null;
   const winRate = trades?.summary.winRate ?? null;
+  // CopyDog: ≥ 50% green, ≥ 35% amber, below red; value, bar and sub alike.
+  const winTone = winRateTone(winRate);
   const loading = !portfolio;
 
   return (
@@ -196,10 +202,10 @@ export function KpiTiles({
       <Tile
         label={t("trader.kpi.winRate")}
         loading={!trades && tradesComputing}
-        value={winRate === null ? "—" : format.pct(winRate, { digits: 1 })}
-        valueClass={muted ? "text-subtle-foreground" : ""}
+        value={winRate === null ? "—" : pct1(winRate)}
+        valueClass={muted || !winTone ? "text-subtle-foreground" : WIN_TEXT[winTone]}
         fill={winRate ?? 0}
-        barClass={muted ? "bg-subtle-foreground" : "bg-primary"}
+        barClass={muted || !winTone ? "bg-subtle-foreground" : WIN_BAR[winTone]}
         sub={
           trades
             ? t("trader.kpi.trades", { count: trades.summary.trades })

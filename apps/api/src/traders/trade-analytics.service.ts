@@ -48,9 +48,9 @@ export const COLD_FILL_CALLS = 24;
 export const COLD_TWAP_CALLS = 8;
 /** Pages per incremental refresh (a refresh every ~10 min rarely needs 2). */
 export const REFRESH_PAGES = 6;
-/** Funding is read for trades opened in the last 30 days (the 30D window);
- * older holds show no funding. */
-export const FUNDING_LOOKBACK_MS = 30 * 86_400_000;
+/** Funding is read from the start of coverage (at most the lookback), 40
+ * pages per step; a long history completes over the next refreshes. */
+export const FUNDING_LOOKBACK_MS = LOOKBACK_MS;
 export const FUNDING_MAX_PAGES = 40;
 /** Cold computations at once; more wait. Beyond `MAX_WAITING` a new cold
  * address is answered busy without queueing. */
@@ -128,7 +128,9 @@ export class TradeAnalyticsService {
   // --- reading --------------------------------------------------------------
 
   async analytics(address: string, window: TradeWindow): Promise<TraderAnalyticsResponse> {
-    const row = await this.current(address);
+    let row = await this.current(address);
+    // A row stored before a window existed is recomputed first.
+    if (!(window in row.summary)) row = await this.compute(address, true);
     const summaries = row.summary as Record<TradeWindow, unknown>;
     return {
       address,
@@ -145,7 +147,10 @@ export class TradeAnalyticsService {
     const row = await this.current(address);
     const [ms, tid] = query.cursor ? query.cursor.split("_") : [];
     const cursor = query.cursor ? { sortTime: new Date(Number(ms)), openTid: BigInt(tid) } : null;
-    const rows = await this.repository.page(address, query.status, query.limit + 1, cursor);
+    const [rows, total] = await Promise.all([
+      this.repository.page(address, query.status, query.limit + 1, cursor),
+      this.repository.count(address, query.status),
+    ]);
     const now = Date.now();
     const page = rows.slice(0, query.limit);
     const last = page.at(-1);
@@ -153,6 +158,7 @@ export class TradeAnalyticsService {
       address,
       items: page.map((t) => toRoundTrip(t, now)),
       nextCursor: rows.length > query.limit && last ? `${last.exitTime ?? last.entryTime}_${last.openTid}` : null,
+      total,
       coverage: coverageOf(row),
       computedAt: row.computedAt,
     };

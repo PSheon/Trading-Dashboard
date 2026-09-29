@@ -195,6 +195,7 @@ describe("trade analytics for any address", () => {
     expect(parsed.success, parsed.success ? "" : parsed.error.message).toBe(true);
     expect(first.body.data.items.map((t: { coin: string }) => t.coin)).toEqual(["SOL", "ETH"]);
     expect(first.body.data.items[0]).toMatchObject({ status: "open", exitTime: null, exitPx: null });
+    expect(first.body.data.total).toBe(3);
     const next = await get(`/traders/${X}/trades?limit=2&cursor=${first.body.data.nextCursor}`).expect(200);
     expect(next.body.items.map((t: { coin: string }) => t.coin)).toEqual(["BTC"]);
     expect(next.body.nextCursor).toBeNull();

@@ -24,6 +24,7 @@ it("does not describe an analytics outage as an unwatched trader or empty coin h
   const profile = { ...profileFor(`0x${"ab".repeat(20)}`, false), tracked: true, analytics: null, stats: null, fetchedAt: "2026-09-29T10:00:00.000Z", lastTradeAt: null,
     dataQuality: { partial: true, sources: { analytics: { status: "unavailable" as const, asOf: null, stale: false, maxAgeMs: 60000 } } } };
   const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ProfileCard profile={profile} activity={null} lowSampleThreshold={20} liveStatus="polling" allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
-  expect(html).toContain("Recorded analytics unavailable");
+  expect(html).toContain("Couldn&#x27;t load data.");
+  expect(html).not.toContain("No closed trades");
   expect(html).not.toContain("isn&#x27;t watched yet");
 });

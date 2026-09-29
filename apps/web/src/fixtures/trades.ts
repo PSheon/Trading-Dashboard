@@ -122,8 +122,8 @@ function summarize(trades: RoundTrip[], window: TradeWindow, now: number): Trade
     netPnl: closed.reduce((s, t) => s + t.netPnl, 0),
     volume: closed.reduce((s, t) => s + t.volume, 0),
     openTrades: trades.filter((t) => t.status === "open").length,
-    best: [...wins].sort((a, b) => b.netPnl - a.netPnl).slice(0, 10),
-    worst: [...losses].sort((a, b) => a.netPnl - b.netPnl).slice(0, 10),
+    best: [...closed].sort((a, b) => b.netPnl - a.netPnl).slice(0, 10),
+    worst: [...closed].sort((a, b) => a.netPnl - b.netPnl).slice(0, 10),
     coins: [...coins.values()].sort((a, b) => b.netPnl - a.netPnl),
   };
 }
@@ -173,6 +173,7 @@ export function fixtureTradePage(
     address,
     items,
     nextCursor: start + limit < trades.length ? `0_${start + limit}` : null,
+    total: trades.length,
     coverage: coverage(address, fixtureTrades(address)),
     computedAt: new Date(Date.now() - 60_000),
   };

@@ -16,7 +16,8 @@ vi.mock("../src/lib/use-live-trader", () => ({ useLiveTrader: () => ({ profile: 
 vi.mock("../src/components/trader/profile-card", () => ({ ProfileCard: () => null }));
 vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => null }));
 vi.mock("../src/components/trader/activity-tabs", () => ({ ActivityTabs: () => null }));
-vi.mock("../src/components/trader/performance", () => ({ TRADE_WINDOW: { allTime: "all" }, KpiTiles: () => null, windowRoi: () => null,
+vi.mock("../src/components/trader/performance", () => ({ KpiTiles: () => null, windowRoi: () => null,
+  TRADE_WINDOW: { day: "1d", week: "7d", month: "30d", allTime: "all" },
   PerformanceChart: () => <div>Available performance history</div>,
 }));
 it("keeps independent performance history visible when required profile data fails", () => {

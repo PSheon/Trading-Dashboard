@@ -1,3 +1,4 @@
+import { RevenueRepository } from "../src/admin/revenue.repository.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
@@ -36,6 +37,7 @@ describe("admin routes over HTTP", () => {
         AdminSettingsService,
         AdminUsersService,
         AdminOverviewService,
+        RevenueRepository,
         RevenueService,
         { provide: HyperliquidInfoClient, useValue: info },
       ],

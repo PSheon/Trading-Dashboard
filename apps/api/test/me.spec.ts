@@ -1,3 +1,4 @@
+import { ProfileRepository } from "../src/users/profile.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
 import {
@@ -44,6 +45,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       privy,
       controllers: [MeController],
       providers: [
+        ProfileRepository,
         ProfileService,
         FavoritesService,
         { provide: BackfillService, useValue: backfill },

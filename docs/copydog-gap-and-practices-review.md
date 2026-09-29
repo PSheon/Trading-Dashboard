@@ -27,7 +27,7 @@
 
 - E10：單一 perp dex、質押、排行榜或本地分析失敗／逾時時保留其餘可用資料，不完整總額回傳 null；來源狀態與取得時間可展開查看。
 - partial profile 每 5 秒重試，恢復完整前不以即時價格拼湊總額；來源陳舊狀態會隨頁面時間更新。必要資料失敗仍回錯誤，但獨立績效圖不再整頁消失。
-- 必要資料定義、部署相容性與驗證紀錄見 [執行紀錄](superpowers/plans/2026-09-29-optimization-execution.md)。E11 起與真實 provider 驗收仍待完成。
+- 必要資料定義、部署相容性與驗證紀錄見 [執行紀錄](superpowers/plans/2026-09-29-optimization-execution.md)。E11 已完成洞察、個人資料與收入的 repository 分層，其餘模組及真實 provider 驗收仍待完成。
 
 ## 1. 結論與證據分級
 
@@ -175,3 +175,10 @@ commit 範圍，不能冒用為 `9892464` 的全量測試結果。
 專屬臨時 PostgreSQL，套用真 migration 後通過，runner 已刪除這次建立的測試 DB。
 這是既有測試的回歸，並不表示 E01–E22 已修復，也不是全套 API／web／真交易驗收。
 本輪僅修改分析文件與 README，未修改應用功能。
+
+
+## 2026-09-30：DonutMe 分層與 Copydog 驗收補充
+
+已依 DonutMe 實際 feature module/repository 分工，將 insights、profile、revenue 的 persistence 移入 repository，維持 API 與計算行為。E11 仍未全數完成，auth、admin users、Telegram/outbox 等交易邊界須後續處理。
+
+[Copydog 驗收矩陣](copydog-parity-acceptance.md) 明確區分現有功能、Claude 未合併功能、樣本推估公式及真實執行。Stage 3 是目標規格，不能當成已完成證據。

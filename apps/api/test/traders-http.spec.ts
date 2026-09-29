@@ -1,3 +1,4 @@
+import { InsightsRepository } from "../src/insights/insights.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { TradersRepository } from "../src/traders/traders.repository.js";
 import type { INestApplication } from "@nestjs/common";
@@ -98,7 +99,7 @@ describe("public discovery routes over HTTP", () => {
             new TradersService(testConfig(), new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(db), new LeaderboardIngestService(testConfig(), db, s), s),
           inject: [SettingsService],
         },
-        { provide: InsightsService, useValue: new InsightsService(db) },
+        { provide: InsightsService, useValue: new InsightsService(new InsightsRepository(db)) },
       ],
     }));
   });

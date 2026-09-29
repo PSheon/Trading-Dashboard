@@ -1,3 +1,4 @@
+import { ProfileRepository } from "./profile.repository.js";
 import { FavoritesRepository } from "./favorites.repository.js";
 import { Module } from "@nestjs/common";
 
@@ -10,7 +11,7 @@ import { ProfileService } from "./profile.service.js";
 @Module({
   imports: [IngestionModule],
   controllers: [MeController],
-  providers: [FavoritesRepository, ProfileService, FavoritesService],
+  providers: [ProfileRepository, FavoritesRepository, ProfileService, FavoritesService],
   exports: [FavoritesService],
 })
 export class UsersModule {}

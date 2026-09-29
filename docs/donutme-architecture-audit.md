@@ -170,3 +170,17 @@ TransformInterceptor 只處理外框，不等於 DTO validation、欄位遮罩�
 Privy token 的 authentication 與應用業務 permissions 是不同責任。若未來新增代使用者交易，還需要額外的 wallet signer／policy／使用者授權，後台 admin role 不應自然取得代簽能力。
 
 參考：[Privy Access tokens](https://docs.privy.io/authentication/user-authentication/access-tokens)。
+
+## 2026-09-30：實際程式對照與 repository 延伸
+
+本輪重新讀取 DonutMe-Backend-Core 的 `src/api/invoice/invoice.module.ts`、`invoice.repository.ts`、`src/common/interceptors/transform.interceptor.ts` 與 `src/config/app/app.config.ts`。
+
+| DonutMe 實作原則 | Trading-Dashboard 對應 | 狀態 |
+| --- | --- | --- |
+| config factory 驗證 env 再提供型別化設定 | `config/env.ts`、`parse-env.ts` | 已有；保留本專案驗證工具，並非照搬 class-validator |
+| 全域 transform + 明確略過特殊回應 | `common/http/transform.interceptor.ts` 與 wire contract registry | 已有；legacy raw DTO 也驗證白名單，保留既有客戶端格式 |
+| feature module 註冊 service/repository | `InsightsModule`、`UsersModule`、`AdminModule` | 本批新增 InsightsRepository、ProfileRepository、RevenueRepository |
+| service 負責業務規則，repository 負責查詢 | crowd 聚合/快取、個人資料正規化/404、台北日收入計算留在 service | 本批移出 SQL，維持原查詢與回傳契約 |
+| 同一交易內共享 persistence context | 既有 `db/unit-of-work.ts` | 本批未改跨模組交易；auth/admin users/Telegram/outbox 等仍待 E11 後續處理 |
+
+保留 Drizzle，不為模仿 DonutMe 而改成 TypeORM；移植的是責任邊界。repository 僅在所屬 module 內提供，沒有消費者時不額外 export。Copydog 功能驗收另見 [驗收矩陣](copydog-parity-acceptance.md)。本批沒有改 DonutMe 程式或 Claude 的未合併分支。

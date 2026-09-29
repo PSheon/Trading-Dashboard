@@ -1,3 +1,4 @@
+import { RevenueRepository } from "../src/admin/revenue.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -228,7 +229,7 @@ describe("RevenueService — real Postgres", () => {
     await truncateAdminTables(db);
     settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
     referral = vi.fn(async () => NEED_TO_TRADE);
-    service = new RevenueService(db, settings, { referral } as unknown as HyperliquidInfoClient);
+    service = new RevenueService(new RevenueRepository(db), settings, { referral } as unknown as HyperliquidInfoClient);
   });
 
   afterEach(() => {

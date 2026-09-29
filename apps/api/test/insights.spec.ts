@@ -1,3 +1,4 @@
+import { InsightsRepository } from "../src/insights/insights.repository.js";
 import { equitySnapshots, leaders, positionSnapshots } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,7 +47,7 @@ describe("InsightsService.crowd — real Postgres", () => {
 
   beforeEach(async () => {
     await truncateAll(db);
-    service = new InsightsService(db);
+    service = new InsightsService(new InsightsRepository(db));
     await db.insert(leaders).values([
       { address: L1 },
       { address: L2, source: "favorite" },

@@ -1,3 +1,4 @@
+import { RevenueRepository } from "./revenue.repository.js";
 import { Module } from "@nestjs/common";
 
 import { AuthModule } from "../common/auth/auth.module.js";
@@ -18,7 +19,7 @@ import { RevenueService } from "./revenue.service.js";
 @Module({
   imports: [AuthModule, HyperliquidModule],
   controllers: [AdminController, PublicSettingsController],
-  providers: [AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
+  providers: [RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
   exports: [RevenueService],
 })
 export class AdminModule {}

@@ -1,9 +1,7 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { sql } from "drizzle-orm";
-import { CHAIN_DEFAULT, type CrowdCoin, type CrowdResponse } from "@trading-dashboard/shared/contracts";
+import { Injectable } from "@nestjs/common";
+import { type CrowdCoin, type CrowdResponse } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { InsightsRepository } from "./insights.repository.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 
 export const CROWD_TTL_MS = 60_000;
@@ -12,15 +10,6 @@ export const CROWD_TTL_MS = 60_000;
  * Snapshots run every 5 minutes. */
 export const SNAPSHOT_MAX_AGE_MS = 15 * 60_000;
 const DAY_MS = 24 * 3_600_000;
-
-interface SnapshotRow {
-  address: string;
-  ts: Date;
-  coin: string | null;
-  szi: string | null;
-  entry_px: string | null;
-  unrealized_pnl: string | null;
-}
 
 /**
  * Position notional at the snapshot's own mark price. A snapshot stores
@@ -48,7 +37,7 @@ const numOrNull = (v: string | null): number | null => {
 export class InsightsService {
   readonly cache = new TtlCache<CrowdResponse>(CROWD_TTL_MS, 1);
 
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(private readonly repository: InsightsRepository) {}
 
   crowd(): Promise<CrowdResponse> {
     return this.cache.get("crowd", () => this.computeCrowd(new Date()));
@@ -68,8 +57,8 @@ export class InsightsService {
    */
   async computeCrowd(now: Date): Promise<CrowdResponse> {
     const [current, past] = await Promise.all([
-      this.snapshotSet(now, now.getTime() - SNAPSHOT_MAX_AGE_MS, now.getTime()),
-      this.snapshotSet(
+      this.repository.snapshotSet(now, now.getTime() - SNAPSHOT_MAX_AGE_MS, now.getTime()),
+      this.repository.snapshotSet(
         new Date(now.getTime() - DAY_MS),
         now.getTime() - DAY_MS - SNAPSHOT_MAX_AGE_MS,
         now.getTime() - DAY_MS + SNAPSHOT_MAX_AGE_MS,
@@ -148,39 +137,4 @@ export class InsightsService {
       comparison: { currentTraders: currentAddresses.size, pastTraders: pastAddresses.size, matchedTraders: matched.size } };
   }
 
-  /** Per active leader, the snapshot run in [from, to] closest to `target`,
-   * with its position rows (one row with null coin when flat). */
-  private async snapshotSet(
-    target: Date,
-    from: number,
-    to: number,
-  ): Promise<{ rows: SnapshotRow[]; addresses: number; latestTs: Date | null }> {
-    const result = await this.db.execute<{
-      address: string;
-      ts: Date;
-      coin: string | null;
-      szi: string | null;
-      entry_px: string | null;
-      unrealized_pnl: string | null;
-    }>(sql`
-      with chosen as (
-        select distinct on (e.address) e.address, e.ts
-        from equity_snapshots e
-        join leaders l on l.chain = e.chain and l.address = e.address and l.active
-        where e.chain = ${CHAIN_DEFAULT}
-          and e.ts >= ${new Date(from).toISOString()}::timestamptz
-          and e.ts <= ${new Date(to).toISOString()}::timestamptz
-        order by e.address, abs(extract(epoch from (e.ts - ${target.toISOString()}::timestamptz))), e.ts desc
-      )
-      select c.address, c.ts, p.coin, p.szi, p.entry_px, p.unrealized_pnl
-      from chosen c
-      left join position_snapshots p
-        on p.chain = ${CHAIN_DEFAULT} and p.address = c.address and p.ts = c.ts
-    `);
-    const rows = result.rows.map((r) => ({ ...r, ts: new Date(r.ts) }));
-    const addresses = new Set(rows.map((r) => r.address));
-    let latest: number | null = null;
-    for (const r of rows) latest = Math.max(latest ?? 0, r.ts.getTime());
-    return { rows, addresses: addresses.size, latestTs: latest === null ? null : new Date(latest) };
-  }
 }

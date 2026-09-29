@@ -76,7 +76,7 @@ export function TradersTable({
   };
 
   return (
-    <Table className={cn(loading && "opacity-60 transition-opacity")}>
+    <Table aria-busy={loading}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <TableHead className="w-8 md:w-12">{t("explore.cols.rank")}</TableHead>

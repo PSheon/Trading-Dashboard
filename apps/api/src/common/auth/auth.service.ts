@@ -55,6 +55,7 @@ type CachedOutcome = Exclude<AuthOutcome, { status: "invalid" }>;
 interface CacheEntry {
   outcome: CachedOutcome;
   expiresAt: number;
+  tokenExpiresAt: number;
 }
 
 type UserRow = typeof users.$inferSelect;
@@ -101,7 +102,9 @@ export class AuthService {
     if (cached) {
       if (cached.expiresAt > now) {
         const current = await this.currentAuthorization(cached.outcome);
-        return cached.expiresAt > Date.now() ? current : { status: "invalid" };
+        // Crossing the cache TTL only affects the next verification lookup.
+        // Only actual JWT expiry invalidates the already-admitted cache hit.
+        return cached.tokenExpiresAt > Date.now() ? current : { status: "invalid" };
       }
       this.cache.delete(key);
     }
@@ -126,7 +129,7 @@ export class AuthService {
     // this user. Re-read after that work before publishing an authorization.
     const current = await this.currentAuthorization(outcome);
     if (verified.expiresAt.getTime() <= Date.now()) return { status: "invalid" };
-    if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS));
+    if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS), verified.expiresAt.getTime());
     return current;
   }
 
@@ -166,13 +169,13 @@ export class AuthService {
     this.cache.clear();
   }
 
-  private remember(key: string, outcome: CachedOutcome, expiresAt: number): void {
+  private remember(key: string, outcome: CachedOutcome, expiresAt: number, tokenExpiresAt: number): void {
     if (this.cache.size >= CACHE_MAX_ENTRIES) {
       // Map iterates in insertion order: drop the oldest entry.
       const oldest = this.cache.keys().next().value;
       if (oldest !== undefined) this.cache.delete(oldest);
     }
-    this.cache.set(key, { outcome, expiresAt });
+    this.cache.set(key, { outcome, expiresAt, tokenExpiresAt });
   }
 
   /**

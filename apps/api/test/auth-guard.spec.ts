@@ -4,7 +4,7 @@ import { Controller, Get, type INestApplication } from "@nestjs/common";
 import { alertRules, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { SettingsService } from "../src/settings/settings.service.js";
@@ -418,6 +418,20 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
   });
 
   describe("token cache", () => {
+    it.each([
+      { expiry: 60000, boundary: 30000, status: "user" },
+      { expiry: 1000, boundary: 1000, status: "invalid" },
+    ])("distinguishes cache TTL from token expiry across the DB await ($status)", async ({ expiry, boundary, status }) => {
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      try {
+        privy.verifyAccessToken.mockResolvedValueOnce({ privyUserId: "did:privy:alice", expiresAt: new Date(now + expiry) });
+        expect((await auth.authenticate("alice-token")).status).toBe("user");
+        clock.mockReturnValue(now + boundary + 1).mockReturnValueOnce(now + boundary - 1);
+        expect((await auth.authenticate("alice-token")).status).toBe(status);
+        expect(privy.verifyAccessToken).toHaveBeenCalledTimes(1);
+      } finally { clock.mockRestore(); }
+    });
     it("a verified token is reused without re-verifying while authorization is refreshed", async () => {
       await get("/t/protected", "alice-token").expect(200);
       await get("/t/protected", "alice-token").expect(200);

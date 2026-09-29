@@ -2,7 +2,8 @@
 
 GitHub Actions CI runs on pull requests and pushes to dev/main with read-only
 repository permissions, fixed action commit SHAs and a 30-minute job limit.
-It installs the lockfile, checks all workspace types/lints, verifies generated
+It installs the lockfile, blocks high/critical dependency advisories, checks
+migration schema freshness, checks all workspace types/lints, verifies generated
 HTTP docs, migrates a disposable PostgreSQL database, runs API/web tests and
 builds production artifacts. Dependabot tracks npm and action updates.
 No production secrets, push or deployment step is included. The workflow has

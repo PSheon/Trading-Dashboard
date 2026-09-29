@@ -148,7 +148,7 @@ export function AdminUsers() {
                   </div>
                 );
                 return (
-                  <TableRow key={u.id} className={cn(u.disabled && "opacity-60")}>
+                  <TableRow key={u.id}>
                     <TableCell>
                       <span className="flex items-center gap-2.5">
                         <AddressAvatar seed={u.walletAddress ?? u.email ?? String(u.id)} size={28} />

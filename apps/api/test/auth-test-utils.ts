@@ -64,6 +64,9 @@ export async function createAuthedApp(opts: {
     .getHttpAdapter()
     .getInstance()
     .set("json replacer", (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value));
-  await app.init();
+  // Keep one loopback listener for the suite. Letting Supertest start/close
+  // the server per request churns ephemeral ports and can race socket reuse
+  // when many HTTP integration requests run back-to-back.
+  await app.listen(0, "127.0.0.1");
   return { app, auth: app.get(AuthService), settings: app.get(SettingsService) };
 }

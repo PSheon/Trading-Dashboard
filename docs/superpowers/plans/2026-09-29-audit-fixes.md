@@ -29,11 +29,13 @@ Scope: test database safety; existing API validation/address filtering; snapshot
 ## Results
 
 - Baseline: 28 test files / 294 tests passed on the isolated PostgreSQL cluster.
-- Final root `pnpm test`: 29 files / 315 tests passed, including failure/retry recovery, atomic snapshot rollback, HTTP validation and 7,000-action replay.
+- Before Telegram rebase: 29 files / 315 tests passed. After rebase: 30 files / 346 tests passed, including failure/retry recovery, atomic snapshot rollback, HTTP validation, 7,000-action replay and Claude's Telegram tests.
 - API/shared/web typecheck, API/web lint, API build and Next production build passed.
 - Migration loading from a temporary root `.env` passed against the isolated test DB; missing DATABASE_URL fails connection commands; offline schema generation succeeded without schema changes.
 - Turbo dev dry-run confirmed shared build dependencies and separated web/API ports; `git diff --check` passed.
 - Independent review found N sequential fill reads under the action lock and repeated health-counter increments during replay. Both were corrected, regression-tested and reviewed again with no remaining important findings.
-- Claude commits inspected: activity already on dev at `3cf7d4c`; Telegram `38ce99e` / `14aa19f` and UI `0439052` remain on his separate branch at this checkpoint.
+- Claude advanced dev to `3f28a2b` during integration. The pre-merge guard stopped the stale integration; both commits rebased cleanly onto his Telegram merge. Migration 0006 was applied only to the isolated test DB. Documentation now reflects bot linking and disabled-recipient filtering as implemented; send timeouts and retry-after handling remain follow-up items.
 - Integration target: local `dev`; rebase first, then fast-forward only after confirming the primary checkout is clean. No remote push or feature-branch merge from Claude is included.
 - This is the first correctness/safety batch. The remaining audit backlog is tracked in `docs/audit-follow-up.md`; no claim is made that every audit finding is fixed.
+
+- Integration verification exposed two intermittent HTTP test transport failures (one 404, one parse error); an isolated route run passed. The shared HTTP test helper now keeps one loopback listener per app instead of letting Supertest start/close it per request, and the route assertion includes the request path and response body for future diagnostics. Two consecutive full runs after this lifecycle adjustment passed (30 files / 346 tests each). API and web builds, typecheck and lint also passed after rebase.

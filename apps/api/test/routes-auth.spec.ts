@@ -111,7 +111,8 @@ describe("route access on the existing controllers", () => {
       ["get", "/alert-rules"],
     ];
     for (const [method, path, body] of adminRoutes) {
-      await call(method, path, undefined, body).expect(401);
+      const anonymous = await call(method, path, undefined, body);
+      expect(anonymous.status, `${method.toUpperCase()} ${path}: ${JSON.stringify(anonymous.body)}`).toBe(401);
       await call(method, path, "alice-token", body).expect(403);
       const ok = method === "post" ? 201 : 200;
       await call(method, path, "boss-token", body).expect(ok);

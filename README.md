@@ -32,7 +32,7 @@ R1–R3 with Telegram notifications, and the first dashboard.
 **Stage 2 (in progress):**
 
 - Discovery of every Hyperliquid trader (official leaderboard, about 46k accounts).
-- Privy login with per-user favorites, alert rules and Telegram channels.
+- Privy login with favorites, per-trader alert preferences and official Telegram bot linking.
 - An alert fast path straight from the WebSocket trade feed, targeting under 5 s.
 - A CopyDog-style redesign in zh-TW and English.
 - An admin area for site settings, users, and revenue from Hyperliquid builder fees and referral rebates.

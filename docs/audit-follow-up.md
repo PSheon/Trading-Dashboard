@@ -27,23 +27,20 @@ reference material, not generated or verified by this change.
 - Root/API/web setup docs now describe real commands, isolated tests, fast path
   behavior and historical-spec precedence. The API starter README is replaced.
 
-Claude's `3cf7d4c` already integrated activity filtering. This branch starts from
-that commit and does not reimplement that feature or the Telegram redesign.
-Claude's `38ce99e` implements the Telegram redesign, with integration commit
-`14aa19f` and UI follow-up `0439052`, on his separate worktree branch. Those
-commits were not on local `dev` at this verification checkpoint; the remaining
-Telegram items below need reassessment when that branch is integrated.
+Claude's activity filtering is included in `3cf7d4c`. His official-bot Telegram
+feature and UI follow-up were merged into dev by `3f28a2b` while this work was
+being verified; this branch was rebased onto that commit. Bot linking,
+per-favorite preferences, alert-trader limits and disabled-recipient filtering
+are now implemented and are not outstanding implementation items.
 
 ## Remaining high-priority work
 
 1. Durable notification outbox, atomic cooldown reservation and replay after
    process failure; sending then logging is not a durable delivery contract.
-2. Exclude disabled users from background notification recipients; reconcile
-   this with the new Telegram recipient selection rather than patching obsolete
-   per-user-rule behavior twice.
-3. Integrate and verify Claude's Stage 2 §11 Telegram implementation, including
-   account binding, per-favorite preferences, limits, timeouts and retry-after
-   handling. Avoid treating these as absent from his unmerged feature branch.
+2. Add a default timeout for Telegram send calls. The HTTP client accepts an
+   optional AbortSignal, but ordinary sendMessage calls provide none.
+3. Honor Telegram retry-after delays: the client records `retryAfterS`, but
+   notification retries still use fixed 1/2/4-second delays.
 4. Reconcile real alert payloads (`values.actionKind`, `values.notionalUsd`) with
    UI and fixtures, and type/version the payload contract.
 5. Clear/cancel private queries on identity changes and scope query keys by user.
@@ -85,5 +82,6 @@ Telegram items below need reassessment when that branch is integrated.
 
 An independent temporary local PostgreSQL cluster was used, never the application's
 DB. Baseline: 28 files / 294 tests. After regression fixes: 29 files / 315 tests.
+After rebasing onto Claude's Telegram merge: 30 files / 346 tests.
 Final branch verification and integration results are recorded in the implementation
 ledger under `docs/superpowers/plans/2026-09-29-audit-fixes.md`.

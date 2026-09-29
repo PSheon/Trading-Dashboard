@@ -53,8 +53,9 @@ interface Shard {
  * market (≈330 across all dexes on 2026-09-29) and filtering by address
  * sees every leader trade in about a second, whatever the number of leaders.
  *
- * The feed only says *that* a leader traded; the fill itself (startPosition,
- * closedPnl, fee) is then pulled with `userFillsByTime` by the caller.
+ * A trade has no startPosition, closedPnl or fee: the caller derives the
+ * position from its position book to alert at once, and stores the fill
+ * itself from `userFillsByTime` afterwards.
  */
 @Injectable()
 export class TradeFeedService {

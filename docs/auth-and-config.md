@@ -142,8 +142,11 @@ of the HTTP request that admitted it.
 `GET /actions/stream` (server-sent events) is the one exemption from the 20s
 deadline: once admitted it calls `releaseRequestDeadline`, and it lives until
 the client disconnects (which still aborts the request signal and frees its
-slot) or shutdown begins, which ends every open stream immediately so the HTTP
-server can close; clients reconnect with `Last-Event-ID`.
+slot), a 10s initial setup deadline or 1 MiB per-subscriber queue limit is reached,
+favorites authorization fails/expires (checked before delivery and every 15s,
+with a 5s check timeout), or shutdown begins. Shutdown ends all streams so the
+HTTP server can close; clients reconnect with `Last-Event-ID` and a current token.
+See [HTTP boundary](http-contract.md) for validation and revocation limits.
 
 SIGTERM/SIGINT stop new work, cancel upstream requests and drain tracked jobs.
 A 30s watchdog bounds the entire process shutdown; background drain has a 25s

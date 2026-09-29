@@ -16,7 +16,7 @@ Baseline: 7904d39; isolated branch codex/audit-fixes. No remote deployment, real
 - E04: versioned flow-neutral method, excluded interval counts/fraction, capital floor and observed/partial/unavailable quality exposed; bilingual public methodology page added. No assertion of full history coverage.
 - E06: HTTP Info runtime schemas and bounded decoded response reader implemented; malformed values, unsafe integers, unknown account modes and invalid nested referral data are rejected. WS paths remain outside this batch.
 - E02/E03/E22: gross label/source clarification only; net accounting, history completeness and low-sample basis remain pending Claude integration.
-- E07–E09/E16: pending.
+- E07–E09: completed in the second batch below. E16 real-provider/proxy verification remains pending.
 - E10–E15/E17–E21: pending; external verification requires the actual configured environment.
 - G01–G12: pending; real financial side effects require explicit separate authorization.
 
@@ -35,3 +35,18 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - API and web typecheck/lint passed; final web production webpack build passed.
 - Dependency compatibility: 3/3 passed; audit reports zero known advisories. Existing Privy/Farcaster optional-module warning remains tracked by E18/E20.
 - Chromium fixture E2E: 6/6 passed. Production Docker image built with frozen lockfile; isolated image migration/readiness (HTTP 200)/graceful shutdown (exit 0) passed. No remote CI/deployment verification claimed.
+
+## Second batch: E07–E09 (base e8d7bc1)
+
+- Claude concurrently advanced its own branch to 42fe055 (trade definition and trader tabs). This batch only touches HTTP boundary/authenticated action streams and avoids those files.
+- E07: observed two RED regressions for legacy private-column exposure and invalid DTO acceptance; the shared allowlist now validates registered legacy responses too, while preserving raw body shape and existing health/file/HEAD/204 exceptions. Focused tests GREEN (10/10).
+- E08/E09: observed RED for disabled/expired private streams, unbounded initial queue and stuck setup; each subscriber now reauthenticates before deliveries/heartbeats with a deadline, buffers bounded UTF-8 bytes, clears pending frames and releases slots on failure. Focused initial regressions GREEN (24/24 including HTTP).
+- Ruling: reauthenticate using the existing AuthService and original token, preserving persisted role/disabled-state reads and JWT expiry checks; no unverified JWT decoding or new authorization cache. Idle detection is bounded by heartbeat + check timeout, not an immediate remote-session-revocation promise.
+- Ruling: use independent per-subscriber drains after shared DB lookups. A new regression showed awaiting all private authentication before fanout blocked public events; per-subscriber queues cover both replay initialization and later reauthorization. Global ID batching and multi-replica coordination remain E13.
+- Ruling: close timed-out setup and suppress late results without claiming SQL cancellation; existing database statement/driver timeouts still bound already-started work.
+- Ruling: health/non-JSON responses preserve their existing special behavior; unregistered legacy handlers preserve compatibility, while CI asserts all production controller routes have a registry contract.
+- Fresh-context review found a drain-finalizer race that could strand the last queued frame. A deterministic scheduler regression reproduced it RED; the finalizer now resumes pending delivery, GREEN.
+- Full API regression: 52 files / 571 tests passed, including authorization storage failure, delayed replay after disablement, idle expiry, hanging authorization isolation, setup timeout, overflow and the finalizer race. Web regression: 14 files / 62 tests passed.
+- Three initial route-auth failures came from old non-contract stub payloads, not valid production DTOs. Leader routes now use the real service/repository and assert actual per-user alert isolation instead of echoing mock scope.
+- API typecheck, lint, compiled build and HTTP docs freshness passed. Full compiled Nest app bootstrap returned readiness 200 with the owned test database and 503 with the database offline; graceful shutdown and test DB cleanup passed.
+- Scope limits: E16 real Privy/JWKS rotation and deployed proxy behavior remain unverified; no real notifications/trades, production migration, remote push or deployment performed.

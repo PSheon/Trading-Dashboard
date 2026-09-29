@@ -21,11 +21,15 @@ export class TransformInterceptor implements NestInterceptor {
       // A handler that wrote the response itself (an SSE stream via @Res)
       // validates its own output; there is no body left to wrap.
       if (res.headersSent) return data;
-      if (!usesEnvelope(req) || data instanceof StreamableFile || res.statusCode === 204 || req.method === "HEAD") return data;
+      if (data instanceof StreamableFile || res.statusCode === 204 || req.method === "HEAD" || /^\/health(?:\/|$)/.test(req.path)) return data;
       const contract = findHttpContract(req.method, req.path);
-      if (!contract) throw new Error("Missing response contract");
+      if (!contract) {
+        if (usesEnvelope(req)) throw new Error("Missing response contract");
+        return data; // Unregistered legacy handlers; production registry completeness is checked in CI.
+      }
       const json = JSON.parse(JSON.stringify(data ?? null, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value));
       const output = contract.response.parse(json);
+      if (!usesEnvelope(req)) return output;
       contractHeaders(res);
       return { success: true, statusCode: res.statusCode, message: "OK", data: output, meta };
     }));

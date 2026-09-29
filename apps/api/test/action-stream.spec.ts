@@ -4,11 +4,12 @@ import { actions, leaders, userFavorites, users } from "@trading-dashboard/share
 import { wireActionSchema } from "@trading-dashboard/shared/contracts";
 import { eq } from "drizzle-orm";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ACTION_STREAM_OPTIONS, ActionStreamService, clientAddress } from "../src/api/actions/action-stream.service.js";
 import { ActionsController } from "../src/api/actions/actions.controller.js";
 import { ActionsService } from "../src/api/actions/actions.service.js";
+import { AuthService } from "../src/common/auth/auth.service.js";
 import { Public } from "../src/common/auth/public.decorator.js";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { requestContext } from "../src/runtime/request-middleware.js";
@@ -35,7 +36,8 @@ class SlowProbeController {
 
 describe("GET /actions/stream (SSE) — real Postgres", () => {
   const db = getTestDb();
-  const privy = stubPrivy({ "alice-token": { privyUserId: "did:privy:alice" } });
+  const shortAccount = { privyUserId: "did:privy:short", expiresAt: new Date() };
+  const privy = stubPrivy({ "alice-token": { privyUserId: "did:privy:alice" }, "disabled-token": { privyUserId: "did:privy:disable" }, "short-token": shortAccount });
   const jobs = new BackgroundJobs();
   let app: INestApplication;
   let streams: ActionStreamService;
@@ -80,7 +82,7 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
         { provide: BackgroundJobs, useValue: jobs },
         {
           provide: ACTION_STREAM_OPTIONS,
-          useValue: { heartbeatMs: 100, maxPerIp: 3, maxTotal: 5, trustedProxyHops: 1, replayLimit: 5, replayWindowMs: 60 * 60_000 },
+          useValue: { authorizationTimeoutMs: 500, maxQueuedBytes: 4096, setupTimeoutMs: 1000, heartbeatMs: 100, maxPerIp: 3, maxTotal: 5, trustedProxyHops: 1, replayLimit: 5, replayWindowMs: 60 * 60_000 },
         },
       ],
       // main.ts's middleware, with a short deadline.
@@ -96,6 +98,7 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
     for (const conn of open.splice(0)) conn.close();
     await waitUntil(() => streams.stats().total === 0);
     await truncateAll(db);
+    app.get(AuthService).clearCache();
     await db.insert(leaders).values([{ address: WHALE, tier: "A", label: "Whale" }, { address: OTHER, tier: "C" }]);
   });
 
@@ -167,6 +170,121 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
     const [other] = await create(row({ address: OTHER }));
     await mine.waitFor(() => mine.events().length === 2);
     expect(mine.events().map((e) => e.id)).toEqual([String(whale.id), String(other.id)]);
+  });
+
+  it("stops an existing favorites stream after persisted disablement", async () => {
+    await request(app.getHttpServer()).get("/actions").set("Authorization", "Bearer disabled-token").expect(200);
+    const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:disable"));
+    await db.insert(userFavorites).values({ userId: alice.id, address: WHALE });
+    const mine = await sse("/actions/stream?scope=favorites", { Authorization: "Bearer disabled-token" });
+    await ready(mine);
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, alice.id));
+    await create(row());
+    await waitUntil(() => streams.stats().total === 0);
+    await mine.ended;
+    expect(mine.events()).toEqual([]);
+  });
+
+  it("ends an idle favorites stream when its verified token expires", async () => {
+    shortAccount.expiresAt = new Date(Date.now() + 500);
+    const mine = await sse("/actions/stream?scope=favorites", { Authorization: "Bearer short-token" });
+    expect(mine.status).toBe(200);
+    await ready(mine);
+    await waitUntil(() => streams.stats().total === 0);
+    await mine.ended;
+    expect(mine.events()).toEqual([]);
+  });
+
+  it("does not block public delivery when private reauthorization hangs", async () => {
+    const mine = await sse("/actions/stream?scope=favorites", { Authorization: "Bearer alice-token" });
+    await mine.waitFor(f => f.some(x => x.comments.includes("hb")));
+    const publicFeed = await sse("/actions/stream");
+    await ready(publicFeed);
+    const auth = app.get(AuthService);
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const spy = vi.spyOn(auth, "authenticate").mockImplementation(async () => {
+      await blocked;
+      return { status: "invalid" };
+    });
+    try {
+      const delivery = create(row());
+      await publicFeed.waitFor(() => publicFeed.events("action").length === 1, 250);
+      const secondDelivery = create(row());
+      await publicFeed.waitFor(() => publicFeed.events("action").length === 2, 150);
+      await Promise.all([delivery, secondDelivery]);
+      await waitUntil(() => streams.stats().total === 1);
+      await mine.ended;
+      expect(mine.events()).toEqual([]);
+    } finally { release(); spy.mockRestore(); }
+  });
+
+  it("fails closed if authorization storage fails during an open stream", async () => {
+    const mine = await sse("/actions/stream?scope=favorites", { Authorization: "Bearer alice-token" });
+    await mine.waitFor(f => f.some(x => x.comments.includes("hb")));
+    const spy = vi.spyOn(app.get(AuthService), "authenticate").mockRejectedValue(new Error("storage unavailable"));
+    try {
+      await waitUntil(() => streams.stats().total === 0);
+      await mine.ended;
+      expect(mine.events()).toEqual([]);
+    } finally { spy.mockRestore(); }
+  });
+
+  it("rechecks authorization after a delayed replay lookup before sending its rows", async () => {
+    await request(app.getHttpServer()).get("/actions").set("Authorization", "Bearer alice-token").expect(200);
+    const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+    await db.insert(userFavorites).values({ userId: alice.id, address: WHALE });
+    await db.insert(actions).values([row(), row()]);
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const service = app.get(ActionsService);
+    const original = service.findAfter.bind(service);
+    const spy = vi.spyOn(service, "findAfter").mockImplementationOnce(async (...args) => {
+      const result = await original(...args);
+      await blocked;
+      return result;
+    });
+    try {
+      const mine = await sse("/actions/stream?scope=favorites", { Authorization: "Bearer alice-token", "Last-Event-ID": "1" });
+      await ready(mine);
+      await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, alice.id));
+      release();
+      await waitUntil(() => streams.stats().total === 0);
+      await mine.ended;
+      expect(mine.events()).toEqual([]);
+    } finally { release(); spy.mockRestore(); }
+  });
+
+  it("bounds live events queued while replay is blocked", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const spy = vi.spyOn(app.get(ActionsService), "findAfter").mockImplementationOnce(async () => {
+      await blocked;
+      return { rows: [], truncated: false };
+    });
+    try {
+      const conn = await sse("/actions/stream", { "Last-Event-ID": "1" });
+      await ready(conn);
+      await create(...Array.from({ length: 30 }, () => row()));
+      await waitUntil(() => streams.stats().total === 0, 500);
+      await conn.ended;
+      expect(conn.events()).toEqual([]);
+    } finally { release(); spy.mockRestore(); }
+  });
+
+  it("releases a slot when initial replay never finishes", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const spy = vi.spyOn(app.get(ActionsService), "findAfter").mockImplementationOnce(async () => {
+      await blocked;
+      return { rows: [], truncated: false };
+    });
+    try {
+      const conn = await sse("/actions/stream", { "Last-Event-ID": "1" });
+      await ready(conn);
+      await waitUntil(() => streams.stats().total === 0, 1800);
+      await conn.ended;
+    } finally { release(); spy.mockRestore(); }
   });
 
   it("sends a heartbeat comment", async () => {

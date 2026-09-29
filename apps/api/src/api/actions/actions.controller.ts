@@ -19,6 +19,7 @@ import {
 } from "@trading-dashboard/shared/contracts";
 import type { Request, Response } from "express";
 
+import { AuthService } from "../../common/auth/auth.service.js";
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
 import { parseOr400 } from "../../common/http/validation.js";
@@ -40,6 +41,7 @@ export class ActionsController {
   constructor(
     private readonly actionsService: ActionsService,
     private readonly streams: ActionStreamService,
+    private readonly auth: AuthService,
   ) {}
 
   @Get()
@@ -69,7 +71,13 @@ export class ActionsController {
     const lastEventId = lastEventIdHeader?.trim()
       ? BigInt(parseOr400(actionIdCursorSchema, lastEventIdHeader.trim()))
       : undefined;
-    await this.streams.open(req, res, query, { favoritesOf, lastEventId });
+    const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7).trim() : undefined;
+    const authorize = favoritesOf === undefined ? undefined : async () => {
+      if (!token) return false;
+      const outcome = await this.auth.authenticate(token);
+      return outcome.status === "user" && outcome.user.kind === "user" && outcome.user.id === favoritesOf;
+    };
+    await this.streams.open(req, res, query, { favoritesOf, lastEventId, authorize });
   }
 
   /** D1: expand a feed row to see its constituent fills. */

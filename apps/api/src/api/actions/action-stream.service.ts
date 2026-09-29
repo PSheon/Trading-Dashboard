@@ -34,6 +34,9 @@ export interface ActionStreamOptions {
   replayWindowMs: number;
   /** A client that stops reading is dropped once this much is queued. */
   maxQueuedBytes: number;
+  /** Bound initial favorites/replay work and authentication checks. */
+  setupTimeoutMs: number;
+  authorizationTimeoutMs: number;
 }
 
 export function defaultActionStreamOptions(config: AppConfig): ActionStreamOptions {
@@ -45,6 +48,8 @@ export function defaultActionStreamOptions(config: AppConfig): ActionStreamOptio
     replayLimit: 200,
     replayWindowMs: 60 * 60_000,
     maxQueuedBytes: 1 << 20,
+    setupTimeoutMs: 10_000,
+    authorizationTimeoutMs: 5_000,
   };
 }
 
@@ -82,6 +87,11 @@ interface Subscriber {
    * are queued meanwhile so none is lost or reordered behind the replay. */
   ready: boolean;
   queued: Array<{ event: ActionStreamEventName; id: string; frame: string }>;
+  queuedBytes: number;
+  delivering?: Promise<void>;
+  authorize?: () => Promise<boolean>;
+  checkingAuthorization?: Promise<boolean>;
+  cancelAuthorization?: () => void;
   closed: boolean;
   close(): void;
 }
@@ -107,6 +117,7 @@ export class ActionStreamService implements OnModuleDestroy {
   private pendingUpdated = new Set<bigint>();
   private flushScheduled = false;
   private flushing: Promise<void> = Promise.resolve();
+  private deliveries = new Set<Promise<void>>();
 
   constructor(
     private readonly config: AppConfig,
@@ -134,8 +145,9 @@ export class ActionStreamService implements OnModuleDestroy {
    * shutting down, before anything is written; afterwards errors end the
    * stream (the client resumes with `Last-Event-ID`).
    */
-  async open(req: Request, res: Response, filter: ActionsFeedFilter, opts: { favoritesOf?: number; lastEventId?: bigint }): Promise<void> {
+  async open(req: Request, res: Response, filter: ActionsFeedFilter, opts: { favoritesOf?: number; lastEventId?: bigint; authorize?: () => Promise<boolean> }): Promise<void> {
     if (this.jobs.stopping) throw new HttpException({ message: "Shutting down", code: "unavailable" }, HttpStatus.SERVICE_UNAVAILABLE);
+    if (opts.favoritesOf !== undefined && !opts.authorize) throw new HttpException("Sign in required", HttpStatus.UNAUTHORIZED);
     const ip = clientAddress(req, this.options.trustedProxyHops);
     const fromIp = this.perIp.get(ip) ?? 0;
     if (this.subscribers.size >= this.options.maxTotal || fromIp >= this.options.maxPerIp) {
@@ -146,6 +158,7 @@ export class ActionStreamService implements OnModuleDestroy {
       );
     }
 
+    let setupTimer: ReturnType<typeof setTimeout> | undefined;
     const sub: Subscriber = {
       ip,
       filter,
@@ -153,10 +166,17 @@ export class ActionStreamService implements OnModuleDestroy {
       res,
       ready: false,
       queued: [],
+      queuedBytes: 0,
+      authorize: opts.authorize,
       closed: false,
       close: () => {
         if (sub.closed) return;
         sub.closed = true;
+        clearTimeout(setupTimer);
+        sub.cancelAuthorization?.();
+        sub.authorize = undefined;
+        sub.queued.length = 0;
+        sub.queuedBytes = 0;
         this.subscribers.delete(sub);
         const left = (this.perIp.get(ip) ?? 1) - 1;
         if (left > 0) this.perIp.set(ip, left);
@@ -168,6 +188,8 @@ export class ActionStreamService implements OnModuleDestroy {
         if (!res.writableEnded) res.end();
       },
     };
+    setupTimer = setTimeout(sub.close, this.options.setupTimeoutMs);
+    setupTimer.unref?.();
     this.subscribers.add(sub);
     this.perIp.set(ip, fromIp + 1);
     res.once("close", sub.close);
@@ -189,10 +211,12 @@ export class ActionStreamService implements OnModuleDestroy {
 
     try {
       if (opts.favoritesOf !== undefined) sub.favorites = await this.actions.favoriteAddresses(opts.favoritesOf);
+      if (sub.closed) return;
       const replayed = new Set<string>();
       if (opts.lastEventId !== undefined && !sub.closed) {
         const since = new Date(Date.now() - this.options.replayWindowMs);
         const replay = await this.actions.findAfter(filter, opts.lastEventId, since, this.options.replayLimit, opts.favoritesOf);
+        if (!(await this.authorized(sub))) return;
         if (replay.truncated) this.writeEvent(sub, "reset", { reason: "replay_truncated" });
         for (const item of replay.rows) {
           const frame = this.frame("action", item);
@@ -200,7 +224,10 @@ export class ActionStreamService implements OnModuleDestroy {
           replayed.add(String(item.id));
         }
       }
+      if (!(await this.authorized(sub))) return;
+      clearTimeout(setupTimer);
       sub.ready = true;
+      sub.queuedBytes = 0;
       for (const queued of sub.queued.splice(0)) {
         if (queued.event === "action" && replayed.has(queued.id)) continue;
         this.write(sub, queued.frame);
@@ -242,6 +269,7 @@ export class ActionStreamService implements OnModuleDestroy {
   async settled(): Promise<void> {
     while (this.flushScheduled) await new Promise((resolve) => setImmediate(resolve));
     await this.flushing;
+    await Promise.all(this.deliveries);
   }
 
   private scheduleFlush(): void {
@@ -273,11 +301,36 @@ export class ActionStreamService implements OnModuleDestroy {
       const frame = this.frame(event, item);
       if (!frame) continue;
       for (const sub of this.subscribers) {
-        if (!this.matches(sub, item, event)) continue;
-        if (!sub.ready) sub.queued.push({ event, id: String(item.id), frame });
-        else this.write(sub, frame);
+        if (sub.closed || !this.matches(sub, item, event)) continue;
+        const bytes = Buffer.byteLength(frame);
+        if (sub.queuedBytes + bytes + sub.res.writableLength > this.options.maxQueuedBytes) { sub.close(); continue; }
+        sub.queuedBytes += bytes;
+        sub.queued.push({ event, id: String(item.id), frame });
       }
     }
+    // A private stream's slow authorization must not stall the shared lookup
+    // chain or public delivery. Each subscriber drains its own bounded queue.
+    for (const sub of this.subscribers) if (sub.ready) this.drain(sub);
+  }
+
+  private drain(sub: Subscriber): void {
+    if (sub.closed || sub.delivering || !sub.queued.length) return;
+    const task = (async () => {
+      while (!sub.closed && sub.queued.length) {
+        if (!(await this.authorized(sub))) return;
+        const batch = sub.queued.splice(0);
+        sub.queuedBytes = 0;
+        for (const item of batch) this.write(sub, item.frame);
+      }
+    })().finally(() => {
+      sub.delivering = undefined;
+      this.deliveries.delete(task);
+      // A lookup continuation can enqueue after the loop exits but before this
+      // finalizer runs. Resume it without waiting for another market event.
+      this.drain(sub);
+    });
+    sub.delivering = task;
+    this.deliveries.add(task);
   }
 
   /** Same filters as GET /actions. An `update` ignores the kind filter: the
@@ -314,7 +367,7 @@ export class ActionStreamService implements OnModuleDestroy {
 
   private write(sub: Subscriber, chunk: string): void {
     if (sub.closed || sub.res.writableEnded) return;
-    if (sub.res.writableLength > this.options.maxQueuedBytes) {
+    if (sub.res.writableLength + Buffer.byteLength(chunk) + sub.queuedBytes > this.options.maxQueuedBytes) {
       this.logger.warn(`Dropping a stream that stopped reading (${sub.ip})`);
       sub.close();
       return;
@@ -322,10 +375,32 @@ export class ActionStreamService implements OnModuleDestroy {
     sub.res.write(chunk);
   }
 
+  /** Recheck persisted authorization and JWT validity before each delivery batch
+   * and heartbeat. Checks are shared while in flight and fail closed on timeout. */
+  private authorized(sub: Subscriber): Promise<boolean> {
+    if (sub.closed) return Promise.resolve(false);
+    if (!sub.authorize) return Promise.resolve(sub.favoritesOf === undefined);
+    if (sub.checkingAuthorization) return sub.checkingAuthorization;
+    const authorize = sub.authorize;
+    sub.checkingAuthorization = new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => sub.close(), this.options.authorizationTimeoutMs);
+      timer.unref?.();
+      sub.cancelAuthorization = () => { clearTimeout(timer); resolve(false); };
+      void Promise.resolve().then(authorize).then(ok => {
+        if (!ok) sub.close();
+        resolve(ok && !sub.closed);
+      }, () => { sub.close(); resolve(false); }).finally(() => {
+        clearTimeout(timer);
+        sub.cancelAuthorization = undefined;
+      });
+    }).finally(() => { sub.checkingAuthorization = undefined; });
+    return sub.checkingAuthorization;
+  }
+
   private startHeartbeat(): void {
     if (this.heartbeat) return;
     this.heartbeat = setInterval(() => {
-      for (const sub of this.subscribers) this.write(sub, ": hb\n\n");
+      for (const sub of this.subscribers) void this.authorized(sub).then(ok => { if (ok) this.write(sub, ": hb\n\n"); });
     }, this.options.heartbeatMs);
     this.heartbeat.unref?.();
   }

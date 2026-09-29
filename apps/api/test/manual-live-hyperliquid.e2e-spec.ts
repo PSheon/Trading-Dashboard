@@ -52,6 +52,7 @@ describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real 
     // ranks trade more like the leaders this app is for.
     const skip = Number(process.env.E2E_SKIP ?? 0);
     const take = Number(process.env.E2E_WATCH ?? 10);
+    let busySet = new Set<string>();
     let watched = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(skip, skip + take).map(([a]) => a);
     if (process.env.E2E_SOURCE === "leaderboard") {
       // The real use case: the official leaderboard's top traders by monthly
@@ -61,20 +62,31 @@ describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real 
       };
       const monthPnl = (r: (typeof board.leaderboardRows)[number]) =>
         Number(r.windowPerformances.find(([w]) => w === "month")?.[1].pnl ?? 0);
-      watched = board.leaderboardRows
+      const leaders = board.leaderboardRows
         .sort((a, b) => monthPnl(b) - monthPnl(a))
         .slice(skip, skip + take)
         .map((r) => r.ethAddress.toLowerCase());
+      // E2E_ADD_BUSY adds that many of the busiest recent traders (market
+      // makers), to check quiet leaders aren't starved by them.
+      const busy = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([a]) => a)
+        .filter((a) => !leaders.includes(a))
+        .slice(0, Number(process.env.E2E_ADD_BUSY ?? 0));
+      busySet = new Set(busy);
+      watched = [...leaders, ...busy];
     }
     await db.insert(leaders).values(watched.map((address) => ({ chain: "hyperliquid", address, active: true, tier: "B" as const })));
 
     const events = new EventEmitter2();
     const latencies: number[] = [];
     const firstLatency = new Map<string, number>();
+    const perAddress = new Map<string, number[]>();
     events.on(ACTION_CREATED_EVENT, (row: { ts: Date; address: string }) => {
       const ms = Date.now() - row.ts.getTime();
       latencies.push(ms);
       if (!firstLatency.has(row.address)) firstLatency.set(row.address, ms);
+      perAddress.set(row.address, [...(perAddress.get(row.address) ?? []), ms]);
     });
     const accounts = new AccountStateService(info, db);
     const fillSync = new FillSyncService(info, db, accounts, events);
@@ -103,6 +115,11 @@ describe.skipIf(!process.env.RUN_LIVE_HYPERLIQUID_E2E)("live Hyperliquid + real 
       latencyMsMax: sorted[sorted.length - 1],
       addressesWithActions: firstLatency.size,
       firstActionLatencyMs: [...firstLatency.values()].sort((a, b) => a - b),
+      leaderLatencyMs: [...perAddress.entries()].filter(([a]) => !busySet.has(a)).flatMap(([, v]) => v).sort((a, b) => a - b),
+      busyLatencyP50Ms: (() => {
+        const v = [...perAddress.entries()].filter(([a]) => busySet.has(a)).flatMap(([, x]) => x).sort((a, b) => a - b);
+        return v[Math.floor(v.length / 2)];
+      })(),
       restWeightLastMinute: budgeter.introspect().weightLastMinute,
     };
     // Vitest hides console output of passing tests; write it where it can be read.

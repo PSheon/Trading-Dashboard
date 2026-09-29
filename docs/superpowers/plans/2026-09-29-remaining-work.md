@@ -59,10 +59,12 @@ Each task gets regression evidence and validation recorded below. Batch integrat
 - Independent review: fixed fixture undefined serialization and parser 413 handling. Installed Nest already translates SyntaxError to400; pre-route400 messages now sanitized. Follow-up review has no blockers.
 - Frontend production build: default Turbopack failed because this environment denies the CSS worker's temporary port binding, including the escalated retry. Installed Next CLI docs confirm `--webpack`; that production build passed, including TypeScript and route generation. Default-bundler validation remains an environment limitation, not a claimed pass.
 
-## Batch 5 architecture — in progress
+## Batch 5 architecture
 
 - Tasks 19–23: feature repositories for settings/favorites/alerts/leaders/discovery; explicit UnitOfWork handles; pure rule policy; on-demand IngestionModule separated from watcher bootstrap; discovery cron/startup moved into explicit worker composition; shared contracts/database subpaths and ORM-free enums.
 - Ruling: retain supported single-process AppModule and worker-aware health diagnostics; prove reusable feature imports have no background startup rather than introduce an unrequested API-only deployment topology.
 - Targeted pre-rebase settings/favorites/route/snapshot tests 53/53 passed, typechecks passed. Full run interrupted by the user; restarted before reconciliation. Final verification and independent review are still pending.
 - Concurrent dev changed to 89ce646 (Claude TWAP fill recovery and cold-page latency work). Preserve those commits during rebase; do not integrate this batch until combined behavior is verified.
 - Pre-rebase full run resumed successfully: 40 API files / 446 tests passed; shared build, API typecheck/build/lint passed. Final combined-tree verification remains required after rebasing Claude's new commits.
+
+- Combined-tree verification after rebasing onto Claude commit 89ce646: 40 API files / 463 tests passed; web 11 tests passed; API/web typecheck and lint, API build and web webpack production build passed. Contract documentation freshness check passed. Actual compiled Nest bootstrap on an allocated loopback port returned readiness 200 and terminated promptly on SIGTERM (Nest re-emits the signal; subprocess return code -15). Independent review found no blocking regression in transactions, ownership predicates, module composition, TWAP mapping or cold-page behavior.

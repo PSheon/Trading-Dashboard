@@ -31,6 +31,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/traders/:address/transfers` | 200 | public; 503 busy |
 | GET | `/me` | 200 | user |
 | PATCH | `/me` | 200 | user |
+| DELETE | `/me` | 204 | user; 409 last_admin |
 | GET | `/me/favorites` | 200 | user |
 | PUT | `/me/favorites/:address` | 200 | user |
 | DELETE | `/me/favorites/:address` | 204 | user |
@@ -55,6 +56,9 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/traders/:address/copy-score` | 200 | public; 503 busy |
 | GET | `/discover/boards` | 200 | public |
 | GET | `/discover/home` | 200 | public |
+| GET | `/discover/coins` | 200 | public |
+| GET | `/discover/coins/:coin` | 200 | public |
+| GET | `/discover/search` | 200 | public |
 | GET | `/admin/kols` | 200 | kols.manage |
 | POST | `/admin/kols` | 201 | kols.manage |
 | POST | `/admin/kols/import` | 201 | kols.manage |

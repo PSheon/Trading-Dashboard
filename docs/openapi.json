@@ -830,8 +830,17 @@
                               "locale": {
                                 "type": "string",
                                 "enum": [
+                                  "en",
                                   "zh-TW",
-                                  "en"
+                                  "zh-CN",
+                                  "ko",
+                                  "ja",
+                                  "ru",
+                                  "tr",
+                                  "vi",
+                                  "es",
+                                  "pt",
+                                  "id"
                                 ]
                               },
                               "favorites": {
@@ -999,8 +1008,17 @@
                         "locale": {
                           "type": "string",
                           "enum": [
+                            "en",
                             "zh-TW",
-                            "en"
+                            "zh-CN",
+                            "ko",
+                            "ja",
+                            "ru",
+                            "tr",
+                            "vi",
+                            "es",
+                            "pt",
+                            "id"
                           ]
                         },
                         "favorites": {
@@ -8705,8 +8723,17 @@
                         "locale": {
                           "type": "string",
                           "enum": [
+                            "en",
                             "zh-TW",
-                            "en"
+                            "zh-CN",
+                            "ko",
+                            "ja",
+                            "ru",
+                            "tr",
+                            "vi",
+                            "es",
+                            "pt",
+                            "id"
                           ]
                         },
                         "createdAt": {
@@ -8861,8 +8888,17 @@
                         "locale": {
                           "type": "string",
                           "enum": [
+                            "en",
                             "zh-TW",
-                            "en"
+                            "zh-CN",
+                            "ko",
+                            "ja",
+                            "ru",
+                            "tr",
+                            "vi",
+                            "es",
+                            "pt",
+                            "id"
                           ]
                         },
                         "createdAt": {
@@ -8914,6 +8950,37 @@
         "x-required-permissions": [],
         "x-required-roles": [],
         "description": "Access: user"
+      },
+      "delete": {
+        "description": "Deletes the Orbie account and its data; the Privy wallet and funds are not affected.\n\nAccess: user; 409 last_admin",
+        "operationId": "MeController_deleteMe",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Delete my account",
+        "tags": [
+          "Me"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
       }
     },
     "/me/favorites": {
@@ -10749,6 +10816,525 @@
           }
         },
         "summary": "Home rows",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/coins": {
+      "get": {
+        "description": "CopyDog's 市場 page: every coin a pool trader made money on, with the count and summed PnL of those traders.\n\nAccess: public",
+        "operationId": "DiscoveryController_coins",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "market": {
+                                "type": "string",
+                                "enum": [
+                                  "crypto",
+                                  "stocks"
+                                ]
+                              },
+                              "traders": {
+                                "type": "integer"
+                              },
+                              "profit": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "market",
+                              "traders",
+                              "profit"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pool": {
+                          "type": "object",
+                          "properties": {
+                            "ready": {
+                              "type": "integer"
+                            },
+                            "total": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "ready",
+                            "total"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "pool",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Coin index",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/coins/{coin}": {
+      "get": {
+        "description": "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals.\n\nAccess: public",
+        "operationId": "DiscoveryController_coin",
+        "parameters": [
+          {
+            "name": "coin",
+            "required": true,
+            "in": "path",
+            "description": "Hyperliquid coin (BTC, xyz:TSLA)",
+            "schema": {
+              "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "coin": {
+                          "type": "string"
+                        },
+                        "market": {
+                          "type": "string",
+                          "enum": [
+                            "crypto",
+                            "stocks"
+                          ]
+                        },
+                        "stats": {
+                          "type": "object",
+                          "properties": {
+                            "traders": {
+                              "type": "integer"
+                            },
+                            "profit": {
+                              "type": "number"
+                            },
+                            "volume": {
+                              "type": "number"
+                            },
+                            "trades": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "traders",
+                            "profit",
+                            "volume",
+                            "trades"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "pnl": {
+                                "type": "number"
+                              },
+                              "winRate": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "trades": {
+                                "type": "integer"
+                              },
+                              "volume": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "pnl",
+                              "winRate",
+                              "trades",
+                              "volume"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pool": {
+                          "type": "object",
+                          "properties": {
+                            "ready": {
+                              "type": "integer"
+                            },
+                            "total": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "ready",
+                            "total"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "coin",
+                        "market",
+                        "stats",
+                        "items",
+                        "pool",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Coin leaderboard",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/search": {
+      "get": {
+        "description": "Header search: KOL name, X handle, leaderboard name or address prefix; by all-time PnL.\n\nAccess: public",
+        "operationId": "DiscoveryController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "description": "Name, X handle or address prefix",
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 10,
+              "default": 5,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "pnl",
+                              "roi",
+                              "accountValue"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Trader search",
         "tags": [
           "Discovery"
         ],
@@ -13138,8 +13724,17 @@
           "locale": {
             "type": "string",
             "enum": [
+              "en",
               "zh-TW",
-              "en"
+              "zh-CN",
+              "ko",
+              "ja",
+              "ru",
+              "tr",
+              "vi",
+              "es",
+              "pt",
+              "id"
             ]
           },
           "displayName": {

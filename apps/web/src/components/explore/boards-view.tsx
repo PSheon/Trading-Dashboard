@@ -86,11 +86,12 @@ export function BoardsView() {
   const query = useBoard({ market, board, sort: effectiveSort, window: r.effectiveWindow, style: style === "any" ? undefined : style });
   const data = query.data;
   const items = data?.items ?? [];
-  const coinLabel = r.coin ? boardCoinLabel(board, t) : null;
   const stocksTop = market === "stocks" && board === "top100";
-  const pnlLabel = coinLabel ? t("discover.coinPnl", { coin: coinLabel }) : t("discover.pnl");
-  const roiLabel = coinLabel ? t("discover.coinRoi", { coin: coinLabel }) : t("discover.roi");
-  const roiHint = coinLabel ? t("discover.coinRoiHint", { coin: coinLabel }) : stocksTop ? t("discover.stocksHint") : undefined;
+  // CopyDog labels the stocks top 100 with its scope, "Stocks", in every locale.
+  const scope = r.coin ? boardCoinLabel(board, t) : stocksTop ? "Stocks" : null;
+  const pnlLabel = scope ? t("discover.coinPnl", { coin: scope }) : t("discover.pnl");
+  const roiLabel = scope ? t("discover.coinRoi", { coin: scope }) : t("discover.roi");
+  const roiHint = r.coin && scope ? t("discover.coinRoiHint", { coin: scope }) : stocksTop ? t("discover.stocksHint") : undefined;
   const now = useNow();
 
   const tabs = useMemo(() => {

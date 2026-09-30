@@ -1,11 +1,19 @@
+"use client";
+
+import { useState } from "react";
 import { cn } from "cn";
 
 import { coinDex, coinLabel } from "@/lib/format";
 
+/** Hyperliquid's own market icons (the exchange's app serves one SVG per
+ * perp, HIP-3 markets included: /coins/xyz:TSLA.svg). */
+export const coinIconUrl = (coin: string) => `https://app.hyperliquid.xyz/coins/${encodeURIComponent(coin).replace(/%3A/gi, ":")}.svg`;
+
 /**
- * Coin glyphs drawn from type and colour only (no third-party logos):
- * a disc in the coin's familiar colour with a symbol, or, for builder-dex
- * markets such as stocks ("xyz:TSLA"), a rounded square with the ticker.
+ * A market's icon: Hyperliquid's own SVG for the coin, and when it has none
+ * (or it fails to load), a glyph drawn from type and colour only: a disc in
+ * the coin's familiar colour with a symbol, or, for builder-dex markets
+ * such as stocks ("xyz:TSLA"), a rounded square with the ticker.
  */
 const KNOWN: Record<string, { bg: string; fg: string; glyph: string }> = {
   BTC: { bg: "#f7931a", fg: "#ffffff", glyph: "₿" },
@@ -34,6 +42,28 @@ export function CoinIcon({
   size?: number;
   className?: string;
 }) {
+  const [failed, setFailed] = useState(false);
+  // Spot ("@107", "PURR/USDC") has no market icon of its own.
+  if (!failed && !coin.startsWith("@") && !coin.includes("/")) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- small remote SVGs; next/image adds nothing here
+      <img
+        src={coinIconUrl(coin)}
+        alt=""
+        aria-hidden
+        width={size}
+        height={size}
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className={cn("inline-block shrink-0 rounded-full object-contain", className)}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return <CoinGlyph coin={coin} size={size} className={className} />;
+}
+
+function CoinGlyph({ coin, size, className }: { coin: string; size: number; className?: string }) {
   const label = coinLabel(coin);
   const dex = coinDex(coin);
   const known = KNOWN[label.toUpperCase()];

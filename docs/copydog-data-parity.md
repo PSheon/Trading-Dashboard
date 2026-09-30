@@ -34,10 +34,10 @@
 | D06 | 目前持倉、餘額、槓桿 | 多 dex／spot／staking 及 partial/null totals 已有；未代表所有帳戶模式均與競品一致。 | default dex、HIP-3、spot-heavy、統一帳戶、空帳戶逐項驗證資產去重、mark、equity、notional、uPnL、liquidation 和 freshness。 |
 | D07 | 訂單、TWAP、轉帳、成交列表 | 已有 API 與頁籤；CopyDog bundle 另外存在 funding、chart-snapshots 讀取路徑。 | 同期、同市場資料集合及分頁／上限一致；保留 cancelled/completed/partial 與時間語意。 |
 | D08 | 分類與交易風格 | PnL／規模分層已有；風格閾值仍是先前 48 地址樣本擬合，不是已知私有公式。 | 臨界值樣本、完整歷史及快照時間驗收；推估方法必須標版本，不能標成精確複製。 |
-| D09 | 探索候選池與完整排行 | 本地官方 leaderboard 有 PnL/ROI/volume/accountValue 排序；缺 Copy Score 排序、style/focus 篩選與相同候選池。 | 候選池定義、更新批次、穩定排名／同分排序、期間與 inactive 規則；不要把本頁 100 人當整個母體。 |
-| D10 | Copy Score | 本輪公開列有數值；本地尚未實作。私有詳細權重與母體未驗證。 | 取得足夠公開方法證據，建立版本化輸入／分項／排名母體及快照；未知部分需標估算。不能為對齊某幾人分數硬調參數。 |
-| D11 | 市場榜、crypto/stocks、每幣 PnL/ROI | 已有個人 coins 聚合；沒有市場排行 read model，coins.volume 也不是 ROI 所需資本。 | 市場／dex 身分與分類、每市場收益及資本口徑、Top 100、期間一致；不能以成交量直接冒充投入資本。 |
-| D12 | KOL／名稱／頭像／X／驗證 | 本輪榜單確認 tagged 物件；本地有名稱與 featured addresses，缺完整 KOL 管理資料模型。 | 管理員可維護公開來源與驗證狀態；不可把推測的社群身份標成已驗證。 |
+| D09 | 探索候選池與完整排行 | **Stage 3 已建**：`discovery_traders` 候選池＝官方排行榜近 30 天有量、非 Vault、帳戶價值 > 0 的全期 PnL 前 N（`discovery.candidatePoolSize`，預設 1,000）＋全部 KOL；背景工作每分鐘以 `poolWeightPerMinute`（預設 240）額度先補每列 portfolio，再逐列重建交易帳。`/discover/boards` 依 CopyDog 規則排序（複製評分／損益／ROI／帳戶價值，30 天只能損益／ROI）、風格篩選、固定前 100。完整排行移到 `/explore/all`。母體仍是 Orbie 的前 N，不是 CopyDog 的 ≈16k。 | 候選池定義、更新批次、穩定排名／同分排序、期間與 inactive 規則；不要把本頁 100 人當整個母體。 |
+| D10 | Copy Score | **Stage 3 已建（擬合）**：`copydog-v5-fit`，以 549 位 CopyDog `/copy-score` 樣本擬合的固定曲線（ROI、夏普、PnL、紀錄長度（90 天與一年）、最大回撤、樣本數、帳戶價值），不依 Orbie 母體排名；留出樣本中位誤差 7 分、75% 在 ±10 內、≥80 判斷一致 91%。定義與限制見 `trade-analytics.md`。 | 取得足夠公開方法證據，建立版本化輸入／分項／排名母體及快照；未知部分需標估算。不能為對齊某幾人分數硬調參數。 |
+| D11 | 市場榜、crypto/stocks、每幣 PnL/ROI | **Stage 3 已建**：每位候選者的幣種已實現損益（淨手續費、不含資金費）、交易名目（Σ 開倉 size × entry）、ROI = 損益 ÷ 名目（CopyDog 的 coinRoi，已對 BTC 榜驗算）；股票＝HIP-3 非 crypto dex 市場合計。涵蓋範圍受 Hyperliquid 可取得的成交歷史限制（`tradesFrom`），比 CopyDog 自有索引短。 | 市場／dex 身分與分類、每市場收益及資本口徑、Top 100、期間一致；不能以成交量直接冒充投入資本。 |
+| D12 | KOL／名稱／頭像／X／驗證 | **Stage 3 已建**：`kol_traders` 與 `/admin/kols`（新增、編輯、移除、CSV 匯入，全部稽核）；預設資料為 CopyDog `discover/tagged` 168 筆（2026-09-30 取得，`apps/api/data/kol/`，`kols:seed` 經同一匯入路徑載入）；頭像由 𝕏 帳號經 unavatar.io 取得，不轉載 CopyDog 圖片。驗證旗標沿用 CopyDog 的標示。 | 管理員可維護公開來源與驗證狀態；不可把推測的社群身份標成已驗證。 |
 | D13 | 七類 cohort 成員與持倉 | 現有 `/insights/crowd` 是監控群彙總，不是 CopyDog cohort 系統。 | 固定成員批次、七類定義、多 dex 持倉、覆蓋比例與更新時間；採樣上限須公開。 |
 | D14 | Cohort 歷史、BTC 對照、wallet/market 表 | 缺 cohort 快照表與完整查詢；既有 crowd 的 24h matched cohort 修正不可誤當整套洞察已完成。 | 可比成員集合、歷史區間與 BTC 同期資料、uPnL 盈虧人數／多空名目統計及空缺狀態。 |
 | D15 | 收藏分組與私人資料 | 收藏／提醒／SSE 已有；分組 schema／CRUD 尚缺。 | user ownership、組別／成員關聯、群組排行與私人隔離。 |

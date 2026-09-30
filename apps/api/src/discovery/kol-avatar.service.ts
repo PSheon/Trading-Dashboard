@@ -176,7 +176,7 @@ export class KolAvatarService {
     }
     const url = typeof body.user?.avatar_url === "string" ? body.user.avatar_url : null;
     if (!url) return { kind: "not_found" };
-    if (!/^https:\/\/pbs\.twimg\.com\//.test(url)) return { kind: "error", message: "fxtwitter: unexpected avatar host" };
+    if (!url.startsWith("https://pbs.twimg.com/")) return { kind: "error", message: "fxtwitter: unexpected avatar host" };
     return this.fetchImage(url.replace(/_normal(\.\w+)$/, "_400x400$1"));
   }
 

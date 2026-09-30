@@ -12,7 +12,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useI18n } from "@/i18n/provider";
 import { useImportKols, useKols, useRemoveKol, useSaveKol, type KolDraft } from "@/lib/admin-kols";
 import { usePermission } from "@/lib/auth";
-import type { Kol } from "@/lib/contracts";
 import { truncateAddress } from "@/lib/format";
 
 const EMPTY: KolDraft = { address: "", displayName: null, avatarUrl: null, xHandle: null, verified: false, sortOrder: 0 };

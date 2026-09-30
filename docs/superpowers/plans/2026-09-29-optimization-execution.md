@@ -203,3 +203,5 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Updated JSDoc/module formatting and direct test constructors, including the manual live test's typecheck only; no live exchange test or trade execution.
 - Pre-rebase verification: API 61 files / 703 tests passed; additional import rollback coverage passed with 18/18 import tests. API typecheck/lint/build, OpenAPI freshness and compiled bootstrap readiness/DTO/Swagger checks passed. Fresh review (ingestion_final_review, gpt-6-astra) found no concrete regressions.
 - Concurrent dev advanced to 6257fab with a frontend-only signed-in request deduplication fix. Rebase must preserve that change and verify the combined frontend.
+- Final rebased verification: API 61 files / 704 tests; web 20 files / 81 tests plus typecheck/lint passed. Backend/shared/scripts/dependency tree is byte-identical to the tested feature commit after rebase; compiled bootstrap checks remain applicable. No source changes in Claude's frontend files.
+- Remaining direct-Drizzle service inventory is 8, recorded in the architecture audit; this batch does not claim full backend or Copydog execution completion.

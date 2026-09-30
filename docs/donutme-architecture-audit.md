@@ -238,4 +238,4 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - AccountStateRepository 負責已存成交的 HIP-3 dex 查詢；遠端讀取、快取與 PositionBook 留在 AccountStateService。
 - FillSyncRepository 負責成交寫入、TWAP 查詢與 action persistence；FillSyncService 保留分頁、同步排程、分類／修正政策及事件協調。共用 action-store 的 lockActions，鎖定 namespace 與 fast path 不變。
 - 原始成交與 action 的兩階段寫入刻意保留，後續 replay 修復中斷；action/outbox 同交易，事件僅提交後發出，backfill 不發交易通知。手動 live 測試只更新 constructor，沒有執行。
-- JSDoc 說明交易、重播與鎖定前提，repository 在所屬 module 私有註冊。尚餘 WatcherService、FeedActionsService、scheduler／round-trip、rules seed、admin overview、alert rules 等 persistence 邊界；多副本 watcher ownership 仍非此批解決範圍。
+- JSDoc 說明交易、重播與鎖定前提，repository 在所屬 module 私有註冊。尚餘 8 個直接注入 Drizzle 的 service：WatcherService、FeedActionsService、SchedulerService、RoundTripService、RulesSeedService、AdminOverviewService、AlertRulesService、LeaderboardIngestService；多副本 watcher ownership 仍非此批解決範圍。

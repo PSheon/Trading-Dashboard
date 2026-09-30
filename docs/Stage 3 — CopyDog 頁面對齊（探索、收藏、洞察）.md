@@ -130,6 +130,15 @@ Orbie 目前多出來的（刪除以對齊）：眉標「orbit the best traders�
 - 新增收藏群組：`user_favorite_groups`（id、user_id、name、排序）、`user_favorite_group_members`（group_id、address）；API：群組 CRUD、加入／移出群組。
 - 其餘沿用現有收藏、提醒、Telegram、SSE。
 
+### 2.4 實作（2026-09-30）
+
+**對照 CopyDog 原始碼。** CopyDog 的收藏頁（`index-C5ZUTtKg.js` 與 `/locales/zh-TW/watchlist.json`）目前是三個分頁「收藏／提醒／動態」，語系檔另有「跟單」；Orbie 依本節規格做四個分頁，文字用 CopyDog 的（收藏、提醒、跟單、動態）。
+
+- **資料表**：`user_favorite_groups`（id、user_id、name（1–20 字、每人唯一）、color、sort_order、created_at）、`user_favorite_group_members`（group_id、user_id、chain、address；外鍵到 `user_favorites`，取消收藏時自動移出所有群組；刪除群組不動收藏）。每人最多 20 個群組。
+- **API**（皆需登入、只看得到自己的）：`GET/POST /me/favorite-groups`、`PATCH/DELETE /me/favorite-groups/:id`、`PUT/DELETE /me/favorite-groups/:id/members/:address`（成員必須是自己的收藏，否則 404；重名 409 `group_exists`、超量 409 `group_limit`）。寫入在使用者列鎖內完成。
+- **卡片資料**：`GET /discover/cards?addresses=`（公開、最多 200 個、0 Hyperliquid weight、不快取）：候選池有數字者給全期損益／ROI／走勢、30 天損益、勝率（交易帳勝場 ÷ 已平倉筆數）、夏普、最大回撤、複製評分（`source: "pool"`）；否則用排行榜的全帳戶數字（`"leaderboard"`，無評分與風險數字，走勢改向 `/traders/sparklines` 借全期走勢）；都沒有就只有身分（`"none"`）。
+- **頁面**：未登入＝CopyDog 置中提示（書籤圖示、登入以檢視您的收藏、登入）。已登入：標題「收藏」＋分頁列（各分頁數量）；收藏分頁＝群組籤（全部／各群組含色點與數量，滑過出現 × 刪除並確認／＋新增分組就地輸入／管理群組：改名、上下移、刪除）＋探索同款卡片（網格，右上星號、名稱下群組標籤與「＋」勾選群組）或 CopyDog 的收藏表格（列表：交易員／複製評分／帳戶價值／總損益／投報率／損益(30天)／勝率／夏普值／最大回撤／損益走勢，表頭可排序，列尾 移除、鈴鐺、跟單）；手機為 CopyDog 的卡片列。提醒分頁＝右上「提醒 x / N」（達上限轉黃）與未連結時的「連接 Telegram」，已開提醒者列出摘要＋就地編輯（鈴鐺彈窗）＋刪除，其餘收藏在下方可直接開啟。跟單分頁＝空狀態說明。動態分頁＝右上「即時／連線中…」，列「{名稱} 買入/賣出 {幣種}，{金額} @ {價格}」＋時間，用 `GET /actions/stream?scope=favorites`，新列閃一下。`?tab=` 與 `?view=list` 可分享。
+
 ## 3. 洞察（`/insights`，對應 CopyDog `/hyperliquid/cohorts`）
 
 

@@ -5,6 +5,7 @@ export const queryKeys = {
   me: ["me"] as const,
   health: ["health"] as const,
   favorites: ["favorites"] as const,
+  favoriteGroups: ["favorite-groups"] as const,
   telegram: ["telegram"] as const,
   traders: {
     all: ["traders"] as const,
@@ -15,6 +16,7 @@ export const queryKeys = {
     boards: ["discover-board"] as const,
     board: (qs: string) => ["discover-board", qs] as const,
     home: ["discover-home"] as const,
+    cards: (addresses: string) => ["discover-cards", addresses] as const,
   },
   trader: {
     all: ["trader"] as const,

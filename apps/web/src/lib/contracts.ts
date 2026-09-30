@@ -41,3 +41,6 @@ export type BoardResponse = Domain.WireBoard;
 export type HomeBoardsResponse = Domain.WireHomeBoards;
 export type Kol = Domain.WireKol;
 export type CopyScoreResponse = Domain.WireCopyScore;
+export type TraderCard = Domain.WireTraderCard;
+export type TraderCardsResponse = Domain.WireTraderCards;
+export type FavoriteGroup = Domain.WireFavoriteGroup;

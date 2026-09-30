@@ -9,7 +9,7 @@ import { createContext, use, useCallback, useEffect, useMemo, useRef } from "rea
 
 import { SessionQueries } from "@/lib/session-queries";
 import { APP_NAME, PRIVY_APP_ID } from "@/lib/config";
-import { api, setAccessTokenGetter, stableScope } from "@/lib/api";
+import { api, sessionKey, setAccessTokenGetter } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
 
@@ -76,7 +76,11 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
   // Registered during render (idempotent) rather than in an effect: child
   // queries subscribe in their own effects, which run before ours, and the
   // first /me request must already carry the token.
-  const scope = ready && authenticated && user?.id ? user.id : ready ? "anonymous" : "loading";
+  // Until Privy is ready, a browser with a saved Privy session makes its
+  // requests wait for the token; one without goes ahead as anonymous at once.
+  const scope = ready
+    ? authenticated && user?.id ? user.id : "anonymous"
+    : hasSavedPrivySession() ? "loading" : "anonymous";
   setAccessTokenGetter(getAccessToken, scope);
 
   const value = useMemo<AuthState>(
@@ -90,7 +94,11 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
     [ready, authenticated, login, logout, user],
   );
 
-  return <AuthContext value={value}><SessionQueries key={stableScope(scope) ?? undefined}>{children}</SessionQueries></AuthContext>;
+  return <AuthContext value={value}><SessionQueries key={sessionKey()}>{children}</SessionQueries></AuthContext>;
+}
+
+function hasSavedPrivySession(): boolean {
+  return readLocalStorage("privy:token") !== null || readLocalStorage("privy:refresh_token") !== null;
 }
 
 // --- fixture login ------------------------------------------------------------
@@ -121,7 +129,7 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
     [signedIn, persist],
   );
 
-  return <AuthContext value={value}><SessionQueries key={stableScope(scope) ?? undefined}>{children}</SessionQueries></AuthContext>;
+  return <AuthContext value={value}><SessionQueries key={sessionKey()}>{children}</SessionQueries></AuthContext>;
 }
 
 // --- side effects shared by every mode ------------------------------------------

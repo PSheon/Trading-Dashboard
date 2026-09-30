@@ -44,32 +44,53 @@ export function isBusy(error: unknown): error is ApiError {
 export type AccessTokenGetter = () => Promise<string | null>;
 
 let accessTokenGetter: AccessTokenGetter | null = null;
+/** The identity requests are sent as; "loading" until the provider knows. */
 let identityScope: string | null = null;
+let sessionGeneration = 0;
 let sessionController = new AbortController();
+let identityKnown: Promise<void> = Promise.resolve();
+let resolveIdentity: (() => void) | null = null;
 
-/** Registered by the auth provider (Privy's `getAccessToken`, or the
- * fixture login). The getter itself returns null when signed out. */
-/** "loading" and "anonymous" are the same identity: no token, public data. */
-export function stableScope(scope: string | null): string | null {
-  return scope === "loading" ? "anonymous" : scope;
-}
-
+/**
+ * Registered by the auth provider (Privy's `getAccessToken`, or the fixture
+ * login) during render. The getter itself returns null when signed out.
+ *
+ * `scope` is "loading" while the provider is still starting: requests made
+ * then wait until it knows who the visitor is and go out once, with the right
+ * token. So the first answer ("anonymous" or a user) keeps them, and keeps the
+ * session. Only a real change afterwards (sign-in, sign-out, account switch)
+ * cancels in-flight requests and starts a new session.
+ */
 export function setAccessTokenGetter(getter: AccessTokenGetter | null, scope: string | null = null) {
-  // While the identity provider is still starting ("loading"), requests go
-  // out without a token, exactly like an anonymous visitor's. Treating it as
-  // its own identity would cancel them and refetch everything the moment the
-  // visitor turns out to be anonymous. Only a real change (sign-in, sign-out,
-  // account switch) cancels in-flight requests.
-  scope = stableScope(scope);
+  accessTokenGetter = getter;
+  if (scope === "loading") {
+    if (identityScope === null) {
+      identityScope = "loading";
+      identityKnown = new Promise((resolve) => { resolveIdentity = resolve; });
+    }
+    return;
+  }
+  if (identityScope === "loading" || identityScope === null) {
+    identityScope = scope;
+    resolveIdentity?.();
+    resolveIdentity = null;
+    return;
+  }
   if (identityScope !== scope) {
     sessionController.abort();
     sessionController = new AbortController();
     identityScope = scope;
+    sessionGeneration += 1;
   }
-  accessTokenGetter = getter;
+}
+
+/** Changes on every real identity change; key the session boundary with it. */
+export function sessionKey(): string {
+  return String(sessionGeneration);
 }
 
 async function currentToken(): Promise<string | null> {
+  if (identityScope === "loading") await identityKnown;
   if (!accessTokenGetter) return null;
   try {
     return await accessTokenGetter();

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { api, setAccessTokenGetter } from "../src/lib/api";
+import { api, sessionKey, setAccessTokenGetter } from "../src/lib/api";
 
 afterEach(() => { vi.unstubAllGlobals(); setAccessTokenGetter(null); });
 
@@ -62,23 +62,33 @@ it("keeps a request running when a loading session turns out to be anonymous", a
     started();
   })));
   const pending = api.delete("/me/favorites/0x0000000000000000000000000000000000000000");
-  await ready;
   setAccessTokenGetter(async () => null, "anonymous");
+  await ready;
   respond();
   await expect(pending).resolves.toBeUndefined();
 });
 
-it("still aborts a loading session's requests when the visitor turns out to be signed in", async () => {
-  setAccessTokenGetter(async () => null, "loading");
-  let started!: () => void;
-  const ready = new Promise<void>((resolve) => { started = resolve; });
-  vi.stubGlobal("fetch", vi.fn((_url, options: RequestInit) => new Promise((_resolve, reject) => {
-    options.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
-    started();
-  })));
-  const pending = api.get("/traders");
-  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
-  await ready;
+it("holds a loading session's request until the visitor is known, then sends it once with their token", async () => {
+  setAccessTokenGetter(async () => "alice-token", "loading");
+  const key = sessionKey();
+  const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetcher);
+  const pending = api.delete("/me/favorites/0x0000000000000000000000000000000000000000");
+  await Promise.resolve();
+  expect(fetcher).not.toHaveBeenCalled();
   setAccessTokenGetter(async () => "alice-token", "alice");
-  await rejected;
+  await pending;
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  const init = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1];
+  expect((init.headers as Record<string, string>).Authorization).toBe("Bearer alice-token");
+  expect(sessionKey()).toBe(key);
+});
+
+it("changes the session key only on a real identity change", () => {
+  setAccessTokenGetter(async () => null, "anonymous");
+  const anonymous = sessionKey();
+  setAccessTokenGetter(async () => null, "anonymous");
+  expect(sessionKey()).toBe(anonymous);
+  setAccessTokenGetter(async () => "alice-token", "alice");
+  expect(sessionKey()).not.toBe(anonymous);
 });

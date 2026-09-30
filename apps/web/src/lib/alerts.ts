@@ -9,8 +9,9 @@ import type {
   TelegramStatus,
   TelegramTestResponse,
 } from "@/lib/contracts";
+import { telegramLinkResponseSchema } from "@/lib/contracts";
 
-import { api, type ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 /**
@@ -36,9 +37,19 @@ export function useTelegramStatus(options: { pollMs?: number; pollUntil?: number
   });
 }
 
+/** Whether `url` is the official bot's deep link (`https://t.me/…`); the
+ * settings page opens it, so nothing else is followed. */
+export function isTelegramLinkUrl(url: unknown): url is string {
+  return telegramLinkResponseSchema.shape.url.safeParse(url).success;
+}
+
 export function useCreateTelegramLink() {
   return useMutation<TelegramLinkResponse, ApiError>({
-    mutationFn: () => api.post<TelegramLinkResponse>("/me/telegram/link"),
+    mutationFn: async () => {
+      const link = await api.post<TelegramLinkResponse>("/me/telegram/link");
+      if (!isTelegramLinkUrl(link.url)) throw new ApiError(502, "Unexpected Telegram link", { code: "invalid_telegram_link" });
+      return link;
+    },
   });
 }
 

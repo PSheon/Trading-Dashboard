@@ -1120,7 +1120,9 @@ export type TelegramStatus = z.infer<typeof telegramStatusSchema>;
  * pressing Start in Telegram links that chat; the page polls GET
  * /me/telegram. DELETE /me/telegram unlinks (204). */
 export const telegramLinkResponseSchema = z.object({
-  url: z.string().url(),
+  /** Always the official bot's deep link: the page opens it in a new tab,
+   * so anything else would be an open redirect. */
+  url: z.string().url().startsWith("https://t.me/"),
   expiresAt: z.coerce.date(),
 });
 export type TelegramLinkResponse = z.infer<typeof telegramLinkResponseSchema>;

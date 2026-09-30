@@ -1,3 +1,4 @@
+import { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { ProfileRepository } from "../src/users/profile.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
@@ -55,7 +56,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
 
   beforeEach(async () => {
     await truncateAll(db);
-    await new RulesSeedService(testConfig(), db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
     await settings.patch({ notifications: { alertsEnabled: true, maxAlertTraders: 3 } }, null);
     auth.clearCache();
     backfill.trigger.mockClear();

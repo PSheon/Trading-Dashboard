@@ -1,3 +1,4 @@
+import { RoundTripRepository } from "../src/analytics/round-trip.repository.js";
 import { SchedulerRepository } from "../src/scheduler/scheduler.repository.js";
 import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -136,7 +137,7 @@ describe("SchedulerService — real Postgres", () => {
     await new Promise((r) => setTimeout(r, 5));
     main = {};
     await scheduler.snapshotAll();
-    const service = new LeadersService(new UnitOfWork(db), new LeadersRepository(db), new RoundTripService(db));
+    const service = new LeadersService(new UnitOfWork(db), new LeadersRepository(db), new RoundTripService(new RoundTripRepository(db)));
     const detail = await service.findDetail("hyperliquid", A, "hour", "none");
     expect(detail.positions).toEqual([]);
     expect((await service.findAll({}))[0].openPositionCount).toBe(0);

@@ -1,6 +1,7 @@
-import { TradersRepository } from "./traders.repository.js";
 import { Module } from "@nestjs/common";
 
+import { TradersRepository } from "./traders.repository.js";
+import { LeaderboardIngestRepository } from "./leaderboard-ingest.repository.js";
 import { AnalyticsModule } from "../analytics/analytics.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
@@ -15,7 +16,7 @@ import { TradeAnalyticsService } from "./trade-analytics.service.js";
 @Module({
   imports: [HyperliquidModule, AnalyticsModule],
   controllers: [TradersController, TradeAnalyticsController],
-  providers: [TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService],
+  providers: [LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService],
   exports: [TradersService, LeaderboardIngestService, TradeAnalyticsService],
 })
 export class TradersModule {}

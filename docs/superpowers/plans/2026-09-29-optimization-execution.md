@@ -216,3 +216,15 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Applied module/JSDoc conventions and clarified two unimplemented scheduler methods; no new cron, provider export or external behavior is introduced.
 - Verification passed: API typecheck/lint/build, OpenAPI freshness, 61 files / 707 tests, compiled bootstrap DI/DTO/readiness 200/503 and Swagger equality. Existing snapshot rollback, watcher sweep coalescing and fast/slow-path integration tests are included. Fresh review (worker_final_review, gpt-6-astra) found no concrete regression.
 - Frontend/shared/dependencies are unchanged; dev remains at the original base. No live exchange test, real message, trade, deployment or production migration performed.
+
+
+## Sixteenth batch — complete remaining service persistence boundaries (base e06c68f)
+
+- User requested finishing the remaining work together before reporting. Completed all five named remaining services: AdminOverview, AlertRules, RulesSeed, RoundTrip and LeaderboardIngest. Added private feature repositories and updated DI/test constructors; preserved service policy, seed retry lifecycle, analytical reconstruction and external contracts.
+- Watched the five service boundary cases fail before extraction. Expanded the final gate to recursively cover every service; moved Favorites' schema-only type reference behind a repository type so services import no shared database schema.
+- AlertRules and leaderboard writes use service-owned UnitOfWork. Added real PostgreSQL audit-failure rollback cases for both rule create/update and a later-chunk leaderboard failure that must restore prior data. Seed preserves administrator edits through the existing partial index; analytical queries retain address+tid scoping.
+- Initial full suite found missing RoundTripRepository in the routes-auth custom test module; production module wiring was present. Added the missing test provider and reran the full suite.
+- Fresh final review (completion_final_review, gpt-6-astra) found no actionable regression in predicates, conflict semantics, transactions, PnL mapping, seed/vault behavior or module ownership. Corrected stale current-state documentation; retained historical audits as labeled snapshots.
+- Ruling: this completes the named service persistence/JSDoc/bootstrap alignment scope, not the separately documented multi-instance watcher ownership, live copy execution or deferred R4–R9/scoring features. Those must not be represented as implemented by moving persistence code.
+- Final verification passed: API 61 files / 735 tests, typecheck/lint/build, OpenAPI freshness and 4/4 specification tests. Compiled app verified real DI, readiness 200/503, global DTO rejection and runtime/offline Swagger equality. All service files pass the recursive persistence gate; no direct service Drizzle/schema imports remain.
+- Dev stayed at e06c68f during verification; frontend/shared/schema/dependencies unchanged. No push, deployment, real notification, trade or production migration. Owned disposable PostgreSQL is cleaned up after verification.

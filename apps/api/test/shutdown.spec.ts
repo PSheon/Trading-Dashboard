@@ -1,8 +1,8 @@
+import type { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { expect, it, vi, afterEach } from "vitest";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
-import type { DrizzleDb } from "../src/db/drizzle.provider.js";
 
 afterEach(() => vi.useRealTimers());
 it("stops new work and waits for admitted jobs", async () => {
@@ -25,7 +25,7 @@ it("bounds drain duration", async () => {
 });
 it("cancels seed retries and does not rearm after an in-flight failure", async () => {
   vi.useFakeTimers();
-  const seed = new RulesSeedService(testConfig(), {} as DrizzleDb);
+  const seed = new RulesSeedService(testConfig(), {} as RulesSeedRepository);
   const work = vi.spyOn(seed, "seedDefaultRules").mockRejectedValue(new Error("offline"));
   vi.stubEnv("NODE_ENV", "development");
   try {

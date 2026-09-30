@@ -1,20 +1,14 @@
-import { AppConfig } from "../config/app-config.js";
-import { Optional } from "@nestjs/common";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq, max, ne, sql } from "drizzle-orm";
-import { traderStats } from "@trading-dashboard/shared/database";
-import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { AppConfig } from "../config/app-config.js";
+import { UnitOfWork } from "../db/unit-of-work.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { LeaderboardIngestRepository } from "./leaderboard-ingest.repository.js";
 import { SettingsService } from "../settings/settings.service.js";
 import {
-  chunk,
   LEADERBOARD_URL,
   parseLeaderboard,
   parseVaults,
-  UPSERT_CHUNK_ROWS,
   VAULTS_URL,
   type TraderStatsInsert,
 } from "./leaderboard.js";
@@ -63,7 +57,8 @@ export class LeaderboardIngestService {
 
   constructor(
     private readonly config: AppConfig,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: LeaderboardIngestRepository,
+    private readonly unitOfWork: UnitOfWork,
     private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
@@ -95,11 +90,7 @@ export class LeaderboardIngestService {
 
   /** When the last import landed, or null if the table is empty. */
   async lastImportAt(): Promise<Date | null> {
-    const [row] = await this.db
-      .select({ at: max(traderStats.updatedAt) })
-      .from(traderStats)
-      .where(eq(traderStats.chain, CHAIN_DEFAULT));
-    return row?.at ?? null;
+    return this.repository.lastImportAt();
   }
 
   async refreshIntervalMs(): Promise<number> {
@@ -167,38 +158,8 @@ export class LeaderboardIngestService {
    */
   async replaceAll(rows: TraderStatsInsert[], importedAt: Date, updateVaultFlags = true): Promise<number> {
     if (rows.length === 0) throw new Error("Leaderboard import has no rows; keeping the current table");
-    return this.db.transaction(async (tx) => {
-      for (const part of chunk(rows, UPSERT_CHUNK_ROWS)) {
-        await tx
-          .insert(traderStats)
-          .values(part)
-          .onConflictDoUpdate({
-            target: [traderStats.chain, traderStats.address],
-            set: {
-              displayName: sql`excluded.display_name`,
-              accountValue: sql`excluded.account_value`,
-              pnlDay: sql`excluded.pnl_day`,
-              pnlWeek: sql`excluded.pnl_week`,
-              pnlMonth: sql`excluded.pnl_month`,
-              pnlAllTime: sql`excluded.pnl_all_time`,
-              roiDay: sql`excluded.roi_day`,
-              roiWeek: sql`excluded.roi_week`,
-              roiMonth: sql`excluded.roi_month`,
-              roiAllTime: sql`excluded.roi_all_time`,
-              volumeDay: sql`excluded.volume_day`,
-              volumeWeek: sql`excluded.volume_week`,
-              volumeMonth: sql`excluded.volume_month`,
-              volumeAllTime: sql`excluded.volume_all_time`,
-              ...(updateVaultFlags ? { isVault: sql`excluded.is_vault` } : {}),
-              updatedAt: sql`excluded.updated_at`,
-            },
-          });
-      }
-      const removed = await tx
-        .delete(traderStats)
-        .where(and(eq(traderStats.chain, CHAIN_DEFAULT), ne(traderStats.updatedAt, importedAt)))
-        .returning({ address: traderStats.address });
-      return removed.length;
+    return this.unitOfWork.run(async (tx) => {
+      return this.repository.replaceAll(tx, rows, importedAt, updateVaultFlags);
     });
   }
 }

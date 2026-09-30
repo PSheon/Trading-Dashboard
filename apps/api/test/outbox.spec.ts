@@ -1,3 +1,4 @@
+import { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { RulesRepository } from "../src/rules/rules.repository.js";
 import { NotifyRepository } from "../src/notify/notify.repository.js";
 import { OutboxRepository } from "../src/outbox/outbox.repository.js";
@@ -148,7 +149,7 @@ it("replays percentage rules using the equity captured with the action", async (
   await db.update(users).set({ role: "admin" });
   await db.delete(userFavorites);
   await db.update(leaders).set({ source: "import", tier: "A" });
-  await new RulesSeedService(testConfig(), db).seedDefaultRules();
+  await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
   const [action] = await withActionLock(db, address, (tx) => insertActions(tx, address, [{
     coin: "BTC", kind: "open", side: "long", notionalUsd: "10000", avgPx: "60000", leverage: null, fillIds: [], ts: new Date(),
   }], true, 50000));

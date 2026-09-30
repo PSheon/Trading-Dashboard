@@ -1,3 +1,6 @@
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { LeaderboardIngestRepository } from "../src/traders/leaderboard-ingest.repository.js";
+import { RoundTripRepository } from "../src/analytics/round-trip.repository.js";
 import { InsightsRepository } from "../src/insights/insights.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { TradersRepository } from "../src/traders/traders.repository.js";
@@ -102,7 +105,7 @@ describe("public discovery routes over HTTP", () => {
         {
           provide: TradersService,
           useFactory: (s: SettingsService) =>
-            new TradersService(testConfig(), new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(db), new LeaderboardIngestService(testConfig(), db, s), s),
+            new TradersService(testConfig(), new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(new RoundTripRepository(db)), new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), s), s),
           inject: [SettingsService],
         },
         { provide: InsightsService, useValue: new InsightsService(new InsightsRepository(db)) },

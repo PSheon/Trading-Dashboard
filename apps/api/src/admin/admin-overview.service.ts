@@ -1,10 +1,7 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { eq, gte, sql } from "drizzle-orm";
-import { alerts, leaders, users } from "@trading-dashboard/shared/database";
+import { Injectable } from "@nestjs/common";
 import { type AdminOverview } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { AdminOverviewRepository } from "./admin-overview.repository.js";
 import { RevenueService } from "./revenue.service.js";
 
 const DAY_MS = 86_400_000;
@@ -13,7 +10,7 @@ const DAY_MS = 86_400_000;
 @Injectable()
 export class AdminOverviewService {
   constructor(
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: AdminOverviewRepository,
     private readonly revenue: RevenueService,
   ) {}
 
@@ -22,26 +19,9 @@ export class AdminOverviewService {
     const since24h = new Date(now.getTime() - DAY_MS);
 
     const [[userCounts], [traderCounts], alertRows, revenue30dUsd] = await Promise.all([
-      this.db
-        .select({
-          total: sql<number>`count(*)::int`,
-          new7d: sql<number>`(count(*) filter (where ${users.createdAt} >= ${since7d}))::int`,
-          active7d: sql<number>`(count(*) filter (where ${users.lastLoginAt} >= ${since7d}))::int`,
-        })
-        .from(users),
-      this.db
-        .select({
-          total: sql<number>`count(*)::int`,
-          imported: sql<number>`(count(*) filter (where ${leaders.source} = 'import'))::int`,
-          favorited: sql<number>`(count(*) filter (where ${leaders.source} = 'favorite'))::int`,
-        })
-        .from(leaders)
-        .where(eq(leaders.active, true)),
-      this.db
-        .select({ status: alerts.sendStatus, n: sql<number>`count(*)::int` })
-        .from(alerts)
-        .where(gte(alerts.sentAt, since24h))
-        .groupBy(alerts.sendStatus),
+      this.repository.userCounts(since7d),
+      this.repository.traderCounts(),
+      this.repository.alertCounts(since24h),
       this.revenue.earned30dUsd(now),
     ]);
 

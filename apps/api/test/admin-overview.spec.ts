@@ -1,3 +1,4 @@
+import { AdminOverviewRepository } from "../src/admin/admin-overview.repository.js";
 import { alertRules, alerts, leaders } from "@trading-dashboard/shared/database";
 import { adminOverviewSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +21,7 @@ describe("GET /admin/overview — real Postgres", () => {
   beforeEach(async () => {
     await truncateAdminTables(db);
     earned30dUsd = vi.fn(async () => 12.5);
-    service = new AdminOverviewService(db, { earned30dUsd } as unknown as RevenueService);
+    service = new AdminOverviewService(new AdminOverviewRepository(db), { earned30dUsd } as unknown as RevenueService);
   });
 
   afterAll(async () => {

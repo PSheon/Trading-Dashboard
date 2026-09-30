@@ -5,6 +5,9 @@ import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+export type FavoriteUpdate = Partial<typeof userFavorites.$inferInsert>;
+
+/** Owned favorites and transactional alert/watch-state persistence. */
 @Injectable()
 export class FavoritesRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}

@@ -1,3 +1,4 @@
+import { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { testConfig } from "./config-test-utils.js";
 import { RequirePermissions } from "../src/common/auth/permissions.js";
@@ -86,7 +87,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
 
   beforeEach(async () => {
     await truncateAll(db);
-    await new RulesSeedService(testConfig(), db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
     // The settings cache outlives the truncate: reset it explicitly.
     await settings.patch({ general: { signupsOpen: true } }, null);
     auth.clearCache();

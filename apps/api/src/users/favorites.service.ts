@@ -1,10 +1,9 @@
 import { AppConfig } from "../config/app-config.js";
 import { ConflictException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { userFavorites } from "@trading-dashboard/shared/database";
 import { type Favorite, type PatchFavoriteAlertRequest } from "@trading-dashboard/shared/contracts";
 
-import { FavoritesRepository } from "./favorites.repository.js";
+import { FavoritesRepository, type FavoriteUpdate } from "./favorites.repository.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { BackfillService } from "../watcher/backfill.service.js";
@@ -87,7 +86,7 @@ export class FavoritesService {
         }
       }
 
-      const set: Partial<typeof userFavorites.$inferInsert> = {};
+      const set: FavoriteUpdate = {};
       if (patch.enabled !== undefined) set.alertEnabled = patch.enabled;
       if (patch.sides !== undefined) set.alertSides = patch.sides;
       if (patch.minUsd !== undefined) set.alertMinUsd = patch.minUsd === null ? null : String(patch.minUsd);

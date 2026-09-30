@@ -1,3 +1,4 @@
+import { LeaderboardIngestRepository } from "../src/traders/leaderboard-ingest.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -146,7 +147,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     await db.execute(sql`TRUNCATE TABLE trader_stats`);
     await db.delete(appSettings);
     settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
-    service = new LeaderboardIngestService(testConfig(), db, settings);
+    service = new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), settings);
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -191,6 +192,18 @@ describe("LeaderboardIngestService — real Postgres", () => {
     expect(total).toBe(n);
   });
 
+  it("rolls back earlier chunks when a later leaderboard chunk fails", async () => {
+    const beforeAt = new Date("2026-09-29T00:00:00Z");
+    await service.replaceAll(parseLeaderboard({ leaderboardRows: [lbRow(addr(1), 10), lbRow(addr(99999), 20)] }, beforeAt), beforeAt);
+    const before = await all();
+    const at = new Date("2026-09-29T00:15:00Z");
+    const rows = parseLeaderboard({ leaderboardRows: Array.from({ length: UPSERT_CHUNK_ROWS + 1 }, (_, i) => lbRow(addr(i + 1), 200)) }, at);
+    rows[rows.length - 1].accountValue = "not-a-number";
+    await expect(service.replaceAll(rows, at)).rejects.toThrow();
+    expect(await all()).toEqual(before);
+    expect(await service.lastImportAt()).toEqual(beforeAt);
+  });
+
   it("refuses an empty import and keeps the current table", async () => {
     const at = new Date();
     await service.replaceAll(parseLeaderboard({ leaderboardRows: [lbRow(addr(1), 1)] }, at), at);
@@ -216,7 +229,7 @@ describe("LeaderboardIngestService — real Postgres", () => {
     vi.restoreAllMocks();
 
     // A fresh process (no in-memory list) whose vault fetch fails.
-    const restarted = new LeaderboardIngestService(testConfig(), db, settings);
+    const restarted = new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), settings);
     mockFetch("oops", 503);
     const result = await restarted.refresh();
     expect(result.vaults).toBeNull();

@@ -2,15 +2,21 @@
 
 日期：2026-09-29。Trading-Dashboard 基準：`3028e47`；DonutMe Backend 基準：`724966a`。以下問題描述保留該基準的稽核快照；後續實作狀態見下一節。
 
+## 目前分層狀態（2026-09-30）
+
+所有現有 `.service.ts` 已移除直接 Drizzle client／SQL 存取；持久化由 feature repository、共用 persistence helper 及 db infrastructure 處理。全目錄回歸檢查防止 service 再引入 ORM。這代表本輪 service/repository 收斂完成，不代表 Copydog 功能全部完成或已驗證多副本部署。
+
+Bootstrap、class DTO／pipe／decorator、JSON response transform、錯誤出口、原生 Swagger 及 repository 交易規範已實作。新程式遵循 [後端風格規範](backend-conventions.md)；每批驗證與仍存在的限制見 [執行紀錄](superpowers/plans/2026-09-29-optimization-execution.md)。下方各日期段落保留演進紀錄，以本節及最新更新為準。
+
 ## Nest pipeline 補齊（2026-09-30）
 
 先前已有 response transform 與 Zod adapter，但沒有 class DTO／全域 ValidationPipe；不能視為完整採用 DonutMe request pipeline。本次補上 class-validator／class-transformer、feature class DTO、APP_PIPE、input decorators、SkipTransform 與 ResponseMessage metadata，controller 不再手動 parse。保留 shared wire schema 與 400 契約，現已補上原生 Swagger request metadata、ApiDoc、完整 OpenAPI 匯出與本機文件頁；仍未引入另一套 response class DTO。完整範圍、測試與相容性見 [Nest HTTP pipeline](nest-http-pipeline.md)。
 
 ## 後續實作狀態（2026-09-29）
 
-後續 40 項實作已推進至文件整併；完整逐項狀態見 [目前稽核清單](audit-follow-up.md)，測試與限制見 [執行紀錄](superpowers/plans/2026-09-29-remaining-work.md)。目前已有 immutable typed config DI、可協商 response transform／wire DTO、feature repositories 與 UnitOfWork、無啟動副作用的 module 邊界、Privy 真實 SDK 驗簽、DB 即時角色／停權檢查、前端 effective permissions 與管理稽核。
+後續 40 項實作已推進至文件整併；完整逐項狀態見 [目前稽核清單](audit-follow-up.md)，測試與限制見 [執行紀錄](superpowers/plans/2026-09-29-remaining-work.md)。目前已有 immutable typed config DI、預設統一 response transform／wire DTO、feature repositories 與 UnitOfWork、無啟動副作用的 module 邊界、Privy 真實 SDK 驗簽、DB 即時角色／停權檢查、前端 effective permissions 與管理稽核。
 
-限流、outbox、shutdown、CI、隔離 DB、瀏覽器與無障礙測試、正式映像／migration、批次查詢及人工資料還原演練也已實作。依賴仍有 4 項 moderate；多副本 watcher ownership、完整 CSP、真實 Privy 登入、正式環境部署／備份／RPO／RTO 均不得視為已驗證。**以下所有「現有／尚未」及檔案數量皆是上述基準的歷史稽核快照，不是目前缺陷清單。**
+限流、outbox、shutdown、CI、隔離 DB、瀏覽器與無障礙測試、正式映像／migration、批次查詢及人工資料還原演練也已實作。2026-09-29 的依賴掃描曾記錄 4 項 moderate，該數字不是目前漏洞狀態，請以最新 CI 掃描為準；多副本 watcher ownership、完整 CSP、真實 Privy 登入、正式環境部署／備份／RPO／RTO 均不得視為已驗證。**以下所有「現有／尚未」及檔案數量皆是上述基準的歷史稽核快照，不是目前缺陷清單。**
 
 ## 範圍與方法
 
@@ -248,3 +254,13 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - SchedulerService 保留跨 dex 金額彙總、持倉變動判斷、併發限制及狀態記錄。SchedulerRepository 在同交易寫入 equity／positions，並查詢前次快照之後的成交 coin；錯誤持倉造成 equity 一併回滾。
 - 新 repository 私有註冊，JSDoc 描述交易、鎖定與事件前提；coin metadata refresh／post-alert scoring 明確標成尚未實作，非已啟用排程。
 - 最新直接注入 Drizzle 的 service 剩 5 個：AdminOverviewService、AlertRulesService、RulesSeedService、RoundTripService、LeaderboardIngestService。移除直接 SQL 不等同於解決多副本 watcher ownership，後者仍須獨立驗證與設計。
+
+
+## 2026-09-30：剩餘五個 service 收斂完成
+
+- AdminOverviewRepository 負責聚合，報表時間窗及回應組裝留在 service；獨立查詢仍可並行。
+- AlertRulesRepository 僅讀寫 default rules，service 持有 UnitOfWork；row lock、更新與稽核同交易，404／409 及預設欄位語意保留。規則新增／更新遇稽核失敗均須回滾。
+- RulesSeedRepository 使用原 partial unique index，只補不存在的預設規則；預設參數、啟動重試與 shutdown 留在 service，管理員修改不被覆蓋。
+- RoundTripRepository 提供排序 action 與 address+tid 範圍的批次 PnL；open/close/flip 重建與計算政策留在 service。
+- LeaderboardIngestRepository 在 service 的 UnitOfWork 內分批 upsert 及 prune；vault flags、空匯入保護與原子替換保持，後續批次失敗回滾先前批次。
+- Favorites 僅用於型別的 schema import 也移到 repository 型別；全目錄檢查涵蓋所有 service，不再只列已重構檔案。此檢查不檢驗多副本 ownership，也不宣稱金融計算／功能相容性皆已完全驗收。

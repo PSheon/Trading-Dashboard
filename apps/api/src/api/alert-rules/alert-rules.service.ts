@@ -1,11 +1,9 @@
-import { recordAdminAudit, type AuditActor } from "../../common/audit/admin-audit.js";
-import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { alertRules } from "@trading-dashboard/shared/database";
-import { type AlertRule, type UpsertAlertRuleRequest } from "@trading-dashboard/shared/contracts";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import type { AlertRule, UpsertAlertRuleRequest } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
-import type { DrizzleDb } from "../../db/drizzle.provider.js";
+import type { AuditActor } from "../../common/audit/admin-audit.js";
+import { UnitOfWork } from "../../db/unit-of-work.js";
+import { AlertRulesRepository } from "./alert-rules.repository.js";
 
 /** D5 rule editor for the DEFAULT rules (`user_id IS NULL`), which
  * RulesService evaluates for admins on imported leaders. Rows with an
@@ -13,60 +11,31 @@ import type { DrizzleDb } from "../../db/drizzle.provider.js";
  * copies) and are never listed or edited here. */
 @Injectable()
 export class AlertRulesService {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(private readonly repository: AlertRulesRepository, private readonly unitOfWork: UnitOfWork) {}
 
   async findAll(): Promise<AlertRule[]> {
-    const rows = await this.db
-      .select()
-      .from(alertRules)
-      .where(isNull(alertRules.userId))
-      .orderBy(asc(alertRules.kind));
-    return rows as unknown as AlertRule[];
+    return await this.repository.findAll() as unknown as AlertRule[];
   }
 
+  /** Default normalization, conflict/not-found policy and audit share one use-case transaction. */
   async upsert(request: UpsertAlertRuleRequest, actor: AuditActor = null): Promise<AlertRule> {
-    return this.db.transaction(async (tx) => {
+    const values = {
+      scope: request.scope, kind: request.kind, paramsJson: request.paramsJson,
+      cooldownS: request.cooldownS, quietHours: request.quietHours ?? null,
+      tiers: request.tiers, enabled: request.enabled ?? true,
+    };
+    return this.unitOfWork.run(async (tx) => {
       if (request.id !== undefined) {
-        const [before] = await tx.select().from(alertRules).where(and(eq(alertRules.id, request.id), isNull(alertRules.userId))).for("update");
-        const [updated] = await tx
-          .update(alertRules)
-          .set({
-            scope: request.scope,
-            kind: request.kind,
-            paramsJson: request.paramsJson,
-            cooldownS: request.cooldownS,
-            quietHours: request.quietHours ?? null,
-            tiers: request.tiers,
-            enabled: request.enabled ?? true,
-          })
-          .where(and(eq(alertRules.id, request.id), isNull(alertRules.userId)))
-          .returning();
-
-        if (!updated) {
-          throw new NotFoundException(`No default alert rule ${request.id}`);
-        }
-        await recordAdminAudit(tx, actor, "rule.update", String(updated.id), before, updated);
+        const before = await this.repository.lockDefault(tx, request.id);
+        if (!before) throw new NotFoundException(`No default alert rule ${request.id}`);
+        const updated = await this.repository.update(tx, request.id, values);
+        if (!updated) throw new NotFoundException(`No default alert rule ${request.id}`);
+        await this.repository.recordAudit(tx, actor, "rule.update", before, updated);
         return updated as unknown as AlertRule;
       }
-
-      const [inserted] = await tx
-        .insert(alertRules)
-        .values({
-          scope: request.scope,
-          kind: request.kind,
-          paramsJson: request.paramsJson,
-          cooldownS: request.cooldownS,
-          quietHours: request.quietHours ?? null,
-          tiers: request.tiers,
-          enabled: request.enabled ?? true,
-        })
-        .onConflictDoNothing({ target: alertRules.kind, where: sql`${alertRules.userId} is null` })
-        .returning();
-
-      if (!inserted) {
-        throw new ConflictException(`A default ${request.kind} rule already exists; update it by id`);
-      }
-      await recordAdminAudit(tx, actor, "rule.create", String(inserted.id), null, inserted);
+      const inserted = await this.repository.insert(tx, values);
+      if (!inserted) throw new ConflictException(`A default ${request.kind} rule already exists; update it by id`);
+      await this.repository.recordAudit(tx, actor, "rule.create", null, inserted);
       return inserted as unknown as AlertRule;
     });
   }

@@ -1,12 +1,6 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray } from "drizzle-orm";
-import { actions, fills } from "@trading-dashboard/shared/database";
-import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
+import { Injectable } from "@nestjs/common";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
-
-type ActionRow = typeof actions.$inferSelect;
+import { RoundTripRepository, type ActionRow } from "./round-trip.repository.js";
 
 /** One reconstructed "open to flat" position, per §11 決策紀錄 "勝率與 PnL 單位":
  * "以一次完整倉位（開到平）為一筆；直接加總平倉 fill 的 closed_pnl". */
@@ -46,7 +40,7 @@ export interface RoundTrip {
  */
 @Injectable()
 export class RoundTripService {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(private readonly repository: RoundTripRepository) {}
 
   async reconstructRoundTrips(address: string, coin?: string): Promise<RoundTrip[]> {
     return this.reconstructRoundTripsMany([address], coin);
@@ -55,14 +49,7 @@ export class RoundTripService {
   /** Batch callers must bound the address window; fills remain keyed by address + tid. */
   async reconstructRoundTripsMany(addresses: string[], coin?: string): Promise<RoundTrip[]> {
     if (addresses.length === 0) return [];
-    const conditions = [eq(actions.chain, CHAIN_DEFAULT), inArray(actions.address, addresses)];
-    if (coin) conditions.push(eq(actions.coin, coin));
-
-    const rows = await this.db
-      .select()
-      .from(actions)
-      .where(and(...conditions))
-      .orderBy(actions.ts, actions.id);
+    const rows = await this.repository.history(addresses, coin);
 
     const byCoin = new Map<string, ActionRow[]>();
     for (const row of rows) {
@@ -128,20 +115,7 @@ export class RoundTripService {
     if (pending.length === 0) return [];
 
     const allFillIds = [...new Set(pending.flatMap((p) => p.fillIds))];
-    const pnlByTid = new Map<string, number>();
-    // Chunk IN parameters below PostgreSQL's bind limit.
-    for (let offset = 0; offset < allFillIds.length; offset += 20000) {
-      const fillRows = await this.db
-        .select({ address: fills.address, tid: fills.tid, closedPnl: fills.closedPnl })
-        .from(fills)
-        // tid is shared with the counterparty's fill: scope to this address.
-        .where(
-          and(eq(fills.chain, CHAIN_DEFAULT), inArray(fills.address, addresses), inArray(fills.tid, allFillIds.slice(offset, offset + 20000))),
-        );
-      for (const row of fillRows) {
-        pnlByTid.set(`${row.address}\0${row.tid}`, row.closedPnl === null ? 0 : Number(row.closedPnl));
-      }
-    }
+    const pnlByTid = await this.repository.pnlByTid(addresses, allFillIds);
 
     return pending
       .map((p) => {

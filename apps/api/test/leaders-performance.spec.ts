@@ -1,3 +1,4 @@
+import { RoundTripRepository } from "../src/analytics/round-trip.repository.js";
 import { actions, fills, leaders, equitySnapshots, positionSnapshots, leaderLists, leaderListItems } from '@trading-dashboard/shared/database';
 import { afterAll, beforeEach, expect, it, vi } from 'vitest';
 import { RoundTripService } from '../src/analytics/round-trip.service.js';
@@ -20,7 +21,7 @@ it('batches leader summaries and keeps counterparty PnL separate', async () => {
   const selects = vi.spyOn(db, 'select');
   const executes = vi.spyOn(db, 'execute');
   try {
-    const service = new LeadersService(new UnitOfWork(db), new LeadersRepository(db), new RoundTripService(db));
+    const service = new LeadersService(new UnitOfWork(db), new LeadersRepository(db), new RoundTripService(new RoundTripRepository(db)));
     const result = await service.findAll({});
     expect(result).toHaveLength(12);
     for (const [i, address] of addresses.entries()) expect(result.find(row => row.address === address)).toMatchObject({ pnl7d: i + 1, pnl30d: i + 1, winRate: 1, avgHoldTimeSeconds: 60, openPositionCount: 0 });
@@ -36,6 +37,6 @@ it('uses latest snapshot and import rank while preserving empty-history defaults
   await db.insert(positionSnapshots).values({ address, coin: 'BTC', ts: old, szi: '1' });
   const lists = await db.insert(leaderLists).values([{ source: 'test', fileName: 'old', importedAt: old }, { source: 'test', fileName: 'new', importedAt: current }]).returning();
   await db.insert(leaderListItems).values([{ address, listId: lists[0]!.id, rank: 8 }, { address, listId: lists[1]!.id, rank: 3 }]);
-  const service = new LeadersService(new UnitOfWork(db), new LeadersRepository(db), new RoundTripService(db));
+  const service = new LeadersService(new UnitOfWork(db), new LeadersRepository(db), new RoundTripService(new RoundTripRepository(db)));
   expect(await service.findAll({})).toMatchObject([{ address, rank: 3, openPositionCount: 0, pnl7d: 0, pnl30d: 0, winRate: null, avgHoldTimeSeconds: null, lastActionAt: null }]);
 });

@@ -1,3 +1,5 @@
+import { LeaderboardIngestRepository } from "../src/traders/leaderboard-ingest.repository.js";
+import { RoundTripRepository } from "../src/analytics/round-trip.repository.js";
 import { createValidationPipe } from "../src/config/validation/validation-pipe.factory.js";
 import { AddressParamsDto } from "../src/common/dto/params.dto.js";
 import { TradersQueryDto, PortfolioQueryDto, SparklinesQueryDto, FillsQueryDto } from "../src/traders/dto/trader-query.dto.js";
@@ -219,7 +221,7 @@ async function expectStatus(promise: Promise<unknown> | (() => unknown), status:
 describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   const db = getTestDb();
   const settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
-  const ingest = new LeaderboardIngestService(testConfig(), db, settings);
+  const ingest = new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), settings);
   let info: ReturnType<typeof fakeInfo>;
   let service: TradersService;
   let controller: ReturnType<typeof controllerWithPipeline>;
@@ -234,7 +236,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     service = new TradersService(testConfig(),
       new TradersRepository(db),
       info as unknown as HyperliquidInfoClient,
-      new RoundTripService(db),
+      new RoundTripService(new RoundTripRepository(db)),
       ingest,
       settings,
     );

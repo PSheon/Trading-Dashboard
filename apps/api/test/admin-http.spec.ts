@@ -1,3 +1,4 @@
+import { AdminOverviewRepository } from "../src/admin/admin-overview.repository.js";
 import { AdminUsersRepository } from "../src/admin/admin-users.repository.js";
 import { RevenueRepository } from "../src/admin/revenue.repository.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
@@ -34,7 +35,7 @@ describe("admin routes over HTTP", () => {
       db,
       privy,
       controllers: [AdminController, PublicSettingsController],
-      providers: [AdminUsersRepository,
+      providers: [AdminOverviewRepository, AdminUsersRepository,
         AdminSettingsService,
         AdminUsersService,
         AdminOverviewService,

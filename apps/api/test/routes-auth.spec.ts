@@ -1,3 +1,6 @@
+import { RoundTripRepository } from "../src/analytics/round-trip.repository.js";
+import { AlertRulesRepository } from "../src/api/alert-rules/alert-rules.repository.js";
+import { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { ActionsRepository } from "../src/api/actions/actions.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
@@ -59,7 +62,7 @@ describe("route access on the existing controllers", () => {
         ListsController,
         ImportController,
       ],
-      providers: [ActionsRepository,
+      providers: [RoundTripRepository, AlertRulesRepository, ActionsRepository,
         ActionsService,
         ActionStreamService,
         AlertsService,
@@ -75,7 +78,7 @@ describe("route access on the existing controllers", () => {
 
   beforeEach(async () => {
     await truncateAll(db);
-    await new RulesSeedService(testConfig(), db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
     auth.clearCache();
   });
 

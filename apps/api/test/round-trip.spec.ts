@@ -1,3 +1,4 @@
+import { RoundTripRepository } from "../src/analytics/round-trip.repository.js";
 import { actions, fills } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -57,7 +58,7 @@ function at(hoursOffset: number): Date {
 
 describe("RoundTripService — real Postgres", () => {
   const db = getTestDb();
-  const service = new RoundTripService(db);
+  const service = new RoundTripService(new RoundTripRepository(db));
 
   beforeEach(async () => {
     await truncateAll(db);

@@ -1,3 +1,4 @@
+import { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { RulesRepository } from "../src/rules/rules.repository.js";
 import { NotifyRepository } from "../src/notify/notify.repository.js";
 import { testConfig } from "./config-test-utils.js";
@@ -120,7 +121,7 @@ async function resetWithLeader(source: LeaderSource = "import") {
   await truncateAll(db);
   nextActionId = 1n;
   await db.insert(leaders).values({ chain: CHAIN, address: ADDRESS, active: true, tier: "B", source });
-  await new RulesSeedService(testConfig(), db).seedDefaultRules();
+  await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
 }
 
 function rulesWith(notify: NotifyService, equity: number | null = 1_000_000) {
@@ -478,7 +479,7 @@ describe("RulesSeedService — real Postgres", () => {
   });
 
   it("seeds R1/R2/R3 with the documented defaults", async () => {
-    await new RulesSeedService(testConfig(), db).seedDefaultRules();
+    await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
     const rows = await db.select().from(alertRules);
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.userId === null)).toBe(true);
@@ -495,7 +496,7 @@ describe("RulesSeedService — real Postgres", () => {
   });
 
   it("is idempotent — running it again never duplicates rows or clobbers edited params", async () => {
-    const seed = new RulesSeedService(testConfig(), db);
+    const seed = new RulesSeedService(testConfig(), new RulesSeedRepository(db));
     await seed.seedDefaultRules();
     await db.update(alertRules).set({ cooldownS: 1234 }).where(eq(alertRules.kind, "R1"));
     await seed.seedDefaultRules();

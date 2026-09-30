@@ -1,21 +1,8 @@
+import { Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
+
 import { AppConfig } from "../config/app-config.js";
-import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { sql } from "drizzle-orm";
-import { alertRules } from "@trading-dashboard/shared/database";
-import { type AlertRuleKind, type Tier } from "@trading-dashboard/shared/contracts";
-
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
-
-interface SeedRow {
-  kind: AlertRuleKind;
-  scope: "address" | "group";
-  paramsJson: Record<string, unknown>;
-  cooldownS: number;
-  tiers: Tier[];
-  enabled: boolean;
-}
+import { RulesSeedRepository, type SeedRow } from "./rules-seed.repository.js";
 
 /** R1/R2/R3 defaults per §1 of the M2 task ("Seed defaults"). Applies to
  * every tier initially — the PRD doesn't set a narrower M2 default. */
@@ -47,13 +34,13 @@ const DEFAULT_RULES: SeedRow[] = [
 ];
 
 /**
- * Idempotent one-time seed for the M2 default rules. Runs on app bootstrap
+ * Idempotent insert-only seed for the default rules. Runs on app bootstrap
  * (skipped under `NODE_ENV=test`, same pattern as `WatcherService` — tests
  * call `seedDefaultRules()` directly against a controlled db instance).
  * Idempotency relies on the partial unique index on `alert_rules.kind` where
  * `user_id` is null (see packages/shared/src/schema/db.ts) — `onConflictDoNothing` means re-running
  * this on every restart never duplicates rows, and never clobbers params
- * Paul has since edited via D5.
+ * administrators have since edited.
  */
 @Injectable()
 export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -61,7 +48,7 @@ export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly logger = new Logger(RulesSeedService.name);
 
-  constructor(private readonly config: AppConfig, @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
+  constructor(private readonly config: AppConfig, private readonly repository: RulesSeedRepository, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   onApplicationBootstrap(): void {
     if (this.config.value.app.nodeEnv === "test") return;
@@ -86,13 +73,7 @@ export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy
   }
 
   async seedDefaultRules(): Promise<void> {
-    const inserted = await this.db
-      .insert(alertRules)
-      .values(DEFAULT_RULES)
-      // Default rows are the ones with no owner; their uniqueness is a
-      // partial index, so the conflict target repeats its predicate.
-      .onConflictDoNothing({ target: alertRules.kind, where: sql`${alertRules.userId} is null` })
-      .returning({ kind: alertRules.kind });
+    const inserted = await this.repository.insertMissing(DEFAULT_RULES);
 
     if (inserted.length > 0) {
       this.logger.log(`Seeded default alert rules: ${inserted.map((r) => r.kind).join(", ")}`);

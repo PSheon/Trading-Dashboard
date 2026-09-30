@@ -10,3 +10,5 @@ export * from "./settings-ops-contracts.js";
 export * from "./trader-search-contracts.js";
 
 export * from "./favorite-group-contracts.js";
+
+export * from "./admin-trader-contracts.js";

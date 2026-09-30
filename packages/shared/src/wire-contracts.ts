@@ -1,3 +1,4 @@
+import { adminTraderSchema } from "./admin-trader-contracts.js";
 import { favoriteGroupSchema, favoriteGroupsSchema } from "./favorite-group-contracts.js";
 import { traderSearchResponseSchema } from "./trader-search-contracts.js";
 import { appliedDiscoverySchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
@@ -151,6 +152,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "PATCH", path: "/admin/settings", status: 200, auth: "settings.write", response: s.adminSettingsSnapshotSchema },
   { method: "GET", path: "/admin/users", pagination: { type: "offset", query: s.adminUsersQuerySchema }, status: 200, auth: "users.read", response: s.adminUsersResponseSchema.extend({ items: z.array(wireAdminUserSchema) }) },
   { method: "PATCH", path: "/admin/users/:id", status: 200, auth: "users.manage", response: wireAdminUserSchema },
+  { method: "GET", path: "/admin/traders/:chain/:address", status: 200, auth: "traders.read", response: adminTraderSchema },
   { method: "GET", path: "/admin/jobs", status: 200, auth: "jobs.read", response: backfillJobsResponseSchema },
   { method: "POST", path: "/admin/jobs/:id/retry", status: 202, auth: "jobs.retry", response: backfillJobSchema },
   { method: "GET", path: "/admin/system/overview", status: 200, auth: "admin.access", response: adminSystemSchema },

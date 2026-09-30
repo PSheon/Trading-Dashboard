@@ -16,6 +16,7 @@ import { useAuth, useMe } from "@/lib/auth";
 const SECTIONS: { href: string; label: MessageKey; permission: Permission }[] = [
   { href: "/admin", label: "admin.nav.overview", permission: "overview.read" },
   { href: "/admin/revenue", label: "admin.nav.revenue", permission: "revenue.read" },
+  { href: "/admin/traders", label: "adminTrader.title", permission: "traders.read" },
   { href: "/admin/users", label: "admin.nav.users", permission: "users.read" },
   { href: "/admin/settings", label: "admin.nav.settings", permission: "settings.read" },
   { href: "/admin/lists", label: "admin.nav.lists", permission: "lists.read" },

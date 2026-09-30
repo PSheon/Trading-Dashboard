@@ -1,0 +1,61 @@
+import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+for (const width of [1440, 375])
+  test(`admin trader evidence at ${width}px`, async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/admin/traders");
+    await page.getByRole("button", { name: "Demo login", exact: true }).click();
+    await page
+      .getByLabel("Hyperliquid address", { exact: true })
+      .fill("0x" + "ab".repeat(20));
+    await page.getByRole("button", { name: "Inspect", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Research trader", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No watcher record", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Recorded refresh failure", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Historical imports do not establish current source membership.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Not recorded", { exact: true }).first(),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+          .analyze()
+      ).violations,
+    ).toEqual([]);
+    await page.screenshot({
+      path: `/tmp/orbie-admin-trader-${width}.png`,
+      fullPage: true,
+    });
+    await page
+      .getByLabel("Hyperliquid address", { exact: true })
+      .fill("0x" + "cd".repeat(20));
+    await page.getByRole("button", { name: "Inspect", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Unlabelled address", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Research trader", { exact: true }),
+    ).toHaveCount(0);
+  });

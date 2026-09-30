@@ -33,7 +33,7 @@ Limits / remaining work:
 1. Freshness policy and discovery consumer reporting: completed in batch 3 below; broader consumer coverage remains outside this batch.
 2. Batch 2: complete and verified on Stage below.
 3. Batch 3: complete and verified on Stage below (discovery consumer coverage).
-4. Batch 4: trader detail, data source membership and import preview.
+4. Batch 4: read-only trader diagnostics implemented locally (4a below); data source membership, source center and import impact preview remain.
 5. Batch 5: user detail, narrower operational permissions and notification diagnostics.
 6. Batch 6: historical metrics, external probes, alert deduplication/recovery and incident workflow.
 7. Batch 7: revenue improvements and separately scoped paper/testnet administration. No live execution is implied.
@@ -145,3 +145,15 @@ Final local validation:
 - Prioritized the missing user research flow: identity search and private favorite groups. Implementation and evidence are recorded in [the CopyDog roadmap](copydog-implementation-roadmap.md).
 - Admin batch 4 remains pending; this research increment does not complete Admin trader detail/source/import preview work.
 - Current branch is `dev`, HEAD `04991f3`; Admin batches 2–3 and research changes remain uncommitted. No rebase, commit, push or deployment this round.
+
+## Batch 4a — read-only trader diagnostics (2026-10-01)
+
+- `/admin/traders?address=…` and `GET /admin/traders/:chain/:address` provide a persisted-evidence view, guarded by the new `traders.read` permission (included in the existing admin role). Human UI entry also requires `admin.access`; service tokens need the explicit read scope.
+- Shows KOL identity, official leaderboard presence, discovery membership/rank, watch configuration/source, aggregate favorite and enabled-alert references, refresh errors, initial-backfill status, analysis-history status, analytics/funding coverage and the latest 20 import records with truncation disclosure.
+- Uses a read-only repeatable-read database transaction with a two-second per-statement timeout. No upstream client or work admission dependency. Unknown addresses show absent evidence rather than creating records. Errors fail the request rather than turning an unavailable DB into zero counts.
+- Missing timestamps stay missing. Fill timestamps are event times, not synchronization times; watched configuration is not proof of worker connectivity; enabled alert references are not delivery confirmations. Historical imports do not establish current source membership. `caught_up` only describes a fixed history interval.
+- Response projects explicit fields: no raw upstream error text, lease tokens, personal user identities or uploaded filenames. Shared response contracts and offline OpenAPI updated.
+- Frontend retains existing styling, supports Chinese/English, bookmarkable address queries, 30-second polling, manual refresh and loading/error states. Desktop and mobile fixture browser tests cover address switching, evidence semantics, accessibility and overflow.
+- This is the first read-only increment of batch 4. Remaining: full current multi-source membership/lifecycle, source center and import impact preview; per-source sync/cancel/recompute controls; more dataset diagnostics (positions, score model versions and detailed failure reasons). No new migration, remote database/configuration changes or deployment. Existing 0014/0015 renumbering remains Claude's integration task.
+- Validation: API 79 files / 810 tests; Web 30 files / 119 tests; desktop (1440px) and mobile (375px) Playwright 2 tests; shared/API builds, web typecheck, API/changed-web lint, OpenAPI export/check and 4 offline schema tests all passed. Database tests use isolated local PostgreSQL; browser tests use Demo fixtures, not live Privy. Existing optional Farcaster dependency warning remains outside this increment.
+- Developed on `codex/copydog-local-followup`; commit and local fast-forward integration into `dev` follow validation. No push or deployment is part of this batch.

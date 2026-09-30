@@ -1,3 +1,5 @@
+import { adminTraderSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureAdminTrader } from "./admin-trader";
 import { favoriteGroupInputSchema, favoriteGroupSchema, favoriteGroupsSchema, type FavoriteGroup } from "@trading-dashboard/shared/contracts";
 import { traderSearchQuerySchema, traderSearchResponseSchema } from "@trading-dashboard/shared/contracts";
 import { auditQuerySchema, auditResponseSchema, settingsRuntimeSchema } from "@trading-dashboard/shared/contracts";
@@ -438,6 +440,9 @@ export async function fixtureRequest<T>(
       return wire(crowdResponseSchema, crowd());
 
     // --- admin ---------------------------------------------------------------------
+    case "GET /admin/traders/hyperliquid/:address":
+      requireAdmin(token);
+      return wire(adminTraderSchema,fixtureAdminTrader(addressSchema.parse(parts[3]).toLowerCase()));
     case "GET /admin/jobs": {
       requireAdmin(token);
       const q=backfillJobsQuerySchema.parse(Object.fromEntries(search));

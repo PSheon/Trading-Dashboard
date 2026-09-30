@@ -1,3 +1,5 @@
+import { AdminTraderController } from "./admin-trader.controller.js";
+import { AdminTraderRepository } from "./admin-trader.repository.js";
 import { AdminAuditController } from "./admin-audit.controller.js";
 import { AdminAuditRepository } from "./admin-audit.repository.js";
 import { AdminSettingsRuntimeController } from "./admin-settings-runtime.controller.js";
@@ -28,8 +30,8 @@ import { RevenueService } from "./revenue.service.js";
  */
 @Module({
   imports: [BackfillJobsModule, AuthModule, HyperliquidModule],
-  controllers: [AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
-  providers: [AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
+  controllers: [AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
+  providers: [AdminTraderRepository, AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
   exports: [RevenueService],
 })
 export class AdminModule {}

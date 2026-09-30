@@ -1,3 +1,4 @@
+import { AdminTraderController } from "../admin/admin-trader.controller.js";
 import { FavoriteGroupsController } from "../users/favorite-groups.controller.js";
 import { TraderSearchController } from "../traders/trader-search.controller.js";
 import { AdminAuditController } from "../admin/admin-audit.controller.js";
@@ -22,5 +23,5 @@ import { TradersController } from "../traders/traders.controller.js";
 import { MeController } from "../users/me.controller.js";
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
-export const documentationControllers = [FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
+export const documentationControllers = [AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
   AdminJobsController, AdminSystemController,AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController];

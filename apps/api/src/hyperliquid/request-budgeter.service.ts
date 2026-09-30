@@ -62,10 +62,12 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  *
  * - Page waiters don't count against the 1000-waiter queue limit, so a
  *   flood of them can't get the watcher's live calls refused.
- * - At most `pageQueueMax` page weight may wait at once (20 s of budget
+ * - At most `pageQueueMax` page weight may wait at once (30 s of budget
  *   plus a bucket) and at most half of that per client (`clientKey`, read
  *   from the request context); beyond it `acquire` fails at once with
- *   `PageBusyError` (the pages answer 503 busy).
+ *   `PageBusyError` (the pages answer 503 busy). A list call counts its
+ *   known base, not its worst case, so one cold trader page (~160) always
+ *   fits a client's share.
  * - While page work has spent `PAGE_SHARE` of the budget in the trailing
  *   minute, a waiting non-page background call (fill storage behind
  *   alerts, snapshots, sweeps) goes first. Below the share page work keeps
@@ -110,7 +112,7 @@ export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
  * background work is waiting. */
 export const PAGE_SHARE = 0.5;
 /** Seconds of the configured budget page work may have queued at once. */
-const PAGE_QUEUE_SECONDS = 20;
+const PAGE_QUEUE_SECONDS = 30;
 /** Share of the page queue one client may hold. */
 const PAGE_CLIENT_SHARE = 0.5;
 /** Waiters other than page work (live and background) that may queue. */
@@ -241,11 +243,13 @@ export class RequestBudgeterService {
     const cancel = signal && answered && signal !== answered ? AbortSignal.any([signal, answered]) : (signal ?? answered);
     if (cancel?.aborted) return Promise.reject(cancel.reason);
     const client = page ? currentRequestClient() : undefined;
+    // Page work is counted by its known cost (a list call's base).
+    const held = Math.min(known, weight);
     if (page) {
       const mine = client === undefined ? 0 : (this.pageQueuedByClient.get(client) ?? 0);
       // An empty queue always takes one call, however heavy.
-      if (this.pageQueued > 0 && this.pageQueued + weight > this.pageQueueMax) return Promise.reject(new PageBusyError());
-      if (mine > 0 && mine + weight > this.pageClientQueueMax) return Promise.reject(new PageBusyError("Hyperliquid page budget for this client is full"));
+      if (this.pageQueued > 0 && this.pageQueued + held > this.pageQueueMax) return Promise.reject(new PageBusyError());
+      if (mine > 0 && mine + held > this.pageClientQueueMax) return Promise.reject(new PageBusyError("Hyperliquid page budget for this client is full"));
     } else if (this.queues.live.length + this.queues.background.length - this.pageWaiters() >= MAX_QUEUED) {
       return Promise.reject(new Error("Hyperliquid queue is full"));
     }
@@ -264,12 +268,12 @@ export class RequestBudgeterService {
         reject(cancel?.reason ?? new Error("Request cancelled"));
         this.rearm();
       };
-      let held = page;
-      if (page) this.holdPage(client, weight);
+      let holding = page;
+      if (page) this.holdPage(client, held);
       const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq, page,
         cleanup: () => {
           cancel?.removeEventListener("abort", abort);
-          if (held) { held = false; this.holdPage(client, -weight); }
+          if (holding) { holding = false; this.holdPage(client, -held); }
         } };
       cancel?.addEventListener("abort", abort, { once: true });
       queue.push(waiter);

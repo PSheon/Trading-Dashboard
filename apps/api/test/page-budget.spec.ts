@@ -184,3 +184,27 @@ describe("trade analytics per client", () => {
     await expect(controller.summary({ address: `0x${"1".repeat(40)}` }, { window: "all" })).rejects.toBeInstanceOf(BusyException);
   });
 });
+
+describe("one honest cold page", () => {
+  it("fits a client's page share at the default budget even when nothing has gone out yet", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", undefined);
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", undefined);
+    const budget = new RequestBudgeterService(testConfig());
+    await budget.acquire(budget.introspect().burstCapacity, "live"); // empty bucket: nothing dispatches
+    const calls: ReturnType<typeof track>[] = [];
+    await asClient("203.0.113.50", async () => {
+      // Profile: dex list, 9 dexes' clearinghouse states, spot, account mode,
+      // staking, price book; the chart; activity's two fill lists (base 20,
+      // worst case 120 each).
+      calls.push(track(budget.acquire(20, "background", PAGE_RANK.profile)));
+      for (let i = 0; i < 9; i++) calls.push(track(budget.acquire(2, "background", PAGE_RANK.profile)));
+      for (const w of [2, 20, 20, 22]) calls.push(track(budget.acquire(w, "background", PAGE_RANK.profile)));
+      calls.push(track(budget.acquire(20, "background", PAGE_RANK.portfolio)));
+      for (let i = 0; i < 2; i++) calls.push(track(budget.acquire(120, "background", PAGE_RANK.fills, { known: 20 })));
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.filter((c) => c.state === "refused")).toEqual([]);
+    budget.onModuleDestroy();
+  });
+});

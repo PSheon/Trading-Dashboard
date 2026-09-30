@@ -1657,6 +1657,92 @@ export const homeBoardsResponseSchema = z.object({
 });
 export type HomeBoardsResponse = z.infer<typeof homeBoardsResponseSchema>;
 
+// --- Coin leaderboards (CopyDog's 市場 pages) -----------------------------------
+
+/** One row of GET /discover/coins (CopyDog's `/hyperliquid/coins`): a market
+ * with at least one pool trader who made money on it. */
+export const coinIndexRowSchema = z.object({
+  /** Hyperliquid name: "BTC", "xyz:TSLA". */
+  coin: z.string(),
+  market: boardMarketSchema,
+  /** 獲利交易者: pool traders with realized PnL > 0 on this coin. */
+  traders: z.number().int(),
+  /** 獲利總額: their realized PnL, summed. */
+  profit: z.number(),
+});
+export type CoinIndexRow = z.infer<typeof coinIndexRowSchema>;
+export const coinIndexResponseSchema = z.object({
+  /** By `profit`, highest first. */
+  items: z.array(coinIndexRowSchema),
+  pool: z.object({ ready: z.number().int(), total: z.number().int() }),
+  updatedAt: z.coerce.date().nullable(),
+});
+export type CoinIndexResponse = z.infer<typeof coinIndexResponseSchema>;
+
+/** A row of one coin's leaderboard: identity plus that coin's realized
+ * figures from the trade ledger (all-time, net of fees). */
+export const coinTraderSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  kol: z.boolean(),
+  pnl: z.number(),
+  /** Winning ÷ closed round trips on this coin; null when none closed. */
+  winRate: z.number().nullable(),
+  trades: z.number().int(),
+  volume: z.number(),
+});
+export type CoinTrader = z.infer<typeof coinTraderSchema>;
+
+/** GET /discover/coins/:coin — 「Hyperliquid 上最強的 BTC 交易者」: the pool's
+ * traders who made money on the coin, by realized PnL, at most 40 (as
+ * CopyDog lists); `stats` sums the listed rows. */
+export const coinBoardResponseSchema = z.object({
+  coin: z.string(),
+  market: boardMarketSchema,
+  stats: z.object({
+    /** 列出的交易者 */
+    traders: z.number().int(),
+    /** 獲利總額 */
+    profit: z.number(),
+    /** 交易量 */
+    volume: z.number(),
+    /** 交易數 */
+    trades: z.number().int(),
+  }),
+  items: z.array(coinTraderSchema),
+  pool: z.object({ ready: z.number().int(), total: z.number().int() }),
+  updatedAt: z.coerce.date().nullable(),
+});
+export type CoinBoardResponse = z.infer<typeof coinBoardResponseSchema>;
+
+// --- Header search (CopyDog's /traders/search) ------------------------------------
+
+/** GET /discover/search?q=&limit= — name (KOL name, 𝕏 handle, leaderboard
+ * name) or address prefix. */
+export const traderSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(64),
+  limit: z.coerce.number().int().min(1).max(10).default(5),
+}).strict();
+export type TraderSearchQuery = z.infer<typeof traderSearchQuerySchema>;
+export const traderSearchResultSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  kol: z.boolean(),
+  /** All-time PnL and ROI: the pool's perp figures, else the leaderboard's. */
+  pnl: z.number().nullable(),
+  roi: z.number().nullable(),
+  accountValue: z.number().nullable(),
+});
+export type TraderSearchResult = z.infer<typeof traderSearchResultSchema>;
+export const traderSearchResponseSchema = z.object({ items: z.array(traderSearchResultSchema) });
+export type TraderSearchResponse = z.infer<typeof traderSearchResponseSchema>;
+
 /** GET /traders/:address/copy-score — the trader page's 複製評分 and its
  * inputs (CopyDog's `/copy-score`), from the all-time portfolio. */
 export const copyScoreResponseSchema = z.object({

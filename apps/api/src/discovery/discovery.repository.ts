@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, isNull, like, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
@@ -47,6 +47,8 @@ export interface CoinAggregate {
 }
 
 const mine = eq(discoveryTraders.chain, CHAIN_DEFAULT);
+/** Escapes LIKE wildcards so a query is matched literally. */
+const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /**
  * `discovery_traders` (the pool's cached figures) plus the reads the pool
@@ -242,6 +244,37 @@ export class DiscoveryRepository {
     for (const s of stats) byAddress.set(s.address, { ...empty(s.address), ...s });
     for (const k of kols) byAddress.set(k.address, { ...(byAddress.get(k.address) ?? empty(k.address)), ...k });
     return [...byAddress.values()];
+  }
+
+  /**
+   * Addresses whose name matches `q` (the header search): KOL names and 𝕏
+   * handles, leaderboard display names (substring, case-insensitive), or an
+   * address starting with `q`. Each source is bounded by `perSource`
+   * (leaderboard names by all-time PnL), so a one-letter query stays cheap.
+   */
+  async searchAddresses(q: string, perSource: number): Promise<string[]> {
+    const text = `%${likeEscape(q)}%`;
+    const prefix = /^0x[0-9a-f]*$/i.test(q) ? `${likeEscape(q.toLowerCase())}%` : null;
+    const handle = q.replace(/^@/, "").replace(/^(?:https?:\/\/)?(?:www\.)?(?:x|twitter)\.com\//i, "");
+    const [kols, stats] = await Promise.all([
+      this.db
+        .select({ address: kolTraders.address })
+        .from(kolTraders)
+        .where(and(eq(kolTraders.chain, CHAIN_DEFAULT), or(
+          ilike(kolTraders.displayName, text),
+          handle ? ilike(kolTraders.xHandle, `%${likeEscape(handle)}%`) : undefined,
+          prefix ? like(kolTraders.address, prefix) : undefined,
+        )))
+        .orderBy(asc(kolTraders.sortOrder), asc(kolTraders.address))
+        .limit(perSource),
+      this.db
+        .select({ address: traderStats.address })
+        .from(traderStats)
+        .where(and(eq(traderStats.chain, CHAIN_DEFAULT), or(ilike(traderStats.displayName, text), prefix ? like(traderStats.address, prefix) : undefined)))
+        .orderBy(sql`${traderStats.pnlAllTime} desc nulls last`, asc(traderStats.address))
+        .limit(perSource),
+    ]);
+    return [...new Set([...kols, ...stats].map((r) => r.address))];
   }
 
   /** Pool size and how many rows have figures. */

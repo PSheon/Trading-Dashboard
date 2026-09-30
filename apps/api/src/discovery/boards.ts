@@ -5,6 +5,9 @@ import type {
   BoardSort,
   BoardTrader,
   BoardWindow,
+  CoinBoardResponse,
+  CoinIndexRow,
+  CoinTrader,
   TraderCard,
   TradingStyle,
 } from "@trading-dashboard/shared/contracts";
@@ -190,4 +193,62 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
     maxDrawdown: null,
     source: identity?.pnlAllTime != null ? "leaderboard" : "none",
   };
+}
+
+/** CopyDog lists 40 traders on a coin page. */
+export const COIN_BOARD_SIZE = 40;
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * CopyDog's 市場 index (`/hyperliquid/coins`): every coin on which at least
+ * one pool trader has a positive realized PnL, with how many did and their
+ * summed PnL, highest total first. Account size is not considered.
+ */
+export function coinIndex(candidates: Candidate[]): CoinIndexRow[] {
+  const byCoin = new Map<string, { traders: number; profit: number }>();
+  for (const { row } of candidates) {
+    for (const [coin, stat] of Object.entries(row.coinStats)) {
+      if (!(stat.pnl > 0)) continue;
+      const entry = byCoin.get(coin) ?? { traders: 0, profit: 0 };
+      entry.traders += 1;
+      entry.profit += stat.pnl;
+      byCoin.set(coin, entry);
+    }
+  }
+  return [...byCoin.entries()]
+    .map(([coin, e]) => ({ coin, market: isStockCoin(coin) ? ("stocks" as const) : ("crypto" as const), traders: e.traders, profit: round2(e.profit) }))
+    .sort((a, b) => b.profit - a.profit || a.coin.localeCompare(b.coin));
+}
+
+/**
+ * One coin's page (「Hyperliquid 上最強的 BTC 交易者」): the pool traders who
+ * made money on `coin`, by its realized PnL (then address), at most `limit`;
+ * win rate is winning ÷ closed round trips. `stats` sums the listed rows,
+ * as CopyDog's 列出的交易者 / 獲利總額 / 交易量 / 交易數 do.
+ */
+export function coinBoard(candidates: Candidate[], coin: string, limit = COIN_BOARD_SIZE): Pick<CoinBoardResponse, "coin" | "market" | "stats" | "items"> & { updatedAt: Date | null } {
+  const rows: Array<{ trader: CoinTrader; at: Date | null }> = [];
+  for (const c of candidates) {
+    const stat = c.row.coinStats[coin];
+    if (!stat || !(stat.pnl > 0)) continue;
+    const { address, displayName, avatarUrl, xHandle, verified, kol } = c.card;
+    rows.push({
+      trader: { address, displayName, avatarUrl, xHandle, verified, kol, pnl: stat.pnl, winRate: stat.trades > 0 ? stat.wins / stat.trades : null, trades: stat.trades, volume: stat.volume },
+      at: c.row.tradesAt,
+    });
+  }
+  rows.sort((a, b) => b.trader.pnl - a.trader.pnl || a.trader.address.localeCompare(b.trader.address));
+  const listed = rows.slice(0, limit);
+  const stats = { traders: listed.length, profit: 0, volume: 0, trades: 0 };
+  let updatedAt: Date | null = null;
+  for (const { trader, at } of listed) {
+    stats.profit += trader.pnl;
+    stats.volume += trader.volume;
+    stats.trades += trader.trades;
+    if (at && (!updatedAt || at > updatedAt)) updatedAt = at;
+  }
+  stats.profit = round2(stats.profit);
+  stats.volume = round2(stats.volume);
+  return { coin, market: isStockCoin(coin) ? "stocks" : "crypto", stats, items: listed.map((r) => r.trader), updatedAt };
 }

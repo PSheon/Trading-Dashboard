@@ -1,6 +1,16 @@
 import { BadGatewayException, Body, Controller, Delete, Get, HttpCode, HttpException, Logger, NotFoundException, Param, Patch, Post, Query, Req, Res, StreamableFile, UseFilters } from "@nestjs/common";
 import type { Request, Response } from "express";
-import type { BoardResponse, CopyScoreResponse, HomeBoardsResponse, Kol, KolImportResponse, TraderCardsResponse } from "@trading-dashboard/shared/contracts";
+import type {
+  BoardResponse,
+  CoinBoardResponse,
+  CoinIndexResponse,
+  CopyScoreResponse,
+  HomeBoardsResponse,
+  Kol,
+  KolImportResponse,
+  TraderCardsResponse,
+  TraderSearchResponse,
+} from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { RequirePermissions } from "../common/auth/permissions.js";
@@ -10,7 +20,7 @@ import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from "../traders/traders.controller.js";
 import { DiscoveryService } from "./discovery.service.js";
-import { AvatarQueryDto, BoardQueryDto, KolImportDto, KolInputDto, KolPatchDto, TraderCardsQueryDto } from "./dto/discovery.dto.js";
+import { AvatarQueryDto, BoardQueryDto, CoinParamsDto, KolImportDto, KolInputDto, KolPatchDto, TraderCardsQueryDto, TraderSearchQueryDto } from "./dto/discovery.dto.js";
 import { AVATAR_MAX_AGE_S, avatarVersion } from "./kol-avatar.js";
 import { KolAvatarService } from "./kol-avatar.service.js";
 import { KolService } from "./kol.service.js";
@@ -32,6 +42,24 @@ export class DiscoveryController {
   @Get("home")
   home(): Promise<HomeBoardsResponse> {
     return this.discovery.home();
+  }
+
+  @ApiDoc("Coin index", "CopyDog's 市場 page: every coin a pool trader made money on, with the count and summed PnL of those traders.")
+  @Get("coins")
+  coins(): Promise<CoinIndexResponse> {
+    return this.discovery.coins();
+  }
+
+  @ApiDoc("Coin leaderboard", "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals.")
+  @Get("coins/:coin")
+  coin(@Param() params: CoinParamsDto): Promise<CoinBoardResponse> {
+    return this.discovery.coin(params.coin);
+  }
+
+  @ApiDoc("Trader search", "Header search: KOL name, X handle, leaderboard name or address prefix; by all-time PnL.")
+  @Get("search")
+  search(@Query() query: TraderSearchQueryDto): Promise<TraderSearchResponse> {
+    return this.discovery.search({ q: query.q, limit: query.limit });
   }
 
   @ApiDoc("Trader cards", "Watchlist cards (explore card plus 30-day PnL, win rate, Sharpe, max drawdown) for up to 200 addresses.")

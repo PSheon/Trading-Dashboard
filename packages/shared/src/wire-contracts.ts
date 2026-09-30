@@ -42,6 +42,9 @@ export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
   calculator: z.array(wireBoardTraderSchema), updatedAt: iso.nullable(),
 });
 export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso });
+export const wireCoinIndexSchema = s.coinIndexResponseSchema.extend({ updatedAt: iso.nullable() });
+export const wireCoinBoardSchema = s.coinBoardResponseSchema.extend({ updatedAt: iso.nullable() });
+export const wireTraderSearchSchema = s.traderSearchResponseSchema;
 export const wireTraderCardSchema = s.traderCardSchema.extend({ lastTradeAt: iso.nullable() });
 export const wireTraderCardsSchema = s.traderCardsResponseSchema.extend({ items: z.array(wireTraderCardSchema) });
 export const wireFavoriteGroupSchema = s.favoriteGroupSchema.extend({ createdAt: iso });
@@ -129,6 +132,9 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/:address/copy-score", status: 200, auth: "public; 503 busy", response: wireCopyScoreSchema },
   { method: "GET", path: "/discover/boards", status: 200, auth: "public", response: wireBoardSchema },
   { method: "GET", path: "/discover/home", status: 200, auth: "public", response: wireHomeBoardsSchema },
+  { method: "GET", path: "/discover/coins", status: 200, auth: "public", response: wireCoinIndexSchema },
+  { method: "GET", path: "/discover/coins/:coin", status: 200, auth: "public", response: wireCoinBoardSchema },
+  { method: "GET", path: "/discover/search", status: 200, auth: "public", response: wireTraderSearchSchema },
   { method: "GET", path: "/admin/kols", status: 200, auth: "kols.manage", response: z.array(wireKolSchema) },
   { method: "POST", path: "/admin/kols", status: 201, auth: "kols.manage", response: wireKolSchema },
   { method: "POST", path: "/admin/kols/import", status: 201, auth: "kols.manage", response: s.kolImportResponseSchema },
@@ -163,6 +169,9 @@ export type WireBoardTrader = z.infer<typeof wireBoardTraderSchema>;
 export type WireBoard = z.infer<typeof wireBoardSchema>;
 export type WireHomeBoards = z.infer<typeof wireHomeBoardsSchema>;
 export type WireKol = z.infer<typeof wireKolSchema>;
+export type WireCoinIndex = z.infer<typeof wireCoinIndexSchema>;
+export type WireCoinBoard = z.infer<typeof wireCoinBoardSchema>;
+export type WireTraderSearch = z.infer<typeof wireTraderSearchSchema>;
 export type WireCopyScore = z.infer<typeof wireCopyScoreSchema>;
 export type WireTraderCard = z.infer<typeof wireTraderCardSchema>;
 export type WireTraderCards = z.infer<typeof wireTraderCardsSchema>;

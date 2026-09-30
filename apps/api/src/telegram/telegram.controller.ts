@@ -1,3 +1,4 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { Controller, Delete, Get, HttpCode, Post } from "@nestjs/common";
 import type { TelegramLinkResponse, TelegramStatus, TelegramTestResponse } from "@trading-dashboard/shared/contracts";
 
@@ -10,6 +11,7 @@ import { TelegramLinkService } from "./telegram-link.service.js";
 export class TelegramController {
   constructor(private readonly link: TelegramLinkService) {}
 
+  @ApiDoc("Status")
   @Get()
   status(@CurrentUser() user: RequestUser | null): Promise<TelegramStatus> {
     return this.link.status(requireUserId(user));
@@ -17,12 +19,14 @@ export class TelegramController {
 
   /** A one-time t.me deep link; 503 `telegram_not_configured` without a
    * bot, 429 beyond 5 per 10 minutes. */
+  @ApiDoc("Create Telegram link")
   @Post("link")
   @HttpCode(200)
   createLink(@CurrentUser() user: RequestUser | null): Promise<TelegramLinkResponse> {
     return this.link.createLink(requireUserId(user));
   }
 
+  @ApiDoc("Unlink Telegram")
   @Delete()
   @HttpCode(204)
   async unlink(@CurrentUser() user: RequestUser | null): Promise<void> {
@@ -30,6 +34,7 @@ export class TelegramController {
   }
 
   /** 409 `telegram_not_linked` without a linked, enabled chat. */
+  @ApiDoc("Send Telegram test message")
   @Post("test")
   @HttpCode(200)
   sendTest(@CurrentUser() user: RequestUser | null): Promise<TelegramTestResponse> {

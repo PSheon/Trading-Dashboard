@@ -1,3 +1,4 @@
+import { swaggerEnabled } from "./bootstrap/swagger-policy.js";
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -42,6 +43,10 @@ async function bootstrap() {
     .set('json replacer', (_key: string, value: unknown) =>
       typeof value === 'bigint' ? value.toString() : value,
     );
+  if (swaggerEnabled(config.app.nodeEnv)) {
+    const { setupSwagger } = await import("./bootstrap/swagger.js");
+    setupSwagger(app, config.app.nodeEnv);
+  }
   await app.listen(config.app.port);
 }
 await bootstrap();

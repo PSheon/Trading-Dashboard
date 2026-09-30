@@ -1,3 +1,4 @@
+import { ApiDoc } from "../../common/decorators/http.decorator.js";
 import { SkipTransform } from "../../common/decorators/http.decorator.js";
 import { Controller, Get } from "@nestjs/common";
 import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
@@ -12,6 +13,7 @@ export class HealthController {
 
   /** Heartbeat/liveness; open to anyone. */
   @Public()
+  @ApiDoc("Heartbeat")
   @Get()
   heartbeat(): Promise<HeartbeatResponse> {
     return this.healthService.heartbeat();

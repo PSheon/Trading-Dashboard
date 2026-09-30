@@ -1,3 +1,4 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { PatchMeDto, PatchFavoriteAlertDto } from "./dto/profile.dto.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put } from "@nestjs/common";
@@ -18,22 +19,26 @@ export class MeController {
     private readonly favorites: FavoritesService,
   ) {}
 
+  @ApiDoc("Get me")
   @Get()
   getMe(@CurrentUser() user: RequestUser | null): Promise<MeResponse> {
     return this.profile.get(requireUserId(user));
   }
 
+  @ApiDoc("Patch me")
   @Patch()
   patchMe(@CurrentUser() user: RequestUser | null, @Body() body: PatchMeDto): Promise<MeResponse> {
     const userId = requireUserId(user);
     return this.profile.patch(userId, body);
   }
 
+  @ApiDoc("List favorites")
   @Get("favorites")
   listFavorites(@CurrentUser() user: RequestUser | null): Promise<Favorite[]> {
     return this.favorites.list(requireUserId(user));
   }
 
+  @ApiDoc("Add favorite")
   @Put("favorites/:address")
   addFavorite(@CurrentUser() user: RequestUser | null, @Param() params: AddressParamsDto): Promise<Favorite> {
     const userId = requireUserId(user);
@@ -41,6 +46,7 @@ export class MeController {
   }
 
   /** Unfavoriting deletes the row, and its alert with it. */
+  @ApiDoc("Remove favorite")
   @Delete("favorites/:address")
   @HttpCode(204)
   async removeFavorite(@CurrentUser() user: RequestUser | null, @Param() params: AddressParamsDto): Promise<void> {
@@ -48,6 +54,7 @@ export class MeController {
     await this.favorites.remove(userId, params.address);
   }
 
+  @ApiDoc("Patch favorite alert")
   @Patch("favorites/:address/alert")
   patchFavoriteAlert(
     @CurrentUser() user: RequestUser | null,

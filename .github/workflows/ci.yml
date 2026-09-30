@@ -55,6 +55,7 @@ jobs:
         run: pnpm lint
       - name: HTTP contract documentation
         run: |
+          pnpm --filter @trading-dashboard/api build
           node scripts/http-contract-docs.mjs --check
           node scripts/openapi.mjs --check
           node --test scripts/openapi.test.mjs

@@ -1,3 +1,4 @@
+import { ApiDoc } from "../../common/decorators/http.decorator.js";
 import { LeadersQueryDto, LeaderDetailQueryDto, PatchLeaderDto } from "./dto/leader.dto.js";
 import { LeaderParamsDto } from "../../common/dto/params.dto.js";
 import { RequirePermissions } from "../../common/auth/permissions.js";
@@ -17,6 +18,7 @@ export class LeadersController {
 
   /** Market data: public. */
   @Public()
+  @ApiDoc("Find all")
   @Get()
   findAll(@Query() query: LeadersQueryDto): Promise<LeaderSummary[]> {
     return this.leadersService.findAll(query);
@@ -27,6 +29,7 @@ export class LeadersController {
    * "詳情頁預設每小時一點，可切 5 分鐘"). Public; the alert history is the
    * caller's own (empty when anonymous, everyone's for admins). */
   @Public()
+  @ApiDoc("Find detail")
   @Get(":chain/:address")
   findDetail(
     @CurrentUser() user: RequestUser | null,
@@ -43,6 +46,7 @@ export class LeadersController {
 
   /** A3: label/tier/notes/active. */
   @RequirePermissions("leaders.manage")
+  @ApiDoc("Update")
   @Patch(":chain/:address")
   update(
     @Param() params: LeaderParamsDto,

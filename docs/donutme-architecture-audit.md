@@ -4,7 +4,7 @@
 
 ## Nest pipeline 補齊（2026-09-30）
 
-先前已有 response transform 與 Zod adapter，但沒有 class DTO／全域 ValidationPipe；不能視為完整採用 DonutMe request pipeline。本次補上 class-validator／class-transformer、feature class DTO、APP_PIPE、input decorators、SkipTransform 與 ResponseMessage metadata，controller 不再手動 parse。保留 shared wire schema 與 400 契約，未新增 Swagger 或 response class DTO。完整範圍、測試與相容性見 [Nest HTTP pipeline](nest-http-pipeline.md)。
+先前已有 response transform 與 Zod adapter，但沒有 class DTO／全域 ValidationPipe；不能視為完整採用 DonutMe request pipeline。本次補上 class-validator／class-transformer、feature class DTO、APP_PIPE、input decorators、SkipTransform 與 ResponseMessage metadata，controller 不再手動 parse。保留 shared wire schema 與 400 契約，現已補上原生 Swagger request metadata、ApiDoc、完整 OpenAPI 匯出與本機文件頁；仍未引入另一套 response class DTO。完整範圍、測試與相容性見 [Nest HTTP pipeline](nest-http-pipeline.md)。
 
 ## 後續實作狀態（2026-09-29）
 
@@ -188,3 +188,10 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 | 同一交易內共享 persistence context | 既有 `db/unit-of-work.ts` | 本批未改跨模組交易；auth/admin users/Telegram/outbox 等仍待 E11 後續處理 |
 
 保留 Drizzle，不為模仿 DonutMe 而改成 TypeORM；移植的是責任邊界。repository 僅在所屬 module 內提供，沒有消費者時不額外 export。Copydog 功能驗收另見 [驗收矩陣](copydog-parity-acceptance.md)。本批沒有改 DonutMe 程式或 Claude 的未合併分支。
+
+## 2026-09-30：原生 Swagger 與 request 契約更新
+
+- 已完成第 15 項的 route/request/response/auth/status OpenAPI 文件、freshness gate、規格驗證與 DTO property coverage。輸出見 [openapi.json](openapi.json)。前端 generated client 尚未導入。
+- 比照 DonutMe 共用 buildOpenApiDocument，直接讀取 runtime class DTO 與 auth metadata；ApiDoc 不包含授權。
+- staging/production 不掛載 Swagger；development/test 的 /docs/ 與 /docs-json 共用匯出來源。DonutMe staging 的 BasicAuth 文件頁不直接移植。
+- 回應仍由 shared wire schemas 產生；Zod 3 adapter 的汰換需連同 Zod 4 migration 處理。Repository 全面收斂、跨實例設定一致性與跟單執行架構仍是獨立待辦。

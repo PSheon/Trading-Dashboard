@@ -1,3 +1,4 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { ImportListDto } from "./dto/import-list.dto.js";
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Body, Controller, Post } from "@nestjs/common";
@@ -14,6 +15,7 @@ export class ImportController {
   constructor(private readonly importService: ImportService) {}
 
   /** A1: upload a CopyDog CSV/JSON export (parsed to rows client-side). */
+  @ApiDoc("Import list")
   @Post("lists")
   importList(
     @Body() body: ImportListDto,

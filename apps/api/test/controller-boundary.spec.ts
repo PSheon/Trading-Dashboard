@@ -46,3 +46,27 @@ it("every body/query/params boundary uses a runtime class DTO, without inline pa
   }
   expect(boundaries).toBeGreaterThan(25);
 });
+
+it("every native DTO property declares Swagger metadata alongside validation", () => {
+  let properties = 0;
+  function visitDirectory(directory: string) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visitDirectory(path);
+      else if (path.endsWith(".dto.ts")) {
+        const file = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+        function visit(node: ts.Node) {
+          if (ts.isPropertyDeclaration(node)) {
+            properties++;
+            const decorators = ts.getDecorators(node) ?? [];
+            expect(decorators.some(d => /^@ApiProperty(?:Optional)?\(/.test(d.getText(file))), path + ": " + node.name.getText(file)).toBe(true);
+          }
+          ts.forEachChild(node, visit);
+        }
+        visit(file);
+      }
+    }
+  }
+  visitDirectory(join(process.cwd(), "src"));
+  expect(properties).toBeGreaterThan(70);
+});

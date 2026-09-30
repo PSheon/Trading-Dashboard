@@ -43,6 +43,14 @@ async function probe(databaseUrl, expected) {
         assert.ok(error.error.fields.length > 0);
       }
       console.log("Compiled global DTO pipeline rejected invalid query/path/SSE inputs");
+      const swagger = await fetch(`http://127.0.0.1:${port}/docs-json`, { signal: AbortSignal.timeout(5000) });
+      assert.equal(swagger.status, 200);
+      const { buildOpenApi } = await import("./openapi.mjs");
+      assert.deepEqual(await swagger.json(), await buildOpenApi(), "Live and exported Swagger must match");
+      const ui = await fetch(`http://127.0.0.1:${port}/docs/`, { signal: AbortSignal.timeout(5000) });
+      assert.equal(ui.status, 200);
+      assert.ok(ui.headers.get("content-security-policy").includes("script-src 'self'"));
+      console.log("Compiled Swagger matches the offline native DTO document");
     }
   } finally {
     terminate();

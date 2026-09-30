@@ -1,3 +1,4 @@
+import { ApiDoc } from "../../common/decorators/http.decorator.js";
 import { SkipTransform } from "../../common/decorators/http.decorator.js";
 import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
 import { Pool } from "pg";
@@ -11,6 +12,7 @@ export class ReadinessController {
   constructor(@Inject(DATABASE_POOL) private readonly pool: Pool, private readonly jobs: BackgroundJobs) {}
 
   @Public()
+  @ApiDoc("Ready")
   @Get("ready")
   async ready(): Promise<{ ready: true }> {
     try {

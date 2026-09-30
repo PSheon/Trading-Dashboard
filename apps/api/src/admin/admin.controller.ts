@@ -1,3 +1,4 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { ResponseMessage } from "../common/decorators/http.decorator.js";
 import { PatchAdminSettingsDto } from "./dto/settings.dto.js";
 import { AdminUsersQueryDto, PatchAdminUserDto, AdminRevenueQueryDto } from "./dto/admin-query.dto.js";
@@ -28,6 +29,7 @@ export class AdminController {
   ) {}
 
   @RequirePermissions("settings.read")
+  @ApiDoc("Get settings")
   @Get("settings")
   getSettings(): Promise<AdminSettingsSnapshot> {
     return this.settings.getAll();
@@ -35,12 +37,14 @@ export class AdminController {
 
   @RequirePermissions("settings.write")
   @ResponseMessage("Settings updated")
+  @ApiDoc("Patch settings")
   @Patch("settings")
   patchSettings(@Body() body: PatchAdminSettingsDto, @CurrentUser() user: RequestUser | null): Promise<AdminSettingsSnapshot> {
     return this.settings.patch(body, user);
   }
 
   @RequirePermissions("users.read")
+  @ApiDoc("List users")
   @Get("users")
   listUsers(@Query() query: AdminUsersQueryDto): Promise<AdminUsersResponse> {
     return this.users.list(query);
@@ -48,6 +52,7 @@ export class AdminController {
 
   @RequirePermissions("users.manage")
   @ResponseMessage("User updated")
+  @ApiDoc("Patch user")
   @Patch("users/:id")
   patchUser(
     @Param() params: UserIdParamsDto,
@@ -58,12 +63,14 @@ export class AdminController {
   }
 
   @RequirePermissions("overview.read")
+  @ApiDoc("Overview")
   @Get("overview")
   overview(): Promise<AdminOverview> {
     return this.overviewService.overview();
   }
 
   @RequirePermissions("revenue.read")
+  @ApiDoc("Revenue report")
   @Get("revenue")
   revenueReport(@Query() query: AdminRevenueQueryDto): Promise<AdminRevenueResponse> {
     const { range } = query;
@@ -77,6 +84,7 @@ export class PublicSettingsController {
   constructor(private readonly settings: SettingsService) {}
 
   @Public()
+  @ApiDoc("Get")
   @Get()
   get(): Promise<PublicSettings> {
     return this.settings.getPublic();

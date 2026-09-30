@@ -1,3 +1,5 @@
+import { ApiDoc } from "../../common/decorators/http.decorator.js";
+import { ApiHeader } from "@nestjs/swagger";
 import { ActionsFeedQueryDto, ActionsStreamQueryDto } from "./dto/action-query.dto.js";
 import { ActionIdParamsDto } from "../../common/dto/params.dto.js";
 import { SkipTransform } from "../../common/decorators/http.decorator.js";
@@ -31,6 +33,7 @@ export class ActionsController {
     private readonly auth: AuthService,
   ) {}
 
+  @ApiDoc("Find feed")
   @Get()
   findFeed(@CurrentUser() user: RequestUser | null, @Query() query: ActionsFeedQueryDto): Promise<ActionFeedItem[]> {
     if (query.scope === "favorites") return this.actionsService.findFeed(query, favoritesOwner(user));
@@ -45,6 +48,8 @@ export class ActionsController {
    * header works as on GET /actions. 429 beyond the per-IP/global limits.
    */
   @SkipTransform()
+  @ApiHeader({ name: "Last-Event-ID", required: false, description: "Positive int64 action id; resumes up to 200 missed rows. Empty or whitespace-only values are treated as absent.", schema: { type: "string", pattern: "^[1-9]\\d{0,18}$" } })
+  @ApiDoc("Stream")
   @Get("stream")
   async stream(
     @CurrentUser() user: RequestUser | null,
@@ -67,6 +72,7 @@ export class ActionsController {
   }
 
   /** D1: expand a feed row to see its constituent fills. */
+  @ApiDoc("Get fills")
   @Get(":id/fills")
   getFills(@Param() params: ActionIdParamsDto): Promise<Fill[]> {
     return this.actionsService.getFillsForAction(BigInt(params.id));

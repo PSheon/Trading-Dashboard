@@ -73,9 +73,12 @@ checks representative defaults/conversions against shared contracts plus rejecti
 nullable/omitted PATCH and precision cases. This is a regression guard, not a proof
 that all future schema edits remain equivalent; update both declarations and tests.
 
-The response OpenAPI artifact now has a freshness gate. Complete request DTO
-documentation, Swagger UI, response class-serialization,
-and new transaction policies remain follow-up work. DonutMe's API documentation and project-specific auth
+Native ApiProperty/ApiPropertyOptional request metadata and ApiDoc operation decorators
+now drive Swagger. The same builder serves local /docs/ and exports docs/openapi.json;
+authorization requirements are read from actual guard metadata, and response schemas
+remain owned by the wire registry. CI validates coverage, freshness and OpenAPI structure.
+See http-contract.md for environment gating, conditional constraints and adapter limits.
+Response class-serialization and new transaction policies remain separate work. DonutMe's API documentation and project-specific auth
 metadata are not copied blindly. Existing repository ownership and transaction locks
 remain unchanged; direct DB access still present in some services is separately tracked.
 

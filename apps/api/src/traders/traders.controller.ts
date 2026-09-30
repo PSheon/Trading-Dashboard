@@ -1,3 +1,4 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { TradersQueryDto, SparklinesQueryDto, PortfolioQueryDto, FillsQueryDto } from "./dto/trader-query.dto.js";
 
@@ -36,12 +37,14 @@ export class TradersController {
 
   constructor(private readonly traders: TradersService) {}
 
+  @ApiDoc("List")
   @Get()
   list(@Query() query: TradersQueryDto, @CurrentUser() user: RequestUser | null): Promise<TradersResponse> {
     return this.traders.list(query, userIdOf(user));
   }
 
   /** Declared before `:address` so "sparklines" isn't taken for an address. */
+  @ApiDoc("Sparklines")
   @Get("sparklines")
   sparklines(@Query() query: SparklinesQueryDto): Promise<SparklinesResponse> {
     const { addresses, window } = query;
@@ -49,6 +52,7 @@ export class TradersController {
     return this.traders.sparklines(unique, window);
   }
 
+  @ApiDoc("Profile")
   @Get(":address")
   profile(
     @Param() params: AddressParamsDto,
@@ -58,12 +62,14 @@ export class TradersController {
     return this.upstream(this.traders.profile(addr, userIdOf(user)), addr);
   }
 
+  @ApiDoc("Portfolio")
   @Get(":address/portfolio")
   portfolio(@Param() params: AddressParamsDto, @Query() query: PortfolioQueryDto): Promise<PortfolioResponse> {
     const addr = params.address;
     return this.upstream(this.traders.portfolio(addr, query), addr);
   }
 
+  @ApiDoc("Fills")
   @Get(":address/fills")
   fills(@Param() params: AddressParamsDto, @Query() query: FillsQueryDto): Promise<TraderFill[]> {
     const addr = params.address;
@@ -71,6 +77,7 @@ export class TradersController {
   }
 
   /** Sample size and last trade (fills-derived; loads after the profile). */
+  @ApiDoc("Activity")
   @Get(":address/activity")
   activity(@Param() params: AddressParamsDto): Promise<TraderActivityResponse> {
     const addr = params.address;

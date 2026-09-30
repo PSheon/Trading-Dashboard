@@ -1,3 +1,4 @@
+import { ApiDoc } from "../../common/decorators/http.decorator.js";
 import { UpsertRuleDto } from "./dto/rule.dto.js";
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Body, Controller, Get, Post } from "@nestjs/common";
@@ -15,12 +16,14 @@ import { AlertRulesService } from "./alert-rules.service.js";
 export class AlertRulesController {
   constructor(private readonly alertRulesService: AlertRulesService) {}
 
+  @ApiDoc("Find all")
   @Get()
   findAll(): Promise<AlertRule[]> {
     return this.alertRulesService.findAll();
   }
 
   @RequirePermissions("rules.manage")
+  @ApiDoc("Upsert")
   @Post()
   upsert(@Body() body: UpsertRuleDto, @CurrentUser() actor: RequestUser | null): Promise<AlertRule> {
     return this.alertRulesService.upsert(body, actor);

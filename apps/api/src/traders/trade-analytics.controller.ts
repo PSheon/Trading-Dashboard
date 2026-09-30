@@ -1,3 +1,4 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { AnalyticsQueryDto, TradesQueryDto } from "./dto/trader-query.dto.js";
 
@@ -26,6 +27,7 @@ export class TradeAnalyticsController {
 
   constructor(private readonly analytics: TradeAnalyticsService) {}
 
+  @ApiDoc("Summary")
   @Get(":address/analytics")
   summary(@Param() params: AddressParamsDto, @Query() query: AnalyticsQueryDto): Promise<TraderAnalyticsResponse> {
     const addr = params.address;
@@ -33,6 +35,7 @@ export class TradeAnalyticsController {
     return this.within(this.analytics.analytics(addr, window), addr);
   }
 
+  @ApiDoc("Trades")
   @Get(":address/trades")
   trades(@Param() params: AddressParamsDto, @Query() query: TradesQueryDto): Promise<TraderTradesResponse> {
     const addr = params.address;

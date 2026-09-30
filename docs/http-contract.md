@@ -72,19 +72,46 @@ and delivery drain per subscriber so blocked private authorization cannot stall
 public delivery. Database work already in flight remains subject to the database
 driver/statement deadlines; ending a stream is not a SQL cancellation claim.
 
-Controller inputs use native class DTOs and the global Nest ValidationPipe;
-domain refinements remain in their use cases. The registry supplies
-[route documentation](http-routes.md) and [OpenAPI response schemas](openapi-responses.json).
-Regenerate with `node scripts/http-contract-docs.mjs` and `node scripts/openapi.mjs`
-after building shared; CI checks both artifacts. The OpenAPI artifact covers
-responses, statuses, access descriptions and SSE event schemas. It deliberately
-does **not** claim complete request schemas or generated-client readiness.
-Request DTO/OpenAPI integration and Swagger UI remain tracked follow-up work.
+Controller inputs use native class DTOs and the global Nest ValidationPipe.
+`@ApiProperty` / `@ApiPropertyOptional` describe those same runtime classes;
+`@ApiDoc` supplies operation summaries without granting authentication or permissions.
+Swagger reads native body/query/path DTOs and the explicit SSE resume header.
+Security requirements and permission/role extensions derive from actual guard metadata,
+including method overrides. The shared wire registry still owns response schemas.
 
-The build-time converter is pinned to `zod-to-json-schema@3.25.2` for the current
-Zod 3 runtime schemas. The converter is deprecated upstream; replace it with
-native generation when migrating those schemas to Zod 4. It is not a production
-API dependency.
+The complete [OpenAPI document](openapi.json) now includes request DTOs, parameter
+bounds/defaults/nullability, nested settings, responses, HTTP statuses, security
+requirements and SSE event schemas. OpenAPI 3.1 preserves chart tuple positions
+with JSON Schema `prefixItems`. Unknown body DTO keys are documented as rejected;
+dynamic rule/import maps remain explicitly extensible. Conditional requirements
+(settings revision preconditions, paired action cursors, rule-specific parameters,
+import semantics) are described alongside the inputs; these are not all expressible
+as standalone field constraints.
+
+**Local documentation:** run the API with `NODE_ENV=development` (or `test`), then
+open `/docs/`; raw JSON is at `/docs-json`. Staging/production do not mount
+the UI, JSON or assets. API authorization is unchanged. Swagger does not persist
+bearer tokens, and its CSP permits only local scripts and API requests.
+The UI requires inline styles; that allowance is limited to the docs path in local
+environments. No API-wide CSP relaxation or remote validator is enabled.
+
+Build shared and API, then run:
+`node scripts/http-contract-docs.mjs`, `node scripts/openapi.mjs`.
+CI checks artifact freshness, native DTO documentation coverage and structural
+OpenAPI validity. The export creates controllers with inert providers: no AppModule,
+database connection, env file, background job or network listener is started.
+Compiled bootstrap tests compare the running app's document to the offline export.
+
+The Zod 3 response adapter remains pinned to `zod-to-json-schema@3.25.2`.
+It now belongs to API dependencies so local runtime Swagger and offline export share
+one generator. It is deprecated upstream; replace it during a Zod 4 migration.
+Production does not invoke/load the document builder. Native request DTO metadata
+does not depend on that adapter.
+
+Swagger metadata and class-validator constraints remain two declarations.
+Representative constraint tests plus a property-coverage gate detect omissions;
+changes to validation still require reviewing the corresponding documentation.
+The document is not a generated browser client; that remains a separate integration.
 
 Implementation follows DonutMe's transform/filter split while retaining Zod and
 Express. Framework boundaries checked against [Nest interceptors](https://docs.nestjs.com/interceptors)

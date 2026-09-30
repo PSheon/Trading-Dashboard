@@ -6,6 +6,7 @@ import { isIP } from "node:net";
 
 import { AppConfig } from "../../config/app-config.js";
 import { clientKey } from "../../common/http/client-key.js";
+import { trustedProxyMatcher } from "../../common/http/trusted-proxies.js";
 import { BackgroundJobs } from "../../runtime/background-jobs.service.js";
 import { releaseRequestDeadline } from "../../runtime/request-middleware.js";
 import { FAVORITES_CHANGED_EVENT, type FavoritesChangedEvent } from "../../users/favorites.service.js";
@@ -26,6 +27,9 @@ export interface ActionStreamOptions {
   maxTotal: number;
   /** Trusted proxies in front of the api (see `clientAddress`). */
   trustedProxyHops: number;
+  /** API_TRUSTED_PROXY_CIDRS: the hops count only when the socket peer is
+   * one of these. */
+  trustedProxyCidrs: readonly string[];
   /** Comment line sent to every stream this often, so proxies and the
    * client's watchdog see a live connection. */
   heartbeatMs: number;
@@ -45,6 +49,7 @@ export function defaultActionStreamOptions(config: AppConfig): ActionStreamOptio
     maxPerIp: config.value.stream.maxPerIp,
     maxTotal: config.value.stream.maxTotal,
     trustedProxyHops: config.value.stream.trustedProxyHops,
+    trustedProxyCidrs: config.value.app.trustedProxyCidrs,
     heartbeatMs: 15_000,
     replayLimit: 200,
     replayWindowMs: 60 * 60_000,
@@ -59,12 +64,19 @@ export function defaultActionStreamOptions(config: AppConfig): ActionStreamOptio
  * front of the api (e.g. the web forwarder and the platform's edge), each
  * appended one X-Forwarded-For entry; the client is the entry `hops` places
  * from the right of `[...X-Forwarded-For, socket peer]`. Entries further left
- * are client-supplied and never trusted.
+ * are client-supplied and never trusted. The header is read only when the
+ * socket peer is a trusted proxy (`trustedPeer`, API_TRUSTED_PROXY_CIDRS, as
+ * for the rest of the api): a caller reaching the api directly would
+ * otherwise pick its own address per connection.
  */
-export function clientAddress(req: Pick<Request, "headers" | "socket">, hops: number): string {
+export function clientAddress(
+  req: Pick<Request, "headers" | "socket">,
+  hops: number,
+  trustedPeer: (address: string | undefined) => boolean = () => false,
+): string {
   const peer = req.socket.remoteAddress ?? "unknown";
   let chosen = peer;
-  if (hops > 0) {
+  if (hops > 0 && trustedPeer(req.socket.remoteAddress)) {
     const header = req.headers["x-forwarded-for"];
     const forwarded = (Array.isArray(header) ? header.join(",") : header ?? "")
       .split(",")
@@ -114,6 +126,7 @@ export class ActionStreamService implements OnModuleDestroy {
   private readonly options: ActionStreamOptions;
   private readonly subscribers = new Set<Subscriber>();
   private readonly perIp = new Map<string, number>();
+  private readonly trustedPeer: (address: string | undefined) => boolean;
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private pendingCreated = new Set<bigint>();
   private pendingUpdated = new Set<bigint>();
@@ -128,6 +141,10 @@ export class ActionStreamService implements OnModuleDestroy {
     @Optional() @Inject(ACTION_STREAM_OPTIONS) options?: Partial<ActionStreamOptions>,
   ) {
     this.options = { ...defaultActionStreamOptions(config), ...options };
+    this.trustedPeer = trustedProxyMatcher(this.options.trustedProxyCidrs);
+    if (this.options.trustedProxyHops > 0 && this.options.trustedProxyCidrs.length === 0) {
+      this.logger.warn("STREAM_TRUSTED_PROXY_HOPS is set but API_TRUSTED_PROXY_CIDRS is empty: X-Forwarded-For is ignored and streams count per socket peer");
+    }
     // Shutdown starts (SIGTERM) → end every stream at once, so the HTTP
     // server can close and clients reconnect to the next instance.
     this.jobs.signal.addEventListener("abort", () => this.closeAll(), { once: true });
@@ -150,7 +167,7 @@ export class ActionStreamService implements OnModuleDestroy {
   async open(req: Request, res: Response, filter: ActionsFeedFilter, opts: { favoritesOf?: number; lastEventId?: bigint; authorize?: () => Promise<boolean> }): Promise<void> {
     if (this.jobs.stopping) throw new HttpException({ message: "Shutting down", code: "unavailable" }, HttpStatus.SERVICE_UNAVAILABLE);
     if (opts.favoritesOf !== undefined && !opts.authorize) throw new HttpException("Sign in required", HttpStatus.UNAUTHORIZED);
-    const ip = clientAddress(req, this.options.trustedProxyHops);
+    const ip = clientAddress(req, this.options.trustedProxyHops, this.trustedPeer);
     const fromIp = this.perIp.get(ip) ?? 0;
     if (this.subscribers.size >= this.options.maxTotal || fromIp >= this.options.maxPerIp) {
       res.setHeader("Retry-After", "30");

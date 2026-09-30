@@ -114,7 +114,8 @@ migration is separate work.
   connections; STREAM_TRUSTED_PROXY_HOPS (0–10, default 0) says how many
   X-Forwarded-For entries (from the right) were appended by trusted proxies,
   including the web forwarder. Only that entry names the client; anything
-  further left is client-supplied and ignored.
+  further left is client-supplied and ignored. The header is read only when
+  the socket peer is in API_TRUSTED_PROXY_CIDRS; otherwise the peer counts.
 - Upstream HTTP/WS URLs and Telegram link URLs must use the expected protocols,
   have a host, and contain no credentials or fragment.
 

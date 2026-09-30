@@ -1,0 +1,538 @@
+"use client";
+
+import { ChevronDown, ChevronRight, LayoutGrid, List, ListFilter, Trophy, UserRound, X } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { cn } from "cn";
+
+import { boardName, CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
+import { BoardCard, BoardCardSkeleton, BoardMobileRow } from "@/components/discover/board-card";
+import { EmptyState, ErrorState, Skeleton } from "@/components/page";
+import { CoinIcon } from "@/components/traders/coin-icon";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useI18n } from "@/i18n/provider";
+import { boardCoinLabel, boardPnl, boardRoi, boardUsd } from "@/lib/board-format";
+import type { BoardMarket, BoardSort, BoardTrader, BoardWindow, TradingStyle } from "@/lib/contracts";
+import { useBoard, useSiteSettings } from "@/lib/queries";
+import { useNow } from "@/lib/use-now";
+
+const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
+const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
+const STYLES: Array<TradingStyle | "any"> = ["any", "scalp", "intraday", "swing", "position"];
+const SORTS: BoardSort[] = ["copyScore", "pnl", "roi", "accountValue"];
+
+type View = "auto" | "grid" | "list";
+
+/** CopyDog's rules (its boardSorts chunk): coin boards and the stocks top
+ * 100 have no window and no account-value sort; 30 天 sorts by PnL / ROI. */
+function rules(market: BoardMarket, board: string, window: BoardWindow) {
+  const coin = board !== "top100" && board !== "kol";
+  const windowed = !coin && !(market === "stocks" && board === "top100");
+  const effectiveWindow: BoardWindow = windowed ? window : "all";
+  let sorts: BoardSort[] = windowed ? SORTS : ["copyScore", "pnl", "roi"];
+  if (effectiveWindow === "30d") sorts = sorts.filter((s) => s === "pnl" || s === "roi");
+  return { coin, windowed, effectiveWindow, sorts };
+}
+
+const pick = <T extends string>(value: string | null, options: readonly T[], fallback: T): T =>
+  value !== null && (options as readonly string[]).includes(value) ? (value as T) : fallback;
+
+/**
+ * Explore (Stage 3 §1, CopyDog's /hyperliquid/discover): crypto / stocks,
+ * board tabs (Top 100, KOL, coins), style, sort, window and grid / list;
+ * a fixed top 100 from the api's discovery pool. The full leaderboard is
+ * at /explore/all.
+ */
+export function BoardsView() {
+  const { t } = useI18n();
+  const params = useSearchParams();
+  const settings = useSiteSettings();
+  const cryptoBoards = settings.data?.cryptoBoards ?? DEFAULT_CRYPTO;
+  const stockBoards = settings.data?.stockBoards ?? DEFAULT_STOCKS;
+
+  const initialMarket = pick(params.get("market"), ["crypto", "stocks"] as const, params.get("board")?.includes(":") ? "stocks" : "crypto");
+  const [market, setMarket] = useState<BoardMarket>(initialMarket);
+  const [board, setBoard] = useState(params.get("board") ?? "top100");
+  const [sort, setSort] = useState<BoardSort>(pick(params.get("sort"), SORTS, "copyScore"));
+  const [window, setWindow] = useState<BoardWindow>(pick(params.get("window"), ["30d", "all"] as const, "all"));
+  const [style, setStyle] = useState<TradingStyle | "any">(pick(params.get("style"), STYLES, "any"));
+  // "auto": grid on desktop, CopyDog's dense list on phones.
+  const [view, setView] = useState<View>(pick(params.get("view"), ["auto", "grid", "list"] as const, "auto"));
+  const [sheet, setSheet] = useState(false);
+
+  const r = rules(market, board, window);
+  const effectiveSort: BoardSort = r.sorts.includes(sort) ? sort : "pnl";
+
+  // Shareable state: the URL follows the controls without a navigation.
+  useEffect(() => {
+    const qs = new URLSearchParams();
+    if (market !== "crypto") qs.set("market", market);
+    if (board !== "top100") qs.set("board", board);
+    if (effectiveSort !== "copyScore") qs.set("sort", effectiveSort);
+    if (r.effectiveWindow !== "all") qs.set("window", r.effectiveWindow);
+    if (style !== "any") qs.set("style", style);
+    if (view !== "auto") qs.set("view", view);
+    const next = `${globalThis.location.pathname}${qs.size ? `?${qs}` : ""}`;
+    if (next !== `${globalThis.location.pathname}${globalThis.location.search}`) globalThis.history.replaceState(null, "", next);
+  }, [market, board, effectiveSort, r.effectiveWindow, style, view]);
+
+  const query = useBoard({ market, board, sort: effectiveSort, window: r.effectiveWindow, style: style === "any" ? undefined : style });
+  const data = query.data;
+  const items = data?.items ?? [];
+  const coinLabel = r.coin ? boardCoinLabel(board, t) : null;
+  const stocksTop = market === "stocks" && board === "top100";
+  const pnlLabel = coinLabel ? t("discover.coinPnl", { coin: coinLabel }) : t("discover.pnl");
+  const roiLabel = coinLabel ? t("discover.coinRoi", { coin: coinLabel }) : t("discover.roi");
+  const roiHint = coinLabel ? t("discover.coinRoiHint", { coin: coinLabel }) : stocksTop ? t("discover.stocksHint") : undefined;
+  const now = useNow();
+
+  const tabs = useMemo(() => {
+    const coins = market === "crypto" ? cryptoBoards : stockBoards;
+    return [
+      { key: "top100", label: t("discover.top100"), icon: <Trophy className="size-4" aria-hidden /> },
+      ...(market === "crypto" ? [{ key: "kol", label: t("discover.kol"), icon: <UserRound className="size-4" aria-hidden /> }] : []),
+      ...coins.map((coin) => ({ key: coin, label: boardCoinLabel(coin, t), icon: <CoinIcon coin={coin} size={18} /> })),
+    ];
+  }, [market, cryptoBoards, stockBoards, t]);
+
+  function switchMarket(next: BoardMarket) {
+    if (next === market) return;
+    setMarket(next);
+    setBoard("top100");
+    if (next === "stocks") setSort("pnl");
+  }
+  function switchBoard(next: string) {
+    // CopyDog: entering a coin board from Top 100 / KOL resets to PnL.
+    if (next !== "top100" && next !== "kol" && (board === "top100" || board === "kol")) setSort("pnl");
+    setBoard(next);
+  }
+
+  const sortLabel = (s: BoardSort) => t(`discover.sort.${s}`);
+  const styleLabel = (s: TradingStyle | "any") => t(`discover.style.${s}`);
+
+  return (
+    <div className="flex flex-col gap-4 md:gap-5">
+      {/* Phones: title, filter sheet and layout toggle (CopyDog's mobile header). */}
+      <div className="flex items-center justify-between md:hidden">
+        <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("discover.title")}</h1>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSheet(true)}
+            aria-label={t("discover.filters")}
+            className="flex size-10 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ListFilter className="size-[18px]" />
+          </button>
+          <ViewToggle value={view === "grid" ? "grid" : "list"} onChange={setView} />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <AssetSwitch value={market} onChange={switchMarket} />
+        <div className="hidden flex-wrap items-center gap-2 md:flex">
+          <PillMenu
+            label={style === "any" ? t("discover.styleLabel") : styleLabel(style)}
+            active={style !== "any"}
+            value={style}
+            options={STYLES.map((s) => ({ value: s, label: styleLabel(s) }))}
+            onChange={(v) => setStyle(v as TradingStyle | "any")}
+          />
+          <PillMenu
+            label={sortLabel(effectiveSort)}
+            value={effectiveSort}
+            options={r.sorts.map((s) => ({ value: s, label: sortLabel(s) }))}
+            onChange={(v) => setSort(v as BoardSort)}
+            strong
+          />
+          {r.windowed ? (
+            <div className="flex h-11 items-center rounded-full bg-raised p-1" role="group" aria-label={t("discover.timeframe")}>
+              {(["30d", "all"] as const).map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  aria-pressed={r.effectiveWindow === w}
+                  onClick={() => setWindow(w)}
+                  className={cn(
+                    "h-9 rounded-full px-3.5 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    r.effectiveWindow === w ? "bg-background text-foreground" : "text-subtle-foreground hover:text-foreground",
+                  )}
+                >
+                  {t(`discover.window.${w}`)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <ViewToggle value={view === "list" ? "list" : "grid"} onChange={setView} />
+        </div>
+      </div>
+
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 no-scrollbar md:mx-0 md:flex-wrap md:px-0" role="tablist" aria-label={t("discover.boards")}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={board === tab.key}
+            onClick={() => switchBoard(tab.key)}
+            className={cn(
+              "flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-semibold whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-11",
+              board === tab.key ? "bg-primary text-primary-foreground" : "bg-raised text-muted-foreground hover:bg-raised-hover hover:text-foreground",
+            )}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {data && data.pool.total > 0 && data.pool.ready < data.pool.total ? (
+        <p className="text-xs text-subtle-foreground">{t("discover.warming", { ready: String(data.pool.ready), total: String(data.pool.total) })}</p>
+      ) : null}
+
+      {query.isError && !data ? (
+        <ErrorState message={t("discover.error")} onRetry={() => query.refetch()} />
+      ) : !data ? (
+        <BoardSkeleton view={view} />
+      ) : items.length === 0 ? (
+        <EmptyState
+          title={board === "kol" ? t("discover.kolEmpty") : t("discover.empty")}
+          body={board === "kol" ? t("discover.kolEmptyHint") : t("discover.emptyHint")}
+        />
+      ) : (
+        <div className={cn("transition-opacity", query.isPlaceholderData && "opacity-60")} aria-busy={query.isFetching}>
+          {view !== "list" ? (
+            <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
+              {items.map((trader) => (
+                <BoardCard key={trader.address} trader={trader} pnlLabel={pnlLabel} roiLabel={roiLabel} roiHint={roiHint} now={now} />
+              ))}
+            </div>
+          ) : null}
+          {view !== "grid" ? (
+            <ul className={cn("divide-y divide-border md:hidden")}>
+              {items.map((trader) => (
+                <BoardMobileRow key={trader.address} trader={trader} />
+              ))}
+            </ul>
+          ) : null}
+          {view === "list" ? (
+            <BoardTable
+              items={items}
+              sorts={r.sorts}
+              sort={effectiveSort}
+              onSort={setSort}
+              pnlLabel={pnlLabel}
+              roiLabel={roiLabel}
+              roiHint={roiHint}
+            />
+          ) : null}
+        </div>
+      )}
+
+      <div className="flex justify-center pt-2 pb-4">
+        <Link
+          href="/explore/all"
+          className="inline-flex h-11 items-center gap-1.5 rounded-full bg-raised px-5 text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t("discover.viewAll")}
+          <ChevronRight className="size-4" />
+        </Link>
+      </div>
+
+      {sheet ? (
+        <FilterSheet
+          sorts={r.sorts}
+          windowed={r.windowed}
+          sort={effectiveSort}
+          window={r.effectiveWindow}
+          style={style}
+          onClose={() => setSheet(false)}
+          onApply={(next) => {
+            setSort(next.sort);
+            setWindow(next.window);
+            setStyle(next.style);
+            setSheet(false);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: BoardMarket) => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="grid w-full grid-cols-2 rounded-full bg-raised p-1 md:inline-grid md:w-auto" role="tablist" aria-label={t("discover.assetClass")}>
+      {(["crypto", "stocks"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          role="tab"
+          aria-selected={value === m}
+          onClick={() => onChange(m)}
+          className={cn(
+            "flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[0.9375rem] font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-10",
+            value === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <CoinIcon coin={m === "crypto" ? "BTC" : "xyz:SPX"} size={16} />
+          {t(`discover.${m}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ViewToggle({ value, onChange }: { value: "grid" | "list"; onChange: (v: View) => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex h-10 items-center rounded-full bg-raised p-1 md:h-11" role="group" aria-label={t("discover.layout")}>
+      {(["grid", "list"] as const).map((v) => {
+        const Icon = v === "grid" ? LayoutGrid : List;
+        return (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={value === v}
+            aria-label={t(`discover.${v}`)}
+            onClick={() => onChange(v)}
+            className={cn(
+              "flex h-8 w-9 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-9 md:w-10",
+              value === v ? "bg-background text-foreground" : "text-subtle-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="size-4" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PillMenu({ label, value, options, onChange, active = false, strong = false }: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  active?: boolean;
+  strong?: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          "flex h-11 items-center gap-1.5 rounded-full bg-raised px-4 text-sm outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
+          strong || active ? "font-bold text-foreground" : "font-semibold text-subtle-foreground",
+        )}
+      >
+        {label}
+        <ChevronDown className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
+          {options.map((o) => (
+            <DropdownMenuRadioItem key={o.value} value={o.value}>
+              {o.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Desktop list (CopyDog's table): trader, copy score, assets, PnL, ROI,
+ * equity; sortable where the board allows. */
+function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }: {
+  items: BoardTrader[];
+  sorts: BoardSort[];
+  sort: BoardSort;
+  onSort: (s: BoardSort) => void;
+  pnlLabel: string;
+  roiLabel: string;
+  roiHint?: string;
+}) {
+  const { t } = useI18n();
+  const head = (key: BoardSort, label: string, align: "left" | "right", title?: string) => {
+    const sortable = sorts.includes(key);
+    return (
+      <th className={cn("px-3 py-3 text-xs font-medium text-subtle-foreground", align === "right" ? "text-right" : "text-left")} aria-sort={sort === key ? "descending" : undefined} title={title}>
+        {sortable ? (
+          <button
+            type="button"
+            onClick={() => onSort(key)}
+            className={cn("inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", sort === key && "font-bold text-foreground")}
+          >
+            {label}
+            {sort === key ? <ChevronDown className="size-3" /> : null}
+          </button>
+        ) : (
+          label
+        )}
+      </th>
+    );
+  };
+  return (
+    <div className="hidden overflow-x-auto md:block">
+      <table className="w-full min-w-[860px] border-collapse text-sm">
+        <thead className="border-b border-border">
+          <tr>
+            <th className="px-3 py-3 text-left text-xs font-medium text-subtle-foreground">{t("discover.trader")}</th>
+            {head("copyScore", t("discover.copyScore"), "left")}
+            <th className="px-3 py-3 text-left text-xs font-medium text-subtle-foreground">{t("discover.assets")}</th>
+            {head("pnl", pnlLabel, "right")}
+            {head("roi", roiLabel, "right", roiHint)}
+            {head("accountValue", t("discover.equity"), "right")}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((trader) => (
+            <tr key={trader.address} className="border-b border-border transition-colors hover:bg-raised/50">
+              <td className="px-3 py-3">
+                <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <TraderAvatar trader={trader} size={24} />
+                  <span className={cn("truncate font-semibold", !trader.displayName && "font-mono")}>{boardName(trader)}</span>
+                  {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
+                  {trader.xHandle ? (
+                    <span className="text-xs text-subtle-foreground" title={`@${trader.xHandle}`} aria-label={`X @${trader.xHandle}`}>𝕏</span>
+                  ) : null}
+                </Link>
+              </td>
+              <td className="px-3 py-3">
+                <CopyScoreBar score={trader.copyScore} />
+              </td>
+              <td className="px-3 py-3">
+                <CoinStack coins={trader.topCoins} size={18} />
+              </td>
+              <td className={cn("num px-3 py-3 text-right", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</td>
+              <td className={cn("num px-3 py-3 text-right", signTone(trader.roi))}>{boardRoi(trader.roi)}</td>
+              <td className="num px-3 py-3 text-right">{boardUsd(trader.accountValue)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BoardSkeleton({ view }: { view: View }) {
+  return (
+    <>
+      {view !== "list" ? (
+        <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
+          {Array.from({ length: 8 }, (_, i) => <BoardCardSkeleton key={i} />)}
+        </div>
+      ) : (
+        <div className="hidden flex-col gap-2 md:flex">
+          {Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="h-12" />)}
+        </div>
+      )}
+      {view !== "grid" ? (
+        <div className="flex flex-col gap-3 md:hidden">
+          {Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-16" />)}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** Phones: CopyDog's 所有篩選 bottom sheet (sort, timeframe, style; reset
+ * and apply). */
+function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }: {
+  sorts: BoardSort[];
+  windowed: boolean;
+  sort: BoardSort;
+  window: BoardWindow;
+  style: TradingStyle | "any";
+  onClose: () => void;
+  onApply: (next: { sort: BoardSort; window: BoardWindow; style: TradingStyle | "any" }) => void;
+}) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState({ sort, window, style });
+  const [open, setOpen] = useState<"sort" | "window" | "style" | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const rows: Array<{ key: "sort" | "window" | "style"; label: string; value: string; options: Array<{ value: string; label: string }> }> = [
+    { key: "sort", label: t("discover.sortBy"), value: draft.sort, options: sorts.map((s) => ({ value: s, label: t(`discover.sort.${s}`) })) },
+    ...(windowed
+      ? [{ key: "window" as const, label: t("discover.timeframe"), value: draft.window, options: (["30d", "all"] as const).map((w) => ({ value: w, label: t(`discover.window.${w}`) })) }]
+      : []),
+    { key: "style", label: t("discover.styles"), value: draft.style, options: STYLES.map((s) => ({ value: s, label: t(`discover.style.${s}`) })) },
+  ];
+  return (
+    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label={t("discover.filters")}>
+      <button type="button" aria-label={t("discover.close")} className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-3xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)]">
+        <span className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-border-strong" aria-hidden />
+        <div className="flex items-center justify-between px-5 pt-4 pb-2">
+          <h2 className="text-xl font-bold">{t("discover.filters")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("discover.close")} className="flex size-10 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="overflow-y-auto px-5">
+          {rows.map((row) => (
+            <div key={row.key} className="border-b border-border">
+              <button
+                type="button"
+                aria-expanded={open === row.key}
+                onClick={() => setOpen(open === row.key ? null : row.key)}
+                className="flex w-full items-center justify-between py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span>
+                  <span className="block font-semibold">{row.label}</span>
+                  <span className="mt-0.5 block text-sm text-muted-foreground">{row.options.find((o) => o.value === row.value)?.label}</span>
+                </span>
+                <ChevronRight className={cn("size-4 text-subtle-foreground transition-transform", open === row.key && "rotate-90")} />
+              </button>
+              {open === row.key ? (
+                <div className="flex flex-wrap gap-2 pb-4">
+                  {row.options.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      aria-pressed={row.value === o.value}
+                      onClick={() => setDraft((d) => ({ ...d, [row.key]: o.value }))}
+                      className={cn(
+                        "h-9 rounded-full px-3.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        row.value === o.value ? "bg-primary text-primary-foreground" : "bg-raised text-muted-foreground",
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3 border-t border-border px-5 py-4">
+          <button
+            type="button"
+            onClick={() => setDraft({ sort: "copyScore", window: "all", style: "any" })}
+            className="h-12 rounded-full bg-raised font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("discover.reset")}
+          </button>
+          <button
+            type="button"
+            onClick={() => onApply({ ...draft, sort: sorts.includes(draft.sort) ? draft.sort : "pnl" })}
+            className="h-12 rounded-full bg-primary font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("discover.apply")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

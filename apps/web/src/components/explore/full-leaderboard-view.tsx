@@ -19,7 +19,7 @@ const MIN_VALUES = [0, 10_000, 100_000, 1_000_000, 10_000_000];
 const WINDOWS: TraderWindow[] = ["day", "week", "month", "allTime"];
 const ACTIVE_WITHIN: ActiveWithin[] = activeWithinSchema.options;
 
-export function ExploreView() {
+export function FullLeaderboardView() {
   const { t, format } = useI18n();
   const params = useSearchParams();
   const [window, setWindow] = useState<TraderWindow>("month");

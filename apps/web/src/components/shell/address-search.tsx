@@ -43,7 +43,7 @@ export function AddressSearch() {
       return;
     }
     setInvalid(false);
-    router.push(`/explore?q=${encodeURIComponent(q)}`);
+    router.push(`/explore/all?q=${encodeURIComponent(q)}`);
   }
 
   return (

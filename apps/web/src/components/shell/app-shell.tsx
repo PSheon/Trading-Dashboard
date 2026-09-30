@@ -11,7 +11,8 @@ import { APP_NAME } from "@/lib/config";
 import { AnnouncementBanner } from "./announcement-banner";
 import { AccountControls } from "./account-controls";
 import { AddressSearch } from "./address-search";
-import { adminNav, isActive, mobileNav, primaryNav, settingsNav, type NavItem } from "./nav";
+import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
+import { adminNav, isActive, mobileNav, primaryNav, type NavItem } from "./nav";
 
 /**
  * CopyDog-style frame: full-width top bar (lockup, wide address search,
@@ -27,6 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const traderPage = pathname.startsWith("/trader/");
 
   return (
+    <WalletModalsProvider>
     <div className="min-h-dvh">
       <a
         href="#main"
@@ -59,8 +61,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <RailLink key={item.href} item={item} active={isActive(pathname, item.href)} />
         ))}
         <div className="mt-auto flex flex-col items-center gap-1">
+          {/* No 設定 here, as on CopyDog: settings open from the avatar
+              menu (desktop) and the portfolio gear (phone). */}
           {isAdmin ? <RailLink item={adminNav} active={isActive(pathname, adminNav.href)} /> : null}
-          <RailLink item={settingsNav} active={isActive(pathname, settingsNav.href)} />
         </div>
       </nav>
 
@@ -88,6 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
     </div>
+    </WalletModalsProvider>
   );
 }
 

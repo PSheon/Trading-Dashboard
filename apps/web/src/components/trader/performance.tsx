@@ -1,7 +1,7 @@
 "use client";
 
 import type { PortfolioResponse, TradeWindow, TraderAnalyticsResponse, TraderWindow } from "@/lib/contracts";
-import { ChevronDown } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
@@ -106,12 +106,12 @@ function Tile({
 }) {
   const t = muted ? null : tone;
   return (
-    <div className="flex min-w-0 flex-col rounded-2xl border border-border bg-card">
+    <div className="flex min-w-0 flex-col rounded-[12px] border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground">
         <span>{label}</span>
         {action}
       </div>
-      <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3 pb-3.5">
+      <div className="flex flex-1 flex-col gap-2 px-4 pt-3 pb-3">
         {loading ? (
           <Skeleton className="h-6 w-24" />
         ) : (
@@ -323,14 +323,21 @@ export function PerformanceChart({
   // may cover only weeks).
   const spanMs = series.length > 1 ? series[series.length - 1][0] - series[0][0] : 0;
   const span = spanMs <= 2 * 86400_000 ? "hours" : spanMs <= 150 * 86400_000 ? "days" : "months";
+  // CopyDog's % PnL headline: an arrow and the unsigned percentage, with
+  // the dollar PnL in the pill under it.
+  const pctPnl = unit === "pct" && mode === "pnl";
+  const PctArrow = last && last[1] < 0 ? ArrowDownRight : ArrowUpRight;
+  const usdPnl = pctPnl ? portfolio?.pnl.at(-1)?.[1] ?? null : null;
   const headline = last
-    ? unit === "pct"
-      ? format.pct(last[1], { sign: true, digits: 2 })
-      : format.usd(last[1], { sign: mode === "pnl", digits: 2 })
+    ? pctPnl
+      ? <span className="inline-flex items-center gap-1"><PctArrow className="size-[0.8em]" strokeWidth={2.5} aria-hidden />{format.pct(Math.abs(last[1]), { digits: 2 })}</span>
+      : unit === "pct"
+        ? format.pct(last[1], { sign: true, digits: 2 })
+        : format.usd(last[1], { sign: mode === "pnl", digits: 2 })
     : "—";
 
   return (
-    <section className="rounded-2xl border border-border bg-card">
+    <section className="rounded-[12px] border border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-3 py-2">
         <div className="flex items-center">
           {(["perp", "all", "calendar"] as const).map((m) => {
@@ -405,19 +412,24 @@ export function PerformanceChart({
               <div>
                 <div
                   className={cn(
-                    "num text-[1.75rem] leading-none font-bold tracking-tight md:text-[2rem]",
+                    "num text-[1.75rem] leading-none font-bold tracking-tight md:text-[1.625rem]",
                     muted
                       ? "text-subtle-foreground"
                       : mode === "pnl" && last
                         ? last[1] >= 0
                           ? "text-positive"
                           : "text-negative"
-                        : "text-foreground",
+                        : "text-primary",
                   )}
                 >
                   {loading && !portfolio ? <Skeleton className="h-8 w-48" /> : headline}
                 </div>
                 {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} digits={2} className="mt-2.5" muted={muted} /> : null}
+                {usdPnl !== null ? (
+                  <span className={cn("num mt-2.5 inline-flex h-6 items-center rounded-full px-2 text-xs font-semibold", muted ? "bg-raised text-subtle-foreground" : usdPnl >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+                    {usdCompact(usdPnl, { sign: true, digits: 2 })}
+                  </span>
+                ) : null}
               </div>
               {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.stamp(last[0])}</p> : null}
             </div>
@@ -427,12 +439,12 @@ export function PerformanceChart({
             {portfolio && series.length > 1 ? (
               <AreaChart
                 data={series}
-                height={320}
+                height={296}
                 axes
                 interactive
                 zeroBaseline={mode === "pnl"}
                 formatValue={fmt}
-                formatTick={(v) => (unit === "pct" ? format.pct(v) : usdCompact(v))}
+                formatTick={(v) => (unit === "pct" ? format.pct(v, { digits: 1 }) : usdCompact(v))}
                 formatTime={(ts) => format.dateTime(ts)}
                 formatAxisTime={(ts) => format.axisDate(ts, span)}
                 ariaLabel={t(mode === "pnl" ? "trader.chart.pnlLabel" : "trader.chart.valueLabel")}
@@ -444,9 +456,9 @@ export function PerformanceChart({
                 }
               />
             ) : loading ? (
-              <Skeleton className="m-2 h-[304px]" />
+              <Skeleton className="m-2 h-[280px]" />
             ) : (
-              <div className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-[296px] items-center justify-center text-sm text-muted-foreground">
                 {t("trader.chart.noData")}
               </div>
             )}

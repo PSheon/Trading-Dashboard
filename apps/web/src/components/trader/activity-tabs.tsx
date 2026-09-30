@@ -69,7 +69,7 @@ export function ActivityTabs({
   const exportable = tab === "fills" ? fillRows : undefined;
 
   return (
-    <section className="rounded-2xl border border-border bg-card">
+    <section className="rounded-[12px] border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-3">
         <div role="tablist" aria-label={t("trader.tabsLabel")} className="flex min-w-0 items-center overflow-x-auto no-scrollbar">
           {TAB_GROUPS.map((group, g) => (

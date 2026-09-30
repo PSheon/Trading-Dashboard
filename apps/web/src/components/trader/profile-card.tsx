@@ -185,7 +185,7 @@ export function ProfileCard({
   const marginUsage = profile.perpEquity === null || profile.marginUsed === null ? null : profile.perpEquity > 0 ? profile.marginUsed / profile.perpEquity : 0;
 
   return (
-    <aside className="overflow-hidden rounded-2xl border border-border bg-card">
+    <aside className="overflow-hidden rounded-[12px] border border-border bg-card">
       {identity ? (
         <div className="flex items-center gap-2 px-4 pt-4 pb-3.5">
           {/* A verified KOL's badge sits on the avatar, so the name keeps the

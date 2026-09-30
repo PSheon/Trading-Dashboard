@@ -352,6 +352,6 @@ function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode 
   return sheet ? (
     <div className="flex flex-col gap-4 px-1 pt-9">{children}</div>
   ) : (
-    <aside className="flex flex-col gap-6 rounded-2xl border border-border bg-card p-4 md:p-5 xl:sticky xl:top-[92px]">{children}</aside>
+    <aside className="flex flex-col gap-6 rounded-[12px] border border-border bg-card p-4 md:p-5 xl:sticky xl:top-[90px]">{children}</aside>
   );
 }

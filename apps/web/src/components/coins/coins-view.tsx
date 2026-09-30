@@ -26,7 +26,7 @@ const rate = (value: number | null) => (value === null ? "—" : `${(value * 100
 
 /** Page column: CopyDog's 1068 px measure, a little lower than other pages. */
 function Column({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto w-full max-w-[1068px] pt-2 md:pt-6">{children}</div>;
+  return <div className="mx-auto w-full max-w-[1068px] pt-2 md:pt-0">{children}</div>;
 }
 
 const th = "h-12 px-3 text-left text-[0.6875rem] font-medium whitespace-nowrap text-muted-foreground";

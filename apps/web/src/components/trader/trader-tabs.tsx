@@ -146,7 +146,7 @@ function PositionCard({ p, mark }: { p: LivePosition; mark: number | null }) {
   const { t } = useI18n();
   const pct = pnlPct(p);
   return (
-    <li className="rounded-2xl border border-border bg-card p-4">
+    <li className="rounded-[12px] border border-border bg-card p-4">
       <div className="flex items-start gap-3">
         <CoinIcon coin={p.coin} size={32} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">

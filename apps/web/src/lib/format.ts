@@ -205,7 +205,8 @@ export function createFormatter(locale: Locale): Formatter {
       const d = toDate(value);
       if (!d) return "";
       if (span === "hours") return df("ah", { hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
-      if (span === "days") return df("ad", { month: "numeric", day: "numeric" }).format(d);
+      // CopyDog's day labels read "9月5日" / "Sep 5".
+      if (span === "days") return df("ad", { month: "short", day: "numeric" }).format(d);
       return df("am", { year: "2-digit", month: "short" }).format(d);
     },
 

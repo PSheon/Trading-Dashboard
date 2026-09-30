@@ -74,6 +74,22 @@ export function spanTicks(min: number, max: number, count = 5): number[] {
   return Array.from({ length: count }, (_, i) => min + ((max - min) * i) / (count - 1));
 }
 
+/** CopyDog's desktop y labels: the low, then steps of about a quarter of the
+ * range (rounded up to a multiple of 5 in the second digit: 94.7K → 95K,
+ * 75K → 80K), dropping any step closer than one step to the high, then the
+ * high ("-$37.5K $57.5K $152.5K $341.3K"). */
+export function stepTicks(min: number, max: number): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (max <= min) return [min];
+  const raw = (max - min) / 4;
+  const unit = 5 * 10 ** (Math.floor(Math.log10(raw)) - 1);
+  const step = Math.ceil(raw / unit - 1e-9) * unit;
+  const ticks = [min];
+  for (let v = min + step; v <= max - step + step * 1e-9; v += step) ticks.push(v);
+  ticks.push(max);
+  return ticks;
+}
+
 /** A monotone cubic path through the points (d3's curveMonotoneX): smooth
  * like CopyDog's curves, never overshooting a high or a low. */
 export function monotonePath(points: ReadonlyArray<readonly [number, number]>): string {
@@ -182,13 +198,17 @@ export function AreaChart({
 
     const line = monotonePath(data.map((d) => [x(d[0]), y(d[1])] as const));
     const area = `${line}L${x(maxX).toFixed(2)},${zeroY.toFixed(2)}L${x(minX).toFixed(2)},${zeroY.toFixed(2)}Z`;
-    const yTicks = axes ? spanTicks(zeroBaseline ? Math.min(...ys) : low, zeroBaseline ? Math.max(...ys) : high) : [];
+    const lo = zeroBaseline ? Math.min(...ys) : low;
+    const hi = zeroBaseline ? Math.max(...ys) : high;
+    // Phones label five even steps; the desktop chart uses CopyDog's steps.
+    const yTicks = axes ? (yAxis === "left" ? spanTicks(lo, hi) : stepTicks(lo, hi)) : [];
+    // CopyDog's x labels: evenly spaced, the last one pinned to the end.
     const xTickCount = width < 420 ? 3 : 5;
     const xTicks = axes
-      ? Array.from({ length: xTickCount }, (_, i) => minX + ((maxX - minX) * (i + 0.5)) / xTickCount)
+      ? Array.from({ length: xTickCount }, (_, i) => (i === xTickCount - 1 ? maxX : minX + ((maxX - minX) * (i + 1)) / (xTickCount + 0.5)))
       : [];
     return { x, y, line, area, zeroY, bottom, innerW, minX, maxX, yTicks, xTicks };
-  }, [data, width, height, zeroBaseline, axes, pad.left, pad.right, pad.top, pad.bottom]);
+  }, [data, width, height, zeroBaseline, axes, yAxis, pad.left, pad.right, pad.top, pad.bottom]);
 
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     if (!geo || !interactive) return;
@@ -278,12 +298,12 @@ export function AreaChart({
               ))
             : null}
           {axes && formatAxisTime
-            ? geo.xTicks.map((t) => (
+            ? geo.xTicks.map((t, i) => (
                 <text
                   key={t}
                   x={geo.x(t)}
                   y={height - 8}
-                  textAnchor="middle"
+                  textAnchor={i === geo.xTicks.length - 1 ? "end" : "middle"}
                   className="fill-subtle-foreground font-mono text-[10.5px]"
                 >
                   {formatAxisTime(t)}

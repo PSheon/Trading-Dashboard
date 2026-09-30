@@ -74,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {t("nav.skip")}
       </a>
 
-      <header className="fixed inset-x-0 top-0 z-40 hidden h-[72px] items-center gap-6 border-b border-border bg-background/90 px-5 backdrop-blur-xl md:flex">
+      <header className="fixed inset-x-0 top-0 z-40 hidden h-[81px] items-center gap-6 border-b border-border bg-background/90 px-5 backdrop-blur-xl md:flex">
         <Link href="/" className="flex shrink-0 items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Lockup />
         </Link>
@@ -95,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <nav
         aria-label={t("nav.primary")}
-        className="fixed top-[72px] bottom-0 left-0 z-30 hidden w-[76px] flex-col items-center gap-1 border-r border-border bg-background py-3 md:flex"
+        className="fixed top-[81px] bottom-0 left-0 z-30 hidden w-[76px] flex-col items-center gap-1 border-r border-border bg-background py-3 md:flex"
       >
         {primaryNav.map((item) => (
           <RailLink key={item.href} item={item} active={isActive(pathname, item.href)} />
@@ -118,7 +118,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 : chrome === "home"
                   ? "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]"
                   : "pt-0 pb-[calc(68px+env(safe-area-inset-bottom))]",
-          "md:pt-[72px] md:pb-0 md:pl-[76px]",
+          "md:pt-[81px] md:pb-0 md:pl-[76px]",
         )}
       >
         <AnnouncementBanner />

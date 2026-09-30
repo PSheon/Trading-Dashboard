@@ -114,7 +114,11 @@
                                 "BTC",
                                 "ETH",
                                 "SOL",
-                                "HYPE"
+                                "HYPE",
+                                "xyz:SP500",
+                                "xyz:GOLD",
+                                "xyz:NVDA",
+                                "xyz:TSLA"
                               ]
                             },
                             "hideVaults": {
@@ -142,6 +146,52 @@
                                 "any"
                               ],
                               "default": "month"
+                            },
+                            "candidatePoolSize": {
+                              "type": "integer",
+                              "minimum": 50,
+                              "maximum": 5000,
+                              "default": 1000
+                            },
+                            "poolWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 240
+                            },
+                            "cryptoBoards": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
+                              },
+                              "maxItems": 16,
+                              "default": [
+                                "BTC",
+                                "ETH",
+                                "SOL",
+                                "DOGE",
+                                "HYPE",
+                                "ZEC",
+                                "NEAR"
+                              ]
+                            },
+                            "stockBoards": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
+                              },
+                              "maxItems": 16,
+                              "default": [
+                                "xyz:SP500",
+                                "xyz:GOLD",
+                                "xyz:CL",
+                                "xyz:NVDA",
+                                "xyz:TSLA",
+                                "xyz:BRENTOIL",
+                                "xyz:SILVER"
+                              ]
                             }
                           },
                           "additionalProperties": false
@@ -405,7 +455,11 @@
                                 "BTC",
                                 "ETH",
                                 "SOL",
-                                "HYPE"
+                                "HYPE",
+                                "xyz:SP500",
+                                "xyz:GOLD",
+                                "xyz:NVDA",
+                                "xyz:TSLA"
                               ]
                             },
                             "hideVaults": {
@@ -433,6 +487,52 @@
                                 "any"
                               ],
                               "default": "month"
+                            },
+                            "candidatePoolSize": {
+                              "type": "integer",
+                              "minimum": 50,
+                              "maximum": 5000,
+                              "default": 1000
+                            },
+                            "poolWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 240
+                            },
+                            "cryptoBoards": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
+                              },
+                              "maxItems": 16,
+                              "default": [
+                                "BTC",
+                                "ETH",
+                                "SOL",
+                                "DOGE",
+                                "HYPE",
+                                "ZEC",
+                                "NEAR"
+                              ]
+                            },
+                            "stockBoards": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
+                              },
+                              "maxItems": 16,
+                              "default": [
+                                "xyz:SP500",
+                                "xyz:GOLD",
+                                "xyz:CL",
+                                "xyz:NVDA",
+                                "xyz:TSLA",
+                                "xyz:BRENTOIL",
+                                "xyz:SILVER"
+                              ]
                             }
                           },
                           "additionalProperties": false
@@ -1370,6 +1470,18 @@
                           }
                         },
                         "homeMarkets": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "cryptoBoards": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "stockBoards": {
                           "type": "array",
                           "items": {
                             "type": "string"
@@ -7993,7 +8105,8 @@
                               "leaders.import",
                               "rules.read",
                               "rules.manage",
-                              "alerts.readAll"
+                              "alerts.readAll",
+                              "kols.manage"
                             ]
                           }
                         },
@@ -8148,7 +8261,8 @@
                               "leaders.import",
                               "rules.read",
                               "rules.manage",
-                              "alerts.readAll"
+                              "alerts.readAll",
+                              "kols.manage"
                             ]
                           }
                         },
@@ -9022,6 +9136,1780 @@
         "x-required-roles": [],
         "description": "Access: user"
       }
+    },
+    "/discover/boards": {
+      "get": {
+        "description": "One explore board: fixed top 100, crypto or stocks, top100 / kol / a coin.\n\nAccess: public",
+        "operationId": "DiscoveryController_board",
+        "parameters": [
+          {
+            "name": "market",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "crypto",
+              "type": "string",
+              "enum": [
+                "crypto",
+                "stocks"
+              ]
+            }
+          },
+          {
+            "name": "board",
+            "required": false,
+            "in": "query",
+            "description": "top100, kol, or a coin (BTC, xyz:TSLA)",
+            "schema": {
+              "pattern": "^(?:top100|kol|(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20})$",
+              "default": "top100",
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "copyScore",
+              "type": "string",
+              "enum": [
+                "copyScore",
+                "pnl",
+                "roi",
+                "accountValue"
+              ]
+            }
+          },
+          {
+            "name": "window",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "30d",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "style",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "scalp",
+                "intraday",
+                "swing",
+                "position"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "market": {
+                          "type": "string",
+                          "enum": [
+                            "crypto",
+                            "stocks"
+                          ]
+                        },
+                        "board": {
+                          "type": "string"
+                        },
+                        "coin": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sort": {
+                          "type": "string",
+                          "enum": [
+                            "copyScore",
+                            "pnl",
+                            "roi",
+                            "accountValue"
+                          ]
+                        },
+                        "window": {
+                          "type": "string",
+                          "enum": [
+                            "30d",
+                            "all"
+                          ]
+                        },
+                        "style": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "scalp",
+                                "intraday",
+                                "swing",
+                                "position"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "style": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "scalp",
+                                      "intraday",
+                                      "swing",
+                                      "position"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "topCoins": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "sparkline": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "accountValue",
+                              "pnl",
+                              "roi",
+                              "copyScore",
+                              "style",
+                              "topCoins",
+                              "lastTradeAt",
+                              "sparkline"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pool": {
+                          "type": "object",
+                          "properties": {
+                            "ready": {
+                              "type": "integer"
+                            },
+                            "total": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "ready",
+                            "total"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "market",
+                        "board",
+                        "coin",
+                        "sort",
+                        "window",
+                        "style",
+                        "items",
+                        "pool",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Board",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/home": {
+      "get": {
+        "description": "Every home-page row and the calculator's traders in one read.\n\nAccess: public",
+        "operationId": "DiscoveryController_home",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "featured": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "style": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "scalp",
+                                      "intraday",
+                                      "swing",
+                                      "position"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "topCoins": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "sparkline": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "accountValue",
+                              "pnl",
+                              "roi",
+                              "copyScore",
+                              "style",
+                              "topCoins",
+                              "lastTradeAt",
+                              "sparkline"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "crypto": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "style": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "scalp",
+                                      "intraday",
+                                      "swing",
+                                      "position"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "topCoins": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "sparkline": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "accountValue",
+                              "pnl",
+                              "roi",
+                              "copyScore",
+                              "style",
+                              "topCoins",
+                              "lastTradeAt",
+                              "sparkline"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "stocks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "style": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "scalp",
+                                      "intraday",
+                                      "swing",
+                                      "position"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "topCoins": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "sparkline": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "accountValue",
+                              "pnl",
+                              "roi",
+                              "copyScore",
+                              "style",
+                              "topCoins",
+                              "lastTradeAt",
+                              "sparkline"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "markets": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "market": {
+                                "type": "string",
+                                "enum": [
+                                  "crypto",
+                                  "stocks"
+                                ]
+                              },
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "address": {
+                                      "type": "string"
+                                    },
+                                    "displayName": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "avatarUrl": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "xHandle": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "verified": {
+                                      "type": "boolean"
+                                    },
+                                    "kol": {
+                                      "type": "boolean"
+                                    },
+                                    "accountValue": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "pnl": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "roi": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "copyScore": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "style": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "scalp",
+                                            "intraday",
+                                            "swing",
+                                            "position"
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "topCoins": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "lastTradeAt": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "date-time"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "sparkline": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "number"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "address",
+                                    "displayName",
+                                    "avatarUrl",
+                                    "xHandle",
+                                    "verified",
+                                    "kol",
+                                    "accountValue",
+                                    "pnl",
+                                    "roi",
+                                    "copyScore",
+                                    "style",
+                                    "topCoins",
+                                    "lastTradeAt",
+                                    "sparkline"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "market",
+                              "items"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "calculator": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "style": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "scalp",
+                                      "intraday",
+                                      "swing",
+                                      "position"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "topCoins": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "sparkline": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "accountValue",
+                              "pnl",
+                              "roi",
+                              "copyScore",
+                              "style",
+                              "topCoins",
+                              "lastTradeAt",
+                              "sparkline"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "featured",
+                        "crypto",
+                        "stocks",
+                        "markets",
+                        "calculator",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Home rows",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/traders/{address}/copy-score": {
+      "get": {
+        "operationId": "CopyScoreController_copyScore",
+        "parameters": [
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "address": {
+                          "type": "string"
+                        },
+                        "copyScore": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "components": {
+                          "type": "object",
+                          "properties": {
+                            "roi": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "pnl": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "sharpe": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "maxDrawdown": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "returnSamples": {
+                              "type": "integer"
+                            },
+                            "spanDays": {
+                              "type": "number"
+                            },
+                            "accountValue": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "roi",
+                            "pnl",
+                            "sharpe",
+                            "maxDrawdown",
+                            "returnSamples",
+                            "spanDays",
+                            "accountValue"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "version": {
+                          "type": "string",
+                          "const": "copydog-v5-fit"
+                        }
+                      },
+                      "required": [
+                        "address",
+                        "copyScore",
+                        "components",
+                        "version"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Copy score",
+        "tags": [
+          "CopyScore"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: public; 503 busy"
+      }
+    },
+    "/admin/kols": {
+      "get": {
+        "operationId": "AdminKolController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "address": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "avatarUrl": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "xHandle": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "verified": {
+                            "type": "boolean"
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "address",
+                          "displayName",
+                          "avatarUrl",
+                          "xHandle",
+                          "verified",
+                          "sortOrder",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List KOLs",
+        "tags": [
+          "AdminKol"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "kols.manage"
+        ],
+        "x-required-roles": [],
+        "description": "Access: kols.manage"
+      },
+      "post": {
+        "operationId": "AdminKolController_upsert",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KolInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        201
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "address": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "avatarUrl": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "xHandle": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "verified": {
+                          "type": "boolean"
+                        },
+                        "sortOrder": {
+                          "type": "integer"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "address",
+                        "displayName",
+                        "avatarUrl",
+                        "xHandle",
+                        "verified",
+                        "sortOrder",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Add or replace a KOL",
+        "tags": [
+          "AdminKol"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "kols.manage"
+        ],
+        "x-required-roles": [],
+        "description": "Access: kols.manage"
+      }
+    },
+    "/admin/kols/import": {
+      "post": {
+        "operationId": "AdminKolController_import",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KolImportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        201
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "inserted": {
+                          "type": "integer"
+                        },
+                        "updated": {
+                          "type": "integer"
+                        },
+                        "removed": {
+                          "type": "integer"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "line": {
+                                "type": "integer"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "line",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "inserted",
+                        "updated",
+                        "removed",
+                        "errors"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Import KOLs from CSV",
+        "tags": [
+          "AdminKol"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "kols.manage"
+        ],
+        "x-required-roles": [],
+        "description": "Access: kols.manage"
+      }
+    },
+    "/admin/kols/{address}": {
+      "patch": {
+        "operationId": "AdminKolController_patch",
+        "parameters": [
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KolPatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "address": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "avatarUrl": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "xHandle": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "verified": {
+                          "type": "boolean"
+                        },
+                        "sortOrder": {
+                          "type": "integer"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "address",
+                        "displayName",
+                        "avatarUrl",
+                        "xHandle",
+                        "verified",
+                        "sortOrder",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Edit a KOL",
+        "tags": [
+          "AdminKol"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "kols.manage"
+        ],
+        "x-required-roles": [],
+        "description": "Access: kols.manage"
+      },
+      "delete": {
+        "operationId": "AdminKolController_remove",
+        "parameters": [
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Remove a KOL",
+        "tags": [
+          "AdminKol"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "kols.manage"
+        ],
+        "x-required-roles": [],
+        "description": "Access: kols.manage"
+      }
     }
   },
   "info": {
@@ -9133,6 +11021,32 @@
               "month",
               "any"
             ]
+          },
+          "candidatePoolSize": {
+            "type": "integer",
+            "minimum": 50,
+            "maximum": 5000
+          },
+          "poolWeightPerMinute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600
+          },
+          "cryptoBoards": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
+            }
+          },
+          "stockBoards": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
+            }
           }
         },
         "additionalProperties": false,
@@ -9435,6 +11349,107 @@
             ],
             "minimum": 0,
             "maximum": 1000000000000
+          }
+        },
+        "additionalProperties": false
+      },
+      "KolInputDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 512,
+            "description": "https URL; omit to derive from the 𝕏 handle"
+          },
+          "xHandle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_]{1,15}$"
+          },
+          "verified": {
+            "type": "boolean",
+            "default": false
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "default": 0
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "additionalProperties": false
+      },
+      "KolImportDto": {
+        "type": "object",
+        "properties": {
+          "csv": {
+            "type": "string",
+            "maxLength": 500000,
+            "description": "CSV with a header row: address, display_name, x_handle, verified, sort_order[, avatar_url]"
+          },
+          "replace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Remove KOLs the file doesn't list (only when every row is valid)"
+          }
+        },
+        "required": [
+          "csv"
+        ],
+        "additionalProperties": false
+      },
+      "KolPatchDto": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 512
+          },
+          "xHandle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_]{1,15}$"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
           }
         },
         "additionalProperties": false

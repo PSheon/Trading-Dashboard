@@ -239,3 +239,12 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - FillSyncRepository 負責成交寫入、TWAP 查詢與 action persistence；FillSyncService 保留分頁、同步排程、分類／修正政策及事件協調。共用 action-store 的 lockActions，鎖定 namespace 與 fast path 不變。
 - 原始成交與 action 的兩階段寫入刻意保留，後續 replay 修復中斷；action/outbox 同交易，事件僅提交後發出，backfill 不發交易通知。手動 live 測試只更新 constructor，沒有執行。
 - JSDoc 說明交易、重播與鎖定前提，repository 在所屬 module 私有註冊。尚餘 8 個直接注入 Drizzle 的 service：WatcherService、FeedActionsService、SchedulerService、RoundTripService、RulesSeedService、AdminOverviewService、AlertRulesService、LeaderboardIngestService；多副本 watcher ownership 仍非此批解決範圍。
+
+
+## 2026-09-30：Watcher、FeedActions 與 Scheduler 分層
+
+- WatcherRepository 查詢目前有效監控地址；訂閱、補抓排程、合併工作與 lifecycle 留在 WatcherService，仍維持既有單實例協調模式。
+- FeedActionsService 在遠端帳戶刷新後建立 UnitOfWork。FeedActionsRepository 使用與 FillSync 相同的 lockActions／coverage／action-outbox helper；提交後發出事件，finally 更新 position book 的行為保持。
+- SchedulerService 保留跨 dex 金額彙總、持倉變動判斷、併發限制及狀態記錄。SchedulerRepository 在同交易寫入 equity／positions，並查詢前次快照之後的成交 coin；錯誤持倉造成 equity 一併回滾。
+- 新 repository 私有註冊，JSDoc 描述交易、鎖定與事件前提；coin metadata refresh／post-alert scoring 明確標成尚未實作，非已啟用排程。
+- 最新直接注入 Drizzle 的 service 剩 5 個：AdminOverviewService、AlertRulesService、RulesSeedService、RoundTripService、LeaderboardIngestService。移除直接 SQL 不等同於解決多副本 watcher ownership，後者仍須獨立驗證與設計。

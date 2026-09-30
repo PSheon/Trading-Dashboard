@@ -1,3 +1,5 @@
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { FeedActionsRepository } from "../src/watcher/feed-actions.repository.js";
 import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
@@ -39,7 +41,7 @@ describe("FeedActionsService (fast path) — real Postgres, fake Hyperliquid", (
     const events = new EventEmitter2();
     emitted = [];
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
-    fast = new FeedActionsService(testConfig(), db, accounts, events);
+    fast = new FeedActionsService(testConfig(), new FeedActionsRepository(), new UnitOfWork(db), accounts, events);
   });
 
   afterAll(async () => {

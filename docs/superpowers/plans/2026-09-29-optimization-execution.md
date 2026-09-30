@@ -205,3 +205,14 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Concurrent dev advanced to 6257fab with a frontend-only signed-in request deduplication fix. Rebase must preserve that change and verify the combined frontend.
 - Final rebased verification: API 61 files / 704 tests; web 20 files / 81 tests plus typecheck/lint passed. Backend/shared/scripts/dependency tree is byte-identical to the tested feature commit after rebase; compiled bootstrap checks remain applicable. No source changes in Claude's frontend files.
 - Remaining direct-Drizzle service inventory is 8, recorded in the architecture audit; this batch does not claim full backend or Copydog execution completion.
+
+
+## Fifteenth batch — Watcher, FeedActions and Scheduler repositories (base 5200851)
+
+- Observed RED in the service repository-boundary gate for all three targets. Added private repository providers and updated real/stubbed constructors, including compile-only manual live test code.
+- Watcher reads uncached active addresses through its repository. Fast path service owns UnitOfWork, acquiring the same address lock as FillSync after upstream requests; coverage check/action/outbox persist together, emit follows commit, position-book finally behavior preserved.
+- Scheduler retains aggregation and reconciliation policy; repository persists equity and positions in the caller's transaction. Existing real DB rollback test remains the behavior gate. Query scope and strict after-snapshot time comparison are unchanged.
+- Ruling: do not combine multi-instance ownership redesign with persistence extraction. Existing shutdown, bounded concurrency and local flight coalescing remain in services; cross-instance watcher scheduling remains a documented limitation.
+- Applied module/JSDoc conventions and clarified two unimplemented scheduler methods; no new cron, provider export or external behavior is introduced.
+- Verification passed: API typecheck/lint/build, OpenAPI freshness, 61 files / 707 tests, compiled bootstrap DI/DTO/readiness 200/503 and Swagger equality. Existing snapshot rollback, watcher sweep coalescing and fast/slow-path integration tests are included. Fresh review (worker_final_review, gpt-6-astra) found no concrete regression.
+- Frontend/shared/dependencies are unchanged; dev remains at the original base. No live exchange test, real message, trade, deployment or production migration performed.

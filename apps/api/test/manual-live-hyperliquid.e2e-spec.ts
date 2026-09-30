@@ -1,3 +1,5 @@
+import { WatcherRepository } from "../src/watcher/watcher.repository.js";
+import { FeedActionsRepository } from "../src/watcher/feed-actions.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
 import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
@@ -111,8 +113,8 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("live Hyperliquid + real Postgres (ma
     const accounts = new AccountStateService(info, new AccountStateRepository(db));
     const fillSync = new FillSyncService(testConfig(), info, new FillSyncRepository(db), new UnitOfWork(db), accounts, tagged("slow"));
     const feed = new TradeFeedService(testConfig(), info);
-    const feedActions = new FeedActionsService(testConfig(), db, accounts, tagged("fast"));
-    const watcher = new WatcherService(testConfig(), feed, fillSync, accounts, feedActions, db);
+    const feedActions = new FeedActionsService(testConfig(), new FeedActionsRepository(), new UnitOfWork(db), accounts, tagged("fast"));
+    const watcher = new WatcherService(testConfig(), feed, fillSync, accounts, feedActions, new WatcherRepository(db));
 
     await watcher.refreshWatched();
     startedAt = Date.now();

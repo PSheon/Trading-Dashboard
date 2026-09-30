@@ -1,3 +1,4 @@
+import { SchedulerRepository } from "../src/scheduler/scheduler.repository.js";
 import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { LeadersRepository } from "../src/api/leaders/leaders.repository.js";
@@ -58,7 +59,8 @@ describe("SchedulerService — real Postgres", () => {
       { sync } as unknown as FillSyncService,
       { status: () => feedStatus } as unknown as TradeFeedService,
       notify as unknown as NotifyService,
-      db,
+      new SchedulerRepository(db),
+      new UnitOfWork(db),
     );
   });
 

@@ -31,4 +31,4 @@ Inline comments explain why a local statement exists. Remove stale phase labels 
 
 For behavior changes, add regression coverage at the observable boundary. Preserve real PostgreSQL coverage for locking, rollback and concurrent writes. For behavior-preserving setup extraction, run existing HTTP tests and the compiled bootstrap smoke test; typecheck alone cannot prove wiring or middleware order. Avoid tests that merely mirror formatting or require a comment on every method.
 
-Keep current contract/architecture documentation and the execution ledger in sync. A completed feature refactor does not imply all backend modules conform: watcher orchestration, feed actions, rules seed and other legacy services still require incremental review.
+Keep current contract/architecture documentation and the execution ledger in sync. A completed feature refactor does not imply all backend modules conform: rules seed, round-trip analytics, leaderboard ingestion and other legacy services still require incremental review.

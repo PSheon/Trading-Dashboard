@@ -1,3 +1,5 @@
+import { WatcherRepository } from "../src/watcher/watcher.repository.js";
+import { FeedActionsRepository } from "../src/watcher/feed-actions.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
 import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
@@ -62,7 +64,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
     corrected = [];
     events.on(ACTION_CORRECTED_EVENT, (event) => corrected.push(event));
-    fast = new FeedActionsService(testConfig(), db, accounts, events);
+    fast = new FeedActionsService(testConfig(), new FeedActionsRepository(), new UnitOfWork(db), accounts, events);
     sync = new FillSyncService(testConfig(), client, new FillSyncRepository(db), new UnitOfWork(db), accounts, events);
   });
 
@@ -210,7 +212,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
         sync,
         new AccountStateService(info as unknown as HyperliquidInfoClient, new AccountStateRepository(db)),
         fast,
-        db,
+        new WatcherRepository(db),
       );
       try {
         const t = Date.now();

@@ -1,14 +1,14 @@
-import { AppConfig } from "../config/app-config.js";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { AppConfig } from "../config/app-config.js";
+import { UnitOfWork } from "../db/unit-of-work.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { FeedActionsRepository } from "./feed-actions.repository.js";
 import type { HlUserFill, HlWsTrade } from "../hyperliquid/types.js";
 import { AccountStateService } from "./account-state.service.js";
 import { classifyFills, fromScaled, toScaled, type ActionDraft } from "./action-classifier.js";
-import { actionsCovering, emitRecent, insertActions, withActionLock } from "./action-store.js";
+import { emitRecent } from "./action-store.js";
 import { dexOf, type BookTrade } from "./position-book.js";
 
 /** `dir` of a fill built from the feed (the feed has none; only spot dirs
@@ -35,7 +35,8 @@ export class FeedActionsService {
 
   constructor(
     private readonly config: AppConfig,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: FeedActionsRepository,
+    private readonly unitOfWork: UnitOfWork,
     private readonly accounts: AccountStateService,
     @Optional() private readonly events?: EventEmitter2,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
@@ -78,14 +79,15 @@ export class FeedActionsService {
         }
       }
 
-      const rows = await withActionLock(this.db, address, async (tx) => {
+      const rows = await this.unitOfWork.run(async (tx) => {
+        await this.repository.lock(tx, address);
         const tids = burst.map((t) => t.book.tid);
-        const covering = await actionsCovering(tx, address, tids, Math.min(...burst.map((t) => t.book.time)));
+        const covering = await this.repository.covering(tx, address, tids, Math.min(...burst.map((t) => t.book.time)));
         if (covering.length > 0) {
           const covered = new Set(covering.flatMap((a) => a.fillIds));
           drafts = this.classify(address, burst, covered);
         }
-        return insertActions(tx, address, drafts, true, this.accounts.getEquityUsd(address), this.config.value.alert.maxActionAgeSeconds);
+        return this.repository.insert(tx, address, drafts, this.accounts.getEquityUsd(address), this.config.value.alert.maxActionAgeSeconds);
       });
       emitRecent(this.events, rows, this.config.value.alert.maxActionAgeSeconds);
       return rows.length;

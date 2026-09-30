@@ -1,14 +1,11 @@
-import { forEachConcurrent } from "../runtime/concurrency.js";
-import { Optional } from "@nestjs/common";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
-import { and, eq, gt, inArray } from "drizzle-orm";
-import { equitySnapshots, fills, positionSnapshots } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { UnitOfWork } from "../db/unit-of-work.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { forEachConcurrent } from "../runtime/concurrency.js";
+import { SchedulerRepository } from "./scheduler.repository.js";
 import { NotifyService } from "../notify/notify.service.js";
 import { AccountStateService, MAIN_DEX, type AccountState } from "../watcher/account-state.service.js";
 import { FillSyncService } from "../watcher/fill-sync.service.js";
@@ -45,7 +42,8 @@ export class SchedulerService {
     private readonly fillSync: FillSyncService,
     private readonly feed: TradeFeedService,
     private readonly notify: NotifyService,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: SchedulerRepository,
+    private readonly unitOfWork: UnitOfWork,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
@@ -138,18 +136,7 @@ export class SchedulerService {
     );
     if (changed.length === 0) return false;
 
-    const seen = await this.db
-      .selectDistinct({ coin: fills.coin })
-      .from(fills)
-      .where(
-        and(
-          eq(fills.chain, CHAIN_DEFAULT),
-          eq(fills.address, address),
-          inArray(fills.coin, changed),
-          gt(fills.ts, previous.fetchedAt),
-        ),
-      );
-    const covered = new Set(seen.map((r) => r.coin));
+    const covered = await this.repository.coinsWithFillsSince(address, changed, previous.fetchedAt);
     const unexplained = changed.filter((coin) => !covered.has(coin));
     if (unexplained.length === 0) return false;
 
@@ -167,44 +154,38 @@ export class SchedulerService {
       accountValue += Number(response.marginSummary.accountValue);
       totalMarginUsed += Number(response.marginSummary.totalMarginUsed);
     }
-    await this.db.transaction(async (tx) => {
-      await tx
-        .insert(equitySnapshots)
-        .values({
-          chain: CHAIN_DEFAULT,
-          address,
-          ts: state.fetchedAt,
-          accountValue: accountValue.toString(),
-          totalMarginUsed: totalMarginUsed.toString(),
-          withdrawable: state.byDex.get(MAIN_DEX)?.withdrawable ?? "0",
-        })
-        .onConflictDoNothing();
-
-      const rows = [...state.byDex.values()]
-        .flatMap((response) => response.assetPositions)
-        .filter((ap) => Number(ap.position.szi) !== 0)
-        .map((ap) => ({
-          chain: CHAIN_DEFAULT,
-          address,
-          coin: ap.position.coin,
-          ts: state.fetchedAt,
-          szi: ap.position.szi,
-          entryPx: ap.position.entryPx ?? null,
-          leverage: ap.position.leverage?.value?.toString() ?? null,
-          marginMode: ap.position.leverage?.type ?? null,
-          unrealizedPnl: ap.position.unrealizedPnl,
-          liqPx: ap.position.liquidationPx ?? null,
-        }));
-      if (rows.length > 0) await tx.insert(positionSnapshots).values(rows).onConflictDoNothing();
-    });
+    const equity = {
+      chain: CHAIN_DEFAULT,
+      address,
+      ts: state.fetchedAt,
+      accountValue: accountValue.toString(),
+      totalMarginUsed: totalMarginUsed.toString(),
+      withdrawable: state.byDex.get(MAIN_DEX)?.withdrawable ?? "0",
+    };
+    const rows = [...state.byDex.values()]
+      .flatMap((response) => response.assetPositions)
+      .filter((ap) => Number(ap.position.szi) !== 0)
+      .map((ap) => ({
+        chain: CHAIN_DEFAULT,
+        address,
+        coin: ap.position.coin,
+        ts: state.fetchedAt,
+        szi: ap.position.szi,
+        entryPx: ap.position.entryPx ?? null,
+        leverage: ap.position.leverage?.value?.toString() ?? null,
+        marginMode: ap.position.leverage?.type ?? null,
+        unrealizedPnl: ap.position.unrealizedPnl,
+        liqPx: ap.position.liquidationPx ?? null,
+      }));
+    await this.unitOfWork.run((tx) => this.repository.save(tx, equity, rows));
   }
 
-  /** Refreshes coin_meta from `meta()` (szDecimals, max leverage). M3. */
+  /** Deferred coin metadata refresh; throws until persistence and scheduling are implemented. */
   async refreshCoinMeta(): Promise<void> {
     throw new Error("not implemented");
   }
 
-  /** N3: mid price 1h/4h/24h after a sent alert. M3. */
+  /** Deferred post-alert price scoring (1h/4h/24h); not an active scheduled job. */
   async scoreAlert(_alertId: bigint): Promise<void> {
     throw new Error("not implemented");
   }

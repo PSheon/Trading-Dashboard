@@ -1,20 +1,9 @@
-import { AppConfig } from "../config/app-config.js";
-import { forEachConcurrent } from "../runtime/concurrency.js";
-import { Optional } from "@nestjs/common";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import {
-  Inject,
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-  OnModuleDestroy,
-} from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
-import { leaders } from "@trading-dashboard/shared/database";
-import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
+import { Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { AppConfig } from "../config/app-config.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { forEachConcurrent } from "../runtime/concurrency.js";
+import { WatcherRepository } from "./watcher.repository.js";
 import type { HlWsTrade } from "../hyperliquid/types.js";
 import { AccountStateService } from "./account-state.service.js";
 import { GROUP_GAP_MS } from "./action-classifier.js";
@@ -107,7 +96,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly fillSync: FillSyncService,
     private readonly accounts: AccountStateService,
     private readonly feedActions: FeedActionsService,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: WatcherRepository,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
@@ -167,11 +156,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   async activeAddresses(): Promise<string[]> {
-    const rows = await this.db
-      .select({ address: leaders.address })
-      .from(leaders)
-      .where(and(eq(leaders.chain, CHAIN_DEFAULT), eq(leaders.active, true)));
-    return rows.map((r) => r.address);
+    return this.repository.activeAddresses();
   }
 
   async refreshWatched(): Promise<void> {

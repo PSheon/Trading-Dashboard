@@ -1,3 +1,4 @@
+import { WatcherRepository } from "../src/watcher/watcher.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { leaders } from "@trading-dashboard/shared/database";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,7 +46,7 @@ describe("WatcherService", () => {
       { sync, getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
       { getEquityUsd: () => null, dropBooks } as unknown as AccountStateService,
       { process: fastPath } as unknown as FeedActionsService,
-      db,
+      new WatcherRepository(db),
     );
   });
 

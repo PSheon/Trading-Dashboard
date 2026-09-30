@@ -151,6 +151,12 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       expect((await alice.get("/me").expect(200)).body.data).toMatchObject({ locale: "en", displayName: "Alice" });
     });
 
+    it("accepts CopyDog's eleven languages", async () => {
+      for (const locale of ["en", "zh-CN", "ko", "ja", "ru", "tr", "vi", "es", "pt", "id", "zh-TW"]) {
+        expect((await alice.patch("/me", { locale }).expect(200)).body.data.locale).toBe(locale);
+      }
+    });
+
     it("rejects an unknown locale or an over-long name with 400", async () => {
       await alice.patch("/me", { locale: "fr" }).expect(400);
       await alice.patch("/me", { displayName: "x".repeat(65) }).expect(400);

@@ -45,10 +45,6 @@ export const en: Messages = {
     fixtureBadge: "Demo data",
     announcement: "Announcement",
   },
-  locales: {
-    "zh-TW": "繁體中文",
-    en: "English",
-  },
   common: {
     loading: "Loading…",
     error: "Failed to load",

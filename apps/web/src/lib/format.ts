@@ -1,4 +1,4 @@
-import { TIME_ZONE, type Locale } from "@/i18n/config";
+import { TIME_ZONE, numberLocale, type Locale } from "@/i18n/config";
 
 /**
  * Locale-aware number/currency/percent/time formatting, all through `Intl`
@@ -86,10 +86,12 @@ export function numCompact(value: Numeric): string {
 
 export function createFormatter(locale: Locale): Formatter {
   const cache = new Map<string, Intl.NumberFormat>();
-  const nf = (key: string, options: Intl.NumberFormatOptions) => {
+  // Money, counts and percentages: CopyDog's en-US digits in every language
+  // (numberLocale). Units in durations follow the language ("3 ч", "3時間").
+  const nf = (key: string, options: Intl.NumberFormatOptions, language = false) => {
     let f = cache.get(key);
     if (!f) {
-      f = new Intl.NumberFormat(locale, options);
+      f = new Intl.NumberFormat(language ? locale : numberLocale(locale), options);
       cache.set(key, f);
     }
     return f;
@@ -221,7 +223,7 @@ export function createFormatter(locale: Locale): Formatter {
           unit: u,
           unitDisplay: "narrow",
           maximumFractionDigits: digits,
-        }).format(n);
+        }, true).format(n);
       if (seconds < 3600) return unit("minute", Math.round(seconds / 60), 0);
       if (seconds < 48 * 3600) return unit("hour", seconds / 3600, 1);
       return unit("day", seconds / 86400, 1);

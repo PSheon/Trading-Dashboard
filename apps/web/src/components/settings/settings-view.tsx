@@ -34,7 +34,7 @@ import {
 import { shortAddress } from "@/components/wallet/bits";
 import { WalletHistoryList } from "@/components/wallet/history-list";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
-import { LOCALES, isLocale } from "@/i18n/config";
+import { LOCALE_NAMES, LOCALES, isLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { useAuth, useMe } from "@/lib/auth";
 import { useChangeLocale } from "@/lib/use-change-locale";
@@ -153,7 +153,7 @@ function LanguageSelect() {
           aria-label={t("settings.language")}
           className="flex h-9 w-[150px] items-center justify-between gap-2 rounded-full bg-raised pr-3 pl-3.5 text-[0.8125rem] font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {t(`locales.${locale}`)}
+          {LOCALE_NAMES[locale]}
           <ChevronDown className="size-4 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
@@ -161,7 +161,7 @@ function LanguageSelect() {
         <DropdownMenuRadioGroup value={locale} onValueChange={(v) => isLocale(v) && changeLocale(v)}>
           {LOCALES.map((l) => (
             <DropdownMenuRadioItem key={l} value={l}>
-              {t(`locales.${l}`)}
+              {LOCALE_NAMES[l]}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -407,7 +407,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
           <p className="mt-7 text-xs text-muted-foreground">{t("settings.general")}</p>
           <div className="mt-1">
             {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => setView("notifications")} /> : null}
-            <PhoneRow icon={Globe} label={t("settings.language")} value={t(`locales.${locale}`)} onClick={() => setView("language")} />
+            <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => setView("language")} />
             {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => setView("history")} /> : null}
           </div>
 
@@ -509,7 +509,7 @@ function LanguageList() {
           onClick={() => changeLocale(l)}
           className="flex h-[54px] w-full items-center border-b border-border text-left text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex-1">{t(`locales.${l}`)}</span>
+          <span className="flex-1">{LOCALE_NAMES[l]}</span>
           {l === locale ? <span className="size-2.5 rounded-full bg-primary" /> : null}
         </button>
       ))}

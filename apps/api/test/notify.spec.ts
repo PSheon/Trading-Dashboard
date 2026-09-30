@@ -79,6 +79,11 @@ describe("message template", () => {
     expect(
       renderAlertMessage({ locale: "zh-TW", traderName: null, action: { ...base, kind: "flip", side: "short" }, dashboardUrl: url }),
     ).toContain("🔴 賣出 · 翻倉 多→空 BTC");
+    // Telegram speaks 繁中 and English only: every other UI language reads English.
+    for (const locale of ["ko", "ja", "ru", "zh-CN"] as const) {
+      expect(renderAlertMessage({ locale, traderName: null, action: { ...base, kind: "close", side: "long" }, dashboardUrl: url }))
+        .toContain("🔴 Sell · Close long BTC");
+    }
   });
 });
 

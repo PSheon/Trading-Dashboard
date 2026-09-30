@@ -24,7 +24,8 @@ export const alertRuleKindEnum = [
 ] as const;
 export const sendStatusEnum = ["pending", "sent", "failed", "dry_run"] as const;
 export const userRoleEnum = ["user", "admin"] as const;
-export const localeEnum = ["zh-TW", "en"] as const;
+/** UI languages, in CopyDog's menu order. Stored as text (users.locale): adding one needs no migration. */
+export const localeEnum = ["en", "zh-TW", "zh-CN", "ko", "ja", "ru", "tr", "vi", "es", "pt", "id"] as const;
 export const alertSidesEnum = ["buy", "sell", "both"] as const;
 export const notificationChannelKindEnum = ["telegram"] as const;
 export const traderWindowEnum = ["day", "week", "month", "allTime"] as const;

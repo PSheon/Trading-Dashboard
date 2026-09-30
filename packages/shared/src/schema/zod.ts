@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { appSettingsKeyEnum } from "../enums.js";
+import { appSettingsKeyEnum, localeEnum } from "../enums.js";
 import { PERMISSIONS } from "../permissions.js";
 
 export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -399,7 +399,7 @@ export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
 // ===========================================================================
 
 export const userRoleSchema = z.enum(["user", "admin"]);
-export const localeSchema = z.enum(["zh-TW", "en"]);
+export const localeSchema = z.enum(localeEnum);
 export type LocaleInput = z.infer<typeof localeSchema>;
 
 /** GET /me */

@@ -48,10 +48,6 @@ export const zhTW = {
     fixtureBadge: "示範資料",
     announcement: "公告",
   },
-  locales: {
-    "zh-TW": "繁體中文",
-    en: "English",
-  },
   common: {
     loading: "載入中…",
     error: "載入失敗",

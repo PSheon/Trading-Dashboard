@@ -11,17 +11,14 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip } from "@/components/ui/tooltip";
-import { LOCALES, isLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
-import { useChangeLocale } from "@/lib/use-change-locale";
 import { useAuth, useIsAdmin, useMe } from "@/lib/auth";
 import { API_FIXTURES } from "@/lib/config";
+import { LanguageMenu } from "./language-menu";
 import { useWallet } from "@/lib/wallet";
 
 /** Top-right, as on CopyDog: signed out → language + 登入; signed in → the
@@ -44,31 +41,15 @@ export function AccountControls() {
 }
 
 function LocaleMenu() {
-  const { t, locale } = useI18n();
-  const changeLocale = useChangeLocale();
+  const { t } = useI18n();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <LanguageMenu
+      trigger={
         <Button variant="secondary" size="icon" className="size-10 md:size-11" aria-label={t("topbar.language")}>
           <Globe className="size-[18px]" />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuLabel>{t("topbar.language")}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={locale}
-          onValueChange={(value) => {
-            if (isLocale(value)) changeLocale(value);
-          }}
-        >
-          {LOCALES.map((l) => (
-            <DropdownMenuRadioItem key={l} value={l}>
-              {t(`locales.${l}`)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      }
+    />
   );
 }
 

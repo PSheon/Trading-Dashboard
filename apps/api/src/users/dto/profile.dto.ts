@@ -1,11 +1,12 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
 import { IsString, IsBoolean, Min, Max, MaxLength, IsIn, IsNumber } from "class-validator";
 import { Optional, Nullable } from "../../common/decorators/input.decorator.js";
+import { localeEnum } from "@trading-dashboard/shared/contracts";
 import type * as c from "@trading-dashboard/shared/contracts";
 
 export class PatchMeDto {
-  @ApiPropertyOptional({ type: String, enum: ["zh-TW", "en"] })
-  @Optional() @IsIn(["zh-TW", "en"]) declare locale?: c.PatchMeRequest["locale"];
+  @ApiPropertyOptional({ type: String, enum: [...localeEnum] })
+  @Optional() @IsIn([...localeEnum]) declare locale?: c.PatchMeRequest["locale"];
   @ApiPropertyOptional({ type: String, nullable: true, maxLength: 64 })
   @Nullable() @IsString() @MaxLength(64) declare displayName?: string | null;
 }

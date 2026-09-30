@@ -27,7 +27,8 @@ export function shortAddress(address: string): string {
   return address.length <= 12 ? address : `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-const SIDE_WORD: Record<Locale, Record<TradeSide, string>> = {
+/** Telegram messages exist in 繁中 and English; every other UI language gets English. */
+const SIDE_WORD: Record<"zh-TW" | "en", Record<TradeSide, string>> = {
   "zh-TW": { buy: "買入", sell: "賣出" },
   en: { buy: "Buy", sell: "Sell" },
 };
@@ -35,7 +36,7 @@ const SIDE_WORD: Record<Locale, Record<TradeSide, string>> = {
 /** "開多", "Close short", "翻倉 空→多"… */
 export function actionLabel(action: Pick<ActionRow, "kind" | "side">, locale: Locale): string {
   const long = action.side === "long";
-  if (locale === "en") {
+  if (locale !== "zh-TW") {
     const pos = long ? "long" : "short";
     switch (action.kind) {
       case "open":
@@ -103,7 +104,7 @@ export function renderAlertMessage(params: {
     ? `${params.traderName} · ${shortAddress(action.address)}`
     : shortAddress(action.address);
   const lines = [
-    `${side === "buy" ? "🟢" : "🔴"} ${SIDE_WORD[locale][side]} · ${actionLabel(action, locale)} ${action.coin}`,
+    `${side === "buy" ? "🟢" : "🔴"} ${SIDE_WORD[zh ? "zh-TW" : "en"][side]} · ${actionLabel(action, locale)} ${action.coin}`,
     who,
     zh
       ? `名目 ${formatUsd(Number(action.notionalUsd))} · 價格 ${formatPrice(Number(action.avgPx))}`
@@ -118,7 +119,7 @@ export function renderAlertMessage(params: {
 
 /** POST /me/telegram/test. */
 export function renderTestMessage(locale: Locale, siteUrl: string): string {
-  return locale === "en"
+  return locale !== "zh-TW"
     ? `✅ Orbie test message\nYour Telegram is linked. Trade alerts for the traders you turn on will arrive here.\nManage alerts: ${siteUrl}/favorites`
     : `✅ Orbie 測試訊息\nTelegram 已連結，你開啟提醒的交易員一有動作就會通知到這裡。\n管理提醒：${siteUrl}/favorites`;
 }

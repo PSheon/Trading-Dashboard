@@ -12,7 +12,8 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "content:sync": "node scripts/sync-content.mjs"
   },
   "dependencies": {
     "@paulmillr/qr": "0.2.1",

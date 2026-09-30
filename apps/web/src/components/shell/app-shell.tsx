@@ -14,6 +14,8 @@ import { AddressSearch } from "./address-search";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
 import { adminNav, isActive, mobileNav, primaryNav, type NavItem } from "./nav";
 
+const BARE_PAGES = new Set(["/privacy", "/terms", "/delete-account"]);
+
 /**
  * CopyDog-style frame: full-width top bar (lockup, wide address search,
  * language, login), a 76 px icon rail with labels under the icons on
@@ -31,6 +33,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
   // CopyDog's phone portfolio has its own title bar (投資組合, bell, gear).
   const ownPhoneHeader = traderPage || barePhonePage || pathname === "/portfolio";
+
+  // CopyDog's legal pages are plain documents: no top bar, rail or tabs.
+  if (BARE_PAGES.has(pathname)) {
+    return (
+      <main id="main" tabIndex={-1} className="min-h-dvh outline-none">
+        {children}
+      </main>
+    );
+  }
 
   return (
     <WalletModalsProvider>

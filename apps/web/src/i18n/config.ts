@@ -10,6 +10,12 @@
 export const LOCALES = ["zh-TW", "en"] as const;
 export type Locale = (typeof LOCALES)[number];
 
+/** Each language in its own name, as CopyDog's menu lists them. */
+export const LOCALE_NAMES: Record<Locale, string> = {
+  en: "English",
+  "zh-TW": "繁體中文",
+};
+
 export const DEFAULT_LOCALE: Locale = "zh-TW";
 export const LOCALE_COOKIE = "locale";
 /** One year; the choice is a preference, not a session. */

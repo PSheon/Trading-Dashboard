@@ -16,6 +16,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { cn } from "cn";
@@ -30,7 +31,6 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tooltip } from "@/components/ui/tooltip";
 import { shortAddress } from "@/components/wallet/bits";
 import { WalletHistoryList } from "@/components/wallet/history-list";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
@@ -436,16 +436,12 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
 
           <div className="mt-12 flex flex-col items-center gap-3 text-xs text-subtle-foreground">
             <Wordmark className="text-[1.75rem] text-subtle-foreground" />
-            <Tooltip content={t("common.comingSoon")}>
-              <span tabIndex={0} className="underline underline-offset-2">
-                {t("settings.privacy")}
-              </span>
-            </Tooltip>
-            <Tooltip content={t("common.comingSoon")}>
-              <span tabIndex={0} className="underline underline-offset-2">
-                {t("settings.terms")}
-              </span>
-            </Tooltip>
+            <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
+              {t("settings.privacy")}
+            </Link>
+            <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
+              {t("settings.terms")}
+            </Link>
           </div>
         </>
       ) : (

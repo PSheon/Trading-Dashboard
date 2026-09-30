@@ -1,23 +1,21 @@
 "use client";
 
-import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Globe, Info, Trophy, UserRound } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Info, Trophy, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
-import { Wordmark, OrbieMark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, Skeleton } from "@/components/page";
+import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Tooltip } from "@/components/ui/tooltip";
-import { LOCALES } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { boardCoinLabel, roiPillShort } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
 import { useHomeBoards, useSiteSettings } from "@/lib/queries";
-import { useChangeLocale } from "@/lib/use-change-locale";
 
 const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
 const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
@@ -126,7 +124,7 @@ export function HomeView() {
             ))
           : null}
 
-      <Footer />
+      <SiteFooter />
     </div>
   );
 }
@@ -293,59 +291,3 @@ function HoverChart({ series, onHover }: { series: Array<readonly [number, numbe
   );
 }
 
-/** CopyDog's footer: brand, tagline, language; 資源 and 社群 columns;
- * copyright and legal links. Pages Orbie doesn't have yet are shown as
- * "coming soon" rather than linking to a 404. */
-function Footer() {
-  const { t, locale } = useI18n();
-  const changeLocale = useChangeLocale();
-  const next = LOCALES.find((l) => l !== locale) ?? locale;
-  const soon = (label: string) => (
-    <span className="cursor-default text-subtle-foreground/70" title={t("home.footer.soon")}>
-      {label}
-    </span>
-  );
-  return (
-    <footer className="mt-4 border-t border-border pt-8 pb-4 text-sm">
-      <div className="grid gap-8 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="flex flex-col items-start gap-3">
-          <span className="flex items-center gap-2 text-foreground">
-            <OrbieMark size={28} />
-            <Wordmark className="text-2xl" />
-          </span>
-          <p className="text-muted-foreground">{t("home.footer.tagline")}</p>
-          <button
-            type="button"
-            onClick={() => changeLocale(next)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-raised px-3.5 text-[0.8125rem] font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Globe className="size-4" />
-            {t(`locales.${locale}`)}
-          </button>
-        </div>
-        <nav aria-label={t("home.footer.resources")} className="flex flex-col gap-2.5">
-          <span className="font-semibold">{t("home.footer.resources")}</span>
-          <Link href="/methodology" className="text-muted-foreground hover:text-foreground">{t("home.footer.about")}</Link>
-          <Link href="/insights" className="text-muted-foreground hover:text-foreground">{t("home.footer.live")}</Link>
-          {soon(t("home.footer.faq"))}
-        </nav>
-        <nav aria-label={t("home.footer.community")} className="flex flex-col gap-2.5">
-          <span className="font-semibold">{t("home.footer.community")}</span>
-          {soon(t("home.footer.x"))}
-          <a href="https://t.me/orbie_fun_bot" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">
-            {t("home.footer.telegram")}
-          </a>
-          {soon(t("home.footer.email"))}
-          {soon(t("home.footer.tgIntel"))}
-        </nav>
-      </div>
-      <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-xs text-subtle-foreground">
-        <span>{t("home.footer.rights")}</span>
-        <span className="flex gap-4">
-          {soon(t("home.footer.privacy"))}
-          {soon(t("home.footer.terms"))}
-        </span>
-      </div>
-    </footer>
-  );
-}

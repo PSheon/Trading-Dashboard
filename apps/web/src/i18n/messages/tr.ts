@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const tr: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "Eşleşen trader'lar",
+    searchHint: "Kayıtlı KOL ve liderlik tablosu adlarında, X kullanıcı adlarında ve adreslerde arar; liderlik tablosu metriği olmayan KOL'lar da dahildir. Aşağıdaki performans filtreleri bu sonuçları sınırlamaz. Kaynak etiketi kimlik doğrulaması değildir.",
+    queryLength: "2–64 karakter girin; X kullanıcı adı @ ile başlayabilir.",
+    noMatches: "Eşleşen kayıtlı trader yok. Trader sayfasını açmak için tam cüzdan adresini yine de yapıştırabilirsiniz.",
+    registry: "KOL kaydı",
+    leaderboard: "Resmî liderlik tablosu",
+    noStats: "Henüz liderlik tablosu metriği yok",
+    more: "İlk 20 eşleşme gösteriliyor. Daha belirgin bir isim veya kullanıcı adı girin.",
+  },
   methodology: {
     history: "İşlem analizi yalnızca elde edilen gerçekleşmeleri kapsar. Tamamlanan geri doldurma, kaynağın sunduğu aralığın tarandığı anlamına gelir; tüm geçmişin eksiksiz olduğu anlamına gelmez. Kaynağın artık saklamadığı kayıtlar geri doldurmayla kurtarılamaz. Fonlamanın ayrı bir kapsamı vardır; alınamayan fonlama, doğrulanmış sıfır maliyet değildir.",
     missing: "Uzun tire verinin olmadığı anlamına gelir, sıfır değil. Hesaplama zamanı rakamların yerel olarak ne zaman hesaplandığını, işlem verisi sınırı ise analizin nereye kadar uzandığını gösterir. Bunlar farklı zaman damgalarıdır.",
@@ -31,9 +48,9 @@ export const tr: Messages = {
     primary: "Ana gezinme",
   },
   topbar: {
-    search: "Hyperliquid trader adresi ara…",
-    searchShort: "Adres ara…",
-    searchLabel: "Trader adresi ara",
+    search: "İsim, X kullanıcı adı veya adres ara…",
+    searchShort: "Trader bul…",
+    searchLabel: "İsim, X kullanıcı adı veya adres ara",
     invalidAddress: "Tam bir 0x adresi girin (42 karakter)",
     searchClear: "Aramayı temizle",
     searchResults: "Arama sonuçları",
@@ -177,7 +194,7 @@ export const tr: Messages = {
   explore: {
     title: "Tüm lider tablosu",
     subtitle: "Resmî Hyperliquid lider tablosundaki tüm hesaplar",
-    search: "Adres veya isim",
+    search: "İsim, X kullanıcı adı veya adres",
     minAccountValue: "Min. hesap değeri",
     anyValue: "Tümü",
     total: "{total} trader",

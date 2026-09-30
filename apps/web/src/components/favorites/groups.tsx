@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
-import type { FavoriteGroup } from "@/lib/contracts";
+import { FAVORITE_GROUP_NAME_MAX, FAVORITE_GROUPS_MAX, type FavoriteGroup } from "@/lib/contracts";
 import { useCreateFavoriteGroup, useDeleteFavoriteGroup, usePatchFavoriteGroup, useToggleGroupMember } from "@/lib/favorite-groups";
 
 /**
@@ -81,7 +81,7 @@ export function GroupChips({ groups, counts, total, active, onSelect }: {
             <input
               ref={input}
               value={name}
-              maxLength={20}
+              maxLength={FAVORITE_GROUP_NAME_MAX}
               onChange={(e) => {
                 setName(e.target.value);
                 create.reset();
@@ -120,7 +120,7 @@ export function GroupChips({ groups, counts, total, active, onSelect }: {
       </div>
       {code ? (
         <p role="alert" className="text-xs text-negative">
-          {code === "group_exists" ? t("favorites.groups.exists") : code === "group_limit" ? t("favorites.groups.limit", { limit: 20 }) : t("favorites.groups.failed")}
+          {code === "group_name_exists" ? t("favorites.groups.exists") : code === "group_limit" ? t("favorites.groups.limit", { limit: FAVORITE_GROUPS_MAX }) : t("favorites.groups.failed")}
         </p>
       ) : null}
       {confirm ? (
@@ -231,7 +231,7 @@ function ManageGroupsDialog({ groups, onClose }: { groups: FavoriteGroup[]; onCl
                 <Input
                   autoFocus
                   value={editing.name}
-                  maxLength={20}
+                  maxLength={FAVORITE_GROUP_NAME_MAX}
                   onChange={(e) => {
                     setEditing({ id: g.id, name: e.target.value });
                     patch.reset();
@@ -253,7 +253,7 @@ function ManageGroupsDialog({ groups, onClose }: { groups: FavoriteGroup[]; onCl
                 {g.name}
               </button>
             )}
-            <span className="num text-xs text-subtle-foreground">{g.members.length}</span>
+            <span className="num text-xs text-subtle-foreground">{g.addresses.length}</span>
             <IconButton label={t("favorites.groups.moveUp")} disabled={i === 0} onClick={() => move(i, -1)}>
               <ArrowUp className="size-3.5" />
             </IconButton>
@@ -266,7 +266,7 @@ function ManageGroupsDialog({ groups, onClose }: { groups: FavoriteGroup[]; onCl
           </li>
         ))}
       </ul>
-      {code ? <p role="alert" className="mt-3 text-xs text-negative">{code === "group_exists" ? t("favorites.groups.exists") : t("favorites.groups.failed")}</p> : null}
+      {code ? <p role="alert" className="mt-3 text-xs text-negative">{code === "group_name_exists" ? t("favorites.groups.exists") : t("favorites.groups.failed")}</p> : null}
       <div className="mt-5 flex justify-end">
         <Button onClick={onClose}>{t("favorites.groups.done")}</Button>
       </div>
@@ -296,7 +296,7 @@ function IconButton({ label, onClick, disabled, danger, children }: { label: str
 export function GroupTags({ address, groups, className }: { address: string; groups: FavoriteGroup[]; className?: string }) {
   const { t } = useI18n();
   const toggle = useToggleGroupMember();
-  const mine = groups.filter((g) => g.members.includes(address));
+  const mine = groups.filter((g) => g.addresses.includes(address));
   if (groups.length === 0) return null;
   return (
     <span className={cn("flex flex-wrap items-center gap-1", className)} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
@@ -319,7 +319,7 @@ export function GroupTags({ address, groups, className }: { address: string; gro
         <PopoverContent align="start" className="w-56 p-1.5" onClick={(e) => e.stopPropagation()}>
           <ul className="flex flex-col" role="listbox" aria-label={t("favorites.groups.addTo")} aria-multiselectable="true">
             {groups.map((g) => {
-              const member = g.members.includes(address);
+              const member = g.addresses.includes(address);
               return (
                 <li key={g.id}>
                   <button

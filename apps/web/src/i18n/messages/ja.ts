@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const ja: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "一致するトレーダー",
+    searchHint: "登録済みのKOL・リーダーボードの名前、Xハンドル、アドレスを検索します。リーダーボード指標のないKOLも含まれ、下のパフォーマンスフィルターはこの結果を絞り込みません。ソース表示は本人確認ではありません。",
+    queryLength: "2〜64文字で入力してください。Xハンドルは@から始めても構いません。",
+    noMatches: "一致する登録済みトレーダーはいません。完全なウォレットアドレスを貼り付ければトレーダーページを開けます。",
+    registry: "KOL名簿",
+    leaderboard: "公式リーダーボード",
+    noStats: "リーダーボード指標はまだありません",
+    more: "最初の20件のみ表示しています。名前やハンドルをより具体的に入力してください。",
+  },
   methodology: {
     history: "取引分析は取得できた約定のみを対象とします。バックフィル完了は、ソースで取得可能な範囲をスキャンし終えたという意味で、全期間の履歴がそろったという意味ではありません。ソースが保持していない記録はバックフィルでも復元できません。資金調達料は別の範囲で集計され、取得できない資金調達料はコストゼロが確認されたことを意味しません。",
     missing: "「—」はデータがないことを示し、ゼロではありません。計算時刻は数値をローカルで計算した時刻、取引データの基準日時は分析がどこまでを対象とするかを示します。両者は別のタイムスタンプです。",
@@ -31,9 +48,9 @@ export const ja: Messages = {
     primary: "メインナビゲーション",
   },
   topbar: {
-    search: "Hyperliquidのトレーダーアドレスを検索…",
-    searchShort: "アドレスを検索…",
-    searchLabel: "トレーダーアドレスを検索",
+    search: "名前・Xハンドル・アドレスで検索…",
+    searchShort: "トレーダーを探す…",
+    searchLabel: "名前・Xハンドル・アドレスで検索",
     invalidAddress: "0x から始まる完全なアドレス（42 文字）を入力してください",
     searchClear: "検索をクリア",
     searchResults: "検索結果",
@@ -177,7 +194,7 @@ export const ja: Messages = {
   explore: {
     title: "リーダーボード全体",
     subtitle: "Hyperliquid 公式リーダーボードの全アカウント",
-    search: "アドレスまたは名前",
+    search: "名前・Xハンドル・アドレス",
     minAccountValue: "最低口座資産",
     anyValue: "指定なし",
     total: "トレーダー {total} 名",

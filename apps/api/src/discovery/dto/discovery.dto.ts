@@ -68,7 +68,7 @@ export class CoinParamsDto {
   @Matches(COIN) declare coin: string;
 }
 
-export class TraderSearchQueryDto {
+export class DiscoverSearchQueryDto {
   @ApiProperty({ type: String, minLength: 1, maxLength: 64, description: "Name, X handle or address prefix" })
   @Trim() @IsString() @MinLength(1) @MaxLength(64) declare q: string;
   @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 10, default: 5 })

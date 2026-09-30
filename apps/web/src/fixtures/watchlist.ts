@@ -3,23 +3,23 @@
  * cards built from the fixture leaderboard, so the signed-in /favorites
  * page can be exercised without apps/api.
  */
-import { FAVORITE_GROUP_COLORS, type FavoriteGroup, type TraderCard } from "@trading-dashboard/shared/contracts";
+import { FAVORITE_GROUP_COLORS, FAVORITE_GROUPS_MAX, type FavoriteGroup, type TraderCard } from "@trading-dashboard/shared/contracts";
 
 import { ApiError } from "@/lib/api";
 import { findStats, initialFavorites, sparklineFor, traderStats } from "./data";
 
 const COINS = [["BTC", "ETH", "SOL"], ["HYPE", "BTC"], ["ETH", "DOGE", "xyz:NVDA"], ["BTC"], ["SOL", "HYPE", "ZEC", "ETH"]];
 
-let groups: FavoriteGroup[] = [
-  { id: 1, name: "巨鯨", color: FAVORITE_GROUP_COLORS[0], sortOrder: 0, members: [initialFavorites[0], initialFavorites[2]], createdAt: new Date(Date.now() - 5 * 86400_000) },
-  { id: 2, name: "短線", color: FAVORITE_GROUP_COLORS[1], sortOrder: 1, members: [initialFavorites[1]], createdAt: new Date(Date.now() - 4 * 86400_000) },
+const seed = (): FavoriteGroup[] => [
+  { id: 1, name: "巨鯨", color: FAVORITE_GROUP_COLORS[0], sortOrder: 0, addresses: [initialFavorites[0], initialFavorites[2]], createdAt: new Date(Date.now() - 5 * 86400_000).toISOString() },
+  { id: 2, name: "短線", color: FAVORITE_GROUP_COLORS[1], sortOrder: 1, addresses: [initialFavorites[1]], createdAt: new Date(Date.now() - 4 * 86400_000).toISOString() },
 ];
+let groups = seed();
 let nextId = 3;
 
-export function listGroups(favorites: Set<string>): FavoriteGroup[] {
-  return [...groups]
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
-    .map((g) => ({ ...g, members: g.members.filter((m) => favorites.has(m)) }));
+/** Like the api: ordered by sortOrder, then id. */
+export function listGroups(): FavoriteGroup[] {
+  return [...groups].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
 }
 
 function owned(id: number): FavoriteGroup {
@@ -28,17 +28,19 @@ function owned(id: number): FavoriteGroup {
   return group;
 }
 
+const taken = (name: string, except?: number) => groups.some((g) => g.id !== except && g.name.toLowerCase() === name.toLowerCase());
+
 export function createGroup(input: { name: string; color?: string }): FavoriteGroup {
   const name = input.name.trim();
-  if (groups.some((g) => g.name === name)) throw new ApiError(409, "A group with this name exists", { code: "group_exists" });
-  if (groups.length >= 20) throw new ApiError(409, "At most 20 groups", { code: "group_limit", limit: 20 });
+  if (groups.length >= FAVORITE_GROUPS_MAX) throw new ApiError(409, `Up to ${FAVORITE_GROUPS_MAX} groups per user`, { code: "group_limit", limit: FAVORITE_GROUPS_MAX });
+  if (taken(name)) throw new ApiError(409, "Group name already exists", { code: "group_name_exists" });
   const group: FavoriteGroup = {
     id: nextId++,
     name,
     color: input.color ?? FAVORITE_GROUP_COLORS[groups.length % FAVORITE_GROUP_COLORS.length],
     sortOrder: groups.reduce((m, g) => Math.max(m, g.sortOrder + 1), 0),
-    members: [],
-    createdAt: new Date(),
+    addresses: [],
+    createdAt: new Date().toISOString(),
   };
   groups = [...groups, group];
   return group;
@@ -47,20 +49,31 @@ export function createGroup(input: { name: string; color?: string }): FavoriteGr
 export function patchGroup(id: number, patch: { name?: string; color?: string; sortOrder?: number }): FavoriteGroup {
   const group = owned(id);
   const name = patch.name?.trim();
-  if (name && name !== group.name && groups.some((g) => g.name === name)) throw new ApiError(409, "A group with this name exists", { code: "group_exists" });
+  if (name && taken(name, id)) throw new ApiError(409, "Group name already exists", { code: "group_name_exists" });
   Object.assign(group, { ...(name ? { name } : {}), ...(patch.color ? { color: patch.color } : {}), ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}) });
   return group;
 }
 
 export function deleteGroup(id: number) {
+  owned(id);
   groups = groups.filter((g) => g.id !== id);
 }
 
-export function setMember(id: number, address: string, member: boolean, favorites: Set<string>): FavoriteGroup {
+/** Idempotent; the address must be a favorite. */
+export function setMember(id: number, address: string, member: boolean, favorites: Set<string>) {
   const group = owned(id);
-  if (member && !favorites.has(address)) throw new ApiError(404, `${address} is not a favorite`);
-  group.members = member ? [...new Set([...group.members, address])] : group.members.filter((a) => a !== address);
-  return group;
+  if (!favorites.has(address)) throw new ApiError(404, "Favorite not found");
+  group.addresses = member ? [...new Set([...group.addresses, address])] : group.addresses.filter((a) => a !== address);
+}
+
+/** Unfavoriting drops the trader from every group (the api's FK cascade). */
+export function dropMember(address: string) {
+  for (const group of groups) group.addresses = group.addresses.filter((a) => a !== address);
+}
+
+/** Account deletion forgets the demo groups. */
+export function resetGroups() {
+  groups = [];
 }
 
 /** A card per address: the fixture leaderboard's figures plus stable

@@ -343,53 +343,6 @@ export const userFavorites = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// user_favorite_groups / user_favorite_group_members — 收藏群組 (Stage 3 §2.3):
-// a user's named groups of favorites (CopyDog's watchlist groups). A member
-// must be one of the user's favorites; unfavoriting removes it from every
-// group (FK cascade), deleting a group keeps the favorites.
-// ---------------------------------------------------------------------------
-
-export const userFavoriteGroups = pgTable(
-  "user_favorite_groups",
-  {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    /** Chip colour, "#rrggbb". */
-    color: text("color").notNull(),
-    /** Ascending; ties by id. */
-    sortOrder: integer("sort_order").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [uniqueIndex("user_favorite_groups_user_name_idx").on(table.userId, table.name)],
-);
-
-export const userFavoriteGroupMembers = pgTable(
-  "user_favorite_group_members",
-  {
-    groupId: integer("group_id")
-      .notNull()
-      .references(() => userFavoriteGroups.id, { onDelete: "cascade" }),
-    /** The group's owner, repeated so the favorite FK below can cascade. */
-    userId: integer("user_id").notNull(),
-    chain: text("chain").notNull().default(CHAIN_DEFAULT),
-    address: text("address").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.groupId, table.address] }),
-    foreignKey({
-      name: "user_favorite_group_members_favorite_fk",
-      columns: [table.userId, table.chain, table.address],
-      foreignColumns: [userFavorites.userId, userFavorites.chain, userFavorites.address],
-    }).onDelete("cascade"),
-    index("user_favorite_group_members_user_idx").on(table.userId),
-  ],
-);
-
-// ---------------------------------------------------------------------------
 // notification_channels — 每位使用者自己的通知目的地
 // ---------------------------------------------------------------------------
 
@@ -1106,3 +1059,48 @@ export const copyLedger = pgTable("copy_ledger", {
   orderId: bigint("order_id", { mode: "bigint" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("copy_ledger_strategy_idx").on(table.strategyId, table.id)]);
+
+/** Durable initial watched-address backfill. Admission shares the leader transaction. */
+export const backfillJobs = pgTable("backfill_jobs", {
+  id: serial("id").primaryKey(),
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  address: text("address").notNull(),
+  source: text("source").$type<"import" | "favorite">().notNull(),
+  status: text("status").$type<"pending" | "running" | "completed" | "failed">().notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  runAttempts: integer("run_attempts").notNull().default(0),
+  version: integer("version").notNull().default(0),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", {withTimezone: true}),
+  availableAt: timestamp("available_at", {withTimezone: true}).notNull().defaultNow(),
+  createdAt: timestamp("created_at", {withTimezone: true}).notNull().defaultNow(),
+  startedAt: timestamp("started_at", {withTimezone: true}),
+  completedAt: timestamp("completed_at", {withTimezone: true}),
+  fillsFetched: integer("fills_fetched"),
+  lastErrorCode: text("last_error_code").$type<"backfill_failed" | "lease_expired">(),
+}, table => [uniqueIndex("backfill_jobs_address_uq").on(table.chain, table.address),
+  index("backfill_jobs_pending_idx").on(table.status, table.availableAt),
+  index("backfill_jobs_lease_idx").on(table.status, table.leaseExpiresAt)]);
+
+
+/** Private organization only; deleting a group never deletes a favorite.
+ * `color` / `sort_order` drive the favorites page's group chips (CopyDog's
+ * watchlist groups): chip colour "#rrggbb" (null → the palette colour for
+ * the id) and ascending order, ties by id. */
+export const favoriteGroups = pgTable("favorite_groups", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  color: text("color"),
+  sortOrder: integer("sort_order").notNull().default(0),
+}, table => [uniqueIndex("favorite_groups_owner_id_uq").on(table.userId, table.id), uniqueIndex("favorite_groups_owner_name_uq").on(table.userId, sql`lower(${table.name})`)]);
+export const favoriteGroupMembers = pgTable("favorite_group_members", {
+  userId: integer("user_id").notNull(), groupId: integer("group_id").notNull(),
+  chain: text("chain").notNull().default(CHAIN_DEFAULT), address: text("address").notNull(),
+}, table => [
+  primaryKey({ columns: [table.groupId, table.chain, table.address] }),
+  foreignKey({ columns: [table.userId, table.groupId], foreignColumns: [favoriteGroups.userId, favoriteGroups.id] }).onDelete("cascade"),
+  foreignKey({ columns: [table.userId, table.chain, table.address], foreignColumns: [userFavorites.userId, userFavorites.chain, userFavorites.address] }).onDelete("cascade"),
+  index("favorite_group_members_owner_idx").on(table.userId),
+]);

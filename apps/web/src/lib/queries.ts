@@ -20,7 +20,7 @@ import type {
   CoinIndexResponse,
   CopyScoreResponse,
   HomeBoardsResponse,
-  TraderSearchResponse,
+  DiscoverSearchResponse,
   TradingStyle,
   CrowdResponse,
   Favorite,
@@ -194,11 +194,11 @@ export function useCoinBoard(coin: string) {
 /** GET /discover/search: the header search's dropdown (the api caches each
  * query 30 s). Disabled for an empty query; the previous list stays while
  * the next one loads, as CopyDog's does. */
-export function useTraderSearch(q: string) {
+export function useDiscoverSearch(q: string) {
   const query = q.trim();
   return useQuery({
     queryKey: queryKeys.discover.search(query.toLowerCase()),
-    queryFn: ({ signal }) => api.get<TraderSearchResponse>(`/discover/search?${new URLSearchParams({ q: query, limit: "5" })}`, signal),
+    queryFn: ({ signal }) => api.get<DiscoverSearchResponse>(`/discover/search?${new URLSearchParams({ q: query, limit: "5" })}`, signal),
     enabled: query.length > 0,
     placeholderData: keepPreviousData,
     staleTime: 30_000,
@@ -450,6 +450,7 @@ export function useToggleFavorite() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.favorites });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.favoriteGroups });
       void queryClient.invalidateQueries({ queryKey: queryKeys.traders.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.trader.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.actions.all });

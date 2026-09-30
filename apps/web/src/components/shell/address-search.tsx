@@ -7,15 +7,15 @@ import { cn } from "cn";
 
 import { TraderAvatar } from "@/components/discover/board-bits";
 import { useT } from "@/i18n/provider";
-import type { TraderSearchResponse } from "@/lib/contracts";
+import type { DiscoverSearchResponse } from "@/lib/contracts";
 import { truncateAddress, usdCompact } from "@/lib/format";
-import { useTraderSearch } from "@/lib/queries";
+import { useDiscoverSearch } from "@/lib/queries";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** Keystrokes settle this long before a search request goes out. */
 const DEBOUNCE_MS = 200;
 
-type Result = TraderSearchResponse["items"][number];
+type Result = DiscoverSearchResponse["items"][number];
 
 /** CopyDog's dropdown ROI: whole percent from 100% up ("+1,486%"), one
  * decimal below ("-60.2%", "+0.0%"). */
@@ -71,7 +71,7 @@ export function AddressSearch() {
   const hintId = useId();
   const listId = useId();
   const query = useDebounced(value.trim(), DEBOUNCE_MS);
-  const search = useTraderSearch(query);
+  const search = useDiscoverSearch(query);
   // The long placeholder doesn't fit a phone's top bar.
   const wide = useSyncExternalStore<boolean | undefined>(
     (onChange) => {
@@ -180,6 +180,7 @@ export function AddressSearch() {
         aria-controls={listId}
         aria-autocomplete="list"
         aria-activedescendant={showList && rows.length > 0 ? optionId(Math.min(active, rows.length - 1)) : undefined}
+        maxLength={64}
         value={value}
         onChange={(e) => {
           setValue(e.target.value);

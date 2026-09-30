@@ -1,53 +1,89 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from "@nestjs/common";
-import type { FavoriteGroup } from "@trading-dashboard/shared/contracts";
-
-import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
-import { ApiDoc, ResponseMessage } from "../common/decorators/http.decorator.js";
-import { CreateFavoriteGroupDto, FavoriteGroupMemberParamsDto, FavoriteGroupParamsDto, PatchFavoriteGroupDto } from "./dto/favorite-groups.dto.js";
-import { FavoriteGroupsService } from "./favorite-groups.service.js";
-
-/** /me/favorite-groups: the signed-in user's favorites groups (收藏群組). */
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+} from "@nestjs/common";
+import {
+  CurrentUser,
+  requireUserId,
+  type RequestUser,
+} from "../common/auth/current-user.js";
+import { ApiDoc } from "../common/decorators/http.decorator.js";
+import { FavoriteGroupsRepository } from "./favorite-groups.repository.js";
+import {
+  FavoriteGroupIdDto,
+  FavoriteGroupInputDto,
+  FavoriteGroupMemberDto,
+  FavoriteGroupPatchDto,
+} from "./dto/favorite-groups.dto.js";
 @Controller("me/favorite-groups")
 export class FavoriteGroupsController {
-  constructor(private readonly groups: FavoriteGroupsService) {}
-
-  @ApiDoc("List favorite groups")
+  constructor(private readonly groups: FavoriteGroupsRepository) {}
   @Get()
-  list(@CurrentUser() user: RequestUser | null): Promise<FavoriteGroup[]> {
+  @Header("Cache-Control", "no-store")
+  @ApiDoc("List own private favorite groups")
+  list(@CurrentUser() user: RequestUser | null) {
     return this.groups.list(requireUserId(user));
   }
-
-  @ResponseMessage("Group created")
-  @ApiDoc("Create a favorite group", "409 group_exists for a duplicate name, group_limit past 20 groups.")
   @Post()
-  create(@CurrentUser() user: RequestUser | null, @Body() body: CreateFavoriteGroupDto): Promise<FavoriteGroup> {
-    return this.groups.create(requireUserId(user), { name: body.name, color: body.color });
+  @ApiDoc("Create a private favorite group", "409 group_name_exists (case-insensitive) or group_limit past 20 groups.")
+  create(
+    @CurrentUser() user: RequestUser | null,
+    @Body() body: FavoriteGroupInputDto,
+  ) {
+    return this.groups.save(requireUserId(user), body);
   }
-
-  @ApiDoc("Rename, recolour or reorder a favorite group")
   @Patch(":id")
-  patch(@CurrentUser() user: RequestUser | null, @Param() params: FavoriteGroupParamsDto, @Body() body: PatchFavoriteGroupDto): Promise<FavoriteGroup> {
-    return this.groups.patch(requireUserId(user), params.id, { name: body.name, color: body.color, sortOrder: body.sortOrder });
+  @ApiDoc("Rename, recolour or reorder own favorite group")
+  rename(
+    @CurrentUser() user: RequestUser | null,
+    @Param() params: FavoriteGroupIdDto,
+    @Body() body: FavoriteGroupPatchDto,
+  ) {
+    return this.groups.save(requireUserId(user), body, params.id);
   }
-
-  /** The favorites themselves stay. */
-  @ApiDoc("Delete a favorite group")
   @Delete(":id")
   @HttpCode(204)
-  async remove(@CurrentUser() user: RequestUser | null, @Param() params: FavoriteGroupParamsDto): Promise<void> {
-    await this.groups.remove(requireUserId(user), params.id);
+  @ApiDoc("Delete own group while retaining favorites")
+  remove(
+    @CurrentUser() user: RequestUser | null,
+    @Param() params: FavoriteGroupIdDto,
+  ) {
+    return this.groups.remove(requireUserId(user), params.id);
   }
-
-  @ApiDoc("Add a favorite to a group")
   @Put(":id/members/:address")
-  addMember(@CurrentUser() user: RequestUser | null, @Param() params: FavoriteGroupMemberParamsDto): Promise<FavoriteGroup> {
-    return this.groups.addMember(requireUserId(user), params.id, params.address);
+  @HttpCode(204)
+  @ApiDoc("Add an owned favorite to an owned group")
+  add(
+    @CurrentUser() user: RequestUser | null,
+    @Param() params: FavoriteGroupMemberDto,
+  ) {
+    return this.groups.member(
+      requireUserId(user),
+      params.id,
+      params.address,
+      true,
+    );
   }
-
-  @ApiDoc("Remove a favorite from a group")
   @Delete(":id/members/:address")
   @HttpCode(204)
-  async removeMember(@CurrentUser() user: RequestUser | null, @Param() params: FavoriteGroupMemberParamsDto): Promise<void> {
-    await this.groups.removeMember(requireUserId(user), params.id, params.address);
+  @ApiDoc("Remove favorite group membership")
+  ungroup(
+    @CurrentUser() user: RequestUser | null,
+    @Param() params: FavoriteGroupMemberDto,
+  ) {
+    return this.groups.member(
+      requireUserId(user),
+      params.id,
+      params.address,
+      false,
+    );
   }
 }

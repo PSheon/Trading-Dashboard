@@ -1,12 +1,11 @@
 import { AppConfig } from "../config/app-config.js";
-import { ConflictException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { type Favorite, type PatchFavoriteAlertRequest } from "@trading-dashboard/shared/contracts";
 
 import { FavoritesRepository, type FavoriteUpdate } from "./favorites.repository.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { SettingsService } from "../settings/settings.service.js";
-import { BackfillService } from "../watcher/backfill.service.js";
 import { toTraderStats } from "../traders/traders.mappers.js";
 
 /** A user's favorites changed (after commit), so live `scope=favorites`
@@ -24,13 +23,11 @@ export interface FavoritesChangedEvent { userId: number }
  */
 @Injectable()
 export class FavoritesService {
-  private readonly logger = new Logger(FavoritesService.name);
 
   constructor(
     private readonly config: AppConfig,
     private readonly repository: FavoritesRepository,
     private readonly uow: UnitOfWork,
-    private readonly backfill: BackfillService,
     private readonly settings: SettingsService,
     @Optional() private readonly events?: EventEmitter2,
   ) {}
@@ -100,7 +97,7 @@ export class FavoritesService {
 
   /** Idempotent. `address` must already be validated and lowercased. */
   async add(userId: number, address: string): Promise<Favorite> {
-    const createdLeader = await this.uow.run(async (tx) => {
+    await this.uow.run(async (tx) => {
       await this.repository.lockUser(tx, userId);
       if (!await this.repository.findOwned(tx, userId, address) && await this.repository.countOwned(tx, userId) >= this.config.value.limits.favoritesPerUser) {
         throw new ConflictException({ statusCode: 409, code: "favorite_limit", limit: this.config.value.limits.favoritesPerUser, message: "Favorite trader limit reached" });
@@ -109,11 +106,6 @@ export class FavoritesService {
     });
 
     this.events?.emit(FAVORITES_CHANGED_EVENT, { userId } satisfies FavoritesChangedEvent);
-    if (createdLeader) {
-      this.logger.log(`New favorite-sourced leader ${address} — starting backfill`);
-      this.backfill.trigger(address);
-    }
-
     const [favorite] = await this.list(userId, address);
     // Just written in this request; only a concurrent DELETE could remove it.
     return favorite ?? { address, createdAt: new Date(), stats: null, alert: { enabled: false, sides: "both", minUsd: null } };

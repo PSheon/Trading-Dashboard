@@ -1,3 +1,4 @@
+import { SettingsService } from "./settings/settings.service.js";
 import { randomUUID } from "node:crypto";
 import { RequestBudgeterService } from "./hyperliquid/request-budgeter.service.js";
 import { existsSync } from "node:fs";
@@ -39,6 +40,7 @@ const server = createServer(async (req, res) => {
       const budgeter = ready && !stopping ? app?.get(RequestBudgeterService) : undefined;
       const heartbeat = ready && !stopping ? await app?.get(HealthService).heartbeat() : null;
       res.end(JSON.stringify({ state, instanceId, sampledAt: new Date().toISOString(), uptimeSeconds: Math.floor(process.uptime()),
+        settings: ready && !stopping ? app?.get(SettingsService).appliedDiscovery() ?? [] : [],
         budget: budgeter ? { ...budgeter.introspect(), queued: budgeter.queued() } : null, heartbeat: heartbeat ?? null })); return;
     }
     if (req.url === "/health/live") {

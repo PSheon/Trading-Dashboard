@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const ru: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "Подходящие трейдеры",
+    searchHint: "Поиск по именам KOL и лидерборда, X-аккаунтам и адресам, включая KOL без метрик лидерборда. Фильтры результатов ниже на эти совпадения не влияют. Метка источника не подтверждает личность.",
+    queryLength: "Введите от 2 до 64 символов; X-аккаунт можно начать с @.",
+    noMatches: "Совпадений среди известных трейдеров нет. Можно вставить полный адрес кошелька, чтобы открыть страницу трейдера.",
+    registry: "Реестр KOL",
+    leaderboard: "Официальный лидерборд",
+    noStats: "Метрик лидерборда пока нет",
+    more: "Показаны первые 20 совпадений. Уточните имя или аккаунт.",
+  },
   methodology: {
     history: "Анализ сделок охватывает только полученные исполнения. Завершённая догрузка означает, что доступный у источника диапазон просканирован, а не что история полная. Записи, которые источник больше не хранит, догрузкой не восстановить. У фандинга своё покрытие; недоступный фандинг — не подтверждённая нулевая стоимость.",
     missing: "Длинное тире означает, что данных нет, а не ноль. Время расчёта показывает, когда цифры посчитаны локально; граница данных о сделках — докуда доходит анализ. Это разные отметки времени.",
@@ -31,9 +48,9 @@ export const ru: Messages = {
     primary: "Основная навигация",
   },
   topbar: {
-    search: "Поиск адреса трейдера Hyperliquid…",
-    searchShort: "Поиск…",
-    searchLabel: "Поиск адреса трейдера",
+    search: "Поиск по имени, X-аккаунту или адресу…",
+    searchShort: "Найти трейдера…",
+    searchLabel: "Поиск по имени, X-аккаунту или адресу",
     invalidAddress: "Введите полный 0x-адрес (42 символа)",
     searchClear: "Очистить поиск",
     searchResults: "Результаты поиска",
@@ -177,7 +194,7 @@ export const ru: Messages = {
   explore: {
     title: "Полный рейтинг",
     subtitle: "Все счета из официального рейтинга Hyperliquid",
-    search: "Адрес или имя",
+    search: "Имя, X-аккаунт или адрес",
     minAccountValue: "Мин. размер счёта",
     anyValue: "Любой",
     total: "Трейдеров: {total}",

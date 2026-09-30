@@ -8,8 +8,8 @@ import type {
   CopyScoreResponse,
   HomeBoardsResponse,
   TraderCardsResponse,
-  TraderSearchQuery,
-  TraderSearchResponse,
+  DiscoverSearchQuery,
+  DiscoverSearchResponse,
 } from "@trading-dashboard/shared/contracts";
 
 import { SettingsService } from "../settings/settings.service.js";
@@ -45,7 +45,7 @@ interface Snapshot {
 @Injectable()
 export class DiscoveryService {
   private readonly cache = new TtlCache<Snapshot>(BOARDS_TTL_MS, 1);
-  private readonly searches = new TtlCache<TraderSearchResponse>(SEARCH_TTL_MS, 500);
+  private readonly searches = new TtlCache<DiscoverSearchResponse>(SEARCH_TTL_MS, 500);
 
   constructor(
     private readonly repository: DiscoveryRepository,
@@ -94,7 +94,7 @@ export class DiscoveryService {
    * CopyDog orders them). Two indexed-or-bounded reads plus the card reads;
    * each answer is cached `SEARCH_TTL_MS`; no Hyperliquid calls.
    */
-  search(query: TraderSearchQuery): Promise<TraderSearchResponse> {
+  search(query: DiscoverSearchQuery): Promise<DiscoverSearchResponse> {
     const q = query.q.trim();
     return this.searches.get(`${q.toLowerCase()}|${query.limit}`, async () => {
       const addresses = await this.repository.searchAddresses(q, SEARCH_PER_SOURCE);

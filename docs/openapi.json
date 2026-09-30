@@ -1,6 +1,2137 @@
 {
   "openapi": "3.1.0",
   "paths": {
+    "/admin/data-sources": {
+      "get": {
+        "operationId": "AdminSourcesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "enum": [
+                                  "leaderboard",
+                                  "discovery",
+                                  "kol",
+                                  "watched",
+                                  "favorites",
+                                  "imports"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "latestAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "count",
+                              "latestAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sampledAt",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read distinct source-set evidence; counts may overlap",
+        "tags": [
+          "AdminSources"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "sources.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: sources.read"
+      }
+    },
+    "/admin/traders/{chain}/{address}": {
+      "get": {
+        "operationId": "AdminTraderController_detail",
+        "parameters": [
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "chain",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "hyperliquid"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "chain": {
+                          "type": "string",
+                          "const": "hyperliquid"
+                        },
+                        "address": {
+                          "type": "string"
+                        },
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "identity": {
+                          "type": "object",
+                          "properties": {
+                            "displayName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "xHandle": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "kolRegistered": {
+                              "type": "boolean"
+                            },
+                            "leaderboardUpdatedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "displayName",
+                            "xHandle",
+                            "kolRegistered",
+                            "leaderboardUpdatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "watch": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "active": {
+                                  "type": "boolean"
+                                },
+                                "source": {
+                                  "type": "string"
+                                },
+                                "firstSeenAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "active",
+                                "source",
+                                "firstSeenAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "discovery": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "inPool": {
+                                  "type": "boolean"
+                                },
+                                "poolRank": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "portfolioAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "tradesAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "attemptedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refreshFailed": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "inPool",
+                                "poolRank",
+                                "portfolioAt",
+                                "tradesAt",
+                                "attemptedAt",
+                                "refreshFailed"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "references": {
+                          "type": "object",
+                          "properties": {
+                            "favorites": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "alerts": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "favorites",
+                            "alerts"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "imports": {
+                          "type": "object",
+                          "properties": {
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "number"
+                                  },
+                                  "source": {
+                                    "type": "string"
+                                  },
+                                  "importedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "rank": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "source",
+                                  "importedAt",
+                                  "rank"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "hasMore": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "items",
+                            "hasMore"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "fills": {
+                          "type": "object",
+                          "properties": {
+                            "firstAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "lastAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "firstAt",
+                            "lastAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "analytics": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "source": {
+                                  "type": "string"
+                                },
+                                "coverageFrom": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "historyThrough": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "computedAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "truncated": {
+                                  "type": "boolean"
+                                },
+                                "fillsRead": {
+                                  "type": "number"
+                                },
+                                "fundingFrom": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "fundingThrough": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "source",
+                                "coverageFrom",
+                                "historyThrough",
+                                "computedAt",
+                                "truncated",
+                                "fillsRead",
+                                "fundingFrom",
+                                "fundingThrough"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "history": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "caught_up",
+                                    "blocked"
+                                  ]
+                                },
+                                "publishedThrough": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "attemptedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "failed": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "status",
+                                "publishedThrough",
+                                "attemptedAt",
+                                "failed"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "backfill": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "number"
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "running",
+                                    "completed",
+                                    "failed"
+                                  ]
+                                },
+                                "attempts": {
+                                  "type": "number"
+                                },
+                                "availableAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "completedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "status",
+                                "attempts",
+                                "availableAt",
+                                "completedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "chain",
+                        "address",
+                        "sampledAt",
+                        "identity",
+                        "watch",
+                        "discovery",
+                        "references",
+                        "imports",
+                        "fills",
+                        "analytics",
+                        "history",
+                        "backfill"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Inspect persisted trader sources and coverage without triggering work",
+        "tags": [
+          "AdminTrader"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "traders.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: traders.read"
+      }
+    },
+    "/me/favorite-groups": {
+      "get": {
+        "operationId": "FavoriteGroupsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "addresses": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "color": {
+                            "type": "string"
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "createdAt",
+                          "addresses",
+                          "color",
+                          "sortOrder"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List own private favorite groups",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      },
+      "post": {
+        "description": "409 group_name_exists (case-insensitive) or group_limit past 20 groups.\n\nAccess: user",
+        "operationId": "FavoriteGroupsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FavoriteGroupInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        201
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "addresses": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "color": {
+                          "type": "string"
+                        },
+                        "sortOrder": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "createdAt",
+                        "addresses",
+                        "color",
+                        "sortOrder"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create a private favorite group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/favorite-groups/{id}": {
+      "patch": {
+        "operationId": "FavoriteGroupsController_rename",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FavoriteGroupPatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "addresses": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "color": {
+                          "type": "string"
+                        },
+                        "sortOrder": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "createdAt",
+                        "addresses",
+                        "color",
+                        "sortOrder"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Rename, recolour or reorder own favorite group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      },
+      "delete": {
+        "operationId": "FavoriteGroupsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Delete own group while retaining favorites",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
+    "/me/favorite-groups/{id}/members/{address}": {
+      "put": {
+        "operationId": "FavoriteGroupsController_add",
+        "parameters": [
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Add an owned favorite to an owned group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      },
+      "delete": {
+        "operationId": "FavoriteGroupsController_ungroup",
+        "parameters": [
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Remove favorite group membership",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
+    "/trader-search": {
+      "get": {
+        "operationId": "TraderSearchController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "minLength": 2,
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "kol",
+                                  "leaderboard"
+                                ]
+                              },
+                              "hasLeaderboardData": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "xHandle",
+                              "source",
+                              "hasLeaderboardData"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "hasMore"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Find known traders by address prefix, name or X handle",
+        "tags": [
+          "TraderSearch"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: public"
+      }
+    },
+    "/admin/audit": {
+      "get": {
+        "operationId": "AdminAuditController_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "beforeId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "pattern": "^[1-9]\\d{0,18}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "event",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "job.retry",
+                "user.update",
+                "user.delete",
+                "settings.update",
+                "rule.create",
+                "rule.update",
+                "leader.update",
+                "list.import",
+                "kol.upsert",
+                "kol.delete",
+                "kol.import",
+                "copy.control",
+                "copy.risk"
+              ]
+            }
+          },
+          {
+            "name": "actorKind",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "service",
+                "system"
+              ]
+            }
+          },
+          {
+            "name": "actorUserId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "target",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minLength": 1,
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "pattern": "^[1-9]\\d{0,18}$"
+                              },
+                              "actorKind": {
+                                "type": "string",
+                                "enum": [
+                                  "user",
+                                  "service",
+                                  "system"
+                                ]
+                              },
+                              "actorUserId": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "event": {
+                                "type": "string"
+                              },
+                              "target": {
+                                "type": "string"
+                              },
+                              "before": {
+                                "anyOf": [
+                                  {},
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "after": {
+                                "anyOf": [
+                                  {},
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "actorKind",
+                              "actorUserId",
+                              "event",
+                              "target",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "nextCursor": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[1-9]\\d{0,18}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List recorded administrative changes",
+        "tags": [
+          "AdminAudit"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "audit.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: audit.read"
+      }
+    },
+    "/admin/settings/runtime": {
+      "get": {
+        "operationId": "AdminSettingsRuntimeController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "savedRevision": {
+                          "type": "string"
+                        },
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "standby",
+                            "stopping",
+                            "stale",
+                            "unavailable",
+                            "not_configured",
+                            "combined"
+                          ]
+                        },
+                        "instanceId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "consumers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "consumer": {
+                                "type": "string",
+                                "enum": [
+                                  "pool",
+                                  "leaderboard"
+                                ]
+                              },
+                              "revision": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              },
+                              "checkedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "recovered": {
+                                "type": "boolean"
+                              },
+                              "candidatePoolSize": {
+                                "type": "number"
+                              },
+                              "poolWeightPerMinute": {
+                                "type": "number"
+                              },
+                              "leaderboardRefreshMinutes": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "consumer",
+                              "revision",
+                              "checkedAt",
+                              "recovered",
+                              "candidatePoolSize",
+                              "poolWeightPerMinute",
+                              "leaderboardRefreshMinutes"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "savedRevision",
+                        "sampledAt",
+                        "state",
+                        "instanceId",
+                        "consumers"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get discovery consumer acknowledgements for the sampled worker",
+        "tags": [
+          "AdminSettingsRuntime"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "settings.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: settings.read"
+      }
+    },
+    "/admin/jobs": {
+      "get": {
+        "operationId": "AdminJobsController_list",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "running",
+                "completed",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "beforeId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "chain": {
+                                "type": "string",
+                                "const": "hyperliquid"
+                              },
+                              "address": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "import",
+                                  "favorite"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "running",
+                                  "completed",
+                                  "failed"
+                                ]
+                              },
+                              "attempts": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "runAttempts": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "version": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "availableAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "startedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "completedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "leaseExpiresAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "fillsFetched": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "lastErrorCode": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "backfill_failed",
+                                      "lease_expired"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "chain",
+                              "address",
+                              "source",
+                              "status",
+                              "attempts",
+                              "runAttempts",
+                              "version",
+                              "availableAt",
+                              "createdAt",
+                              "startedAt",
+                              "completedAt",
+                              "leaseExpiresAt",
+                              "fillsFetched",
+                              "lastErrorCode"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "nextCursor": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List initial backfill jobs",
+        "tags": [
+          "AdminJobs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: jobs.read"
+      }
+    },
+    "/admin/jobs/{id}/retry": {
+      "post": {
+        "operationId": "AdminJobsController_retry",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryJobDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        202
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "chain": {
+                          "type": "string",
+                          "const": "hyperliquid"
+                        },
+                        "address": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "import",
+                            "favorite"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "running",
+                            "completed",
+                            "failed"
+                          ]
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "runAttempts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "availableAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "startedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "completedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "leaseExpiresAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "fillsFetched": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastErrorCode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "backfill_failed",
+                                "lease_expired"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "chain",
+                        "address",
+                        "source",
+                        "status",
+                        "attempts",
+                        "runAttempts",
+                        "version",
+                        "availableAt",
+                        "createdAt",
+                        "startedAt",
+                        "completedAt",
+                        "leaseExpiresAt",
+                        "fillsFetched",
+                        "lastErrorCode"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Requeue a failed backfill job",
+        "tags": [
+          "AdminJobs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs.retry"
+        ],
+        "x-required-roles": [],
+        "description": "Access: jobs.retry"
+      }
+    },
     "/admin/system/overview": {
       "get": {
         "operationId": "AdminSystemController_overview",
@@ -164,6 +2295,51 @@
                                     "sampledAt": {
                                       "type": "string",
                                       "format": "date-time"
+                                    },
+                                    "settings": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "consumer": {
+                                            "type": "string",
+                                            "enum": [
+                                              "pool",
+                                              "leaderboard"
+                                            ]
+                                          },
+                                          "revision": {
+                                            "type": "string",
+                                            "pattern": "^[a-f0-9]{64}$"
+                                          },
+                                          "checkedAt": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                          },
+                                          "recovered": {
+                                            "type": "boolean"
+                                          },
+                                          "candidatePoolSize": {
+                                            "type": "number"
+                                          },
+                                          "poolWeightPerMinute": {
+                                            "type": "number"
+                                          },
+                                          "leaderboardRefreshMinutes": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "consumer",
+                                          "revision",
+                                          "checkedAt",
+                                          "recovered",
+                                          "candidatePoolSize",
+                                          "poolWeightPerMinute",
+                                          "leaderboardRefreshMinutes"
+                                        ],
+                                        "additionalProperties": false
+                                      }
                                     },
                                     "uptimeSeconds": {
                                       "type": "number",
@@ -479,6 +2655,51 @@
                                 },
                                 "candidates": {
                                   "type": "number"
+                                },
+                                "freshness": {
+                                  "type": "object",
+                                  "properties": {
+                                    "leaderboardThresholdMinutes": {
+                                      "type": "number"
+                                    },
+                                    "portfolioThresholdMinutes": {
+                                      "type": "number"
+                                    },
+                                    "tradesThresholdMinutes": {
+                                      "type": "number"
+                                    },
+                                    "leaderboard": {
+                                      "type": "string",
+                                      "enum": [
+                                        "fresh",
+                                        "stale",
+                                        "missing"
+                                      ]
+                                    },
+                                    "portfolioStale": {
+                                      "type": "number"
+                                    },
+                                    "portfolioMissing": {
+                                      "type": "number"
+                                    },
+                                    "tradesStale": {
+                                      "type": "number"
+                                    },
+                                    "tradesMissing": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "leaderboardThresholdMinutes",
+                                    "portfolioThresholdMinutes",
+                                    "tradesThresholdMinutes",
+                                    "leaderboard",
+                                    "portfolioStale",
+                                    "portfolioMissing",
+                                    "tradesStale",
+                                    "tradesMissing"
+                                  ],
+                                  "additionalProperties": false
                                 },
                                 "portfolios": {
                                   "type": "number"
@@ -5080,6 +7301,192 @@
         "description": "Access: lists.read"
       }
     },
+    "/import/lists/preview": {
+      "post": {
+        "operationId": "ImportController_preview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportListDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "canImport": {
+                          "type": "boolean"
+                        },
+                        "totalRows": {
+                          "type": "integer"
+                        },
+                        "uniqueAddresses": {
+                          "type": "integer"
+                        },
+                        "duplicateRows": {
+                          "type": "integer"
+                        },
+                        "newAddresses": {
+                          "type": "integer"
+                        },
+                        "promotedAddresses": {
+                          "type": "integer"
+                        },
+                        "preservedAddresses": {
+                          "type": "integer"
+                        },
+                        "estimatedNewJobs": {
+                          "type": "integer"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "index": {
+                                "type": "integer"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "index",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "rank": {
+                                "type": "integer"
+                              },
+                              "action": {
+                                "type": "string",
+                                "enum": [
+                                  "new",
+                                  "promote",
+                                  "preserve"
+                                ]
+                              },
+                              "activeAfter": {
+                                "type": "boolean"
+                              },
+                              "tierAfter": {
+                                "type": "string",
+                                "enum": [
+                                  "A",
+                                  "B",
+                                  "C"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "rank",
+                              "action",
+                              "activeAfter",
+                              "tierAfter"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sampledAt",
+                        "canImport",
+                        "totalRows",
+                        "uniqueAddresses",
+                        "duplicateRows",
+                        "newAddresses",
+                        "promotedAddresses",
+                        "preservedAddresses",
+                        "estimatedNewJobs",
+                        "errors",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview list import effects without persisting or enqueuing work",
+        "tags": [
+          "Import"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "leaders.import"
+        ],
+        "x-required-roles": [],
+        "description": "Access: leaders.import"
+      }
+    },
     "/import/lists": {
       "post": {
         "operationId": "ImportController_importList",
@@ -9599,10 +12006,15 @@
                             "type": "string",
                             "enum": [
                               "admin.access",
+                              "audit.read",
+                              "jobs.read",
+                              "jobs.retry",
                               "overview.read",
                               "revenue.read",
                               "settings.read",
                               "settings.write",
+                              "sources.read",
+                              "traders.read",
                               "users.read",
                               "users.manage",
                               "lists.read",
@@ -9768,10 +12180,15 @@
                             "type": "string",
                             "enum": [
                               "admin.access",
+                              "audit.read",
+                              "jobs.read",
+                              "jobs.retry",
                               "overview.read",
                               "revenue.read",
                               "settings.read",
                               "settings.write",
+                              "sources.read",
+                              "traders.read",
                               "users.read",
                               "users.manage",
                               "lists.read",
@@ -13146,6 +15563,323 @@
         "description": "Access: kols.manage"
       }
     },
+    "/admin/kols/import/preview": {
+      "post": {
+        "operationId": "AdminKolController_preview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KolImportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "replace": {
+                          "type": "boolean"
+                        },
+                        "canImport": {
+                          "type": "boolean"
+                        },
+                        "inserted": {
+                          "type": "integer"
+                        },
+                        "changed": {
+                          "type": "integer"
+                        },
+                        "unchanged": {
+                          "type": "integer"
+                        },
+                        "removed": {
+                          "type": "integer"
+                        },
+                        "duplicateRows": {
+                          "type": "integer"
+                        },
+                        "errorCount": {
+                          "type": "integer"
+                        },
+                        "deletionsSuppressed": {
+                          "type": "boolean"
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "line": {
+                                "type": "integer"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "line",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "new",
+                                  "update",
+                                  "unchanged",
+                                  "remove"
+                                ]
+                              },
+                              "before": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "address": {
+                                        "type": "string",
+                                        "pattern": "^0x[0-9a-fA-F]{40}$"
+                                      },
+                                      "displayName": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 64
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "avatarUrl": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "uri",
+                                            "maxLength": 512
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "xHandle": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "pattern": "^[A-Za-z0-9_]{1,15}$"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "verified": {
+                                        "type": "boolean",
+                                        "default": false
+                                      },
+                                      "sortOrder": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 1000000,
+                                        "default": 0
+                                      }
+                                    },
+                                    "required": [
+                                      "address"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "after": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "address": {
+                                        "type": "string",
+                                        "pattern": "^0x[0-9a-fA-F]{40}$"
+                                      },
+                                      "displayName": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 64
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "avatarUrl": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "uri",
+                                            "maxLength": 512
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "xHandle": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "pattern": "^[A-Za-z0-9_]{1,15}$"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "verified": {
+                                        "type": "boolean",
+                                        "default": false
+                                      },
+                                      "sortOrder": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 1000000,
+                                        "default": 0
+                                      }
+                                    },
+                                    "required": [
+                                      "address"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "kind",
+                              "before",
+                              "after"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sampledAt",
+                        "replace",
+                        "canImport",
+                        "inserted",
+                        "changed",
+                        "unchanged",
+                        "removed",
+                        "duplicateRows",
+                        "errorCount",
+                        "deletionsSuppressed",
+                        "hasMore",
+                        "errors",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview KOL CSV overwrites and removals without mutation",
+        "tags": [
+          "AdminKol"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "kols.manage"
+        ],
+        "x-required-roles": [],
+        "description": "Access: kols.manage"
+      }
+    },
     "/admin/kols/import": {
       "post": {
         "operationId": "AdminKolController_import",
@@ -13535,563 +16269,6 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": []
-      }
-    },
-    "/me/favorite-groups": {
-      "get": {
-        "operationId": "FavoriteGroupsController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "success",
-                    "statusCode",
-                    "message",
-                    "data",
-                    "meta"
-                  ],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "statusCode": {
-                      "type": "integer",
-                      "enum": [
-                        200
-                      ]
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "integer"
-                          },
-                          "name": {
-                            "type": "string"
-                          },
-                          "color": {
-                            "type": "string"
-                          },
-                          "sortOrder": {
-                            "type": "integer"
-                          },
-                          "members": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "createdAt": {
-                            "type": "string",
-                            "format": "date-time"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "name",
-                          "color",
-                          "sortOrder",
-                          "members",
-                          "createdAt"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "meta": {
-                      "$ref": "#/components/schemas/ResponseMeta"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "summary": "List favorite groups",
-        "tags": [
-          "FavoriteGroups"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "x-required-permissions": [],
-        "x-required-roles": [],
-        "description": "Access: user"
-      },
-      "post": {
-        "description": "409 group_exists for a duplicate name, group_limit past 20 groups.\n\nAccess: user",
-        "operationId": "FavoriteGroupsController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateFavoriteGroupDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "success",
-                    "statusCode",
-                    "message",
-                    "data",
-                    "meta"
-                  ],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "statusCode": {
-                      "type": "integer",
-                      "enum": [
-                        201
-                      ]
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "integer"
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "color": {
-                          "type": "string"
-                        },
-                        "sortOrder": {
-                          "type": "integer"
-                        },
-                        "members": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "createdAt": {
-                          "type": "string",
-                          "format": "date-time"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "color",
-                        "sortOrder",
-                        "members",
-                        "createdAt"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "meta": {
-                      "$ref": "#/components/schemas/ResponseMeta"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Create a favorite group",
-        "tags": [
-          "FavoriteGroups"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "x-required-permissions": [],
-        "x-required-roles": []
-      }
-    },
-    "/me/favorite-groups/{id}": {
-      "patch": {
-        "operationId": "FavoriteGroupsController_patch",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "minimum": 1,
-              "maximum": 2147483647,
-              "type": "integer"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PatchFavoriteGroupDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "success",
-                    "statusCode",
-                    "message",
-                    "data",
-                    "meta"
-                  ],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "statusCode": {
-                      "type": "integer",
-                      "enum": [
-                        200
-                      ]
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "integer"
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "color": {
-                          "type": "string"
-                        },
-                        "sortOrder": {
-                          "type": "integer"
-                        },
-                        "members": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "createdAt": {
-                          "type": "string",
-                          "format": "date-time"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "color",
-                        "sortOrder",
-                        "members",
-                        "createdAt"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "meta": {
-                      "$ref": "#/components/schemas/ResponseMeta"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Rename, recolour or reorder a favorite group",
-        "tags": [
-          "FavoriteGroups"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "x-required-permissions": [],
-        "x-required-roles": [],
-        "description": "Access: user"
-      },
-      "delete": {
-        "operationId": "FavoriteGroupsController_remove",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "minimum": 1,
-              "maximum": 2147483647,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No content"
-          },
-          "default": {
-            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Delete a favorite group",
-        "tags": [
-          "FavoriteGroups"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "x-required-permissions": [],
-        "x-required-roles": [],
-        "description": "Access: user"
-      }
-    },
-    "/me/favorite-groups/{id}/members/{address}": {
-      "put": {
-        "operationId": "FavoriteGroupsController_addMember",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "minimum": 1,
-              "maximum": 2147483647,
-              "type": "integer"
-            }
-          },
-          {
-            "name": "address",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "pattern": "^0x[0-9a-fA-F]{40}$",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "success",
-                    "statusCode",
-                    "message",
-                    "data",
-                    "meta"
-                  ],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "statusCode": {
-                      "type": "integer",
-                      "enum": [
-                        200
-                      ]
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "integer"
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "color": {
-                          "type": "string"
-                        },
-                        "sortOrder": {
-                          "type": "integer"
-                        },
-                        "members": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "createdAt": {
-                          "type": "string",
-                          "format": "date-time"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "color",
-                        "sortOrder",
-                        "members",
-                        "createdAt"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "meta": {
-                      "$ref": "#/components/schemas/ResponseMeta"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "default": {
-            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Add a favorite to a group",
-        "tags": [
-          "FavoriteGroups"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "x-required-permissions": [],
-        "x-required-roles": [],
-        "description": "Access: user"
-      },
-      "delete": {
-        "operationId": "FavoriteGroupsController_removeMember",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "minimum": 1,
-              "maximum": 2147483647,
-              "type": "integer"
-            }
-          },
-          {
-            "name": "address",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "pattern": "^0x[0-9a-fA-F]{40}$",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No content"
-          },
-          "default": {
-            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Remove a favorite from a group",
-        "tags": [
-          "FavoriteGroups"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "x-required-permissions": [],
-        "x-required-roles": [],
-        "description": "Access: user"
       }
     },
     "/me/wallet": {
@@ -16492,6 +18669,59 @@
       }
     },
     "schemas": {
+      "FavoriteGroupInputDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "description": "Chip colour; assigned in turn when omitted"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "FavoriteGroupPatchDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "RetryJobDto": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "additionalProperties": false
+      },
       "LocalizedTextDto": {
         "type": "object",
         "properties": {
@@ -17036,45 +19266,6 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 1000000
-          }
-        },
-        "additionalProperties": false
-      },
-      "CreateFavoriteGroupDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 20
-          },
-          "color": {
-            "type": "string",
-            "pattern": "^#[0-9a-fA-F]{6}$",
-            "description": "Chip colour; assigned in turn when omitted"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "PatchFavoriteGroupDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 20
-          },
-          "color": {
-            "type": "string",
-            "pattern": "^#[0-9a-fA-F]{6}$"
-          },
-          "sortOrder": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 1000
           }
         },
         "additionalProperties": false

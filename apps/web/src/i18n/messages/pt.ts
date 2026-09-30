@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const pt: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "Traders correspondentes",
+    searchHint: "Busca nomes de KOL e do ranking, usuários do X e endereços registrados, incluindo KOL sem métricas do ranking. Os filtros de desempenho abaixo não limitam estes resultados. O rótulo de origem não verifica identidade.",
+    queryLength: "Digite de 2 a 64 caracteres; o usuário do X pode começar com @.",
+    noMatches: "Nenhum trader registrado corresponde. Você ainda pode colar um endereço de carteira completo para abrir a página do trader.",
+    registry: "Registro de KOL",
+    leaderboard: "Ranking oficial",
+    noStats: "Ainda sem métricas do ranking",
+    more: "Mostrando os primeiros 20 resultados. Digite um nome ou usuário mais específico.",
+  },
   methodology: {
     history: "A análise de operações cobre apenas as execuções obtidas. Um backfill concluído significa que o intervalo disponível da fonte foi varrido, não que o histórico completo esteja disponível. Registros que a fonte não guarda mais não podem ser recuperados com backfill. O funding tem cobertura própria; funding indisponível não é custo zero confirmado.",
     missing: "Um travessão indica dado indisponível, não zero. O horário de cálculo informa quando os números foram calculados localmente; o corte dos dados de operações informa até onde a análise cobre. São marcas de tempo diferentes.",
@@ -31,9 +48,9 @@ export const pt: Messages = {
     primary: "Navegação principal",
   },
   topbar: {
-    search: "Buscar endereço de trader na Hyperliquid…",
-    searchShort: "Buscar…",
-    searchLabel: "Buscar endereço de trader",
+    search: "Buscar por nome, usuário do X ou endereço…",
+    searchShort: "Encontrar trader…",
+    searchLabel: "Buscar por nome, usuário do X ou endereço",
     invalidAddress: "Informe um endereço 0x completo (42 caracteres)",
     searchClear: "Limpar busca",
     searchResults: "Resultados da busca",
@@ -177,7 +194,7 @@ export const pt: Messages = {
   explore: {
     title: "Ranking completo",
     subtitle: "Todas as contas do ranking oficial da Hyperliquid",
-    search: "Endereço ou nome",
+    search: "Nome, usuário do X ou endereço",
     minAccountValue: "Valor mín. da conta",
     anyValue: "Qualquer",
     total: "{total} traders",

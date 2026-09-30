@@ -6,6 +6,7 @@ import {
   adminSettingsSchema,
   appSettingsKeyEnum,
   type AdminSettingsSnapshot,
+  type AppliedDiscovery,
   type AdminSettings,
   type AppSettingsKey,
   type PatchAdminSettingsRequest,
@@ -32,6 +33,15 @@ export class SettingsService {
   private inflight: Promise<AdminSettingsSnapshot> | undefined;
 
   constructor(private readonly repository: SettingsRepository, private readonly uow: UnitOfWork) {}
+
+  private readonly applied = new Map<AppliedDiscovery["consumer"], AppliedDiscovery>();
+  /** Called by the consumer after accepting this exact snapshot, never by reads/saves. */
+  acknowledgeDiscovery(consumer: AppliedDiscovery["consumer"], snapshot: AdminSettingsSnapshot): void {
+    const { candidatePoolSize, poolWeightPerMinute, leaderboardRefreshMinutes } = snapshot.discovery;
+    this.applied.set(consumer, { consumer, revision: snapshot.revisions.discovery, checkedAt: new Date().toISOString(),
+      recovered: snapshot.invalidSections.includes("discovery"), candidatePoolSize, poolWeightPerMinute, leaderboardRefreshMinutes });
+  }
+  appliedDiscovery(): AppliedDiscovery[] { return [...this.applied.values()].map(row => ({ ...row })); }
 
   async getAll(): Promise<AdminSettingsSnapshot> {
     if (this.cache && this.cache.expiresAt > Date.now()) return this.cache.value;

@@ -194,11 +194,11 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
   const [sort, setSort] = useState<SortKey | null>(null);
   const addresses = useMemo(() => (favorites ?? []).map((f) => f.address), [favorites]);
   const cards = useCards(addresses);
-  const counts = useMemo(() => new Map(groups.map((g) => [g.id, g.members.filter((a) => addresses.includes(a)).length])), [groups, addresses]);
+  const counts = useMemo(() => new Map(groups.map((g) => [g.id, g.addresses.filter((a) => addresses.includes(a)).length])), [groups, addresses]);
   const selected = groups.find((g) => g.id === active) ?? null;
 
   let items = cards.items;
-  if (selected) items = items.filter((c) => selected.members.includes(c.address));
+  if (selected) items = items.filter((c) => selected.addresses.includes(c.address));
   if (sort) items = [...items].sort((a, b) => (b[sort] ?? -Infinity) - (a[sort] ?? -Infinity));
 
   if (!favorites) return <SavedSkeleton view={view} />;

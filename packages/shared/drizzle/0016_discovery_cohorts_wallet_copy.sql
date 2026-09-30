@@ -233,24 +233,8 @@ CREATE TABLE "paper_accounts" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "user_favorite_group_members" (
-	"group_id" integer NOT NULL,
-	"user_id" integer NOT NULL,
-	"chain" text DEFAULT 'hyperliquid' NOT NULL,
-	"address" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "user_favorite_group_members_group_id_address_pk" PRIMARY KEY("group_id","address")
-);
---> statement-breakpoint
-CREATE TABLE "user_favorite_groups" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"user_id" integer NOT NULL,
-	"name" text NOT NULL,
-	"color" text NOT NULL,
-	"sort_order" integer DEFAULT 0 NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
+ALTER TABLE "favorite_groups" ADD COLUMN "color" text;--> statement-breakpoint
+ALTER TABLE "favorite_groups" ADD COLUMN "sort_order" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "embedded_wallet_address" text;--> statement-breakpoint
 ALTER TABLE "copy_ledger" ADD CONSTRAINT "copy_ledger_strategy_id_copy_strategies_id_fk" FOREIGN KEY ("strategy_id") REFERENCES "public"."copy_strategies"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "copy_orders" ADD CONSTRAINT "copy_orders_strategy_id_copy_strategies_id_fk" FOREIGN KEY ("strategy_id") REFERENCES "public"."copy_strategies"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -263,9 +247,6 @@ ALTER TABLE "copy_signal_legs" ADD CONSTRAINT "copy_signal_legs_strategy_id_copy
 ALTER TABLE "copy_strategies" ADD CONSTRAINT "copy_strategies_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "copy_strategy_versions" ADD CONSTRAINT "copy_strategy_versions_strategy_id_copy_strategies_id_fk" FOREIGN KEY ("strategy_id") REFERENCES "public"."copy_strategies"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "paper_accounts" ADD CONSTRAINT "paper_accounts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user_favorite_group_members" ADD CONSTRAINT "user_favorite_group_members_group_id_user_favorite_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."user_favorite_groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user_favorite_group_members" ADD CONSTRAINT "user_favorite_group_members_favorite_fk" FOREIGN KEY ("user_id","chain","address") REFERENCES "public"."user_favorites"("user_id","chain","address") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user_favorite_groups" ADD CONSTRAINT "user_favorite_groups_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "cohort_members_tier_idx" ON "cohort_members" USING btree ("tier","rank");--> statement-breakpoint
 CREATE INDEX "cohort_members_attempted_idx" ON "cohort_members" USING btree ("attempted_at");--> statement-breakpoint
 CREATE INDEX "cohort_snapshots_tier_ts_idx" ON "cohort_snapshots" USING btree ("chain","tier","ts");--> statement-breakpoint
@@ -282,6 +263,4 @@ CREATE INDEX "copy_strategies_user_idx" ON "copy_strategies" USING btree ("user_
 CREATE INDEX "copy_strategies_leader_idx" ON "copy_strategies" USING btree ("chain","leader_address","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "copy_strategies_live_uq" ON "copy_strategies" USING btree ("user_id","chain","leader_address") WHERE status <> 'stopped';--> statement-breakpoint
 CREATE INDEX "kol_avatars_next_idx" ON "kol_avatars" USING btree ("next_attempt_at");--> statement-breakpoint
-CREATE INDEX "user_favorite_group_members_user_idx" ON "user_favorite_group_members" USING btree ("user_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "user_favorite_groups_user_name_idx" ON "user_favorite_groups" USING btree ("user_id","name");--> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_embedded_wallet_address_unique" UNIQUE("embedded_wallet_address");

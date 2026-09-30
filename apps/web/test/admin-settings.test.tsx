@@ -18,7 +18,7 @@ it("preserves another section's draft and revision after a save, then explicitly
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const initial = snapshot();
   let latest = initial;
-  const get = vi.spyOn(api, "get").mockImplementation(async () => latest as never);
+  const get = vi.spyOn(api, "get").mockImplementation(async (path) => (path === "/admin/settings/runtime" ? { savedRevision: latest.revisions.discovery, state: "active", instanceId: "test", sampledAt: new Date().toISOString(), consumers: [] } : latest) as never);
   const patch = vi.spyOn(api, "patch").mockImplementation(async () => {
     latest = { ...initial, general: { ...initial.general, signupsOpen: false },
       discovery: { ...initial.discovery, lowSampleThreshold: 99 },
@@ -38,7 +38,13 @@ it("preserves another section's draft and revision after a save, then explicitly
   };
   try {
     await act(async () => root.render(<QueryClientProvider client={client}><AdminSettingsForm /></QueryClientProvider>));
+    expect(container.querySelector("#candidate-pool-size")).not.toBeNull();
+    expect(container.querySelector("#pool-weight")).not.toBeNull();
+    expect(container.querySelector("#cryptoBoards")).not.toBeNull();
+    expect(container.querySelector("#stockBoards")).not.toBeNull();
     await toggle("admin.settings.discovery.hideVaults");
+    expect(container.textContent).toContain("settingsOps.preview");
+    expect(patch).not.toHaveBeenCalled();
     get.mockRejectedValueOnce(new Error("offline"));
     await act(async () => { await client.refetchQueries({ queryKey: ["admin", "settings"] }); });
     await flush();

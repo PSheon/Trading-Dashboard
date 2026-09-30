@@ -55,6 +55,9 @@ export const queryKeys = {
   },
   alerts: (qs: string) => ["alerts", qs] as const,
   admin: {
+    settingsRuntime: ["admin", "settings-runtime"] as const,
+    audit: (qs: string) => ["admin", "audit", qs] as const,
+    jobs: { all: ["admin", "jobs"] as const, list: (qs: string) => ["admin", "jobs", qs] as const },
     users: {
       all: ["admin", "users"] as const,
       list: (qs: string) => ["admin", "users", qs] as const,

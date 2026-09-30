@@ -1,121 +1,213 @@
-import type { INestApplication } from "@nestjs/common";
-import { discoveryTraders, kolTraders, traderStats, userFavoriteGroupMembers, userFavorites } from "@trading-dashboard/shared/database";
-import { wireFavoriteGroupSchema, wireTraderCardsSchema } from "@trading-dashboard/shared/contracts";
-import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { AuthService } from "../src/common/auth/auth.service.js";
-import { DiscoveryController } from "../src/discovery/discovery.controller.js";
-import { DiscoveryRepository } from "../src/discovery/discovery.repository.js";
-import { DiscoveryService } from "../src/discovery/discovery.service.js";
-import { TradersService } from "../src/traders/traders.service.js";
-import { FavoriteGroupsController } from "../src/users/favorite-groups.controller.js";
-import { FavoriteGroupsRepository } from "../src/users/favorite-groups.repository.js";
-import { FavoriteGroupsService } from "../src/users/favorite-groups.service.js";
-import { insertUser } from "./admin-test-utils.js";
-import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
-import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
-
-const addr = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
-
-describe("favorite groups and watchlist cards (real Postgres)", () => {
-  const db = getTestDb();
-  let app: INestApplication;
-  let auth: AuthService;
-  let alice: number;
-  let bob: number;
-  const privy = stubPrivy({ "alice-token": { privyUserId: "did:privy:alice" }, "bob-token": { privyUserId: "did:privy:bob" } });
-
-  beforeAll(async () => {
-    ({ app, auth } = await createAuthedApp({
-      db,
-      privy,
-      controllers: [FavoriteGroupsController, DiscoveryController],
-      providers: [FavoriteGroupsRepository, FavoriteGroupsService, DiscoveryRepository, DiscoveryService, { provide: TradersService, useValue: { rawPortfolio: vi.fn() } }],
-    }));
+import request from 'supertest';
+import type { INestApplication } from '@nestjs/common';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import {
+  favoriteGroups,
+  favoriteGroupMembers,
+  userFavorites,
+} from '@trading-dashboard/shared/database';
+import { eq } from 'drizzle-orm';
+import {
+  FAVORITE_GROUP_COLORS,
+  favoriteGroupSchema,
+  favoriteGroupsSchema,
+} from '@trading-dashboard/shared/contracts';
+import { FavoriteGroupsController } from '../src/users/favorite-groups.controller.js';
+import { FavoriteGroupsRepository } from '../src/users/favorite-groups.repository.js';
+import { createAuthedApp, stubPrivy } from './auth-test-utils.js';
+import {
+  getTestDb,
+  closeTestDb,
+  truncateAll,
+  insertUser,
+} from './db-test-utils.js';
+const db = getTestDb();
+let app: INestApplication;
+const address = '0x' + '12'.repeat(20);
+beforeAll(async () => {
+  await truncateAll(db);
+  const a = await insertUser(db, { privyUserId: 'did:privy:groups-a' });
+  await insertUser(db, { privyUserId: 'did:privy:groups-b' });
+  await db
+    .insert(userFavorites)
+    .values({ userId: a.id, address, alertEnabled: true });
+  ({ app } = await createAuthedApp({
+    db,
+    privy: stubPrivy({
+      a: { privyUserId: 'did:privy:groups-a' },
+      b: { privyUserId: 'did:privy:groups-b' },
+    }),
+    controllers: [FavoriteGroupsController],
+    providers: [FavoriteGroupsRepository],
+  }));
+});
+afterAll(async () => {
+  await app?.close();
+  await truncateAll(db);
+  await closeTestDb();
+});
+it('isolates ownership, deduplicates members and preserves favorites/alerts when a group is removed', async () => {
+  const http = app.getHttpServer();
+  await request(http).get('/me/favorite-groups').expect(401);
+  const created = await request(http)
+    .post('/me/favorite-groups')
+    .auth('a', { type: 'bearer' })
+    .send({ name: '  Research  ' })
+    .expect(201);
+  const id = created.body.data.id;
+  expect(created.body.data.name).toBe('Research');
+  await request(http)
+    .post('/me/favorite-groups')
+    .auth('a', { type: 'bearer' })
+    .send({ name: 'research' })
+    .expect(409);
+  for (const method of ['patch', 'delete'] as const)
+    await request(http)
+      [method](`/me/favorite-groups/${id}`)
+      .auth('b', { type: 'bearer' })
+      .send({ name: 'stolen' })
+      .expect(404);
+  await request(http)
+    .put(`/me/favorite-groups/${id}/members/${address}`)
+    .auth('b', { type: 'bearer' })
+    .expect(404);
+  for (let i = 0; i < 2; i++)
+    await request(http)
+      .put(`/me/favorite-groups/${id}/members/${address}`)
+      .auth('a', { type: 'bearer' })
+      .expect(204);
+  const own = await request(http)
+    .get('/me/favorite-groups')
+    .auth('a', { type: 'bearer' })
+    .expect(200);
+  expect(own.body.data[0].addresses).toEqual([address]);
+  expect(
+    (
+      await request(http)
+        .get('/me/favorite-groups')
+        .auth('b', { type: 'bearer' })
+        .expect(200)
+    ).body.data,
+  ).toEqual([]);
+  await request(http)
+    .patch(`/me/favorite-groups/${id}`)
+    .auth('a', { type: 'bearer' })
+    .send({ name: 'Keep' })
+    .expect(200);
+  await request(http)
+    .put(`/me/favorite-groups/${id}/members/0x${'34'.repeat(20)}`)
+    .auth('a', { type: 'bearer' })
+    .expect(404);
+  await request(http)
+    .delete(`/me/favorite-groups/${id}`)
+    .auth('a', { type: 'bearer' })
+    .expect(204);
+  expect(await db.select().from(userFavorites)).toMatchObject([
+    { address, alertEnabled: true },
+  ]);
+});
+it('enforces name and count bounds under concurrent creates', async () => {
+  const http = app.getHttpServer();
+  await request(http)
+    .post('/me/favorite-groups')
+    .auth('b', { type: 'bearer' })
+    .send({ name: '  ' })
+    .expect(400);
+  await request(http)
+    .post('/me/favorite-groups')
+    .auth('b', { type: 'bearer' })
+    .send({ name: 'x'.repeat(41) })
+    .expect(400);
+  const responses = await Promise.all(
+    Array.from({ length: 21 }, (_, i) =>
+      request(http)
+        .post('/me/favorite-groups')
+        .auth('b', { type: 'bearer' })
+        .send({ name: `Group ${i}` }),
+    ),
+  );
+  expect(responses.filter((r) => r.status === 201)).toHaveLength(20);
+  expect(responses.filter((r) => r.status === 409)).toHaveLength(1);
+});
+it('allows multiple groups, enforces ownership in SQL and cascades only membership on unfavorite', async () => {
+  const owner = await insertUser(db);
+  const other = await insertUser(db);
+  await db.insert(userFavorites).values([
+    { userId: owner.id, address },
+    { userId: other.id, address },
+  ]);
+  const repo = app.get(FavoriteGroupsRepository);
+  const one = await repo.save(owner.id, { name: 'One' });
+  const two = await repo.save(owner.id, { name: 'Two' });
+  await repo.member(owner.id, one.id, address, true);
+  await repo.member(owner.id, two.id, address, true);
+  expect((await repo.list(owner.id)).map((g) => g.addresses)).toEqual([
+    [address],
+    [address],
+  ]);
+  await expect(
+    db
+      .insert(favoriteGroupMembers)
+      .values({ userId: other.id, groupId: one.id, address }),
+  ).rejects.toThrow();
+  await repo.member(owner.id, one.id, address, false);
+  expect((await repo.list(owner.id)).map((g) => g.addresses)).toEqual([
+    [],
+    [address],
+  ]);
+  await db.delete(userFavorites).where(eq(userFavorites.userId, owner.id));
+  expect((await repo.list(owner.id)).map((g) => g.addresses)).toEqual([[], []]);
+  expect(
+    await db
+      .select()
+      .from(favoriteGroups)
+      .where(eq(favoriteGroups.userId, owner.id)),
+  ).toHaveLength(2);
+});
+it('assigns chip colours and order, recolours, reorders and lists in order (favorites page)', async () => {
+  const user = await insertUser(db, { privyUserId: 'did:privy:groups-c' });
+  await db.insert(userFavorites).values({ userId: user.id, address });
+  const { app: appC } = await createAuthedApp({
+    db,
+    privy: stubPrivy({ c: { privyUserId: 'did:privy:groups-c' } }),
+    controllers: [FavoriteGroupsController],
+    providers: [FavoriteGroupsRepository],
   });
-  afterAll(async () => {
-    await app.close();
-    await closeTestDb();
-  });
-  beforeEach(async () => {
-    await truncateAll(db);
-    auth.clearCache();
-    alice = (await insertUser(db, { privyUserId: "did:privy:alice" })).id;
-    bob = (await insertUser(db, { privyUserId: "did:privy:bob" })).id;
-    await db.insert(userFavorites).values([{ userId: alice, address: addr(1) }, { userId: alice, address: addr(2) }, { userId: bob, address: addr(3) }]);
-  });
-
-  const as = (token: string) => (r: request.Test) => r.set("Authorization", `Bearer ${token}`);
-
-  it("creates, lists, renames, fills and deletes a user's groups", async () => {
-    const server = app.getHttpServer();
-    const a = as("alice-token");
-    await request(server).get("/me/favorite-groups").expect(401);
-    const created = wireFavoriteGroupSchema.parse((await a(request(server).post("/me/favorite-groups").send({ name: "  Whales " })).expect(201)).body.data);
-    expect(created).toMatchObject({ name: "Whales", color: "#ff7a45", sortOrder: 0, members: [] });
-    const second = (await a(request(server).post("/me/favorite-groups").send({ name: "Scalpers", color: "#123456" })).expect(201)).body.data;
-    expect(second).toMatchObject({ sortOrder: 1, color: "#123456" });
-    expect((await a(request(server).post("/me/favorite-groups").send({ name: "Whales" })).expect(409)).body.error.code).toBe("group_exists");
-    await a(request(server).post("/me/favorite-groups").send({ name: "x".repeat(21) })).expect(400);
-    await a(request(server).post("/me/favorite-groups").send({ name: "ok", color: "red" })).expect(400);
-
-    const withMember = (await a(request(server).put(`/me/favorite-groups/${created.id}/members/${addr(1).toUpperCase().replace("0X", "0x")}`)).expect(200)).body.data;
-    expect(withMember.members).toEqual([addr(1)]);
-    await a(request(server).put(`/me/favorite-groups/${created.id}/members/${addr(1)}`)).expect(200); // idempotent
-    await a(request(server).put(`/me/favorite-groups/${created.id}/members/${addr(3)}`)).expect(404); // bob's favorite, not alice's
-    await a(request(server).put(`/me/favorite-groups/${created.id}/members/${addr(2)}`)).expect(200);
-
-    const renamed = (await a(request(server).patch(`/me/favorite-groups/${created.id}`).send({ name: "Big", sortOrder: 5 })).expect(200)).body.data;
-    expect(renamed).toMatchObject({ name: "Big", sortOrder: 5, members: [addr(1), addr(2)] });
-    await a(request(server).patch(`/me/favorite-groups/${created.id}`).send({ name: "Scalpers" })).expect(409);
-
-    const list = (await a(request(server).get("/me/favorite-groups")).expect(200)).body.data;
-    expect(list.map((g: { name: string }) => g.name)).toEqual(["Scalpers", "Big"]);
-
-    await a(request(server).delete(`/me/favorite-groups/${created.id}/members/${addr(2)}`)).expect(204);
-    await a(request(server).delete(`/me/favorite-groups/${created.id}`)).expect(204);
-    await a(request(server).delete(`/me/favorite-groups/${created.id}`)).expect(204); // idempotent
-    // The favorites themselves stay.
-    expect((await db.select().from(userFavorites)).length).toBe(3);
-  });
-
-  it("keeps groups private and drops a member when it is unfavorited", async () => {
-    const server = app.getHttpServer();
-    const group = (await as("alice-token")(request(server).post("/me/favorite-groups").send({ name: "Mine" })).expect(201)).body.data;
-    await as("bob-token")(request(server).get("/me/favorite-groups")).expect(200).expect((r) => expect(r.body.data).toEqual([]));
-    await as("bob-token")(request(server).patch(`/me/favorite-groups/${group.id}`).send({ name: "Stolen" })).expect(404);
-    await as("bob-token")(request(server).put(`/me/favorite-groups/${group.id}/members/${addr(3)}`)).expect(404);
-    await as("alice-token")(request(server).put(`/me/favorite-groups/${group.id}/members/${addr(1)}`)).expect(200);
-    await db.delete(userFavorites).where((await import("drizzle-orm")).eq(userFavorites.address, addr(1)));
-    expect(await db.select().from(userFavoriteGroupMembers)).toEqual([]);
-  });
-
-  it("stops at 20 groups", async () => {
-    const server = app.getHttpServer();
-    for (let i = 0; i < 20; i++) await as("alice-token")(request(server).post("/me/favorite-groups").send({ name: `g${i}` })).expect(201);
-    const res = await as("alice-token")(request(server).post("/me/favorite-groups").send({ name: "one more" })).expect(409);
-    expect(res.body.error).toMatchObject({ code: "group_limit" });
-  });
-
-  it("serves watchlist cards from the pool, else the leaderboard, else identity only", async () => {
-    const now = new Date();
-    await db.insert(traderStats).values([1, 2].map((n) => ({
-      address: addr(n), displayName: n === 2 ? "Board Two" : null, accountValue: "500", pnlDay: "0", pnlWeek: "0", pnlMonth: "12", pnlAllTime: String(n * 100),
-      roiDay: "0", roiWeek: "0", roiMonth: "0.1", roiAllTime: "0.5", volumeDay: "0", volumeWeek: "0", volumeMonth: "1", volumeAllTime: "1", updatedAt: now,
-    })));
-    await db.insert(discoveryTraders).values({
-      address: addr(1), poolRank: 1, portfolioAt: now, accountValue: "1000", pnlAll: "900", roiAll: "2", pnl30d: "40", sharpe: "1.5", maxDrawdown: "0.2", copyScore: 77,
-      sparkline: [0, 5, 9], topCoins: ["BTC"], coinStats: { BTC: { pnl: 900, volume: 1, trades: 4, wins: 3 } },
-    });
-    await db.insert(kolTraders).values({ address: addr(3), displayName: "Kol Three", xHandle: "three", verified: true });
-    const res = await request(app.getHttpServer()).get(`/discover/cards?addresses=${addr(2)},${addr(1)},${addr(3)},${addr(1)}`).expect(200);
-    const { items } = wireTraderCardsSchema.parse(res.body.data);
-    expect(items.map((c) => c.address)).toEqual([addr(2), addr(1), addr(3)]);
-    expect(items[0]).toMatchObject({ source: "leaderboard", displayName: "Board Two", pnl: 200, roi: 0.5, pnl30d: 12, copyScore: null, sparkline: [], winRate: null });
-    expect(items[1]).toMatchObject({ source: "pool", pnl: 900, roi: 2, pnl30d: 40, copyScore: 77, winRate: 0.75, sharpe: 1.5, maxDrawdown: 0.2, sparkline: [0, 5, 9] });
-    expect(items[2]).toMatchObject({ source: "none", displayName: "Kol Three", kol: true, verified: true, xHandle: "three", avatarUrl: null, pnl: null });
-    await request(app.getHttpServer()).get("/discover/cards?addresses=nope").expect(400);
-    await request(app.getHttpServer()).get("/discover/cards").expect(400);
-  });
+  try {
+    const c = appC.getHttpServer();
+    const first = favoriteGroupSchema.parse(
+      (await request(c).post('/me/favorite-groups').auth('c', { type: 'bearer' }).send({ name: 'Whales' }).expect(201)).body.data,
+    );
+    expect(first).toMatchObject({ name: 'Whales', color: FAVORITE_GROUP_COLORS[0], sortOrder: 0, addresses: [] });
+    const second = (
+      await request(c).post('/me/favorite-groups').auth('c', { type: 'bearer' }).send({ name: 'Scalpers', color: '#123456' }).expect(201)
+    ).body.data;
+    expect(second).toMatchObject({ color: '#123456', sortOrder: 1 });
+    await request(c).post('/me/favorite-groups').auth('c', { type: 'bearer' }).send({ name: 'Bad', color: 'red' }).expect(400);
+    await request(c).post('/me/favorite-groups').auth('c', { type: 'bearer' }).send({ name: 'Bad', sortOrder: 1 }).expect(400);
+    await request(c).patch(`/me/favorite-groups/${first.id}`).auth('c', { type: 'bearer' }).send({}).expect(400);
+    // Recolour / reorder without renaming.
+    const moved = (
+      await request(c).patch(`/me/favorite-groups/${first.id}`).auth('c', { type: 'bearer' }).send({ sortOrder: 5, color: '#abcdef' }).expect(200)
+    ).body.data;
+    expect(moved).toMatchObject({ name: 'Whales', sortOrder: 5, color: '#abcdef' });
+    await request(c).put(`/me/favorite-groups/${first.id}/members/${address}`).auth('c', { type: 'bearer' }).expect(204);
+    const list = favoriteGroupsSchema.parse(
+      (await request(c).get('/me/favorite-groups').auth('c', { type: 'bearer' }).expect(200)).body.data,
+    );
+    expect(list.map((g) => [g.name, g.addresses])).toEqual([
+      ['Scalpers', []],
+      ['Whales', [address]],
+    ]);
+    // A rename that only changes case is not a conflict with itself.
+    await request(c).patch(`/me/favorite-groups/${first.id}`).auth('c', { type: 'bearer' }).send({ name: 'WHALES' }).expect(200);
+    await request(c).patch(`/me/favorite-groups/${first.id}`).auth('c', { type: 'bearer' }).send({ name: 'scalpers' }).expect(409);
+    // The 20-group limit reports its code and limit.
+    for (let i = 0; i < 18; i++)
+      await request(c).post('/me/favorite-groups').auth('c', { type: 'bearer' }).send({ name: `g${i}` }).expect(201);
+    const over = await request(c).post('/me/favorite-groups').auth('c', { type: 'bearer' }).send({ name: 'one more' }).expect(409);
+    expect(over.body.error).toMatchObject({ code: 'group_limit' });
+  } finally {
+    await appC.close();
+  }
 });

@@ -56,6 +56,7 @@ export class DiscoveryPoolService {
   private readonly logger = new Logger(DiscoveryPoolService.name);
   private running: Promise<void> | undefined;
   private builtAt = 0;
+  private builtForSize: number | null = null;
   private builtForImport: number | null = null;
   private tokens = 0;
   private tokensAt = Date.now();
@@ -85,10 +86,14 @@ export class DiscoveryPoolService {
 
   /** Rebuilds the pool when due, then refreshes rows within the allowance. */
   async tick(now = Date.now()): Promise<void> {
-    const discovery = await this.settings.get("discovery");
+    const snapshot = await this.settings.getAll();
+    const discovery = snapshot.discovery;
     const perMinute = discovery.poolWeightPerMinute;
     await this.buildIfDue(discovery.candidatePoolSize, now);
-    if (perMinute <= 0) return;
+    // A pool acknowledgement requires an actual membership decision. Empty
+    // upstream data keeps the old pool and must not be reported as applied.
+    if (this.builtForSize === discovery.candidatePoolSize) this.settings.acknowledgeDiscovery("pool", snapshot);
+    if (perMinute <= 0) { this.tokens = 0; this.tokensAt = now; return; }
     const elapsedMin = Math.max(0, (now - this.tokensAt) / 60_000);
     this.tokens = Math.min(perMinute * MAX_SAVED_MINUTES, this.tokens + perMinute * Math.min(elapsedMin, MAX_SAVED_MINUTES));
     this.tokensAt = now;
@@ -111,8 +116,10 @@ export class DiscoveryPoolService {
    * `POOL_REBUILD_MS`. */
   async buildIfDue(size: number, now = Date.now()): Promise<boolean> {
     const imported = (await this.ingest.lastImportAt())?.getTime() ?? null;
-    if (this.builtAt > 0 && imported === this.builtForImport && now - this.builtAt < POOL_REBUILD_MS) return false;
-    await this.build(size);
+    if (this.builtForSize === size && this.builtAt > 0 && imported === this.builtForImport && now - this.builtAt < POOL_REBUILD_MS) return false;
+    const result = await this.build(size);
+    if (!result.total) return false;
+    this.builtForSize = size;
     this.builtAt = now;
     this.builtForImport = imported;
     return true;

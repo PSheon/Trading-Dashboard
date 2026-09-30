@@ -1160,39 +1160,6 @@ export const favoriteSchema = z.object({
 });
 export type Favorite = z.infer<typeof favoriteSchema>;
 
-/** A favorites group (CopyDog's watchlist groups): a named, coloured set
- * of the user's favorites. GET /me/favorite-groups lists them in order. */
-export const favoriteGroupSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  color: z.string(),
-  sortOrder: z.number().int(),
-  /** Member addresses (each one of the user's favorites), oldest first. */
-  members: z.array(z.string()),
-  createdAt: z.coerce.date(),
-});
-export type FavoriteGroup = z.infer<typeof favoriteGroupSchema>;
-const favoriteGroupName = z.string().trim().min(1).max(20);
-const favoriteGroupColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
-/** POST /me/favorite-groups (201). 409 `group_exists` for a duplicate
- * name, 409 `group_limit` past `FAVORITE_GROUPS_MAX`. */
-export const createFavoriteGroupRequestSchema = z.object({
-  name: favoriteGroupName,
-  color: favoriteGroupColor.optional(),
-}).strict();
-export type CreateFavoriteGroupRequest = z.infer<typeof createFavoriteGroupRequestSchema>;
-/** PATCH /me/favorite-groups/:id. */
-export const patchFavoriteGroupRequestSchema = z.object({
-  name: favoriteGroupName.optional(),
-  color: favoriteGroupColor.optional(),
-  sortOrder: z.number().int().min(0).max(1000).optional(),
-}).strict();
-export type PatchFavoriteGroupRequest = z.infer<typeof patchFavoriteGroupRequestSchema>;
-/** Groups per user. */
-export const FAVORITE_GROUPS_MAX = 20;
-/** CopyDog-like chip colours, assigned in turn when none is given. */
-export const FAVORITE_GROUP_COLORS = ["#ff7a45", "#3b82f6", "#22c55e", "#eab308", "#a855f7", "#ec4899", "#14b8a6", "#f97316"] as const;
-
 /** PATCH /me/favorites/:address/alert → the updated `favoriteSchema`.
  * Turning alerts on answers 409 `{code:"telegram_not_linked"}` without a
  * linked Telegram, and 409 `{code:"alert_limit", limit}` when the user
@@ -1761,12 +1728,12 @@ export type CoinBoardResponse = z.infer<typeof coinBoardResponseSchema>;
 
 /** GET /discover/search?q=&limit= — name (KOL name, 𝕏 handle, leaderboard
  * name) or address prefix. */
-export const traderSearchQuerySchema = z.object({
+export const discoverSearchQuerySchema = z.object({
   q: z.string().trim().min(1).max(64),
   limit: z.coerce.number().int().min(1).max(10).default(5),
 }).strict();
-export type TraderSearchQuery = z.infer<typeof traderSearchQuerySchema>;
-export const traderSearchResultSchema = z.object({
+export type DiscoverSearchQuery = z.infer<typeof discoverSearchQuerySchema>;
+export const discoverSearchResultSchema = z.object({
   address: z.string(),
   displayName: z.string().nullable(),
   avatarUrl: z.string().nullable(),
@@ -1778,9 +1745,9 @@ export const traderSearchResultSchema = z.object({
   roi: z.number().nullable(),
   accountValue: z.number().nullable(),
 });
-export type TraderSearchResult = z.infer<typeof traderSearchResultSchema>;
-export const traderSearchResponseSchema = z.object({ items: z.array(traderSearchResultSchema) });
-export type TraderSearchResponse = z.infer<typeof traderSearchResponseSchema>;
+export type DiscoverSearchResult = z.infer<typeof discoverSearchResultSchema>;
+export const discoverSearchResponseSchema = z.object({ items: z.array(discoverSearchResultSchema) });
+export type DiscoverSearchResponse = z.infer<typeof discoverSearchResponseSchema>;
 
 /** GET /traders/:address/copy-score — the trader page's 複製評分 and its
  * inputs (CopyDog's `/copy-score`), from the all-time portfolio. */

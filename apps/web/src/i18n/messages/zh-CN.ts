@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const zhCN: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "匹配的交易员",
+    searchHint: "查询已收录的 KOL／榜单名称、X 账号和地址；包含没有榜单业绩的 KOL，不受下方业绩筛选影响。来源标记不代表身份验证。",
+    queryLength: "请输入 2–64 个字符，X 账号可加 @。",
+    noMatches: "没有匹配的已收录交易员。仍可直接粘贴完整钱包地址打开交易员页面。",
+    registry: "KOL 名录",
+    leaderboard: "官方榜单",
+    noStats: "暂无榜单业绩",
+    more: "仅显示前 20 条，请输入更完整的名称或账号缩小范围。",
+  },
   methodology: {
     history: "交易分析只涵盖已取得的成交。回补完成代表已扫描数据源可提供的范围，不代表全部历史完整。数据源已不保留的记录无法通过回补恢复。资金费率另有覆盖范围；取不到的资金费率不等于已确认的零成本。",
     missing: "破折号表示无数据，不是零。计算时间是数字在本地计算的时间；交易数据截止时间是分析涵盖到的时间点。两者是不同的时间戳。",
@@ -31,9 +48,9 @@ export const zhCN: Messages = {
     primary: "主导航",
   },
   topbar: {
-    search: "搜索 Hyperliquid 交易员地址…",
-    searchShort: "搜索地址…",
-    searchLabel: "搜索交易员地址",
+    search: "搜索名称、X 账号或地址…",
+    searchShort: "搜索交易员…",
+    searchLabel: "搜索名称、X 账号或地址",
     invalidAddress: "请输入完整的 0x 地址（42 个字符）",
     searchClear: "清除搜索",
     searchResults: "搜索结果",
@@ -177,7 +194,7 @@ export const zhCN: Messages = {
   explore: {
     title: "完整排行榜",
     subtitle: "Hyperliquid 官方排行榜上的所有账户",
-    search: "地址或名称",
+    search: "名称、X 账号或地址",
     minAccountValue: "最低账户价值",
     anyValue: "不限",
     total: "共 {total} 位交易员",

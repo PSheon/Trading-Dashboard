@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const ko: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "일치하는 트레이더",
+    searchHint: "등록된 KOL·리더보드 이름, X 핸들, 주소를 검색합니다. 리더보드 지표가 없는 KOL도 포함되며, 아래 성과 필터는 이 결과를 제한하지 않습니다. 출처 표시는 신원 인증이 아닙니다.",
+    queryLength: "2–64자를 입력하세요. X 핸들은 @로 시작해도 됩니다.",
+    noMatches: "일치하는 등록 트레이더가 없습니다. 전체 지갑 주소를 붙여 넣으면 트레이더 페이지를 열 수 있습니다.",
+    registry: "KOL 목록",
+    leaderboard: "공식 리더보드",
+    noStats: "아직 리더보드 지표 없음",
+    more: "처음 20개만 표시합니다. 더 구체적인 이름이나 핸들을 입력하세요.",
+  },
   methodology: {
     history: "거래 분석은 확보한 체결만 대상으로 합니다. 백필 완료는 소스에서 가져올 수 있는 범위를 모두 스캔했다는 뜻이며, 전체 기간의 기록이 완전하다는 뜻은 아닙니다. 소스가 더 이상 보관하지 않는 기록은 백필로도 복구할 수 없습니다. 펀딩은 별도 범위로 집계되며, 확인할 수 없는 펀딩은 비용이 0이라는 뜻이 아닙니다.",
     missing: "대시(—)는 데이터가 없다는 뜻이며 0이 아닙니다. 계산 시각은 수치를 로컬에서 계산한 시각이고, 거래 데이터 기준 시각은 분석이 어디까지를 다루는지 나타냅니다. 서로 다른 타임스탬프입니다.",
@@ -31,9 +48,9 @@ export const ko: Messages = {
     primary: "기본 메뉴",
   },
   topbar: {
-    search: "Hyperliquid 트레이더 주소 검색…",
-    searchShort: "주소 검색…",
-    searchLabel: "트레이더 주소 검색",
+    search: "이름, X 핸들 또는 주소 검색…",
+    searchShort: "트레이더 찾기…",
+    searchLabel: "이름, X 핸들 또는 주소 검색",
     invalidAddress: "전체 0x 주소를 입력하세요(42자)",
     searchClear: "검색어 지우기",
     searchResults: "검색 결과",
@@ -177,7 +194,7 @@ export const ko: Messages = {
   explore: {
     title: "전체 리더보드",
     subtitle: "Hyperliquid 공식 리더보드의 모든 계정",
-    search: "주소 또는 이름",
+    search: "이름, X 핸들 또는 주소",
     minAccountValue: "최소 계정 자산",
     anyValue: "제한 없음",
     total: "트레이더 {total}명",

@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const id: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "Trader yang cocok",
+    searchHint: "Mencari nama KOL dan papan peringkat, akun X, serta alamat yang terdaftar, termasuk KOL tanpa metrik papan peringkat. Filter performa di bawah tidak membatasi hasil ini. Label sumber tidak memverifikasi identitas.",
+    queryLength: "Masukkan 2–64 karakter; akun X boleh diawali @.",
+    noMatches: "Tidak ada trader terdaftar yang cocok. Anda tetap bisa menempelkan alamat dompet lengkap untuk membuka halaman trader.",
+    registry: "Daftar KOL",
+    leaderboard: "Papan peringkat resmi",
+    noStats: "Belum ada metrik papan peringkat",
+    more: "Menampilkan 20 hasil pertama. Masukkan nama atau akun yang lebih spesifik.",
+  },
   methodology: {
     history: "Analisis trade hanya mencakup fill yang berhasil diperoleh. Backfill yang selesai berarti rentang yang tersedia dari sumber sudah dipindai, bukan berarti seluruh riwayat lengkap. Catatan yang sudah tidak disimpan sumber tidak dapat dipulihkan dengan backfill. Funding memiliki cakupan tersendiri; funding yang tidak tersedia bukan biaya nol yang terkonfirmasi.",
     missing: "Tanda pisah panjang berarti data tidak tersedia, bukan nol. Waktu perhitungan menunjukkan kapan angka dihitung secara lokal; batas data trade menunjukkan sejauh mana analisis mencakup. Keduanya adalah stempel waktu yang berbeda.",
@@ -31,9 +48,9 @@ export const id: Messages = {
     primary: "Navigasi utama",
   },
   topbar: {
-    search: "Cari alamat trader Hyperliquid…",
-    searchShort: "Cari alamat…",
-    searchLabel: "Cari alamat trader",
+    search: "Cari nama, akun X, atau alamat…",
+    searchShort: "Cari trader…",
+    searchLabel: "Cari nama, akun X, atau alamat",
     invalidAddress: "Masukkan alamat 0x lengkap (42 karakter)",
     searchClear: "Hapus pencarian",
     searchResults: "Hasil pencarian",
@@ -177,7 +194,7 @@ export const id: Messages = {
   explore: {
     title: "Peringkat lengkap",
     subtitle: "Semua akun di peringkat resmi Hyperliquid",
-    search: "Alamat atau nama",
+    search: "Nama, akun X, atau alamat",
     minAccountValue: "Nilai akun min.",
     anyValue: "Semua",
     total: "{total} trader",

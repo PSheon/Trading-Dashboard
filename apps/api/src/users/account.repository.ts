@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, count, eq, isNull, ne } from "drizzle-orm";
-import { copyStrategies, notificationChannels, userFavoriteGroups, userFavorites, users } from "@trading-dashboard/shared/database";
+import { copyStrategies, notificationChannels, favoriteGroups, userFavorites, users } from "@trading-dashboard/shared/database";
 
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -53,7 +53,7 @@ export class AccountRepository {
     // One transaction is one connection: run the counts one after another.
     const [fav] = await tx.select({ n: count() }).from(userFavorites).where(eq(userFavorites.userId, userId));
     const [alerts] = await tx.select({ n: count() }).from(userFavorites).where(and(eq(userFavorites.userId, userId), eq(userFavorites.alertEnabled, true)));
-    const [groups] = await tx.select({ n: count() }).from(userFavoriteGroups).where(eq(userFavoriteGroups.userId, userId));
+    const [groups] = await tx.select({ n: count() }).from(favoriteGroups).where(eq(favoriteGroups.userId, userId));
     const [telegram] = await tx.select({ n: count() }).from(notificationChannels).where(and(eq(notificationChannels.userId, userId), eq(notificationChannels.kind, "telegram")));
     return { role, favorites: fav?.n ?? 0, alerts: alerts?.n ?? 0, groups: groups?.n ?? 0, telegramLinked: (telegram?.n ?? 0) > 0 };
   }

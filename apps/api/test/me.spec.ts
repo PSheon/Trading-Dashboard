@@ -1,3 +1,4 @@
+import { backfillJobs } from "@trading-dashboard/shared/database";
 import { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { ProfileRepository } from "../src/users/profile.repository.js";
 import { testConfig } from "./config-test-utils.js";
@@ -7,8 +8,8 @@ import {
   alertRules,
   leaders,
   telegramLinkTokens,
-  userFavoriteGroupMembers,
-  userFavoriteGroups,
+  favoriteGroupMembers,
+  favoriteGroups,
   users,
   notificationChannels,
   traderStats,
@@ -26,7 +27,6 @@ import { AccountRepository } from "../src/users/account.repository.js";
 import { FavoritesService } from "../src/users/favorites.service.js";
 import { MeController } from "../src/users/me.controller.js";
 import { ProfileService } from "../src/users/profile.service.js";
-import { BackfillService } from "../src/watcher/backfill.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -41,7 +41,6 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
     "alice-token": { privyUserId: "did:privy:alice", profile: { email: "alice@example.com", walletAddress: null } },
     "bob-token": { privyUserId: "did:privy:bob" },
   });
-  const backfill = { trigger: vi.fn() };
   let app: INestApplication;
   let auth: AuthService;
   let settings: SettingsService;
@@ -58,7 +57,6 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
         FavoritesService,
         AccountRepository,
         AccountDeletionService,
-        { provide: BackfillService, useValue: backfill },
       ],
     }));
   });
@@ -68,7 +66,6 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
     await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
     await settings.patch({ notifications: { alertsEnabled: true, maxAlertTraders: 3 } }, null);
     auth.clearCache();
-    backfill.trigger.mockClear();
   });
 
   afterAll(async () => {
@@ -100,7 +97,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put(`/me/favorites/${winner}`).expect(200);
       expect(await db.select().from(userFavorites)).toHaveLength(1);
       expect(await db.select().from(leaders)).toHaveLength(1);
-      expect(backfill.trigger).toHaveBeenCalledTimes(1);
+      expect(await db.select().from(backfillJobs)).toHaveLength(1);
       await alice.delete(`/me/favorites/${winner}`).expect(204);
       await alice.put(`/me/favorites/${winner === ADDR ? OTHER : ADDR}`).expect(200);
     } finally { vi.unstubAllEnvs(); }
@@ -177,8 +174,8 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await bob.put(`/me/favorites/${ADDR}`).expect(200);
 
       expect(await leaderRow(ADDR)).toMatchObject({ source: "favorite", active: true, tier: "B" });
-      expect(backfill.trigger).toHaveBeenCalledTimes(1);
-      expect(backfill.trigger).toHaveBeenCalledWith(ADDR);
+      expect(await db.select().from(backfillJobs)).toHaveLength(1);
+      expect(await db.select().from(backfillJobs)).toMatchObject([{address: ADDR, status: "pending"}]);
       expect(await db.select().from(userFavorites)).toHaveLength(2);
     });
 
@@ -236,11 +233,10 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put(`/me/favorites/${ADDR}`).expect(200);
       await alice.delete(`/me/favorites/${ADDR}`).expect(204);
       expect((await leaderRow(ADDR)).active).toBe(false);
-      backfill.trigger.mockClear();
 
       await bob.put(`/me/favorites/${ADDR}`).expect(200);
       expect(await leaderRow(ADDR)).toMatchObject({ active: true, source: "favorite" });
-      expect(backfill.trigger).not.toHaveBeenCalled();
+      expect(await db.select().from(backfillJobs)).toHaveLength(1);
     });
 
     it("imported leaders are never changed: not re-sourced, not deactivated, not reactivated", async () => {
@@ -256,7 +252,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
 
       await alice.delete(`/me/favorites/${ADDR}`).expect(204);
       expect(await leaderRow(ADDR)).toMatchObject({ source: "import", active: true });
-      expect(backfill.trigger).not.toHaveBeenCalled();
+      expect(await db.select().from(backfillJobs)).toHaveLength(0);
     });
   });
 
@@ -382,16 +378,16 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put(`/me/favorites/${OTHER}`).expect(200);
       await bob.put(`/me/favorites/${OTHER}`).expect(200);
       await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(200);
-      const [group] = await db.insert(userFavoriteGroups).values({ userId: id, name: "Core", color: "#ff7a45" }).returning();
-      await db.insert(userFavoriteGroupMembers).values({ groupId: group.id, userId: id, address: ADDR });
+      const [group] = await db.insert(favoriteGroups).values({ userId: id, name: "Core", color: "#ff7a45" }).returning();
+      await db.insert(favoriteGroupMembers).values({ groupId: group.id, userId: id, address: ADDR });
       await db.insert(telegramLinkTokens).values({ userId: id, tokenHash: "hash-for-deletion-test", expiresAt: new Date(Date.now() + 60_000) });
 
       await alice.delete("/me").expect(204);
 
       expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(0);
       expect(await db.select().from(userFavorites).where(eq(userFavorites.userId, id))).toHaveLength(0);
-      expect(await db.select().from(userFavoriteGroups)).toHaveLength(0);
-      expect(await db.select().from(userFavoriteGroupMembers)).toHaveLength(0);
+      expect(await db.select().from(favoriteGroups)).toHaveLength(0);
+      expect(await db.select().from(favoriteGroupMembers)).toHaveLength(0);
       expect(await db.select().from(notificationChannels)).toHaveLength(0);
       expect(await db.select().from(telegramLinkTokens)).toHaveLength(0);
       // ADDR was only Alice's: no longer watched. OTHER is still Bob's.

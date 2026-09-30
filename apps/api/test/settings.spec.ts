@@ -18,6 +18,20 @@ describe("SettingsService — real Postgres", () => {
     await closeTestDb();
   });
 
+  it("reports only acknowledged consumer snapshots, not merely read or saved settings", async () => {
+    const service = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    const old = await service.getAll();
+    expect(typeof service.appliedDiscovery).toBe("function");
+    expect(service.appliedDiscovery()).toEqual([]);
+    service.acknowledgeDiscovery("pool", old);
+    await service.patch({ discovery: { candidatePoolSize: 500 } }, null);
+    expect(service.appliedDiscovery()[0].revision).toBe(old.revisions.discovery);
+    const next = await service.getAll();
+    service.acknowledgeDiscovery("pool", next);
+    expect(service.appliedDiscovery()).toMatchObject([{ consumer: "pool", revision: next.revisions.discovery, recovered: false }]);
+    expect(new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).appliedDiscovery()).toEqual([]);
+  });
+
   it("returns the schema defaults when nothing is stored", async () => {
     const all = await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).getAll();
     expect(all.discovery.lowSampleThreshold).toBe(20);

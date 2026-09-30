@@ -1,3 +1,14 @@
+import { kolSchema, kolImportResponseSchema, kolPreviewSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
+import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
+import { adminTraderSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureAdminTrader } from "./admin-trader";
+import { favoriteGroupInputSchema, favoriteGroupPatchSchema, favoriteGroupSchema, favoriteGroupsSchema } from "@trading-dashboard/shared/contracts";
+import { traderSearchQuerySchema, traderSearchResponseSchema } from "@trading-dashboard/shared/contracts";
+import { auditQuerySchema, auditResponseSchema, settingsRuntimeSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureJobs } from "./jobs";
+import { backfillJobSchema, backfillJobsQuerySchema, backfillJobsResponseSchema, retryBackfillJobSchema } from "@trading-dashboard/shared/contracts";
 import { adminSystemSchema } from "@trading-dashboard/shared/contracts";
 import { systemOverview } from "./admin";
 /**
@@ -26,9 +37,6 @@ import {
   adminUsersResponseSchema,
   adminUserSchema,
   crowdResponseSchema,
-  createFavoriteGroupRequestSchema,
-  favoriteGroupSchema,
-  patchFavoriteGroupRequestSchema,
   traderCardsResponseSchema,
   patchAdminSettingsRequestSchema,
   patchAdminUserRequestSchema,
@@ -112,7 +120,7 @@ import {
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
 import { fixtureBoard, fixtureHome } from "./discovery";
 import { fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
-import { createGroup, deleteGroup, listGroups, patchGroup, setMember, traderCards } from "./watchlist";
+import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
 
 // Mutable demo state (per browser tab).
 const NO_ALERT: FavoriteAlert = { enabled: false, sides: "both", minUsd: null };
@@ -262,6 +270,12 @@ export async function fixtureRequest<T>(
     case "GET /discover/boards":
       return wire(boardResponseSchema, fixtureBoard(query(boardQuerySchema, search)));
     // --- discovery -----------------------------------------------------------
+    case "GET /trader-search": {
+      const { q } = traderSearchQuerySchema.parse(Object.fromEntries(url.searchParams));
+      const term = q.replace(/^@/, "").toLowerCase();
+      const rows = [{ address: "0x" + "a1".repeat(20), displayName: "Research Whale", xHandle: "research_whale", source: "kol", hasLeaderboardData: false }];
+      return wire(traderSearchResponseSchema, { items: rows.filter(r => [r.address, r.displayName, r.xHandle].some(v => v.toLowerCase().includes(term))), hasMore: false });
+    }
     case "GET /traders": {
       const q = query(tradersQuerySchema, search) as z.infer<typeof tradersQuerySchema>;
       const needle = q.q?.toLowerCase();
@@ -373,6 +387,7 @@ export async function fixtureRequest<T>(
       // The demo account: forget what it saved (the page signs out next).
       requireUser(token);
       favorites.clear();
+      resetGroups();
       meLocale = "zh-TW";
       return undefined as T;
     }
@@ -419,21 +434,23 @@ export async function fixtureRequest<T>(
     }
     case "DELETE /me/favorites/:address": {
       requireUser(token);
-      favorites.delete(addressSchema.parse(parts[2]).toLowerCase());
+      const removedAddress = addressSchema.parse(parts[2]).toLowerCase();
+      favorites.delete(removedAddress);
+      dropMember(removedAddress);
       return undefined as T;
     }
     case "GET /me/favorite-groups":
       requireUser(token);
-      return wire(z.array(favoriteGroupSchema), listGroups(new Set(favorites.keys())));
+      return wire(favoriteGroupsSchema, listGroups());
     case "POST /me/favorite-groups": {
       requireUser(token);
-      const parsed = createFavoriteGroupRequestSchema.safeParse(body ?? {});
+      const parsed = favoriteGroupInputSchema.safeParse(body ?? {});
       if (!parsed.success) throw new ApiError(400, parsed.error.message);
       return wire(favoriteGroupSchema, createGroup(parsed.data));
     }
     case "PATCH /me/favorite-groups/:id": {
       requireUser(token);
-      const parsed = patchFavoriteGroupRequestSchema.safeParse(body ?? {});
+      const parsed = favoriteGroupPatchSchema.safeParse(body ?? {});
       if (!parsed.success) throw new ApiError(400, parsed.error.message);
       return wire(favoriteGroupSchema, patchGroup(Number(parts[2]), parsed.data));
     }
@@ -444,8 +461,8 @@ export async function fixtureRequest<T>(
     case "PUT /me/favorite-groups/:id/members/:address":
     case "DELETE /me/favorite-groups/:id/members/:address": {
       requireUser(token);
-      const group = setMember(Number(parts[2]), addressSchema.parse(parts[4]).toLowerCase(), method === "PUT", new Set(favorites.keys()));
-      return (method === "PUT" ? wire(favoriteGroupSchema, group) : undefined) as T;
+      setMember(Number(parts[2]), addressSchema.parse(parts[4]).toLowerCase(), method === "PUT", new Set(favorites.keys()));
+      return undefined as T;
     }
     case "GET /discover/cards": {
       const addresses = (search.get("addresses") ?? "").toLowerCase().split(",").filter(Boolean);
@@ -508,6 +525,37 @@ export async function fixtureRequest<T>(
       return wire(crowdResponseSchema, crowd());
 
     // --- admin ---------------------------------------------------------------------
+    case "GET /admin/kols":requireAdmin(token);return wire(z.array(kolSchema),fixtureKols);
+    case "POST /admin/kols":requireAdmin(token);return wire(kolSchema,saveKol(body));
+    case "PATCH /admin/kols/:address":requireAdmin(token);return wire(kolSchema,saveKol(body,addressSchema.parse(parts[2]).toLowerCase()));
+    case "DELETE /admin/kols/:address":requireAdmin(token);removeKol(addressSchema.parse(parts[2]).toLowerCase());return undefined as T;
+    case "POST /admin/kols/import/preview":requireAdmin(token);return wire(kolPreviewSchema,previewKols(body));
+    case "POST /admin/kols/import":requireAdmin(token);return wire(kolImportResponseSchema,importKols(body));
+    case "GET /admin/data-sources": {
+      requireAdmin(token);const at=new Date().toISOString();
+      return wire(adminSourcesSchema,{sampledAt:at,items:[{id:'leaderboard',count:150,latestAt:at},{id:'discovery',count:80,latestAt:at},{id:'kol',count:5,latestAt:at},{id:'watched',count:10,latestAt:null},{id:'favorites',count:favorites.size,latestAt:at},{id:'imports',count:leaderLists.length,latestAt:leaderLists[0]?.importedAt.toISOString()??null}]});
+    }
+    case "POST /import/lists/preview":
+      requireAdmin(token);return wire(importPreviewSchema,fixtureImportPreview(body));
+    case "GET /admin/traders/hyperliquid/:address":
+      requireAdmin(token);
+      return wire(adminTraderSchema,fixtureAdminTrader(addressSchema.parse(parts[3]).toLowerCase()));
+    case "GET /admin/jobs": {
+      requireAdmin(token);
+      const q=backfillJobsQuerySchema.parse(Object.fromEntries(search));
+      const rows=fixtureJobs.filter(j=>(!q.status||j.status===q.status)&&(!q.beforeId||j.id<q.beforeId)).sort((a,b)=>b.id-a.id);
+      const items=rows.slice(0,q.limit);
+      return wire(backfillJobsResponseSchema,{items,nextCursor:rows.length>q.limit?items.at(-1)!.id:null});
+    }
+    case "POST /admin/jobs/:id/retry": {
+      requireAdmin(token);
+      const input=retryBackfillJobSchema.parse(body);
+      const job=fixtureJobs.find(j=>j.id===Number(parts[2]));
+      if(!job)throw new ApiError(404,"Job not found");
+      if(job.status!=="failed"||job.version!==input.expectedVersion)throw new ApiError(409,"Job changed",{code:"job_conflict"});
+      Object.assign(job,{status:"pending",runAttempts:0,version:job.version+1,availableAt:new Date().toISOString(),startedAt:null,completedAt:null,fillsFetched:null});
+      return wire(backfillJobSchema,job);
+    }
     case "GET /admin/system/overview":
       requireAdmin(token);
       return wire(adminSystemSchema, systemOverview());
@@ -548,6 +596,17 @@ export async function fixtureRequest<T>(
       };
       setAdminUsers(adminUsers.map((u) => (u.id === id ? updated : u)));
       return wire(adminUserSchema, updated);
+    }
+    case "GET /admin/settings/runtime":
+      requireAdmin(token);
+      return wire(settingsRuntimeSchema, { savedRevision: adminSettingsSnapshot().revisions.discovery, sampledAt: new Date().toISOString(), state: "active", instanceId: "fixture-worker", consumers: [] });
+    case "GET /admin/audit": {
+      requireAdmin(token);
+      const query = auditQuerySchema.parse(Object.fromEntries(url.searchParams));
+      const rows = Array.from({ length: 30 }, (_, index) => ({ id: String(30 - index), actorKind: "user", actorUserId: 1, event: "settings.update", target: "app_settings", before: { discovery: { candidatePoolSize: 1000 } }, after: { discovery: { candidatePoolSize: 500 } }, createdAt: new Date().toISOString() }))
+        .filter(row => (!query.beforeId || BigInt(row.id) < BigInt(query.beforeId)) && (!query.event || row.event === query.event) && (!query.actorKind || row.actorKind === query.actorKind) && (!query.actorUserId || row.actorUserId === query.actorUserId) && (!query.target || row.target === query.target));
+      const items = rows.slice(0, query.limit);
+      return wire(auditResponseSchema, { items, nextCursor: rows.length > query.limit ? items.at(-1)!.id : null });
     }
     case "GET /admin/settings":
       requireAdmin(token);
@@ -608,14 +667,14 @@ export async function fixtureRequest<T>(
       requireUser(token);
       return wire(z.array(leaderListSchema), leaderLists);
     case "POST /import/lists": {
-      requireUser(token);
+      requireAdmin(token);
       const req = importLeaderListRequestSchema.parse(body);
+      const result=fixtureCommitImport(body);
       const listId = nextListId++;
       leaderLists.unshift({ id: listId, source: req.source, importedAt: new Date(), fileName: req.fileName });
       return wire(importLeaderListResponseSchema, {
         listId,
-        itemCount: req.rows.length,
-        newAddresses: [],
+        ...result,
       });
     }
   }

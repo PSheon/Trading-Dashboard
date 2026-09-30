@@ -17,6 +17,13 @@ const mine = eq(kolTraders.chain, CHAIN_DEFAULT);
 export class KolRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
+  async previewSnapshot():Promise<KolValues[]>{
+    return this.db.transaction(async tx=>{
+      await tx.execute(sql`SET LOCAL statement_timeout = '2000ms'`);
+      return tx.select({address:kolTraders.address,displayName:kolTraders.displayName,avatarUrl:kolTraders.avatarUrl,xHandle:kolTraders.xHandle,verified:kolTraders.verified,sortOrder:kolTraders.sortOrder}).from(kolTraders).where(mine).orderBy(asc(kolTraders.address)).limit(5001);
+    },{accessMode:'read only'});
+  }
+
   /** Registry order: sort order, then address. */
   list(executor: DbExecutor = this.db): Promise<KolRow[]> {
     return executor.select().from(kolTraders).where(mine).orderBy(asc(kolTraders.sortOrder), asc(kolTraders.address));

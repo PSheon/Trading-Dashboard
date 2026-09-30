@@ -94,7 +94,9 @@ export class LeaderboardIngestService {
   }
 
   async refreshIntervalMs(): Promise<number> {
-    return (await this.settings.get("discovery")).leaderboardRefreshMinutes * 60_000;
+    const snapshot = await this.settings.getAll();
+    this.settings.acknowledgeDiscovery("leaderboard", snapshot);
+    return snapshot.discovery.leaderboardRefreshMinutes * 60_000;
   }
 
   /** Imports if the table is empty or older than the configured interval. */

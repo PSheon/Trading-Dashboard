@@ -6,7 +6,7 @@
 |---|---|---|
 | APP_ROLE | api | worker |
 | 啟動 | node dist/main.js | node dist/worker.js |
-| HTTP | 現有業務 API | 僅 /health、/health/ready、/health/live |
+| HTTP | 現有業務 API | 僅 /health、/health/ready、/health/live、/health/monitor |
 | 自動監聽與排程 | 停用所有 cron/interval 及 startup worker hooks | 啟用 |
 | WORKER_URL | private worker URL | 不需要 |
 | Privy | 保留登入驗證設定 | 不需要設定登入秘密 |
@@ -55,3 +55,19 @@ Privy 設定檢查另見 [2026-09-30 audit](privy-configuration-audit-2026-09-30
 - 當時 lastSnapshotAt、lastFillAt 仍為 null：未等到下次五分鐘快照，也未觀察指定地址新成交。已驗證的是即時市場連線、補掃與分析更新，不能據此宣稱新成交通知端到端已通過。
 - worker 沒有 Privy credentials，啟動出現「Privy sign-in is disabled」是未掛載用戶 HTTP API 的 worker context 訊息；前端登入仍由已設定 Privy 的 API 處理。
 - Telegram 仍 dry-run；沒有啟用真實通知或交易執行。
+
+## 持久化初次補齊與快取（Admin batch 2）
+
+匯入名單或收藏建立新追蹤地址時，在同一筆 PostgreSQL transaction 建立 `backfill_jobs`；交易失敗時兩者一起回滾。初次補齊以 chain/address 去重，既有地址不會因重複匯入而重跑；migration 不會替所有舊地址自動排入工作。
+
+只有 worker／本地 combined 執行補齊。每次認領一筆、每 5 秒檢查，租約 90 秒、每 20 秒續租。失敗最多自動嘗試 3 次，前兩次等待 60／120 秒；程序中斷的工作於租約到期後可接手。租約 token 防止舊執行者覆寫工作結果；歷史同步仍屬 at-least-once，依既有成交／action 去重，並不保證網路請求只發生一次。回放使用 backfill 模式，不發送即時成交通知。
+
+`/admin/jobs` 提供狀態篩選、游標分頁與失敗工作的手動重試。查看需 `jobs.read`，重試需 `jobs.retry`；重試以 expectedVersion 防止過期畫面重複操作，並在同一交易寫入 audit。HTTP 202 表示已排隊，不表示補齊完成。抓取數量也不代表上游帳戶所有歷史均完整。
+
+獨立 worker 已停用無法供 API 共用的記憶體首頁快取預熱；API 保留按需載入的程序內快取，combined 開發模式保留預熱。尚未引入共享快取或 Redis。
+
+## 設定套用回報（Admin batch 3）
+
+私有 `/health/monitor` 回傳候選池與排行榜排程實際採用的 discovery 設定版本、確認時間與相關值。資料僅存在該 worker 程序記憶體，綁定既有 instance ID；重啟後未確認即為未知。讀取設定、儲存設定或打開監控頁不會自行標記為套用。候選池須先完成名單決策才確認；排行榜確認的是刷新間隔政策，並非一次匯入已完成。
+
+候選池大小變更會在下一個可執行的分鐘排程重建，不再等十分鐘的週期。設定快取最多 30 秒，忙碌中的上一輪仍可能延後採用；將 weight 預算設為 0 不取消已發出的上游請求。管理端 `/admin/settings/runtime` 僅在 worker 樣本有效、確認未超過三分鐘且版本相符時顯示已採用；使用復原設定另行標示。

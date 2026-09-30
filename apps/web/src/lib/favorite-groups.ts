@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { CreateFavoriteGroupRequest, FavoriteGroup, PatchFavoriteGroupRequest, TraderCardsResponse } from "@/lib/contracts";
+import type { FavoriteGroup, FavoriteGroupInput, FavoriteGroupPatch, TraderCardsResponse } from "@/lib/contracts";
 import { queryKeys } from "@/lib/query-keys";
 
 /**
@@ -29,10 +29,10 @@ function useRefresh() {
   return () => client.invalidateQueries({ queryKey: queryKeys.favoriteGroups });
 }
 
-/** POST /me/favorite-groups; 409 `group_exists` / `group_limit`. */
+/** POST /me/favorite-groups; 409 `group_name_exists` / `group_limit`. */
 export function useCreateFavoriteGroup() {
   const refresh = useRefresh();
-  return useMutation<FavoriteGroup, ApiError, CreateFavoriteGroupRequest>({
+  return useMutation<FavoriteGroup, ApiError, FavoriteGroupInput>({
     mutationFn: (body) => api.post<FavoriteGroup>("/me/favorite-groups", body),
     onSettled: refresh,
   });
@@ -40,7 +40,7 @@ export function useCreateFavoriteGroup() {
 
 export function usePatchFavoriteGroup() {
   const refresh = useRefresh();
-  return useMutation<FavoriteGroup, ApiError, { id: number; patch: PatchFavoriteGroupRequest }>({
+  return useMutation<FavoriteGroup, ApiError, { id: number; patch: FavoriteGroupPatch }>({
     mutationFn: ({ id, patch }) => api.patch<FavoriteGroup>(`/me/favorite-groups/${id}`, patch),
     onSettled: refresh,
   });
@@ -59,10 +59,10 @@ export function useToggleGroupMember() {
   const client = useQueryClient();
   return useMutation<unknown, ApiError, { id: number; address: string; member: boolean }>({
     mutationFn: ({ id, address, member }) =>
-      member ? api.put<FavoriteGroup>(`/me/favorite-groups/${id}/members/${address}`) : api.delete<void>(`/me/favorite-groups/${id}/members/${address}`),
+      member ? api.put<void>(`/me/favorite-groups/${id}/members/${address}`) : api.delete<void>(`/me/favorite-groups/${id}/members/${address}`),
     onMutate: ({ id, address, member }) => {
       client.setQueryData<FavoriteGroup[]>(queryKeys.favoriteGroups, (groups) =>
-        groups?.map((g) => (g.id !== id ? g : { ...g, members: member ? [...new Set([...g.members, address])] : g.members.filter((a) => a !== address) })),
+        groups?.map((g) => (g.id !== id ? g : { ...g, addresses: member ? [...new Set([...g.addresses, address])] : g.addresses.filter((a) => a !== address) })),
       );
     },
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.favoriteGroups }),

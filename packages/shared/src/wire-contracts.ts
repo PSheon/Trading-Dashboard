@@ -1,3 +1,11 @@
+import { kolPreviewSchema } from "./kol-preview-contracts.js";
+import { adminSourcesSchema } from "./admin-sources-contracts.js";
+import { importPreviewSchema } from "./import-preview-contracts.js";
+import { adminTraderSchema } from "./admin-trader-contracts.js";
+import { favoriteGroupSchema, favoriteGroupsSchema } from "./favorite-group-contracts.js";
+import { traderSearchResponseSchema } from "./trader-search-contracts.js";
+import { appliedDiscoverySchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
+import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.js";
 import { z } from "zod";
 import * as s from "./schema/zod.js";
 
@@ -44,6 +52,7 @@ export const runtimeBudgetSchema = z.object({
 });
 export const workerMonitorSchema = z.object({
   state: z.enum(["active", "standby", "stopping"]), instanceId: z.string().min(1), sampledAt: iso,
+  settings: z.array(appliedDiscoverySchema).optional(),
   uptimeSeconds: z.number().nonnegative(), budget: runtimeBudgetSchema.nullable(), heartbeat: wireHeartbeatSchema.nullable(),
 }).refine(v => v.state !== "active" || (v.budget !== null && v.heartbeat !== null), "Active worker requires telemetry");
 export const adminSystemSchema = z.object({
@@ -53,6 +62,10 @@ export const adminSystemSchema = z.object({
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({
     leaderboardCount: z.number(), leaderboardUpdatedAt: iso.nullable(), watched: z.number(), candidates: z.number(),
+    freshness: z.object({
+      leaderboardThresholdMinutes: z.number(), portfolioThresholdMinutes: z.number(), tradesThresholdMinutes: z.number(),
+      leaderboard: z.enum(["fresh", "stale", "missing"]), portfolioStale: z.number(), portfolioMissing: z.number(), tradesStale: z.number(), tradesMissing: z.number(),
+    }).optional(),
     portfolios: z.number(), trades: z.number(), errors: z.number(), oldestPortfolioAt: iso.nullable(), newestPortfolioAt: iso.nullable(),
   }).nullable(),
   outbox: z.array(z.object({ kind: z.enum(["evaluations", "deliveries"]), pending: z.number(), processing: z.number(), failed: z.number(), due: z.number(), expiredLeases: z.number(), oldestDueAt: iso.nullable() })).nullable(),
@@ -70,10 +83,9 @@ export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
 export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso });
 export const wireCoinIndexSchema = s.coinIndexResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireCoinBoardSchema = s.coinBoardResponseSchema.extend({ updatedAt: iso.nullable() });
-export const wireTraderSearchSchema = s.traderSearchResponseSchema;
+export const wireDiscoverSearchSchema = s.discoverSearchResponseSchema;
 export const wireTraderCardSchema = s.traderCardSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable() });
 export const wireTraderCardsSchema = s.traderCardsResponseSchema.extend({ items: z.array(wireTraderCardSchema) });
-export const wireFavoriteGroupSchema = s.favoriteGroupSchema.extend({ createdAt: iso });
 export const wireCohortDetailSchema = s.cohortDetailResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireCohortHistorySchema = s.cohortHistoryResponseSchema.extend({ series: z.array(z.object({ t: iso, pctLong: z.number() })) });
 export const wireCopyScoreSchema = s.copyScoreResponseSchema;
@@ -144,9 +156,11 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "PATCH", path: "/leaders/:chain/:address", status: 200, auth: "leaders.manage", response: wireLeaderSchema },
   { method: "GET", path: "/lists", status: 200, auth: "lists.read", response: z.array(s.leaderListSchema.extend({ importedAt: iso })) },
   { method: "GET", path: "/lists/diff", status: 200, auth: "lists.read", response: s.listDiffResponseSchema },
+  { method: "POST", path: "/import/lists/preview", status: 200, auth: "leaders.import", response: importPreviewSchema },
   { method: "POST", path: "/import/lists", status: 201, auth: "leaders.import", response: s.importLeaderListResponseSchema },
   { method: "GET", path: "/alert-rules", status: 200, auth: "rules.read", response: z.array(s.alertRuleSchema) },
   { method: "POST", path: "/alert-rules", status: 201, auth: "rules.manage", response: s.alertRuleSchema },
+  { method: "GET", path: "/trader-search", status: 200, auth: "public", response: traderSearchResponseSchema },
   { method: "GET", path: "/traders", pagination: { type: "offset", query: s.tradersQuerySchema }, status: 200, auth: "public", response: wireTradersSchema },
   { method: "GET", path: "/traders/sparklines", status: 200, auth: "public", response: s.sparklinesResponseSchema },
   { method: "GET", path: "/traders/:address", status: 200, auth: "public", response: wireTraderProfileSchema },
@@ -161,6 +175,12 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "PATCH", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "DELETE", path: "/me", status: 204, auth: "user; 409 last_admin", response: z.undefined() },
+  { method: "GET", path: "/me/favorite-groups", status: 200, auth: "user", response: favoriteGroupsSchema },
+  { method: "POST", path: "/me/favorite-groups", status: 201, auth: "user", response: favoriteGroupSchema },
+  { method: "PATCH", path: "/me/favorite-groups/:id", status: 200, auth: "user", response: favoriteGroupSchema },
+  { method: "DELETE", path: "/me/favorite-groups/:id", status: 204, auth: "user", response: z.undefined() },
+  { method: "PUT", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
+  { method: "DELETE", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
   { method: "GET", path: "/me/favorites", status: 200, auth: "user", response: z.array(wireFavoriteSchema) },
   { method: "PUT", path: "/me/favorites/:address", status: 200, auth: "user", response: wireFavoriteSchema },
   { method: "DELETE", path: "/me/favorites/:address", status: 204, auth: "user", response: z.undefined() },
@@ -175,10 +195,16 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/insights/cohorts/:tier/history", status: 200, auth: "public", response: wireCohortHistorySchema },
   { method: "GET", path: "/insights/crowd", status: 200, auth: "public", response: s.crowdResponseSchema.extend({ updatedAt: iso.nullable() }) },
   { method: "GET", path: "/settings", status: 200, auth: "public", response: s.publicSettingsSchema },
+  { method: "GET", path: "/admin/settings/runtime", status: 200, auth: "settings.read", response: settingsRuntimeSchema },
+  { method: "GET", path: "/admin/audit", status: 200, auth: "audit.read", response: auditResponseSchema },
   { method: "GET", path: "/admin/settings", status: 200, auth: "settings.read", response: s.adminSettingsSnapshotSchema },
   { method: "PATCH", path: "/admin/settings", status: 200, auth: "settings.write", response: s.adminSettingsSnapshotSchema },
   { method: "GET", path: "/admin/users", pagination: { type: "offset", query: s.adminUsersQuerySchema }, status: 200, auth: "users.read", response: s.adminUsersResponseSchema.extend({ items: z.array(wireAdminUserSchema) }) },
   { method: "PATCH", path: "/admin/users/:id", status: 200, auth: "users.manage", response: wireAdminUserSchema },
+  { method: "GET", path: "/admin/data-sources", status: 200, auth: "sources.read", response: adminSourcesSchema },
+  { method: "GET", path: "/admin/traders/:chain/:address", status: 200, auth: "traders.read", response: adminTraderSchema },
+  { method: "GET", path: "/admin/jobs", status: 200, auth: "jobs.read", response: backfillJobsResponseSchema },
+  { method: "POST", path: "/admin/jobs/:id/retry", status: 202, auth: "jobs.retry", response: backfillJobSchema },
   { method: "GET", path: "/admin/system/overview", status: 200, auth: "admin.access", response: adminSystemSchema },
   { method: "GET", path: "/admin/overview", status: 200, auth: "overview.read", response: s.adminOverviewSchema.extend({ generatedAt: iso }) },
   { method: "GET", path: "/admin/revenue", status: 200, auth: "revenue.read", response: s.adminRevenueResponseSchema.extend({ lastSnapshotAt: iso.nullable() }) },
@@ -188,19 +214,14 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/discover/home", status: 200, auth: "public", response: wireHomeBoardsSchema },
   { method: "GET", path: "/discover/coins", status: 200, auth: "public", response: wireCoinIndexSchema },
   { method: "GET", path: "/discover/coins/:coin", status: 200, auth: "public", response: wireCoinBoardSchema },
-  { method: "GET", path: "/discover/search", status: 200, auth: "public", response: wireTraderSearchSchema },
+  { method: "GET", path: "/discover/search", status: 200, auth: "public", response: wireDiscoverSearchSchema },
   { method: "GET", path: "/admin/kols", status: 200, auth: "kols.manage", response: z.array(wireKolSchema) },
   { method: "POST", path: "/admin/kols", status: 201, auth: "kols.manage", response: wireKolSchema },
+  { method: "POST", path: "/admin/kols/import/preview", status: 200, auth: "kols.manage", response: kolPreviewSchema },
   { method: "POST", path: "/admin/kols/import", status: 201, auth: "kols.manage", response: s.kolImportResponseSchema },
   { method: "PATCH", path: "/admin/kols/:address", status: 200, auth: "kols.manage", response: wireKolSchema },
   { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },
   { method: "GET", path: "/discover/cards", status: 200, auth: "public", response: wireTraderCardsSchema },
-  { method: "GET", path: "/me/favorite-groups", status: 200, auth: "user", response: z.array(wireFavoriteGroupSchema) },
-  { method: "POST", path: "/me/favorite-groups", status: 201, auth: "user", response: wireFavoriteGroupSchema },
-  { method: "PATCH", path: "/me/favorite-groups/:id", status: 200, auth: "user", response: wireFavoriteGroupSchema },
-  { method: "DELETE", path: "/me/favorite-groups/:id", status: 204, auth: "user", response: z.undefined() },
-  { method: "PUT", path: "/me/favorite-groups/:id/members/:address", status: 200, auth: "user", response: wireFavoriteGroupSchema },
-  { method: "DELETE", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
   { method: "GET", path: "/me/copy", status: 200, auth: "user", response: wireCopyOverviewSchema },
   { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
   { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
@@ -231,11 +252,10 @@ export type WireHomeBoards = z.infer<typeof wireHomeBoardsSchema>;
 export type WireKol = z.infer<typeof wireKolSchema>;
 export type WireCoinIndex = z.infer<typeof wireCoinIndexSchema>;
 export type WireCoinBoard = z.infer<typeof wireCoinBoardSchema>;
-export type WireTraderSearch = z.infer<typeof wireTraderSearchSchema>;
+export type WireDiscoverSearch = z.infer<typeof wireDiscoverSearchSchema>;
 export type WireCopyScore = z.infer<typeof wireCopyScoreSchema>;
 export type WireTraderCard = z.infer<typeof wireTraderCardSchema>;
 export type WireTraderCards = z.infer<typeof wireTraderCardsSchema>;
-export type WireFavoriteGroup = z.infer<typeof wireFavoriteGroupSchema>;
 export type WireCohortDetail = z.infer<typeof wireCohortDetailSchema>;
 export type WireCohortHistory = z.infer<typeof wireCohortHistorySchema>;
 export type WireWallet = z.infer<typeof wireWalletSchema>;

@@ -1,4 +1,4 @@
-import { BadGatewayException, Body, Controller, Delete, Get, HttpCode, HttpException, Logger, NotFoundException, Param, Patch, Post, Query, Req, Res, StreamableFile, UseFilters } from "@nestjs/common";
+import { BadGatewayException, Body, Controller, Delete, Get, Header, HttpCode, HttpException, Logger, NotFoundException, Param, Patch, Post, Query, Req, Res, StreamableFile, UseFilters } from "@nestjs/common";
 import type { Request, Response } from "express";
 import type {
   BoardResponse,
@@ -9,7 +9,7 @@ import type {
   Kol,
   KolImportResponse,
   TraderCardsResponse,
-  TraderSearchResponse,
+  DiscoverSearchResponse,
 } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
@@ -20,7 +20,7 @@ import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "../traders/traders.controller.js";
 import { DiscoveryService } from "./discovery.service.js";
-import { AvatarQueryDto, BoardQueryDto, CoinParamsDto, KolImportDto, KolInputDto, KolPatchDto, TraderCardsQueryDto, TraderSearchQueryDto } from "./dto/discovery.dto.js";
+import { AvatarQueryDto, BoardQueryDto, CoinParamsDto, KolImportDto, KolInputDto, KolPatchDto, TraderCardsQueryDto, DiscoverSearchQueryDto } from "./dto/discovery.dto.js";
 import { AVATAR_MAX_AGE_S, avatarVersion } from "./kol-avatar.js";
 import { KolAvatarService } from "./kol-avatar.service.js";
 import { KolService } from "./kol.service.js";
@@ -58,7 +58,7 @@ export class DiscoveryController {
 
   @ApiDoc("Trader search", "Header search: KOL name, X handle, leaderboard name or address prefix; by all-time PnL.")
   @Get("search")
-  search(@Query() query: TraderSearchQueryDto): Promise<TraderSearchResponse> {
+  search(@Query() query: DiscoverSearchQueryDto): Promise<DiscoverSearchResponse> {
     return this.discovery.search({ q: query.q, limit: query.limit });
   }
 
@@ -121,6 +121,12 @@ export class AdminKolController {
   upsert(@Body() body: KolInputDto, @CurrentUser() user: RequestUser | null): Promise<Kol> {
     return this.kols.upsert({ ...body }, user);
   }
+
+  @Post("import/preview")
+  @HttpCode(200)
+  @Header("Cache-Control", "no-store")
+  @ApiDoc("Preview KOL CSV overwrites and removals without mutation")
+  preview(@Body() body:KolImportDto){return this.kols.previewImport(body.csv,body.replace??false);}
 
   @ResponseMessage("KOLs imported")
   @ApiDoc("Import KOLs from CSV")

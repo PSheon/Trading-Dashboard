@@ -1,3 +1,5 @@
+import { TraderSearchController } from "./trader-search.controller.js";
+import { TraderSearchRepository } from "./trader-search.repository.js";
 import { Module } from "@nestjs/common";
 
 import { TradersRepository } from "./traders.repository.js";
@@ -19,8 +21,8 @@ import { AnalysisHistoryService } from "./analysis-history.service.js";
 /** Discovery capabilities and HTTP routes; startup/cron belongs to TradersWorkerModule. */
 @Module({
   imports: [HyperliquidModule, AnalyticsModule, KolAvatarModule],
-  controllers: [TradersController, TradeAnalyticsController],
-  providers: [AnalysisHistoryRepository, AnalysisHistoryService, LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService],
+  controllers: [TraderSearchController, TradersController, TradeAnalyticsController],
+  providers: [TraderSearchRepository, AnalysisHistoryRepository, AnalysisHistoryService, LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService],
   exports: [AnalysisHistoryService, TradersService, LeaderboardIngestService, TradeAnalyticsService],
 })
 export class TradersModule {}

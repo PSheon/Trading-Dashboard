@@ -4,6 +4,23 @@ import type { Messages } from "./index";
 export const vi: Messages = {
   // Admin-only system monitoring: English until it is translated.
   monitoring: en.monitoring,
+  // Admin-only operations pages: English until they are translated.
+  kolReview: en.kolReview,
+  importOps: en.importOps,
+  sources: en.sources,
+  adminTrader: en.adminTrader,
+  settingsOps: en.settingsOps,
+  jobs: en.jobs,
+  research: {
+    searchTitle: "Trader phù hợp",
+    searchHint: "Tìm trong tên KOL và bảng xếp hạng, tài khoản X và địa chỉ đã ghi nhận, kể cả KOL chưa có chỉ số bảng xếp hạng. Bộ lọc hiệu suất bên dưới không giới hạn các kết quả này. Nhãn nguồn không xác minh danh tính.",
+    queryLength: "Nhập 2–64 ký tự; tài khoản X có thể bắt đầu bằng @.",
+    noMatches: "Không có trader đã ghi nhận nào phù hợp. Bạn vẫn có thể dán địa chỉ ví đầy đủ để mở trang trader.",
+    registry: "Danh bạ KOL",
+    leaderboard: "Bảng xếp hạng chính thức",
+    noStats: "Chưa có chỉ số bảng xếp hạng",
+    more: "Chỉ hiển thị 20 kết quả đầu. Hãy nhập tên hoặc tài khoản cụ thể hơn.",
+  },
   methodology: {
     history: "Phân tích giao dịch chỉ bao gồm các lệnh khớp đã lấy được. Backfill hoàn tất nghĩa là phạm vi có sẵn của nguồn đã được quét, không có nghĩa toàn bộ lịch sử đã đầy đủ. Các bản ghi mà nguồn không còn lưu thì không thể khôi phục bằng backfill. Funding có phạm vi riêng; funding không có dữ liệu không phải là chi phí bằng 0 đã được xác nhận.",
     missing: "Dấu gạch dài nghĩa là không có dữ liệu, không phải bằng 0. Thời điểm tính toán cho biết khi nào số liệu được tính cục bộ; mốc dữ liệu giao dịch cho biết phân tích bao phủ đến đâu. Đây là hai mốc thời gian khác nhau.",
@@ -31,9 +48,9 @@ export const vi: Messages = {
     primary: "Điều hướng chính",
   },
   topbar: {
-    search: "Tìm địa chỉ trader Hyperliquid…",
-    searchShort: "Tìm địa chỉ…",
-    searchLabel: "Tìm địa chỉ trader",
+    search: "Tìm theo tên, tài khoản X hoặc địa chỉ…",
+    searchShort: "Tìm trader…",
+    searchLabel: "Tìm theo tên, tài khoản X hoặc địa chỉ",
     invalidAddress: "Nhập đầy đủ địa chỉ 0x (42 ký tự)",
     searchClear: "Xóa tìm kiếm",
     searchResults: "Kết quả tìm kiếm",
@@ -177,7 +194,7 @@ export const vi: Messages = {
   explore: {
     title: "Bảng xếp hạng đầy đủ",
     subtitle: "Mọi tài khoản trên bảng xếp hạng chính thức của Hyperliquid",
-    search: "Địa chỉ hoặc tên",
+    search: "Tên, tài khoản X hoặc địa chỉ",
     minAccountValue: "Giá trị TK tối thiểu",
     anyValue: "Bất kỳ",
     total: "{total} trader",

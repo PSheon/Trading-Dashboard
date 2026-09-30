@@ -4,6 +4,9 @@ import { Type } from "class-transformer";
 import { Optional, Nullable, ToLowerCase } from "../../common/decorators/input.decorator.js";
 import type * as c from "@trading-dashboard/shared/contracts";
 
+/** Same rule as the shared `boardCoinSchema`. */
+const BOARD_COIN = /^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$/;
+
 class LocalizedTextDto {
   @ApiProperty({ type: String, maxLength: 280 })
   @IsString() @MaxLength(280) "zh-TW"!: string;
@@ -37,6 +40,14 @@ class DiscoveryPatchDto {
   @Optional() @IsInt() @Min(5) @Max(240) declare leaderboardRefreshMinutes?: number;
   @ApiPropertyOptional({ type: String, enum: ["day", "week", "month", "any"] })
   @Optional() @IsIn(["day", "week", "month", "any"]) declare defaultActiveWithin?: c.ActiveWithin;
+  @ApiPropertyOptional({ type: "integer", minimum: 50, maximum: 5000 })
+  @Optional() @IsInt() @Min(50) @Max(5000) declare candidatePoolSize?: number;
+  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
+  @Optional() @IsInt() @Min(0) @Max(600) declare poolWeightPerMinute?: number;
+  @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", pattern: BOARD_COIN.source } })
+  @Optional() @IsArray() @ArrayMaxSize(16) @Matches(BOARD_COIN, { each: true }) declare cryptoBoards?: string[];
+  @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", pattern: BOARD_COIN.source } })
+  @Optional() @IsArray() @ArrayMaxSize(16) @Matches(BOARD_COIN, { each: true }) declare stockBoards?: string[];
 }
 class NotificationsPatchDto {
   @ApiPropertyOptional({ type: Boolean })

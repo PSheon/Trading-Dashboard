@@ -4,7 +4,7 @@ import type { UserRole } from "./enums.js";
 export const PERMISSIONS = [
   "admin.access", "overview.read", "revenue.read", "settings.read", "settings.write",
   "users.read", "users.manage", "lists.read", "leaders.manage", "leaders.import",
-  "rules.read", "rules.manage", "alerts.readAll",
+  "rules.read", "rules.manage", "alerts.readAll", "kols.manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 export const ROLE_PERMISSIONS: Readonly<Record<UserRole, readonly Permission[]>> = {

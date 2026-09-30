@@ -1182,11 +1182,16 @@ export const generalSettingsSchema = z.object({
 });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 
+/** A perp coin as Hyperliquid names it: "BTC", or "dex:COIN" for a HIP-3
+ * market ("xyz:TSLA"). */
+export const boardCoinSchema = z.string().regex(/^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$/);
+
 export const discoverySettingsSchema = z.object({
   /** Trader cards on the home page, in order; empty → top by month PnL. */
   featuredAddresses: z.array(addressSchema).max(12).default([]),
   /** "Browse by market" chips on the home page. */
-  homeMarkets: z.array(z.string().min(1).max(24)).max(16).default(["BTC", "ETH", "SOL", "HYPE"]),
+  homeMarkets: z.array(z.string().min(1).max(24)).max(16)
+    .default(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]),
   hideVaults: z.boolean().default(true),
   /** Fewer 30-day fills than this → greyed out with a "low sample" tag. */
   lowSampleThreshold: z.number().int().min(0).max(1000).default(20),
@@ -1194,6 +1199,16 @@ export const discoverySettingsSchema = z.object({
   /** Default activity filter on explore and home lists: "month" hides
    * accounts with no volume in 30 days (holders, not traders). */
   defaultActiveWithin: activeWithinSchema.default("month"),
+  /** Discovery pool: the official leaderboard's top N (by all-time PnL)
+   * among non-vault accounts that traded in 30 days, plus every KOL. */
+  candidatePoolSize: z.number().int().min(50).max(5000).default(1000),
+  /** Hyperliquid weight per minute the pool refresh may spend (shared with
+   * page traffic under the global budget; it always yields to pages). */
+  poolWeightPerMinute: z.number().int().min(0).max(600).default(240),
+  /** Explore / home coin boards, in order (Hyperliquid coin names). */
+  cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"]),
+  stockBoards: z.array(boardCoinSchema).max(16)
+    .default(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 
@@ -1262,6 +1277,9 @@ export const publicSettingsSchema = z.object({
   copyTradingEnabled: z.boolean(),
   featuredAddresses: z.array(z.string()),
   homeMarkets: z.array(z.string()),
+  /** Coin boards on explore and home (optional while older APIs roll out). */
+  cryptoBoards: z.array(z.string()).optional(),
+  stockBoards: z.array(z.string()).optional(),
   hideVaults: z.boolean(),
   lowSampleThreshold: z.number().int(),
   defaultActiveWithin: activeWithinSchema,
@@ -1355,3 +1373,146 @@ export const adminRevenueResponseSchema = z.object({
   lastSnapshotAt: z.coerce.date().nullable(),
 });
 export type AdminRevenueResponse = z.infer<typeof adminRevenueResponseSchema>;
+
+// ===========================================================================
+// Stage 3 — discovery boards (explore / home) and the KOL registry
+// See docs/Stage 3 — CopyDog 頁面對齊（探索、收藏、洞察）.md §0.5, §1
+// ===========================================================================
+
+export const boardMarketSchema = z.enum(["crypto", "stocks"]);
+export type BoardMarket = z.infer<typeof boardMarketSchema>;
+export const boardSortSchema = z.enum(["copyScore", "pnl", "roi", "accountValue"]);
+export type BoardSort = z.infer<typeof boardSortSchema>;
+/** CopyDog's 30天 / 全部時間; coin boards are always all-time. */
+export const boardWindowSchema = z.enum(["30d", "all"]);
+export type BoardWindow = z.infer<typeof boardWindowSchema>;
+
+/** GET /discover/boards — one board, fixed top 100, no paging (CopyDog's).
+ * `board`: "top100", "kol", or a coin from the admin's board lists. */
+export const boardQuerySchema = z.object({
+  market: boardMarketSchema.default("crypto"),
+  board: z.union([z.enum(["top100", "kol"]), boardCoinSchema]).default("top100"),
+  sort: boardSortSchema.default("copyScore"),
+  window: boardWindowSchema.default("all"),
+  style: tradingStyleSchema.optional(),
+}).strict();
+export type BoardQuery = z.infer<typeof boardQuerySchema>;
+
+/** A trader card / row. `pnl` and `roi` are the board's: the window's perp
+ * figures, the market's realized figures (stocks), or the coin's realized
+ * PnL and PnL ÷ volume traded (coin boards). */
+export const boardTraderSchema = z.object({
+  address: z.string(),
+  /** KOL name, else the leaderboard's display name; null → short address. */
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  kol: z.boolean(),
+  accountValue: z.number().nullable(),
+  pnl: z.number().nullable(),
+  roi: z.number().nullable(),
+  /** 0–98, CopyDog's definition (docs/trade-analytics.md); null until computed. */
+  copyScore: z.number().int().nullable(),
+  style: tradingStyleSchema.nullable(),
+  /** Most-traded coins, at most 5 (Hyperliquid names). */
+  topCoins: z.array(z.string()),
+  lastTradeAt: z.coerce.date().nullable(),
+  /** Whole-account PnL series (values only, oldest first) of the window. */
+  sparkline: z.array(z.number()),
+});
+export type BoardTrader = z.infer<typeof boardTraderSchema>;
+
+export const boardResponseSchema = z.object({
+  market: boardMarketSchema,
+  board: z.string(),
+  /** The coin a coin board ranks by; null for top100 / kol. */
+  coin: z.string().nullable(),
+  sort: boardSortSchema,
+  window: boardWindowSchema,
+  style: tradingStyleSchema.nullable(),
+  items: z.array(boardTraderSchema),
+  /** Pool rows with figures / all pool rows: coverage while the job warms up. */
+  pool: z.object({ ready: z.number().int(), total: z.number().int() }),
+  /** Newest refresh among the board's rows; null when none is computed. */
+  updatedAt: z.coerce.date().nullable(),
+});
+export type BoardResponse = z.infer<typeof boardResponseSchema>;
+
+/** GET /discover/home — every home row in one read (7 cards each). */
+export const homeBoardsResponseSchema = z.object({
+  /** 精選: the KOLs with figures, by copy score. */
+  featured: z.array(boardTraderSchema),
+  crypto: z.array(boardTraderSchema),
+  stocks: z.array(boardTraderSchema),
+  /** Per coin, in the admin's board order (crypto, then stocks). */
+  markets: z.array(z.object({ coin: z.string(), market: boardMarketSchema, items: z.array(boardTraderSchema) })),
+  /** The calculator card's six traders (all-time ROI). */
+  calculator: z.array(boardTraderSchema),
+  updatedAt: z.coerce.date().nullable(),
+});
+export type HomeBoardsResponse = z.infer<typeof homeBoardsResponseSchema>;
+
+/** GET /traders/:address/copy-score — the trader page's 複製評分 and its
+ * inputs (CopyDog's `/copy-score`), from the all-time portfolio. */
+export const copyScoreResponseSchema = z.object({
+  address: z.string(),
+  copyScore: z.number().int().nullable(),
+  components: z.object({
+    roi: z.number().nullable(),
+    pnl: z.number().nullable(),
+    sharpe: z.number().nullable(),
+    maxDrawdown: z.number().nullable(),
+    returnSamples: z.number().int(),
+    spanDays: z.number(),
+    accountValue: z.number().nullable(),
+  }),
+  version: z.literal("copydog-v5-fit"),
+});
+export type CopyScoreResponse = z.infer<typeof copyScoreResponseSchema>;
+
+// --- KOL registry (admin) ------------------------------------------------------
+
+export const kolSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  /** As stored; the boards derive one from the 𝕏 handle when null. */
+  avatarUrl: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  sortOrder: z.number().int(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+export type Kol = z.infer<typeof kolSchema>;
+
+const xHandleSchema = z.string().regex(/^[A-Za-z0-9_]{1,15}$/);
+/** POST /admin/kols (upsert by address) and PATCH /admin/kols/:address. */
+export const kolInputSchema = z.object({
+  address: addressSchema,
+  displayName: z.string().trim().min(1).max(64).nullable().default(null),
+  avatarUrl: z.string().url().max(512).refine((u) => u.startsWith("https://"), "https only").nullable().default(null),
+  xHandle: xHandleSchema.nullable().default(null),
+  verified: z.boolean().default(false),
+  sortOrder: z.number().int().min(0).max(1_000_000).default(0),
+}).strict();
+export type KolInput = z.infer<typeof kolInputSchema>;
+export const kolPatchSchema = kolInputSchema.omit({ address: true }).partial().strict();
+export type KolPatch = z.infer<typeof kolPatchSchema>;
+
+/** POST /admin/kols/import — CSV with a header row: address, display_name,
+ * x_handle, verified, sort_order[, avatar_url]. `replace` removes KOLs the
+ * file doesn't list. */
+export const kolImportRequestSchema = z.object({
+  csv: z.string().min(1).max(500_000),
+  replace: z.boolean().default(false),
+}).strict();
+export type KolImportRequest = z.infer<typeof kolImportRequestSchema>;
+export const kolImportResponseSchema = z.object({
+  inserted: z.number().int(),
+  updated: z.number().int(),
+  removed: z.number().int(),
+  /** Rows skipped, with the 1-based line number and why. */
+  errors: z.array(z.object({ line: z.number().int(), message: z.string() })),
+});
+export type KolImportResponse = z.infer<typeof kolImportResponseSchema>;

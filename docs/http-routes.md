@@ -48,3 +48,11 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/admin/overview` | 200 | overview.read |
 | GET | `/admin/revenue` | 200 | revenue.read |
 | GET | `/admin/outbox` | 200 | admin.access |
+| GET | `/traders/:address/copy-score` | 200 | public; 503 busy |
+| GET | `/discover/boards` | 200 | public |
+| GET | `/discover/home` | 200 | public |
+| GET | `/admin/kols` | 200 | kols.manage |
+| POST | `/admin/kols` | 201 | kols.manage |
+| POST | `/admin/kols/import` | 201 | kols.manage |
+| PATCH | `/admin/kols/:address` | 200 | kols.manage |
+| DELETE | `/admin/kols/:address` | 204 | kols.manage |

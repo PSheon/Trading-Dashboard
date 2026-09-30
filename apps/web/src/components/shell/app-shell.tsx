@@ -11,7 +11,7 @@ import { APP_NAME } from "@/lib/config";
 import { AnnouncementBanner } from "./announcement-banner";
 import { AccountControls } from "./account-controls";
 import { AddressSearch } from "./address-search";
-import { adminNav, isActive, primaryNav, settingsNav, type NavItem } from "./nav";
+import { adminNav, isActive, mobileNav, primaryNav, settingsNav, type NavItem } from "./nav";
 
 /**
  * CopyDog-style frame: full-width top bar (lockup, wide address search,
@@ -79,11 +79,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav
         aria-label={t("nav.primary")}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-40 grid-cols-5 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
+          "fixed inset-x-0 bottom-0 z-40 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
           traderPage ? "hidden" : "grid",
         )}
       >
-        {primaryNav.map((item) => (
+        {mobileNav.map((item) => (
           <TabLink key={item.href} item={item} active={isActive(pathname, item.href)} />
         ))}
       </nav>

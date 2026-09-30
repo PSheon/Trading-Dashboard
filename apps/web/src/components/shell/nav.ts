@@ -26,6 +26,14 @@ export const primaryNav: NavItem[] = [
   { href: "/insights", label: "nav.insights", icon: ChartSpline },
 ];
 
+/** Phones: CopyDog's four bottom tabs (洞察 stays on the desktop rail). */
+export const mobileNav: NavItem[] = [
+  { href: "/", label: "nav.home", icon: House },
+  { href: "/explore", label: "nav.explore", icon: Compass },
+  { href: "/favorites", label: "nav.favorites", icon: Star },
+  { href: "/portfolio", label: "nav.portfolio", icon: Briefcase },
+];
+
 export const settingsNav: NavItem = { href: "/settings", label: "nav.settings", icon: Settings };
 export const adminNav: NavItem = { href: "/admin", label: "nav.admin", icon: ShieldCheck };
 

@@ -62,10 +62,13 @@ export class DiscoveryService {
       buildBoard(candidates, { market: "crypto", board: "top100", sort: "copyScore", window: "all", ...query }, pool).items.filter(moves).slice(0, size);
     const featured = row({ board: "kol" });
     const crypto = row({});
-    const stocks = row({ market: "stocks", sort: "pnl" });
+    // PnL-ranked rows list only traders who made money in that market, as
+    // CopyDog's do; a row still filling in stays short (or hidden) instead.
+    const profitable = (items: BoardTrader[]) => items.filter((t) => (t.pnl ?? 0) > 0);
+    const stocks = profitable(row({ market: "stocks", sort: "pnl" }));
     const markets = discovery.homeMarkets.map((coin) => {
       const market = isStockCoin(coin) ? ("stocks" as const) : ("crypto" as const);
-      return { coin, market, items: row({ market, board: coin, sort: "pnl" }) };
+      return { coin, market, items: profitable(row({ market, board: coin, sort: "pnl" })) };
     });
     const seen = new Set(featured.map((t) => t.address));
     const named = row({ sort: "roi" }, 100).filter((t) => t.displayName && !seen.has(t.address));

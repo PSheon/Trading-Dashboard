@@ -308,10 +308,11 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(home.featured.map((t) => t.address)).toEqual([addr(2)]);
       expect(home.crypto.map((t) => t.address)).toEqual([addr(1), addr(2)]);
       expect(home.stocks.map((t) => t.address)).toEqual([addr(2)]);
-      // One row per default home market, in order, each by that coin's PnL.
+      // One row per default home market, in order, each by that coin's PnL,
+      // listing only traders who made money there (GOLD's −10 is left out).
       expect(home.markets.map((m) => m.coin)).toEqual(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]);
       expect(home.markets.filter((m) => m.items.length > 0).map((m) => [m.coin, m.market, m.items.map((t) => t.pnl)]))
-        .toEqual([["BTC", "crypto", [300, 70]], ["xyz:GOLD", "stocks", [-10]], ["xyz:TSLA", "stocks", [40]]]);
+        .toEqual([["BTC", "crypto", [300, 70]], ["xyz:TSLA", "stocks", [40]]]);
       // Calculator: named traders (KOLs first) with ROI > 5%; addr(1) has no name.
       expect(home.calculator.map((t) => t.address)).toEqual([addr(2)]);
     });

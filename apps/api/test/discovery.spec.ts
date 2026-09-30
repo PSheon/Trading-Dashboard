@@ -252,7 +252,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
 
     async function seedPool() {
       const row = (n: number, figures: Partial<typeof discoveryTraders.$inferInsert>) => ({
-        address: addr(n), poolRank: n, portfolioAt: new Date(), accountValue: "1000", sparkline: [0, 1, 2], sparkline30d: [0, 1], ...figures,
+        address: addr(n), poolRank: n, portfolioAt: new Date(), accountValue: "1000", sparkline: [0, 1, 2, 3], sparkline30d: [0, 1], ...figures,
       });
       await db.insert(traderStats).values([stat(addr(1), 1), stat(addr(2), 1), stat(addr(3), 1), stat(addr(4), 1, { accountValue: "0" })]);
       await db.insert(discoveryTraders).values([
@@ -303,7 +303,8 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(home.markets.map((m) => m.coin)).toEqual(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]);
       expect(home.markets.filter((m) => m.items.length > 0).map((m) => [m.coin, m.market, m.items.map((t) => t.pnl)]))
         .toEqual([["BTC", "crypto", [300, 70]], ["xyz:GOLD", "stocks", [-10]], ["xyz:TSLA", "stocks", [40]]]);
-      expect(home.calculator.map((t) => t.address)).toEqual([addr(2), addr(1)]);
+      // Calculator: named traders (KOLs first) with ROI > 5%; addr(1) has no name.
+      expect(home.calculator.map((t) => t.address)).toEqual([addr(2)]);
     });
 
     it("computes any trader's copy score from the portfolio", async () => {

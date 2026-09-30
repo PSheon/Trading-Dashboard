@@ -48,26 +48,30 @@ export class DiscoveryService {
   }
 
   /**
-   * Every home row in one read: 精選 (KOLs by copy score), top crypto and
-   * stock traders, one row per `discovery.homeMarkets` coin (by that coin's
-   * PnL), and the calculator's six traders (精選 first, then top crypto).
+   * Every home row in one read, as CopyDog's home builds them: 精選 (KOLs by
+   * copy score), top crypto (copy score), top stocks (stock PnL), one row per
+   * `discovery.homeMarkets` coin (that coin's PnL); only traders whose
+   * sparkline moves. The calculator takes six from 精選 then named top-ROI
+   * traders: ROI > 5%, sparkline ending ≥ 0, preferring PnL ≥ $100K,
+   * highest ROI first.
    */
   async home(): Promise<HomeBoardsResponse> {
     const [{ candidates, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
-    const row = (query: Partial<BoardQuery>) =>
-      buildBoard(candidates, { market: "crypto", board: "top100", sort: "copyScore", window: "all", ...query }, pool, HOME_ROW_SIZE).items;
+    const moves = (t: BoardTrader) => t.sparkline.length > 1 && Math.max(...t.sparkline) > Math.min(...t.sparkline);
+    const row = (query: Partial<BoardQuery>, size = HOME_ROW_SIZE) =>
+      buildBoard(candidates, { market: "crypto", board: "top100", sort: "copyScore", window: "all", ...query }, pool).items.filter(moves).slice(0, size);
     const featured = row({ board: "kol" });
     const crypto = row({});
-    const stocks = row({ market: "stocks" });
+    const stocks = row({ market: "stocks", sort: "pnl" });
     const markets = discovery.homeMarkets.map((coin) => {
       const market = isStockCoin(coin) ? ("stocks" as const) : ("crypto" as const);
       return { coin, market, items: row({ market, board: coin, sort: "pnl" }) };
     });
-    const calculator: BoardTrader[] = [];
-    for (const t of [...featured, ...crypto]) {
-      if (calculator.length >= 6) break;
-      if ((t.roi ?? 0) > 0 && t.sparkline.length > 1 && !calculator.some((c) => c.address === t.address)) calculator.push(t);
-    }
+    const seen = new Set(featured.map((t) => t.address));
+    const named = row({ sort: "roi" }, 100).filter((t) => t.displayName && !seen.has(t.address));
+    const eligible = [...featured, ...named].filter((t) => (t.roi ?? 0) > 0.05 && t.sparkline.length > 3 && t.sparkline[t.sparkline.length - 1] >= 0);
+    const large = eligible.filter((t) => (t.pnl ?? 0) >= 100_000);
+    const calculator = (large.length > 0 ? large : eligible).sort((a, b) => (b.roi ?? 0) - (a.roi ?? 0)).slice(0, 6);
     const dates = candidates.map((c) => c.row.portfolioAt).filter((d): d is Date => d !== null);
     const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
     return { featured, crypto, stocks, markets, calculator, updatedAt };

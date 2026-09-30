@@ -1,3 +1,4 @@
+import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { readFileSync } from "node:fs";
 import type { INestApplication } from "@nestjs/common";
 import { adminAuditLogs, discoveryTraders, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
@@ -21,7 +22,7 @@ import { KolService } from "../src/discovery/kol.service.js";
 import { DEFAULT_KOL_FILE } from "../src/discovery/seed-kols.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlPortfolioResponse } from "../src/hyperliquid/types.js";
-import type { SettingsService } from "../src/settings/settings.service.js";
+import { SettingsService } from "../src/settings/settings.service.js";
 import type { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
 import type { TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
 import { TradersService } from "../src/traders/traders.service.js";
@@ -114,7 +115,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
   const repository = new DiscoveryRepository(db);
   const kols = new KolService(new KolRepository(db), new UnitOfWork(db));
   const discoverySettings = { candidatePoolSize: 3, poolWeightPerMinute: 100, homeMarkets: ["BTC", "xyz:TSLA"], cryptoBoards: ["BTC"], stockBoards: ["xyz:TSLA"] };
-  const settings = { get: vi.fn(async () => discoverySettings) } as unknown as SettingsService;
+  const settings = { get: vi.fn(async () => discoverySettings), getAll: vi.fn(async () => ({ discovery: discoverySettings })), acknowledgeDiscovery: vi.fn() } as unknown as SettingsService;
   const ingest = { lastImportAt: vi.fn(async () => new Date("2026-09-30T00:00:00Z")) } as unknown as LeaderboardIngestService;
   const info = { portfolio: vi.fn(async () => PORTFOLIO) };
   /** Stands in for trade analytics: writes a small ledger and a cost log. */
@@ -176,6 +177,28 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     const one = `address,display_name\n${list[0].address},mk4`;
     expect(await kols.importCsv(`${one}\n0xbad,x`, true, null)).toMatchObject({ removed: 0 });
     expect(await kols.importCsv(one, true, null)).toMatchObject({ removed: 167 });
+  });
+
+  it("acknowledges a paused policy only after membership is built, without upstream refresh", async () => {
+    const actualSettings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
+    const saved = await actualSettings.patch({ discovery: { candidatePoolSize: 50, poolWeightPerMinute: 0 } }, null);
+    const fresh = new DiscoveryPoolService(testConfig(), repository, info as never, analytics as never, ingest, actualSettings);
+    await fresh.tick();
+    expect(actualSettings.appliedDiscovery()).toEqual([]);
+    await db.insert(traderStats).values([stat(addr(1), 900)]);
+    await fresh.tick();
+    expect(actualSettings.appliedDiscovery()).toMatchObject([{ consumer: "pool", revision: saved.revisions.discovery, poolWeightPerMinute: 0 }]);
+    expect(await db.select().from(discoveryTraders)).toHaveLength(1);
+    expect(info.portfolio).not.toHaveBeenCalled();
+  });
+
+  it("applies a changed pool size on the next tick without waiting for the periodic rebuild", async () => {
+    const fresh = new DiscoveryPoolService(testConfig(), repository, info as never, analytics as never, ingest, settings);
+    await db.insert(traderStats).values([stat(addr(1), 900), stat(addr(2), 800)]);
+    const now = Date.now();
+    await fresh.buildIfDue(1, now);
+    expect(await fresh.buildIfDue(2, now + 1000)).toBe(true);
+    expect(await db.select().from(discoveryTraders)).toHaveLength(2);
   });
 
   it("builds the pool from the leaderboard's active top N plus KOLs, then prunes", async () => {

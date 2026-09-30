@@ -1,5 +1,5 @@
 import type { AuditActor } from "../common/audit/admin-audit.js";
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   addressSchema,
   importLeaderListRequestSchema,
@@ -9,7 +9,6 @@ import {
 
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { ImportRepository, type ImportRow } from "./import.repository.js";
-import { BackfillService } from "../watcher/backfill.service.js";
 
 /** No sample CopyDog export file exists yet (PRD §10 open question). These
  * are the plausible column-name variants for a rank-list export; matching
@@ -79,15 +78,13 @@ function parseRows(rows: Record<string, unknown>[]): { parsed: ImportRow[]; erro
 }
 
 /** A1/A2/A5: import a CopyDog list version, dedupe against `leaders`, and
- * fire-and-track history backfill for every genuinely new address. */
+ * durably queue history backfill for every genuinely new address. */
 @Injectable()
 export class ImportService {
-  private readonly logger = new Logger(ImportService.name);
 
   constructor(
     private readonly repository: ImportRepository,
     private readonly unitOfWork: UnitOfWork,
-    private readonly backfill: BackfillService,
   ) {}
 
   async importLeaderList(request: ImportLeaderListRequest, actor: AuditActor = null): Promise<ImportLeaderListResponse> {
@@ -125,13 +122,6 @@ export class ImportService {
         ...row, tier: row.rank <= 20 ? "A" as const : "B" as const,
       })), actor);
     });
-
-    // A5: fire-and-track backfill for every genuinely new address. Not
-    // awaited — must not hold up this HTTP response (task requirement).
-    for (const address of newAddresses.newAddresses) {
-      this.logger.log(`New leader ${address} — starting A5 backfill`);
-      this.backfill.trigger(address);
-    }
 
     return newAddresses;
   }

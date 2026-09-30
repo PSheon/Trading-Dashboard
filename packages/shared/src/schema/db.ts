@@ -30,6 +30,7 @@ export * from "../enums.js";
  */
 
 import {
+  foreignKey,
   bigint,
   bigserial,
   boolean,
@@ -680,4 +681,44 @@ export const analysisHistoryJobs = pgTable("analysis_history_jobs", {
 }, table => [
   primaryKey({ columns: [table.chain, table.address] }),
   index("analysis_history_jobs_attempted_idx").on(table.status, table.attemptedAt),
+]);
+
+/** Durable initial watched-address backfill. Admission shares the leader transaction. */
+export const backfillJobs = pgTable("backfill_jobs", {
+  id: serial("id").primaryKey(),
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  address: text("address").notNull(),
+  source: text("source").$type<"import" | "favorite">().notNull(),
+  status: text("status").$type<"pending" | "running" | "completed" | "failed">().notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  runAttempts: integer("run_attempts").notNull().default(0),
+  version: integer("version").notNull().default(0),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", {withTimezone: true}),
+  availableAt: timestamp("available_at", {withTimezone: true}).notNull().defaultNow(),
+  createdAt: timestamp("created_at", {withTimezone: true}).notNull().defaultNow(),
+  startedAt: timestamp("started_at", {withTimezone: true}),
+  completedAt: timestamp("completed_at", {withTimezone: true}),
+  fillsFetched: integer("fills_fetched"),
+  lastErrorCode: text("last_error_code").$type<"backfill_failed" | "lease_expired">(),
+}, table => [uniqueIndex("backfill_jobs_address_uq").on(table.chain, table.address),
+  index("backfill_jobs_pending_idx").on(table.status, table.availableAt),
+  index("backfill_jobs_lease_idx").on(table.status, table.leaseExpiresAt)]);
+
+
+/** Private organization only; deleting a group never deletes a favorite. */
+export const favoriteGroups = pgTable("favorite_groups", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("favorite_groups_owner_id_uq").on(table.userId, table.id), uniqueIndex("favorite_groups_owner_name_uq").on(table.userId, sql`lower(${table.name})`)]);
+export const favoriteGroupMembers = pgTable("favorite_group_members", {
+  userId: integer("user_id").notNull(), groupId: integer("group_id").notNull(),
+  chain: text("chain").notNull().default(CHAIN_DEFAULT), address: text("address").notNull(),
+}, table => [
+  primaryKey({ columns: [table.groupId, table.chain, table.address] }),
+  foreignKey({ columns: [table.userId, table.groupId], foreignColumns: [favoriteGroups.userId, favoriteGroups.id] }).onDelete("cascade"),
+  foreignKey({ columns: [table.userId, table.chain, table.address], foreignColumns: [userFavorites.userId, userFavorites.chain, userFavorites.address] }).onDelete("cascade"),
+  index("favorite_group_members_owner_idx").on(table.userId),
 ]);

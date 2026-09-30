@@ -42,7 +42,7 @@ export function getTestDb(): TestDb {
 export async function truncateAll(db: TestDb): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
-      admin_audit_logs,
+      favorite_group_members, favorite_groups, backfill_jobs, admin_audit_logs,
       alerts, alert_rules, actions, position_snapshots, equity_snapshots,
       analysis_history_fills, analysis_history_jobs, fills, coin_meta, leader_list_items, leader_lists, leaders, trader_trades, trader_analytics, kol_traders, discovery_traders,
       notification_channels, user_favorites, users, trader_stats,

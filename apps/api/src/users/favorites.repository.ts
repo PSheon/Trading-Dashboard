@@ -1,3 +1,4 @@
+import { enqueueBackfills } from "../jobs/backfill-jobs.repository.js";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { leaders, notificationChannels, traderStats, userFavorites, users } from "@trading-dashboard/shared/database";
@@ -43,7 +44,7 @@ export class FavoritesRepository {
     await tx.insert(userFavorites).values({ userId, chain, address }).onConflictDoNothing();
     const inserted = await tx.insert(leaders).values({ chain, address, active: true, source: "favorite" })
       .onConflictDoNothing({ target: [leaders.chain, leaders.address] }).returning({ address: leaders.address });
-    if (inserted.length) return true;
+    if (inserted.length) { await enqueueBackfills(tx, [address], "favorite"); return true; }
     await tx.update(leaders).set({ active: true }).where(and(eq(leaders.chain, chain), eq(leaders.address, address), eq(leaders.source, "favorite"), eq(leaders.active, false)));
     return false;
   }

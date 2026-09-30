@@ -384,6 +384,7 @@ export function useToggleFavorite() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.favorites });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.favoriteGroups });
       void queryClient.invalidateQueries({ queryKey: queryKeys.traders.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.trader.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.actions.all });

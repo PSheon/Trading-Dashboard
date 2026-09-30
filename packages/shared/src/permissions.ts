@@ -2,7 +2,7 @@ import type { UserRole } from "./enums.js";
 
 /** Application authorization. Privy authenticates identity, not these grants. */
 export const PERMISSIONS = [
-  "admin.access", "overview.read", "revenue.read", "settings.read", "settings.write",
+  "admin.access", "audit.read", "jobs.read", "jobs.retry", "overview.read", "revenue.read", "settings.read", "settings.write",
   "users.read", "users.manage", "lists.read", "leaders.manage", "leaders.import",
   "rules.read", "rules.manage", "alerts.readAll", "kols.manage",
 ] as const;

@@ -1,5 +1,7 @@
 # Admin implementation progress
 
+> 發布規則（使用者最新指示）：後續工作僅限本地實作與驗證。使用者完成本地確認並明確允許後，才可部署；不得沿用過往 Stage 授權，也不得直接上傳未審查工作目錄。分支整理／rebase／提交狀態須先明確列出。
+
 Approved sequence: `admin-capabilities-analysis-2026-09-30.md`, section 11.
 
 ## Batch 1 — monitoring foundation (2026-09-30)
@@ -28,9 +30,9 @@ Limits / remaining work:
 
 ## Remaining sequence
 
-1. Finish freshness policy/applied-runtime reporting alongside batch 3 settings consumers.
-2. Batch 2: durable initial backfill work, worker-only execution, paginated jobs and safe retry; fix process-local warm-cache ownership. Keep historical fills out of live alert emission.
-3. Batch 3: remaining discovery controls, impact preview, consumer-applied revisions and audit query UI.
+1. Freshness policy and discovery consumer reporting: completed in batch 3 below; broader consumer coverage remains outside this batch.
+2. Batch 2: complete and verified on Stage below.
+3. Batch 3: complete and verified on Stage below (discovery consumer coverage).
 4. Batch 4: trader detail, data source membership and import preview.
 5. Batch 5: user detail, narrower operational permissions and notification diagnostics.
 6. Batch 6: historical metrics, external probes, alert deduplication/recovery and incident workflow.
@@ -62,3 +64,84 @@ Deployment evidence is recorded below after each submitted deployment reaches a 
 The startup-priority follow-up `railway up` returned `FETCH_ERROR: error decoding response body` without a deployment ID. Two subsequent scoped deployment-list reads also failed with the same decode error. Its deployment outcome is **unconfirmed**; do not assume it was accepted or blindly resubmit. First inspect the worker's latest deployment history when Railway management API responses recover. The three monitoring release IDs above were individually observed as SUCCESS before this failure. The startup-priority code and regression test remain saved locally.
 
 Final application probe at 2026-09-30T15:02:33Z: readiness 200; heartbeat 200, feed connected, 2/2 sockets, 329 markets, latest trade at 15:02:33.180Z, last sweep at 15:01:25.666Z; anonymous monitoring access 401. This verifies the running application despite the management API error, not acceptance of the startup-priority follow-up deployment.
+
+## Batch 2 — durable initial backfill and jobs center
+
+Implemented:
+- Migration 0014 adds durable initial-backfill jobs, unique by chain/address. Import/favorite admission and enqueue share the existing transaction; repeated imports do not enqueue duplicate work. Existing addresses are not retroactively queued.
+- Worker-only execution with SKIP LOCKED claims, 90-second leases renewed every 20 seconds, fenced state writes and three attempts per retry cycle. Manual retries preserve cumulative attempts and restart the cycle; historical replay remains silent and idempotent at persistence boundaries.
+- Permission-separated jobs.read/jobs.retry, bounded cursor pagination, status filtering, expected-version conflict detection and transactional audit. Lease tokens never appear in public DTOs.
+- Admin jobs UI with five-second polling, mobile layout, loading/error states, lease-expiry display and an explicit queued response for retries.
+- Independent worker no longer warms an API-inaccessible process-local cache. API remains on-demand; local combined retains warming.
+
+Validation:
+- Web: 29 files / 117 tests passing; Playwright desktop/mobile jobs flows and accessibility: 2 passing.
+- Local isolated PostgreSQL migration smoke passes fresh migration and concurrent migration idempotency. Worker smoke passes active/standby, handoff, API independence and lease-loss fail-stop.
+- API: 74 files / 796 tests passing, including atomic admission, lease fencing/recovery, bounded retries, concurrent manual retry conflict, audit and HTTP permissions. API build/lint and OpenAPI check pass; web typecheck and changed-file lint pass.
+- Stage release evidence follows below.
+
+Limits:
+- These jobs cover initial watched-trader fill backfill only, not all discovery/snapshot/analysis work.
+- At-least-once replay, not exactly-once external requests or a guarantee of complete lifetime exchange history.
+- Policy-based freshness and applied settings revisions remain batch 3. No real notification sending or trading execution is enabled.
+
+### Batch 2 Stage release
+
+- API `27f4d24a-5713-43c4-a503-5f13a27ba583`: SUCCESS; readiness 200 and anonymous jobs endpoint 401 verified.
+- Worker `87501d5c-baab-414a-ba5e-d237e04f4977`: SUCCESS; active at 2026-09-30T15:24:48.184Z.
+- Web `05dd492f-817e-49e2-b6f0-65e4123668be`: SUCCESS; `/admin/jobs` returned 200 at 2026-09-30T15:26:04.686Z.
+- Railway management reads recovered. Prior monitoring redeploys were observed before this release (API `f6a010e3-f8e5-47b4-a7ce-315a6ee4b813`, worker `a0656624-8f0c-4d2b-9fcb-479b867bbef5`); they are not evidence for the earlier startup-priority upload. This batch's source includes that priority fix.
+
+- New worker heartbeat at 15:25:11 UTC: connected, 2/2 sockets, 329 markets and a current trade timestamp, about 23 seconds after becoming active. This release includes the startup-priority fix; no home-cache warming runs in the standalone worker.
+- Public `/` and `/api/hl/health/ready` returned 200; anonymous `/api/hl/admin/jobs` returned 401. The jobs page briefly returned 404 before web cutover and was rechecked successfully afterward.
+- Stage predeploy migrations completed as part of successful API/worker releases. Durable queue transitions and authenticated admin controls were exercised locally against isolated PostgreSQL; no live Privy admin session or artificial Stage import was used. No claim is made that a new real Stage backfill was processed during this verification.
+- Temporary local PostgreSQL test server stopped after verification. Changes remain uncommitted for review.
+
+## Batch 3 — settings control and audit (verified on Stage)
+
+Scope: remaining discovery controls, visible before/after impact preview, worker consumer acknowledgements, explicit freshness policy, and read-only paginated audit search.
+
+Rulings:
+- Keep batch 2's uncommitted work intact on dev. No unrelated cleanup or automatic production configuration changes.
+- Consumer acknowledgement is process-local and carried by the existing private worker sample/instance identity. A read or saved revision is not an acknowledgement; restart returns unknown until a consumer acts. Acknowledgement means the scheduling policy/pool membership was accepted, not that every trader has refreshed.
+- Settings impact preview is a local draft comparison with explicit scheduling/budget implications, not a claim about exact future membership or completion time. Existing section revision preconditions remain authoritative on save.
+- Freshness policies are explicit monitoring defaults (leaderboard 60 minutes, portfolio/trade metrics 24 hours), separate from null coverage. They do not trigger alerts or change collection cadence.
+- Audit exposes only recorded allowlisted mutation fields, with bounded filters/keyset pagination; no raw request bodies, secrets, or invented service identities.
+
+Implemented:
+- Discovery form now exposes candidate pool size, per-minute pool weight, ordered crypto/stock boards and existing controls. Board lists preserve editable text, normalize empty entries and duplicates, and retain shared validation.
+- Every section shows a live before/after draft preview and its operational implications. Preview performs no mutation; saves still submit only changed fields with the original section revision.
+- `GET /admin/settings/runtime` requires settings.read and no-store. It compares the committed discovery revision with explicit pool/leaderboard acknowledgements in the sampled worker. Unknown, stale (>3 minutes), recovered and pending states remain distinct. It does not pretend to cover all settings consumers.
+- Pool size changes bypass the ten-minute periodic rebuild delay. An empty leaderboard cannot falsely acknowledge a new pool build. Zero budget maintains membership but pauses new data refresh and resets saved allowance.
+- Monitoring adds independent stale/missing counts under explicit fixed thresholds: leaderboard 60 minutes, portfolio/trade metrics 24 hours. These are monitoring defaults, not configurable SLOs or external availability probes.
+- `/admin/audit` and `GET /admin/audit` require audit.read; filters cover event, actor kind, actor user ID and exact target. Cursor IDs remain decimal strings, queries are read-only with a 2-second statement timeout, and the UI renders values as escaped text. Existing audit writes remain transactional.
+- No new migration beyond batch 2's 0014 and no Stage setting values are changed as part of verification.
+
+Validation so far:
+- Web: 30 files / 119 tests passing; typecheck and changed-file ESLint pass.
+- Desktop/mobile Playwright settings edits, non-mutating preview, saving, audit filters/pagination and WCAG checks: 2 passing. Initial E2E selector expected “Save” instead of the actual “Save section”; corrected and rerun successfully.
+- API first full suite: 76 files / 800 tests passing. Final suite adds consumer/HTTP tests and query timeout verification; results and Stage deployment IDs follow below.
+- API build/typecheck/lint, OpenAPI export/check and four offline OpenAPI tests pass.
+
+Final local validation:
+- API: 76 files / 802 tests passing, including paused-pool acknowledgement after membership build and runtime HTTP 401/403 checks.
+- Compiled worker smoke: active/standby exclusion, private-only routes, independent API shutdown, singleton handoff and ownership-loss fail-stop all passing.
+- Final web typecheck, API/web lint and whitespace checks pass.
+
+### Batch 3 Stage release
+
+- API `c6fa75b5-ff70-4082-a726-8c3023cbf369`: SUCCESS. At 15:43:09–10 UTC, readiness returned 200; anonymous settings runtime and audit requests returned 401.
+- Worker `c7029408-0073-4e9c-96d9-1a4c4fe81cec`: SUCCESS; active at 15:43:40.428 UTC, 329 markets on 2 sockets at 15:43:54.768.
+- Web `d1005906-8f31-463c-9594-24f5a2a23652`: SUCCESS.
+
+- Final probes at 2026-09-30T15:44:09–10Z: `/admin/settings`, `/admin/audit`, `/admin/system`, readiness and heartbeat all returned 200. Heartbeat: feed connected, 2/2 sockets, 329 markets, current trade timestamp.
+- Live authenticated admin edits/audit queries were not performed using a user's Privy session. Their behavior is covered by local real-HTTP/DB tests and fixture-backed browser tests. No Stage policy values were edited for a demonstration, and no real notification sending or execution was enabled.
+- Local test PostgreSQL is stopped. Batch 2 and 3 changes remain uncommitted for review.
+- Next: batch 4 trader detail, data-source memberships and import preview, followed by batches 5–7 in the approved sequence.
+
+### 2026-10-01: local-only continuation
+
+- Following the user's latest instruction, no further deployment or remote DB/configuration operation is allowed before local review and explicit deployment authorization.
+- Prioritized the missing user research flow: identity search and private favorite groups. Implementation and evidence are recorded in [the CopyDog roadmap](copydog-implementation-roadmap.md).
+- Admin batch 4 remains pending; this research increment does not complete Admin trader detail/source/import preview work.
+- Current branch is `dev`, HEAD `04991f3`; Admin batches 2–3 and research changes remain uncommitted. No rebase, commit, push or deployment this round.

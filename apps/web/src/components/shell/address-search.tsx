@@ -54,6 +54,7 @@ export function AddressSearch() {
       />
       <input
         type="search"
+        maxLength={64}
         value={value}
         onChange={(e) => {
           setValue(e.target.value);

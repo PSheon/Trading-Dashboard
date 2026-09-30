@@ -1,23 +1,18 @@
 import { ImportRepository } from "../src/import/import.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { and, eq, sql } from "drizzle-orm";
-import { adminAuditLogs, leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { backfillJobs, adminAuditLogs, leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { BackfillService } from "../src/watcher/backfill.service.js";
 import { ImportService } from "../src/import/import.service.js";
-import type { FillSyncService } from "../src/watcher/fill-sync.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
 describe("ImportService (A1/A2/A5) — real Postgres", () => {
   const db = getTestDb();
-  const backfill = new BackfillService({} as FillSyncService);
-  const triggerSpy = vi.spyOn(backfill, "trigger").mockImplementation(() => {});
-  const importService = new ImportService(new ImportRepository(), new UnitOfWork(db), backfill);
+  const importService = new ImportService(new ImportRepository(), new UnitOfWork(db));
 
   beforeEach(async () => {
     await truncateAll(db);
-    triggerSpy.mockClear();
   });
 
   afterAll(async () => {
@@ -35,7 +30,7 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
       expect(await db.select().from(leaderListItems)).toHaveLength(0);
       expect(await db.select().from(leaders)).toHaveLength(0);
       expect(await db.select().from(adminAuditLogs)).toHaveLength(0);
-      expect(triggerSpy).not.toHaveBeenCalled();
+      expect(await db.select().from(backfillJobs)).toHaveLength(0);
     } finally {
       await db.execute(sql`alter table admin_audit_logs drop constraint import_audit_reject`);
     }
@@ -47,7 +42,7 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
   ])("rejects invalid row %# before persistence or backfill", async (row) => {
     await expect(importService.importLeaderList({ source: "copydog", fileName: "bad.csv", rows: [row] })).rejects.toThrow();
     expect(await db.select().from(leaderLists)).toHaveLength(0);
-    expect(triggerSpy).not.toHaveBeenCalled();
+    expect(await db.select().from(backfillJobs)).toHaveLength(0);
   });
 
   it("rejects oversized extra-column content", async () => {
@@ -71,7 +66,7 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
       await expect(importService.importLeaderList({ source: "copydog", fileName: "bad.csv", rows })).rejects.toThrow();
     }
     expect(await db.select().from(leaderLists)).toHaveLength(0);
-    expect(triggerSpy).not.toHaveBeenCalled();
+    expect(await db.select().from(backfillJobs)).toHaveLength(0);
   });
 
   it("imports address+rank+extra columns into leader_lists/leader_list_items/leaders with correct tiering", async () => {
@@ -109,7 +104,7 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     expect(rank21?.tier).toBe("B"); // rank > 20
 
     // A5: backfill fired for every genuinely new address.
-    expect(triggerSpy).toHaveBeenCalledTimes(25);
+    expect(await db.select().from(backfillJobs)).toHaveLength(25);
   });
 
   it("rejects rows missing address or rank instead of silently dropping them", async () => {
@@ -136,7 +131,6 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
       rows: [{ address: "0xabababababababababababababababababababab", rank: 5 }], // rank <= 20 -> tier A on first import
     });
 
-    triggerSpy.mockClear(); // only care about backfill calls from the re-import below
 
     // Simulate an A3 manual edit: demote to C, deactivate, label it.
     await db
@@ -163,7 +157,7 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     expect(row.label).toBe("watch closely");
 
     // And A5 backfill must not re-fire for an address that wasn't new.
-    expect(triggerSpy).not.toHaveBeenCalledWith("0xabababababababababababababababababababab");
+    expect(await db.select().from(backfillJobs)).toHaveLength(1);
   });
 
   it("turns a favorited leader into an imported one, reactivating it, without re-backfilling", async () => {
@@ -187,6 +181,6 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     expect(byAddress.get("0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")).toMatchObject({ source: "import", active: true, tier: "B" });
     // An admin's manual deactivation of an imported leader still survives.
     expect(byAddress.get("0xefefefefefefefefefefefefefefefefefefefef")).toMatchObject({ source: "import", active: false, tier: "C" });
-    expect(triggerSpy).not.toHaveBeenCalled();
+    expect(await db.select().from(backfillJobs)).toHaveLength(0);
   });
 });

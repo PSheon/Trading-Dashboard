@@ -1,3 +1,8 @@
+import { AdminAuditController } from "./admin-audit.controller.js";
+import { AdminAuditRepository } from "./admin-audit.repository.js";
+import { AdminSettingsRuntimeController } from "./admin-settings-runtime.controller.js";
+import { AdminJobsController } from "./admin-jobs.controller.js";
+import { BackfillJobsModule } from "../jobs/backfill-jobs.module.js";
 import { AdminSystemController } from "./admin-system.controller.js";
 import { AdminSystemRepository } from "./admin-system.repository.js";
 import { AdminSystemService } from "./admin-system.service.js";
@@ -22,9 +27,9 @@ import { RevenueService } from "./revenue.service.js";
  * role and disable changes apply at once (`invalidateUser`).
  */
 @Module({
-  imports: [AuthModule, HyperliquidModule],
-  controllers: [AdminSystemController, AdminController, PublicSettingsController],
-  providers: [AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
+  imports: [BackfillJobsModule, AuthModule, HyperliquidModule],
+  controllers: [AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
+  providers: [AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
   exports: [RevenueService],
 })
 export class AdminModule {}

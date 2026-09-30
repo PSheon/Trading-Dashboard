@@ -1,3 +1,4 @@
+import { enqueueBackfills } from "../jobs/backfill-jobs.repository.js";
 import { Injectable } from "@nestjs/common";
 import { and, eq, inArray } from "drizzle-orm";
 import { leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
@@ -66,6 +67,7 @@ export class ImportRepository {
         ),
       );
 
+    await enqueueBackfills(tx, inserted.map(row => row.address), "import");
     await recordAdminAudit(tx, actor, "list.import", String(list.id), null,
       { source: request.source, itemCount: dedupedRows.length, newAddressCount: inserted.length });
     return { listId: list.id, itemCount: dedupedRows.length, newAddresses: inserted.map((r) => r.address) };

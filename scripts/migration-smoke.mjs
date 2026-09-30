@@ -16,6 +16,9 @@ await withTestDatabase(async (url) => {
     await pool.query('SELECT chain, address, source, tid, time, raw FROM analysis_history_fills LIMIT 0');
     await pool.query('SELECT checkpoint, version, status, published_through, attempted_at, last_error FROM analysis_history_jobs LIMIT 0');
     await pool.query('SELECT history_through FROM trader_analytics LIMIT 0');
+    await pool.query('SELECT id, status, version, lease_token, lease_expires_at, run_attempts FROM backfill_jobs LIMIT 0');
+    await pool.query('SELECT id, user_id, name FROM favorite_groups LIMIT 0');
+    await pool.query('SELECT user_id, group_id, chain, address FROM favorite_group_members LIMIT 0');
     console.log('Persistent history schema is queryable after release migrations');
     console.log('Concurrent release migrations are repeatable');
   } finally { await pool.end(); }

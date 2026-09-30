@@ -64,7 +64,12 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
           <Metric label={t("monitoring.errors")} value={d.data.errors} />
           <Metric label={t("monitoring.oldest")} value={time(d.data.oldestPortfolioAt)} />
           <Metric label={t("monitoring.newest")} value={time(d.data.newestPortfolioAt)} />
-        </dl>}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.coverageHint")}</p>
+          {d.data.freshness && <>
+            <Metric label={t("settingsOps.freshness")} value={t(`settingsOps.${d.data.freshness.leaderboard}`)} />
+            <Metric label={t("settingsOps.portfolioStale")} value={`${d.data.freshness.portfolioStale} / ${d.data.freshness.portfolioMissing}`} />
+            <Metric label={t("settingsOps.tradesStale")} value={`${d.data.freshness.tradesStale} / ${d.data.freshness.tradesMissing}`} />
+          </>}
+        </dl>}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.coverageHint")} {d.data?.freshness && t("settingsOps.freshnessHint")}</p>
       </Panel>
       <Panel className="p-5"><h3 className="font-semibold">{t("monitoring.outbox")}</h3>
         {d.outbox === null ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.outboxMissing")}</p> : d.outbox.map(q => <div key={q.kind} className="mt-4">

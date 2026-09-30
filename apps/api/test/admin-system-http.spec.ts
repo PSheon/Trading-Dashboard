@@ -1,3 +1,4 @@
+import { AdminSettingsRuntimeController } from "../src/admin/admin-settings-runtime.controller.js";
 import request from "supertest";
 import { Pool } from "pg";
 import type { INestApplication } from "@nestjs/common";
@@ -23,7 +24,7 @@ beforeAll(async () => {
   await insertUser(db, { privyUserId: "did:privy:monitor-user", role: "user" });
   ({app} = await createAuthedApp({ db,
     privy: stubPrivy({ "admin": {privyUserId: "did:privy:monitor-admin"}, "user": {privyUserId: "did:privy:monitor-user"} }),
-    controllers: [AdminSystemController],
+    controllers: [AdminSystemController, AdminSettingsRuntimeController],
     providers: [AdminSystemRepository, AdminSystemService, RequestBudgeterService, {provide: DATABASE_POOL, useValue: pool}],
   }));
 });
@@ -46,6 +47,16 @@ it("counts missing coverage separately and releases every pooled connection", as
   ]);
   const data = await repository.data();
   expect(data).toMatchObject({candidates: 2, portfolios: 1, trades: 1, errors: 1, oldestPortfolioAt: "2026-01-01T00:00:00.000Z"});
+  expect(data.freshness).toMatchObject({ portfolioStale: 1, portfolioMissing: 1, tradesStale: 1, tradesMissing: 1, portfolioThresholdMinutes: 1440 });
   for (let i = 0; i < 6; i++) await repository.probe();
   expect(pool.idleCount).toBe(pool.totalCount);
+});
+
+it("protects settings runtime telemetry and leaves unacknowledged consumers unknown", async () => {
+  await request(app.getHttpServer()).get("/admin/settings/runtime").expect(401);
+  await request(app.getHttpServer()).get("/admin/settings/runtime").auth("user", { type: "bearer" }).expect(403);
+  const result = await request(app.getHttpServer()).get("/admin/settings/runtime").auth("admin", { type: "bearer" }).expect(200);
+  expect(result.headers["cache-control"]).toBe("no-store");
+  expect(result.body.data.savedRevision).toMatch(/^[a-f0-9]{64}$/);
+  expect(result.body.data.consumers).toEqual([]);
 });

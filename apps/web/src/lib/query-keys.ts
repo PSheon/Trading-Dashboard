@@ -6,6 +6,7 @@ export const queryKeys = {
   adminSystem: ["admin", "system"] as const,
   health: ["health"] as const,
   favorites: ["favorites"] as const,
+  favoriteGroups: ["favorite-groups"] as const,
   telegram: ["telegram"] as const,
   traders: {
     all: ["traders"] as const,
@@ -37,6 +38,9 @@ export const queryKeys = {
   },
   alerts: (qs: string) => ["alerts", qs] as const,
   admin: {
+    settingsRuntime: ["admin", "settings-runtime"] as const,
+    audit: (qs: string) => ["admin", "audit", qs] as const,
+    jobs: { all: ["admin", "jobs"] as const, list: (qs: string) => ["admin", "jobs", qs] as const },
     users: {
       all: ["admin", "users"] as const,
       list: (qs: string) => ["admin", "users", qs] as const,

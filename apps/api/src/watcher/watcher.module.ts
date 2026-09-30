@@ -1,3 +1,5 @@
+import { BackfillJobsModule } from "../jobs/backfill-jobs.module.js";
+import { BackfillWorker } from "../jobs/backfill-worker.service.js";
 import { Module } from "@nestjs/common";
 
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
@@ -10,8 +12,8 @@ import { WatcherService } from "./watcher.service.js";
 
 /** Explicit worker orchestration; shared on-demand capabilities come from IngestionModule. */
 @Module({
-  imports: [HyperliquidModule, IngestionModule],
-  providers: [WatcherRepository, FeedActionsRepository, WatcherService, TradeFeedService, FeedActionsService],
+  imports: [BackfillJobsModule, HyperliquidModule, IngestionModule],
+  providers: [BackfillWorker, WatcherRepository, FeedActionsRepository, WatcherService, TradeFeedService, FeedActionsService],
   exports: [WatcherService, TradeFeedService, IngestionModule],
 })
 export class WatcherModule {}

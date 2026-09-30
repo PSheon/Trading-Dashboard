@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { FavoriteGroupsPanel, useFavoriteGroups } from "./favorite-groups";
 import type { Favorite, SparklinesResponse } from "@/lib/contracts";
 import { Activity, BellRing, Star, TriangleAlert } from "lucide-react";
 import Link from "next/link";
@@ -27,10 +29,14 @@ export function FavoritesView() {
   const { status } = useAuth();
   const signedIn = status === "signedIn";
   const favorites = useFavorites();
+  const groups = useFavoriteGroups();
+  const [groupId, setGroupId] = useState<number | null>(null);
+  const selectedGroup = groups.data?.find(g => g.id === groupId);
+  const visibleFavorites = (favorites.data ?? []).filter(f => !selectedGroup || selectedGroup.addresses.includes(f.address));
   const settings = useSiteSettings();
   const telegram = useTelegramStatus();
   const { query: actions, status: streamStatus, highlight } = useLiveActions({ scope: "favorites", limit: 50 }, { enabled: signedIn });
-  const sparklines = useSparklines(favorites.data?.map((f) => f.address).slice(0, 30) ?? [], "month");
+  const sparklines = useSparklines(visibleFavorites.map(f => f.address).slice(0, 30), "month");
 
   if (status === "loading") {
     return (
@@ -62,6 +68,8 @@ export function FavoritesView() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader title={t("favorites.title")} subtitle={t("favorites.subtitle")} />
+
+      <FavoriteGroupsPanel groups={groups.data ?? []} favorites={favorites.data ?? []} selected={selectedGroup?.id ?? null} onSelect={setGroupId} loading={groups.isPending} error={groups.isError} onRetry={() => void groups.refetch()} />
 
       <section className="flex flex-col gap-3">
         <SectionHeader
@@ -115,14 +123,17 @@ export function FavoritesView() {
               }
             />
           </Panel>
+        ) : selectedGroup && visibleFavorites.length === 0 ? (
+          <Panel className="p-5 text-sm text-muted-foreground">{t("groups.empty")}</Panel>
         ) : (
           <Panel className="overflow-hidden">
-            <FavoritesTable rows={favorites.data} sparklines={sparklines.data} />
+            <FavoritesTable rows={visibleFavorites} sparklines={sparklines.data} />
           </Panel>
         )}
       </section>
 
       <section>
+        <p className="mb-2 text-xs text-muted-foreground">{t("groups.activityHint")}</p>
         <SectionHeader
           title={
             <span className="flex items-center gap-2">
@@ -158,7 +169,7 @@ function FavoritesTable({ rows, sparklines }: { rows: Favorite[]; sparklines: Sp
   const router = useRouter();
 
   return (
-    <Table>
+    <Table aria-label={t("favorites.traders")}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <TableHead>{t("favorites.cols.trader")}</TableHead>

@@ -1,3 +1,7 @@
+import { favoriteGroupSchema, favoriteGroupsSchema } from "./favorite-group-contracts.js";
+import { traderSearchResponseSchema } from "./trader-search-contracts.js";
+import { appliedDiscoverySchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
+import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.js";
 import { z } from "zod";
 import * as s from "./schema/zod.js";
 
@@ -42,6 +46,7 @@ export const runtimeBudgetSchema = z.object({
 });
 export const workerMonitorSchema = z.object({
   state: z.enum(["active", "standby", "stopping"]), instanceId: z.string().min(1), sampledAt: iso,
+  settings: z.array(appliedDiscoverySchema).optional(),
   uptimeSeconds: z.number().nonnegative(), budget: runtimeBudgetSchema.nullable(), heartbeat: wireHeartbeatSchema.nullable(),
 }).refine(v => v.state !== "active" || (v.budget !== null && v.heartbeat !== null), "Active worker requires telemetry");
 export const adminSystemSchema = z.object({
@@ -51,6 +56,10 @@ export const adminSystemSchema = z.object({
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({
     leaderboardCount: z.number(), leaderboardUpdatedAt: iso.nullable(), watched: z.number(), candidates: z.number(),
+    freshness: z.object({
+      leaderboardThresholdMinutes: z.number(), portfolioThresholdMinutes: z.number(), tradesThresholdMinutes: z.number(),
+      leaderboard: z.enum(["fresh", "stale", "missing"]), portfolioStale: z.number(), portfolioMissing: z.number(), tradesStale: z.number(), tradesMissing: z.number(),
+    }).optional(),
     portfolios: z.number(), trades: z.number(), errors: z.number(), oldestPortfolioAt: iso.nullable(), newestPortfolioAt: iso.nullable(),
   }).nullable(),
   outbox: z.array(z.object({ kind: z.enum(["evaluations", "deliveries"]), pending: z.number(), processing: z.number(), failed: z.number(), due: z.number(), expiredLeases: z.number(), oldestDueAt: iso.nullable() })).nullable(),
@@ -106,6 +115,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/import/lists", status: 201, auth: "leaders.import", response: s.importLeaderListResponseSchema },
   { method: "GET", path: "/alert-rules", status: 200, auth: "rules.read", response: z.array(s.alertRuleSchema) },
   { method: "POST", path: "/alert-rules", status: 201, auth: "rules.manage", response: s.alertRuleSchema },
+  { method: "GET", path: "/trader-search", status: 200, auth: "public", response: traderSearchResponseSchema },
   { method: "GET", path: "/traders", pagination: { type: "offset", query: s.tradersQuerySchema }, status: 200, auth: "public", response: wireTradersSchema },
   { method: "GET", path: "/traders/sparklines", status: 200, auth: "public", response: s.sparklinesResponseSchema },
   { method: "GET", path: "/traders/:address", status: 200, auth: "public", response: wireTraderProfileSchema },
@@ -119,6 +129,12 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/:address/transfers", status: 200, auth: "public; 503 busy", response: wireTraderTransfersSchema },
   { method: "GET", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "PATCH", path: "/me", status: 200, auth: "user", response: wireMeSchema },
+  { method: "GET", path: "/me/favorite-groups", status: 200, auth: "user", response: favoriteGroupsSchema },
+  { method: "POST", path: "/me/favorite-groups", status: 201, auth: "user", response: favoriteGroupSchema },
+  { method: "PATCH", path: "/me/favorite-groups/:id", status: 200, auth: "user", response: favoriteGroupSchema },
+  { method: "DELETE", path: "/me/favorite-groups/:id", status: 204, auth: "user", response: z.undefined() },
+  { method: "PUT", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
+  { method: "DELETE", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
   { method: "GET", path: "/me/favorites", status: 200, auth: "user", response: z.array(wireFavoriteSchema) },
   { method: "PUT", path: "/me/favorites/:address", status: 200, auth: "user", response: wireFavoriteSchema },
   { method: "DELETE", path: "/me/favorites/:address", status: 204, auth: "user", response: z.undefined() },
@@ -129,10 +145,14 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "DELETE", path: "/me/telegram", status: 204, auth: "user", response: z.undefined() },
   { method: "GET", path: "/insights/crowd", status: 200, auth: "public", response: s.crowdResponseSchema.extend({ updatedAt: iso.nullable() }) },
   { method: "GET", path: "/settings", status: 200, auth: "public", response: s.publicSettingsSchema },
+  { method: "GET", path: "/admin/settings/runtime", status: 200, auth: "settings.read", response: settingsRuntimeSchema },
+  { method: "GET", path: "/admin/audit", status: 200, auth: "audit.read", response: auditResponseSchema },
   { method: "GET", path: "/admin/settings", status: 200, auth: "settings.read", response: s.adminSettingsSnapshotSchema },
   { method: "PATCH", path: "/admin/settings", status: 200, auth: "settings.write", response: s.adminSettingsSnapshotSchema },
   { method: "GET", path: "/admin/users", pagination: { type: "offset", query: s.adminUsersQuerySchema }, status: 200, auth: "users.read", response: s.adminUsersResponseSchema.extend({ items: z.array(wireAdminUserSchema) }) },
   { method: "PATCH", path: "/admin/users/:id", status: 200, auth: "users.manage", response: wireAdminUserSchema },
+  { method: "GET", path: "/admin/jobs", status: 200, auth: "jobs.read", response: backfillJobsResponseSchema },
+  { method: "POST", path: "/admin/jobs/:id/retry", status: 202, auth: "jobs.retry", response: backfillJobSchema },
   { method: "GET", path: "/admin/system/overview", status: 200, auth: "admin.access", response: adminSystemSchema },
   { method: "GET", path: "/admin/overview", status: 200, auth: "overview.read", response: s.adminOverviewSchema.extend({ generatedAt: iso }) },
   { method: "GET", path: "/admin/revenue", status: 200, auth: "revenue.read", response: s.adminRevenueResponseSchema.extend({ lastSnapshotAt: iso.nullable() }) },

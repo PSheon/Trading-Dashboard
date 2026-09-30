@@ -87,15 +87,15 @@ export function ActionsTable({
               <TableRow
                 className={cn(expandable && "cursor-pointer", highlight?.has(id) && "row-arrive")}
                 data-live={highlight?.has(id) ? "new" : undefined}
-                aria-expanded={expandable ? open : undefined}
                 onClick={expandable ? () => setExpanded(open ? null : id) : undefined}
               >
                 <TableCell className="text-muted-foreground">
                   <span className="flex items-center gap-1.5">
                     {expandable ? (
-                      <ChevronDown
+                      <button type="button" aria-expanded={open} aria-label={`${t(open ? "common.collapse" : "common.expand")} ${coinLabel(row.coin)} ${format.dateTime(row.ts)}`} onClick={e => { e.stopPropagation(); setExpanded(open ? null : id); }} className="rounded p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <ChevronDown aria-hidden="true"
                         className={cn("size-3.5 text-subtle-foreground transition-transform", open && "rotate-180")}
-                      />
+                      /></button>
                     ) : null}
                     <span className="num font-mono text-xs" title={format.dateTime(row.ts)}>{format.relative(row.ts)}</span>
                   </span>

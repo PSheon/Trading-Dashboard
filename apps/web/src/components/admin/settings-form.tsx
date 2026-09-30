@@ -1,4 +1,5 @@
 "use client";
+import { SettingsRuntimePanel, SettingsImpact } from "./settings-operations";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/lib/auth";
 
@@ -63,6 +64,7 @@ export function AdminSettingsForm() {
     <div className="flex max-w-4xl flex-col gap-4">
       {settings.isError ? <p role="alert" className="text-sm text-negative">{t("admin.settings.failed", { message: settings.error.message })}</p> : null}
       <div role="status">{d.invalidSections.length ? t("admin.settings.invalid", { sections: d.invalidSections.join(", ") }) : null}</div>
+      <SettingsRuntimePanel />
       <GeneralForm value={d.general} revision={d.revisions.general} />
       <DiscoveryForm value={d.discovery} revision={d.revisions.discovery} />
       <NotificationsForm value={d.notifications} revision={d.revisions.notifications} />
@@ -96,6 +98,7 @@ function useSaveSection<S extends Section>(section: S) {
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.admin.settings, data);
       void queryClient.invalidateQueries({ queryKey: queryKeys.siteSettings });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.admin.settingsRuntime });
     },
   });
 }
@@ -157,6 +160,7 @@ function FormCard<S extends Section>({
       <form onSubmit={submit} className="flex flex-col gap-5">
         <h2 className="text-base font-bold tracking-tight">{title}</h2>
         <fieldset disabled={!canSave || save.isPending || reload.isPending} className="contents">{children}</fieldset>
+        {dirty && <SettingsImpact section={section} original={original} value={value} />}
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
           {clientError || save.isError || reload.isError ? (
             <p role="alert" className="mr-auto text-xs text-negative">
@@ -278,6 +282,8 @@ function DiscoveryForm({ value: incoming, revision: incomingRevision }: { value:
   if (marketsInput.revision !== revision) setMarketsInput({ revision, text: original.homeMarkets.join(", ") });
   const marketsText = marketsInput.text;
   const setMarketsText = (text: string) => setMarketsInput({ revision, text });
+  const [boardsInput, setBoardsInput] = useState({ revision, cryptoBoards: original.cryptoBoards.join(", "), stockBoards: original.stockBoards.join(", ") });
+  if (boardsInput.revision !== revision) setBoardsInput({ revision, cryptoBoards: original.cryptoBoards.join(", "), stockBoards: original.stockBoards.join(", ") });
   const [candidate, setCandidate] = useState("");
   const [candidateError, setCandidateError] = useState<string>();
   const set = (patch: Partial<AdminSettings["discovery"]>) => setValue((v) => ({ ...v, ...patch }));
@@ -426,6 +432,19 @@ function DiscoveryForm({ value: incoming, revision: incomingRevision }: { value:
           {t("admin.settings.discovery.defaultActiveWithinHint")}
         </p>
       </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-2"><Label htmlFor="candidate-pool-size">{t("settingsOps.candidatePoolSize")}</Label>
+          <Input id="candidate-pool-size" type="number" min={50} max={5000} value={value.candidatePoolSize} onChange={e => set({ candidatePoolSize: Number(e.target.value) })} /></div>
+        <div className="grid gap-2"><Label htmlFor="pool-weight">{t("settingsOps.poolWeightPerMinute")}</Label>
+          <Input id="pool-weight" type="number" min={0} max={600} value={value.poolWeightPerMinute} onChange={e => set({ poolWeightPerMinute: Number(e.target.value) })} /></div>
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">{t("settingsOps.poolHint")}</p>
+      {(["cryptoBoards", "stockBoards"] as const).map(key => <div key={key} className="grid gap-2">
+        <Label htmlFor={key}>{t(`settingsOps.${key}`)}</Label>
+        <Input id={key} value={boardsInput[key]} onChange={e => { setBoardsInput({ ...boardsInput, [key]: e.target.value }); set({ [key]: [...new Set(e.target.value.split(",").map(v => v.trim()).filter(Boolean))] }); }} />
+        <p className="text-xs text-muted-foreground">{t("settingsOps.boardsHint")}</p>
+      </div>)}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">

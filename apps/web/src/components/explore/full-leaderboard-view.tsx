@@ -1,5 +1,6 @@
 "use client";
 
+import { TraderSearchResults } from "./trader-search-results";
 import { activeWithinSchema, type ActiveWithin, type TraderWindow } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -89,6 +90,7 @@ export function FullLeaderboardView() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title={t("explore.title")} subtitle={t("explore.subtitle")} />
+      <TraderSearchResults query={q} />
 
       <div className="flex flex-wrap items-center gap-2.5">
         <Segmented
@@ -120,6 +122,7 @@ export function FullLeaderboardView() {
           <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle-foreground" />
           <input
             type="search"
+            maxLength={64}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("explore.search")}

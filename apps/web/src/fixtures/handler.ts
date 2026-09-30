@@ -1,3 +1,8 @@
+import { favoriteGroupInputSchema, favoriteGroupSchema, favoriteGroupsSchema, type FavoriteGroup } from "@trading-dashboard/shared/contracts";
+import { traderSearchQuerySchema, traderSearchResponseSchema } from "@trading-dashboard/shared/contracts";
+import { auditQuerySchema, auditResponseSchema, settingsRuntimeSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureJobs } from "./jobs";
+import { backfillJobSchema, backfillJobsQuerySchema, backfillJobsResponseSchema, retryBackfillJobSchema } from "@trading-dashboard/shared/contracts";
 import { adminSystemSchema } from "@trading-dashboard/shared/contracts";
 import { systemOverview } from "./admin";
 /**
@@ -104,6 +109,8 @@ import { fixtureAnalytics, fixtureTradePage } from "./trades";
 import { fixtureBoard, fixtureHome } from "./discovery";
 
 // Mutable demo state (per browser tab).
+const favoriteGroups: FavoriteGroup[] = [];
+let nextFavoriteGroupId = 1;
 const NO_ALERT: FavoriteAlert = { enabled: false, sides: "both", minUsd: null };
 const FIXTURE_BOT = "orbie_fun_bot";
 /** Pretend the user presses Start this long after asking for a link. */
@@ -213,6 +220,12 @@ export async function fixtureRequest<T>(
     case "GET /discover/boards":
       return wire(boardResponseSchema, fixtureBoard(query(boardQuerySchema, search)));
     // --- discovery -----------------------------------------------------------
+    case "GET /trader-search": {
+      const { q } = traderSearchQuerySchema.parse(Object.fromEntries(url.searchParams));
+      const term = q.replace(/^@/, "").toLowerCase();
+      const rows = [{ address: "0x" + "a1".repeat(20), displayName: "Research Whale", xHandle: "research_whale", source: "kol", hasLeaderboardData: false }];
+      return wire(traderSearchResponseSchema, { items: rows.filter(r => [r.address, r.displayName, r.xHandle].some(v => v.toLowerCase().includes(term))), hasMore: false });
+    }
     case "GET /traders": {
       const q = query(tradersQuerySchema, search) as z.infer<typeof tradersQuerySchema>;
       const needle = q.q?.toLowerCase();
@@ -320,6 +333,31 @@ export async function fixtureRequest<T>(
       if (patch.locale) meLocale = patch.locale;
       return wire(meResponseSchema, fixtureMe(meLocale));
     }
+    case "GET /me/favorite-groups":
+      requireUser(token); return wire(favoriteGroupsSchema, favoriteGroups.map(g => ({ ...g, addresses: g.addresses.filter(a => favorites.has(a)) })));
+    case "POST /me/favorite-groups": {
+      requireUser(token); const { name } = favoriteGroupInputSchema.parse(body);
+      if (favoriteGroups.length >= 20 || favoriteGroups.some(g => g.name.toLowerCase() === name.toLowerCase())) throw new ApiError(409, "Group name or limit conflict", { code: "group_name_exists" });
+      const group = { id: nextFavoriteGroupId++, name, createdAt: new Date().toISOString(), addresses: [] };
+      favoriteGroups.push(group); return wire(favoriteGroupSchema, group);
+    }
+    case "PATCH /me/favorite-groups/:id": {
+      requireUser(token); const group = favoriteGroups.find(g => g.id === Number(parts[2])); if (!group) throw new ApiError(404, "Group not found");
+      const { name } = favoriteGroupInputSchema.parse(body);
+      if (favoriteGroups.some(g => g.id !== group.id && g.name.toLowerCase() === name.toLowerCase())) throw new ApiError(409, "Group name already exists", { code: "group_name_exists" });
+      group.name = name; return wire(favoriteGroupSchema, group);
+    }
+    case "DELETE /me/favorite-groups/:id": {
+      requireUser(token); const index = favoriteGroups.findIndex(g => g.id === Number(parts[2])); if (index < 0) throw new ApiError(404, "Group not found");
+      favoriteGroups.splice(index, 1); return undefined as T;
+    }
+    case "PUT /me/favorite-groups/:id/members/:address":
+    case "DELETE /me/favorite-groups/:id/members/:address": {
+      requireUser(token); const group = favoriteGroups.find(g => g.id === Number(parts[2])); const address = addressSchema.parse(parts[4]).toLowerCase();
+      if (!group || !favorites.has(address)) throw new ApiError(404, "Group or favorite not found");
+      group.addresses = method === "PUT" ? [...new Set([...group.addresses, address])] : group.addresses.filter(a => a !== address);
+      return undefined as T;
+    }
     case "GET /me/favorites":
       requireUser(token);
       return wire(
@@ -363,7 +401,9 @@ export async function fixtureRequest<T>(
     }
     case "DELETE /me/favorites/:address": {
       requireUser(token);
-      favorites.delete(addressSchema.parse(parts[2]).toLowerCase());
+      const removedAddress = addressSchema.parse(parts[2]).toLowerCase();
+      favorites.delete(removedAddress);
+      for (const group of favoriteGroups) group.addresses = group.addresses.filter(a => a !== removedAddress);
       return undefined as T;
     }
     case "GET /me/telegram":
@@ -398,6 +438,22 @@ export async function fixtureRequest<T>(
       return wire(crowdResponseSchema, crowd());
 
     // --- admin ---------------------------------------------------------------------
+    case "GET /admin/jobs": {
+      requireAdmin(token);
+      const q=backfillJobsQuerySchema.parse(Object.fromEntries(search));
+      const rows=fixtureJobs.filter(j=>(!q.status||j.status===q.status)&&(!q.beforeId||j.id<q.beforeId)).sort((a,b)=>b.id-a.id);
+      const items=rows.slice(0,q.limit);
+      return wire(backfillJobsResponseSchema,{items,nextCursor:rows.length>q.limit?items.at(-1)!.id:null});
+    }
+    case "POST /admin/jobs/:id/retry": {
+      requireAdmin(token);
+      const input=retryBackfillJobSchema.parse(body);
+      const job=fixtureJobs.find(j=>j.id===Number(parts[2]));
+      if(!job)throw new ApiError(404,"Job not found");
+      if(job.status!=="failed"||job.version!==input.expectedVersion)throw new ApiError(409,"Job changed",{code:"job_conflict"});
+      Object.assign(job,{status:"pending",runAttempts:0,version:job.version+1,availableAt:new Date().toISOString(),startedAt:null,completedAt:null,fillsFetched:null});
+      return wire(backfillJobSchema,job);
+    }
     case "GET /admin/system/overview":
       requireAdmin(token);
       return wire(adminSystemSchema, systemOverview());
@@ -438,6 +494,17 @@ export async function fixtureRequest<T>(
       };
       setAdminUsers(adminUsers.map((u) => (u.id === id ? updated : u)));
       return wire(adminUserSchema, updated);
+    }
+    case "GET /admin/settings/runtime":
+      requireAdmin(token);
+      return wire(settingsRuntimeSchema, { savedRevision: adminSettingsSnapshot().revisions.discovery, sampledAt: new Date().toISOString(), state: "active", instanceId: "fixture-worker", consumers: [] });
+    case "GET /admin/audit": {
+      requireAdmin(token);
+      const query = auditQuerySchema.parse(Object.fromEntries(url.searchParams));
+      const rows = Array.from({ length: 30 }, (_, index) => ({ id: String(30 - index), actorKind: "user", actorUserId: 1, event: "settings.update", target: "app_settings", before: { discovery: { candidatePoolSize: 1000 } }, after: { discovery: { candidatePoolSize: 500 } }, createdAt: new Date().toISOString() }))
+        .filter(row => (!query.beforeId || BigInt(row.id) < BigInt(query.beforeId)) && (!query.event || row.event === query.event) && (!query.actorKind || row.actorKind === query.actorKind) && (!query.actorUserId || row.actorUserId === query.actorUserId) && (!query.target || row.target === query.target));
+      const items = rows.slice(0, query.limit);
+      return wire(auditResponseSchema, { items, nextCursor: rows.length > query.limit ? items.at(-1)!.id : null });
     }
     case "GET /admin/settings":
       requireAdmin(token);

@@ -1,3 +1,4 @@
+import { backfillJobs } from "@trading-dashboard/shared/database";
 import { RulesSeedRepository } from "../src/rules/rules-seed.repository.js";
 import { ProfileRepository } from "../src/users/profile.repository.js";
 import { testConfig } from "./config-test-utils.js";
@@ -19,7 +20,6 @@ import { RulesSeedService } from "../src/rules/rules-seed.service.js";
 import { FavoritesService } from "../src/users/favorites.service.js";
 import { MeController } from "../src/users/me.controller.js";
 import { ProfileService } from "../src/users/profile.service.js";
-import { BackfillService } from "../src/watcher/backfill.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -34,7 +34,6 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
     "alice-token": { privyUserId: "did:privy:alice", profile: { email: "alice@example.com", walletAddress: null } },
     "bob-token": { privyUserId: "did:privy:bob" },
   });
-  const backfill = { trigger: vi.fn() };
   let app: INestApplication;
   let auth: AuthService;
   let settings: SettingsService;
@@ -49,7 +48,6 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
         ProfileRepository,
         ProfileService,
         FavoritesService,
-        { provide: BackfillService, useValue: backfill },
       ],
     }));
   });
@@ -59,7 +57,6 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
     await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
     await settings.patch({ notifications: { alertsEnabled: true, maxAlertTraders: 3 } }, null);
     auth.clearCache();
-    backfill.trigger.mockClear();
   });
 
   afterAll(async () => {
@@ -91,7 +88,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put(`/me/favorites/${winner}`).expect(200);
       expect(await db.select().from(userFavorites)).toHaveLength(1);
       expect(await db.select().from(leaders)).toHaveLength(1);
-      expect(backfill.trigger).toHaveBeenCalledTimes(1);
+      expect(await db.select().from(backfillJobs)).toHaveLength(1);
       await alice.delete(`/me/favorites/${winner}`).expect(204);
       await alice.put(`/me/favorites/${winner === ADDR ? OTHER : ADDR}`).expect(200);
     } finally { vi.unstubAllEnvs(); }
@@ -162,8 +159,8 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await bob.put(`/me/favorites/${ADDR}`).expect(200);
 
       expect(await leaderRow(ADDR)).toMatchObject({ source: "favorite", active: true, tier: "B" });
-      expect(backfill.trigger).toHaveBeenCalledTimes(1);
-      expect(backfill.trigger).toHaveBeenCalledWith(ADDR);
+      expect(await db.select().from(backfillJobs)).toHaveLength(1);
+      expect(await db.select().from(backfillJobs)).toMatchObject([{address: ADDR, status: "pending"}]);
       expect(await db.select().from(userFavorites)).toHaveLength(2);
     });
 
@@ -221,11 +218,10 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put(`/me/favorites/${ADDR}`).expect(200);
       await alice.delete(`/me/favorites/${ADDR}`).expect(204);
       expect((await leaderRow(ADDR)).active).toBe(false);
-      backfill.trigger.mockClear();
 
       await bob.put(`/me/favorites/${ADDR}`).expect(200);
       expect(await leaderRow(ADDR)).toMatchObject({ active: true, source: "favorite" });
-      expect(backfill.trigger).not.toHaveBeenCalled();
+      expect(await db.select().from(backfillJobs)).toHaveLength(1);
     });
 
     it("imported leaders are never changed: not re-sourced, not deactivated, not reactivated", async () => {
@@ -241,7 +237,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
 
       await alice.delete(`/me/favorites/${ADDR}`).expect(204);
       expect(await leaderRow(ADDR)).toMatchObject({ source: "import", active: true });
-      expect(backfill.trigger).not.toHaveBeenCalled();
+      expect(await db.select().from(backfillJobs)).toHaveLength(0);
     });
   });
 

@@ -282,7 +282,9 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(top.items[1]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, avatarUrl: null, pnl: 900 });
       // … and the api's own versioned URL once the drip job has cached it.
       await db.insert(kolAvatars).values({ address: addr(2), source: "x:two", bytes: Buffer.from([0xff, 0xd8, 0xff]), contentType: "image/jpeg", etag: '"abcdefghijklmnop"', fetchedAt: new Date() });
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31_000); // past the 30 s pool snapshot
       expect((await get("")).items[1].avatarUrl).toBe(`/kols/${addr(2)}/avatar?v=abcdefghijkl`);
+      clock.mockRestore();
       const month = await get("sort=roi&window=30d");
       expect(month.items.map((t) => t.roi)).toEqual([0.5, -0.1]);
       expect(month.items[0].sparkline).toEqual([0, 1]);

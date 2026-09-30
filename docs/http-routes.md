@@ -56,3 +56,4 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/admin/kols/import` | 201 | kols.manage |
 | PATCH | `/admin/kols/:address` | 200 | kols.manage |
 | DELETE | `/admin/kols/:address` | 204 | kols.manage |
+| GET | `/kols/:address/avatar` | 200 | public; image bytes, 304 on If-None-Match |

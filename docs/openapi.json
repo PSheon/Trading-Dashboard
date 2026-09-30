@@ -209,7 +209,7 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
-                              "default": 150
+                              "default": 200
                             }
                           },
                           "additionalProperties": false
@@ -568,7 +568,7 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
-                              "default": 150
+                              "default": 200
                             }
                           },
                           "additionalProperties": false

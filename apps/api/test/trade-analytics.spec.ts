@@ -151,6 +151,30 @@ describe("trade analytics for any address", () => {
 
   const get = (path: string) => request(app.getHttpServer()).get(path);
 
+  it("does not admit TWAP history across an empty but incomplete regular-fill boundary", async () => {
+    const originalRange = info.userFillsByTime.getMockImplementation()!;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(NOW);
+    const regular = Array.from({ length: 2001 }, () => fill("BTC", 0, 1, 100, NOW - 30000));
+    const newer = Array.from({ length: 2000 }, () => fill("BTC", 0, 1, 100, NOW + 60000));
+    const twap = [
+      fill("ETH", 0, 1, 100, NOW - 40000, { twapId: 1 }),
+      fill("ETH", 1, -1, 110, NOW - 35000, { twapId: 1, closedPnl: "10" }),
+    ];
+    history = [...twap, ...regular, ...newer];
+    traders.latestFills.mockResolvedValueOnce([newer, twap]);
+    info.userFillsByTime.mockImplementation(async (address, start, end) =>
+      (await originalRange(address, start, end)).slice(0, 2000));
+    try {
+      const state = await service.refresh(X);
+      expect(state.truncated).toBe(true);
+      expect(state.fillsRead).toBe(0);
+      expect(await db.select().from(traderTrades)).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+      info.userFillsByTime.mockImplementation(originalRange);
+    }
+  });
+
   it("answers 503 busy while a cold address computes, then serves it from the store", async () => {
     controller.pageDeadlineMs = 30;
     let release!: () => void;

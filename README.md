@@ -123,7 +123,8 @@ changes, remaining external verification and dated evidence. Key runbooks:
 [CI/tests](docs/ci-and-testing.md), [runtime image/migrations](docs/container-delivery.md),
 [backup/restore](docs/backup-and-restore.md), [dependencies](docs/dependency-maintenance.md),
 [HTTP contracts](docs/http-contract.md), [accessibility](docs/accessibility.md),
-[frontend layering / DonutMe comparison](docs/donutme-frontend-architecture-audit.md).
+[frontend layering / DonutMe comparison](docs/donutme-frontend-architecture-audit.md),
+[CopyDog data parity](docs/copydog-data-parity.md).
 Historical PRD/PDFs describe earlier scope; current code, generated route catalog
 and these runbooks take precedence. R4–R9, scoring/episodes and copy execution
 are not silently marked shipped.

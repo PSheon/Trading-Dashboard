@@ -95,12 +95,12 @@ export function median(values: number[]): number | null {
 
 const exitMs = (t: RoundTrip) => (t.exitTime === null ? null : new Date(t.exitTime).getTime());
 
-/** Closed trades that exited in the window (all: every closed trade). */
+/** Closed trades that exited within the window through the observation time. */
 export function closedInWindow(trades: RoundTrip[], window: TradeWindow, now: number): RoundTrip[] {
   const span = WINDOW_MS[window];
   return trades.filter((t) => {
     const exit = exitMs(t);
-    return exit !== null && (span === null || exit >= now - span);
+    return exit !== null && exit <= now && (span === null || exit >= now - span);
   });
 }
 

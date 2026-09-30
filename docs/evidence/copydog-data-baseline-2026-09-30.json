@@ -1,0 +1,67 @@
+{
+  "source": "https://api.copydog.xyz/api/hyperliquid/leaderboard?period=allTime&orderBy=COPY_SCORE&sortDir=desc&limit=5&offset=0&focus=top100",
+  "observedAt": "2026-09-30T06:23:01.681862+00:00",
+  "sha256": "f4ebedc050e2cc964f99bebeda359b37ccb74e18d7b24cfaa82ce1c73af85084",
+  "scope": "Public leaderboard field inventory; not a synchronized numerical comparison or full candidate-pool sample.",
+  "topLevelFields": [
+    "traders",
+    "count",
+    "offset",
+    "limit",
+    "period",
+    "orderBy",
+    "focus"
+  ],
+  "traderFields": [
+    "accountValue",
+    "address",
+    "avgLeverage",
+    "copyScore",
+    "displayName",
+    "lastActive",
+    "lastFillTime",
+    "leaderboardRank",
+    "openPositions",
+    "pnl24h",
+    "pnl30d",
+    "pnl7d",
+    "pnlCombined",
+    "pnlPerp",
+    "pnlPerp30d",
+    "rank",
+    "roi",
+    "roi24h",
+    "roi30d",
+    "roi7d",
+    "sparkline",
+    "sparkline30d",
+    "tagged",
+    "topAssets",
+    "totalPnl",
+    "totalTrades",
+    "tradingStyle",
+    "vlm24h",
+    "vlm30d",
+    "vlm7d",
+    "volume",
+    "winRate"
+  ],
+  "rowCount": 5,
+  "sample": {
+    "address": "0x469e9a7f624b04c24f0e64edf8d8a277e6bf58a5",
+    "lastActive": "2026-09-30T06:01:42.789284+00:00",
+    "lastFillTime": "2026-09-29T20:04:26.706+00:00",
+    "winRate": 0.7017,
+    "totalTrades": 647,
+    "copyScore": 98.0,
+    "tradingStyle": "swing"
+  },
+  "pageBundle": {
+    "url": "https://copydog.xyz/assets/index-DpPDXkY3.js",
+    "sha256": "07eaada23bca2be6b0ea4c5e2af1d28cdc2185f77a34e4e14fb663476c986af2"
+  },
+  "limitations": [
+    "No metricsUpdatedAt in sampled leaderboard rows; lastActive and lastFillTime do not establish the metric snapshot time.",
+    "Subsequent public summary returned HTTP 429; further requests stopped. Other attempted endpoints returned HTTP 403. No latest ledger/performance/score numerical verification."
+  ]
+}

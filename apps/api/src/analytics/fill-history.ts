@@ -31,7 +31,9 @@ export interface HistoryOptions {
 export interface History {
   /** Deduplicated by tid; any order. */
   fills: HlUserFill[];
-  /** Everything from here to now was read; null = nothing to read. */
+  /** Certified lower boundary of available history. Preserve it even if
+   * a truncated result has no fills, so other streams cannot cross its gap.
+   * It may be now + 1 when no interval was certified; null = complete empty. */
   from: number | null;
   /** Stopped before reaching `lookbackStart` (target or call cap). */
   truncated: boolean;
@@ -44,26 +46,31 @@ export interface History {
  * window with its *earliest* 2,000 fills, so a full answer is continued
  * forward inside the window until it is complete; the next window's
  * length is sized from the density just seen (aiming at one page), and
- * grows 8× across empty stretches. Hyperliquid's retention is not "the
- * latest 10,000 fills" (it served 23,906 for one address and ≥ 16,000 for
- * another, back to 2026-04), so the bound is ours: `target` fills or
- * `lookbackStart`, whichever comes first.
+ * grows 8× across empty stretches. `target` and `lookbackStart` bound our
+ * work. Upstream may retain less: its docs promise only the latest 10,000
+ * fills, even though earlier samples returned more. Completing pagination
+ * proves coverage of available responses, not the account's lifetime.
  */
 export async function readRecentHistory(source: FillSource, options: HistoryOptions): Promise<History> {
   const byTid = new Map<number, HlUserFill>();
   const add = (batch: HlUserFill[]) => {
-    for (const f of batch) byTid.set(f.tid, f);
+    for (const f of batch) {
+      if (f.time >= options.lookbackStart && f.time <= options.now) byTid.set(f.tid, f);
+    }
   };
   const latest = await source.latest();
   add(latest);
   let calls = 0;
   if (latest.length < FILL_PAGE) {
     // The whole list fits in one page.
-    const oldest = latest.length > 0 ? Math.min(...latest.map((f) => f.time)) : null;
+    const kept = [...byTid.values()];
+    const oldest = kept.length > 0 ? Math.min(...kept.map((f) => f.time)) : null;
     return { fills: [...byTid.values()], from: oldest, truncated: false, calls };
   }
 
-  let end = Math.min(...latest.map((f) => f.time));
+  // The oldest millisecond of a full latest page may itself be split.
+  // Only the suffix strictly after it is certified until range reads cover it.
+  let end = Math.min(options.now + 1, Math.min(...latest.map((f) => f.time)) + 1);
   // The latest page's own span holds one page of fills: the first window
   // aims at the same (not at "now − end", which counts idle time since the
   // last fill and made a first window of a bursty trader tens of pages).
@@ -90,10 +97,9 @@ export async function readRecentHistory(source: FillSource, options: HistoryOpti
         break;
       }
       const last = batch[batch.length - 1].time;
-      if (last >= end) {
-        complete = true;
-        break;
-      }
+      // A full page ending exactly at `end` is not proof of completion:
+      // reread its final millisecond as well. A saturated millisecond stalls
+      // conservatively instead of claiming that a partial page is complete.
       // Inclusive: fills sharing `last` may straddle the page boundary.
       if (last <= cursor) break;
       cursor = last;

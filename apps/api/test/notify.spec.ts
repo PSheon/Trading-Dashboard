@@ -223,14 +223,17 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
 
   it("a recipient with no Telegram channel gets a 'failed' row with the reason, and nothing is sent", async () => {
     const telegram = fakeTelegram(async () => {});
-    await new NotifyService(testConfig(), new NotifyRepository(db), new UnitOfWork(db), telegram).notifyAlert(
-      ctx({ recipient: { userId, telegramChatId: null, locale: "zh-TW" } }),
-    );
+    const service = new NotifyService(testConfig(), new NotifyRepository(db), new UnitOfWork(db), telegram);
+    await service.notifyAlert(ctx({ recipient: { userId, telegramChatId: null, locale: "zh-TW" } }));
 
+    // The database's microsecond available_at can be later than the first
+    // millisecond-resolution claim. Exercise the normal worker retry.
+    await expect.poll(async () => {
+      await service.deliverAction(actionRow.id);
+      const [row] = await db.select().from(alerts);
+      return row;
+    }).toMatchObject({ sendStatus: "failed", userId, payloadJson: { reason: "no enabled Telegram channel" } });
     expect(telegram.sendMessage).not.toHaveBeenCalled();
-    const [row] = await db.select().from(alerts);
-    expect(row).toMatchObject({ sendStatus: "failed", userId });
-    expect(row.payloadJson).toMatchObject({ reason: "no enabled Telegram channel" });
   });
 
   it("N4: retries a failing send up to 3 times (4 attempts) then records 'failed' without throwing", async () => {

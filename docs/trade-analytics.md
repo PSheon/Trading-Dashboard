@@ -167,10 +167,12 @@ copies a text summary and link (CopyDog renders an image card).
   until 10,000 fills **and** 30 closed trades, 365 days, or 24 calls; TWAP
   slices over the same span. Refreshes read only fills after the stored
   cursor and continue the open trades.
-- `userFillsByTime` answers a window with its *earliest* 2,000 fills, and
-  Hyperliquid's retention is **not** "the latest 10,000 fills": it served
-  23,906 fills for 0x85ec… and more than 16,000 for 0xeadc… (the oldest from
-  2026-04-17, though that account has traded since 2024).
+- `userFillsByTime` was observed to answer a window with its *earliest*
+  2,000 fills. Earlier sampling returned 23,906 fills for 0x85ec… and more
+  than 16,000 for 0xeadc…. However, the [official Info documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint),
+  rechecked 2026-09-30, states only the most recent 10,000 fills are available.
+  The larger observations are not a retention guarantee. Exhausting upstream
+  pagination does not prove lifetime completeness; see [data parity](copydog-data-parity.md).
 - **Funding** (`userFunding`: 500 per call, 20 + 1 per 20 items; hourly for
   about a week, then one entry per coin and day) is a second, unranked step
   after the trades are stored. The implemented lookback is 365 days, bounded

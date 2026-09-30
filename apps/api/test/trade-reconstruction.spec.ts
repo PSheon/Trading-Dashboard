@@ -281,12 +281,11 @@ describe("trade metrics and classification", () => {
     const live = Date.parse("2026-09-30T04:47:52Z");
     const snapshot = Date.parse("2026-09-29T14:36:30Z");
     const ledger = fc52.map(([exit, net, funding]) => ({ ...trip(net, 3600, T0 - Date.parse(exit)), funding }));
-    const asOf = (at: number) => ledger.filter((t) => t.exitTime!.getTime() <= at);
-    expect(summarize(asOf(snapshot), "all", snapshot)).toMatchObject({ trades: 13, wins: 8 });
-    expect(summarize(asOf(snapshot), "all", snapshot).winRate).toBeCloseTo(0.615385, 6);
-    expect(summarize(asOf(snapshot), "30d", snapshot)).toMatchObject({ trades: 10, winRate: 0.5 });
-    expect(summarize(asOf(snapshot), "7d", snapshot).winRate).toBeCloseTo(0.428571, 6);
-    expect(summarize(asOf(snapshot), "1d", snapshot)).toMatchObject({ trades: 2, winRate: 0 });
+    expect(summarize(ledger, "all", snapshot)).toMatchObject({ trades: 13, wins: 8 });
+    expect(summarize(ledger, "all", snapshot).winRate).toBeCloseTo(0.615385, 6);
+    expect(summarize(ledger, "30d", snapshot)).toMatchObject({ trades: 10, winRate: 0.5 });
+    expect(summarize(ledger, "7d", snapshot).winRate).toBeCloseTo(0.428571, 6);
+    expect(summarize(ledger, "1d", snapshot)).toMatchObject({ trades: 2, winRate: 0 });
     // Live, the tile's count is CopyDog's totalTrades (15) and the rate 9/15.
     expect(summarize(ledger, "all", live)).toMatchObject({ trades: 15, wins: 9, winRate: 0.6 });
     // Liquidations are ordinary trades in both the count and the rate.
@@ -406,4 +405,55 @@ it("does not skip an overflowing timestamp in forward history", async () => {
   const result = await readForward(async start => { starts.push(start); return start === 100 ? page : []; }, 100, 3);
   expect(result.complete).toBe(false);
   expect(starts).not.toContain(101);
+});
+
+it("keeps even a short latest page inside the frozen lookback interval", async () => {
+  const history = await readRecentHistory({
+    latest: async () => [fill(0, 1, 1, 99), fill(0, 1, 1, 100), fill(0, 1, 1, 200), fill(0, 1, 1, 201)],
+    range: async () => [],
+  }, { now: 200, lookbackStart: 100, target: 10000, maxCalls: 4 });
+  expect(history.fills.map(f => f.time).sort()).toEqual([100, 200]);
+  expect(history.from).toBe(100);
+});
+
+it("does not certify a latest-page boundary hiding more than one page at the same millisecond", async () => {
+  const all = Array.from({ length: FILL_PAGE + 1 }, () => fill(0, 1, 1, 100));
+  const history = await readRecentHistory({
+    latest: async () => all.slice(-FILL_PAGE),
+    range: async (start, end) => all.filter(f => f.time >= start && f.time <= end).slice(0, FILL_PAGE),
+  }, { now: 200, lookbackStart: 0, target: 10000, maxCalls: 4 });
+  expect(history.truncated).toBe(true);
+  expect(history.fills).toEqual([]);
+});
+
+it("does not retain an unverified boundary when the range-call budget is zero", async () => {
+  const latest = Array.from({ length: FILL_PAGE }, (_, i) => fill(0, 1, 1, i === 0 ? 100 : 200));
+  const history = await readRecentHistory({ latest: async () => latest, range: async () => [] },
+    { now: 200, lookbackStart: 0, target: 10000, maxCalls: 0 });
+  expect(history.truncated).toBe(true);
+  expect(history.fills.every(f => f.time > 100)).toBe(true);
+  expect(history.from).toBeGreaterThan(100);
+});
+
+it("recovers every fill at the oldest latest-page millisecond through an overlapping range", async () => {
+  const older = Array.from({ length: 20 }, () => fill(0, 1, 1, 100));
+  const newer = Array.from({ length: FILL_PAGE - 1 }, () => fill(0, 1, 1, 200));
+  const all = [...older, ...newer];
+  const history = await readRecentHistory({
+    latest: async () => all.slice(-FILL_PAGE).reverse(),
+    range: async (start, end) => all.filter(f => f.time >= start && f.time <= end).slice(0, FILL_PAGE),
+  }, { now: 200, lookbackStart: 0, target: 10000, maxCalls: 4 });
+  expect(history.truncated).toBe(false);
+  expect(new Set(history.fills.map(f => f.tid))).toEqual(new Set(all.map(f => f.tid)));
+});
+
+it("excludes fills after the observation time even when the latest page is saturated", async () => {
+  const all = Array.from({ length: FILL_PAGE + 50 }, (_, i) => fill(0, 1, 1, 100 + i));
+  const history = await readRecentHistory({
+    latest: async () => all.slice(-FILL_PAGE).reverse(),
+    range: async (start, end) => all.filter(f => f.time >= start && f.time <= end).slice(0, FILL_PAGE),
+  }, { now: 500, lookbackStart: 100, target: 10000, maxCalls: 4 });
+  expect(history.truncated).toBe(false);
+  expect(history.fills).toHaveLength(401);
+  expect(history.fills.every(f => f.time >= 100 && f.time <= 500)).toBe(true);
 });

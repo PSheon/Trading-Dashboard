@@ -76,4 +76,9 @@ export class TtlCache<V> {
   get size(): number {
     return this.entries.size;
   }
+
+  /** Drops every stored entry (tests); loads in flight still complete. */
+  clear(): void {
+    this.entries.clear();
+  }
 }

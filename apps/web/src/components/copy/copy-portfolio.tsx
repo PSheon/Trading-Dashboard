@@ -37,7 +37,7 @@ const tone = (v: number | null | undefined) => (v === null || v === undefined ? 
 
 function StatusBadges({ s, className }: { s: CopyStrategyView; className?: string }) {
   const { t } = useI18n();
-  const chip = "rounded-full px-2 py-0.5 text-[11px] font-semibold";
+  const chip = "whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold";
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
       {s.status !== "active" ? <span className={cn(chip, "bg-raised text-muted-foreground")}>{t(`portfolio.copy.status.${s.status}` as MessageKey)}</span> : null}
@@ -85,18 +85,18 @@ function PositionLine({ p, table }: { p: CopyPositionView; table: boolean }) {
       <span className="flex items-center gap-2">
         <CoinIcon coin={p.coin} size={18} />
         <span className="font-semibold">{coinLabel(p.coin)}</span>
-        <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-semibold", long ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+        <span className={cn("whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold", long ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
           {t(long ? "portfolio.copy.long" : "portfolio.copy.short")}
         </span>
       </span>
-      <span className="num text-muted-foreground">{format.num(Math.abs(p.size), 4)}</span>
+      <span className={cn("num text-muted-foreground", table && "hidden md:block")}>{format.num(Math.abs(p.size), 4)}</span>
       <span className="num">{p.notionalUsd === null ? "—" : format.usd(p.notionalUsd, { digits: 2 })}</span>
       <span className={cn("num font-semibold", tone(p.unrealizedPnl))}>{p.unrealizedPnl === null ? "—" : format.usd(p.unrealizedPnl, { sign: true, digits: 2 })}</span>
-      <span>{roi === null ? "—" : <RoiPill value={roi} />}</span>
+      <span className={cn(table && "hidden md:block")}>{roi === null ? "—" : <RoiPill value={roi} />}</span>
     </>
   );
   return table ? (
-    <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr_0.8fr] items-center gap-3 px-4 py-2 text-[0.8125rem]">{cells}</div>
+    <div className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3 px-4 py-2 text-[0.8125rem] md:grid-cols-[1.6fr_1fr_1fr_1fr_0.8fr]">{cells}</div>
   ) : (
     <div className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-2 py-2 text-xs [&>*:nth-child(2)]:hidden [&>*:nth-child(5)]:hidden">{cells}</div>
   );
@@ -125,16 +125,20 @@ export function CopyTable({ strategies, leaders, onSelect }: { strategies: CopyS
         const expanded = open.has(s.id);
         return (
           <div key={s.id} className="border-b border-border last:border-b-0">
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelect(s.id)}
-              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect(s.id))}
-              className={cn(cols, "cursor-pointer px-4 py-3 text-[0.875rem] outline-none hover:bg-raised/40 focus-visible:bg-raised/40")}
-            >
+            {/* The whole row opens the copy (mouse); the name is the keyboard / screen-reader control. */}
+            <div onClick={() => onSelect(s.id)} className={cn(cols, "cursor-pointer px-4 py-3 text-[0.875rem] hover:bg-raised/40")}>
               <span className="flex min-w-0 items-center gap-2.5">
                 <TraderAvatar trader={leader} size={30} />
-                <span className="truncate font-semibold">{boardName(leader)}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(s.id);
+                  }}
+                  className="truncate rounded font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {boardName(leader)}
+                </button>
                 <PaperBadge />
                 <StatusBadges s={s} />
               </span>
@@ -190,12 +194,12 @@ export function CopyCards({ strategies, leaders, onSelect }: { strategies: CopyS
             <button type="button" onClick={() => onSelect(s.id)} className="flex w-full items-center gap-3 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <TraderAvatar trader={leader} size={44} />
               <span className="flex min-w-0 flex-1 flex-col">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
+                <span className="truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
+                <span className="mt-1 flex min-w-0 items-center gap-1.5">
+                  <span className="num text-xs text-muted-foreground">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
                   <PaperBadge />
                   <StatusBadges s={s} />
                 </span>
-                <span className="num text-xs text-muted-foreground">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
               </span>
               <span className="flex flex-col items-end gap-1">
                 <span className={cn("num text-[0.9375rem] font-bold", tone(s.totalPnl))}>{s.totalPnl === null ? "—" : format.usd(s.totalPnl, { sign: true, digits: 2 })}</span>
@@ -320,8 +324,8 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
               [t("portfolio.copy.detail.maxAllocation"), format.usd(s.settings.maxTotalExposureUsd ?? s.allocated * 5, { digits: 2 })],
               [t("portfolio.copy.detail.copyExisting"), t(s.settings.copyStartMode === "adopt" ? "portfolio.copy.detail.on" : "portfolio.copy.detail.off")],
               [t("portfolio.copy.detail.realized"), format.usd(s.realizedPnl, { sign: true, digits: 2 })],
-              [t("portfolio.copy.detail.fees"), format.usd(-s.fees, { digits: 2 })],
-              [t("portfolio.copy.detail.funding"), format.usd(-s.funding, { digits: 2 })],
+              [t("portfolio.copy.detail.fees"), format.usd(s.fees ? -s.fees : 0, { digits: 2 })],
+              [t("portfolio.copy.detail.funding"), format.usd(s.funding ? -s.funding : 0, { digits: 2 })],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">{k}</dt>
@@ -361,7 +365,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
                   <tr key={o.id} className="border-t border-border [&>td]:px-4 [&>td]:py-2">
                     <td className="num whitespace-nowrap text-muted-foreground">{format.dateTime(o.createdAt)}</td>
                     <td className="font-semibold">{coinLabel(o.coin)}</td>
-                    <td>
+                    <td className="whitespace-nowrap">
                       <span className={o.side === "B" ? "text-positive" : "text-negative"}>{t(o.side === "B" ? "portfolio.copy.order.buy" : "portfolio.copy.order.sell")}</span>
                       <span className="ml-1.5 text-xs text-muted-foreground">{t(`portfolio.copy.order.leg.${o.leg}` as MessageKey)}</span>
                     </td>
@@ -400,7 +404,7 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
         <p className="text-sm text-muted-foreground">{n ? t("portfolio.copy.stop.withPositions", { count: n }) : t("portfolio.copy.stop.noPositions")}</p>
         {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
         <div className="grid grid-cols-2 gap-3">
-          <Button variant="secondary" size="lg" onClick={onClose}>{t("portfolio.copy.stop.cancel")}</Button>
+          <Button variant="secondary" size="lg" className="border border-border-strong" onClick={onClose}>{t("portfolio.copy.stop.cancel")}</Button>
           <Button
             size="lg"
             className="bg-negative text-white hover:bg-negative/90"
@@ -446,7 +450,7 @@ function EditDialog({ strategy: s, balance, open, onClose }: { strategy: CopyStr
   return (
     <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("portfolio.copy.edit.title")} badge={<PaperBadge />}>
       <div className="flex flex-col gap-5 p-5">
-        <div role="radiogroup" className="grid grid-cols-2 gap-1 rounded-full bg-raised p-1">
+        <div role="radiogroup" className="grid grid-cols-2 gap-1 rounded-full border border-border-strong bg-raised p-1">
           {(["fixed", "ratio"] as const).map((m) => (
             <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={cn("h-9 rounded-full text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
               {t(m === "fixed" ? "portfolio.copy.edit.fixed" : "portfolio.copy.edit.ratio")}
@@ -510,7 +514,7 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
         <AmountInput id="funds-amount" value={amount} onChange={setAmount} invalid={amount !== "" && invalid} />
         <div className="grid grid-cols-4 gap-2">
           {[10, 25, 50, 100].map((p) => (
-            <button key={p} type="button" onClick={() => setAmount(String(Math.floor((balance * p) / 100)))} className="h-9 rounded-full bg-raised text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <button key={p} type="button" onClick={() => setAmount(String(Math.floor((balance * p) / 100)))} className="h-9 rounded-full border border-border-strong bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
               {p === 100 ? t("trader.copy.max") : `${p}%`}
             </button>
           ))}
@@ -555,7 +559,7 @@ export function CopyInsights({ overview, leaders }: { overview: CopyOverview; le
           {[
             [t("portfolio.copy.insights.realized"), format.usd(realized, { sign: true, digits: 2 }), tone(realized)],
             [t("portfolio.copy.insights.unrealized"), unrealized === null ? "—" : format.usd(unrealized, { sign: true, digits: 2 }), tone(unrealized)],
-            [t("portfolio.copy.insights.fees"), format.usd(-costs, { digits: 2 }), ""],
+            [t("portfolio.copy.insights.fees"), format.usd(costs ? -costs : 0, { digits: 2 }), ""],
             [t("portfolio.copy.insights.tradesCopied"), format.num(trades), ""],
           ].map(([k, v, c]) => (
             <div key={k} className="rounded-xl bg-raised/50 p-3">

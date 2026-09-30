@@ -55,6 +55,10 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   const pct = balance > 0 ? Math.min(100, Math.round(((Number.isFinite(value) ? value : 0) / balance) * 100)) : 0;
   const paused = overview.data && (overview.data.platform.pauseNewRisk || overview.data.platform.reduceOnly || overview.data.user.pauseNewRisk || overview.data.user.reduceOnly);
 
+  // CopyDog shrinks the amount to keep "<amount> USDC" on one line.
+  const digits = Math.max(1, amount.length);
+  const fit = digits <= 4 ? { number: 3.25, unit: 2.25 } : digits <= 5 ? { number: 2.75, unit: 1.9 } : digits <= 7 ? { number: 2.25, unit: 1.6 } : { number: 1.75, unit: 1.25 };
+
   const label =
     !amount || !(value > 0) ? t("trader.copy.enterAmount") :
     value < min ? t("trader.copy.minToCopy", { min: format.num(min) }) :
@@ -185,13 +189,10 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
               setError(null);
               setAmount(e.target.value.replace(/[^\d.]/g, "").slice(0, 12));
             }}
-            className={cn(
-              "num w-full min-w-0 bg-transparent leading-none font-bold tracking-tight outline-none placeholder:text-foreground",
-              amount.length > 6 ? "text-[2.5rem]" : "text-[3.25rem]",
-            )}
-            style={{ width: `${Math.max(1, (amount || "0").length) + 0.4}ch` }}
+            className="num min-w-0 bg-transparent leading-none font-bold tracking-tight outline-none placeholder:text-foreground"
+            style={{ width: `${Math.max(1, (amount || "0").length) + 0.15}ch`, fontSize: `${fit.number}rem` }}
           />
-          <span className={cn("leading-none font-bold text-muted-foreground", amount.length > 6 ? "text-[1.75rem]" : "text-[2.25rem]")}>USDC</span>
+          <span className="leading-none font-bold text-muted-foreground" style={{ fontSize: `${fit.unit}rem` }}>USDC</span>
         </div>
         {!sheet ? (
           <button

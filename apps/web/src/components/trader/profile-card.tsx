@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
+import { CopyScoreBar } from "@/components/discover/board-bits";
 import { pnlTone, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/trade-format";
 
 function useCopied() {
@@ -142,14 +143,14 @@ function AccountValue({ profile }: { profile: TraderProfileResponse }) {
 }
 
 /** Left column, CopyDog's order: identity, account value, 持倉 (leverage,
- * bias), 概覽, 分組, 最佳與最差, 最常交易. CopyDog's 複製評分 row is left
- * out: Orbie has no copy score yet. */
+ * bias), 概覽 (with 複製評分), 分組, 最佳與最差, 最常交易. */
 export function ProfileCard({
   profile,
   allTimeVolume,
   trades,
   tradesComputing,
   identity = true,
+  copyScore,
 }: {
   profile: TraderProfileResponse;
   /** From the same `portfolio` as the page's PnL (all-time window). */
@@ -160,6 +161,9 @@ export function ProfileCard({
   tradesComputing: boolean;
   /** Avatar, name and actions; off on phones, whose top bar has them. */
   identity?: boolean;
+  /** CopyDog's 複製評分 (0–98); null while loading or unscored; the row is
+   * left out when not given. */
+  copyScore?: number | null;
 }) {
   const { t, format } = useI18n();
   const { copied, copy } = useCopied();
@@ -277,6 +281,11 @@ export function ProfileCard({
         <Row label={t("trader.volume")}>
           <span data-testid="volume">{allTimeVolume === null ? "—" : usd2(allTimeVolume)}</span>
         </Row>
+        {copyScore !== undefined ? (
+          <Row label={t("discover.copyScore")}>
+            <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-14" />
+          </Row>
+        ) : null}
       </Section>
 
       <GroupsSection trades={trades} computing={tradesComputing} />

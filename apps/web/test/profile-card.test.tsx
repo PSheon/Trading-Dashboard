@@ -26,6 +26,9 @@ it("does not describe an analytics outage as an unwatched trader or empty coin h
 it("keeps CopyDog's rows only: no badges, account breakdown, snapshot sources or extra overview rows", () => {
   const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={13_432_038.45} trades={undefined} tradesComputing={false} /></I18nProvider>);
   for (const gone of ["最後交易", "即時", "統一帳戶", "帳戶快照", "以永續權益計算", "可提領", "持倉數", "複製評分", "perp-equity"]) expect(html).not.toContain(gone);
+  const scored = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={undefined} tradesComputing={false} copyScore={94} /></I18nProvider>);
+  expect(scored).toContain("複製評分");
+  expect(scored).toContain(">94<");
   expect(html).toContain("$13.43M");
   expect(html).not.toContain("萬");
   expect(html).toContain('aria-expanded="false"');

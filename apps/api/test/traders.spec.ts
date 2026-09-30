@@ -17,7 +17,7 @@ function controllerWithPipeline(target: TradersController) {
     async list(raw: unknown, user: RequestUser | null) { return target.list(await query(TradersQueryDto, raw), user); },
     async profile(raw: string, user: RequestUser | null) { return target.profile(await address(raw), user); },
     async portfolio(raw: string, input: unknown) { return target.portfolio(await address(raw), await query(PortfolioQueryDto, input)); },
-    async sparklines(raw: unknown) { return target.sparklines(await query(SparklinesQueryDto, raw)); },
+    async sparklines(raw: unknown, user: RequestUser | null = null) { return target.sparklines(await query(SparklinesQueryDto, raw), user); },
     async fills(raw: string, limit?: string) { return target.fills(await address(raw), await query(FillsQueryDto, limit === undefined ? {} : { limit })); },
     async activity(raw: string) { return target.activity(await address(raw)); },
   };
@@ -29,7 +29,7 @@ import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { readFileSync } from "node:fs";
 
 import { BadGatewayException } from "@nestjs/common";
-import { actions, appSettings, fills, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
+import { actions, appSettings, discoveryTraders, fills, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
 import { sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,7 +57,8 @@ import {
   portfolioKey,
   sampleFromUserFills,
 } from "../src/traders/traders.mappers.js";
-import { FILLS_TTL_MS, TradersService } from "../src/traders/traders.service.js";
+import { FILLS_TTL_MS, POOL_SPARKLINE_MAX_AGE_MS, TradersService } from "../src/traders/traders.service.js";
+import { PageBusyError } from "../src/hyperliquid/request-budgeter.service.js";
 import { TtlCache } from "../src/traders/ttl-cache.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -690,6 +691,56 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(res[B]).toEqual([]);
     });
 
+    it("serves an uncached address from the discovery pool (month, all-time) without a Hyperliquid call", async () => {
+      const DAY = 86_400_000;
+      const at = Date.now() - 3_600_000;
+      await db.insert(discoveryTraders).values([
+        { address: A, portfolioAt: new Date(at), spanDays: "100", sparkline: [0, 5, 10], sparkline30d: [1, 2, 3, 4] },
+        // Older than a day: the pool job has stalled, so it is fetched.
+        { address: D, portfolioAt: new Date(Date.now() - POOL_SPARKLINE_MAX_AGE_MS - 1), spanDays: "10", sparkline: [1, 2], sparkline30d: [1, 2] },
+      ]);
+      const month = await controller.sparklines({ addresses: `${A},${B},${D}`, window: "month" });
+      expect(month[A]).toEqual([[at - 30 * DAY, 1], [at - 20 * DAY, 2], [at - 10 * DAY, 3], [at, 4]]);
+      expect(info.portfolio.mock.calls.map((c) => c[0]).sort()).toEqual([B, D]);
+      const all = await controller.sparklines({ addresses: A, window: "allTime" });
+      expect(all[A]).toEqual([[at - 100 * DAY, 0], [at - 50 * DAY, 5], [at, 10]]);
+      expect(info.portfolio).toHaveBeenCalledTimes(2);
+      // The pool keeps no weekly series: fetched, and then the (whole-account)
+      // cache wins over the pool for every window.
+      await controller.sparklines({ addresses: A, window: "week" });
+      expect(info.portfolio).toHaveBeenCalledTimes(3);
+      const cached = await controller.sparklines({ addresses: A, window: "month" });
+      expect(cached[A]).not.toEqual(month[A]);
+      expect(info.portfolio).toHaveBeenCalledTimes(3);
+    });
+
+    it("without a session: at most 25 addresses, and only listed addresses are fetched", async () => {
+      const many = (n: number) => Array.from({ length: n }, (_, i) => `0x${(i + 1).toString(16).padStart(40, "0")}`).join(",");
+      await expectStatus(() => controller.sparklines({ addresses: many(26) }), 400);
+      // Random addresses cost nothing: [] without a call.
+      const random = await controller.sparklines({ addresses: many(25) });
+      expect(Object.values(random)).toEqual(Array(25).fill([]));
+      expect(info.portfolio).not.toHaveBeenCalled();
+      // A leaderboard address is still fetched.
+      const listed = await controller.sparklines({ addresses: `${A},${UNKNOWN}` });
+      expect(listed[A].length).toBeGreaterThan(0);
+      expect(listed[UNKNOWN]).toEqual([]);
+      expect(info.portfolio.mock.calls.map((c) => c[0])).toEqual([A]);
+      // A signed-in caller (the favorites page) may ask for 30 of any.
+      const signedIn = await controller.sparklines({ addresses: `${many(29)},${UNKNOWN}` }, user);
+      expect(signedIn[UNKNOWN].length).toBeGreaterThan(0);
+      expect(info.portfolio).toHaveBeenCalledTimes(31);
+    });
+
+    it("leaves out an address the page budget refused (asked for again)", async () => {
+      info.portfolio.mockImplementation(async (address: string) => {
+        if (address === C) throw new PageBusyError();
+        return portfolioFixture;
+      });
+      const res = await controller.sparklines({ addresses: `${A},${C}` });
+      expect(Object.keys(res)).toEqual([A]);
+    });
+
     it("rejects more than 30 addresses, invalid ones, or none", async () => {
       const many = Array.from({ length: 31 }, (_, i) => `0x${i.toString(16).padStart(40, "0")}`).join(",");
       await expectStatus(() => controller.sparklines({ addresses: many }), 400);
@@ -1024,6 +1075,13 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       controller.pageDeadlineMs = PAGE_DEADLINE_MS;
       expect((await controller.activity(other)).sample.fills30d).toBeGreaterThan(0);
       expect(info.userTwapSliceFills.mock.calls.filter((c) => c[0] === other)).toHaveLength(1);
+    });
+
+    it("answers 503 busy, not 502, when the page budget refuses the work or it was dropped with another answer", async () => {
+      info.userFills.mockRejectedValueOnce(new PageBusyError());
+      await expectStatus(controller.activity(UNKNOWN), 503);
+      info.portfolio.mockRejectedValueOnce(new DOMException("Response already sent", "AbortError"));
+      await expectStatus(controller.portfolio(UNKNOWN, {}), 503);
     });
   });
 

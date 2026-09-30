@@ -78,11 +78,23 @@ export const TRANSFERS_MAX_PAGES = 3;
 export const SPARKLINE_MAX_POINTS = 40;
 /** A sparkline batch answers with what is ready by then (see `sparklines`). */
 export const SPARKLINE_DEADLINE_MS = 8_000;
+/** A discovery-pool sparkline older than this is fetched instead. */
+export const POOL_SPARKLINE_MAX_AGE_MS = 24 * 3_600_000;
+const DAY_MS = 86_400_000;
+type SeriesPoint = [number, number];
 /** Warmed every 10 min and kept 15, so a card never falls out of cache
  * between two warm runs (a run takes ~0.5 min at the default budget). */
 export const WARM_TTL_MS = 15 * 60_000;
 export const WARM_TOP_COUNT = 24;
 const THIRTY_DAYS_MS = 30 * 24 * 3_600_000;
+
+/** Stored sparkline values as a series ending at `endMs`, spread evenly
+ * over `spanMs`, at most `SPARKLINE_MAX_POINTS`. */
+export function poolSeries(values: number[], endMs: number, spanMs: number): SeriesPoint[] {
+  if (values.length === 1) return [[endMs, values[0]]];
+  const step = spanMs / (values.length - 1);
+  return downsample(values.map((v, i): SeriesPoint => [Math.round(endMs - spanMs + i * step), v]), SPARKLINE_MAX_POINTS);
+}
 
 /** The profile without the per-request `favorite`, so one cached copy
  * serves everyone. */
@@ -346,15 +358,36 @@ export class TradersService {
    * ready and leaves the others out: a cold page of 25 untracked traders
    * costs 500 weight, more than the budget spends inside the 20 s request
    * deadline, and waiting for all of them used to time the whole column out
-   * (the explore page's empty 走勢 column). The rest keep loading into the
-   * cache, so the client's retry for the missing ones is fast. A fetch that
+   * (the explore page's empty 走勢 column). Calls already sent keep loading
+   * into the cache, so the client's retry for the missing ones is fast;
+   * calls still queued are dropped with the answer. A fetch that
    * times out in the budget queue is left out too (asked for again); only a
    * real failure answers [].
+   *
+   * Hyperliquid is the last resort. An address not in the in-process caches
+   * is served from the discovery pool's stored sparkline when the window
+   * is one the pool keeps (month, all-time): its perp PnL series, the
+   * points spread evenly over the window (the pool keeps values, not
+   * times). An anonymous caller (`known: "listed"`) only makes us fetch
+   * addresses the site lists (leaderboard or pool); any other address
+   * answers [] without a call. Fetches count as page work: past the
+   * budget's page caps they are left out (asked for again), and once the
+   * answer is sent those still queued are dropped.
    */
-  async sparklines(addresses: string[], window: TraderWindowInput): Promise<SparklinesResponse> {
+  async sparklines(addresses: string[], window: TraderWindowInput, { fetch = "any" }: { fetch?: "any" | "listed" } = {}): Promise<SparklinesResponse> {
     const ready: SparklinesResponse = {};
+    const cold = addresses.filter((a) => this.sparklineCache.peek(a) === undefined && this.portfolioCache.peek(a) === undefined);
+    const fromPool = await this.poolSparklines(cold, window);
+    for (const [address, series] of fromPool) ready[address] = series;
+    let fetchable = addresses.filter((a) => !fromPool.has(a));
+    if (fetch === "listed") {
+      const unknown = cold.filter((a) => !fromPool.has(a));
+      const known = await this.repository.knownAddresses(unknown);
+      for (const address of unknown) if (!known.has(address)) ready[address] = [];
+      fetchable = fetchable.filter((a) => !(a in ready));
+    }
     const all = Promise.all(
-      addresses.map(async (address) => {
+      fetchable.map(async (address) => {
         try {
           // A fresh trader-page copy (60 s) is reused; either way one fetch.
           const raw = await this.sparklineCache.get(address, () =>
@@ -365,7 +398,7 @@ export class TradersService {
           // Timed out waiting for the request budget (or shutting down): still
           // loading, not failed. Left out, so the client asks again.
           const name = (error as Error | undefined)?.name;
-          if (name === "TimeoutError" || name === "AbortError") return;
+          if (name === "TimeoutError" || name === "AbortError" || name === "PageBusyError") return;
           this.logger.warn(`Sparkline for ${address} failed: ${(error as Error).message}`);
           ready[address] = [];
         }
@@ -381,6 +414,23 @@ export class TradersService {
       clearTimeout(timer);
     }
     return { ...ready };
+  }
+
+  /** Sparklines from the discovery pool for `window`, where it has them. */
+  private async poolSparklines(addresses: string[], window: TraderWindowInput): Promise<Map<string, SeriesPoint[]>> {
+    const out = new Map<string, SeriesPoint[]>();
+    if (addresses.length === 0 || (window !== "month" && window !== "allTime")) return out;
+    const rows = await this.repository.poolSparklines(addresses);
+    const now = Date.now();
+    for (const row of rows) {
+      const at = row.portfolioAt?.getTime();
+      if (at === undefined || now - at > POOL_SPARKLINE_MAX_AGE_MS) continue;
+      const values = window === "month" ? row.sparkline30d : row.sparkline;
+      const spanMs = window === "month" ? 30 * DAY_MS : Number(row.spanDays ?? 0) * DAY_MS;
+      if (values.length === 0 || !(spanMs > 0)) continue;
+      out.set(row.address, poolSeries(values, at, spanMs));
+    }
+    return out;
   }
 
   // --- home-page warming ------------------------------------------------------

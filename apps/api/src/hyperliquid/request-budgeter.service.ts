@@ -1,5 +1,6 @@
 import { AppConfig } from "../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
+import { currentRequestAnswered, currentRequestClient } from "../runtime/request-context.js";
 
 
 /**
@@ -53,6 +54,25 @@ import { Injectable, Logger } from "@nestjs/common";
  *   fit now, so a heavy page call isn't starved by a stream of small
  *   background calls: the tokens build up for it.
  *
+ * ## On-demand page work (anyone can ask for any address)
+ *
+ * Page work is a background call at a page rank up to `PAGE_RANK.fills`
+ * (trader pages, sparklines, cold trade analytics). A caller chooses what
+ * it costs, so it is bounded apart from the work the product runs on:
+ *
+ * - Page waiters don't count against the 1000-waiter queue limit, so a
+ *   flood of them can't get the watcher's live calls refused.
+ * - At most `pageQueueMax` page weight may wait at once (20 s of budget
+ *   plus a bucket) and at most half of that per client (`clientKey`, read
+ *   from the request context); beyond it `acquire` fails at once with
+ *   `PageBusyError` (the pages answer 503 busy).
+ * - While page work has spent `PAGE_SHARE` of the budget in the trailing
+ *   minute, a waiting non-page background call (fill storage behind
+ *   alerts, snapshots, sweeps) goes first. Below the share page work keeps
+ *   its priority, and with nothing else waiting it may use everything.
+ * - A page waiter made inside an HTTP request is dropped once that request
+ *   has been answered or abandoned (`currentRequestAnswered`).
+ *
  * On a real 429 the rate halves (floor 20% of the budget) and the bucket
  * goes 2 s into debt; the rate recovers by 10% of the budget per 20
  * consecutive successes. List endpoints (`userFills`, `userFillsByTime`,
@@ -84,6 +104,24 @@ export const PAGE_RANK = { profile: 0, portfolio: 1, fills: 2, warm: 3 } as cons
 export const INTERACTIVE_MAX_RANK = PAGE_RANK.portfolio;
 /** Rank of a background call that names none: behind every page rank. */
 export const UNRANKED_BASE = 1_000;
+/** Background ranks up to this are on-demand page work (see above). */
+export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
+/** Share of the budget page work may spend per minute while other
+ * background work is waiting. */
+export const PAGE_SHARE = 0.5;
+/** Seconds of the configured budget page work may have queued at once. */
+const PAGE_QUEUE_SECONDS = 20;
+/** Share of the page queue one client may hold. */
+const PAGE_CLIENT_SHARE = 0.5;
+/** Waiters other than page work (live and background) that may queue. */
+export const MAX_QUEUED = 1000;
+
+/** Page work refused because the page budget (global or the caller's) is
+ * full. Callers answer 503 busy rather than queueing it. */
+export class PageBusyError extends Error {
+  override readonly name = "PageBusyError";
+  constructor(message = "Hyperliquid page budget is full") { super(message); }
+}
 
 interface Waiter {
   /** Taken from the bucket when the call goes out. */
@@ -96,6 +134,8 @@ interface Waiter {
   /** Lower goes first within a lane; ties go in arrival order. */
   rank: number;
   seq: number;
+  /** On-demand page work (see the class comment). */
+  page: boolean;
 }
 
 @Injectable()
@@ -122,6 +162,16 @@ export class RequestBudgeterService {
   /** Live dispatches in a row while background waiters existed. */
   private liveStreak = 0;
 
+  /** Page weight dispatched in the trailing minute, and its running sum. */
+  private readonly pageWindow: { ts: number; weight: number }[] = [];
+  private pageWindowWeight = 0;
+  /** Page weight waiting, overall and per client. */
+  private pageQueued = 0;
+  private readonly pageQueuedByClient = new Map<string, number>();
+  /** Page weight that may wait at once, overall and per client. */
+  readonly pageQueueMax: number;
+  readonly pageClientQueueMax: number;
+
   private consecutiveSuccesses = 0;
   private lastRateLimitedAt: number | undefined;
 
@@ -135,6 +185,8 @@ export class RequestBudgeterService {
     this.interactiveReserve = Math.floor(this.capacity * INTERACTIVE_RESERVE_SHARE);
     this.tokens = this.capacity;
     this.lastRefillAt = Date.now();
+    this.pageQueueMax = Math.round((this.configuredBudgetPerMin * PAGE_QUEUE_SECONDS) / 60) + this.capacity;
+    this.pageClientQueueMax = Math.round(this.pageQueueMax * PAGE_CLIENT_SHARE);
   }
 
   /** Tokens per millisecond at the current rate. */
@@ -152,6 +204,15 @@ export class RequestBudgeterService {
     while (this.window.length > 0 && this.window[0].ts < cutoff) {
       this.window.shift();
     }
+    while (this.pageWindow.length > 0 && this.pageWindow[0].ts < cutoff) {
+      this.pageWindowWeight -= this.pageWindow.shift()!.weight;
+    }
+  }
+
+  /** Page work has used its share of the trailing minute. */
+  private pageOverShare(now: number): boolean {
+    this.prune(now);
+    return this.pageWindowWeight >= PAGE_SHARE * this.effectiveBudgetPerMin;
   }
 
   private record(ts: number, weight: number, request = true): void {
@@ -174,8 +235,20 @@ export class RequestBudgeterService {
     { known = weight, signal }: { known?: number; signal?: AbortSignal } = {},
   ): Promise<void> {
     if (this.stopped) return Promise.reject(new Error("Budgeter stopped"));
-    if (signal?.aborted) return Promise.reject(signal.reason);
-    if (this.queues.live.length + this.queues.background.length >= 1000) return Promise.reject(new Error("Hyperliquid queue is full"));
+    const page = priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
+    // Page work made for an HTTP request stops waiting once it is answered.
+    const answered = page ? currentRequestAnswered() : undefined;
+    const cancel = signal && answered && signal !== answered ? AbortSignal.any([signal, answered]) : (signal ?? answered);
+    if (cancel?.aborted) return Promise.reject(cancel.reason);
+    const client = page ? currentRequestClient() : undefined;
+    if (page) {
+      const mine = client === undefined ? 0 : (this.pageQueuedByClient.get(client) ?? 0);
+      // An empty queue always takes one call, however heavy.
+      if (this.pageQueued > 0 && this.pageQueued + weight > this.pageQueueMax) return Promise.reject(new PageBusyError());
+      if (mine > 0 && mine + weight > this.pageClientQueueMax) return Promise.reject(new PageBusyError("Hyperliquid page budget for this client is full"));
+    } else if (this.queues.live.length + this.queues.background.length - this.pageWaiters() >= MAX_QUEUED) {
+      return Promise.reject(new Error("Hyperliquid queue is full"));
+    }
     return new Promise((resolve, reject) => {
       const seq = this.seq++;
       const queue = this.queues[priority];
@@ -188,12 +261,17 @@ export class RequestBudgeterService {
         const index = queue.indexOf(waiter);
         if (index >= 0) queue.splice(index, 1);
         waiter.cleanup();
-        reject(signal?.reason ?? new Error("Request cancelled"));
+        reject(cancel?.reason ?? new Error("Request cancelled"));
         this.rearm();
       };
-      const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq,
-        cleanup: () => signal?.removeEventListener("abort", abort) };
-      signal?.addEventListener("abort", abort, { once: true });
+      let held = page;
+      if (page) this.holdPage(client, weight);
+      const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq, page,
+        cleanup: () => {
+          cancel?.removeEventListener("abort", abort);
+          if (held) { held = false; this.holdPage(client, -weight); }
+        } };
+      cancel?.addEventListener("abort", abort, { once: true });
       queue.push(waiter);
       // A newcomer may go before the waiter the pending timer is for.
       this.rearm();
@@ -207,6 +285,25 @@ export class RequestBudgeterService {
     for (const queue of Object.values(this.queues)) {
       for (const waiter of queue.splice(0)) { waiter.cleanup(); waiter.reject(new Error("Budgeter stopped")); }
     }
+  }
+
+  private pageWaiters(): number {
+    let n = 0;
+    for (const waiter of this.queues.background) if (waiter.page) n++;
+    return n;
+  }
+
+  private holdPage(client: string | undefined, weight: number): void {
+    this.pageQueued += weight;
+    if (client === undefined) return;
+    const next = (this.pageQueuedByClient.get(client) ?? 0) + weight;
+    if (next > 0) this.pageQueuedByClient.set(client, next);
+    else this.pageQueuedByClient.delete(client);
+  }
+
+  /** Page weight waiting, overall and for one client (tests, health). */
+  pageQueuedWeight(client?: string): number {
+    return client === undefined ? this.pageQueued : (this.pageQueuedByClient.get(client) ?? 0);
   }
 
   /** Waiters currently queued per lane (introspection and tests). */
@@ -233,14 +330,18 @@ export class RequestBudgeterService {
       const pick = this.nextLane();
       if (!pick) return;
       const lane = this.queues[pick.lane];
-      let index = 0;
-      for (let i = 1; i < lane.length; i++) {
+      const now = Date.now();
+      // Page work over its share of the minute yields to any other
+      // background waiter (fill storage, snapshots, sweeps).
+      const skipPage = pick.lane === "background" && lane.some((w) => !w.page) && lane.some((w) => w.page) && this.pageOverShare(now);
+      let index = -1;
+      for (let i = 0; i < lane.length; i++) {
         const a = lane[i];
+        if (skipPage && a.page) continue;
         const b = lane[index];
-        if (a.rank < b.rank || (a.rank === b.rank && a.seq < b.seq)) index = i;
+        if (index < 0 || a.rank < b.rank || (a.rank === b.rank && a.seq < b.seq)) index = i;
       }
       const next = lane[index];
-      const now = Date.now();
       this.refill(now);
       // Background leaves the reserve to live (and, below the interactive
       // ranks, a further share to page loads), unless it is its guaranteed
@@ -266,6 +367,10 @@ export class RequestBudgeterService {
       this.tokens -= next.weight;
       this.liveStreak = pick.lane === "live" && this.queues.background.length > 0 ? this.liveStreak + 1 : 0;
       this.record(now, next.weight);
+      if (next.page) {
+        this.pageWindow.push({ ts: now, weight: next.weight });
+        this.pageWindowWeight += next.weight;
+      }
       next.cleanup();
       next.resolve();
     }

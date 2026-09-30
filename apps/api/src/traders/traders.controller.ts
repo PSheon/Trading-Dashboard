@@ -2,7 +2,7 @@ import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { TradersQueryDto, SparklinesQueryDto, PortfolioQueryDto, FillsQueryDto } from "./dto/trader-query.dto.js";
 
-import { BadGatewayException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
 import {
   type PortfolioResponse,
   type SparklinesResponse,
@@ -29,6 +29,17 @@ export const PAGE_DEADLINE_MS = 12_000;
 /** Retry-After of a busy answer. The work it was waiting on continues, so
  * a retry this much later usually finds it cached. */
 export const BUSY_RETRY_AFTER_MS = 5_000;
+/** Addresses per sparkline request without a session (one explore page);
+ * a signed-in caller may ask for 30 (`SparklinesQueryDto`). */
+export const ANONYMOUS_SPARKLINE_MAX = 25;
+
+/** Errors that mean "not now" rather than "Hyperliquid failed": the page
+ * budget is full, or the work was dropped because a request sharing it was
+ * answered or abandoned. */
+export function isBusyError(error: unknown): boolean {
+  const name = (error as Error | undefined)?.name;
+  return name === "PageBusyError" || name === "AbortError" || name === "TimeoutError";
+}
 
 /**
  * Discovery (Stage 2 §4). Public: anyone can browse the leaderboard and any
@@ -57,10 +68,14 @@ export class TradersController {
   /** Declared before `:address` so "sparklines" isn't taken for an address. */
   @ApiDoc("Sparklines")
   @Get("sparklines")
-  sparklines(@Query() query: SparklinesQueryDto): Promise<SparklinesResponse> {
+  sparklines(@Query() query: SparklinesQueryDto, @CurrentUser() user: RequestUser | null = null): Promise<SparklinesResponse> {
     const { addresses, window } = query;
     const unique = [...new Set(addresses)];
-    return this.traders.sparklines(unique, window);
+    const anonymous = userIdOf(user) === null;
+    if (anonymous && unique.length > ANONYMOUS_SPARKLINE_MAX) {
+      throw new BadRequestException(`At most ${ANONYMOUS_SPARKLINE_MAX} addresses without signing in`);
+    }
+    return this.traders.sparklines(unique, window, { fetch: anonymous ? "listed" : "any" });
   }
 
   @ApiDoc("Profile")
@@ -122,9 +137,10 @@ export class TradersController {
 
   /**
    * A Hyperliquid failure is a 502, not a 500. An answer that isn't ready
-   * within `pageDeadlineMs` (the request budget is backed up) is a 503 busy
-   * with Retry-After; the Hyperliquid work carries on into the caches, so
-   * the retry is served from them rather than starting over.
+   * within `pageDeadlineMs` (the request budget is backed up), or whose
+   * work the budget refused (`PageBusyError`), is a 503 busy with
+   * Retry-After. Calls already sent carry on into the caches, so the retry
+   * starts from them; calls still queued are dropped with the answer.
    */
   private async upstream<T>(promise: Promise<T>, address: string): Promise<T> {
     // It may settle after we have answered; that is not an unhandled error.
@@ -140,6 +156,7 @@ export class TradersController {
         this.logger.warn(`Trader ${address}: not ready in ${this.pageDeadlineMs} ms, answered 503 busy`);
       }
       if (error instanceof HttpException) throw error;
+      if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
       this.logger.error(`Trader ${address}: ${(error as Error).message}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {

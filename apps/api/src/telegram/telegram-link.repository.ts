@@ -5,6 +5,7 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 
+/** Telegram persistence; transaction-scoped methods must share the service's UnitOfWork. */
 @Injectable()
 export class TelegramLinkRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
@@ -60,6 +61,7 @@ export class TelegramLinkRepository {
     return row;
   }
 
+  /** Acquire before counting/issuing tokens to serialize per-user rate limits. */
   async lockUser(tx: DbTransaction, userId: number) {
     // Serializes one user's requests, so the count below can't be raced.
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -78,6 +80,7 @@ export class TelegramLinkRepository {
     return n;
   }
 
+  /** Invalidate older unused links and insert the new hash after locking the user. */
   async replaceToken(tx: DbTransaction, userId: number, tokenHash: string, now: Date, expiresAt: Date, retainedSince: Date) {
     // Only the newest link works: older unused ones expire now.
     await tx
@@ -103,6 +106,7 @@ export class TelegramLinkRepository {
       .values({ tokenHash, userId, createdAt: now, expiresAt });
   }
 
+  /** Lock the token before checking expiry/use and linking; undefined means unknown hash. */
   async lockToken(tx: DbTransaction, tokenHash: string) {
     const [row] = await tx
       .select()
@@ -126,6 +130,10 @@ export class TelegramLinkRepository {
     return same !== undefined;
   }
 
+  /**
+   * Consume the locked, validated token and replace chat ownership atomically.
+   * @returns Whether this chat was moved from a different user.
+   */
   async linkChat(tx: DbTransaction, tokenHash: string, userId: number, chatId: string, username: string | null, now: Date) {
     await tx.update(telegramLinkTokens).set({ usedAt: now }).where(eq(telegramLinkTokens.tokenHash, tokenHash));
 

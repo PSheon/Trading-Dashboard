@@ -1,3 +1,4 @@
+import { setupJsonSerialization } from "../src/bootstrap/http.setup.js";
 import { AppConfig } from "../src/config/app-config.js";
 import { testConfig } from "./config-test-utils.js";
 import { LeadersRepository } from "../src/api/leaders/leaders.repository.js";
@@ -67,10 +68,7 @@ export async function createAuthedApp(opts: {
     .compile();
 
   const app = moduleRef.createNestApplication({ logger: false });
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .set("json replacer", (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value));
+  setupJsonSerialization(app);
   // Keep one loopback listener for the suite. Letting Supertest start/close
   // the server per request churns ephemeral ports and can race socket reuse
   // when many HTTP integration requests run back-to-back.

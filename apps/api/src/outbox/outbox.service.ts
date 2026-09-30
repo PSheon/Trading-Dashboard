@@ -6,6 +6,7 @@ import { RulesService } from "../rules/rules.service.js";
 import { NotifyService } from "../notify/notify.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 
+/** Recover interrupted action evaluation and drain durable notification deliveries. */
 @Injectable()
 export class OutboxService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OutboxService.name);
@@ -16,6 +17,7 @@ export class OutboxService implements OnApplicationBootstrap {
 
   onApplicationBootstrap() { if (this.config.value.app.nodeEnv !== "test") void this.drain(); }
 
+  /** Coalesce local drains; repository claims coordinate competing processes. */
   @Interval(5000)
   async drain(): Promise<void> {
     if (this.jobs.stopping) return;

@@ -157,3 +157,7 @@ The exporter uses native controller/DTO metadata with inert providers; it does n
 connect to a database or start jobs. Commit `docs/openapi.json` after changing
 request documentation or response contracts. See `docs/http-contract.md` for
 conditional validation rules and OpenAPI 3.1 tuple handling.
+
+## Backend conventions
+
+See [backend conventions](../../docs/backend-conventions.md) for JSDoc, bootstrap ordering, module/repository ownership and validation requirements. Apply these to new and touched code.

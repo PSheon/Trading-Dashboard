@@ -169,3 +169,13 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Ruling: fix the concrete race in this batch using the existing monotonically increasing attempts value as a claim generation. Failure update matches action id, processing status and claimed attempts. Cost: callers must carry the attempt generation; no schema migration, lease heartbeat or exactly-once delivery claim is added.
 - Stale-claim regression observed RED: old failure changed the second claim to pending. After generation matching it is GREEN; the same test proves the current owner can still record failure.
 - Final verification after the fix: isolated PostgreSQL 60 files / 690 tests; API typecheck/lint/build; OpenAPI freshness; compiled bootstrap DI, DTO rejection, readiness 200/503 and Swagger equality all passed. No frontend/shared/schema/dependency changes. Tests stub external Telegram; no real messages or trades sent.
+
+
+## Twelfth batch — backend conventions and bootstrap setup (base bb93fbf)
+
+- User explicitly added project style, JSDoc and bootstrap to the acceptance scope. Re-read actual DonutMe main.ts: named setup responsibilities and explanatory JSDoc are the transferable conventions; do not import its unrelated infrastructure.
+- Extracted setupHttp/setupShutdown while preserving startup order, signal registration, deadline/unref behavior, trusted proxies, security and request middleware. Shared bigint serializer with HTTP test setup. main remains the executable composition root; no test factory registers process handlers.
+- Added responsibility/precondition/return-semantics JSDoc to recently extracted repositories and documented conventions with a link from API README. Ruling: incremental touched-code adoption, no repository-wide format churn or comment-count gate. Cost: remaining legacy style inconsistencies are explicit follow-up work.
+- Behavior-preserving extraction uses existing full API and compiled bootstrap tests instead of new source-text tests for function/file layout.
+- Validation passed: API typecheck/lint/build, OpenAPI freshness, 60 test files / 690 tests, compiled bootstrap readiness 200/503, DTO rejection and runtime/offline Swagger equality. Disposable database cluster removed.
+- Fresh review (bootstrap_style_review, gpt-6-astra) found no concrete regression in startup order, shutdown, HTTP settings or JSDoc semantics. No feature parity or whole-repository style completion claim.

@@ -212,3 +212,11 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - OutboxRepository 負責到期查詢、條件式領取、action 讀取與失敗回寫；重試次數、等待時間、排程與停止流程留在 service。
 - 修正既有租約競態：失敗回寫須匹配領取時的 attempts，逾時 worker 無法覆蓋接手 worker 的狀態。每次領取原子增加 attempts，無須 schema migration；不宣稱提供外部通知 exactly-once 保證。
 - NotifyService 與 RulesService 仍有直接 SQL，後續須一起檢查通知投遞與規則評估的交易邊界。Telegram 跨 token 同 chat 競爭仍依現有唯一約束處理，這批未重新設計其併發政策。
+
+
+## 2026-09-30：JSDoc 與 bootstrap 風格
+
+- 實際對照 DonutMe `src/main.ts` 的命名 setup 函式與責任說明；Trading-Dashboard 保留 Express／Drizzle。
+- main 僅協調啟動順序；HTTP 與 process shutdown 分別抽到 bootstrap setup。維持驗證 env 在 Nest 建立前、stop listener 在 Nest hooks 前、security/request context 在 listen 前與 Swagger 環境限制。
+- 最近新增的 AdminUsers、Auth、TelegramLink、Outbox repositories 補上交易／鎖定前提、缺值語意與 claim generation 的 JSDoc；不是用註解數量作為品質門檻。
+- [Backend conventions](backend-conventions.md) 定義後續修改的風格與驗證要求；未宣稱全專案格式已統一或已由 formatter 強制。

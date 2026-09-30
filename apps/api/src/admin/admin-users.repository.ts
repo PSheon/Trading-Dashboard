@@ -37,6 +37,7 @@ function toAdminUser(row: AdminUserRow): AdminUser {
   return { ...rest, favorites: Number(row.favorites), disabled: disabledAt !== null };
 }
 
+/** Admin projections and writes; the service owns policy and the transaction. */
 @Injectable()
 export class AdminUsersRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
@@ -70,6 +71,7 @@ export class AdminUsersRepository {
     return { total, items: rows.map(toAdminUser) };
   }
 
+  /** Lock in id order before the target row to serialize last-admin decisions. */
   lockEnabledAdmins(tx: DbTransaction) {
     return tx.select({ id: users.id }).from(users)
       .where(and(eq(users.role, "admin"), isNull(users.disabledAt)))
@@ -81,6 +83,7 @@ export class AdminUsersRepository {
     return row;
   }
 
+  /** Apply a validated patch after lockUser; use the same tx for its audit record. */
   async patch(tx: DbTransaction, id: number, request: PatchAdminUserRequest) {
     const set: Partial<typeof users.$inferInsert> = {};
     if (request.role !== undefined) set.role = request.role;
@@ -91,6 +94,7 @@ export class AdminUsersRepository {
     return toAdminUser(row);
   }
 
+  /** Persist the audit event in the caller's user-update transaction. */
   recordUpdate(tx: DbTransaction, actor: RequestUser | null, id: number,
     before: Pick<AdminUser, "role" | "disabled">, after: Pick<AdminUser, "role" | "disabled">) {
     return recordAdminAudit(tx, actor, "user.update", String(id), before, after);

@@ -4,7 +4,7 @@ import type { WalletHistoryResponse, WalletResponse } from "@trading-dashboard/s
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
-import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from "../traders/traders.controller.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "../traders/traders.controller.js";
 import { WalletService } from "./wallet.service.js";
 
 /**
@@ -47,6 +47,8 @@ export class WalletController {
       return await Promise.race([promise, deadline]);
     } catch (error) {
       if (error instanceof HttpException) throw error;
+      // The page budget refused or dropped the work: not now, not failed.
+      if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
       this.logger.error(`Wallet read failed: ${(error as Error).message}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {

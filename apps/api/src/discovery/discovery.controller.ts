@@ -18,7 +18,7 @@ import { Public } from "../common/auth/public.decorator.js";
 import { ApiDoc, ResponseMessage, SkipTransform } from "../common/decorators/http.decorator.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
-import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from "../traders/traders.controller.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "../traders/traders.controller.js";
 import { DiscoveryService } from "./discovery.service.js";
 import { AvatarQueryDto, BoardQueryDto, CoinParamsDto, KolImportDto, KolInputDto, KolPatchDto, TraderCardsQueryDto, TraderSearchQueryDto } from "./dto/discovery.dto.js";
 import { AVATAR_MAX_AGE_S, avatarVersion } from "./kol-avatar.js";
@@ -93,6 +93,8 @@ export class CopyScoreController {
       return await Promise.race([work, deadline]);
     } catch (error) {
       if (error instanceof HttpException) throw error;
+      // The page budget refused or dropped the work: not now, not failed.
+      if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
       this.logger.error(`Copy score ${params.address}: ${(error as Error).message}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {

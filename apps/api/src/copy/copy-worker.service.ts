@@ -13,8 +13,8 @@ const FUNDING_CHECK_MS = 60_000;
  * Drives paper copy trading: every COPY_WORKER_INTERVAL_MS (default 2 s)
  * the signal consumer drains the execution outbox, the executor fills
  * approved orders, stopping strategies settle, and once a minute hourly
- * funding is checked. One tick at a time. Not started under NODE_ENV=test
- * or COPY_TRADING_MODE=disabled. On restart the consumer resumes from its
+ * funding is checked. One tick at a time. Not started under NODE_ENV=test,
+ * APP_ROLE=api or COPY_TRADING_MODE=disabled. On restart the consumer resumes from its
  * checkpoint (pending outbox rows) and the executor from orders left
  * `risk_approved` or `submitting`.
  */
@@ -33,7 +33,8 @@ export class CopyWorkerService implements OnApplicationBootstrap, OnModuleDestro
   ) {}
 
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === "test" || this.config.value.copy.mode === "disabled") return;
+    // APP_ROLE=api serves HTTP only; the worker process owns this loop.
+    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api" || this.config.value.copy.mode === "disabled") return;
     this.timer = setInterval(() => void this.tick(), this.config.value.copy.workerIntervalMs);
     this.timer.unref?.();
     this.logger.log(`Paper copy worker every ${this.config.value.copy.workerIntervalMs} ms`);

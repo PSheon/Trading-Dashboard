@@ -39,6 +39,9 @@ export const ko: Messages = {
     description: "Hyperliquid에서 가장 수익이 높은 트레이더를 찾아보세요: 포지션, 체결, 자산 곡선, 실시간 동작과 알림.",
   },
   nav: {
+    closeMenu: "메뉴 닫기",
+    openMenu: "메뉴 열기",
+    leaderboard: "리더보드",
     skip: "본문으로 건너뛰기",
     home: "홈",
     explore: "탐색",
@@ -50,7 +53,7 @@ export const ko: Messages = {
     primary: "기본 메뉴",
   },
   topbar: {
-    search: "이름, X 핸들 또는 주소 검색…",
+    search: "Hyperliquid 트레이더 주소 검색...",
     searchShort: "트레이더 찾기…",
     searchLabel: "이름, X 핸들 또는 주소 검색",
     invalidAddress: "전체 0x 주소를 입력하세요(42자)",
@@ -837,6 +840,10 @@ export const ko: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "저장한 트레이더가 움직이는 즉시 알려드립니다.",
+    phoneAlertsTitle: "알림을 설정하려면 로그인하세요",
+    phoneSavedBody: "관심 트레이더를 지켜보고, 거래하는 순간 알림을 받으세요.",
+    phoneSavedTitle: "로그인하고 트레이더를 저장하세요",
     title: "저장",
     signInTitle: "저장한 트레이더를 보려면 로그인하세요",
     signInBody: "관심 트레이더를 저장하고 실시간으로 성과를 추적하세요",

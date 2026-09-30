@@ -39,6 +39,9 @@ export const pt: Messages = {
     description: "Encontre os traders mais lucrativos da Hyperliquid: posições, execuções, curvas de patrimônio, ações ao vivo e alertas.",
   },
   nav: {
+    closeMenu: "Fechar menu",
+    openMenu: "Abrir menu",
+    leaderboard: "Ranking",
     skip: "Pular para o conteúdo principal",
     home: "Início",
     explore: "Explorar",
@@ -50,7 +53,7 @@ export const pt: Messages = {
     primary: "Navegação principal",
   },
   topbar: {
-    search: "Buscar por nome, usuário do X ou endereço…",
+    search: "Buscar endereço de trader na Hyperliquid...",
     searchShort: "Encontrar trader…",
     searchLabel: "Buscar por nome, usuário do X ou endereço",
     invalidAddress: "Informe um endereço 0x completo (42 caracteres)",
@@ -837,6 +840,10 @@ export const pt: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "Avisamos no momento em que seus traders salvos operarem.",
+    phoneAlertsTitle: "Entre para criar alertas",
+    phoneSavedBody: "Acompanhe traders e receba um alerta assim que eles operarem.",
+    phoneSavedTitle: "Entre para salvar traders",
     title: "Salvos",
     signInTitle: "Entre para ver seus traders salvos",
     signInBody: "Salve seus traders favoritos e acompanhe o desempenho deles em tempo real",

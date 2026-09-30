@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ChevronLeft, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
@@ -59,7 +59,11 @@ function useDebounced(value: string, ms: number): string {
  * the search takes the whole screen while open (back arrow, field, then
  * name + full address rows), as CopyDog's app-style search does.
  */
-export function AddressSearch() {
+export function AddressSearch({ compact = false, buttonClassName }: {
+  /** Phones: only CopyDog's search icon until it's tapped. */
+  compact?: boolean;
+  buttonClassName?: string;
+} = {}) {
   const t = useT();
   const router = useRouter();
   const [value, setValue] = useState("");
@@ -149,6 +153,19 @@ export function AddressSearch() {
     inputRef.current?.blur();
   };
 
+  if (compact && !overlay) {
+    return (
+      <button
+        type="button"
+        aria-label={t("topbar.searchLabel")}
+        onClick={() => setOpen(true)}
+        className={cn("flex size-10 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring", buttonClassName)}
+      >
+        <Search className="size-5" />
+      </button>
+    );
+  }
+
   return (
     <form
       ref={rootRef}
@@ -164,7 +181,7 @@ export function AddressSearch() {
           onClick={close}
           className="flex size-10 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <ArrowLeft className="size-5" />
+          <ChevronLeft className="size-5" />
         </button>
       ) : null}
       <div className="relative min-w-0 flex-1">
@@ -189,6 +206,7 @@ export function AddressSearch() {
           if (invalid) setInvalid(false);
         }}
         onFocus={() => setOpen(true)}
+        autoFocus={compact}
         onKeyDown={onKeyDown}
         placeholder={wide === false ? t("topbar.searchShort") : t("topbar.search")}
         aria-label={t("topbar.searchLabel")}
@@ -258,12 +276,12 @@ export function AddressSearch() {
                       e.preventDefault();
                       go(row.address);
                     }}
-                    className={cn("cursor-pointer rounded-xl px-2 py-2.5", i === active && "bg-raised/60")}
+                    className="cursor-pointer rounded-xl px-2 py-2.5 active:bg-raised/60"
                   >
                     <p className="truncate text-[0.9375rem] font-semibold">
-                      {direct ? t("topbar.searchOpenAddress") : name ? <Highlighted text={name} query={trimmed} /> : truncateAddress(row.address)}
+                      {direct ? t("topbar.searchOpenAddress") : name ?? truncateAddress(row.address)}
                     </p>
-                    <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{row.address}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.address}</p>
                   </div>
                 );
               }
@@ -286,7 +304,7 @@ export function AddressSearch() {
                     <p className="truncate text-sm font-semibold">
                       {direct ? t("topbar.searchOpenAddress") : name ? <Highlighted text={name} query={trimmed} /> : truncateAddress(row.address)}
                     </p>
-                    <p className="truncate font-mono text-[0.6875rem] text-muted-foreground">{truncateAddress(row.address)}</p>
+                    <p className="truncate text-[0.6875rem] text-muted-foreground">{truncateAddress(row.address)}</p>
                   </div>
                   {!direct && row.pnl !== null ? (
                     <div className="shrink-0 text-right">

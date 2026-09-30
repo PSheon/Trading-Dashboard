@@ -39,6 +39,9 @@ export const zhCN: Messages = {
     description: "发现 Hyperliquid 最赚钱的交易员：持仓、成交、权益走势、实时动作与提醒。",
   },
   nav: {
+    closeMenu: "关闭菜单",
+    openMenu: "打开菜单",
+    leaderboard: "排行榜",
     skip: "跳至主要内容",
     home: "首页",
     explore: "探索",
@@ -50,7 +53,7 @@ export const zhCN: Messages = {
     primary: "主导航",
   },
   topbar: {
-    search: "搜索名称、X 账号或地址…",
+    search: "搜索 Hyperliquid 交易员地址...",
     searchShort: "搜索交易员…",
     searchLabel: "搜索名称、X 账号或地址",
     invalidAddress: "请输入完整的 0x 地址（42 个字符）",
@@ -837,6 +840,10 @@ export const zhCN: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "收藏的交易者一有动作就立即通知你。",
+    phoneAlertsTitle: "登录以设置提醒",
+    phoneSavedBody: "关注交易者，他们一出手就通知你。",
+    phoneSavedTitle: "登录以收藏交易者",
     title: "收藏",
     signInTitle: "登录以查看您的收藏",
     signInBody: "保存您喜欢的交易员，实时追踪其表现",

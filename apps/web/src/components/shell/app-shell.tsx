@@ -4,17 +4,35 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "cn";
 
-import { Lockup, OrbieMark } from "@/components/brand/logo";
+import { Lockup } from "@/components/brand/logo";
 import { useT } from "@/i18n/provider";
 import { useIsAdmin } from "@/lib/auth";
 import { APP_NAME } from "@/lib/config";
 import { AnnouncementBanner } from "./announcement-banner";
 import { AccountControls } from "./account-controls";
 import { AddressSearch } from "./address-search";
+import { PhoneMenu } from "./phone-menu";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
 import { adminNav, isActive, mobileNav, primaryNav, type NavItem } from "./nav";
 
 const BARE_PAGES = new Set(["/privacy", "/terms", "/delete-account"]);
+
+/** Every route the app serves; anything else is the 404 page. */
+const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/methodology", "/admin", "/about", "/help", "/dev"];
+const isAppRoute = (pathname: string) => pathname === "/" || ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+
+/**
+ * CopyDog's phone chrome differs per page:
+ * - home: the wordmark and a search icon (登入 sits beside the title);
+ * - about, help and the 404 page (its marketing pages): wordmark, search
+ *   and a menu, with no tab bar;
+ * - every other page: no top bar at all, only the page's own title.
+ */
+function phoneChrome(pathname: string): "home" | "marketing" | "none" {
+  if (pathname === "/") return "home";
+  if (pathname === "/about" || pathname === "/help" || !isAppRoute(pathname)) return "marketing";
+  return "none";
+}
 
 /**
  * CopyDog-style frame: full-width top bar (lockup, wide address search,
@@ -32,7 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // only the page and its breadcrumb.
   const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
   // CopyDog's phone portfolio has its own title bar (投資組合, bell, gear).
-  const ownPhoneHeader = traderPage || barePhonePage || pathname === "/portfolio";
+  const chrome = phoneChrome(pathname);
 
   // CopyDog's legal pages are plain documents: no top bar, rail or tabs.
   if (BARE_PAGES.has(pathname)) {
@@ -56,21 +74,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {t("nav.skip")}
       </a>
 
-      <header
-        className={cn(
-          ownPhoneHeader ? "hidden md:flex" : "flex",
-          "fixed inset-x-0 top-0 z-40 h-16 items-center gap-3 border-b border-border bg-background/95 px-3 md:h-[72px] md:bg-background/90 md:backdrop-blur-xl md:gap-6 md:px-5",
-        )}
-      >
+      <header className="fixed inset-x-0 top-0 z-40 hidden h-[72px] items-center gap-6 border-b border-border bg-background/90 px-5 backdrop-blur-xl md:flex">
         <Link href="/" className="flex shrink-0 items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Lockup className="hidden sm:inline-flex" />
-          <OrbieMark size={32} className="sm:hidden" title={APP_NAME} />
+          <Lockup />
         </Link>
         <div className="flex min-w-0 flex-1 justify-center">
           <AddressSearch />
         </div>
         <AccountControls />
       </header>
+      {chrome !== "none" ? (
+        <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center gap-2 bg-background px-5 md:hidden">
+          <Link href="/" aria-label={APP_NAME} className="mr-auto flex shrink-0 items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Lockup />
+          </Link>
+          <AddressSearch compact buttonClassName={chrome === "marketing" ? "bg-raised" : "-mr-2"} />
+          {chrome === "marketing" ? <PhoneMenu /> : null}
+        </header>
+      ) : null}
 
       <nav
         aria-label={t("nav.primary")}
@@ -92,9 +113,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ? "pt-0 pb-[calc(84px+env(safe-area-inset-bottom))]"
             : barePhonePage
               ? "pt-4 pb-10"
-              : ownPhoneHeader
-              ? "pt-0 pb-[calc(68px+env(safe-area-inset-bottom))]"
-              : "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]",
+              : chrome === "marketing"
+                ? "pt-16 pb-10"
+                : chrome === "home"
+                  ? "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]"
+                  : "pt-0 pb-[calc(68px+env(safe-area-inset-bottom))]",
           "md:pt-[72px] md:pb-0 md:pl-[76px]",
         )}
       >
@@ -108,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label={t("nav.primary")}
         className={cn(
           "fixed inset-x-0 bottom-0 z-30 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
-          traderPage || barePhonePage ? "hidden" : "grid",
+          traderPage || barePhonePage || chrome === "marketing" ? "hidden" : "grid",
         )}
       >
         {mobileNav.map((item) => (

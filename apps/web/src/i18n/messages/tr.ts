@@ -39,6 +39,9 @@ export const tr: Messages = {
     description: "Hyperliquid'in en kârlı trader'larını bulun: pozisyonlar, gerçekleşmeler, özsermaye eğrileri, canlı hareketler ve uyarılar.",
   },
   nav: {
+    closeMenu: "Menüyü kapat",
+    openMenu: "Menüyü aç",
+    leaderboard: "Lider Tablosu",
     skip: "Ana içeriğe geç",
     home: "Ana Sayfa",
     explore: "Keşfet",
@@ -50,7 +53,7 @@ export const tr: Messages = {
     primary: "Ana gezinme",
   },
   topbar: {
-    search: "İsim, X kullanıcı adı veya adres ara…",
+    search: "Hyperliquid trader adresi ara...",
     searchShort: "Trader bul…",
     searchLabel: "İsim, X kullanıcı adı veya adres ara",
     invalidAddress: "Tam bir 0x adresi girin (42 karakter)",
@@ -837,6 +840,10 @@ export const tr: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "Kaydettiğiniz yatırımcılar işlem yaptığı anda haber verelim.",
+    phoneAlertsTitle: "Uyarı kurmak için giriş yapın",
+    phoneSavedBody: "Trader’ları takip et, işlem yaptıkları anda haberdar ol.",
+    phoneSavedTitle: "Trader kaydetmek için giriş yap",
     title: "Kaydedilenler",
     signInTitle: "Kaydettiğiniz trader'ları görmek için giriş yapın",
     signInBody: "Favori trader'larınızı kaydedin ve performanslarını gerçek zamanlı takip edin",

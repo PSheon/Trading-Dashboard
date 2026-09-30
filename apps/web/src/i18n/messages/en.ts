@@ -323,6 +323,9 @@ export const en: Messages = {
     description: "Find Hyperliquid's most profitable traders: positions, fills, equity curves, live actions and alerts.",
   },
   nav: {
+    closeMenu: "Close menu",
+    openMenu: "Open menu",
+    leaderboard: "Leaderboard",
     skip: "Skip to main content",
     home: "Home",
     explore: "Explore",
@@ -334,7 +337,7 @@ export const en: Messages = {
     primary: "Main navigation",
   },
   topbar: {
-    search: "Search name, X handle or address…",
+    search: "Search Hyperliquid trader address...",
     searchShort: "Find a trader…",
     searchLabel: "Search name, X handle or address",
     invalidAddress: "Enter a full 0x address (42 characters)",
@@ -1121,6 +1124,10 @@ export const en: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "Get notified the moment your saved traders make a move.",
+    phoneAlertsTitle: "Sign in to set alerts",
+    phoneSavedBody: "Keep an eye on traders and get an alert the moment they trade.",
+    phoneSavedTitle: "Sign in to save traders",
     title: "Favorites",
     signInTitle: "Sign in to view your favorites",
     signInBody: "Save your favorite traders and track their performance in real time",

@@ -53,7 +53,7 @@ function LocaleMenu() {
   );
 }
 
-function AuthButton() {
+export function AuthButton() {
   const { t } = useI18n();
   const { status, mode, login, logout, identity } = useAuth();
   const { data: me } = useMe();

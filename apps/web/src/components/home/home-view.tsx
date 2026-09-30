@@ -9,6 +9,7 @@ import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, Skeleton } from "@/components/page";
+import { AuthButton } from "@/components/shell/account-controls";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -57,9 +58,11 @@ export function HomeView() {
 
   return (
     <div className={cn(styles.home, "flex flex-col gap-8 md:gap-9")}>
-      {/* Phones: CopyDog's compact two-line title (登入 is in Orbie's top bar,
-          which phones keep; CopyDog puts it here instead). */}
-      <h1 className={cn(styles.mobileTitle, "text-[2rem] leading-[1.15] font-black tracking-tight whitespace-pre-line md:hidden")}>{t("home.heroTitleMobile")}</h1>
+      {/* Phones: CopyDog's compact two-line title with 登入 beside it. */}
+      <div className={cn(styles.mobileTitle, "flex items-center justify-between gap-3 md:hidden")}>
+        <h1 className="text-[1.75rem] leading-[1.2] font-extrabold tracking-tight whitespace-pre-line">{t("home.heroTitleMobile")}</h1>
+        <AuthButton />
+      </div>
 
       <section className={cn(styles.hero, "hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]")}>
         <svg className={styles.orbit} viewBox="0 0 220 220" fill="none" aria-hidden="true">

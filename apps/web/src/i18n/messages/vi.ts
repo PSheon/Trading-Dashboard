@@ -39,6 +39,9 @@ export const vi: Messages = {
     description: "Tìm những trader lãi nhiều nhất trên Hyperliquid: vị thế, khớp lệnh, đường vốn, hành động trực tiếp và cảnh báo.",
   },
   nav: {
+    closeMenu: "Đóng menu",
+    openMenu: "Mở menu",
+    leaderboard: "Bảng xếp hạng",
     skip: "Chuyển đến nội dung chính",
     home: "Trang chủ",
     explore: "Khám phá",
@@ -50,7 +53,7 @@ export const vi: Messages = {
     primary: "Điều hướng chính",
   },
   topbar: {
-    search: "Tìm theo tên, tài khoản X hoặc địa chỉ…",
+    search: "Tìm địa chỉ trader Hyperliquid...",
     searchShort: "Tìm trader…",
     searchLabel: "Tìm theo tên, tài khoản X hoặc địa chỉ",
     invalidAddress: "Nhập đầy đủ địa chỉ 0x (42 ký tự)",
@@ -837,6 +840,10 @@ export const vi: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "Nhận thông báo ngay khi trader bạn lưu giao dịch.",
+    phoneAlertsTitle: "Đăng nhập để đặt cảnh báo",
+    phoneSavedBody: "Theo dõi nhà giao dịch và nhận cảnh báo ngay khi họ giao dịch.",
+    phoneSavedTitle: "Đăng nhập để lưu nhà giao dịch",
     title: "Đã lưu",
     signInTitle: "Đăng nhập để xem các trader đã lưu",
     signInBody: "Lưu những trader yêu thích và theo dõi hiệu suất của họ theo thời gian thực",

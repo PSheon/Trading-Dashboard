@@ -39,6 +39,9 @@ export const ja: Messages = {
     description: "Hyperliquid で最も稼ぐトレーダーを見つけよう：ポジション、約定、資産推移、リアルタイムの動き、アラート。",
   },
   nav: {
+    closeMenu: "メニューを閉じる",
+    openMenu: "メニューを開く",
+    leaderboard: "リーダーボード",
     skip: "メインコンテンツへ移動",
     home: "ホーム",
     explore: "探索",
@@ -50,7 +53,7 @@ export const ja: Messages = {
     primary: "メインナビゲーション",
   },
   topbar: {
-    search: "名前・Xハンドル・アドレスで検索…",
+    search: "Hyperliquidのトレーダーアドレスを検索...",
     searchShort: "トレーダーを探す…",
     searchLabel: "名前・Xハンドル・アドレスで検索",
     invalidAddress: "0x から始まる完全なアドレス（42 文字）を入力してください",
@@ -837,6 +840,10 @@ export const ja: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "保存したトレーダーが動いた瞬間に通知します。",
+    phoneAlertsTitle: "ログインしてアラートを設定",
+    phoneSavedBody: "気になるトレーダーを追跡し、取引した瞬間に通知を受け取れます。",
+    phoneSavedTitle: "ログインしてトレーダーを保存",
     title: "保存済み",
     signInTitle: "保存したトレーダーを見るにはログインしてください",
     signInBody: "お気に入りのトレーダーを保存し、パフォーマンスをリアルタイムで追跡できます",

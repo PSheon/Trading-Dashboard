@@ -326,6 +326,9 @@ export const zhTW = {
     description: "探索 Hyperliquid 最會賺的交易員：持倉、成交、權益走勢、即時動作與警報。",
   },
   nav: {
+    closeMenu: "關閉選單",
+    openMenu: "開啟選單",
+    leaderboard: "排行榜",
     skip: "跳至主要內容",
     home: "首頁",
     explore: "探索",
@@ -337,7 +340,7 @@ export const zhTW = {
     primary: "主要導覽",
   },
   topbar: {
-    search: "搜尋名稱、X 帳號或地址…",
+    search: "搜尋 Hyperliquid 交易員地址...",
     searchShort: "搜尋交易者…",
     searchLabel: "搜尋名稱、X 帳號或地址",
     invalidAddress: "請輸入完整的 0x 地址（42 個字元）",
@@ -1125,6 +1128,10 @@ export const zhTW = {
     },
   },
   favorites: {
+    phoneAlertsBody: "收藏的交易者一有動作就立即通知你。",
+    phoneAlertsTitle: "登入以設定提醒",
+    phoneSavedBody: "關注交易者，他們一出手就通知你。",
+    phoneSavedTitle: "登入以收藏交易者",
     title: "收藏",
     signInTitle: "登入以檢視您的收藏",
     signInBody: "儲存您喜愛的交易員，即時追蹤其表現",

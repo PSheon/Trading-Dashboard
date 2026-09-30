@@ -39,6 +39,9 @@ export const id: Messages = {
     description: "Temukan trader paling menguntungkan di Hyperliquid: posisi, eksekusi, kurva ekuitas, aksi langsung, dan peringatan.",
   },
   nav: {
+    closeMenu: "Tutup menu",
+    openMenu: "Buka menu",
+    leaderboard: "Peringkat",
     skip: "Lewati ke konten utama",
     home: "Beranda",
     explore: "Jelajahi",
@@ -50,7 +53,7 @@ export const id: Messages = {
     primary: "Navigasi utama",
   },
   topbar: {
-    search: "Cari nama, akun X, atau alamat…",
+    search: "Cari alamat trader Hyperliquid...",
     searchShort: "Cari trader…",
     searchLabel: "Cari nama, akun X, atau alamat",
     invalidAddress: "Masukkan alamat 0x lengkap (42 karakter)",
@@ -837,6 +840,10 @@ export const id: Messages = {
     },
   },
   favorites: {
+    phoneAlertsBody: "Dapatkan notifikasi begitu trader tersimpan Anda bergerak.",
+    phoneAlertsTitle: "Masuk untuk mengatur peringatan",
+    phoneSavedBody: "Pantau trader dan dapatkan notifikasi begitu mereka bertransaksi.",
+    phoneSavedTitle: "Masuk untuk menyimpan trader",
     title: "Tersimpan",
     signInTitle: "Masuk untuk melihat trader yang kamu simpan",
     signInBody: "Simpan trader favoritmu dan pantau performa mereka secara real-time",

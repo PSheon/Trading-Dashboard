@@ -387,6 +387,8 @@ export function useToggleFavorite() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.traders.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.trader.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.actions.all });
+      // Unfavoriting drops the trader from its groups (server-side cascade).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.favoriteGroups });
     },
   });
 

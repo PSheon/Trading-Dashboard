@@ -1,6 +1,57 @@
 import type { Messages } from "./index";
 
 export const en: Messages = {
+  importOps: {
+    "source": "Import source",
+    "tooLarge": "File exceeds the 100 KiB limit.",
+    "preview": "Preview impact",
+    "checking": "Checking…",
+    "confirm": "Confirm import",
+    "impact": "Import impact preview",
+    "hint": "Preview does not write data. This is an advisory snapshot; concurrent changes can alter the final result. Import validates again.",
+    "sampled": "Previewed at",
+    "total": "Input rows",
+    "unique": "Unique valid addresses",
+    "duplicates": "Duplicate rows (lowest rank wins)",
+    "new": "New address",
+    "promote": "Promote favorite to import",
+    "preserve": "Preserve existing settings",
+    "jobs": "Estimated new backfill jobs",
+    "blocked": "Invalid rows block the entire import. Nothing is partially written.",
+    "invalid": "Invalid row {row}: {reason}",
+    "rules": "Import adds a list version and does not remove omitted addresses. Existing tiers, labels and notes are retained. Favorite-sourced addresses become imported and active; other existing watch states are retained. Job count is not API request cost or completion time.",
+    "tier": "Tier",
+    "limit": "Showing up to 50 valid rows and 50 errors; totals cover the full file."
+},
+  sources: {
+    "title": "Data sources",
+    "hint": "Sets overlap; do not add these counts or treat them as live subscriptions.",
+    "limit": "Read-only stored evidence, refreshed every 30 seconds. Missing timestamps do not prove an outage. Full source lifecycle, sync history and controls remain pending.",
+    "names": {
+        "leaderboard": "Official leaderboard addresses",
+        "discovery": "Discovery pool addresses",
+        "kol": "KOL registry addresses",
+        "watched": "Watch-enabled addresses",
+        "favorites": "Favorited addresses",
+        "imports": "Import versions"
+    },
+    "meanings": {
+        "leaderboard": "Stored leaderboard rows, not live subscriptions.",
+        "discovery": "Current inPool addresses; updates may be incomplete.",
+        "kol": "Identity and social labels; not proof of complete data or verified identity.",
+        "watched": "Watch configuration is active; check System for worker connectivity.",
+        "favorites": "Distinct addresses with at least one favorite, not total favorite relationships.",
+        "imports": "Historical list versions, not current source membership."
+    },
+    "times": {
+        "leaderboard": "Newest stored leaderboard timestamp",
+        "discovery": "Newest portfolio update (not whole-pool freshness)",
+        "kol": "Latest registry edit",
+        "watched": "Per-address live connection time",
+        "favorites": "Latest favorite creation",
+        "imports": "Latest version import"
+    }
+},
   adminTrader: {
     "title": "Trader diagnostics",
     "hint": "Read stored evidence, refreshed every 30 seconds. Inspecting does not trigger sync or backfill.",

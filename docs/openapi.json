@@ -1,6 +1,129 @@
 {
   "openapi": "3.1.0",
   "paths": {
+    "/admin/data-sources": {
+      "get": {
+        "operationId": "AdminSourcesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "enum": [
+                                  "leaderboard",
+                                  "discovery",
+                                  "kol",
+                                  "watched",
+                                  "favorites",
+                                  "imports"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "latestAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "count",
+                              "latestAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sampledAt",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read distinct source-set evidence; counts may overlap",
+        "tags": [
+          "AdminSources"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "sources.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: sources.read"
+      }
+    },
     "/admin/traders/{chain}/{address}": {
       "get": {
         "operationId": "AdminTraderController_detail",
@@ -6949,6 +7072,192 @@
         "description": "Access: lists.read"
       }
     },
+    "/import/lists/preview": {
+      "post": {
+        "operationId": "ImportController_preview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportListDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "canImport": {
+                          "type": "boolean"
+                        },
+                        "totalRows": {
+                          "type": "integer"
+                        },
+                        "uniqueAddresses": {
+                          "type": "integer"
+                        },
+                        "duplicateRows": {
+                          "type": "integer"
+                        },
+                        "newAddresses": {
+                          "type": "integer"
+                        },
+                        "promotedAddresses": {
+                          "type": "integer"
+                        },
+                        "preservedAddresses": {
+                          "type": "integer"
+                        },
+                        "estimatedNewJobs": {
+                          "type": "integer"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "index": {
+                                "type": "integer"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "index",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "rank": {
+                                "type": "integer"
+                              },
+                              "action": {
+                                "type": "string",
+                                "enum": [
+                                  "new",
+                                  "promote",
+                                  "preserve"
+                                ]
+                              },
+                              "activeAfter": {
+                                "type": "boolean"
+                              },
+                              "tierAfter": {
+                                "type": "string",
+                                "enum": [
+                                  "A",
+                                  "B",
+                                  "C"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "rank",
+                              "action",
+                              "activeAfter",
+                              "tierAfter"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sampledAt",
+                        "canImport",
+                        "totalRows",
+                        "uniqueAddresses",
+                        "duplicateRows",
+                        "newAddresses",
+                        "promotedAddresses",
+                        "preservedAddresses",
+                        "estimatedNewJobs",
+                        "errors",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview list import effects without persisting or enqueuing work",
+        "tags": [
+          "Import"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "leaders.import"
+        ],
+        "x-required-roles": [],
+        "description": "Access: leaders.import"
+      }
+    },
     "/import/lists": {
       "post": {
         "operationId": "ImportController_importList",
@@ -10937,6 +11246,7 @@
                               "revenue.read",
                               "settings.read",
                               "settings.write",
+                              "sources.read",
                               "traders.read",
                               "users.read",
                               "users.manage",
@@ -11097,6 +11407,7 @@
                               "revenue.read",
                               "settings.read",
                               "settings.write",
+                              "sources.read",
                               "traders.read",
                               "users.read",
                               "users.manage",

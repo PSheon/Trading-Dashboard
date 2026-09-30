@@ -1,3 +1,5 @@
+import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
 import { adminTraderSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureAdminTrader } from "./admin-trader";
 import { favoriteGroupInputSchema, favoriteGroupSchema, favoriteGroupsSchema, type FavoriteGroup } from "@trading-dashboard/shared/contracts";
@@ -440,6 +442,12 @@ export async function fixtureRequest<T>(
       return wire(crowdResponseSchema, crowd());
 
     // --- admin ---------------------------------------------------------------------
+    case "GET /admin/data-sources": {
+      requireAdmin(token);const at=new Date().toISOString();
+      return wire(adminSourcesSchema,{sampledAt:at,items:[{id:'leaderboard',count:150,latestAt:at},{id:'discovery',count:80,latestAt:at},{id:'kol',count:5,latestAt:at},{id:'watched',count:10,latestAt:null},{id:'favorites',count:favorites.size,latestAt:at},{id:'imports',count:leaderLists.length,latestAt:leaderLists[0]?.importedAt.toISOString()??null}]});
+    }
+    case "POST /import/lists/preview":
+      requireAdmin(token);return wire(importPreviewSchema,fixtureImportPreview(body));
     case "GET /admin/traders/hyperliquid/:address":
       requireAdmin(token);
       return wire(adminTraderSchema,fixtureAdminTrader(addressSchema.parse(parts[3]).toLowerCase()));
@@ -570,14 +578,14 @@ export async function fixtureRequest<T>(
       requireUser(token);
       return wire(z.array(leaderListSchema), leaderLists);
     case "POST /import/lists": {
-      requireUser(token);
+      requireAdmin(token);
       const req = importLeaderListRequestSchema.parse(body);
+      const result=fixtureCommitImport(body);
       const listId = nextListId++;
       leaderLists.unshift({ id: listId, source: req.source, importedAt: new Date(), fileName: req.fileName });
       return wire(importLeaderListResponseSchema, {
         listId,
-        itemCount: req.rows.length,
-        newAddresses: [],
+        ...result,
       });
     }
   }

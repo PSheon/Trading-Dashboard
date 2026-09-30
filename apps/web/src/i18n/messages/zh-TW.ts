@@ -4,6 +4,57 @@
  * `{name}` and are filled by `t(key, { name })`.
  */
 export const zhTW = {
+  importOps: {
+    "source": "匯入來源",
+    "tooLarge": "檔案超過 100 KiB 限制。",
+    "preview": "預覽影響",
+    "checking": "檢查中…",
+    "confirm": "確認匯入",
+    "impact": "匯入影響預覽",
+    "hint": "預覽不會寫入資料。這是當下快照，並發變更可能影響正式匯入結果；正式匯入會重新驗證。",
+    "sampled": "預覽時間",
+    "total": "原始列數",
+    "unique": "有效不重複地址",
+    "duplicates": "重複列（保留最低排名數字）",
+    "new": "新增地址",
+    "promote": "收藏來源轉為匯入",
+    "preserve": "保留現有設定",
+    "jobs": "預計新增回補工作",
+    "blocked": "有錯誤列，整批不可匯入；不會部分寫入。",
+    "invalid": "第 {row} 列錯誤：{reason}",
+    "rules": "匯入新增名單版本，不會移除未列出的地址。既有人工等級、名稱、備註會保留；收藏來源會轉為匯入並啟用，其他既有地址保留啟用狀態。回補工作數不是 API 請求數或完成時間。",
+    "tier": "等級",
+    "limit": "有效列與錯誤列各顯示前 50 筆；上方總數涵蓋全檔。"
+},
+  sources: {
+    "title": "資料來源",
+    "hint": "集合會重疊，不能相加或視為即時訂閱總量。",
+    "limit": "唯讀彙整已儲存紀錄，每 30 秒更新。沒有紀錄的時間不代表服務離線；完整來源生命週期、同步歷史與控制功能尚待補齊。",
+    "names": {
+        "leaderboard": "官方榜單地址",
+        "discovery": "候選池地址",
+        "kol": "KOL 名錄地址",
+        "watched": "啟用監聽地址",
+        "favorites": "被收藏地址",
+        "imports": "匯入版本"
+    },
+    "meanings": {
+        "leaderboard": "有榜單紀錄，不代表即時監聽。",
+        "discovery": "目前 inPool 的候選地址，不代表資料已全部更新。",
+        "kol": "人工身分與社群標籤，不代表資料完整或身分驗證。",
+        "watched": "主檔 active=true；請到系統頁確認 worker 連線。",
+        "favorites": "至少有一個收藏引用的不重複地址，不是收藏關係總數。",
+        "imports": "歷史名單版本數，不是目前來源成員數。"
+    },
+    "times": {
+        "leaderboard": "最新榜單資料時間",
+        "discovery": "最新 Portfolio 更新（非全池完成）",
+        "kol": "最新名錄編輯",
+        "watched": "逐地址即時連線時間",
+        "favorites": "最近新增收藏關係",
+        "imports": "最近版本匯入"
+    }
+},
   adminTrader: {
     "title": "交易者診斷",
     "hint": "唯讀檢視已儲存資料，每 30 秒更新；查詢不會觸發同步或回補。",

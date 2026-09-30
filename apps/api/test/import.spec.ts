@@ -19,6 +19,31 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
     await closeTestDb();
   });
 
+  it("previews actual import effects without writing or scheduling work", async () => {
+    const fresh='0x'+'11'.repeat(20), favorite='0x'+'22'.repeat(20), existing='0x'+'33'.repeat(20);
+    await db.insert(leaders).values([{address:favorite,source:'favorite',active:false,label:'Keep'}, {address:existing,source:'import',active:false,tier:'C'}]);
+    const body={source:'manual',fileName:'test.csv',rows:[{Wallet:fresh,Position:22},{address:fresh,rank:1},{address:favorite,rank:2},{address:existing,rank:3}]};
+    const preview=await importService.previewLeaderList(body);
+    expect(preview).toMatchObject({canImport:true,totalRows:4,uniqueAddresses:3,duplicateRows:1,newAddresses:1,promotedAddresses:1,preservedAddresses:1,estimatedNewJobs:1,errors:[]});
+    expect(preview.items).toEqual(expect.arrayContaining([{address:fresh,rank:1,action:'new',activeAfter:true,tierAfter:'A'}, {address:favorite,rank:2,action:'promote',activeAfter:true,tierAfter:'B'}, {address:existing,rank:3,action:'preserve',activeAfter:false,tierAfter:'C'}]));
+    expect(await db.select().from(leaderLists)).toHaveLength(0);
+    expect(await db.select().from(backfillJobs)).toHaveLength(0);
+    expect(await db.select().from(adminAuditLogs)).toHaveLength(0);
+    const saved=await importService.importLeaderList(body);
+    expect(saved.itemCount).toBe(preview.uniqueAddresses);
+    expect(saved.newAddresses).toEqual([fresh]);
+    expect(await db.select().from(leaders).where(eq(leaders.address,existing))).toMatchObject([{active:false,tier:'C'}]);
+  });
+  it("reports invalid rows atomically and estimates only unqueued new addresses",async()=>{
+    const address='0x'+'44'.repeat(20);
+    await db.insert(backfillJobs).values({address,source:'import'});
+    const body={source:'manual',fileName:'bad.csv',rows:[{address,rank:1},{address:'invalid',rank:2}]};
+    const preview=await importService.previewLeaderList(body);
+    expect(preview).toMatchObject({canImport:false,newAddresses:1,estimatedNewJobs:0,errors:[{index:1,reason:'invalid Ethereum address'}]});
+    await expect(importService.importLeaderList(body)).rejects.toThrow();
+    expect(await db.select().from(leaderLists)).toHaveLength(0);
+  });
+
   it("rolls back the list and leaders without scheduling backfill when audit persistence fails", async () => {
     await db.execute(sql`alter table admin_audit_logs add constraint import_audit_reject check (event <> 'list.import')`);
     try {

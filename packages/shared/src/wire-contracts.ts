@@ -1,3 +1,5 @@
+import { adminSourcesSchema } from "./admin-sources-contracts.js";
+import { importPreviewSchema } from "./import-preview-contracts.js";
 import { adminTraderSchema } from "./admin-trader-contracts.js";
 import { favoriteGroupSchema, favoriteGroupsSchema } from "./favorite-group-contracts.js";
 import { traderSearchResponseSchema } from "./trader-search-contracts.js";
@@ -113,6 +115,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "PATCH", path: "/leaders/:chain/:address", status: 200, auth: "leaders.manage", response: wireLeaderSchema },
   { method: "GET", path: "/lists", status: 200, auth: "lists.read", response: z.array(s.leaderListSchema.extend({ importedAt: iso })) },
   { method: "GET", path: "/lists/diff", status: 200, auth: "lists.read", response: s.listDiffResponseSchema },
+  { method: "POST", path: "/import/lists/preview", status: 200, auth: "leaders.import", response: importPreviewSchema },
   { method: "POST", path: "/import/lists", status: 201, auth: "leaders.import", response: s.importLeaderListResponseSchema },
   { method: "GET", path: "/alert-rules", status: 200, auth: "rules.read", response: z.array(s.alertRuleSchema) },
   { method: "POST", path: "/alert-rules", status: 201, auth: "rules.manage", response: s.alertRuleSchema },
@@ -152,6 +155,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "PATCH", path: "/admin/settings", status: 200, auth: "settings.write", response: s.adminSettingsSnapshotSchema },
   { method: "GET", path: "/admin/users", pagination: { type: "offset", query: s.adminUsersQuerySchema }, status: 200, auth: "users.read", response: s.adminUsersResponseSchema.extend({ items: z.array(wireAdminUserSchema) }) },
   { method: "PATCH", path: "/admin/users/:id", status: 200, auth: "users.manage", response: wireAdminUserSchema },
+  { method: "GET", path: "/admin/data-sources", status: 200, auth: "sources.read", response: adminSourcesSchema },
   { method: "GET", path: "/admin/traders/:chain/:address", status: 200, auth: "traders.read", response: adminTraderSchema },
   { method: "GET", path: "/admin/jobs", status: 200, auth: "jobs.read", response: backfillJobsResponseSchema },
   { method: "POST", path: "/admin/jobs/:id/retry", status: 202, auth: "jobs.retry", response: backfillJobSchema },

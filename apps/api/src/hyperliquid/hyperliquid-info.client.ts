@@ -114,6 +114,8 @@ export class HyperliquidInfoClient {
     rank?: number,
     /** The part of `weight` that is certain (list calls: the base). */
     known?: number,
+    /** Another info host (the wallet network's), still under this budget. */
+    apiUrl?: string,
   ): Promise<T> {
     const caller = currentRequestSignal();
     // Time in the budget queue doesn't count against the request timeout:
@@ -125,7 +127,7 @@ export class HyperliquidInfoClient {
     queued.throwIfAborted();
     const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
 
-    const url = this.config.value.hyperliquid.apiUrl;
+    const url = apiUrl ?? this.config.value.hyperliquid.apiUrl;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -165,11 +167,12 @@ export class HyperliquidInfoClient {
     priority: RequestPriority,
     rank: number | undefined,
     maxItems = MAX_LIST_ITEMS,
+    apiUrl?: string,
   ): Promise<T> {
     const worst = surcharge(maxItems);
     let result: T;
     try {
-      result = await this.post<T>(body, base + worst, priority, rank, base);
+      result = await this.post<T>(body, base + worst, priority, rank, base, apiUrl);
     } catch (error) {
       if (!(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-worst);
       throw error;
@@ -247,12 +250,15 @@ export class HyperliquidInfoClient {
     dex?: string,
     priority: RequestPriority = "background",
     rank?: number,
+    apiUrl?: string,
   ): Promise<HlClearinghouseStateResponse> {
     return this.post<HlClearinghouseStateResponse>(
       dex ? { type: "clearinghouseState", user: address, dex } : { type: "clearinghouseState", user: address },
       WEIGHT_CLEARINGHOUSE_STATE,
       priority,
       rank,
+      undefined,
+      apiUrl,
     );
   }
 
@@ -325,12 +331,15 @@ export class HyperliquidInfoClient {
     address: string,
     priority: RequestPriority = "background",
     rank?: number,
+    apiUrl?: string,
   ): Promise<HlSpotClearinghouseStateResponse> {
     return this.post<HlSpotClearinghouseStateResponse>(
       { type: "spotClearinghouseState", user: address },
       WEIGHT_SPOT_CLEARINGHOUSE_STATE,
       priority,
       rank,
+      undefined,
+      apiUrl,
     );
   }
 
@@ -408,6 +417,7 @@ export class HyperliquidInfoClient {
     endTime?: number,
     priority: RequestPriority = "background",
     rank?: number,
+    apiUrl?: string,
   ): Promise<HlLedgerUpdate[]> {
     return this.postList<HlLedgerUpdate[]>(
       { type: "userNonFundingLedgerUpdates", user: address, startTime, endTime },
@@ -415,6 +425,7 @@ export class HyperliquidInfoClient {
       priority,
       rank,
       LEDGER_MAX_ITEMS,
+      apiUrl,
     );
   }
 

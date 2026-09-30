@@ -48,6 +48,8 @@ export const wireFavoriteGroupSchema = s.favoriteGroupSchema.extend({ createdAt:
 export const wireCohortDetailSchema = s.cohortDetailResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireCohortHistorySchema = s.cohortHistoryResponseSchema.extend({ series: z.array(z.object({ t: iso, pctLong: z.number() })) });
 export const wireCopyScoreSchema = s.copyScoreResponseSchema;
+export const wireWalletSchema = s.walletResponseSchema.extend({ fetchedAt: iso });
+export const wireWalletHistorySchema = s.walletHistoryResponseSchema.extend({ transfers: z.array(s.traderTransferSchema.extend({ time: iso })), from: iso, fetchedAt: iso });
 const outboxCounts =z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
 /** GET /actions/stream (text/event-stream). Each SSE `event:` name maps to the
  * schema of its JSON `data:`; both ends validate every event.
@@ -111,6 +113,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/telegram/link", status: 200, auth: "user", response: s.telegramLinkResponseSchema.extend({ expiresAt: iso }) },
   { method: "POST", path: "/me/telegram/test", status: 200, auth: "user", response: s.telegramTestResponseSchema },
   { method: "DELETE", path: "/me/telegram", status: 204, auth: "user", response: z.undefined() },
+  { method: "GET", path: "/me/wallet", status: 200, auth: "user; 503 busy", response: wireWalletSchema },
+  { method: "GET", path: "/me/wallet/history", status: 200, auth: "user; 503 busy", response: wireWalletHistorySchema },
   { method: "GET", path: "/insights/cohorts/:tier", status: 200, auth: "public", response: wireCohortDetailSchema },
   { method: "GET", path: "/insights/cohorts/:tier/history", status: 200, auth: "public", response: wireCohortHistorySchema },
   { method: "GET", path: "/insights/crowd", status: 200, auth: "public", response: s.crowdResponseSchema.extend({ updatedAt: iso.nullable() }) },
@@ -165,3 +169,5 @@ export type WireTraderCards = z.infer<typeof wireTraderCardsSchema>;
 export type WireFavoriteGroup = z.infer<typeof wireFavoriteGroupSchema>;
 export type WireCohortDetail = z.infer<typeof wireCohortDetailSchema>;
 export type WireCohortHistory = z.infer<typeof wireCohortHistorySchema>;
+export type WireWallet = z.infer<typeof wireWalletSchema>;
+export type WireWalletHistory = z.infer<typeof wireWalletHistorySchema>;

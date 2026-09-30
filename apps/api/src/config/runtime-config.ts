@@ -16,6 +16,30 @@ function urlValue(key: string, raw: string | undefined, fallback: string, protoc
   return value;
 }
 
+/** Per-network endpoints of the user wallet (Stage 4 step 2). */
+const WALLET_NETWORKS = {
+  mainnet: { infoUrl: "https://api.hyperliquid.xyz/info", arbitrumRpcUrl: "https://arb1.arbitrum.io/rpc" },
+  testnet: { infoUrl: "https://api.hyperliquid-testnet.xyz/info", arbitrumRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" },
+} as const;
+
+/**
+ * HYPERLIQUID_NETWORK picks where the user's own wallet lives: the network
+ * whose balances /me/wallet reads and whose chain the browser signs bridge
+ * and withdraw actions for. Default testnet: mainnet signing needs Paul's
+ * explicit approval (Stage 4 §6). The discovery reads keep using
+ * HYPERLIQUID_API_URL (mainnet) either way.
+ */
+function walletNetwork(source: Environment) {
+  const raw = (source.HYPERLIQUID_NETWORK ?? "testnet").trim().toLowerCase();
+  if (raw !== "mainnet" && raw !== "testnet") throw new Error("HYPERLIQUID_NETWORK must be mainnet or testnet");
+  const defaults = WALLET_NETWORKS[raw];
+  return {
+    network: raw as "mainnet" | "testnet",
+    infoUrl: defaults.infoUrl,
+    arbitrumRpcUrl: urlValue("HYPERLIQUID_ARBITRUM_RPC_URL", optional(source.HYPERLIQUID_ARBITRUM_RPC_URL), defaults.arbitrumRpcUrl, ["http:", "https:"]),
+  };
+}
+
 function productionSecret(key: string, value: string | undefined, production: boolean): void {
   if (!production || value === undefined) return;
   if (value.trim().length < 32 || /change[-_ ]?me|your[-_ ]?secret|replace[-_ ]?with|example|placeholder/i.test(value)) {
@@ -69,6 +93,7 @@ export function validateEnvironment(source: Environment = process.env) {
     wsUrl: urlValue("HYPERLIQUID_WS_URL", source.HYPERLIQUID_WS_URL, "wss://api.hyperliquid.xyz/ws", ["ws:", "wss:"]),
     budgetPerMin: integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
     burst: integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
+    wallet: walletNetwork(source),
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };
   const stream = {

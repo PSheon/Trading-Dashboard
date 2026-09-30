@@ -291,6 +291,11 @@ export const users = pgTable("users", {
   privyUserId: text("privy_user_id").notNull().unique(),
   email: text("email"),
   walletAddress: text("wallet_address"),
+  /** The user's Privy embedded wallet (lowercase): their Orbie main account
+   * and Hyperliquid address. Read from Privy's verified user record, never
+   * from the client; null until Privy reports one. `walletAddress` stays
+   * the login identity (an external wallet wins there). */
+  embeddedWalletAddress: text("embedded_wallet_address").unique(),
   displayName: text("display_name"),
   role: text("role").$type<UserRole>().notNull().default("user"),
   locale: text("locale").$type<Locale>().notNull().default("zh-TW"),

@@ -868,6 +868,47 @@ export const traderTransfersResponseSchema = z.object({
 });
 export type TraderTransfersResponse = z.infer<typeof traderTransfersResponseSchema>;
 
+// --- the signed-in user's wallet (Stage 4 step 2) ---------------------------
+
+/** Where the user's own wallet lives (api HYPERLIQUID_NETWORK). The browser
+ * signs bridge / withdraw actions for this network only. */
+export const walletNetworkSchema = z.enum(["mainnet", "testnet"]);
+export type WalletNetwork = z.infer<typeof walletNetworkSchema>;
+
+/** GET /me/wallet — the main account (the user's Privy embedded wallet).
+ * `address` is null until Privy reports one; the balances are then null too.
+ * A part that couldn't be read is null (the rest still answers). USD values. */
+export const walletResponseSchema = z.object({
+  network: walletNetworkSchema,
+  address: z.string().nullable(),
+  hyperliquid: z
+    .object({
+      /** Perp account value (margin summary). */
+      perpValue: z.number(),
+      /** What `withdraw3` can take right now. */
+      withdrawable: z.number(),
+      /** Spot USDC, total and on hold by open spot orders. */
+      spotUsdc: z.number(),
+      spotUsdcHold: z.number(),
+    })
+    .nullable(),
+  /** The deposit address's balances on the network's Arbitrum chain: USDC
+   * not yet bridged, and ETH for gas. */
+  arbitrum: z.object({ usdc: z.number(), eth: z.number() }).nullable(),
+  /** Perp value + spot USDC + Arbitrum USDC waiting to be bridged. */
+  totalValue: z.number(),
+  fetchedAt: z.coerce.date(),
+});
+export type WalletResponse = z.infer<typeof walletResponseSchema>;
+
+/** GET /me/wallet/history — the main account's deposits, withdrawals and
+ * transfers on the wallet network (the 90-day ledger of the 轉帳 tab). */
+export const walletHistoryResponseSchema = traderTransfersResponseSchema.extend({
+  network: walletNetworkSchema,
+  address: z.string().nullable(),
+});
+export type WalletHistoryResponse = z.infer<typeof walletHistoryResponseSchema>;
+
 // --- trade analytics (any address) -----------------------------------------
 
 /** Window of the trade analytics: every closed trade in coverage, or those

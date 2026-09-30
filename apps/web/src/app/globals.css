@@ -168,6 +168,31 @@
   }
 }
 
+/* Tables scroll sideways inside their card, with a thin visible bar. */
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  overscroll-behavior-x: contain;
+}
+/* CopyDog's dense trader tables: 6 px gutters, 12 px at the row ends and
+   11 px headers. Unlayered, so it wins over the cells' utility padding. */
+.table-dense th,
+.table-dense td {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.table-dense th:first-child,
+.table-dense td:first-child {
+  padding-left: 12px;
+}
+.table-dense th:last-child,
+.table-dense td:last-child {
+  padding-right: 12px;
+}
+.table-dense th {
+  font-size: 11px;
+}
+
 /* Trader page: three columns on wide screens, profile + main with the copy
    panel under the profile on laptops, one column on phones. */
 .trader-grid {

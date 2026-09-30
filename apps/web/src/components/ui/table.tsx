@@ -5,9 +5,27 @@ import { cn } from "cn"
 
 /** Dense data table: muted small-caps-ish headers, hairline rows, tabular
  * figures. */
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  dense = false,
+  ...props
+}: React.ComponentProps<"table"> & {
+  /** CopyDog's trader-page tables: 6 px cell gutters (12 px at the row
+   * ends) and 11 px headers, so eight columns fit the main column. */
+  dense?: boolean
+}) {
   return (
-    <div data-slot="table-container" tabIndex={0} className="relative w-full overflow-x-auto no-scrollbar outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    // A horizontal scroll container with a visible thin scrollbar: when the
+    // columns don't fit (narrow desktops, tablets) the table scrolls inside
+    // its card instead of being clipped by it.
+    <div
+      data-slot="table-container"
+      tabIndex={0}
+      className={cn(
+        "table-scroll relative w-full overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        dense && "table-dense",
+      )}
+    >
       <table
         data-slot="table"
         className={cn("w-full caption-bottom text-[0.8125rem] num", className)}

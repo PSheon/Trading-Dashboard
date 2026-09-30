@@ -321,7 +321,7 @@ function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
         ))}
       </ul>
       <div className="hidden sm:block">
-        <Table className="text-xs">
+        <Table dense className="text-xs">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <SortHead label={t("trader.tradeCols.asset")} col="asset" {...head} />
@@ -416,7 +416,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
         ))}
       </ul>
       <div className="hidden sm:block">
-        <Table className="text-xs">
+        <Table dense className="text-xs">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <SortHead label={t("trader.tradeCols.asset")} col="asset" {...head} />
@@ -551,7 +551,7 @@ export function TradesTab({ address }: { address: string }) {
           ))}
         </ul>
         <div className="hidden sm:block">
-          <Table className="text-xs">
+          <Table dense className="text-xs">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <SortHead label={t("trader.tradeCols.asset")} col="asset" {...head} />

@@ -7,6 +7,10 @@ import { coinDex, coinLabel } from "@/lib/format";
 
 /** Hyperliquid's own market icons (the exchange's app serves one SVG per
  * perp, HIP-3 markets included: /coins/xyz:TSLA.svg). */
+/** Hyperliquid draws these dark on a transparent ground; on Orbie's navy
+ * they sit on a white disc, as CopyDog shows them. */
+const LIGHT_DISC = new Set(["ETH", "NEAR"]);
+
 export const coinIconUrl = (coin: string) => `https://app.hyperliquid.xyz/coins/${encodeURIComponent(coin).replace(/%3A/gi, ":")}.svg`;
 
 /**
@@ -55,7 +59,7 @@ export function CoinIcon({
         height={size}
         loading="lazy"
         onError={() => setFailed(true)}
-        className={cn("inline-block shrink-0 rounded-full object-contain", className)}
+        className={cn("inline-block shrink-0 rounded-full object-contain", LIGHT_DISC.has(coin) && "bg-white p-[12%]", className)}
         style={{ width: size, height: size }}
       />
     );

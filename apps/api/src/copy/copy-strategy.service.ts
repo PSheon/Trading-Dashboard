@@ -18,7 +18,7 @@ import { CopyControlService } from "./copy-control.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
 import { dec, openNotional } from "./copy-math.js";
 import { toCopyOrder, toCopyStrategy } from "./copy.mappers.js";
-import { CopyOrderPlanner, strategyValue } from "./copy-planner.service.js";
+import { CopyOrderPlanner } from "./copy-planner.service.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 

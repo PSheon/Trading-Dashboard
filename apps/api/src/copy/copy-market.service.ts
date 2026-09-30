@@ -87,9 +87,11 @@ export class CopyMarketService {
     return this.assetsInflight;
   }
 
-  /** Drops the hourly universe cache (tests; a new listing). */
-  resetAssets(): void {
+  /** Drops every cache (tests, and a new listing). */
+  resetCaches(): void {
+    this.mids = null;
     this.assets = null;
+    this.equityCache.clear();
   }
 
   /** The leader's perp account value, cached {@link LEADER_EQUITY_TTL_MS}. */

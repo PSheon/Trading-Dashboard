@@ -3253,7 +3253,8 @@
                             "type": "string",
                             "enum": [
                               "import",
-                              "favorite"
+                              "favorite",
+                              "copy"
                             ],
                             "default": "import"
                           },
@@ -3468,7 +3469,8 @@
                               "type": "string",
                               "enum": [
                                 "import",
-                                "favorite"
+                                "favorite",
+                                "copy"
                               ],
                               "default": "import"
                             },
@@ -4005,7 +4007,8 @@
                           "type": "string",
                           "enum": [
                             "import",
-                            "favorite"
+                            "favorite",
+                            "copy"
                           ],
                           "default": "import"
                         },
@@ -8691,7 +8694,11 @@
                               "rules.read",
                               "rules.manage",
                               "alerts.readAll",
-                              "kols.manage"
+                              "kols.manage",
+                              "copy.read",
+                              "execution.pause",
+                              "execution.resume",
+                              "risk.manage"
                             ]
                           }
                         },
@@ -8856,7 +8863,11 @@
                               "rules.read",
                               "rules.manage",
                               "alerts.readAll",
-                              "kols.manage"
+                              "kols.manage",
+                              "copy.read",
+                              "execution.pause",
+                              "execution.resume",
+                              "risk.manage"
                             ]
                           }
                         },
@@ -13305,6 +13316,2042 @@
         "x-required-roles": [],
         "description": "Access: user; 503 busy"
       }
+    },
+    "/me/copy": {
+      "get": {
+        "operationId": "CopyController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "disabled",
+                            "paper",
+                            "testnet",
+                            "live"
+                          ]
+                        },
+                        "paper": {
+                          "type": "object",
+                          "properties": {
+                            "balance": {
+                              "type": "number"
+                            },
+                            "startingBalance": {
+                              "type": "number"
+                            },
+                            "allocated": {
+                              "type": "number"
+                            },
+                            "totalValue": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "totalPnl": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "balance",
+                            "startingBalance",
+                            "allocated",
+                            "totalValue",
+                            "totalPnl"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "limits": {
+                          "type": "object",
+                          "properties": {
+                            "minAllocationUsd": {
+                              "type": "number"
+                            },
+                            "maxAllocationUsd": {
+                              "type": "number"
+                            },
+                            "maxStrategies": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "minAllocationUsd",
+                            "maxAllocationUsd",
+                            "maxStrategies"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "platform": {
+                          "type": "object",
+                          "properties": {
+                            "pauseNewRisk": {
+                              "type": "boolean"
+                            },
+                            "reduceOnly": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "pauseNewRisk",
+                            "reduceOnly",
+                            "revision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "pauseNewRisk": {
+                              "type": "boolean"
+                            },
+                            "reduceOnly": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "pauseNewRisk",
+                            "reduceOnly",
+                            "revision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "strategies": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "mode": {
+                                "type": "string",
+                                "const": "paper"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "paused",
+                                  "stopping",
+                                  "stopped"
+                                ]
+                              },
+                              "version": {
+                                "type": "integer"
+                              },
+                              "settings": {
+                                "type": "object",
+                                "properties": {
+                                  "direction": {
+                                    "type": "string",
+                                    "enum": [
+                                      "same",
+                                      "reverse"
+                                    ]
+                                  },
+                                  "sizingMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ratio",
+                                      "fixed"
+                                    ]
+                                  },
+                                  "perTradeUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxTotalExposureUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxLeverage": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 1,
+                                        "maximum": 50
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "copyStartMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "adopt",
+                                      "delta"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "direction",
+                                  "sizingMode",
+                                  "perTradeUsd",
+                                  "maxTotalExposureUsd",
+                                  "maxLeverage",
+                                  "copyStartMode"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "allocated": {
+                                "type": "number"
+                              },
+                              "cash": {
+                                "type": "number"
+                              },
+                              "equity": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "fees": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "totalPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roiPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "exposureUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pauseNewRisk": {
+                                "type": "boolean"
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "tradesCopied": {
+                                "type": "integer"
+                              },
+                              "pendingOrders": {
+                                "type": "integer"
+                              },
+                              "positions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "coin": {
+                                      "type": "string"
+                                    },
+                                    "size": {
+                                      "type": "number"
+                                    },
+                                    "entryPx": {
+                                      "type": "number"
+                                    },
+                                    "markPx": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "notionalUsd": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "unrealizedPnl": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "realizedPnl": {
+                                      "type": "number"
+                                    },
+                                    "funding": {
+                                      "type": "number"
+                                    },
+                                    "openedAt": {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    }
+                                  },
+                                  "required": [
+                                    "coin",
+                                    "size",
+                                    "entryPx",
+                                    "markPx",
+                                    "notionalUsd",
+                                    "unrealizedPnl",
+                                    "realizedPnl",
+                                    "funding",
+                                    "openedAt"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "activatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "stoppedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "mode",
+                              "leaderAddress",
+                              "status",
+                              "version",
+                              "settings",
+                              "allocated",
+                              "cash",
+                              "equity",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "fees",
+                              "funding",
+                              "totalPnl",
+                              "roiPct",
+                              "exposureUsd",
+                              "pauseNewRisk",
+                              "reduceOnly",
+                              "tradesCopied",
+                              "pendingOrders",
+                              "positions",
+                              "activatedAt",
+                              "createdAt",
+                              "stoppedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pricedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "paper",
+                        "limits",
+                        "platform",
+                        "user",
+                        "strategies",
+                        "pricedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get my paper copies",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
+    "/me/copy/strategies": {
+      "post": {
+        "operationId": "CopyController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCopyStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        201
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Start a paper copy",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user; 409 already_copying / insufficient_balance / copy_paused"
+      }
+    },
+    "/me/copy/strategies/{id}": {
+      "patch": {
+        "operationId": "CopyController_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCopyStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Edit a paper copy (new version)",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/funds": {
+      "post": {
+        "operationId": "CopyController_addFunds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCopyFundsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Add paper funds to a copy",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/commands": {
+      "post": {
+        "operationId": "CopyController_command",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyStrategyCommandDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Pause, resume, reduce-only, cancel pending, close positions or stop a copy",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/orders": {
+      "get": {
+        "operationId": "CopyController_orders",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "cloid": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "leg": {
+                                "type": "string",
+                                "enum": [
+                                  "open",
+                                  "close",
+                                  "adopt",
+                                  "stop_close"
+                                ]
+                              },
+                              "side": {
+                                "type": "string",
+                                "enum": [
+                                  "B",
+                                  "A"
+                                ]
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "signalPx": {
+                                "type": "number"
+                              },
+                              "signalTime": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "intent",
+                                  "risk_approved",
+                                  "submitting",
+                                  "submitted",
+                                  "unknown",
+                                  "partial",
+                                  "filled",
+                                  "rejected",
+                                  "cancelled"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "filledSize": {
+                                "type": "number"
+                              },
+                              "avgPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "fee": {
+                                "type": "number"
+                              },
+                              "builderFee": {
+                                "type": "number"
+                              },
+                              "strategyVersion": {
+                                "type": "integer"
+                              },
+                              "riskPolicyVersion": {
+                                "type": "integer"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "cloid",
+                              "strategyId",
+                              "userId",
+                              "leaderAddress",
+                              "coin",
+                              "leg",
+                              "side",
+                              "reduceOnly",
+                              "size",
+                              "signalPx",
+                              "signalTime",
+                              "status",
+                              "reason",
+                              "filledSize",
+                              "avgPx",
+                              "fee",
+                              "builderFee",
+                              "strategyVersion",
+                              "riskPolicyVersion",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List a copy's paper orders",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
     }
   },
   "info": {
@@ -13910,6 +15957,143 @@
             "maximum": 1000
           }
         },
+        "additionalProperties": false
+      },
+      "CreateCopyStrategyDto": {
+        "type": "object",
+        "properties": {
+          "leader": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "description": "Leader address; stored lower-case"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "same",
+              "reverse"
+            ],
+            "default": "same",
+            "description": "順向 same / 反向 reverse (CopyDog copy_direction)"
+          },
+          "allocationUsd": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "description": "Paper USDC moved from the paper balance into this copy (CopyDog allocation_amount); at most 6 decimals"
+          },
+          "sizingMode": {
+            "type": "string",
+            "enum": [
+              "ratio",
+              "fixed"
+            ],
+            "default": "ratio"
+          },
+          "perTradeUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Fixed mode: USDC notional per copied open"
+          },
+          "maxTotalExposureUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "CopyDog max_total_exposure; null = allocation × 5"
+          },
+          "maxLeverage": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 50,
+            "description": "CopyDog max_leverage; null = platform cap"
+          },
+          "copyStartMode": {
+            "type": "string",
+            "enum": [
+              "adopt",
+              "delta"
+            ],
+            "default": "adopt",
+            "description": "adopt = 跟單目前持倉 on"
+          }
+        },
+        "required": [
+          "leader",
+          "allocationUsd"
+        ],
+        "additionalProperties": false
+      },
+      "PatchCopyStrategyDto": {
+        "type": "object",
+        "properties": {
+          "sizingMode": {
+            "type": "string",
+            "enum": [
+              "ratio",
+              "fixed"
+            ]
+          },
+          "perTradeUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxTotalExposureUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxLeverage": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      },
+      "AddCopyFundsDto": {
+        "type": "object",
+        "properties": {
+          "amountUsd": {
+            "type": "number",
+            "description": "Paper USDC to add (CopyDog 加碼); at most 6 decimals"
+          }
+        },
+        "required": [
+          "amountUsd"
+        ],
+        "additionalProperties": false
+      },
+      "CopyStrategyCommandDto": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "pause",
+              "resume",
+              "reduce_only",
+              "cancel_pending",
+              "close_positions",
+              "stop"
+            ],
+            "description": "pause = pause_new_risk; stop = close_positions, then the copy's cash returns to the paper balance"
+          }
+        },
+        "required": [
+          "command"
+        ],
         "additionalProperties": false
       },
       "ResponseMeta": {

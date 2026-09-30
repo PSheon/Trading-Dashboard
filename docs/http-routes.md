@@ -71,4 +71,10 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | DELETE | `/me/favorite-groups/:id` | 204 | user |
 | PUT | `/me/favorite-groups/:id/members/:address` | 200 | user |
 | DELETE | `/me/favorite-groups/:id/members/:address` | 204 | user |
+| GET | `/me/copy` | 200 | user |
+| POST | `/me/copy/strategies` | 201 | user; 409 already_copying / insufficient_balance / copy_paused |
+| PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
+| POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
+| POST | `/me/copy/strategies/:id/commands` | 200 | user (owner) |
+| GET | `/me/copy/strategies/:id/orders` | 200 | user (owner) |
 | GET | `/kols/:address/avatar` | 200 | public; image bytes, 304 on If-None-Match |

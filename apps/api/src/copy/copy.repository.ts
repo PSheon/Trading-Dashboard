@@ -333,6 +333,20 @@ export class CopyRepository {
     return out;
   }
 
+  /** Signed size of pending reduce-only orders, keyed `strategyId:coin`: exposure
+   * they are about to remove (a flip's close ahead of its open). */
+  async pendingReduceSizes(tx: DbTransaction, strategyIds: number[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (strategyIds.length === 0) return out;
+    const rows = await tx.select({ strategyId: copyOrders.strategyId, coin: copyOrders.coin, side: copyOrders.side, size: copyOrders.size, filled: copyOrders.filledSize }).from(copyOrders)
+      .where(and(inArray(copyOrders.strategyId, strategyIds), eq(copyOrders.reduceOnly, true), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
+    for (const r of rows) {
+      const key = `${r.strategyId}:${r.coin}`;
+      out.set(key, (out.get(key) ?? 0) + (r.side === "B" ? 1 : -1) * (Number(r.size) - Number(r.filled)));
+    }
+    return out;
+  }
+
   /** Held reservations of the given strategies. */
   heldReservations(strategyIds: number[], ex: DbExecutor = this.db) {
     if (strategyIds.length === 0) return Promise.resolve([] as { strategyId: number; coin: string; notional: string; margin: string }[]);

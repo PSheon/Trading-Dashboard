@@ -107,23 +107,29 @@ export class CopyOrderPlanner {
     if (o.strategy.status !== "active") return reject(`strategy_${o.strategy.status}`);
     if (!asset && !isHip3(o.coin)) return reject("no_asset_info");
 
-    const [positions, reserved, userStrategyIds] = await Promise.all([
-      this.repository.positionsOf([o.strategy.id], tx),
-      this.repository.heldReservations([o.strategy.id], tx),
-      this.repository.liveStrategyIdsOfUser(tx, o.strategy.userId),
-    ]);
+    // One connection per transaction: these reads run one after another.
+    const positions = await this.repository.positionsOf([o.strategy.id], tx);
+    const reserved = await this.repository.heldReservations([o.strategy.id], tx);
+    const userStrategyIds = await this.repository.liveStrategyIdsOfUser(tx, o.strategy.userId);
     const value = strategyValue(o.strategy, positions, o.mids);
     const userIds = userStrategyIds.map((s) => s.id);
-    const [userPositions, userReserved] = await Promise.all([this.repository.positionsOf(userIds, tx), this.repository.heldReservations(userIds, tx)]);
+    const userPositions = await this.repository.positionsOf(userIds, tx);
+    const userReserved = await this.repository.heldReservations(userIds, tx);
+    const reducing = await this.repository.pendingReduceSizes(tx, userIds);
+    // Exposure nets out pending reduce-only orders (e.g. a flip's close,
+    // queued just ahead of its open), so the open isn't capped by exposure
+    // that is already being removed.
     let userExposure = 0;
     let coinExposure = 0;
+    let strategyExposure = 0;
     let userPriced = true;
     for (const p of userPositions) {
       const ppx = o.mids?.px.get(p.coin);
       if (ppx === undefined) { userPriced = false; continue; }
-      const n = Math.abs(Number(p.size)) * ppx;
+      const n = Math.abs(Number(p.size) + (reducing.get(`${p.strategyId}:${p.coin}`) ?? 0)) * ppx;
       userExposure += n;
       if (p.coin === o.coin) coinExposure += n;
+      if (p.strategyId === o.strategy.id) strategyExposure += n;
     }
     for (const r of userReserved) {
       userExposure += Number(r.notional);
@@ -149,7 +155,7 @@ export class CopyOrderPlanner {
       strategy: {
         allocated: Number(o.strategy.allocated),
         equity: value.equity,
-        exposure: value.exposure ?? 0,
+        exposure: strategyExposure,
         reservedMargin: reserved.reduce((a, r) => a + Number(r.margin), 0),
         reservedNotional: reserved.reduce((a, r) => a + Number(r.notional), 0),
         ordersLastMinute: await this.repository.ordersLastMinute(tx, o.strategy.id),

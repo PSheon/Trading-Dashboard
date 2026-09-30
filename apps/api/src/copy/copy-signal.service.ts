@@ -135,6 +135,7 @@ export class CopySignalService {
         }
       }
 
+      const passTids = [...new Set(legs.map((l) => l.tid))];
       for (const g of groupLegs(legs)) {
         const tids = g.legs.map((l) => l.tid);
         const refs = g.legs.map((l) => ({ tid: l.tid, leg: l.leg }));
@@ -149,7 +150,8 @@ export class CopySignalService {
         const dedupeKey = `${strategy.id}:${first.tid}:${g.leg}:v${strategy.version}`;
 
         if (g.leg === "open") {
-          if (await this.repository.hasNewerLeg(tx, strategy.id, g.coin, new Date(first.time), tids)) {
+          // Only legs handled by an earlier pass can supersede: this pass runs in time order.
+          if (await this.repository.hasNewerLeg(tx, strategy.id, g.coin, new Date(first.time), passTids)) {
             await this.repository.resolveLegs(tx, strategy.id, refs, "superseded", null);
             continue;
           }

@@ -34,6 +34,18 @@ export function usd1(value: number | null | undefined): string {
   return `$${n.toFixed(1)}`;
 }
 
+/** "$0", "$469", "$183K", "$14M", "$1.2B" (whole K / M): the rail's
+ * notional and long / short values. */
+export function usd0(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "$0";
+  const sign = value < 0 ? "-" : "";
+  const n = abs(value);
+  if (n >= 1e9) return `${sign}$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${sign}$${Math.round(n / 1e6)}M`;
+  if (n >= 1e3) return `${sign}$${Math.round(n / 1e3)}K`;
+  return `${sign}$${Math.round(n)}`;
+}
+
 /** "+$54.0K": the rail's best / worst trades. */
 export function signedUsd1(value: number): string {
   return `${value >= 0 ? "+" : "-"}${usd1(value)}`;

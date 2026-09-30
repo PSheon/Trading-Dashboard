@@ -3,6 +3,8 @@
 import type { PnlTier, SizeTier, TraderAnalyticsResponse, TraderProfileResponse } from "@/lib/contracts";
 import {
   Anchor,
+  ArrowDownRight,
+  ArrowUpRight,
   Check,
   ChevronDown,
   CircleDollarSign,
@@ -83,8 +85,16 @@ function Meter({ fill, className }: { fill: number; className?: string }) {
   );
 }
 
+/** CopyDog's 現貨 (`spotFree`): spot not held as margin or by open orders,
+ * Σ value × (total − hold) ÷ total. In a unified account the USDC backing
+ * the perps is on hold, so this no longer repeats the perp equity. */
+export function freeSpot(profile: Pick<TraderProfileResponse, "spotBalances">): number {
+  return profile.spotBalances.reduce((sum, b) => sum + (b.total > 0 ? (b.value * Math.max(0, b.total - (b.hold ?? 0))) / b.total : 0), 0);
+}
+
 /** 帳戶價值 as CopyDog's: the total with a chevron; opening it lists the
- * parts (永續 / 現貨 / 質押), full precision. A vault shows its TVL alone. */
+ * parts (永續 / 現貨 free of holds / 質押), full precision. A vault shows its
+ * TVL alone. */
 function AccountValue({ profile }: { profile: TraderProfileResponse }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState(false);
@@ -122,7 +132,7 @@ function AccountValue({ profile }: { profile: TraderProfileResponse }) {
             <span data-testid="perp-equity">{format.usd(profile.perpEquity, { digits: 2 })}</span>
           </Row>
           <Row label={t("trader.accountSpot")}>
-            <span data-testid="spot-value">{format.usd(profile.spotValue, { digits: 2 })}</span>
+            <span data-testid="spot-value">{format.usd(freeSpot(profile), { digits: 2 })}</span>
           </Row>
           <Row label={t("trader.accountStaked")}>{format.usd(profile.stakedValue, { digits: 2 })}</Row>
         </div>
@@ -155,16 +165,19 @@ export function ProfileCard({
   const { copied, copy } = useCopied();
 
   const gross = profile.longNotional === null || profile.shortNotional === null ? null : profile.longNotional + profile.shortNotional;
-  // Leverage and margin usage are perp figures: relative to perp equity,
-  // not the total (spot and staking don't margin the positions).
-  const leverage = profile.perpEquity === null || gross === null ? null : profile.perpEquity > 0 ? gross / profile.perpEquity : 0;
+  // CopyDog's leverage is the open notional over the whole account (its
+  // equity: perp + spot + staked, a unified account counted once); margin
+  // usage stays a perp figure, margin used over perp equity.
+  const leverage = profile.accountValue === null || gross === null ? null : profile.accountValue > 0 ? gross / profile.accountValue : 0;
   const longShare = gross !== null && gross > 0 && profile.longNotional !== null ? profile.longNotional / gross : 0.5;
+  // CopyDog: neutral only without exposure; "very" when one side holds ≥ 80%.
+  const biasDir = gross === null || gross === 0 || longShare === 0.5 ? null : longShare > 0.5 ? "long" : "short";
   const bias =
-    gross === null ? "—" : gross === 0 || Math.abs(longShare - 0.5) < 0.1
+    gross === null ? "—" : biasDir === null
       ? t("trader.biasNeutral")
-      : longShare > 0.5
-        ? t("trader.biasLong")
-        : t("trader.biasShort");
+      : biasDir === "long"
+        ? t(longShare >= 0.8 ? "trader.biasVeryLong" : "trader.biasLong")
+        : t(1 - longShare >= 0.8 ? "trader.biasVeryShort" : "trader.biasShort");
   const unrealized = profile.perpEquity === null ? null : profile.positions.reduce((s, p) => s + p.unrealizedPnl, 0);
   const marginUsage = profile.perpEquity === null || profile.marginUsed === null ? null : profile.perpEquity > 0 ? profile.marginUsed / profile.perpEquity : 0;
 
@@ -221,7 +234,10 @@ export function ProfileCard({
 
         <div className="mt-4 flex items-center justify-between text-[0.8125rem]">
           <span className="text-muted-foreground">{t("trader.bias")}</span>
-          <span className="font-semibold">{bias}</span>
+          <span className={cn("inline-flex items-center gap-0.5 font-semibold", biasDir === "long" && "text-positive", biasDir === "short" && "text-negative")} data-testid="bias">
+            {biasDir === "long" ? <ArrowUpRight className="size-3.5" aria-hidden /> : biasDir === "short" ? <ArrowDownRight className="size-3.5" aria-hidden /> : null}
+            {bias}
+          </span>
         </div>
         <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-border">
           {gross !== null && gross > 0 ? (

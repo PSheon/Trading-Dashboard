@@ -190,15 +190,16 @@ export function KpiTiles({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={t("trader.kpi.period")}
-        className="inline-flex items-center gap-0.5 rounded-md bg-raised px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className="group inline-flex items-center gap-0.5 rounded-md bg-raised px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised-hover data-[state=open]:text-foreground"
       >
         {KPI_PERIODS.find(([p]) => p === period)![1]}
-        <ChevronDown className="size-3" aria-hidden />
+        <ChevronDown className="size-3 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="min-w-20">
+      {/* CopyDog's period list: as narrow as the pill, dropping from it. */}
+      <DropdownMenuContent sideOffset={4} className="min-w-[var(--radix-dropdown-menu-trigger-width)] rounded-lg p-1">
         <DropdownMenuRadioGroup value={period} onValueChange={(v) => onPeriod(v as KpiPeriod)}>
           {KPI_PERIODS.map(([p, label]) => (
-            <DropdownMenuRadioItem key={p} value={p}>
+            <DropdownMenuRadioItem key={p} value={p} className="rounded-md px-2 py-1.5 text-[11px] font-semibold">
               {label}
             </DropdownMenuRadioItem>
           ))}

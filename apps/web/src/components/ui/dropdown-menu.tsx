@@ -46,11 +46,11 @@ function DropdownMenuRadioItem({
   return (
     <Primitive.RadioItem
       data-slot="dropdown-menu-radio-item"
-      className={cn(itemClass, "pr-8 data-[state=checked]:text-primary", className)}
+      // CopyDog marks the current choice with the accent colour alone.
+      className={cn(itemClass, "data-[state=checked]:font-bold data-[state=checked]:text-primary", className)}
       {...props}
     >
       {children}
-      <Primitive.ItemIndicator className="absolute right-3 size-1.5 rounded-full bg-primary" />
     </Primitive.RadioItem>
   )
 }

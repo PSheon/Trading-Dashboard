@@ -23,7 +23,6 @@ import {
 import { useState } from "react";
 import { cn } from "cn";
 
-import { AlertBell } from "@/components/alerts/alert-bell";
 import { TraderName } from "@/components/traders/trader-name";
 import { FavoriteButton, VaultBadge } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -197,9 +196,11 @@ export function ProfileCard({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1">
-              <h1 className={cn("flex min-w-0", profile.kol ? "text-[0.8125rem] font-semibold" : "text-[0.9375rem] font-bold")}>
+              <h1 className="flex min-w-0 text-[0.8125rem] font-semibold">
                 <TraderName trader={profile} />
               </h1>
+              {/* CopyDog puts the KOL's 𝕏 right after the name. */}
+              {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
               {profile.isVault ? <VaultBadge /> : null}
             </div>
             <span className="mt-0.5 flex items-center gap-1.5">
@@ -213,12 +214,11 @@ export function ProfileCard({
                 {truncateAddress(profile.address)}
                 {copied === "address" ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
               </button>
-              {/* The KOL's 𝕏 profile sits on this line so the name keeps its width. */}
-              {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
             </span>
           </div>
+          {/* CopyDog's desktop header has ★ and share only; alerts live on
+              the watchlist (and the phone header's bell). */}
           <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
-          <AlertBell address={profile.address} className="-ml-2" history />
           <ShareButton
             address={profile.address}
             name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
@@ -417,15 +417,15 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label={t("trader.bestWorst")}
-            className="inline-flex items-center gap-0.5 rounded text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="group inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised data-[state=open]:text-foreground"
           >
             {t(view === "best" ? "trader.best" : "trader.worst")}
-            <ChevronDown className="size-3.5" aria-hidden />
+            <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="min-w-28">
+          <DropdownMenuContent sideOffset={4} className="min-w-[var(--radix-dropdown-menu-trigger-width)] rounded-lg p-1">
             <DropdownMenuRadioGroup value={view} onValueChange={(v) => setView(v as "best" | "worst")}>
-              <DropdownMenuRadioItem value="best">{t("trader.best")}</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="worst">{t("trader.worst")}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="best" className="rounded-md px-2 py-1.5 text-xs">{t("trader.best")}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="worst" className="rounded-md px-2 py-1.5 text-xs">{t("trader.worst")}</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -53,6 +53,32 @@ export const wireCohortHistorySchema = s.cohortHistoryResponseSchema.extend({ se
 export const wireCopyScoreSchema = s.copyScoreResponseSchema;
 export const wireWalletSchema = s.walletResponseSchema.extend({ fetchedAt: iso });
 export const wireWalletHistorySchema = s.walletHistoryResponseSchema.extend({ transfers: z.array(s.traderTransferSchema.extend({ time: iso })), from: iso, fetchedAt: iso });
+const wireCopyPositionSchema = s.copyPositionSchema.extend({ openedAt: iso });
+export const wireCopyStrategySchema = s.copyStrategySchema.extend({ positions: z.array(wireCopyPositionSchema), activatedAt: iso, createdAt: iso, stoppedAt: iso.nullable() });
+export const wireCopyOverviewSchema = s.copyOverviewResponseSchema.extend({ strategies: z.array(wireCopyStrategySchema), pricedAt: iso.nullable() });
+export const wireCopyOrderSchema = s.copyOrderSchema.extend({ signalTime: iso, createdAt: iso, updatedAt: iso });
+export const wireCopyOrdersSchema = z.object({ items: z.array(wireCopyOrderSchema) });
+const wireCopyControlEventSchema = s.copyControlEventSchema.extend({ createdAt: iso });
+export const wireAdminCopyControlSchema = s.adminCopyControlResponseSchema.extend({ event: wireCopyControlEventSchema });
+export const wireAdminCopyOverviewSchema = s.adminCopyOverviewSchema.extend({
+  platform: s.copyControlStateSchema.extend({ updatedAt: iso.nullable() }),
+  outbox: s.adminCopyOverviewSchema.shape.outbox.extend({ oldestPendingAt: iso.nullable() }),
+  events: z.array(wireCopyControlEventSchema),
+});
+const wireAdminCopyStrategySchema = s.adminCopyStrategySchema.extend({ positions: z.array(wireCopyPositionSchema), activatedAt: iso, createdAt: iso, stoppedAt: iso.nullable() });
+export const wireAdminCopyStrategiesSchema = z.object({ items: z.array(wireAdminCopyStrategySchema) });
+export const wireAdminCopyStrategyDetailSchema = s.adminCopyStrategyDetailSchema.extend({
+  strategy: wireAdminCopyStrategySchema,
+  versions: z.array(s.adminCopyStrategyDetailSchema.shape.versions.element.extend({ createdAt: iso })),
+  orders: z.array(wireCopyOrderSchema),
+  ledger: z.array(s.adminCopyStrategyDetailSchema.shape.ledger.element.extend({ createdAt: iso })),
+});
+export const wireAdminCopyOrdersSchema = z.object({ items: z.array(wireCopyOrderSchema.extend({ userEmail: z.string().nullable() })) });
+export const wireAdminCopyExposureSchema = s.adminCopyExposureResponseSchema.extend({ pricedAt: iso.nullable() });
+export const wireAdminCopyRiskSchema = s.adminCopyRiskResponseSchema.extend({
+  createdAt: iso.nullable(),
+  history: z.array(s.adminCopyRiskResponseSchema.shape.history.element.extend({ createdAt: iso })),
+});
 const outboxCounts =z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
 /** GET /actions/stream (text/event-stream). Each SSE `event:` name maps to the
  * schema of its JSON `data:`; both ends validate every event.
@@ -148,6 +174,20 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "DELETE", path: "/me/favorite-groups/:id", status: 204, auth: "user", response: z.undefined() },
   { method: "PUT", path: "/me/favorite-groups/:id/members/:address", status: 200, auth: "user", response: wireFavoriteGroupSchema },
   { method: "DELETE", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
+  { method: "GET", path: "/me/copy", status: 200, auth: "user", response: wireCopyOverviewSchema },
+  { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
+  { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "POST", path: "/me/copy/strategies/:id/funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "POST", path: "/me/copy/strategies/:id/commands", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "GET", path: "/me/copy/strategies/:id/orders", status: 200, auth: "user (owner)", response: wireCopyOrdersSchema },
+  { method: "GET", path: "/admin/copy/overview", status: 200, auth: "copy.read", response: wireAdminCopyOverviewSchema },
+  { method: "GET", path: "/admin/copy/strategies", status: 200, auth: "copy.read", response: wireAdminCopyStrategiesSchema },
+  { method: "GET", path: "/admin/copy/strategies/:id", status: 200, auth: "copy.read", response: wireAdminCopyStrategyDetailSchema },
+  { method: "GET", path: "/admin/copy/orders", status: 200, auth: "copy.read", response: wireAdminCopyOrdersSchema },
+  { method: "GET", path: "/admin/copy/exposure", status: 200, auth: "copy.read", response: wireAdminCopyExposureSchema },
+  { method: "POST", path: "/admin/copy/controls", status: 201, auth: "execution.pause (resume: execution.resume); 409 stale_revision", response: wireAdminCopyControlSchema },
+  { method: "GET", path: "/admin/copy/risk", status: 200, auth: "copy.read", response: wireAdminCopyRiskSchema },
+  { method: "PUT", path: "/admin/copy/risk", status: 200, auth: "risk.manage; 409 stale_version", response: wireAdminCopyRiskSchema },
   { method: "GET", path: "/kols/:address/avatar", status: 200, auth: "public; image bytes, 304 on If-None-Match", response: z.never(),
     binary: { contentTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"] } },
 ];
@@ -181,3 +221,14 @@ export type WireCohortDetail = z.infer<typeof wireCohortDetailSchema>;
 export type WireCohortHistory = z.infer<typeof wireCohortHistorySchema>;
 export type WireWallet = z.infer<typeof wireWalletSchema>;
 export type WireWalletHistory = z.infer<typeof wireWalletHistorySchema>;
+export type WireCopyOverview = z.infer<typeof wireCopyOverviewSchema>;
+export type WireCopyStrategy = z.infer<typeof wireCopyStrategySchema>;
+export type WireCopyOrder = z.infer<typeof wireCopyOrderSchema>;
+export type WireCopyOrders = z.infer<typeof wireCopyOrdersSchema>;
+export type WireAdminCopyOverview = z.infer<typeof wireAdminCopyOverviewSchema>;
+export type WireAdminCopyStrategies = z.infer<typeof wireAdminCopyStrategiesSchema>;
+export type WireAdminCopyStrategyDetail = z.infer<typeof wireAdminCopyStrategyDetailSchema>;
+export type WireAdminCopyOrders = z.infer<typeof wireAdminCopyOrdersSchema>;
+export type WireAdminCopyExposure = z.infer<typeof wireAdminCopyExposureSchema>;
+export type WireAdminCopyRisk = z.infer<typeof wireAdminCopyRiskSchema>;
+export type WireAdminCopyControl = z.infer<typeof wireAdminCopyControlSchema>;

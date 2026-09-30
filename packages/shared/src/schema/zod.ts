@@ -95,7 +95,7 @@ export const leaderSchema = z.object({
   tier: tierSchema,
   notes: z.string().nullable().optional(),
   active: z.boolean(),
-  source: z.enum(["import", "favorite"]).default("import"),
+  source: z.enum(["import", "favorite", "copy"]).default("import"),
   firstSeenAt: z.coerce.date(),
 });
 export type Leader = z.infer<typeof leaderSchema>;
@@ -1213,11 +1213,6 @@ export const telegramTestResponseSchema = z.object({
 });
 export type TelegramTestResponse = z.infer<typeof telegramTestResponseSchema>;
 
-// --- copy trading (panel only in Stage 2; nothing is executed) ------------
-
-export const copyDirectionSchema = z.enum(["follow", "reverse"]);
-export type CopyDirection = z.infer<typeof copyDirectionSchema>;
-
 // --- insights: crowd view (競品分析 §3.4) -------------------------------------
 
 /** GET /insights/crowd — what the tracked traders hold, per coin. Public.
@@ -1809,3 +1804,6 @@ export const kolImportResponseSchema = z.object({
   errors: z.array(z.object({ line: z.number().int(), message: z.string() })),
 });
 export type KolImportResponse = z.infer<typeof kolImportResponseSchema>;
+
+// Copy trading (Stage 4 step 3, paper mode).
+export * from "./copy.js";

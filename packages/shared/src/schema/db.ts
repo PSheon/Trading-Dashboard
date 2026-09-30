@@ -11,6 +11,14 @@ import {
   type AlertSides,
   type NotificationChannelKind,
   type AppSettingsKey,
+  type CopyControlCommand,
+  type CopyControlScope,
+  type CopyDirection,
+  type CopyLeg,
+  type CopyOrderStatus,
+  type CopySizingMode,
+  type CopyStartMode,
+  type CopyStrategyStatus,
 } from "../enums.js";
 export * from "../enums.js";
 /**
@@ -807,3 +815,258 @@ export const cohortSnapshots = pgTable(
   },
   (table) => [index("cohort_snapshots_tier_ts_idx").on(table.chain, table.tier, table.ts)],
 );
+
+// ===========================================================================
+// Copy trading, Stage 4 step 3 (paper mode). Design: docs/Stage 4 — 跟單與管理
+// （執行順序）.md §3 and docs/copy-execution-and-admin-review.md.
+// Money is numeric (USDC); sizes are numeric in coin units. No table holds a
+// key, signer or exchange credential.
+// ===========================================================================
+
+/** Immutable risk-policy versions (review A07). The newest row is in force;
+ * every order records the version it was approved under. */
+export const copyRiskPolicies = pgTable("copy_risk_policies", {
+  version: serial("version").primaryKey(),
+  limits: jsonb("limits").$type<Record<string, unknown>>().notNull(),
+  reason: text("reason"),
+  createdByUserId: integer("created_by_user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Authoritative stop state for the platform (scope 'platform', id 0) and
+ * each user (scope 'user', id = users.id). `revision` rises on every
+ * command; the execution path reads these rows inside its own transaction
+ * (FOR SHARE), never through a cache. */
+export const copyControls = pgTable("copy_controls", {
+  scope: text("scope").$type<Exclude<CopyControlScope, "strategy">>().notNull(),
+  scopeId: integer("scope_id").notNull(),
+  pauseNewRisk: boolean("pause_new_risk").notNull().default(false),
+  reduceOnly: boolean("reduce_only").notNull().default(false),
+  revision: bigint("revision", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedByUserId: integer("updated_by_user_id"),
+}, (table) => [primaryKey({ columns: [table.scope, table.scopeId] })]);
+
+/** Every stop / resume command at any level, with who, why and what it did.
+ * Admin commands are also in admin_audit_logs (same transaction). */
+export const copyControlEvents = pgTable("copy_control_events", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  scope: text("scope").$type<CopyControlScope>().notNull(),
+  scopeId: integer("scope_id").notNull(),
+  command: text("command").$type<CopyControlCommand>().notNull(),
+  revision: bigint("revision", { mode: "number" }).notNull(),
+  actorUserId: integer("actor_user_id"),
+  reason: text("reason"),
+  result: jsonb("result").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("copy_control_events_created_idx").on(table.createdAt)]);
+
+/** Per-user virtual USDC (paper mode only; never the real wallet). `balance`
+ * is what isn't allocated to a strategy. */
+export const paperAccounts = pgTable("paper_accounts", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  balance: numeric("balance").notNull(),
+  startingBalance: numeric("starting_balance").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One copy of one leader by one user. Settings live in immutable
+ * copy_strategy_versions; `version` is the one in force. Only fills at or
+ * after `activatedAt` (the activation cursor) are copied. `cash` is the
+ * strategy's isolated ledger balance: allocations + realized PnL − fees −
+ * funding; equity adds unrealized PnL of copy_positions. */
+export const copyStrategies = pgTable("copy_strategies", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  leaderAddress: text("leader_address").notNull(),
+  mode: text("mode").$type<"paper">().notNull().default("paper"),
+  status: text("status").$type<CopyStrategyStatus>().notNull().default("active"),
+  version: integer("version").notNull().default(1),
+  allocated: numeric("allocated").notNull(),
+  cash: numeric("cash").notNull(),
+  realizedPnl: numeric("realized_pnl").notNull().default("0"),
+  fees: numeric("fees").notNull().default("0"),
+  funding: numeric("funding").notNull().default("0"),
+  /** Strategy-level stop state (the owner's pause / reduce-only). */
+  pauseNewRisk: boolean("pause_new_risk").notNull().default(false),
+  reduceOnly: boolean("reduce_only").notNull().default(false),
+  controlRevision: bigint("control_revision", { mode: "number" }).notNull().default(0),
+  activatedAt: timestamp("activated_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+}, (table) => [
+  index("copy_strategies_user_idx").on(table.userId, table.status),
+  index("copy_strategies_leader_idx").on(table.chain, table.leaderAddress, table.status),
+  // One live copy per user and leader (CopyDog: "Already copying").
+  uniqueIndex("copy_strategies_live_uq").on(table.userId, table.chain, table.leaderAddress).where(sql`status <> 'stopped'`),
+]);
+
+export interface CopyStrategySettingsJson {
+  direction: CopyDirection;
+  sizingMode: CopySizingMode;
+  /** Fixed mode: USDC notional per copied open. */
+  perTradeUsd: number | null;
+  /** CopyDog `max_total_exposure`; null = allocation × 5 (CopyDog's display default). */
+  maxTotalExposureUsd: number | null;
+  /** CopyDog `max_leverage`; null = the platform cap. */
+  maxLeverage: number | null;
+  copyStartMode: CopyStartMode;
+}
+
+export const copyStrategyVersions = pgTable("copy_strategy_versions", {
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  settings: jsonb("settings").$type<CopyStrategySettingsJson>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: integer("created_by_user_id"),
+}, (table) => [primaryKey({ columns: [table.strategyId, table.version] })]);
+
+/** Execution outbox: one row per verified leader fill (fills table) of an
+ * address somebody copies, written in the fill's own insert transaction.
+ * Consumed only by the copy signal consumer; the notification outbox
+ * (action_outbox) is separate and never read here. */
+export const copySignalOutbox = pgTable("copy_signal_outbox", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  address: text("address").notNull(),
+  tid: bigint("tid", { mode: "bigint" }).notNull(),
+  fillTime: timestamp("fill_time", { withTimezone: true }).notNull(),
+  status: text("status").$type<"pending" | "done" | "failed">().notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("copy_signal_outbox_fill_uq").on(table.chain, table.address, table.tid),
+  index("copy_signal_outbox_pending_idx").on(table.status, table.id),
+]);
+
+/** The consumer's own checkpoint: the highest outbox id below which every
+ * row is done, advanced in the same transaction that marks rows done. */
+export const copyConsumerCheckpoints = pgTable("copy_consumer_checkpoints", {
+  consumer: text("consumer").primaryKey(),
+  lastOutboxId: bigint("last_outbox_id", { mode: "bigint" }).notNull().default(0n),
+  processed: bigint("processed", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Dedupe of canonical signals: a (strategy, leader fill tid, leg) is acted on
+ * at most once, whatever strategy version is current, however often the fill
+ * is replayed. `dedupeKey` records strategy:tid:leg:vN; `orderId` is the order it went
+ * into (null when skipped, with `outcome` saying why). */
+export const copySignalLegs = pgTable("copy_signal_legs", {
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  tid: bigint("tid", { mode: "bigint" }).notNull(),
+  leg: text("leg").$type<CopyLeg>().notNull(),
+  strategyVersion: integer("strategy_version").notNull(),
+  dedupeKey: text("dedupe_key").notNull(),
+  coin: text("coin").notNull(),
+  fillTime: timestamp("fill_time", { withTimezone: true }).notNull(),
+  orderId: bigint("order_id", { mode: "bigint" }),
+  outcome: text("outcome").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.strategyId, table.tid, table.leg] }),
+  index("copy_signal_legs_coin_time_idx").on(table.strategyId, table.coin, table.fillTime),
+]);
+
+/** Paper (later testnet/live) orders and their state machine. Bound at
+ * creation to the strategy version, risk-policy version and the control
+ * revisions it was approved under. */
+export const copyOrders = pgTable("copy_orders", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  /** Client order id: deterministic from the dedupe key, reused on retry. */
+  cloid: text("cloid").notNull().unique(),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull(),
+  mode: text("mode").$type<"paper">().notNull().default("paper"),
+  strategyVersion: integer("strategy_version").notNull(),
+  riskPolicyVersion: integer("risk_policy_version").notNull(),
+  leaderAddress: text("leader_address").notNull(),
+  coin: text("coin").notNull(),
+  leg: text("leg").$type<CopyLeg>().notNull(),
+  /** "B" buy / "A" sell, as Hyperliquid. */
+  side: text("side").$type<"B" | "A">().notNull(),
+  reduceOnly: boolean("reduce_only").notNull(),
+  size: numeric("size").notNull(),
+  /** Price the signal saw (leader fill px or mid at adoption). */
+  signalPx: numeric("signal_px").notNull(),
+  signalTime: timestamp("signal_time", { withTimezone: true }).notNull(),
+  signalTids: bigint("signal_tids", { mode: "bigint" }).array().notNull(),
+  status: text("status").$type<CopyOrderStatus>().notNull(),
+  reason: text("reason"),
+  /** platform / user / strategy control revisions seen at approval. */
+  controlRevisions: jsonb("control_revisions").$type<{ platform: number; user: number; strategy: number }>().notNull(),
+  filledSize: numeric("filled_size").notNull().default("0"),
+  avgPx: numeric("avg_px"),
+  fee: numeric("fee").notNull().default("0"),
+  builderFee: numeric("builder_fee").notNull().default("0"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("copy_orders_strategy_idx").on(table.strategyId, table.createdAt.desc()),
+  index("copy_orders_status_idx").on(table.status, table.id),
+]);
+
+/** Margin held for an order between approval and fill, made in the same
+ * transaction as the order; consumed on fill, released otherwise. */
+export const copyReservations = pgTable("copy_reservations", {
+  orderId: bigint("order_id", { mode: "bigint" }).primaryKey().references(() => copyOrders.id, { onDelete: "cascade" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull(),
+  coin: text("coin").notNull(),
+  notional: numeric("notional").notNull(),
+  margin: numeric("margin").notNull(),
+  status: text("status").$type<"held" | "consumed" | "released">().notNull().default("held"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+}, (table) => [index("copy_reservations_held_idx").on(table.strategyId, table.status)]);
+
+/** Simulated fills of paper orders. */
+export const copyPaperFills = pgTable("copy_paper_fills", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  orderId: bigint("order_id", { mode: "bigint" }).notNull().references(() => copyOrders.id, { onDelete: "cascade" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  coin: text("coin").notNull(),
+  side: text("side").$type<"B" | "A">().notNull(),
+  size: numeric("size").notNull(),
+  px: numeric("px").notNull(),
+  /** The mid or mark the fill started from, before slippage. */
+  basePx: numeric("base_px").notNull(),
+  priceSource: text("price_source").notNull(),
+  slippageBps: numeric("slippage_bps").notNull(),
+  fee: numeric("fee").notNull(),
+  builderFee: numeric("builder_fee").notNull(),
+  realizedPnl: numeric("realized_pnl").notNull(),
+  ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("copy_paper_fills_strategy_idx").on(table.strategyId, table.ts.desc())]);
+
+/** A strategy's own position per coin, isolated from its other strategies
+ * and from the leader's numbers. `size` is signed (long > 0). */
+export const copyPositions = pgTable("copy_positions", {
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  coin: text("coin").notNull(),
+  size: numeric("size").notNull(),
+  entryPx: numeric("entry_px").notNull(),
+  realizedPnl: numeric("realized_pnl").notNull().default("0"),
+  funding: numeric("funding").notNull().default("0"),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Funding is accrued per whole hour up to here (idempotent per hour). */
+  fundingThrough: timestamp("funding_through", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.strategyId, table.coin] })]);
+
+/** Append-only money movements of a strategy (and paper account transfers). */
+export const copyLedger = pgTable("copy_ledger", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull(),
+  kind: text("kind").$type<"allocate" | "realized_pnl" | "fee" | "builder_fee" | "funding" | "release">().notNull(),
+  amount: numeric("amount").notNull(),
+  coin: text("coin"),
+  orderId: bigint("order_id", { mode: "bigint" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("copy_ledger_strategy_idx").on(table.strategyId, table.id)]);

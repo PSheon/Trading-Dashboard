@@ -310,7 +310,8 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       await get("/t/protected", "alice-token").expect(200);
       await db.update(users).set({ embeddedWalletAddress: null }).where(eq(users.privyUserId, "did:privy:alice"));
       auth.clearCache();
-      await new Promise((r) => setTimeout(r, 5));
+      // Earlier cases leave this id inside its Privy retry window.
+      (auth as unknown as { profileRetryAt: Map<number, number> }).profileRetryAt.clear();
       privy.fetchProfile.mockClear();
       await get("/t/protected", "alice-token").expect(200);
       const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));

@@ -43,9 +43,12 @@ export function FavoritesView() {
 
   // The tab and layout follow the URL (?tab=alerts&view=list) so they can be shared.
   useEffect(() => {
-    const qs = new URLSearchParams();
+    // Other parameters (campaign tags, ?tg= in fixture mode) are kept.
+    const qs = new URLSearchParams(globalThis.location.search);
     if (tab !== "saved") qs.set("tab", tab);
+    else qs.delete("tab");
     if (view !== "grid") qs.set("view", view);
+    else qs.delete("view");
     const next = `${globalThis.location.pathname}${qs.size ? `?${qs}` : ""}`;
     if (next !== `${globalThis.location.pathname}${globalThis.location.search}`) globalThis.history.replaceState(null, "", next);
   }, [tab, view]);
@@ -346,7 +349,7 @@ function WatchlistTable({ items, groups, sort, onSort }: { items: TraderCard[]; 
               <td className="px-3 py-3"><TraderCell card={c} subtitle={<GroupTags address={c.address} groups={groups} className="mt-1.5" />} /></td>
               <td className="px-3 py-3"><CopyScoreBar score={c.copyScore} layout="bar-first" barClassName="w-10" className="justify-end" /></td>
               <td className="px-3 py-3 text-right">{plain(boardUsd(c.accountValue))}</td>
-              <td className={cn("num px-3 py-3 text-right text-sm font-medium", signTone(c.pnl))}>{c.pnl === null ? "—" : boardPnl(c.pnl)}</td>
+              <td className={cn("num px-3 py-3 text-right text-sm font-medium", signTone(c.pnl))}>{c.pnl === null ? "—" : format.usd(c.pnl, { compact: true, sign: true })}</td>
               <td className={cn("num px-3 py-3 text-right text-sm font-medium", signTone(c.roi))}>{boardRoi(c.roi)}</td>
               <td className={cn("num px-3 py-3 text-right text-sm font-medium", signTone(c.pnl30d))}>{c.pnl30d === null ? "—" : format.usd(c.pnl30d, { compact: true, sign: true })}</td>
               <td className="px-3 py-3 text-right">{plain(c.winRate === null ? "—" : format.pct(c.winRate, { digits: 1 }))}</td>

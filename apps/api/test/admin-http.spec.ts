@@ -1,3 +1,4 @@
+import { AdminUsersRepository } from "../src/admin/admin-users.repository.js";
 import { RevenueRepository } from "../src/admin/revenue.repository.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { INestApplication } from "@nestjs/common";
@@ -33,7 +34,7 @@ describe("admin routes over HTTP", () => {
       db,
       privy,
       controllers: [AdminController, PublicSettingsController],
-      providers: [
+      providers: [AdminUsersRepository,
         AdminSettingsService,
         AdminUsersService,
         AdminOverviewService,

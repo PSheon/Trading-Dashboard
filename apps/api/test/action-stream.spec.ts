@@ -1,3 +1,4 @@
+import { ActionsRepository } from "../src/api/actions/actions.repository.js";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
 import { EventEmitter2, EventEmitterModule } from "@nestjs/event-emitter";
 import { actions, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
@@ -76,7 +77,7 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
       privy,
       imports: [EventEmitterModule.forRoot()],
       controllers: [ActionsController, SlowProbeController],
-      providers: [
+      providers: [ActionsRepository,
         ActionsService,
         ActionStreamService,
         { provide: BackgroundJobs, useValue: jobs },

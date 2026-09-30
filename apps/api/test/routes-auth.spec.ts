@@ -1,3 +1,4 @@
+import { ActionsRepository } from "../src/api/actions/actions.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
 import { actions, alertRules, alerts, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
@@ -58,7 +59,7 @@ describe("route access on the existing controllers", () => {
         ListsController,
         ImportController,
       ],
-      providers: [
+      providers: [ActionsRepository,
         ActionsService,
         ActionStreamService,
         AlertsService,

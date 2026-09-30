@@ -149,3 +149,13 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Pre-rebase verification: API 59 files / 684 tests; web 19 files / 70 tests; API typecheck/lint/build, OpenAPI validation 4/4, dependency compatibility 3/3 and pnpm audit (no known vulnerabilities) passed. Compiled app's Swagger equals the offline document; readiness 200/503 and invalid DTO rejection remain green.
 - Concurrent dev advanced to c01f4e3 (Claude's Privy startup identity/skeleton fix). Rebase preserves that frontend work; backend/shared/lockfile differences from the tested branch will be checked, and combined frontend verification follows.
 - Rebased onto c01f4e3 without conflicts. Backend/shared/scripts/lockfile tree is byte-identical to the verified feature commit. Combined frontend: 19 files / 72 tests, typecheck/lint, Chromium 8/8 and production webpack build all passed. Existing optional Farcaster warning remains E18/E20. Disposable PostgreSQL cluster removed; no push, deployment, production migration or external message/trade.
+
+
+## Tenth batch — feature repositories for admin users, auth and actions (base b3bde0e)
+
+- Extracted three feature repositories and registered them privately in their modules. Re-read DonutMe's worker invitation-expiry repository as a concrete query-ownership reference. Services retain HTTP errors, authorization policy, cache and use-case sequencing.
+- Ruling: AdminUsersService owns UnitOfWork; repository methods share its transaction, including the existing audit helper. Preserve ordered admin/target row locks and invalidate auth only after commit. Cost: transaction handle remains Drizzle-specific; no generic repository or ORM migration is introduced.
+- Ruling: preserve read/query behavior during extraction, including fresh DB authorization on cache hits, insert-conflict signup, email-only refresh, compound feed cursor and SSE replay. The remaining persistence-heavy services are explicitly documented as future batches.
+- Repository-boundary tests observed RED in all three services before extraction. Existing real PostgreSQL integration tests remain the behavior gate; strengthened failed-audit test to require no cache invalidation after rollback.
+- Verification: isolated PostgreSQL API suite 60 files / 687 tests passed; API typecheck/lint/build passed; OpenAPI freshness and 4/4 specification tests passed. Compiled bootstrap verified real DI, readiness 200/503, global DTO rejection and runtime/offline Swagger equality.
+- Fresh-context final review (repository_final_review, gpt-6-astra) found no correctness/security regressions in transaction boundaries, authorization, queries or module wiring. Frontend/shared/dependencies are unchanged in this batch.

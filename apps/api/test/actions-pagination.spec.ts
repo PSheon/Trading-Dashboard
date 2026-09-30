@@ -1,3 +1,4 @@
+import { ActionsRepository } from "../src/api/actions/actions.repository.js";
 import { actions } from "@trading-dashboard/shared/database";
 import { actionsFeedQuerySchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, expect, it } from "vitest";
@@ -15,7 +16,7 @@ it("paginates equal timestamps without skips or duplicates and retains legacy be
     kind: "open" as const, side: "long", notionalUsd: "10", avgPx: "1", fillIds: [],
     ts: i === 0 ? new Date(ts.getTime() - 1000) : ts,
   }))).returning();
-  const service = new ActionsService(db);
+  const service = new ActionsService(new ActionsRepository(db));
   const ids: string[] = [];
   let query = actionsFeedQuerySchema.parse({ limit: 2 });
   for (let i = 0; i < 4; i++) {

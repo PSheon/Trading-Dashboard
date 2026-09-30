@@ -1,3 +1,4 @@
+import { AuthRepository } from "./auth.repository.js";
 import { RequestRateLimiter, IngressRateGuard, CallerRateGuard } from "./rate-limit.guard.js";
 import { APP_GUARD } from "@nestjs/core";
 import { PermissionGuard } from "./permission.guard.js";
@@ -10,7 +11,7 @@ import { PRIVY_VERIFIER, SdkPrivyVerifier } from "./privy-verifier.js";
 /** Caller resolution for the global AuthGuard. Tests replace
  * PRIVY_VERIFIER with a stub. */
 @Module({
-  providers: [RequestRateLimiter, IngressRateGuard, CallerRateGuard, AuthService, AuthGuard, PermissionGuard, { provide: PRIVY_VERIFIER, useClass: SdkPrivyVerifier }],
+  providers: [AuthRepository, RequestRateLimiter, IngressRateGuard, CallerRateGuard, AuthService, AuthGuard, PermissionGuard, { provide: PRIVY_VERIFIER, useClass: SdkPrivyVerifier }],
   exports: [IngressRateGuard, CallerRateGuard, AuthService, AuthGuard, PermissionGuard, PRIVY_VERIFIER],
 })
 export class AuthModule {}

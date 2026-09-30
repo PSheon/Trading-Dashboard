@@ -56,4 +56,11 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/admin/kols/import` | 201 | kols.manage |
 | PATCH | `/admin/kols/:address` | 200 | kols.manage |
 | DELETE | `/admin/kols/:address` | 204 | kols.manage |
+| GET | `/discover/cards` | 200 | public |
+| GET | `/me/favorite-groups` | 200 | user |
+| POST | `/me/favorite-groups` | 201 | user |
+| PATCH | `/me/favorite-groups/:id` | 200 | user |
+| DELETE | `/me/favorite-groups/:id` | 204 | user |
+| PUT | `/me/favorite-groups/:id/members/:address` | 200 | user |
+| DELETE | `/me/favorite-groups/:id/members/:address` | 204 | user |
 | GET | `/kols/:address/avatar` | 200 | public; image bytes, 304 on If-None-Match |

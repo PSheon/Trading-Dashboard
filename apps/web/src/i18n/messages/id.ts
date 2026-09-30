@@ -168,7 +168,7 @@ export const id: Messages = {
       tgIntel: "TG Intel",
       privacy: "Kebijakan privasi",
       terms: "Ketentuan",
-      rights: "© 2026 Orbie. Hak cipta dilindungi.",
+      rights: "© Orbie 2026. All rights reserved",
       soon: "Segera hadir",
     },
     headline: "Ikuti trader paling menguntungkan di Hyperliquid",

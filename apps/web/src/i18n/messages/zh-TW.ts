@@ -456,7 +456,7 @@ export const zhTW = {
       tgIntel: "TG 情報",
       privacy: "隱私政策",
       terms: "使用條款",
-      rights: "© 2026 Orbie。保留所有權利。",
+      rights: "© Orbie 2026. 版權所有",
       soon: "即將推出",
     },
     headline: "跟上 Hyperliquid 最會賺的交易員",

@@ -168,7 +168,7 @@ export const zhCN: Messages = {
       tgIntel: "TG 情报",
       privacy: "隐私政策",
       terms: "使用条款",
-      rights: "© 2026 Orbie。保留所有权利。",
+      rights: "© Orbie 2026. 版权所有",
       soon: "即将推出",
     },
     headline: "紧跟 Hyperliquid 最赚钱的交易员",

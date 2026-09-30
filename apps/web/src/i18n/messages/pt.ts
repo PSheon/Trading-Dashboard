@@ -168,7 +168,7 @@ export const pt: Messages = {
       tgIntel: "TG Intel",
       privacy: "Política de privacidade",
       terms: "Termos de uso",
-      rights: "© 2026 Orbie. Todos os direitos reservados.",
+      rights: "© Orbie 2026. All rights reserved",
       soon: "Em breve",
     },
     headline: "Acompanhe os traders mais lucrativos da Hyperliquid",

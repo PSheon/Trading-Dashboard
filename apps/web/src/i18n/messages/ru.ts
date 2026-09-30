@@ -168,7 +168,7 @@ export const ru: Messages = {
       tgIntel: "TG-аналитика",
       privacy: "Политика конфиденциальности",
       terms: "Условия использования",
-      rights: "© 2026 Orbie. Все права защищены.",
+      rights: "© Orbie 2026. All rights reserved",
       soon: "Скоро",
     },
     headline: "Следите за самыми прибыльными трейдерами Hyperliquid",

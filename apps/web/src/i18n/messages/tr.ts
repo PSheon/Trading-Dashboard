@@ -168,7 +168,7 @@ export const tr: Messages = {
       tgIntel: "TG Analiz",
       privacy: "Gizlilik politikası",
       terms: "Kullanım şartları",
-      rights: "© 2026 Orbie. Tüm hakları saklıdır.",
+      rights: "© Orbie 2026. All rights reserved",
       soon: "Yakında",
     },
     headline: "Hyperliquid'in en kârlı trader'larını takip edin",

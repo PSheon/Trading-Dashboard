@@ -168,7 +168,7 @@ export const vi: Messages = {
       tgIntel: "TG Intel",
       privacy: "Chính sách bảo mật",
       terms: "Điều khoản",
-      rights: "© 2026 Orbie. Bảo lưu mọi quyền.",
+      rights: "© Orbie 2026. All rights reserved",
       soon: "Sắp ra mắt",
     },
     headline: "Theo dõi những trader lãi nhiều nhất trên Hyperliquid",

@@ -168,7 +168,7 @@ export const ko: Messages = {
       tgIntel: "TG 인텔",
       privacy: "개인정보 처리방침",
       terms: "이용약관",
-      rights: "© 2026 Orbie. 모든 권리 보유.",
+      rights: "© Orbie 2026. All rights reserved",
       soon: "출시 예정",
     },
     headline: "Hyperliquid에서 가장 수익이 높은 트레이더를 팔로우하세요",

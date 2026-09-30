@@ -135,7 +135,8 @@ export function HomeView() {
             ))
           : null}
 
-      <SiteFooter />
+      {/* CopyDog's phone home ends with the last row (no footer). */}
+      <SiteFooter className="hidden md:block" />
     </div>
   );
 }

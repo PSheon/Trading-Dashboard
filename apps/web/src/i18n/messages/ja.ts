@@ -168,7 +168,7 @@ export const ja: Messages = {
       tgIntel: "TGインテル",
       privacy: "プライバシーポリシー",
       terms: "利用規約",
-      rights: "© 2026 Orbie. 無断複製・転載を禁じます。",
+      rights: "© Orbie 2026. All rights reserved",
       soon: "近日公開",
     },
     headline: "Hyperliquid で最も稼ぐトレーダーをフォロー",

@@ -99,6 +99,13 @@
       "when": 1790765889513,
       "tag": "0013_persistent_analysis_history",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790783588876,
+      "tag": "0014_discovery_favorites_cohorts_wallet_copy",
+      "breakpoints": true
     }
   ]
 }

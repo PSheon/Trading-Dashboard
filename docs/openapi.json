@@ -8106,6 +8106,12 @@
                             "null"
                           ]
                         },
+                        "maintenanceMarginUsed": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
                         "withdrawable": {
                           "type": [
                             "number",

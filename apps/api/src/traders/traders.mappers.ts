@@ -62,6 +62,7 @@ export interface AccountSummary {
    * total (that adds spot and staking, see `totalAccountValue`). */
   perpEquity: number;
   marginUsed: number;
+  maintenanceMarginUsed: number;
   withdrawable: number;
   longNotional: number;
   shortNotional: number;
@@ -75,6 +76,7 @@ export function summarizeAccount(states: Iterable<HlClearinghouseStateResponse>)
   const out: AccountSummary = {
     perpEquity: 0,
     marginUsed: 0,
+    maintenanceMarginUsed: 0,
     withdrawable: 0,
     longNotional: 0,
     shortNotional: 0,
@@ -83,6 +85,7 @@ export function summarizeAccount(states: Iterable<HlClearinghouseStateResponse>)
   for (const state of states) {
     out.perpEquity += num(state.marginSummary?.accountValue);
     out.marginUsed += num(state.marginSummary?.totalMarginUsed);
+    out.maintenanceMarginUsed += num(state.crossMaintenanceMarginUsed);
     out.withdrawable += num(state.withdrawable);
     for (const { position: p } of state.assetPositions ?? []) {
       const szi = num(p.szi);

@@ -238,7 +238,7 @@ function copyTrade(trade: RoundTrip): Promise<void> {
 
 /** A trade as CopyDog's mobile card: coin + side, entry → exit, "2d ago",
  * PnL and return. */
-function TradeCard({ trade, share = false }: { trade: RoundTrip; share?: boolean }) {
+export function TradeCard({ trade, share = false }: { trade: RoundTrip; share?: boolean }) {
   const pnl = shownPnl(trade);
   const roi = tradeReturnPct(trade);
   return (

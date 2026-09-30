@@ -89,18 +89,15 @@ function TraderLoaded({ address }: { address: string }) {
   const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
   const copyScore = useCopyScore(address);
-  const railFor = (identity: boolean) =>
-    live.profile ? (
-      <ProfileCard
-        profile={live.profile}
-        allTimeVolume={allTime.data?.volume ?? null}
-        trades={tradesAll.data}
-        tradesComputing={isComputing(tradesAll)}
-        identity={identity}
-        copyScore={copyScore.data?.copyScore ?? null}
-      />
-    ) : null;
-  const rail = railFor(true);
+  const rail = live.profile ? (
+    <ProfileCard
+      profile={live.profile}
+      allTimeVolume={allTime.data?.volume ?? null}
+      trades={tradesAll.data}
+      tradesComputing={isComputing(tradesAll)}
+      copyScore={copyScore.data?.copyScore ?? null}
+    />
+  ) : null;
 
   return (
     <>
@@ -116,7 +113,6 @@ function TraderLoaded({ address }: { address: string }) {
         <MobileTrader
           profile={live.profile}
           marks={live.mids}
-          insights={railFor(false)}
           portfolio={portfolio.data}
           allTime={allTimePerp.data}
           window={window}

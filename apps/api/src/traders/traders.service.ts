@@ -258,6 +258,7 @@ export class TradersService {
       address, displayName: stats?.displayName ?? null, stats, ...perp,
       perpEquity: completePerps ? perp.perpEquity : null,
       marginUsed: completePerps ? perp.marginUsed : null,
+      maintenanceMarginUsed: completePerps ? perp.maintenanceMarginUsed : null,
       withdrawable: completePerps ? perp.withdrawable : null,
       longNotional: completePerps ? perp.longNotional : null,
       shortNotional: completePerps ? perp.shortNotional : null,

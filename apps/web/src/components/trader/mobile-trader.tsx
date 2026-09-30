@@ -17,6 +17,7 @@ import { CopyScoreBar, TraderAvatar, VerifiedTick } from "@/components/discover/
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { CopyPanel } from "./copy-panel";
+import { MobileInsights } from "./mobile-insights";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf } from "@/lib/copy";
 import { signedPctCd, WINDOWS } from "./performance";
@@ -125,7 +126,6 @@ type MobileTab = "positions" | "insights" | "performance" | "trades";
 export function MobileTrader({
   profile,
   marks,
-  insights,
   portfolio,
   allTime,
   window,
@@ -135,8 +135,6 @@ export function MobileTrader({
 }: {
   profile: TraderProfileResponse;
   marks: Readonly<Record<string, number>>;
-  /** The profile rail, shown under 洞察. */
-  insights: React.ReactNode;
   /** The chart's window (perp). */
   portfolio: PortfolioResponse | undefined;
   /** All time (perp): Sharpe and drawdown. */
@@ -288,7 +286,7 @@ export function MobileTrader({
 
       <div className="-mx-1">
         {tab === "positions" ? <PositionsTab profile={profile} marks={marks} /> : null}
-        {tab === "insights" ? insights : null}
+        {tab === "insights" ? <MobileInsights profile={profile} trades={trades.data} computing={isComputing(trades)} /> : null}
         {tab === "performance" ? (
           <div className="rounded-2xl border border-border bg-card">
             <PerformanceTab

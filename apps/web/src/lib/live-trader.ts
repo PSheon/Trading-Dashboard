@@ -40,6 +40,7 @@ export interface WsClearinghouseState {
   user?: string;
   clearinghouseState: {
     marginSummary: { accountValue: string; totalMarginUsed: string };
+    crossMaintenanceMarginUsed?: string | null;
     withdrawable: string;
     assetPositions: WsAssetPosition[];
   };
@@ -80,6 +81,7 @@ export type LiveEvent =
 export interface LivePerpDex {
   perpEquity: number;
   marginUsed: number;
+  maintenanceMarginUsed: number;
   withdrawable: number;
   positions: LivePosition[];
 }
@@ -219,6 +221,7 @@ export function liveTraderReducer(state: LiveTraderState, event: LiveEvent | { t
           [dex]: {
             perpEquity: num(ch.marginSummary?.accountValue),
             marginUsed: num(ch.marginSummary?.totalMarginUsed),
+            maintenanceMarginUsed: num(ch.crossMaintenanceMarginUsed),
             withdrawable: num(ch.withdrawable),
             positions,
           },
@@ -341,6 +344,7 @@ export function deriveLiveProfile(profile: TraderProfileResponse, state: LiveTra
   const sum = (pick: (d: LivePerpDex) => number) => liveDexes.reduce((s, dex) => s + pick(state.perp[dex]), 0);
   const perpEquity = allDexesLive ? sum((d) => d.perpEquity) : profile.perpEquity;
   const marginUsed = allDexesLive ? sum((d) => d.marginUsed) : profile.marginUsed;
+  const maintenanceMarginUsed = allDexesLive ? sum((d) => d.maintenanceMarginUsed) : (profile.maintenanceMarginUsed ?? null);
   const withdrawable = allDexesLive ? sum((d) => d.withdrawable) : profile.withdrawable;
 
   const spotBalances = liveSpotBalances(profile.spotBalances, state.spot, state.mids);
@@ -359,6 +363,7 @@ export function deriveLiveProfile(profile: TraderProfileResponse, state: LiveTra
     positions,
     perpEquity,
     marginUsed,
+    maintenanceMarginUsed,
     withdrawable,
     spotBalances,
     spotValue,

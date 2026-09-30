@@ -67,6 +67,8 @@ export interface HlClearinghouseStateResponse {
     totalNtlPos: string;
     totalRawUsd: string;
   };
+  /** Maintenance margin of cross positions, USD. */
+  crossMaintenanceMarginUsed?: string;
   withdrawable: string;
   time: number;
 }

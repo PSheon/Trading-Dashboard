@@ -95,6 +95,17 @@ describe("持倉 and 成交: CopyDog's extra columns", () => {
     expect(positions[0]).toMatchObject({ side: "short", marginUsed: 480, fundingSinceOpen: -3.5, returnOnEquity: 0.4, liqPx: 2900 });
   });
 
+  it("sums the maintenance margin over dexes (CopyDog's % from liquidation)", () => {
+    const state = (maintenance?: string) => ({
+      assetPositions: [],
+      marginSummary: { accountValue: "1000", totalMarginUsed: "480", totalNtlPos: "4800", totalRawUsd: "0" },
+      crossMarginSummary: { accountValue: "1000", totalMarginUsed: "480", totalNtlPos: "4800", totalRawUsd: "0" },
+      ...(maintenance === undefined ? {} : { crossMaintenanceMarginUsed: maintenance }),
+      withdrawable: "500", time: 0,
+    });
+    expect(summarizeAccount([state("120.5"), state("30"), state()]).maintenanceMarginUsed).toBeCloseTo(150.5, 6);
+  });
+
   it("keeps a fill's starting position and liquidation flag", () => {
     const base = { coin: "HYPE", px: "40", sz: "5", side: "A" as const, time: 1, tid: 3, closedPnl: "-12", fee: "0.1", dir: "Close Long", hash: "0x1", oid: 4, crossed: true };
     expect(hlFillToTraderFill({ ...base, startPosition: "5" })).toMatchObject({ startPosition: 5, liquidation: false });

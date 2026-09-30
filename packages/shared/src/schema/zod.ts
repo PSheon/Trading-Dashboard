@@ -592,6 +592,11 @@ export const traderProfileResponseSchema = z.object({
   perpDexes: z.array(z.string()),
   /** Perp only, summed over dexes. */
   marginUsed: z.number().nullable(),
+  /** Maintenance margin in use (Hyperliquid `crossMaintenanceMarginUsed`),
+   * summed over dexes: CopyDog's "% from liquidation" is
+   * 1 − this ÷ perp equity. Additive: optional while older api builds
+   * roll out. */
+  maintenanceMarginUsed: z.number().nullable().optional(),
   withdrawable: z.number().nullable(),
   longNotional: z.number().nullable(),
   shortNotional: z.number().nullable(),

@@ -305,7 +305,7 @@ export function ProfileCard({
 
 /** CopyDog's tier icons (Remix Icon glyphs in its bundle), drawn with the
  * matching Lucide icons Orbie already uses. Break even has none there. */
-const PNL_ICON: Partial<Record<PnlTier, LucideIcon>> = {
+export const PNL_ICON: Partial<Record<PnlTier, LucideIcon>> = {
   extremely_profitable: Crown,
   very_profitable: Gem,
   profitable: CircleDollarSign,
@@ -313,7 +313,7 @@ const PNL_ICON: Partial<Record<PnlTier, LucideIcon>> = {
   very_unprofitable: Frown,
   rekt: Skull,
 };
-const SIZE_ICON: Record<SizeTier, LucideIcon> = {
+export const SIZE_ICON: Record<SizeTier, LucideIcon> = {
   apex: Orbit,
   whale: Ship,
   large: Sailboat,

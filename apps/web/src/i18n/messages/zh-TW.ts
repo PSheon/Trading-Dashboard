@@ -115,7 +115,7 @@ export const zhTW = {
   },
   home: {
     heroTitle: "跟單最優秀的加密貨幣與股票交易員",
-    heroTitleMobile: "跟單頂尖交易者",
+    heroTitleMobile: "跟單\n頂尖交易者",
     heroBrowse: "瀏覽",
     ifInvested: "如果你投入",
     youWouldHave: "今天你會有",

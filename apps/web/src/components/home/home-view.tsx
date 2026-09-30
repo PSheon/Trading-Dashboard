@@ -14,7 +14,6 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { Tooltip } from "@/components/ui/tooltip";
 import { LOCALES } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
-import { useAuth } from "@/lib/auth";
 import { boardCoinLabel, roiPillShort } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
 import { useHomeBoards, useSiteSettings } from "@/lib/queries";
@@ -37,7 +36,6 @@ export function HomeView() {
   const { t } = useI18n();
   const home = useHomeBoards();
   const settings = useSiteSettings();
-  const { status, login } = useAuth();
   const crypto = settings.data?.cryptoBoards ?? DEFAULT_CRYPTO;
   const stocks = settings.data?.stockBoards ?? DEFAULT_STOCKS;
   const label = (coin: string) => boardCoinLabel(coin, t);
@@ -59,25 +57,13 @@ export function HomeView() {
 
   return (
     <div className="flex flex-col gap-9 md:gap-11">
-      {/* Phones: CopyDog's compact title with the sign-in button. */}
-      <section className="flex items-start justify-between gap-4 md:hidden">
-        <h1 className="max-w-[9ch] text-[2rem] leading-[1.15] font-black tracking-tight">{t("home.heroTitleMobile")}</h1>
-        {status === "signedOut" || status === "disabled" ? (
-          <button
-            type="button"
-            onClick={login}
-            disabled={status === "disabled"}
-            title={status === "disabled" ? t("topbar.loginUnavailable") : undefined}
-            className="mt-1 h-11 shrink-0 rounded-full bg-primary px-5 font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-          >
-            {t("topbar.login")}
-          </button>
-        ) : null}
-      </section>
+      {/* Phones: CopyDog's compact two-line title (登入 is in Orbie's top bar,
+          which phones keep; CopyDog puts it here instead). */}
+      <h1 className="text-[2rem] leading-[1.15] font-black tracking-tight whitespace-pre-line md:hidden">{t("home.heroTitleMobile")}</h1>
 
       <section className="hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
         <div>
-          <h1 className="max-w-[10ch] text-[3.6rem] leading-[1.08] font-black tracking-tight text-balance">{t("home.heroTitle")}</h1>
+          <h1 className="max-w-[8.2em] text-[3.5rem] leading-[1.08] font-black tracking-tight">{t("home.heroTitle")}</h1>
           <Link
             href="/explore"
             className="mt-8 inline-flex h-14 items-center rounded-full bg-raised px-7 text-base font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"

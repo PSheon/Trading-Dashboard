@@ -43,8 +43,9 @@ export function VerifiedTick({ className }: { className?: string }) {
 }
 
 /** Up to five coin icons, overlapping (CopyDog's asset stack). */
-export function CoinStack({ coins, size = 14, className }: { coins: string[]; size?: number; className?: string }) {
-  if (coins.length === 0) return <span className="text-subtle-foreground">—</span>;
+/** `dash`: show "—" when there are no coins (tables); cards show nothing. */
+export function CoinStack({ coins, size = 14, className, dash = false }: { coins: string[]; size?: number; className?: string; dash?: boolean }) {
+  if (coins.length === 0) return dash ? <span className="text-subtle-foreground">—</span> : null;
   return (
     <span className={cn("inline-flex items-center", className)} title={coins.join(", ")}>
       {coins.slice(0, 5).map((coin, i) => (

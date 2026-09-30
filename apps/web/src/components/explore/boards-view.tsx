@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, LayoutGrid, List, ListFilter, Trophy, UserRound, X } from "lucide-react";
+import { Bitcoin, CandlestickChart, ChevronDown, ChevronRight, LayoutGrid, List, ListFilter, Trophy, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -282,7 +282,7 @@ function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: Bo
             value === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <CoinIcon coin={m === "crypto" ? "BTC" : "xyz:SPX"} size={16} />
+          {m === "crypto" ? <Bitcoin className="size-4" aria-hidden /> : <CandlestickChart className="size-4" aria-hidden />}
           {t(`discover.${m}`)}
         </button>
       ))}
@@ -409,7 +409,7 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
                 <CopyScoreBar score={trader.copyScore} />
               </td>
               <td className="px-3 py-3">
-                <CoinStack coins={trader.topCoins} size={18} />
+                <CoinStack coins={trader.topCoins} size={18} dash />
               </td>
               <td className={cn("num px-3 py-3 text-right", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</td>
               <td className={cn("num px-3 py-3 text-right", signTone(trader.roi))}>{boardRoi(trader.roi)}</td>

@@ -111,7 +111,7 @@ export const en: Messages = {
   },
   home: {
     heroTitle: "Copy the Best Crypto & Stock Traders",
-    heroTitleMobile: "Copy the Best Traders",
+    heroTitleMobile: "Copy the\nBest Traders",
     heroBrowse: "Browse",
     ifInvested: "If you invested",
     youWouldHave: "You would have today",

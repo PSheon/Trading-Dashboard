@@ -9,6 +9,7 @@ vi.mock("../src/lib/queries", () => ({
   isComputing: () => false,
   useTraderAnalytics: () => ({ data: undefined }),
   useTraderActivity: () => ({ data: undefined }),
+  useCopyScore: () => ({ data: undefined }),
   usePortfolio: () => ({ data: { pnl: [[1, 42]] }, isPending: false }),
   useSiteSettings: () => ({ data: undefined }),
 }));

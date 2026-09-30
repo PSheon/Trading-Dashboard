@@ -11,6 +11,11 @@ export const queryKeys = {
     list: (qs: string) => ["traders", qs] as const,
   },
   sparklines: (window: string, addresses: string) => ["sparklines", window, addresses] as const,
+  discover: {
+    boards: ["discover-board"] as const,
+    board: (qs: string) => ["discover-board", qs] as const,
+    home: ["discover-home"] as const,
+  },
   trader: {
     all: ["trader"] as const,
     profile: (address: string) => ["trader", address] as const,
@@ -22,6 +27,7 @@ export const queryKeys = {
     twap: (address: string) => ["trader-twap", address] as const,
     transfers: (address: string) => ["trader-transfers", address] as const,
     fills: (address: string, limit: number) => ["trader-fills", address, limit] as const,
+    copyScore: (address: string) => ["trader-copy-score", address] as const,
   },
   actions: {
     all: ["actions"] as const,
@@ -39,5 +45,6 @@ export const queryKeys = {
     overview: ["admin", "overview"] as const,
     rules: ["admin", "rules"] as const,
     settings: ["admin", "settings"] as const,
+    kols: ["admin", "kols"] as const,
   },
 };

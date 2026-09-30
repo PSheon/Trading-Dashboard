@@ -107,11 +107,15 @@ function LiqCell({ p, mark }: { p: LivePosition; mark: number | null }) {
   );
 }
 
+/** Leverage in the side's colour (green long, red short); the side is also
+ * in its title and for screen readers. */
 function LeverageChip({ p }: { p: LivePosition }) {
+  const { t } = useI18n();
   if (!p.leverage) return null;
+  const side = t(p.side === "long" ? "trader.sideLong" : "trader.sideShort");
   return (
-    <span className={cn("rounded px-1 py-px text-[10px] font-bold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
-      {Math.round(p.leverage)}×
+    <span title={side} className={cn("rounded px-1 py-px text-[10px] font-bold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
+      {Math.round(p.leverage)}×<span className="sr-only"> {side}</span>
     </span>
   );
 }
@@ -186,7 +190,8 @@ function PositionCard({ p, mark }: { p: LivePosition; mark: number | null }) {
 
 type PositionKey = "asset" | "size" | "value" | "entry" | "mark" | "pnl" | "liquidation" | "margin" | "funding";
 
-/** 持倉: 資產 (leverage and side) / 數量 / 價值 / 進場價 / 標記價 / 損益 (%) /
+/** 持倉: 資產 (the leverage chip's colour is the side: CopyDog hides its
+ * Long / Short badge in this table) / 數量 / 價值 / 進場價 / 標記價 / 損益 (%) /
  * 強平價 (distance) / 保證金 / 資金費, largest value first; cards on phones. */
 export function PositionsTab({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
   const { t } = useI18n();
@@ -243,7 +248,6 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
                       <CoinIcon coin={p.coin} size={18} />
                       {coinLabel(p.coin)}
                       <LeverageChip p={p} />
-                      <Badge tone={p.side === "long" ? "buy" : "sell"}>{p.side === "long" ? "Long" : "Short"}</Badge>
                     </span>
                   </TableCell>
                   <TableCell className="text-right">{qty(Math.abs(p.szi))}</TableCell>

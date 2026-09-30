@@ -1,15 +1,15 @@
 import { Suspense } from "react";
 
-import { ExploreView } from "@/components/explore/explore-view";
+import { BoardsView } from "@/components/explore/boards-view";
 import { titled } from "@/i18n/server";
 
-export const generateMetadata = titled((m) => m.explore.title);
+export const generateMetadata = titled((m) => m.discover.title);
 
 export default function ExplorePage() {
-  // useSearchParams (?q= from the top-bar search) needs a Suspense boundary.
+  // useSearchParams (?board= from the home tiles) needs a Suspense boundary.
   return (
     <Suspense>
-      <ExploreView />
+      <BoardsView />
     </Suspense>
   );
 }

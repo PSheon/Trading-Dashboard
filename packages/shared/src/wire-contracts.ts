@@ -34,7 +34,16 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
 });
-const outboxCounts = z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
+export const wireBoardTraderSchema = s.boardTraderSchema.extend({ lastTradeAt: iso.nullable() });
+export const wireBoardSchema = s.boardResponseSchema.extend({ items: z.array(wireBoardTraderSchema), updatedAt: iso.nullable() });
+export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
+  featured: z.array(wireBoardTraderSchema), crypto: z.array(wireBoardTraderSchema), stocks: z.array(wireBoardTraderSchema),
+  markets: z.array(z.object({ coin: z.string(), market: s.boardMarketSchema, items: z.array(wireBoardTraderSchema) })),
+  calculator: z.array(wireBoardTraderSchema), updatedAt: iso.nullable(),
+});
+export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso });
+export const wireCopyScoreSchema = s.copyScoreResponseSchema;
+const outboxCounts =z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
 /** GET /actions/stream (text/event-stream). Each SSE `event:` name maps to the
  * schema of its JSON `data:`; both ends validate every event.
  * - `action`: a new row, exactly as GET /actions returns it; its SSE `id:` is the action id (the resume cursor).
@@ -103,6 +112,14 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/admin/overview", status: 200, auth: "overview.read", response: s.adminOverviewSchema.extend({ generatedAt: iso }) },
   { method: "GET", path: "/admin/revenue", status: 200, auth: "revenue.read", response: s.adminRevenueResponseSchema.extend({ lastSnapshotAt: iso.nullable() }) },
   { method: "GET", path: "/admin/outbox", status: 200, auth: "admin.access", response: z.object({ evaluations: outboxCounts, deliveries: outboxCounts }) },
+  { method: "GET", path: "/traders/:address/copy-score", status: 200, auth: "public; 503 busy", response: wireCopyScoreSchema },
+  { method: "GET", path: "/discover/boards", status: 200, auth: "public", response: wireBoardSchema },
+  { method: "GET", path: "/discover/home", status: 200, auth: "public", response: wireHomeBoardsSchema },
+  { method: "GET", path: "/admin/kols", status: 200, auth: "kols.manage", response: z.array(wireKolSchema) },
+  { method: "POST", path: "/admin/kols", status: 201, auth: "kols.manage", response: wireKolSchema },
+  { method: "POST", path: "/admin/kols/import", status: 201, auth: "kols.manage", response: s.kolImportResponseSchema },
+  { method: "PATCH", path: "/admin/kols/:address", status: 200, auth: "kols.manage", response: wireKolSchema },
+  { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },
 ];
 export function findHttpContract(method: string, path: string) {
   const clean = (path.split("?")[0] ?? "").replace(/\/$/, "");
@@ -119,3 +136,8 @@ export type WireTraderTrades = z.infer<typeof wireTraderTradesSchema>;
 export type WireTraderOrders = z.infer<typeof wireTraderOrdersSchema>;
 export type WireTraderTwaps = z.infer<typeof wireTraderTwapsSchema>;
 export type WireTraderTransfers = z.infer<typeof wireTraderTransfersSchema>;
+export type WireBoardTrader = z.infer<typeof wireBoardTraderSchema>;
+export type WireBoard = z.infer<typeof wireBoardSchema>;
+export type WireHomeBoards = z.infer<typeof wireHomeBoardsSchema>;
+export type WireKol = z.infer<typeof wireKolSchema>;
+export type WireCopyScore = z.infer<typeof wireCopyScoreSchema>;

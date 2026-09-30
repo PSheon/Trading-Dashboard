@@ -69,6 +69,9 @@ const WINDOWS: TradeWindow[] = ["all", "30d", "7d", "1d"];
 export interface Cost {
   calls: number;
   weight: number;
+  /** Budgeter rank of the computation's calls; default `PAGE_RANK.fills`.
+   * The discovery pool passes an unranked value so pages go first. */
+  rank?: number;
 }
 const listWeight = (items: number) => 20 + Math.ceil(items / 20);
 
@@ -174,16 +177,20 @@ export class TradeAnalyticsService {
     return row;
   }
 
-  /** One computation per address at a time; callers share it. */
-  compute(address: string, _cold: boolean): Promise<AnalyticsRow> {
+  /** One computation per address at a time; callers share it (a page
+   * request joining a discovery computation waits at the latter's rank).
+   * `rank` defaults to the trader page's fills rank; `funding: false`
+   * (the discovery pool) skips the funding step that normally follows. */
+  compute(address: string, _cold: boolean, options: { rank?: number; funding?: boolean } = {}): Promise<AnalyticsRow> {
+    const { rank, funding = true } = options;
     const existing = this.inflight.get(address);
     if (existing) return existing;
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     if (this.inflight.size >= MAX_CONCURRENT + MAX_WAITING) return Promise.reject(new BusyException(5_000));
-    const promise = this.jobs.run(() => this.serial(address, () => this.limited(() => this.refresh(address))));
+    const promise = this.jobs.run(() => this.serial(address, () => this.limited(() => this.refresh(address, rank))));
     this.inflight.set(address, promise);
     promise
-      .then(() => this.jobs.run(() => this.serial(address, () => this.limited(() => this.fundingStep(address)))))
+      .then(() => funding ? this.jobs.run(() => this.serial(address, () => this.limited(() => this.fundingStep(address)))) : undefined)
       .catch((error: Error) => {
         if (!(error instanceof BusyException)) this.logger.warn(`Trade analytics for ${address} failed: ${error.message}`);
       })
@@ -228,9 +235,9 @@ export class TradeAnalyticsService {
 
   /** Brings the address's trades and summary up to date (cold, incremental
    * or, when tracked, a rebuild from our fills). */
-  async refresh(address: string): Promise<AnalyticsRow> {
+  async refresh(address: string, rank?: number): Promise<AnalyticsRow> {
     const started = Date.now();
-    const cost: Cost = { calls: 0, weight: 0 };
+    const cost: Cost = { calls: 0, weight: 0, rank };
     const [state, tracked] = await Promise.all([this.repository.state(address), this.traders.isTracked(address)]);
     const live = await this.liveAccount(address, cost);
     let kind: ComputeLog["kind"];
@@ -331,8 +338,8 @@ export class TradeAnalyticsService {
       latest: async () => latest,
       range: async (start, end) => {
         const batch = twap
-          ? (await this.info.userTwapSliceFillsByTime(address, start, end, LANE, RANK)).map(twapSliceToFill)
-          : await this.info.userFillsByTime(address, start, end, LANE, RANK);
+          ? (await this.info.userTwapSliceFillsByTime(address, start, end, LANE, cost.rank ?? RANK)).map(twapSliceToFill)
+          : await this.info.userFillsByTime(address, start, end, LANE, cost.rank ?? RANK);
         cost.calls += 1;
         cost.weight += listWeight(batch.length);
         return batch;
@@ -374,8 +381,8 @@ export class TradeAnalyticsService {
       const start = latestOf(cached).time ?? now - FILLS_TTL_MS;
       const result = await readForward(async (since) => {
         const batch = isTwap
-          ? (await this.info.userTwapSliceFillsByTime(address, since, now, LANE, RANK)).map(twapSliceToFill)
-          : await this.info.userFillsByTime(address, since, now, LANE, RANK);
+          ? (await this.info.userTwapSliceFillsByTime(address, since, now, LANE, cost.rank ?? RANK)).map(twapSliceToFill)
+          : await this.info.userFillsByTime(address, since, now, LANE, cost.rank ?? RANK);
         cost.calls += 1;
         cost.weight += listWeight(batch.length);
         return batch;
@@ -414,8 +421,8 @@ export class TradeAnalyticsService {
     const read = (twap: boolean) =>
       readForward(async (start) => {
         const batch = twap
-          ? (await this.info.userTwapSliceFillsByTime(address, start, until, LANE, RANK)).map(twapSliceToFill)
-          : await this.info.userFillsByTime(address, start, until, LANE, RANK);
+          ? (await this.info.userTwapSliceFillsByTime(address, start, until, LANE, cost.rank ?? RANK)).map(twapSliceToFill)
+          : await this.info.userFillsByTime(address, start, until, LANE, cost.rank ?? RANK);
         cost.calls += 1;
         cost.weight += listWeight(batch.length);
         return batch;
@@ -502,7 +509,7 @@ export class TradeAnalyticsService {
         cost.weight += 20;
       }
       const dexes = await this.traders.perpDexes();
-      const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, RANK)));
+      const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE, cost.rank ?? RANK)));
       cost.calls += states.length;
       cost.weight += 2 * states.length;
       const positions = new Map<string, number>();

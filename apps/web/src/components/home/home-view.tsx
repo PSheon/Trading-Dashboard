@@ -1,314 +1,351 @@
 "use client";
 
-import { useQueries } from "@tanstack/react-query";
-import type { TraderProfileResponse } from "@/lib/contracts";
-import { ChevronRight, Trophy } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Globe, Info, Trophy, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
+import { Wordmark, OrbieMark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
-import { ErrorState, Panel, SectionHeader, Skeleton } from "@/components/page";
-import { AddressAvatar } from "@/components/traders/address-avatar";
-import { RoiPill } from "@/components/traders/bits";
+import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
+import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
+import { ErrorState, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
-import { TraderCard, TraderCardSkeleton, type TraderCardData } from "@/components/traders/trader-card";
-import { TraderName } from "@/components/traders/trader-name";
-import { TradersTable } from "@/components/traders/traders-table";
-import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
+import { LOCALES } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
-import { traderProfileOptions } from "@/lib/trader-query-options";
-import { coinDex, coinLabel, toNumber } from "@/lib/format";
-import { useSiteSettings, useSparklines, useTraders } from "@/lib/queries";
-import { useLiveMids } from "@/lib/use-live-mids";
-import { useNow } from "@/lib/use-now";
+import { boardCoinLabel, roiPillShort } from "@/lib/board-format";
+import type { BoardTrader } from "@/lib/contracts";
+import { useHomeBoards, useSiteSettings } from "@/lib/queries";
+import { useChangeLocale } from "@/lib/use-change-locale";
 
+const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
+const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
+
+const exploreHref = (board: string, sort: string, market?: "stocks") =>
+  `/explore?${new URLSearchParams({ ...(market ? { market } : {}), ...(board !== "top100" ? { board } : {}), ...(sort !== "copyScore" ? { sort } : {}) })}`;
+
+/**
+ * Home (Stage 3 §0.5, CopyDog's /hyperliquid): hero and the $1,000
+ * calculator (all-time ROI), 依市場瀏覽 tiles, carousel rows (精選 KOLs, top
+ * crypto, top stocks, one per market) and the footer. Every row comes from
+ * one GET /discover/home. Phones: compact title, two tile rows, no
+ * calculator, three compact cards per screen.
+ */
 export function HomeView() {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
+  const home = useHomeBoards();
   const settings = useSiteSettings();
-  const top = useTraders({ window: "month", sort: "pnl", order: "desc", limit: 10, offset: 0 });
+  const crypto = settings.data?.cryptoBoards ?? DEFAULT_CRYPTO;
+  const stocks = settings.data?.stockBoards ?? DEFAULT_STOCKS;
+  const label = (coin: string) => boardCoinLabel(coin, t);
 
-  // Featured: the admin's list (Stage 2 §6), else the top 10 by 30-day PnL.
-  // `active` is left to the api, which applies the admin's
-  // discovery.defaultActiveWithin (§12), so 30-day holders stay off home.
-  const featuredAddresses = settings.data?.featuredAddresses ?? [];
-  const featuredProfiles = useQueries({
-    queries: featuredAddresses.map((address) => ({
-      ...traderProfileOptions(address.toLowerCase()),
-      staleTime: 60_000,
-      refetchInterval: false as const,
-    })),
-  });
-
-  const featured: TraderCardData[] | undefined = useMemo(() => {
-    if (!settings.data) return undefined;
-    if (featuredAddresses.length > 0) {
-      if (featuredProfiles.some((q) => q.isPending)) return undefined;
-      return featuredProfiles
-        .map((q) => q.data)
-        .filter((p): p is TraderProfileResponse => Boolean(p))
-        .map((p) => ({
-          address: p.address,
-          displayName: p.displayName,
-          isVault: p.isVault,
-          pnl: p.stats?.pnl.month ?? null,
-          roi: p.stats?.roi.month ?? null,
-          activity: p.stats?.activity ?? null,
-        }));
-    }
-    return top.data?.items.map((s) => ({
-      address: s.address,
-      displayName: s.displayName,
-      isVault: s.isVault,
-      pnl: s.pnl.month,
-      roi: s.roi.month,
-      activity: s.activity,
-    }));
-  }, [settings.data, featuredAddresses.length, featuredProfiles, top.data]);
-
-  const sparkAddresses = useMemo(() => {
-    const set = new Set<string>();
-    featured?.forEach((f) => set.add(f.address));
-    top.data?.items.forEach((s) => set.add(s.address));
-    return [...set].slice(0, 30);
-  }, [featured, top.data]);
-  const sparklines = useSparklines(sparkAddresses, "month");
-
-  // Live mark prices on the market chips: `allMids` isn't user-specific, so
-  // the home page may subscribe to it (one message per dex every few s).
-  const homeMarkets = useMemo(() => settings.data?.homeMarkets ?? [], [settings.data]);
-  const mids = useLiveMids(useMemo(() => [...new Set(homeMarkets.map((m) => coinDex(m) ?? ""))], [homeMarkets]));
-  const now = useNow();
-  const boardNote = top.data?.updatedAt ? (
-    <span className="num text-xs font-normal tracking-normal text-subtle-foreground">
-      {t("home.leaderboardSource", { time: format.relative(top.data.updatedAt, now) })}
-    </span>
-  ) : null;
+  const rows = home.data
+    ? [
+        { key: "featured", title: t("home.featured"), href: exploreHref("kol", "copyScore"), items: home.data.featured },
+        { key: "crypto", title: t("home.topCrypto"), href: exploreHref("top100", "copyScore"), items: home.data.crypto },
+        { key: "stocks", title: t("home.topStock"), href: exploreHref("top100", "pnl", "stocks"), items: home.data.stocks },
+        ...home.data.markets.map((m) => ({
+          key: m.coin,
+          title: label(m.coin),
+          coin: m.coin,
+          href: exploreHref(m.coin, "pnl", m.market === "stocks" ? "stocks" : undefined),
+          items: m.items,
+        })),
+      ]
+    : null;
 
   return (
-    <div className="flex flex-col gap-10 md:gap-12">
-      <section className="grid items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
-        <div className="pt-2 lg:pt-6">
-          <p className="font-wordmark text-lg font-semibold tracking-[-0.02em] text-primary">
-            {t("meta.tagline")}
-          </p>
-          <h1 className="mt-3 max-w-[15ch] text-[2.35rem] leading-[1.08] font-black tracking-tight text-balance md:text-[3.4rem]">
-            {t("home.headline")}
-          </h1>
-          <p className="mt-4 max-w-lg text-[0.9375rem] leading-relaxed text-muted-foreground">
-            {t("home.subhead")}
-          </p>
-          <Button asChild variant="secondary" size="lg" className="mt-7 h-12 px-6">
-            <Link href="/explore">
-              {t("home.browse")}
-              <ChevronRight />
-            </Link>
-          </Button>
-        </div>
-        <HeroCard traders={featured} sparklines={sparklines.data} />
-      </section>
+    <div className="flex flex-col gap-9 md:gap-11">
+      {/* Phones: CopyDog's compact two-line title (登入 is in Orbie's top bar,
+          which phones keep; CopyDog puts it here instead). */}
+      <h1 className="text-[2rem] leading-[1.15] font-black tracking-tight whitespace-pre-line md:hidden">{t("home.heroTitleMobile")}</h1>
 
-      <section>
-        <SectionHeader title={t("home.byMarket")} />
-        <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 no-scrollbar md:mx-0 md:px-0">
-          <MarketChip href="/explore" label={t("home.markets.top100")} hint={t("home.markets.top100")}>
-            <span className="flex size-9 items-center justify-center rounded-full bg-primary-soft text-primary">
-              <Trophy className="size-[18px]" />
-            </span>
-          </MarketChip>
-          {homeMarkets.map((market) => (
-            <MarketChip
-              key={market}
-              href={`/insights?coin=${encodeURIComponent(market)}`}
-              label={coinLabel(market)}
-              hint={t("home.marketHint", { market: coinLabel(market) })}
-              price={mids[market]}
-            >
-              <CoinIcon coin={market} size={36} />
-            </MarketChip>
-          ))}
-          {!settings.data
-            ? Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="size-[104px] shrink-0 rounded-2xl" />)
-            : null}
+      <section className="hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
+        <div>
+          <h1 className="max-w-[8.2em] text-[3.5rem] leading-[1.08] font-black tracking-tight">{t("home.heroTitle")}</h1>
+          <Link
+            href="/explore"
+            className="mt-8 inline-flex h-14 items-center rounded-full bg-raised px-7 text-base font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("home.heroBrowse")}
+          </Link>
+        </div>
+        <div className="hidden lg:block">
+          {home.data ? <Calculator traders={home.data.calculator} /> : <Skeleton className="h-[266px] rounded-3xl" />}
         </div>
       </section>
 
       <section>
-        <SectionHeader
-          title={<SourcedTitle title={t("home.featured")} note={boardNote} />}
-          action={
-            <Button asChild variant="secondary" size="sm">
-              <Link href="/explore">{t("common.viewAll")}</Link>
-            </Button>
-          }
-        />
-        <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 no-scrollbar md:mx-0 md:px-0">
-          {featured
-            ? featured.map((trader) => (
-                <TraderCard key={trader.address} trader={trader} series={sparklines.data?.[trader.address]} />
-              ))
-            : Array.from({ length: 7 }, (_, i) => <TraderCardSkeleton key={i} />)}
+        <h2 className="mb-3.5 text-lg font-bold tracking-tight md:text-xl">{t("home.byMarket")}</h2>
+        {/* Desktop: one scrolling row of square tiles. */}
+        <div className="hidden md:block">
+          <HScroll label={t("home.byMarket")}>
+            <Tile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<BoardIcon kind="top100" />} />
+            <Tile href={exploreHref("kol", "copyScore")} label={t("home.kols")} icon={<BoardIcon kind="kol" />} />
+            {crypto.map((c) => <Tile key={c} href={exploreHref(c, "pnl")} label={label(c)} icon={<CoinIcon coin={c} size={34} />} />)}
+            {stocks.map((c) => <Tile key={c} href={exploreHref(c, "pnl", "stocks")} label={label(c)} icon={<CoinIcon coin={c} size={34} />} />)}
+          </HScroll>
+        </div>
+        {/* Phones: Top 100 and KOL pills, then a crypto and a stock row. */}
+        <div className="flex flex-col gap-3 md:hidden">
+          <div className="grid grid-cols-2 gap-3">
+            <WideTile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<Trophy className="size-5 text-primary" />} />
+            <WideTile href={exploreHref("kol", "copyScore")} label={t("home.kols")} icon={<UserRound className="size-5 text-primary" />} />
+          </div>
+          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 no-scrollbar">
+            {crypto.map((c) => <Tile key={c} href={exploreHref(c, "pnl")} label={label(c)} icon={<CoinIcon coin={c} size={30} />} small />)}
+          </div>
+          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 no-scrollbar">
+            {stocks.map((c) => <Tile key={c} href={exploreHref(c, "pnl", "stocks")} label={label(c)} icon={<CoinIcon coin={c} size={30} />} small />)}
+          </div>
         </div>
       </section>
 
-      <section>
-        <SectionHeader
-          title={<SourcedTitle title={t("home.topTraders")} note={boardNote} />}
-          action={
-            <Button asChild variant="secondary" size="sm">
-              <Link href="/explore">{t("common.viewAll")}</Link>
-            </Button>
-          }
-        />
-        <Panel className="overflow-hidden">
-          {top.isError ? (
-            <ErrorState message={top.error.message} onRetry={() => top.refetch()} />
-          ) : top.data ? (
-            <TradersTable rows={top.data.items} window="month" sparklines={sparklines.data ?? {}} />
-          ) : (
-            <div className="flex flex-col gap-2 p-5">
-              {Array.from({ length: 6 }, (_, i) => (
-                <Skeleton key={i} className="h-10" />
-              ))}
-            </div>
-          )}
-        </Panel>
-      </section>
+      {home.isError && !home.data ? <ErrorState message={t("discover.error")} onRetry={() => home.refetch()} /> : null}
+
+      {rows
+        ? rows
+            .filter((row) => row.items.length > 0)
+            .map((row) => (
+              <section key={row.key}>
+                <RowHeader title={row.title} coin={"coin" in row ? row.coin : undefined} href={row.href} />
+                <HScroll label={row.title}>
+                  {row.items.map((trader) => <HomeCard key={trader.address} trader={trader} />)}
+                </HScroll>
+              </section>
+            ))
+        : !home.isError
+          ? Array.from({ length: 3 }, (_, i) => (
+              <section key={i}>
+                <Skeleton className="mb-3.5 h-7 w-40" />
+                <div className="flex gap-3 overflow-hidden">
+                  {Array.from({ length: 7 }, (_, j) => <HomeCardSkeleton key={j} />)}
+                </div>
+              </section>
+            ))
+          : null}
+
+      <Footer />
     </div>
   );
 }
 
-/** A section title with where its numbers come from beside it. */
-function SourcedTitle({ title, note }: { title: string; note: React.ReactNode }) {
+function BoardIcon({ kind }: { kind: "top100" | "kol" }) {
+  const Icon = kind === "top100" ? Trophy : UserRound;
   return (
-    <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
-      {title}
-      {note}
+    <span className="flex size-[34px] items-center justify-center rounded-full bg-primary-soft text-primary">
+      <Icon className="size-[18px]" />
     </span>
   );
 }
 
-function MarketChip({
-  href,
-  label,
-  hint,
-  price,
-  children,
-}: {
-  href: string;
-  label: string;
-  hint: string;
-  /** Live mid from Hyperliquid's WebSocket, when it has arrived. */
-  price?: number;
-  children: React.ReactNode;
-}) {
-  const { format } = useI18n();
+function Tile({ href, label, icon, small = false }: { href: string; label: string; icon: React.ReactNode; small?: boolean }) {
   return (
     <Link
       href={href}
-      title={hint}
-      className="flex size-[104px] shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-2xl bg-raised text-[0.8125rem] font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "flex shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-card text-[0.8125rem] font-semibold outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring",
+        small ? "size-[82px]" : "size-[104px]",
+      )}
     >
-      {children}
-      <span className="flex max-w-[88px] flex-col items-center leading-tight">
-        <span className="max-w-full truncate">{label}</span>
-        {price !== undefined ? (
-          <span className="num max-w-full truncate text-[10.5px] font-medium text-muted-foreground">{format.price(price)}</span>
-        ) : null}
-      </span>
+      {icon}
+      <span className="max-w-[90%] truncate">{label}</span>
     </Link>
   );
 }
 
-/** "If you had put in $1,000 thirty days ago…" for the featured traders. */
-function HeroCard({
-  traders,
-  sparklines,
-}: {
-  traders: TraderCardData[] | undefined;
-  sparklines: Record<string, [number, number][]> | undefined;
-}) {
-  const { t, format } = useI18n();
-  const [index, setIndex] = useState(0);
-  const [amountText, setAmountText] = useState("1000");
-
-  const candidates = (traders ?? []).filter((tr) => (tr.roi ?? 0) > 0).slice(0, 6);
-  if (!traders) return <Skeleton className="h-[292px] rounded-3xl" />;
-  if (candidates.length === 0) return null;
-
-  const trader = candidates[index % candidates.length];
-  const amount = Math.max(0, toNumber(amountText.replace(/[^\d.]/g, "")) ?? 0);
-  const result = amount * (1 + (trader.roi ?? 0));
-
+function WideTile({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
   return (
-    <Panel className="overflow-hidden rounded-3xl bg-card/80">
+    <Link
+      href={href}
+      className="flex h-[52px] items-center gap-2.5 rounded-2xl border border-border bg-card px-4 font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {icon}
+      {label}
+    </Link>
+  );
+}
+
+function RowHeader({ title, coin, href }: { title: string; coin?: string; href: string }) {
+  const { t } = useI18n();
+  return (
+    <div className="mb-3.5 flex items-center justify-between gap-3">
+      <h2 className="flex items-center gap-2 text-lg font-bold tracking-tight md:text-xl">
+        {coin ? <CoinIcon coin={coin} size={24} /> : null}
+        {title}
+      </h2>
+      <Link
+        href={href}
+        aria-label={`${t("home.seeAll")} · ${title}`}
+        className="flex h-9 items-center justify-center rounded-full bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring max-md:w-9 md:px-4"
+      >
+        <span className="hidden md:inline">{t("home.seeAll")}</span>
+        <ArrowRight className="size-4 md:hidden" />
+      </Link>
+    </div>
+  );
+}
+
+/** CopyDog's calculator series: the sparkline rescaled from the amount to
+ * the result (never below half the amount). */
+function scaled(amount: number, roi: number, sparkline: number[]): Array<readonly [number, number]> {
+  const result = amount * (1 + roi);
+  if (sparkline.length < 3) return [];
+  const first = sparkline[0];
+  const span = sparkline[sparkline.length - 1] - first || 1;
+  return sparkline.map((v, i) => [i, Math.max(amount * 0.5, amount + ((v - first) / span) * (result - amount))] as const);
+}
+
+/** "If you invested $1,000 … you would have today": six traders, all-time ROI. */
+function Calculator({ traders }: { traders: BoardTrader[] }) {
+  const { t } = useI18n();
+  const [index, setIndex] = useState(0);
+  const [amount, setAmount] = useState(1000);
+  const [hover, setHover] = useState<number | null>(null);
+  const trader = traders.length > 0 ? traders[index % traders.length] : null;
+  const series = useMemo(() => (trader ? scaled(amount, trader.roi ?? 0, trader.sparkline) : []), [trader, amount]);
+  if (!trader) return null;
+  const result = amount * (1 + (trader.roi ?? 0));
+  const shown = hover !== null && series[hover] ? series[hover][1] : result;
+  const change = amount > 0 ? shown / amount - 1 : 0;
+  const up = change >= 0;
+  const Arrow = up ? ArrowUpRight : ArrowDownRight;
+  return (
+    <section className="overflow-hidden rounded-3xl border border-border bg-card">
       <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
-        <Link
-          href={`/trader/${trader.address}`}
-          className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <AddressAvatar seed={trader.address} size={30} />
-          <span className="min-w-0">
-            <span className="block text-[11px] text-muted-foreground">{t("home.heroFollowing")}</span>
-            <span className="flex min-w-0 text-sm font-semibold">
-              <TraderName trader={trader} />
-            </span>
-          </span>
+        <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <TraderAvatar trader={trader} size={32} />
+          <span className="truncate font-semibold">{boardName(trader)}</span>
+          {trader.verified ? <VerifiedTick /> : null}
         </Link>
-        <div className="ml-auto flex items-center gap-1.5" aria-hidden>
-          {candidates.map((c, i) => (
-            <span
+        <div className="ml-auto flex items-center gap-1.5" role="group" aria-label={t("home.nextTrader")}>
+          {traders.map((c, i) => (
+            <button
               key={c.address}
-              className={cn(
-                "h-1.5 rounded-full transition-all",
-                i === index % candidates.length ? "w-5 bg-foreground" : "w-1.5 bg-border-strong",
-              )}
+              type="button"
+              aria-label={t("home.traderN", { n: String(i + 1) })}
+              aria-current={i === index % traders.length}
+              onClick={() => setIndex(i)}
+              className={cn("h-1.5 rounded-full transition-all", i === index % traders.length ? "w-5 bg-foreground" : "w-1.5 bg-border-strong")}
             />
           ))}
         </div>
-        <Button
-          variant="secondary"
-          size="icon-sm"
-          aria-label={t("common.next")}
-          onClick={() => setIndex((i) => (i + 1) % candidates.length)}
+        <button
+          type="button"
+          aria-label={t("home.nextTrader")}
+          onClick={() => setIndex((i) => (i + 1) % traders.length)}
+          className="flex size-8 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <ChevronRight />
-        </Button>
+          <ChevronRight className="size-4" />
+        </button>
       </div>
-      <div className="grid gap-5 p-5 sm:grid-cols-[190px_minmax(0,1fr)]">
+      <div className="grid grid-cols-[170px_minmax(0,1fr)] gap-5 p-5">
         <div className="flex flex-col gap-2">
-          <label htmlFor="hero-amount" className="text-xs text-muted-foreground">
-            {t("home.heroInvest")}
-          </label>
-          <div className="flex h-12 items-center rounded-full bg-raised px-4 focus-within:ring-2 focus-within:ring-ring">
+          <label htmlFor="calc-amount" className="text-xs text-muted-foreground">{t("home.ifInvested")}</label>
+          <div className="flex h-12 items-center rounded-2xl bg-raised px-4 focus-within:ring-2 focus-within:ring-ring">
             <span className="text-lg font-semibold text-subtle-foreground">$</span>
             <input
-              id="hero-amount"
-              inputMode="decimal"
-              value={amountText}
-              onChange={(e) => setAmountText(e.target.value.replace(/[^\d.]/g, "").slice(0, 12))}
+              id="calc-amount"
+              inputMode="numeric"
+              value={amount.toLocaleString("en-US")}
+              onChange={(e) => setAmount(Math.min(1_000_000, Number(e.target.value.replace(/[^0-9]/g, "")) || 0))}
               className="num ml-1.5 w-full bg-transparent text-xl font-bold outline-none"
             />
           </div>
-          <span className="mt-2 text-xs text-muted-foreground">{t("home.heroToday")}</span>
-          <div className="flex h-12 items-center rounded-full bg-positive-soft px-4">
-            <span className="num truncate text-xl font-bold text-positive">
-              {format.usd(result, { digits: 0 })}
-            </span>
+          <span className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+            {hover !== null ? t("home.youWouldHaveHad") : t("home.youWouldHave")}
+            <Tooltip content={t("home.calculatorTip")}>
+              <span tabIndex={0} className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("home.calculatorTip")}>
+                <Info className="size-3.5" />
+              </span>
+            </Tooltip>
+          </span>
+          <div className="flex h-12 items-center rounded-2xl bg-positive-soft px-4" aria-live="polite">
+            <span className="num truncate text-xl font-bold text-positive">${Math.round(shown).toLocaleString("en-US")}</span>
           </div>
         </div>
-        <div className="relative min-h-[150px]">
-          <RoiPill value={trader.roi} className="absolute top-0 left-0 z-10" />
-          <AreaChart
-            data={sparklines?.[trader.address] ?? []}
-            height={170}
-            strokeWidth={2}
-            zeroLine
-            formatValue={(v) => format.usd(v, { compact: true })}
-          />
+        <div className="relative min-h-[150px]" onMouseLeave={() => setHover(null)}>
+          <span className={cn("num absolute top-0 left-0 z-10 inline-flex h-6 items-center gap-0.5 rounded-md px-1.5 text-xs font-bold", up ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+            <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
+            {roiPillShort(change)}
+          </span>
+          <HoverChart series={series} onHover={setHover} />
         </div>
       </div>
-      <p className="border-t border-border px-5 py-2.5 text-[11px] text-subtle-foreground">{t("home.heroNote")}</p>
-    </Panel>
+    </section>
+  );
+}
+
+function HoverChart({ series, onHover }: { series: Array<readonly [number, number]>; onHover: (i: number | null) => void }) {
+  const { format } = useI18n();
+  return (
+    <div
+      className="h-full"
+      onPointerMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const f = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        onHover(series.length > 1 ? Math.round(f * (series.length - 1)) : null);
+      }}
+    >
+      <AreaChart data={series} height={170} strokeWidth={2} zeroBaseline={false} formatValue={(v) => format.usd(v, { compact: true })} />
+    </div>
+  );
+}
+
+/** CopyDog's footer: brand, tagline, language; 資源 and 社群 columns;
+ * copyright and legal links. Pages Orbie doesn't have yet are shown as
+ * "coming soon" rather than linking to a 404. */
+function Footer() {
+  const { t, locale } = useI18n();
+  const changeLocale = useChangeLocale();
+  const next = LOCALES.find((l) => l !== locale) ?? locale;
+  const soon = (label: string) => (
+    <span className="cursor-default text-subtle-foreground/70" title={t("home.footer.soon")}>
+      {label}
+    </span>
+  );
+  return (
+    <footer className="mt-4 border-t border-border pt-8 pb-4 text-sm">
+      <div className="grid gap-8 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="flex flex-col items-start gap-3">
+          <span className="flex items-center gap-2 text-foreground">
+            <OrbieMark size={28} />
+            <Wordmark className="text-2xl" />
+          </span>
+          <p className="text-muted-foreground">{t("home.footer.tagline")}</p>
+          <button
+            type="button"
+            onClick={() => changeLocale(next)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-raised px-3.5 text-[0.8125rem] font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Globe className="size-4" />
+            {t(`locales.${locale}`)}
+          </button>
+        </div>
+        <nav aria-label={t("home.footer.resources")} className="flex flex-col gap-2.5">
+          <span className="font-semibold">{t("home.footer.resources")}</span>
+          <Link href="/methodology" className="text-muted-foreground hover:text-foreground">{t("home.footer.about")}</Link>
+          <Link href="/insights" className="text-muted-foreground hover:text-foreground">{t("home.footer.live")}</Link>
+          {soon(t("home.footer.faq"))}
+        </nav>
+        <nav aria-label={t("home.footer.community")} className="flex flex-col gap-2.5">
+          <span className="font-semibold">{t("home.footer.community")}</span>
+          {soon(t("home.footer.x"))}
+          <a href="https://t.me/orbie_fun_bot" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">
+            {t("home.footer.telegram")}
+          </a>
+          {soon(t("home.footer.email"))}
+          {soon(t("home.footer.tgIntel"))}
+        </nav>
+      </div>
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-xs text-subtle-foreground">
+        <span>{t("home.footer.rights")}</span>
+        <span className="flex gap-4">
+          {soon(t("home.footer.privacy"))}
+          {soon(t("home.footer.terms"))}
+        </span>
+      </div>
+    </footer>
   );
 }

@@ -1,0 +1,141 @@
+import type {
+  BoardMarket,
+  BoardQuery,
+  BoardResponse,
+  BoardSort,
+  BoardTrader,
+  BoardWindow,
+  TradingStyle,
+} from "@trading-dashboard/shared/contracts";
+import { tradingStyleSchema } from "@trading-dashboard/shared/contracts";
+
+import { isStockCoin, realized } from "./discovery-figures.js";
+import type { BoardSourceRow } from "./discovery.repository.js";
+import { kolAvatarUrl } from "./kol-csv.js";
+
+/** CopyDog shows a fixed top 100 per board, no paging. */
+export const BOARD_SIZE = 100;
+
+const num = (v: string | number | null | undefined): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** A pool row as a card, before the board picks its PnL / ROI. */
+export interface Candidate {
+  row: BoardSourceRow;
+  card: Omit<BoardTrader, "pnl" | "roi" | "sparkline">;
+}
+
+export function toCandidate(row: BoardSourceRow): Candidate {
+  const kol = row.kolVerified !== null;
+  const style = tradingStyleSchema.safeParse(row.style);
+  return {
+    row,
+    card: {
+      address: row.address,
+      displayName: (kol ? row.kolName : null) ?? row.leaderboardName ?? null,
+      avatarUrl: kol ? kolAvatarUrl({ avatarUrl: row.kolAvatarUrl, xHandle: row.kolXHandle }) : null,
+      xHandle: kol ? row.kolXHandle : null,
+      verified: kol ? Boolean(row.kolVerified) : false,
+      kol,
+      accountValue: num(row.leaderboardAccountValue) ?? num(row.accountValue),
+      copyScore: row.copyScore,
+      style: style.success ? style.data : null,
+      topCoins: row.topCoins,
+      lastTradeAt: row.lastTradeAt,
+    },
+  };
+}
+
+/** Which board a query names. */
+export function boardKind(board: string): "top100" | "kol" | "coin" {
+  return board === "top100" || board === "kol" ? board : "coin";
+}
+
+/**
+ * CopyDog's sort rules (its `boardSorts` chunk): coin boards and the stocks
+ * top 100 sort by copy score, PnL or ROI; the 30-day window by PnL or ROI.
+ * Anything else falls back to PnL.
+ */
+export function effectiveSort(query: Pick<BoardQuery, "market" | "board" | "sort">, window: BoardWindow): BoardSort {
+  const kind = boardKind(query.board);
+  const windowed = kind !== "coin" && !(query.market === "stocks" && kind === "top100");
+  let allowed: BoardSort[] = windowed ? ["copyScore", "pnl", "roi", "accountValue"] : ["copyScore", "pnl", "roi"];
+  if (window === "30d") allowed = allowed.filter((s) => s === "pnl" || s === "roi");
+  return allowed.includes(query.sort) ? query.sort : "pnl";
+}
+
+/** The window a board uses: coin boards and the stocks top 100 are
+ * all-time (CopyDog hides the 30 天 toggle there). */
+export function effectiveWindow(query: Pick<BoardQuery, "market" | "board" | "window">): BoardWindow {
+  const kind = boardKind(query.board);
+  return kind === "coin" || (query.market === "stocks" && kind === "top100") ? "all" : query.window;
+}
+
+function figures(c: Candidate, market: BoardMarket, kind: "top100" | "kol" | "coin", coin: string | null, window: BoardWindow): BoardTrader | null {
+  const { row } = c;
+  if (row.portfolioAt === null) return null;
+  const sparkline = (window === "30d" ? row.sparkline30d : row.sparkline) ?? [];
+  if (kind === "coin") {
+    const stat = row.coinStats[coin!];
+    if (!stat || (stat.trades === 0 && stat.volume === 0)) return null;
+    return { ...c.card, pnl: stat.pnl, roi: stat.volume > 0 ? stat.pnl / stat.volume : null, sparkline };
+  }
+  if (market === "stocks" && kind === "top100") {
+    const r = realized(row.coinStats, isStockCoin);
+    if (!r) return null;
+    return { ...c.card, pnl: r.pnl, roi: r.roi, sparkline };
+  }
+  const pnl = window === "30d" ? num(row.pnl30d) : num(row.pnlAll);
+  const roi = window === "30d" ? num(row.roi30d) : num(row.roiAll);
+  return { ...c.card, pnl, roi, sparkline };
+}
+
+const sortValue = (t: BoardTrader, sort: BoardSort): number | null =>
+  sort === "copyScore" ? t.copyScore : sort === "pnl" ? t.pnl : sort === "roi" ? t.roi : t.accountValue;
+
+/** Descending, nulls last, then address (stable across refreshes). */
+function compare(sort: BoardSort) {
+  return (a: BoardTrader, b: BoardTrader) => {
+    const x = sortValue(a, sort);
+    const y = sortValue(b, sort);
+    if (x === null || y === null) return x === y ? a.address.localeCompare(b.address) : x === null ? 1 : -1;
+    return y - x || (b.pnl ?? 0) - (a.pnl ?? 0) || a.address.localeCompare(b.address);
+  };
+}
+
+/**
+ * One board from the pool: crypto top 100 (perp figures of the window),
+ * KOL (the registry's traders), a coin (that coin's realized PnL and PnL ÷
+ * volume, all-time), or the stocks top 100 (realized figures over every
+ * stock market). Only traders with an account value above 0, and matching
+ * `style` when given; at most `limit`.
+ */
+export function buildBoard(
+  candidates: Candidate[],
+  query: BoardQuery,
+  pool: { ready: number; total: number },
+  limit = BOARD_SIZE,
+): BoardResponse {
+  const kind = boardKind(query.board);
+  const window = effectiveWindow(query);
+  const sort = effectiveSort(query, window);
+  const coin = kind === "coin" ? query.board : null;
+  const style: TradingStyle | null = query.style ?? null;
+  const items: BoardTrader[] = [];
+  let updatedAt: Date | null = null;
+  for (const c of candidates) {
+    if (kind === "kol" && !c.card.kol) continue;
+    if ((c.card.accountValue ?? 0) <= 0) continue;
+    if (style && c.card.style !== style) continue;
+    const t = figures(c, query.market, kind, coin, window);
+    if (!t) continue;
+    items.push(t);
+    const at = c.row.portfolioAt;
+    if (at && (!updatedAt || at > updatedAt)) updatedAt = at;
+  }
+  items.sort(compare(sort));
+  return { market: query.market, board: query.board, coin, sort, window, style, items: items.slice(0, limit), pool, updatedAt };
+}

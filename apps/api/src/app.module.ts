@@ -9,6 +9,7 @@ import { AdminModule } from "./admin/admin.module.js";
 import { ApiModule } from "./api/api.module.js";
 import { AuthModule, AUTH_GUARD_PROVIDERS } from "./common/auth/auth.module.js";
 import { DbModule } from "./db/db.module.js";
+import { DiscoveryModule, DiscoveryWorkerModule } from "./discovery/discovery.module.js";
 import { ImportModule } from "./import/import.module.js";
 import { InsightsModule } from "./insights/insights.module.js";
 import { NotifyModule } from "./notify/notify.module.js";
@@ -41,6 +42,8 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     TelegramModule,
     TradersModule,
     TradersWorkerModule,
+    DiscoveryModule,
+    DiscoveryWorkerModule,
     InsightsModule,
     OutboxModule,
   ],

@@ -13,7 +13,8 @@ import { Skeleton } from "@/components/page";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
-import { truncateAddress } from "@/lib/format";
+import { CopyScoreBar } from "@/components/discover/board-bits";
+import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { CopyPanel } from "./copy-panel";
 import { signedPctCd, WINDOWS } from "./performance";
@@ -121,6 +122,7 @@ export function MobileTrader({
   window,
   onWindow,
   loading,
+  copyScore,
 }: {
   profile: TraderProfileResponse;
   marks: Readonly<Record<string, number>>;
@@ -133,6 +135,8 @@ export function MobileTrader({
   window: TraderWindow;
   onWindow: (w: TraderWindow) => void;
   loading: boolean;
+  /** CopyDog's hero shows the copy score under the chart header. */
+  copyScore: number | null;
 }) {
   const { t, format } = useI18n();
   const [mode, setMode] = useState<"pnl" | "roi">("pnl");
@@ -182,8 +186,14 @@ export function MobileTrader({
             )}
             {mode === "pnl" && roi !== null ? <RoiPill value={roi} /> : null}
           </div>
-          <span className="inline-flex size-12 items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
-            <OrbieMark size={26} />
+          <span className="flex flex-col items-end gap-2">
+            <span className="inline-flex size-12 items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
+              <OrbieMark size={26} />
+            </span>
+            <span className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
+              <span className="underline decoration-dotted underline-offset-2">{t("discover.copyScore")}</span>
+              <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-10" />
+            </span>
           </span>
         </div>
         {portfolio && series.length > 1 ? (
@@ -194,6 +204,7 @@ export function MobileTrader({
             interactive
             zeroBaseline
             formatValue={fmt}
+            formatTick={(v) => (mode === "roi" ? format.pct(v) : usdCompact(v))}
             formatTime={(ts) => format.dateTime(ts)}
             formatAxisTime={(ts) => format.axisDate(ts, span)}
             ariaLabel={t("trader.chart.pnlLabel")}

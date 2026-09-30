@@ -11,6 +11,7 @@ import { useI18n } from "@/i18n/provider";
 import { isBusy } from "@/lib/api";
 import {
   isComputing,
+  useCopyScore,
   usePortfolio,
   useTraderActivity,
   useTraderAnalytics,
@@ -87,6 +88,7 @@ function TraderLoaded({ address }: { address: string }) {
   const lowSample = activity.data?.sample.lowSample ?? false;
   const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
+  const copyScore = useCopyScore(address);
   const railFor = (identity: boolean) =>
     live.profile ? (
       <ProfileCard
@@ -95,6 +97,7 @@ function TraderLoaded({ address }: { address: string }) {
         trades={tradesAll.data}
         tradesComputing={isComputing(tradesAll)}
         identity={identity}
+        copyScore={copyScore.data?.copyScore ?? null}
       />
     ) : null;
   const rail = railFor(true);
@@ -115,6 +118,7 @@ function TraderLoaded({ address }: { address: string }) {
           window={window}
           onWindow={setWindow}
           loading={portfolio.isPending}
+          copyScore={copyScore.data?.copyScore ?? null}
         />
       ) : (
         <Skeleton className="h-[640px] rounded-2xl" />

@@ -557,3 +557,91 @@ export const traderAnalytics = pgTable(
   },
   (table) => [primaryKey({ columns: [table.chain, table.address] })],
 );
+
+// ---------------------------------------------------------------------------
+// kol_traders — the KOL registry (Stage 3 §1.7): names, avatars and 𝕏
+// handles for known traders, managed from the admin area. The explore page's
+// KOL board and the home page's 精選 row list these addresses.
+// ---------------------------------------------------------------------------
+
+export const kolTraders = pgTable(
+  "kol_traders",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    displayName: text("display_name"),
+    /** Explicit avatar; null → derived from the 𝕏 handle, else generated. */
+    avatarUrl: text("avatar_url"),
+    /** 𝕏 handle without "@". */
+    xHandle: text("x_handle"),
+    verified: boolean("verified").notNull().default(false),
+    /** Ascending; ties by address. */
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.chain, table.address] })],
+);
+
+// ---------------------------------------------------------------------------
+// discovery_traders — the discovery pool's cached figures (Stage 3 §1.7):
+// the official leaderboard's top N traders active in 30 days plus every KOL,
+// refreshed a slice at a time by a background job inside the Hyperliquid
+// weight budget. Boards (explore, home) read only this table. Derived data,
+// safe to truncate: the job rebuilds it.
+// ---------------------------------------------------------------------------
+
+/** Per-coin realized figures from the trade ledger (net of fees). */
+export interface DiscoveryCoinStat {
+  pnl: number;
+  /** Σ size × entry price of the fills that opened or added (CopyDog's). */
+  volume: number;
+  trades: number;
+  wins: number;
+}
+
+export const discoveryTraders = pgTable(
+  "discovery_traders",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    /** Rank in the candidate pool (1 = first); null for a KOL outside it. */
+    poolRank: integer("pool_rank"),
+    /** Selected by the latest pool build (top N or KOL). Rows that drop out
+     * are deleted by the next build. */
+    inPool: boolean("in_pool").notNull().default(true),
+    accountValue: numeric("account_value"),
+    /** Perp all-time / 30-day PnL and ROI (CopyDog's ROI: PnL ÷ peak net
+     * deposits of the perp series). */
+    pnlAll: numeric("pnl_all"),
+    roiAll: numeric("roi_all"),
+    pnl30d: numeric("pnl_30d"),
+    roi30d: numeric("roi_30d"),
+    /** Whole-account all-time risk figures (CopyDog's `copyScoreComponents`). */
+    sharpe: numeric("sharpe"),
+    maxDrawdown: numeric("max_drawdown"),
+    returnSamples: integer("return_samples"),
+    spanDays: numeric("span_days"),
+    copyScore: integer("copy_score"),
+    style: text("style"),
+    /** Most-traded coins by volume, at most 5. */
+    topCoins: text("top_coins").array().notNull().default(sql`'{}'::text[]`),
+    lastTradeAt: timestamp("last_trade_at", { withTimezone: true }),
+    coinStats: jsonb("coin_stats").$type<Record<string, DiscoveryCoinStat>>().notNull().default({}),
+    /** Start of the fill history the coin figures cover. */
+    tradesFrom: timestamp("trades_from", { withTimezone: true }),
+    /** Whole-account PnL, all-time and 30-day, downsampled. */
+    sparkline: jsonb("sparkline").$type<number[]>().notNull().default([]),
+    sparkline30d: jsonb("sparkline_30d").$type<number[]>().notNull().default([]),
+    portfolioAt: timestamp("portfolio_at", { withTimezone: true }),
+    tradesAt: timestamp("trades_at", { withTimezone: true }),
+    /** Last refresh attempt, successful or not: the job's queue order. */
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+    lastError: text("last_error"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.chain, table.address] }),
+    index("discovery_traders_attempted_idx").on(table.attemptedAt),
+    index("discovery_traders_score_idx").on(table.copyScore.desc()),
+  ],
+);

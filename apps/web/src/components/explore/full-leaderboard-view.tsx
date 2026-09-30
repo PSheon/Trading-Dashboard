@@ -3,7 +3,7 @@
 import { activeWithinSchema, type ActiveWithin, type TraderWindow } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
 
 import { EmptyState, ErrorState, PageHeader, Panel, Skeleton } from "@/components/page";
@@ -12,13 +12,15 @@ import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
 import { useSiteSettings, useSparklines, useTraders, type TraderSort } from "@/lib/queries";
+import { usd0 } from "@/lib/trade-format";
 
 const PAGE_SIZE = 25;
+const noopSubscribe = () => () => {};
 const MIN_VALUES = [0, 10_000, 100_000, 1_000_000, 10_000_000];
 const WINDOWS: TraderWindow[] = ["day", "week", "month", "allTime"];
 const ACTIVE_WITHIN: ActiveWithin[] = activeWithinSchema.options;
 
-export function ExploreView() {
+export function FullLeaderboardView() {
   const { t, format } = useI18n();
   const params = useSearchParams();
   const [window, setWindow] = useState<TraderWindow>("month");
@@ -30,7 +32,10 @@ export function ExploreView() {
   const [page, setPage] = useState(0);
   const settings = useSiteSettings();
   const [hideVaultsChoice, setHideVaultsChoice] = useState<boolean | null>(null);
-  const hideVaults = hideVaultsChoice ?? settings.data?.hideVaults;
+  // The server renders before settings are known; the switch shows the
+  // settings value only after hydration, so both renders agree.
+  const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  const hideVaults = hideVaultsChoice ?? (hydrated ? settings.data?.hideVaults : undefined);
   // Activity (§12): ?active= when linked, else the admin's default, which
   // hides accounts that haven't traded in 30 days.
   const [activeChoice, setActiveChoice] = useState<ActiveWithin | null>(
@@ -67,7 +72,7 @@ export function ExploreView() {
     active,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
-  });
+  }, { enabled: hydrated && !settings.isPending });
   const sparklines = useSparklines(traders.data?.items.map((i) => i.address) ?? [], window === "day" ? "week" : window);
   const total = traders.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -134,7 +139,7 @@ export function ExploreView() {
           >
             {MIN_VALUES.map((v) => (
               <option key={v} value={v} className="bg-popover">
-                {v === 0 ? t("explore.anyValue") : `≥ ${format.usd(v, { compact: true })}`}
+                {v === 0 ? t("explore.anyValue") : `≥ ${usd0(v)}`}
               </option>
             ))}
           </select>

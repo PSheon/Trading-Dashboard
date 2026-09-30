@@ -63,6 +63,8 @@ export class SettingsService {
       copyTradingEnabled: general.copyTradingEnabled,
       featuredAddresses: discovery.featuredAddresses,
       homeMarkets: discovery.homeMarkets,
+      cryptoBoards: discovery.cryptoBoards,
+      stockBoards: discovery.stockBoards,
       hideVaults: discovery.hideVaults,
       lowSampleThreshold: discovery.lowSampleThreshold,
       defaultActiveWithin: discovery.defaultActiveWithin,

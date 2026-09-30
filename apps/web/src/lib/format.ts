@@ -2,8 +2,8 @@ import { TIME_ZONE, type Locale } from "@/i18n/config";
 
 /**
  * Locale-aware number/currency/percent/time formatting, all through `Intl`
- * with the active locale (zh-TW compact figures use 萬/億, English K/M/B).
- * Times are always Asia/Taipei. Use `useFormat()` in components; this
+ * with the active locale. Compact figures use CopyDog's K / M / B in every
+ * locale ("$17.4M", never "1740萬"). Times are always Asia/Taipei. Use `useFormat()` in components; this
  * factory exists so the formatters are built once per locale.
  */
 
@@ -50,6 +50,40 @@ export interface Formatter {
 
 const DASH = "—";
 
+/**
+ * CopyDog's compact dollars, the same in every locale: one decimal on K / M /
+ * B / T, whole dollars below $1,000 ("$930.2K", "+$23.4M", "-$403").
+ */
+export function usdCompact(value: Numeric, options: { sign?: boolean; digits?: number } = {}): string {
+  const n = toNumber(value);
+  if (n === null) return DASH;
+  const { sign = false, digits = 1 } = options;
+  const a = Math.abs(n);
+  const body =
+    a >= 1e12
+      ? `${(a / 1e12).toFixed(digits)}T`
+      : a >= 1e9
+        ? `${(a / 1e9).toFixed(digits)}B`
+        : a >= 1e6
+          ? `${(a / 1e6).toFixed(digits)}M`
+          : a >= 1e3
+            ? `${(a / 1e3).toFixed(digits)}K`
+            : `${Math.round(a)}`;
+  const zero = body === "0";
+  const prefix = n < 0 && !zero ? "-" : sign && n > 0 && !zero ? "+" : "";
+  return `${prefix}$${body}`;
+}
+
+/** Plain counts in CopyDog's K / M / B ("12.3K"), every locale. */
+export function numCompact(value: Numeric): string {
+  const n = toNumber(value);
+  if (n === null) return DASH;
+  const a = Math.abs(n);
+  const body =
+    a >= 1e9 ? `${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `${(a / 1e3).toFixed(1)}K` : `${Math.round(a)}`;
+  return `${n < 0 && body !== "0" ? "-" : ""}${body}`;
+}
+
 export function createFormatter(locale: Locale): Formatter {
   const cache = new Map<string, Intl.NumberFormat>();
   const nf = (key: string, options: Intl.NumberFormatOptions) => {
@@ -81,16 +115,7 @@ export function createFormatter(locale: Locale): Formatter {
       if (n === null) return DASH;
       const { compact = false, sign = false } = options;
       const signDisplay = sign ? "exceptZero" : "auto";
-      if (compact && Math.abs(n) >= 1000) {
-        return nf(`usdc-${sign}`, {
-          style: "currency",
-          currency: "USD",
-          currencyDisplay: "narrowSymbol",
-          notation: "compact",
-          maximumSignificantDigits: 3,
-          signDisplay,
-        }).format(n);
-      }
+      if (compact && Math.abs(n) >= 1000) return usdCompact(n, { sign });
       const digits = options.digits ?? (Math.abs(n) >= 1000 || n === 0 ? 0 : 2);
       return nf(`usd-${sign}-${digits}`, {
         style: "currency",
@@ -123,9 +148,7 @@ export function createFormatter(locale: Locale): Formatter {
     },
 
     compactNum(value) {
-      const n = toNumber(value);
-      if (n === null) return DASH;
-      return nf("cnum", { notation: "compact", maximumSignificantDigits: 3 }).format(n);
+      return numCompact(value);
     },
 
     price(value) {

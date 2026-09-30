@@ -52,7 +52,7 @@ function Computing() {
   );
 }
 
-function Loading() {
+export function Loading() {
   return (
     <div className="flex flex-col gap-2 p-5">
       {Array.from({ length: 4 }, (_, i) => (
@@ -62,7 +62,7 @@ function Loading() {
   );
 }
 
-function LoadError({ onRetry }: { onRetry: () => void }) {
+export function LoadError({ onRetry }: { onRetry: () => void }) {
   const { t } = useI18n();
   return (
     <p className="py-12 text-center text-sm text-muted-foreground">
@@ -74,7 +74,7 @@ function LoadError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function Empty({ title, body }: { title: string; body?: string }) {
+export function Empty({ title, body }: { title: string; body?: string }) {
   return (
     <div className="px-6 py-12 text-center">
       <p className="text-sm font-semibold">{title}</p>
@@ -97,9 +97,9 @@ export function CoverageNote({ analytics, className }: { analytics: Pick<TraderA
 
 // --- sortable headers ----------------------------------------------------------
 
-type Dir = "asc" | "desc";
+export type Dir = "asc" | "desc";
 
-function useSorted<T, K extends string>(rows: T[], keys: Record<K, (row: T) => number | string>, initial: { key: K; dir: Dir }) {
+export function useSorted<T, K extends string>(rows: T[], keys: Record<K, (row: T) => number | string>, initial: { key: K; dir: Dir }) {
   const [sort, setSort] = useState(initial);
   const sorted = useMemo(() => {
     const get = keys[sort.key];
@@ -114,7 +114,7 @@ function useSorted<T, K extends string>(rows: T[], keys: Record<K, (row: T) => n
   return { sorted, sort, onSort };
 }
 
-function SortHead<K extends string>({
+export function SortHead<K extends string>({
   label,
   col,
   sort,
@@ -162,7 +162,7 @@ function SideBadge({ side, mobile = false }: { side: RoundTrip["side"]; mobile?:
   );
 }
 
-function Asset({ coin }: { coin: string }) {
+export function Asset({ coin }: { coin: string }) {
   return (
     <span className="inline-flex items-center gap-2 align-middle font-semibold">
       <CoinIcon coin={coin} size={18} />

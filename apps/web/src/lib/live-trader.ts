@@ -29,6 +29,9 @@ export interface WsAssetPosition {
     unrealizedPnl?: string | null;
     liquidationPx?: string | null;
     leverage?: { type?: string; value?: number } | null;
+    marginUsed?: string | null;
+    returnOnEquity?: string | null;
+    cumFunding?: { sinceOpen?: string | null } | null;
   };
 }
 
@@ -46,6 +49,7 @@ export interface WsSpotBalance {
   coin: string;
   token?: number;
   total: string;
+  hold?: string;
 }
 
 export interface WsFill {
@@ -59,6 +63,8 @@ export interface WsFill {
   fee?: string | null;
   tid: number;
   twapId?: number | null;
+  startPosition?: string | null;
+  liquidation?: unknown;
 }
 
 export type LiveEvent =
@@ -88,7 +94,7 @@ export interface LiveTraderState {
   mids: Record<string, number>;
   /** Hyperliquid's `userState.abstraction`; null until `webData3`. */
   abstraction: string | null;
-  /** Perp fills seen on the socket, newest first, one per tid. */
+  /** Fills (perp and spot) seen on the socket, newest first, one per tid. */
   fills: TraderFill[];
   /** When the last account message (not mids) arrived, epoch ms. */
   updatedAt: number | null;
@@ -116,8 +122,8 @@ const numOrNull = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/** Spot fills name a pair ("PURR/USDC") or index ("@107"); the fills tab
- * lists perps only, like the api (`isPerpCoin`). */
+/** Spot fills name a pair ("PURR/USDC") or index ("@107"), like the api's
+ * `isPerpCoin`. */
 export function isPerpCoin(coin: string): boolean {
   return !coin.startsWith("@") && !coin.includes("/");
 }
@@ -143,6 +149,9 @@ export function toLivePosition(p: WsAssetPosition["position"]): LivePosition | n
     leverage: numOrNull(p.leverage?.value),
     marginMode: p.leverage?.type ?? null,
     liqPx: numOrNull(p.liquidationPx),
+    marginUsed: num(p.marginUsed),
+    fundingSinceOpen: numOrNull(p.cumFunding?.sinceOpen),
+    returnOnEquity: numOrNull(p.returnOnEquity),
   };
 }
 
@@ -162,6 +171,8 @@ export function toTraderFill(f: WsFill, twapId: number | null = f.twapId ?? null
     fee: numOrNull(f.fee),
     ts: new Date(f.time).toISOString(),
     twapId,
+    startPosition: numOrNull(f.startPosition),
+    liquidation: f.liquidation != null,
   };
 }
 
@@ -183,10 +194,11 @@ export function mergeFills(...lists: TraderFill[][]): TraderFill[] {
   return [...byTid.values()].sort((a, b) => tsOf(b) - tsOf(a) || (a.tid < b.tid ? 1 : -1));
 }
 
+/** Perp and spot fills alike, as the 成交 tab and live feed list them
+ * (CopyDog's). */
 function addFills(state: LiveTraderState, incoming: TraderFill[]): LiveTraderState {
-  const perps = incoming.filter((f) => isPerpCoin(f.coin));
-  if (perps.length === 0) return state;
-  return { ...state, fills: mergeFills(perps, state.fills).slice(0, MAX_LIVE_FILLS) };
+  if (incoming.length === 0) return state;
+  return { ...state, fills: mergeFills(incoming, state.fills).slice(0, MAX_LIVE_FILLS) };
 }
 
 export function liveTraderReducer(state: LiveTraderState, event: LiveEvent | { type: "reset" }): LiveTraderState {
@@ -282,8 +294,8 @@ export function liveSpotBalances(
 ): SpotBalance[] {
   const restByCoin = new Map(restBalances.map((b) => [b.coin, b]));
   const source = live
-    ? live.map((b) => ({ coin: b.coin, token: b.token ?? null, total: num(b.total) }))
-    : restBalances.map((b) => ({ coin: b.coin, token: b.token, total: b.total }));
+    ? live.map((b) => ({ coin: b.coin, token: b.token ?? null, total: num(b.total), hold: num(b.hold) }))
+    : restBalances.map((b) => ({ coin: b.coin, token: b.token, total: b.total, hold: b.hold ?? 0 }));
   return source
     .filter((b) => b.total !== 0)
     .map((b) => {
@@ -293,6 +305,7 @@ export function liveSpotBalances(
         coin: b.coin,
         token: b.token,
         total: b.total,
+        hold: b.hold,
         px,
         value: px === null ? 0 : b.total * px,
         priceKey: rest?.priceKey ?? (b.coin.startsWith("+") ? `#${b.coin.slice(1)}` : null),

@@ -20,6 +20,7 @@ import {
 import { useLiveTrader } from "@/lib/use-live-trader";
 import { ActivityTabs } from "./activity-tabs";
 import { CopyPanel } from "./copy-panel";
+import { LiveFeed } from "./live-feed";
 import {
   KpiTiles,
   PerformanceChart,
@@ -62,6 +63,8 @@ function TraderLoaded({ address }: { address: string }) {
   const [mode, setMode] = useState<ChartMode>("pnl");
   const [unit, setUnit] = useState<ChartUnit>("usd");
   const [market, setMarket] = useState<Market>("perp");
+  // CopyDog's 即時動態: the pulse in the tab bar swaps the copy panel for it.
+  const [feedOpen, setFeedOpen] = useState(false);
 
   // The profile is the cheap first paint; activity (sample size, last
   // trade) costs the api fill lists and loads alongside it.
@@ -144,7 +147,13 @@ function TraderLoaded({ address }: { address: string }) {
           roi={windowRoi(portfolio.data)}
         />
         {live.profile ? (
-          <ActivityTabs profile={live.profile} liveFills={live.fills} marks={live.mids} />
+          <ActivityTabs
+            profile={live.profile}
+            liveFills={live.fills}
+            marks={live.mids}
+            feedOpen={feedOpen}
+            onToggleFeed={() => setFeedOpen((open) => !open)}
+          />
         ) : profile.isError ? (
           <p className="text-sm text-muted-foreground">{t("trader.positionsUnavailable")}</p>
         ) : (
@@ -153,7 +162,7 @@ function TraderLoaded({ address }: { address: string }) {
       </div>
 
       <div data-area="copy">
-        <CopyPanel />
+        {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel />}
       </div>
     </div>
   );

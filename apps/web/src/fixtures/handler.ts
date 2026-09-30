@@ -49,6 +49,9 @@ import {
   traderAnalyticsQuerySchema,
   traderAnalyticsResponseSchema,
   traderFillSchema,
+  traderOrdersResponseSchema,
+  traderTransfersResponseSchema,
+  traderTwapsResponseSchema,
   traderTradesQuerySchema,
   traderTradesResponseSchema,
   traderProfileResponseSchema,
@@ -265,6 +268,36 @@ export async function fixtureRequest<T>(
     case "GET /traders/:address/fills": {
       const limit = Math.min(500, Number(search.get("limit") ?? 100) || 100);
       return wire(z.array(traderFillSchema), traderFills(limit));
+    }
+    case "GET /traders/:address/orders": {
+      const at = new Date(Date.now() - 3_600_000);
+      return wire(traderOrdersResponseSchema, {
+        orders: [
+          { oid: "1001", coin: "BTC", side: "buy", orderType: "Limit", size: 0.5, origSize: 0.5, limitPx: 58_000, triggerPx: null,
+            isTrigger: false, triggerCondition: null, reduceOnly: false, isPositionTpsl: false, placedAt: at },
+          { oid: "1002", coin: "ETH", side: "sell", orderType: "Take Profit Market", size: 0, origSize: 0, limitPx: 4_200, triggerPx: 4_200,
+            isTrigger: true, triggerCondition: "Price above 4200", reduceOnly: true, isPositionTpsl: true, placedAt: at },
+        ],
+        dexes: [""],
+        fetchedAt: new Date(),
+      });
+    }
+    case "GET /traders/:address/twap":
+      return wire(traderTwapsResponseSchema, { twaps: [], fetchedAt: new Date() });
+    case "GET /traders/:address/transfers": {
+      const address = addressSchema.parse(parts[1]).toLowerCase();
+      const day = 86_400_000;
+      return wire(traderTransfersResponseSchema, {
+        transfers: [
+          { time: new Date(Date.now() - 2 * day), hash: `0x${"ab".repeat(32)}`, kind: "sent", direction: "out", token: "USDC", amount: 3_160,
+            usd: false, from: address, to: `0x${"20".repeat(20)}` },
+          { time: new Date(Date.now() - 9 * day), hash: `0x${"cd".repeat(32)}`, kind: "deposit", direction: "in", token: "USDC", amount: 50_000,
+            usd: false, from: null, to: address },
+        ],
+        from: new Date(Date.now() - 90 * day),
+        truncated: false,
+        fetchedAt: new Date(),
+      });
     }
 
     // --- signed-in user --------------------------------------------------------

@@ -84,7 +84,8 @@ describe("liveTraderReducer", () => {
     expect(Object.keys(state.perp).sort()).toEqual(["", "xyz"]);
     expect(state.perp[""]).toMatchObject({ perpEquity: 1200, marginUsed: 50, withdrawable: 10 });
     expect(state.perp[""].positions).toEqual([
-      { coin: "BTC", szi: 0.04, side: "long", entryPx: 1, positionValue: 4000, unrealizedPnl: 500, leverage: 3, marginMode: "cross", liqPx: null },
+      { coin: "BTC", szi: 0.04, side: "long", entryPx: 1, positionValue: 4000, unrealizedPnl: 500, leverage: 3, marginMode: "cross", liqPx: null,
+        marginUsed: 0, fundingSinceOpen: null, returnOnEquity: null },
     ]);
     expect(state.perp.xyz.positions[0]).toMatchObject({ coin: "xyz:TSLA", side: "short", szi: -4 });
     expect(state.updatedAt).toBe(1);
@@ -99,7 +100,7 @@ describe("liveTraderReducer", () => {
     expect(state.mids).toEqual({ BTC: 100500, "@107": 41, "xyz:TSLA": 250 });
   });
 
-  it("collects perp fills newest first, one per tid, TWAP slices tagged; spot fills skipped", () => {
+  it("collects perp and spot fills newest first, one per tid, TWAP slices tagged (CopyDog's 成交 lists spot too)", () => {
     const state = reduce([
       { type: "userFills", data: { isSnapshot: true, fills: [fill(1, 1000), fill(2, 2000), fill(9, 2500, "@107"), fill(8, 2600, "PURR/USDC")] } },
       { type: "userTwapSliceFills", data: { isSnapshot: true, twapSliceFills: [{ fill: fill(3, 3000, "xyz:TSLA"), twapId: 77 }] } },
@@ -107,7 +108,7 @@ describe("liveTraderReducer", () => {
       // The same slice again on userFills without its TWAP id: the tagged copy stays.
       { type: "userFills", data: { fills: [fill(3, 3000, "xyz:TSLA", { twapId: null })] } },
     ]);
-    expect(state.fills.map((f) => f.tid)).toEqual(["4", "3", "2", "1"]);
+    expect(state.fills.map((f) => f.tid)).toEqual(["4", "3", "8", "9", "2", "1"]);
     expect(state.fills[1]).toEqual({
       tid: "3",
       coin: "xyz:TSLA",
@@ -120,6 +121,8 @@ describe("liveTraderReducer", () => {
       fee: 0.5,
       ts: new Date(3000).toISOString(),
       twapId: 77,
+      startPosition: null,
+      liquidation: false,
     });
     expect(state.fills[0].twapId).toBeNull();
   });
@@ -128,7 +131,7 @@ describe("liveTraderReducer", () => {
     const state = reduce([{ type: "webData3", data: { userState: { abstraction: "unifiedAccount" } } }]);
     expect(state.abstraction).toBe("unifiedAccount");
     expect(liveTraderReducer(state, { type: "webData3", data: { userState: { abstraction: "unifiedAccount" } } })).toBe(state);
-    expect(liveTraderReducer(state, { type: "userFills", data: { fills: [fill(5, 1, "@1")] } })).toBe(state);
+    expect(liveTraderReducer(state, { type: "userFills", data: { fills: [] } })).toBe(state);
     expect(liveTraderReducer(state, { type: "reset" })).toBe(initialLiveState);
   });
 });

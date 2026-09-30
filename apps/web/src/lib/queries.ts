@@ -15,8 +15,11 @@ import type {
   TraderTradesResponse,
   TradeWindow,
   TraderFill,
+  TraderOrdersResponse,
   TraderProfileResponse,
   TradersResponse,
+  TraderTransfersResponse,
+  TraderTwapsResponse,
   TraderWindow,
 } from "@/lib/contracts";
 
@@ -224,6 +227,41 @@ export function useTraderTrades(address: string, status: TradeStatusFilter, enab
     getNextPageParam: (last) => last.nextCursor,
     enabled,
     ...computingRetry,
+  });
+}
+
+/** GET /traders/:address/orders: resting orders across dexes (the 訂單
+ * tab), loaded when the tab opens; the api keeps them 30 s. */
+export function useTraderOrders(address: string, enabled = true) {
+  return useQuery({
+    queryKey: ["trader-orders", address],
+    queryFn: () => api.get<TraderOrdersResponse>(`/traders/${address}/orders`),
+    enabled,
+    refetchInterval: 30_000,
+    ...busyRetry,
+  });
+}
+
+/** GET /traders/:address/twap: running TWAP orders (the TWAP tab). */
+export function useTraderTwap(address: string, enabled = true) {
+  return useQuery({
+    queryKey: ["trader-twap", address],
+    queryFn: () => api.get<TraderTwapsResponse>(`/traders/${address}/twap`),
+    enabled,
+    refetchInterval: 60_000,
+    ...busyRetry,
+  });
+}
+
+/** GET /traders/:address/transfers: 90 days of ledger updates (the 轉帳
+ * tab and the live feed). */
+export function useTraderTransfers(address: string, enabled = true) {
+  return useQuery({
+    queryKey: ["trader-transfers", address],
+    queryFn: () => api.get<TraderTransfersResponse>(`/traders/${address}/transfers`),
+    enabled,
+    refetchInterval: 5 * 60_000,
+    ...busyRetry,
   });
 }
 

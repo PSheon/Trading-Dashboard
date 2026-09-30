@@ -101,6 +101,53 @@ export function tradeReturnPct(trade: { size: number; entryPx: number; fees: num
   return ((trade.netPnl + (trade.funding ?? 0)) / notional) * 100;
 }
 
+/** Sizes and token amounts: "1.27K", "3.48M", "59.53", "0.36642". */
+export function qty(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "0";
+  const n = abs(value);
+  if (n >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(value / 1e3).toFixed(2)}K`;
+  return value.toLocaleString("en-US", { maximumFractionDigits: n >= 1 ? 2 : 5 });
+}
+
+/** "$9,999,999.00": full USD with cents (the 轉帳 tab's USD amounts). */
+export function usdFull(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "$0.00";
+  return `$${(abs(value) < 0.005 ? 0 : value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** "0x6fc3…b891". */
+export function shortHex(value: string | null | undefined): string {
+  return value ? `${value.slice(0, 6)}…${value.slice(-4)}` : "";
+}
+
+/** "+12.34%" (2 decimals; "+" only above 0). */
+export function signedPct2(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "-";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+/** "Sep 27 9:32PM": the live feed's time stamp. */
+export function feedTime(value: string | number | Date | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  const day = d.toLocaleString("en-US", { month: "short", day: "numeric" });
+  const time = d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).replace(" ", "");
+  return `${day} ${time}`;
+}
+
+/**
+ * Distance from the mark to the liquidation price, % of the mark, and
+ * CopyDog's tone for it: ≤ 2% critical, ≤ 5% danger, ≤ 15% warn, else safe.
+ */
+export function liqDistance(liqPx: number | null | undefined, markPx: number | null | undefined): { pct: number; tone: "critical" | "danger" | "warn" | "safe" } | null {
+  const liq = Number(liqPx) || 0;
+  const mark = Number(markPx) || 0;
+  if (liq <= 0 || mark <= 0) return null;
+  const pct = (abs(liq - mark) / mark) * 100;
+  return { pct, tone: pct <= 2 ? "critical" : pct <= 5 ? "danger" : pct <= 15 ? "warn" : "safe" };
+}
+
 /** Signed class for a PnL figure (none for ~0). */
 export function pnlTone(value: number): "text-positive" | "text-negative" | "" {
   return abs(value) < 0.005 ? "" : value > 0 ? "text-positive" : "text-negative";

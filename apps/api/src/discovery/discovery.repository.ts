@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, isNotNull, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { discoveryTraders, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
@@ -90,14 +90,28 @@ export class DiscoveryRepository {
     return { added, removed: removed.length };
   }
 
-  /** The next `limit` rows to refresh: never attempted first (best pool
-   * rank first), then the least recently attempted. */
-  async nextBatch(limit: number): Promise<Array<{ address: string; attemptedAt: Date | null; tradesAt: Date | null }>> {
+  /** Never attempted rows (best pool rank first): the quick first pass
+   * that gives every row its portfolio figures before any trade ledger. */
+  async nextUnseen(limit: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ address: discoveryTraders.address })
+      .from(discoveryTraders)
+      .where(and(mine, eq(discoveryTraders.inPool, true), isNull(discoveryTraders.attemptedAt)))
+      .orderBy(sql`${discoveryTraders.poolRank} asc nulls last`, asc(discoveryTraders.address))
+      .limit(limit);
+    return rows.map((r) => r.address);
+  }
+
+  /** The next `limit` rows for a full refresh: no trade ledger yet first,
+   * then the least recently refreshed; rows attempted within `backoffMs`
+   * (a failure, or the quick pass just now) wait. */
+  async nextBatch(limit: number, backoffMs: number, now = new Date()): Promise<Array<{ address: string; attemptedAt: Date | null; tradesAt: Date | null }>> {
+    const since = new Date(now.getTime() - backoffMs);
     return this.db
       .select({ address: discoveryTraders.address, attemptedAt: discoveryTraders.attemptedAt, tradesAt: discoveryTraders.tradesAt })
       .from(discoveryTraders)
-      .where(and(mine, eq(discoveryTraders.inPool, true)))
-      .orderBy(sql`${discoveryTraders.attemptedAt} asc nulls first`, sql`${discoveryTraders.poolRank} asc nulls last`, asc(discoveryTraders.address))
+      .where(and(mine, eq(discoveryTraders.inPool, true), or(isNull(discoveryTraders.attemptedAt), lt(discoveryTraders.attemptedAt, since))))
+      .orderBy(sql`${discoveryTraders.tradesAt} asc nulls first`, sql`${discoveryTraders.poolRank} asc nulls last`, asc(discoveryTraders.address))
       .limit(limit);
   }
 

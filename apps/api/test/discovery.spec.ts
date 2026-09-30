@@ -192,16 +192,23 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     expect((await db.select({ a: discoveryTraders.address }).from(discoveryTraders)).map((r) => r.a).sort()).toEqual([addr(1), addr(2), addr(4)]);
   });
 
-  it("refreshes a row from one portfolio read and the trade ledger, within the minute's allowance", async () => {
+  it("gives new rows their portfolio first, then refreshes the trade ledger, within the minute's allowance", async () => {
     await db.insert(traderStats).values([stat(addr(1), 900), stat(addr(2), 800), stat(addr(3), 700)]);
     await pool.build(3);
     await pool.tick(Date.now());
-    // 100 weight per minute (at most 2 minutes saved): 200 per refresh here → one row per tick
-    expect(analytics.compute).toHaveBeenCalledTimes(1);
+    // A fresh tick has a sliver of allowance: one portfolio-only refresh (20).
+    expect(info.portfolio).toHaveBeenCalledTimes(1);
+    expect(analytics.compute).not.toHaveBeenCalled();
+    let [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(1)));
+    expect(row.portfolioAt).not.toBeNull();
+    expect(row.tradesAt).toBeNull();
+    expect(row.copyScore).toEqual(expect.any(Number));
+    expect(await repository.nextUnseen(3)).toEqual([addr(2), addr(3)]);
+
+    await pool.refreshOne(addr(1));
     expect(analytics.compute).toHaveBeenCalledWith(addr(1), false, expect.objectContaining({ funding: false }));
     expect(pool.log.at(-1)).toMatchObject({ address: addr(1), kind: "cold", weight: 200, ok: true });
-    const [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(1)));
-    expect(row.copyScore).toEqual(expect.any(Number));
+    [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(1)));
     expect(Number(row.pnlAll)).toBeCloseTo(407153.71, 1);
     expect(row.sparkline.length).toBeGreaterThan(10);
     expect(row.sparkline.at(-1)).toBeCloseTo(407153.71, 1);
@@ -210,9 +217,9 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     expect(row.lastTradeAt?.toISOString()).toBe("2026-09-25T00:00:00.000Z");
     expect(row.coinStats.BTC).toEqual({ pnl: 800, volume: 80_000, trades: 2, wins: 1 });
     expect(row.coinStats.ETH).toEqual({ pnl: 0, volume: 5_000, trades: 0, wins: 0 });
-    // the next rows wait for their turn
-    const queue = await repository.nextBatch(3);
-    expect(queue.map((q) => q.address)).toEqual([addr(2), addr(3), addr(1)]);
+    // Full refreshes: no ledger first; a row attempted within the backoff waits.
+    expect((await repository.nextBatch(3, 15 * 60_000)).map((q) => q.address)).toEqual([addr(2), addr(3)]);
+    expect((await repository.nextBatch(3, 0, new Date(Date.now() + 1000))).map((q) => q.address)).toEqual([addr(2), addr(3), addr(1)]);
   });
 
   it("keeps the previous figures and records the error when a refresh fails", async () => {

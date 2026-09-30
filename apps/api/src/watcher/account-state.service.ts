@@ -1,10 +1,6 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, like, sql } from "drizzle-orm";
-import { fills } from "@trading-dashboard/shared/database";
-import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
+import { Injectable } from "@nestjs/common";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { AccountStateRepository } from "./account-state.repository.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
 import type { RequestPriority } from "../hyperliquid/request-budgeter.service.js";
 import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
@@ -39,7 +35,7 @@ export class AccountStateService {
 
   constructor(
     private readonly info: HyperliquidInfoClient,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: AccountStateRepository,
   ) {}
 
   /** Records dexes seen in freshly stored fills. */
@@ -55,11 +51,8 @@ export class AccountStateService {
   async knownDexes(address: string): Promise<string[]> {
     let set = this.dexes.get(address);
     if (!set) {
-      const rows = await this.db
-        .selectDistinct({ dex: sql<string>`split_part(${fills.coin}, ':', 1)` })
-        .from(fills)
-        .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), like(fills.coin, "%:%")));
-      set = new Set(rows.map((r) => r.dex));
+      const dexes = await this.repository.knownDexes(address);
+      set = new Set(dexes);
       this.dexes.set(address, set);
     }
     return [...set].sort();

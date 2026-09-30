@@ -192,3 +192,14 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Concurrent dev advanced to 026f742 with Claude's trader-page/API parity changes. Preserve those commits and verify the combined shared/API/web contracts after rebase.
 - Rebased without conflicts onto 026f742. Combined verification passed: API 61 files / 700 tests, web 20 files / 80 tests, API/web typecheck and lint, API build, OpenAPI freshness and compiled bootstrap DI/DTO/readiness/Swagger checks.
 - Claude has additional uncommitted frontend edits in the primary checkout. These are outside this backend/docs diff; integration must preserve them without staging/stashing/resetting. Reported verification covers the committed combined tree, not those ongoing frontend edits. No push, deployment, production migration or real Telegram delivery.
+
+
+## Fourteenth batch — Import and ingestion repositories (base 00c6dc7)
+
+- Added ImportRepository, AccountStateRepository and FillSyncRepository; observed RED for all three service boundary tests before extraction. Services own policy and UnitOfWork; private repository registration keeps ingestion capabilities separate from watcher startup.
+- Import keeps validation/dedupe/initial tier policy and after-commit backfill; repository shares the transaction for lists, leader updates and audit. Added a real DB failure test asserting audit rejection rolls back all imported rows and triggers no backfill.
+- FillSync uses the same extracted lockActions primitive as withActionLock in the fast path. Preserve lock namespace, raw-fill partial commits, replay repair, batched coverage lookup, leverage-preserving corrections, no backfill alerts and after-commit events. Account state owns caches and remote fetches; repository only discovers persisted dexes.
+- Ruling: preserve the existing raw-fill/action two-phase durability strategy rather than adding an HTTP-spanning DB transaction. This permits recovery via replay and avoids holding address locks across upstream requests. Watcher ownership and fast-path orchestration remain explicit follow-up work.
+- Updated JSDoc/module formatting and direct test constructors, including the manual live test's typecheck only; no live exchange test or trade execution.
+- Pre-rebase verification: API 61 files / 703 tests passed; additional import rollback coverage passed with 18/18 import tests. API typecheck/lint/build, OpenAPI freshness and compiled bootstrap readiness/DTO/Swagger checks passed. Fresh review (ingestion_final_review, gpt-6-astra) found no concrete regressions.
+- Concurrent dev advanced to 6257fab with a frontend-only signed-in request deduplication fix. Rebase must preserve that change and verify the combined frontend.

@@ -1,3 +1,4 @@
+import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { LeadersRepository } from "../src/api/leaders/leaders.repository.js";
 import { equitySnapshots, fills, leaders, positionSnapshots } from "@trading-dashboard/shared/database";
@@ -53,7 +54,7 @@ describe("SchedulerService — real Postgres", () => {
     feedStatus = { socketsOpen: 2, socketsTotal: 2, markets: 300, lastTradeAt: null, disconnectedSince: null };
     scheduler = new SchedulerService(
       { activeAddresses: async () => [A] } as unknown as WatcherService,
-      new AccountStateService(info, db),
+      new AccountStateService(info, new AccountStateRepository(db)),
       { sync } as unknown as FillSyncService,
       { status: () => feedStatus } as unknown as TradeFeedService,
       notify as unknown as NotifyService,

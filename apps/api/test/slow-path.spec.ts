@@ -1,3 +1,6 @@
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
+import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills } from "@trading-dashboard/shared/database";
@@ -53,14 +56,14 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
       ),
     };
     const client = info as unknown as HyperliquidInfoClient;
-    const accounts = new AccountStateService(client, db);
+    const accounts = new AccountStateService(client, new AccountStateRepository(db));
     const events = new EventEmitter2();
     emitted = [];
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
     corrected = [];
     events.on(ACTION_CORRECTED_EVENT, (event) => corrected.push(event));
     fast = new FeedActionsService(testConfig(), db, accounts, events);
-    sync = new FillSyncService(testConfig(), client, db, accounts, events);
+    sync = new FillSyncService(testConfig(), client, new FillSyncRepository(db), new UnitOfWork(db), accounts, events);
   });
 
   afterAll(async () => {
@@ -205,7 +208,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
       const watcher = new WatcherService(testConfig(),
         { setWatched: () => {}, status: () => ({}), stop: () => {} } as unknown as TradeFeedService,
         sync,
-        new AccountStateService(info as unknown as HyperliquidInfoClient, db),
+        new AccountStateService(info as unknown as HyperliquidInfoClient, new AccountStateRepository(db)),
         fast,
         db,
       );

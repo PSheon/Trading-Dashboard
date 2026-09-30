@@ -1,5 +1,7 @@
-import { and, eq } from "drizzle-orm";
-import { leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
+import { ImportRepository } from "../src/import/import.repository.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { and, eq, sql } from "drizzle-orm";
+import { adminAuditLogs, leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BackfillService } from "../src/watcher/backfill.service.js";
@@ -11,7 +13,7 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
   const db = getTestDb();
   const backfill = new BackfillService({} as FillSyncService);
   const triggerSpy = vi.spyOn(backfill, "trigger").mockImplementation(() => {});
-  const importService = new ImportService(db, backfill);
+  const importService = new ImportService(new ImportRepository(), new UnitOfWork(db), backfill);
 
   beforeEach(async () => {
     await truncateAll(db);
@@ -20,6 +22,23 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
 
   afterAll(async () => {
     await closeTestDb();
+  });
+
+  it("rolls back the list and leaders without scheduling backfill when audit persistence fails", async () => {
+    await db.execute(sql`alter table admin_audit_logs add constraint import_audit_reject check (event <> 'list.import')`);
+    try {
+      await expect(importService.importLeaderList({
+        source: "copydog", fileName: "rollback.csv",
+        rows: [{ address: "0x" + "ab".repeat(20), rank: 1 }],
+      })).rejects.toThrow();
+      expect(await db.select().from(leaderLists)).toHaveLength(0);
+      expect(await db.select().from(leaderListItems)).toHaveLength(0);
+      expect(await db.select().from(leaders)).toHaveLength(0);
+      expect(await db.select().from(adminAuditLogs)).toHaveLength(0);
+      expect(triggerSpy).not.toHaveBeenCalled();
+    } finally {
+      await db.execute(sql`alter table admin_audit_logs drop constraint import_audit_reject`);
+    }
   });
 
   it.each([

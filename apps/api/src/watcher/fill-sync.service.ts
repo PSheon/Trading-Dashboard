@@ -1,31 +1,17 @@
-import { AppConfig } from "../config/app-config.js";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { actions, fills } from "@trading-dashboard/shared/database";
-import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
-import { and, eq, gte, sql } from "drizzle-orm";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { AppConfig } from "../config/app-config.js";
+import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { HyperliquidInfoClient, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
 import type { RequestPriority } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { AccountStateService, dexOf } from "./account-state.service.js";
 import { classifyFills, isOutOfScopeSpotFill } from "./action-classifier.js";
-import {
-  actionsCovering,
-  chunks,
-  draftToRow,
-  emitRecent,
-  insertActions,
-  storedFills,
-  withActionLock,
-  type ActionRow,
-  type DbOrTx,
-} from "./action-store.js";
 import { ACTION_CORRECTED_EVENT, type ActionCorrectedEvent } from "./action-created.event.js";
-import { toFillRow } from "./fill-row.js";
+import { emitRecent } from "./action-store.js";
+import { FillSyncRepository, type ActionRow } from "./fill-sync.repository.js";
 
 /** Hyperliquid's per-call cap on `userFillsByTime` (and TWAP slice) rows. */
 export const PAGE_SIZE = 2000;
@@ -111,7 +97,8 @@ export class FillSyncService {
   constructor(
     private readonly config: AppConfig,
     private readonly info: HyperliquidInfoClient,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: FillSyncRepository,
+    private readonly unitOfWork: UnitOfWork,
     private readonly accounts: AccountStateService,
     @Optional() private readonly events?: EventEmitter2,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
@@ -223,18 +210,7 @@ export class FillSyncService {
     if (reason !== "sweep") return false;
     const cutoff = Date.now() - TWAP_ACTIVE_MS;
     if ((this.twapSeenAt.get(address) ?? 0) >= cutoff) return true;
-    const [row] = await this.db
-      .select({ ts: fills.ts })
-      .from(fills)
-      .where(
-        and(
-          eq(fills.chain, CHAIN_DEFAULT),
-          eq(fills.address, address),
-          gte(fills.ts, new Date(cutoff)),
-          sql`${fills.raw}->>'twapId' is not null`,
-        ),
-      )
-      .limit(1);
+    const row = await this.repository.recentTwap(address, new Date(cutoff));
     if (row) this.twapSeenAt.set(address, row.ts.getTime());
     return row !== undefined;
   }
@@ -243,15 +219,7 @@ export class FillSyncService {
   private async store(address: string, batch: HlUserFill[]): Promise<HlUserFill[]> {
     const perps = batch.filter((f) => !isOutOfScopeSpotFill(f));
     if (perps.length === 0) return [];
-    const insertedTids = new Set<bigint>();
-    for (const chunk of chunks(perps)) {
-      const inserted = await this.db
-        .insert(fills)
-        .values(chunk.map((f) => toFillRow(address, f)))
-        .onConflictDoNothing()
-        .returning({ tid: fills.tid });
-      for (const r of inserted) insertedTids.add(r.tid);
-    }
+    const insertedTids = await this.repository.insertFills(address, perps);
     const fresh = perps.filter((f) => insertedTids.has(BigInt(f.tid)));
     if (fresh.length > 0) {
       this.accounts.noteCoins(address, fresh.map((f) => f.coin));
@@ -288,9 +256,10 @@ export class FillSyncService {
     }
 
     const corrections: ActionCorrectedEvent = { updated: [], inserted: [] };
-    const rows = await withActionLock(this.db, address, async (tx) => {
+    const rows = await this.unitOfWork.run(async (tx) => {
+      await this.repository.lock(tx, address);
       const tids = newFills.map((f) => BigInt(f.tid));
-      const covering = await actionsCovering(tx, address, tids, Math.min(...newFills.map((f) => f.time)));
+      const covering = await this.repository.covering(tx, address, tids, Math.min(...newFills.map((f) => f.time)));
       const covered = new Set(covering.flatMap((a) => a.fillIds));
       const drafts = classifyFills(
         address,
@@ -299,7 +268,7 @@ export class FillSyncService {
       );
       // Replay may cover thousands of existing actions. Read their stored fills
       // once instead of holding the shared fast-path lock for N round trips.
-      const realByTid = new Map((await storedFills(tx, address, [...covered])).map((f) => [BigInt(f.tid), f]));
+      const realByTid = new Map((await this.repository.storedFills(tx, address, [...covered])).map((f) => [BigInt(f.tid), f]));
       for (const action of covering) {
         const real = action.fillIds.flatMap((tid) => {
           const fill = realByTid.get(tid);
@@ -307,7 +276,7 @@ export class FillSyncService {
         });
         await this.verify(tx, address, action, real, action.fillIds.some((tid) => freshTids.has(tid)), corrections);
       }
-      return drafts.length > 0 ? insertActions(tx, address, drafts, reason !== "backfill", this.accounts.getEquityUsd(address), this.config.value.alert.maxActionAgeSeconds) : [];
+      return drafts.length > 0 ? this.repository.insertActions(tx, address, drafts, reason !== "backfill", this.accounts.getEquityUsd(address), this.config.value.alert.maxActionAgeSeconds) : [];
     });
 
     // Committed: pages showing a corrected row can fix it (never an alert).
@@ -323,7 +292,7 @@ export class FillSyncService {
    * read as a new trade. The changed rows are collected in `corrections`
    * for `action.corrected` once the transaction commits. */
   private async verify(
-    tx: DbOrTx,
+    tx: DbTransaction,
     address: string,
     action: ActionRow,
     real: HlUserFill[],
@@ -341,11 +310,10 @@ export class FillSyncService {
     if (unchanged) return;
 
     this.fastPath.corrected += 1;
-    const { leverage: _leverage, ...shape } = draftToRow(address, first);
-    corrections.updated.push(...(await tx.update(actions).set(shape).where(eq(actions.id, action.id)).returning()));
+    corrections.updated.push(...(await this.repository.correct(tx, address, action.id, first)));
     // Real fills can split what the feed saw as one action (a liquidation
     // among them); the other parts are stored, not alerted on.
-    if (rest.length > 0) corrections.inserted.push(...(await insertActions(tx, address, rest.map((d) => ({ ...d, leverage: action.leverage })))));
+    if (rest.length > 0) corrections.inserted.push(...(await this.repository.insertActions(tx, address, rest.map((d) => ({ ...d, leverage: action.leverage })))));
     this.logger.warn(
       `Fast path corrected action ${action.id} (${address} ${action.coin}): ${action.kind} ${action.side} → ` +
         `${drafts.map((d) => `${d.kind} ${d.side}`).join(" + ")} (${this.fastPath.corrected} of ${this.fastPath.verified} checked)`,

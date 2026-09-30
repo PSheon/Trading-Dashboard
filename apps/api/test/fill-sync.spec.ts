@@ -1,3 +1,6 @@
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
+import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills } from "@trading-dashboard/shared/database";
@@ -80,7 +83,7 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     emitted = [];
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));
     const client = info as unknown as HyperliquidInfoClient;
-    sync = new FillSyncService(testConfig(), client, db, new AccountStateService(client, db), events);
+    sync = new FillSyncService(testConfig(), client, new FillSyncRepository(db), new UnitOfWork(db), new AccountStateService(client, new AccountStateRepository(db)), events);
   });
 
   afterAll(async () => {
@@ -180,8 +183,8 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
   });
 
   it("queries the HIP-3 dex of a traded coin and sums equity across dexes", async () => {
-    const accounts = new AccountStateService(info as unknown as HyperliquidInfoClient, db);
-    const s = new FillSyncService(testConfig(), info as unknown as HyperliquidInfoClient, db, accounts, events);
+    const accounts = new AccountStateService(info as unknown as HyperliquidInfoClient, new AccountStateRepository(db));
+    const s = new FillSyncService(testConfig(), info as unknown as HyperliquidInfoClient, new FillSyncRepository(db), new UnitOfWork(db), accounts, events);
     byAddress.set(A, [fill({ coin: "xyz:TSLA", side: "A", dir: "Open Short", time: Date.now() })]);
 
     await s.sync(A, "live", 0);
@@ -284,7 +287,7 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
       await sync.sync(A, "sweep", t);
       expect(info.userTwapSliceFillsByTime).toHaveBeenCalledTimes(3);
       // …and so does a fresh process, from the stored slice.
-      const restarted = new FillSyncService(testConfig(), info as unknown as HyperliquidInfoClient, db, new AccountStateService(info as unknown as HyperliquidInfoClient, db), events);
+      const restarted = new FillSyncService(testConfig(), info as unknown as HyperliquidInfoClient, new FillSyncRepository(db), new UnitOfWork(db), new AccountStateService(info as unknown as HyperliquidInfoClient, new AccountStateRepository(db)), events);
       await restarted.sync(A, "sweep", t);
       expect(info.userTwapSliceFillsByTime).toHaveBeenCalledTimes(4);
       // B never used one.

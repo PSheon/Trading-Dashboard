@@ -1,3 +1,6 @@
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
+import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { writeFileSync } from "node:fs";
 
@@ -105,8 +108,8 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("live Hyperliquid + real Postgres (ma
       );
       return emitter;
     };
-    const accounts = new AccountStateService(info, db);
-    const fillSync = new FillSyncService(testConfig(), info, db, accounts, tagged("slow"));
+    const accounts = new AccountStateService(info, new AccountStateRepository(db));
+    const fillSync = new FillSyncService(testConfig(), info, new FillSyncRepository(db), new UnitOfWork(db), accounts, tagged("slow"));
     const feed = new TradeFeedService(testConfig(), info);
     const feedActions = new FeedActionsService(testConfig(), db, accounts, tagged("fast"));
     const watcher = new WatcherService(testConfig(), feed, fillSync, accounts, feedActions, db);

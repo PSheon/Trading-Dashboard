@@ -1,22 +1,19 @@
-import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
-import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq, inArray } from "drizzle-orm";
-import { leaderListItems, leaderLists, leaders } from "@trading-dashboard/shared/database";
+import type { AuditActor } from "../common/audit/admin-audit.js";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
-  CHAIN_DEFAULT,
   addressSchema,
   importLeaderListRequestSchema,
   type ImportLeaderListRequest,
   type ImportLeaderListResponse,
 } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { UnitOfWork } from "../db/unit-of-work.js";
+import { ImportRepository, type ImportRow } from "./import.repository.js";
 import { BackfillService } from "../watcher/backfill.service.js";
 
 /** No sample CopyDog export file exists yet (PRD §10 open question). These
  * are the plausible column-name variants for a rank-list export; matching
- * is case-insensitive. If Paul's real export uses something else, add it
+ * is case-insensitive. If an export uses another supported alias, add it
  * here rather than assuming the exact column name up front. */
 const ADDRESS_KEYS = ["address", "wallet", "wallet_address", "walletaddress", "account", "user"];
 const RANK_KEYS = ["rank", "position", "no", "#"];
@@ -34,19 +31,13 @@ function findField(row: Record<string, unknown>, candidates: string[]): { key: s
   return undefined;
 }
 
-interface ParsedRow {
-  address: string;
-  rank: number;
-  statsJson: Record<string, unknown>;
-}
-
 interface RowError {
   index: number;
   reason: string;
 }
 
-function parseRows(rows: Record<string, unknown>[]): { parsed: ParsedRow[]; errors: RowError[] } {
-  const parsed: ParsedRow[] = [];
+function parseRows(rows: Record<string, unknown>[]): { parsed: ImportRow[]; errors: RowError[] } {
+  const parsed: ImportRow[] = [];
   const errors: RowError[] = [];
 
   rows.forEach((row, index) => {
@@ -94,7 +85,8 @@ export class ImportService {
   private readonly logger = new Logger(ImportService.name);
 
   constructor(
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: ImportRepository,
+    private readonly unitOfWork: UnitOfWork,
     private readonly backfill: BackfillService,
   ) {}
 
@@ -108,9 +100,7 @@ export class ImportService {
     const { parsed, errors } = parseRows(request.rows);
 
     if (errors.length > 0) {
-      // Reject the whole import rather than silently dropping bad rows
-      // (task requirement) — a partially-imported "version" would be a
-      // worse outcome than making Paul fix the export and re-upload.
+      // A version is atomic: reject invalid rows before persisting any of it.
       throw new BadRequestException({
         message: `${errors.length} invalid row(s)`,
         errors,
@@ -121,7 +111,7 @@ export class ImportService {
     // occurrence) — leader_list_items' PK is (list_id, address) and a
     // CopyDog export listing the same address twice would otherwise crash
     // the bulk insert.
-    const byAddress = new Map<string, ParsedRow>();
+    const byAddress = new Map<string, ImportRow>();
     for (const row of parsed) {
       const existing = byAddress.get(row.address);
       if (!existing || row.rank < existing.rank) {
@@ -130,59 +120,10 @@ export class ImportService {
     }
     const dedupedRows = [...byAddress.values()];
 
-    const newAddresses = await this.db.transaction(async (tx) => {
-      const [list] = await tx
-        .insert(leaderLists)
-        .values({ source: request.source, fileName: request.fileName })
-        .returning({ id: leaderLists.id });
-
-      await tx.insert(leaderListItems).values(
-        dedupedRows.map((row) => ({
-          listId: list.id,
-          address: row.address,
-          rank: row.rank,
-          statsJson: row.statsJson,
-        })),
-      );
-
-      // A2: upsert into `leaders`. onConflictDoNothing means an existing
-      // row's active/tier/label/notes are never touched by an import — A3
-      // manual edits must survive re-imports (task requirement). §11: a
-      // NEWLY-created leader with rank <= 20 in *this* import gets tier A.
-      const inserted = await tx
-        .insert(leaders)
-        .values(
-          dedupedRows.map((row) => ({
-            chain: CHAIN_DEFAULT,
-            address: row.address,
-            active: true,
-            tier: row.rank <= 20 ? ("A" as const) : ("B" as const),
-          })),
-        )
-        .onConflictDoNothing({ target: [leaders.chain, leaders.address] })
-        .returning({ address: leaders.address });
-
-      // An address someone favorited before it was imported is now an
-      // imported leader: admins get its alerts, and it stays watched when
-      // the last favorite goes. Its favorite-managed `active` flag is reset
-      // to true; imported rows (manual A3 edits) are still left alone.
-      await tx
-        .update(leaders)
-        .set({ source: "import", active: true })
-        .where(
-          and(
-            eq(leaders.chain, CHAIN_DEFAULT),
-            eq(leaders.source, "favorite"),
-            inArray(
-              leaders.address,
-              dedupedRows.map((row) => row.address),
-            ),
-          ),
-        );
-
-      await recordAdminAudit(tx, actor, "list.import", String(list.id), null,
-        { source: request.source, itemCount: dedupedRows.length, newAddressCount: inserted.length });
-      return { listId: list.id, itemCount: dedupedRows.length, newAddresses: inserted.map((r) => r.address) };
+    const newAddresses = await this.unitOfWork.run(async (tx) => {
+      return this.repository.save(tx, request, dedupedRows.map((row) => ({
+        ...row, tier: row.rank <= 20 ? "A" as const : "B" as const,
+      })), actor);
     });
 
     // A5: fire-and-track backfill for every genuinely new address. Not

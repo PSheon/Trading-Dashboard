@@ -1,3 +1,4 @@
+import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { actions, fills } from "@trading-dashboard/shared/database";
@@ -34,7 +35,7 @@ describe("FeedActionsService (fast path) — real Postgres, fake Hyperliquid", (
       userFillsByTime: vi.fn(),
     };
     const client = info as unknown as HyperliquidInfoClient;
-    accounts = new AccountStateService(client, db);
+    accounts = new AccountStateService(client, new AccountStateRepository(db));
     const events = new EventEmitter2();
     emitted = [];
     events.on(ACTION_CREATED_EVENT, (row) => emitted.push(row));

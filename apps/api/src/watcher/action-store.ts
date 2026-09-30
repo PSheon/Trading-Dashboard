@@ -34,6 +34,11 @@ function bigintArray(values: Iterable<bigint>) {
 /** Arbitrary namespace for this module's advisory locks. */
 const ACTIONS_LOCK_NAMESPACE = 7401;
 
+/** Acquire the common address action lock inside an existing use-case transaction. */
+export async function lockActions(tx: Tx, address: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(${sql.raw(String(ACTIONS_LOCK_NAMESPACE))}, hashtext(${address}))`);
+}
+
 /**
  * Runs `fn` in a transaction holding the address's action lock. The fast
  * path and fill storage both check which trades already have an action and
@@ -42,7 +47,7 @@ const ACTIONS_LOCK_NAMESPACE = 7401;
  */
 export function withActionLock<T>(db: DrizzleDb, address: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(${sql.raw(String(ACTIONS_LOCK_NAMESPACE))}, hashtext(${address}))`);
+    await lockActions(tx, address);
     return fn(tx);
   });
 }

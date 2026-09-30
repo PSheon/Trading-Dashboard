@@ -192,6 +192,24 @@
                                 "xyz:BRENTOIL",
                                 "xyz:SILVER"
                               ]
+                            },
+                            "cohortMembersPerTier": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 500,
+                              "default": 150
+                            },
+                            "cohortRefreshMinutes": {
+                              "type": "integer",
+                              "minimum": 5,
+                              "maximum": 240,
+                              "default": 15
+                            },
+                            "cohortWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 150
                             }
                           },
                           "additionalProperties": false
@@ -533,6 +551,24 @@
                                 "xyz:BRENTOIL",
                                 "xyz:SILVER"
                               ]
+                            },
+                            "cohortMembersPerTier": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 500,
+                              "default": 150
+                            },
+                            "cohortRefreshMinutes": {
+                              "type": "integer",
+                              "minimum": 5,
+                              "maximum": 240,
+                              "default": 15
+                            },
+                            "cohortWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 150
                             }
                           },
                           "additionalProperties": false
@@ -4518,6 +4554,497 @@
         "x-required-permissions": [],
         "x-required-roles": [],
         "description": "Access: public"
+      }
+    },
+    "/insights/cohorts/{tier}": {
+      "get": {
+        "description": "Hero figures, per-market split and wallets of one PnL tier (CopyDog's cohorts).\n\nAccess: public",
+        "operationId": "InsightsController_cohort",
+        "parameters": [
+          {
+            "name": "tier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "extremely_profitable",
+                "very_profitable",
+                "profitable",
+                "break_even",
+                "unprofitable",
+                "very_unprofitable",
+                "rekt"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "tier": {
+                          "type": "string",
+                          "enum": [
+                            "extremely_profitable",
+                            "very_profitable",
+                            "profitable",
+                            "break_even",
+                            "unprofitable",
+                            "very_unprofitable",
+                            "rekt"
+                          ]
+                        },
+                        "memberCount": {
+                          "type": "integer"
+                        },
+                        "walletCount": {
+                          "type": "integer"
+                        },
+                        "hero": {
+                          "type": "object",
+                          "properties": {
+                            "upnlProfit": {
+                              "type": "number"
+                            },
+                            "upnlLoss": {
+                              "type": "number"
+                            },
+                            "upnlProfitPct": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "walletsInProfit": {
+                              "type": "integer"
+                            },
+                            "walletsInLoss": {
+                              "type": "integer"
+                            },
+                            "notionalLong": {
+                              "type": "number"
+                            },
+                            "notionalShort": {
+                              "type": "number"
+                            },
+                            "longPct": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "upnlProfit",
+                            "upnlLoss",
+                            "upnlProfitPct",
+                            "walletsInProfit",
+                            "walletsInLoss",
+                            "notionalLong",
+                            "notionalShort",
+                            "longPct"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "markets": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "notionalLong": {
+                                "type": "number"
+                              },
+                              "notionalShort": {
+                                "type": "number"
+                              },
+                              "biasPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "upnl": {
+                                "type": "number"
+                              },
+                              "tradersLong": {
+                                "type": "integer"
+                              },
+                              "tradersShort": {
+                                "type": "integer"
+                              },
+                              "tradersProfit": {
+                                "type": "integer"
+                              },
+                              "tradersLoss": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "notionalLong",
+                              "notionalShort",
+                              "biasPct",
+                              "upnl",
+                              "tradersLong",
+                              "tradersShort",
+                              "tradersProfit",
+                              "tradersLoss"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "wallets": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "topAssets": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "totalPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "perpEquity": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "positionValue": {
+                                "type": "number"
+                              },
+                              "leverage": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "sumUpnl": {
+                                "type": "number"
+                              },
+                              "biasPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "verified",
+                              "topAssets",
+                              "totalPnl",
+                              "roi",
+                              "perpEquity",
+                              "copyScore",
+                              "positionValue",
+                              "leverage",
+                              "sumUpnl",
+                              "biasPct"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "tier",
+                        "memberCount",
+                        "walletCount",
+                        "hero",
+                        "markets",
+                        "wallets",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Cohort",
+        "tags": [
+          "Insights"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/insights/cohorts/{tier}/history": {
+      "get": {
+        "description": "The tier's long share per refresh and BTC's price over 7d / 30d / 90d / all.\n\nAccess: public",
+        "operationId": "InsightsController_cohortHistory",
+        "parameters": [
+          {
+            "name": "tier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "extremely_profitable",
+                "very_profitable",
+                "profitable",
+                "break_even",
+                "unprofitable",
+                "very_unprofitable",
+                "rekt"
+              ]
+            }
+          },
+          {
+            "name": "window",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "7d",
+                "30d",
+                "90d",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "tier": {
+                          "type": "string",
+                          "enum": [
+                            "extremely_profitable",
+                            "very_profitable",
+                            "profitable",
+                            "break_even",
+                            "unprofitable",
+                            "very_unprofitable",
+                            "rekt"
+                          ]
+                        },
+                        "window": {
+                          "type": "string",
+                          "enum": [
+                            "7d",
+                            "30d",
+                            "90d",
+                            "all"
+                          ]
+                        },
+                        "series": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "t": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "pctLong": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "t",
+                              "pctLong"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "btc": {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": false,
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "tier",
+                        "window",
+                        "series",
+                        "btc"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Cohort history",
+        "tags": [
+          "Insights"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
       }
     },
     "/admin/outbox": {
@@ -11986,6 +12513,21 @@
               "type": "string",
               "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
             }
+          },
+          "cohortMembersPerTier": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "cohortRefreshMinutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 240
+          },
+          "cohortWeightPerMinute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600
           }
         },
         "additionalProperties": false,

@@ -39,6 +39,8 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/telegram/link` | 200 | user |
 | POST | `/me/telegram/test` | 200 | user |
 | DELETE | `/me/telegram` | 204 | user |
+| GET | `/insights/cohorts/:tier` | 200 | public |
+| GET | `/insights/cohorts/:tier/history` | 200 | public |
 | GET | `/insights/crowd` | 200 | public |
 | GET | `/settings` | 200 | public |
 | GET | `/admin/settings` | 200 | settings.read |

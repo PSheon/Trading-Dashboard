@@ -1,11 +1,12 @@
 "use client";
 
-import type { AlertSidesInput, FavoriteAlert } from "@/lib/contracts";
+import { readAlertDisplayValues, type AlertSidesInput, type FavoriteAlert } from "@/lib/contracts";
 import { Bell, BellRing, Send } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { cn } from "cn";
 
+import { KindBadge } from "@/components/actions/actions-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +17,8 @@ import { useAddFavorite, useSetFavoriteAlert, useTelegramStatus } from "@/lib/al
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Formatter } from "@/lib/format";
-import { useFavorites, useSiteSettings } from "@/lib/queries";
+import { coinLabel } from "@/lib/format";
+import { useAlerts, useFavorites, useSiteSettings } from "@/lib/queries";
 import { usd0 } from "@/lib/trade-format";
 
 const SIDE_KEY = { buy: "alerts.sideBuy", sell: "alerts.sideSell", both: "alerts.sideBoth" } as const;
@@ -38,15 +40,21 @@ export function alertSummary(alert: FavoriteAlert, t: Translate, format: Formatt
  *
  * `variant="pill"` (favorites rows) shows the current setting next to the
  * bell; `"icon"` (trader page, next to the star) is the bell alone.
+ *
+ * `history` (the trader page) also lists the latest alerts sent about this
+ * trader under the settings: they used to be Orbie's 警報 tab, which
+ * CopyDog's tab bar doesn't have.
  */
 export function AlertBell({
   address,
   variant = "icon",
   className,
+  history = false,
 }: {
   address: string;
   variant?: "icon" | "pill";
   className?: string;
+  history?: boolean;
 }) {
   const { t, format } = useI18n();
   const { status, login } = useAuth();
@@ -108,8 +116,55 @@ export function AlertBell({
           // content unmounts when closed, so each opening starts fresh.
           <AlertEditor address={address} alert={favorite.alert} onDone={() => setOpen(false)} />
         ) : null}
+        {history && favorite ? <AlertHistory address={address} /> : null}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** How many sent alerts the bell lists. */
+export const ALERT_HISTORY_ROWS = 5;
+
+/** The latest alerts sent about one trader (time, coin, action, size,
+ * delivery status). */
+export function AlertHistory({ address }: { address: string }) {
+  const { t, format } = useI18n();
+  const alerts = useAlerts(address);
+  const rows = (alerts.data ?? []).slice(0, ALERT_HISTORY_ROWS);
+  return (
+    <section className="mt-4 border-t border-border pt-3" aria-label={t("alerts.recent")}>
+      <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{t("alerts.recent")}</h4>
+      {alerts.isError ? (
+        <p className="text-xs text-negative">{alerts.error.message}</p>
+      ) : !alerts.data ? (
+        <p className="text-xs text-subtle-foreground">{t("common.loading")}</p>
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-subtle-foreground">{t("trader.noAlerts")}</p>
+      ) : (
+        <ul className="flex flex-col gap-2" data-testid="alert-history">
+          {rows.map((a) => {
+            const values = readAlertDisplayValues(a.payloadJson);
+            const kind = values?.actionKind;
+            return (
+              <li key={String(a.id)} className="flex items-center gap-2 text-xs">
+                <span className="num w-[5.5rem] shrink-0 font-mono text-[11px] text-subtle-foreground">{format.dateTime(a.sentAt)}</span>
+                <span className="font-semibold">{a.coin ? coinLabel(a.coin) : "—"}</span>
+                {kind ? <KindBadge kind={kind} /> : null}
+                <span className="num ml-auto">{format.usd(values?.notionalUsd, { compact: true })}</span>
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                    a.sendStatus === "failed" ? "bg-negative-soft text-negative" : a.sendStatus === "sent" ? "bg-positive-soft text-positive" : "bg-raised text-muted-foreground",
+                  )}
+                >
+                  {a.sendStatus}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

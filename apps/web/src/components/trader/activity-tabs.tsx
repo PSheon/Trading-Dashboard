@@ -1,24 +1,17 @@
 "use client";
 
-import { readAlertDisplayValues } from "@/lib/contracts";
-
-import type { ActionFeedItem, TraderFill, TraderProfileResponse } from "@/lib/contracts";
+import type { TraderFill, TraderProfileResponse } from "@/lib/contracts";
 import { Activity, Download } from "lucide-react";
 import { Fragment, useId, useMemo, useState } from "react";
 import { cn } from "cn";
 import { rovingFocus } from "@/lib/roving-focus";
 
-import { ActionsTable, KindBadge } from "@/components/actions/actions-table";
-import { LiveBadge } from "@/components/actions/live-badge";
-import { EmptyState, ErrorState, SignInPrompt, Skeleton } from "@/components/page";
+import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
-import { useAuth } from "@/lib/auth";
 import { downloadCsv, toCsv } from "@/lib/csv";
-import { coinLabel } from "@/lib/format";
 import { mergeLiveFills } from "@/lib/live-trader";
-import { isComputing, useAlerts, useLiveActions, useTraderAnalytics, useTraderFills } from "@/lib/queries";
+import { isComputing, useTraderAnalytics, useTraderFills } from "@/lib/queries";
 import { PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { BalancesTab, FillsTab, OrdersTab, PositionsTab, TransfersTab, TwapTab } from "./trader-tabs";
 
@@ -30,16 +23,15 @@ export type Tab =
   | "fills"
   | "trades"
   | "twap"
-  | "transfers"
-  | "actions"
-  | "alerts";
+  | "transfers";
 
 /** CopyDog's tab set and order, in groups split by a divider: 持倉 / 表現 |
- * 餘額 / 訂單 / 成交 / 交易 / TWAP / 轉帳, then Orbie's own 動作 / 警報. */
+ * 餘額 / 訂單 / 成交 / 交易 / TWAP / 轉帳. Alert settings sit behind the
+ * bell next to the trader's name and the live feed behind the pulse, as on
+ * CopyDog. */
 export const TAB_GROUPS: Tab[][] = [
   ["positions", "performance"],
   ["balances", "orders", "fills", "trades", "twap", "transfers"],
-  ["actions", "alerts"],
 ];
 const NO_FILLS: TraderFill[] = [];
 const NO_MARKS: Readonly<Record<string, number>> = {};
@@ -47,8 +39,8 @@ const NO_MARKS: Readonly<Record<string, number>> = {};
 /** The tabs under the chart, CopyDog's set and order, with the live-feed
  * pulse at the right of the bar (it swaps the copy panel for 即時動態).
  * Performance and trades are the round trips the api reconstructs for any
- * address; orders, TWAP and transfers load when their tab opens. Fills and
- * actions export to CSV (競品分析 §3.10: your data, portable). */
+ * address; orders, TWAP and transfers load when their tab opens. Fills
+ * export to CSV (競品分析 §3.10: your data, portable). */
 export function ActivityTabs({
   profile,
   liveFills = NO_FILLS,
@@ -69,19 +61,12 @@ export function ActivityTabs({
   const panelId = useId();
   const [tab, setTab] = useState<Tab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
-  const { status } = useAuth();
   const fills = useTraderFills(profile.address, 2000);
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
-  const {
-    query: actions,
-    status: actionsStream,
-    highlight: newActions,
-  } = useLiveActions({ address: profile.address, limit: 200 }, { enabled: tab === "actions" });
-  const alerts = useAlerts(profile.address, { enabled: tab === "alerts" && status === "signedIn" });
   // All-time, like CopyDog's performance tab; shared with the profile rail.
   const analytics = useTraderAnalytics(profile.address, "all");
 
-  const exportable = tab === "fills" ? fillRows : tab === "actions" ? actions.data : undefined;
+  const exportable = tab === "fills" ? fillRows : undefined;
 
   return (
     <section className="rounded-2xl border border-border bg-card">
@@ -114,18 +99,13 @@ export function ActivityTabs({
           ))}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {tab === "actions" ? <LiveBadge status={actionsStream} /> : null}
           {tab === "performance" ? <PerfSwitch value={perfView} onChange={setPerfView} /> : null}
           {exportable && exportable.length > 0 ? (
             <Button
               variant="ghost"
               aria-label={t("common.exportCsv")}
               size="sm"
-              onClick={() =>
-                tab === "fills"
-                  ? exportFills(profile.address, fillRows ?? [])
-                  : exportActions(profile.address, actions.data ?? [])
-              }
+              onClick={() => exportFills(profile.address, fillRows ?? [])}
             >
               <Download />
               <span className="hidden xl:inline">{t("common.exportCsv")}</span>
@@ -175,32 +155,6 @@ export function ActivityTabs({
         {tab === "trades" ? <TradesTab address={profile.address} /> : null}
         {tab === "twap" ? <TwapTab address={profile.address} /> : null}
         {tab === "transfers" ? <TransfersTab address={profile.address} /> : null}
-        {tab === "actions" ? (
-          actions.isError ? (
-            <ErrorState message={actions.error.message} onRetry={() => actions.refetch()} />
-          ) : !actions.data ? (
-            <Loading />
-          ) : actions.data.length === 0 ? (
-            <EmptyState title={t("trader.noActions")} />
-          ) : (
-            <ActionsTable rows={actions.data} showTrader={false} highlight={newActions} />
-          )
-        ) : null}
-        {tab === "alerts" ? (
-          status === "loading" ? (
-            <Loading />
-          ) : status !== "signedIn" ? (
-            <SignInPrompt title={t("trader.alertsSignIn")} />
-          ) : alerts.isError ? (
-            <ErrorState message={alerts.error.message} onRetry={() => alerts.refetch()} />
-          ) : !alerts.data ? (
-            <Loading />
-          ) : alerts.data.length === 0 ? (
-            <EmptyState title={t("trader.noAlerts")} />
-          ) : (
-            <AlertsList rows={alerts.data} />
-          )
-        ) : null}
       </div>
     </section>
   );
@@ -213,53 +167,6 @@ function Loading() {
         <Skeleton key={i} className="h-9" />
       ))}
     </div>
-  );
-}
-
-function AlertsList({ rows }: { rows: NonNullable<ReturnType<typeof useAlerts>["data"]> }) {
-  const { t, format } = useI18n();
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead>{t("trader.cols.time")}</TableHead>
-          <TableHead>{t("trader.cols.coin")}</TableHead>
-          <TableHead>{t("actions.cols.action")}</TableHead>
-          <TableHead className="text-right">{t("actions.cols.notional")}</TableHead>
-          <TableHead className="text-right">{t("trader.cols.status")}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((a) => {
-          const values = readAlertDisplayValues(a.payloadJson);
-          const kind = values?.actionKind;
-          return (
-            <TableRow key={String(a.id)}>
-              <TableCell className="num font-mono text-xs text-muted-foreground">{format.dateTime(a.sentAt)}</TableCell>
-              <TableCell className="font-semibold">{a.coin ? coinLabel(a.coin) : "—"}</TableCell>
-              <TableCell>{kind ? <KindBadge kind={kind} /> : "—"}</TableCell>
-              <TableCell className="text-right">
-                {format.usd(values?.notionalUsd, { compact: true })}
-              </TableCell>
-              <TableCell className="text-right">
-                <span
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    a.sendStatus === "failed"
-                      ? "bg-negative-soft text-negative"
-                      : a.sendStatus === "sent"
-                        ? "bg-positive-soft text-positive"
-                        : "bg-raised text-muted-foreground",
-                  )}
-                >
-                  {a.sendStatus}
-                </span>
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
   );
 }
 
@@ -282,26 +189,6 @@ function exportFills(address: string, rows: TraderFill[]) {
         f.startPosition ?? null,
         f.liquidation ? "true" : "false",
         f.twapId ?? null,
-      ]),
-    ),
-  );
-}
-
-function exportActions(address: string, rows: ActionFeedItem[]) {
-  downloadCsv(
-    `${address}-actions.csv`,
-    toCsv(
-      ["time_utc", "id", "coin", "kind", "side", "notional_usd", "avg_px", "leverage", "fills"],
-      rows.map((a) => [
-        new Date(a.ts).toISOString(),
-        String(a.id),
-        a.coin,
-        a.kind,
-        a.side,
-        String(a.notionalUsd),
-        String(a.avgPx),
-        a.leverage === null || a.leverage === undefined ? "" : String(a.leverage),
-        a.fillIds.length,
       ]),
     ),
   );

@@ -456,8 +456,6 @@ export const id: Messages = {
       fills: "Eksekusi",
       twap: "TWAP",
       transfers: "Transfer",
-      actions: "Aksi",
-      alerts: "Peringatan",
       insights: "Analitik",
     },
     cols: {
@@ -561,9 +559,7 @@ export const id: Messages = {
     mobile: { pnl: "PnL", roi: "ROI", drawdown: "Penurunan" },
     noPositions: "Tidak ada posisi terbuka",
     noFills: "Tidak ada eksekusi",
-    noActions: "Belum ada aksi yang tercatat untuk alamat ini",
     noAlerts: "Belum ada peringatan tentang alamat ini",
-    alertsSignIn: "Masuk untuk melihat peringatan yang kamu terima tentang alamat ini",
     copy: {
       follow: "Ikuti",
       reverse: "Berlawanan",
@@ -1081,6 +1077,7 @@ export const id: Messages = {
   },
   alerts: {
     title: "Peringatan transaksi",
+    recent: "Peringatan terbaru",
     turnOn: "Aktifkan peringatan",
     edit: "Atur peringatan",
     loginToAlert: "Masuk untuk mengatur peringatan",

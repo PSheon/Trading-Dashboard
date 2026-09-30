@@ -456,8 +456,6 @@ export const ru: Messages = {
       fills: "Исполнения",
       twap: "TWAP",
       transfers: "Переводы",
-      actions: "Действия",
-      alerts: "Оповещения",
       insights: "Аналитика",
     },
     cols: {
@@ -561,9 +559,7 @@ export const ru: Messages = {
     mobile: { pnl: "PnL", roi: "ROI", drawdown: "Просадка" },
     noPositions: "Нет открытых позиций",
     noFills: "Нет исполнений",
-    noActions: "Для этого адреса пока нет записанных действий",
     noAlerts: "Оповещений по этому адресу пока нет",
-    alertsSignIn: "Войдите, чтобы увидеть оповещения, полученные по этому адресу",
     copy: {
       follow: "Следовать",
       reverse: "Против",
@@ -1081,6 +1077,7 @@ export const ru: Messages = {
   },
   alerts: {
     title: "Оповещения о сделках",
+    recent: "Последние оповещения",
     turnOn: "Включить оповещения",
     edit: "Настройки оповещений",
     loginToAlert: "Войдите, чтобы настроить оповещения",

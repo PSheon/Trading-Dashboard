@@ -11,11 +11,10 @@ const fill = (tid: number, ts: number, extra: Partial<TraderFill> = {}): TraderF
 });
 
 describe("trader tabs, CopyDog's set and order", () => {
-  it("lists 持倉 / 表現 | 餘額 / 訂單 / 成交 / 交易 / TWAP / 轉帳, then Orbie's 動作 / 警報", () => {
+  it("lists 持倉 / 表現 | 餘額 / 訂單 / 成交 / 交易 / TWAP / 轉帳 and nothing else (no 動作 / 警報)", () => {
     expect(TAB_GROUPS).toEqual([
       ["positions", "performance"],
       ["balances", "orders", "fills", "trades", "twap", "transfers"],
-      ["actions", "alerts"],
     ]);
   });
 });

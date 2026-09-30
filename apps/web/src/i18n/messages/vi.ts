@@ -456,8 +456,6 @@ export const vi: Messages = {
       fills: "Khớp lệnh",
       twap: "TWAP",
       transfers: "Chuyển khoản",
-      actions: "Hành động",
-      alerts: "Cảnh báo",
       insights: "Phân tích",
     },
     cols: {
@@ -561,9 +559,7 @@ export const vi: Messages = {
     mobile: { pnl: "PnL", roi: "ROI", drawdown: "Sụt giảm" },
     noPositions: "Không có vị thế mở",
     noFills: "Không có khớp lệnh",
-    noActions: "Chưa có hành động nào được ghi nhận cho địa chỉ này",
     noAlerts: "Chưa có cảnh báo nào về địa chỉ này",
-    alertsSignIn: "Đăng nhập để xem các cảnh báo bạn đã nhận về địa chỉ này",
     copy: {
       follow: "Thuận chiều",
       reverse: "Ngược chiều",
@@ -1081,6 +1077,7 @@ export const vi: Messages = {
   },
   alerts: {
     title: "Cảnh báo giao dịch",
+    recent: "Cảnh báo gần đây",
     turnOn: "Bật cảnh báo",
     edit: "Cài đặt cảnh báo",
     loginToAlert: "Đăng nhập để đặt cảnh báo",

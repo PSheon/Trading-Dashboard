@@ -456,8 +456,6 @@ export const zhCN: Messages = {
       fills: "成交",
       twap: "TWAP",
       transfers: "转账",
-      actions: "动作",
-      alerts: "提醒",
       insights: "洞察",
     },
     cols: {
@@ -561,9 +559,7 @@ export const zhCN: Messages = {
     mobile: { pnl: "盈亏", roi: "ROI", drawdown: "回撤" },
     noPositions: "暂无持仓",
     noFills: "暂无成交",
-    noActions: "该地址还没有动作记录",
     noAlerts: "还没有关于该地址的提醒",
-    alertsSignIn: "登录后可查看你收到的关于该地址的提醒",
     copy: {
       follow: "顺向",
       reverse: "反向",
@@ -1081,6 +1077,7 @@ export const zhCN: Messages = {
   },
   alerts: {
     title: "交易提醒",
+    recent: "最近警报",
     turnOn: "开启提醒",
     edit: "提醒设置",
     loginToAlert: "登录后即可设置提醒",

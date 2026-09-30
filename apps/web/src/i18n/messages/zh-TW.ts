@@ -506,8 +506,6 @@ export const zhTW = {
       fills: "成交",
       twap: "TWAP",
       transfers: "轉帳",
-      actions: "動作",
-      alerts: "警報",
       insights: "洞察",
     },
     cols: {
@@ -611,9 +609,7 @@ export const zhTW = {
     mobile: { pnl: "損益", roi: "ROI", drawdown: "回撤" },
     noPositions: "暫無持倉",
     noFills: "暫無成交",
-    noActions: "這個地址還沒有動作紀錄",
     noAlerts: "還沒有關於這個地址的警報",
-    alertsSignIn: "登入後可查看你對這個地址收到的警報",
     copy: {
       follow: "順向",
       reverse: "反向",
@@ -1131,6 +1127,7 @@ export const zhTW = {
   },
   alerts: {
     title: "交易提醒",
+    recent: "最近警報",
     turnOn: "開啟提醒",
     edit: "提醒設定",
     loginToAlert: "登入後即可設定提醒",

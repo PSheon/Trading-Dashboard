@@ -456,8 +456,6 @@ export const ko: Messages = {
       fills: "체결",
       twap: "TWAP",
       transfers: "입출금",
-      actions: "동작",
-      alerts: "알림",
       insights: "인사이트",
     },
     cols: {
@@ -561,9 +559,7 @@ export const ko: Messages = {
     mobile: { pnl: "손익", roi: "수익률", drawdown: "낙폭" },
     noPositions: "보유 포지션 없음",
     noFills: "체결 없음",
-    noActions: "이 주소에 기록된 동작이 아직 없습니다",
     noAlerts: "이 주소에 대한 알림이 아직 없습니다",
-    alertsSignIn: "로그인하면 이 주소에 대해 받은 알림을 볼 수 있습니다",
     copy: {
       follow: "팔로우",
       reverse: "반대",
@@ -1081,6 +1077,7 @@ export const ko: Messages = {
   },
   alerts: {
     title: "거래 알림",
+    recent: "최근 알림",
     turnOn: "알림 켜기",
     edit: "알림 설정",
     loginToAlert: "로그인하고 알림 설정하기",

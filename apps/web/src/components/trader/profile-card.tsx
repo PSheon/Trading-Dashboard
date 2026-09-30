@@ -217,7 +217,7 @@ export function ProfileCard({
             </span>
           </div>
           <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
-          <AlertBell address={profile.address} className="-ml-2" />
+          <AlertBell address={profile.address} className="-ml-2" history />
           <button
             type="button"
             onClick={() => copy("link", window.location.href)}

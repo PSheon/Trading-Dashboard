@@ -456,8 +456,6 @@ export const es: Messages = {
       fills: "Ejecuciones",
       twap: "TWAP",
       transfers: "Transferencias",
-      actions: "Acciones",
-      alerts: "Alertas",
       insights: "Analíticas",
     },
     cols: {
@@ -561,9 +559,7 @@ export const es: Messages = {
     mobile: { pnl: "PnL", roi: "ROI", drawdown: "Caída" },
     noPositions: "Sin posiciones abiertas",
     noFills: "Sin ejecuciones",
-    noActions: "Aún no hay acciones registradas para esta dirección",
     noAlerts: "Aún no hay alertas sobre esta dirección",
-    alertsSignIn: "Inicia sesión para ver las alertas que has recibido sobre esta dirección",
     copy: {
       follow: "Seguir",
       reverse: "Inverso",
@@ -1081,6 +1077,7 @@ export const es: Messages = {
   },
   alerts: {
     title: "Alertas de operaciones",
+    recent: "Alertas recientes",
     turnOn: "Activar alertas",
     edit: "Ajustes de alerta",
     loginToAlert: "Inicia sesión para crear alertas",

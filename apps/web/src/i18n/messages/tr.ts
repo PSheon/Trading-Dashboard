@@ -456,8 +456,6 @@ export const tr: Messages = {
       fills: "Gerçekleşmeler",
       twap: "TWAP",
       transfers: "Transferler",
-      actions: "Hareketler",
-      alerts: "Uyarılar",
       insights: "Analizler",
     },
     cols: {
@@ -561,9 +559,7 @@ export const tr: Messages = {
     mobile: { pnl: "K/Z", roi: "ROI", drawdown: "Düşüş" },
     noPositions: "Açık pozisyon yok",
     noFills: "Gerçekleşme yok",
-    noActions: "Bu adres için henüz kayıtlı hareket yok",
     noAlerts: "Bu adresle ilgili henüz uyarı yok",
-    alertsSignIn: "Bu adresle ilgili aldığınız uyarıları görmek için giriş yapın",
     copy: {
       follow: "Takip",
       reverse: "Ters",
@@ -1081,6 +1077,7 @@ export const tr: Messages = {
   },
   alerts: {
     title: "İşlem uyarıları",
+    recent: "Son uyarılar",
     turnOn: "Uyarıları aç",
     edit: "Uyarı ayarları",
     loginToAlert: "Uyarı kurmak için giriş yapın",

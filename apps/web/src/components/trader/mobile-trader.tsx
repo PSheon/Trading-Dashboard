@@ -86,7 +86,7 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
         <span className="num min-w-0 flex-1 truncate text-center font-mono text-[0.9375rem] font-bold">{truncateAddress(profile.address)}</span>
       )}
       <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
-      <AlertBell address={profile.address} />
+      <AlertBell address={profile.address} history />
       <button
         type="button"
         onClick={() => void navigator.clipboard?.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); })}

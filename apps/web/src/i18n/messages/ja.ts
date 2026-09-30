@@ -456,8 +456,6 @@ export const ja: Messages = {
       fills: "約定",
       twap: "TWAP",
       transfers: "入出金",
-      actions: "動き",
-      alerts: "アラート",
       insights: "インサイト",
     },
     cols: {
@@ -561,9 +559,7 @@ export const ja: Messages = {
     mobile: { pnl: "損益", roi: "収益率", drawdown: "ドローダウン" },
     noPositions: "保有ポジションなし",
     noFills: "約定なし",
-    noActions: "このアドレスの動きはまだ記録されていません",
     noAlerts: "このアドレスに関するアラートはまだありません",
-    alertsSignIn: "ログインすると、このアドレスについて受け取ったアラートを確認できます",
     copy: {
       follow: "順張り",
       reverse: "逆張り",
@@ -1081,6 +1077,7 @@ export const ja: Messages = {
   },
   alerts: {
     title: "取引アラート",
+    recent: "最近のアラート",
     turnOn: "アラートをオン",
     edit: "アラート設定",
     loginToAlert: "ログインしてアラートを設定",

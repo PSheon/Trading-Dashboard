@@ -281,8 +281,6 @@ export const zhTW = {
     tradesEmptyDesc: "該交易員開倉並平倉後，完整交易將顯示於此。",
     denseTitle: "高頻帳戶",
     denseDesc: "該帳戶交易過於頻繁，無法回溯更早的歷史——自 {since} 以來沒有完成的完整交易。",
-    filterEmpty: "目前視窗內沒有{filter}交易。",
-    openBadge: "持倉中",
     fundingUnknown: "這筆交易期間的資金費尚未讀取",
     win: "勝",
     loss: "敗",
@@ -300,7 +298,6 @@ export const zhTW = {
     partialHint: "在可取得的最早成交時已持倉，確切開倉時間不詳；進場價為精確值。",
     entryApproxHint: "進場價為估計值：倉位早於可取得的成交紀錄",
     showMore: "顯示更多（{shown} / {total}）",
-    tradeFilters: { all: "全部", closed: "已平倉", open: "持倉中" },
     perf: { best: "最佳", worst: "最差", mostTraded: "最常交易", byAsset: "依幣種" },
     tradeCols: {
       asset: "資產",

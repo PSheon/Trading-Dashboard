@@ -11,7 +11,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel } from "@/lib/format";
-import { isComputing, useTraderTrades, type TradeStatusFilter } from "@/lib/queries";
+import { isComputing, useTraderTrades } from "@/lib/queries";
 import {
   ago,
   duration,
@@ -516,28 +516,24 @@ const LEDGER_KEYS = {
 };
 type LedgerKey = keyof typeof LEDGER_KEYS;
 
-/** 交易: the round-trip ledger, closed trades latest exit first as on
- * CopyDog (全部 / 持倉中 add open ones), 50 at a time. Net PnL includes
- * funding, as CopyDog shows it. */
+/** 交易: the round-trip ledger, closed trades only, latest exit first, 50
+ * at a time, as on CopyDog (its live page has no status filter). Net PnL
+ * includes funding, as CopyDog shows it. */
 export function TradesTab({ address }: { address: string }) {
   const { t } = useI18n();
-  const [status, setStatus] = useState<TradeStatusFilter>("closed");
-  const query = useTraderTrades(address, status);
+  const query = useTraderTrades(address, "closed");
   const rows = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const first: TraderTradesResponse | undefined = query.data?.pages[0];
   const { sorted, sort, onSort } = useSorted<RoundTrip, LedgerKey>(rows, LEDGER_KEYS, { key: "exit", dir: "desc" });
   const head = { sort, onSort };
-  const filterLabel = { all: t("trader.tradeFilters.all"), closed: t("trader.tradeFilters.closed"), open: t("trader.tradeFilters.open") };
 
   let body: React.ReactNode;
   if (query.isError) body = <LoadError onRetry={() => query.refetch()} />;
   else if (!first) body = isComputing(query) && query.failureReason ? <Computing /> : <Loading />;
   else if (rows.length === 0) {
-    const dense = status === "closed" && first.coverage.truncated && first.coverage.from !== null;
+    const dense = first.coverage.truncated && first.coverage.from !== null;
     body =
-      status !== "closed" ? (
-        <Empty title={t("trader.filterEmpty", { filter: filterLabel[status] })} />
-      ) : dense ? (
+      dense ? (
         <Empty title={t("trader.denseTitle")} body={t("trader.denseDesc", { since: shortTime(first.coverage.from) })} />
       ) : (
         <Empty title={t("trader.tradesEmptyTitle")} body={t("trader.tradesEmptyDesc")} />
@@ -584,11 +580,7 @@ export function TradesTab({ address }: { address: string }) {
                     <TableCell className="text-right">
                       {trade.exitPx === null ? "—" : price(trade.exitPx)}
                       <div className="text-[11px] text-subtle-foreground">
-                        {trade.exitTime ? (
-                          shortTime(trade.exitTime)
-                        ) : (
-                          <span className="rounded bg-primary-soft px-1 text-primary">{t("trader.openBadge")}</span>
-                        )}
+                        {trade.exitTime ? shortTime(trade.exitTime) : "—"}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">{usd2(trade.notional)}</TableCell>
@@ -627,21 +619,10 @@ export function TradesTab({ address }: { address: string }) {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3 sm:px-5">
-        <Segmented
-          value={status}
-          onChange={setStatus}
-          variant="pill"
-          label={t("trader.tabs.trades")}
-          options={[
-            { value: "all", label: filterLabel.all },
-            { value: "closed", label: filterLabel.closed },
-            { value: "open", label: filterLabel.open },
-          ]}
-        />
-        {first ? <CoverageNote analytics={first} /> : null}
-      </div>
       {body}
+      {/* Orbie's disclosure of the history and funding read; CopyDog has
+          none, so it sits under the table rather than above it. */}
+      {first ? <CoverageNote analytics={first} className="border-t border-border px-4 py-2.5 sm:px-5" /> : null}
     </div>
   );
 }

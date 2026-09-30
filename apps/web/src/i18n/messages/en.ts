@@ -277,8 +277,6 @@ export const en: Messages = {
     tradesEmptyDesc: "Round-trip trades appear here once this trader opens and closes positions.",
     denseTitle: "High-Frequency Account",
     denseDesc: "This account trades too frequently to reconstruct older history — no round trips completed since {since}.",
-    filterEmpty: "No {filter} trades in the current window.",
-    openBadge: "Open",
     fundingUnknown: "Funding for this hold hasn't been read yet",
     win: "Win",
     loss: "Loss",
@@ -296,7 +294,6 @@ export const en: Messages = {
     partialHint: "Already open at the earliest fill available, so the exact open time is unknown. The entry price is exact.",
     entryApproxHint: "Entry estimated: the position predates the available fill history",
     showMore: "Show more ({shown} of {total})",
-    tradeFilters: { all: "All", closed: "Closed", open: "Open" },
     perf: { best: "Best", worst: "Worst", mostTraded: "Most traded", byAsset: "By asset" },
     tradeCols: {
       asset: "Asset",

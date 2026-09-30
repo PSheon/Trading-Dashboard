@@ -74,10 +74,10 @@ formats (`apps/web/src/lib/trade-format.ts`: "Sep 19, 06:52", "20d 17h",
 "+$54.05K", prices by magnitude, win rate ≥ 50% green / ≥ 35% amber / red),
 sortable headers, mobile trade cards and empty states, in Orbie's palette.
 Tier icons are the Lucide equivalents of the Remix Icon glyphs CopyDog uses.
-Differences: the 交易 tab keeps an 全部 / 已平倉 / 持倉中 filter (CopyDog's live
-bundle shows closed trades only; its locale still has the filter strings) and
-defaults to 已平倉; the per-row share copies a text summary and link (CopyDog
-renders an image card).
+The 交易 tab lists closed trades only, as CopyDog's live page does (its locale
+still has 全部 / 已平倉 / 持倉中 strings, but no filter is shown; the api's
+`status` parameter remains for other callers). Difference: the per-row share
+copies a text summary and link (CopyDog renders an image card).
 
 ## Data and cost
 

@@ -121,7 +121,7 @@ export function valueSpotBalances(
     if (price === null) onUnpriced(balance.coin, token);
     const value = price === null ? 0 : total * price.px;
     spotValue += value;
-    out.push({ coin: balance.coin, token, total, px: price?.px ?? null, value, priceKey: price?.key ?? null });
+    out.push({ coin: balance.coin, token, total, hold: num(balance.hold), px: price?.px ?? null, value, priceKey: price?.key ?? null });
   }
   out.sort((a, b) => b.value - a.value);
   return { spotValue, balances: out };

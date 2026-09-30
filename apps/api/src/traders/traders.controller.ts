@@ -19,8 +19,11 @@ import {
   type SparklinesResponse,
   type TraderActivityResponse,
   type TraderFill,
+  type TraderOrdersResponse,
   type TraderProfileResponse,
   type TradersResponse,
+  type TraderTransfersResponse,
+  type TraderTwapsResponse,
 } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, userIdOf, type RequestUser } from "../common/auth/current-user.js";
@@ -108,6 +111,28 @@ export class TradersController {
   activity(@Param("address") address: string): Promise<TraderActivityResponse> {
     const addr = parseAddress(address);
     return this.upstream(this.traders.activity(addr), addr);
+  }
+
+  /** Resting orders across dexes (the 訂單 tab; loaded when it opens). */
+  @Get(":address/orders")
+  orders(@Param("address") address: string): Promise<TraderOrdersResponse> {
+    const addr = parseAddress(address);
+    return this.upstream(this.traders.orders(addr), addr);
+  }
+
+  /** Running TWAP orders (the TWAP tab). */
+  @Get(":address/twap")
+  twap(@Param("address") address: string): Promise<TraderTwapsResponse> {
+    const addr = parseAddress(address);
+    return this.upstream(this.traders.twaps(addr), addr);
+  }
+
+  /** Deposits, withdrawals and transfers of the last 90 days (the 轉帳 tab
+   * and the live feed). */
+  @Get(":address/transfers")
+  transfers(@Param("address") address: string): Promise<TraderTransfersResponse> {
+    const addr = parseAddress(address);
+    return this.upstream(this.traders.transfers(addr), addr);
   }
 
   /**

@@ -10,7 +10,10 @@ import type {
   HlAllMidsResponse,
   HlClearinghouseStateResponse,
   HlDelegatorSummary,
+  HlFrontendOpenOrder,
   HlInfoRequestBody,
+  HlLedgerUpdate,
+  HlTwapHistoryEntry,
   HlSpotClearinghouseStateResponse,
   HlSpotMetaAndAssetCtxsResponse,
   HlUserAbstractionResponse,
@@ -48,6 +51,20 @@ const WEIGHT_TWAP_SLICE_FILLS_BASE = 20;
 /** Not in the weight-2 list, so "all other documented info requests" = 20
  * (rate-limits-and-user-limits, checked 2026-09-29). */
 const WEIGHT_REFERRAL = 20;
+/** `frontendOpenOrders`: not in the weight-2 list, so 20, per dex (the
+ * request names one dex; spot orders come with the main one). */
+const WEIGHT_FRONTEND_OPEN_ORDERS = 20;
+/** `twapHistory` and `userNonFundingLedgerUpdates`: base 20, budgeted as
+ * list requests (+1 per 20 items), the conservative reading of the
+ * rate-limit docs, which don't list either explicitly. */
+const WEIGHT_TWAP_HISTORY_BASE = 20;
+const WEIGHT_LEDGER_UPDATES_BASE = 20;
+/** Items acquired up front for those two: a TWAP history is every TWAP the
+ * address ever ran (170 for a heavy TWAP user, checked 2026-09-30); a
+ * 90-day ledger window rarely has more than a few hundred. The difference
+ * to the real count is settled afterwards, as for every list. */
+export const TWAP_HISTORY_MAX_ITEMS = 2000;
+export const LEDGER_MAX_ITEMS = 2000;
 /** Assumed per-docs multiplier for the "additional weight per 20 items
  * returned" surcharge on userFillsByTime — see the budgeter's doc comment
  * for why this is 1 and not something else. */
@@ -320,6 +337,52 @@ export class HyperliquidInfoClient {
     rank?: number,
   ): Promise<HlUserFill[]> {
     return this.postList<HlUserFill[]>({ type: "userFills", user: address }, WEIGHT_USER_FILLS_BASE, priority, rank);
+  }
+
+  /** Resting orders on one perp dex ("" / omitted = the main dex, which
+   * also carries the address's spot orders). Weight 20. */
+  frontendOpenOrders(
+    address: string,
+    dex?: string,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlFrontendOpenOrder[]> {
+    return this.post<HlFrontendOpenOrder[]>(
+      dex ? { type: "frontendOpenOrders", user: address, dex } : { type: "frontendOpenOrders", user: address },
+      WEIGHT_FRONTEND_OPEN_ORDERS,
+      priority,
+      rank,
+    );
+  }
+
+  /** Every TWAP the address ran, one entry per status change, oldest
+   * first. */
+  twapHistory(address: string, priority: RequestPriority = "background", rank?: number): Promise<HlTwapHistoryEntry[]> {
+    return this.postList<HlTwapHistoryEntry[]>(
+      { type: "twapHistory", user: address },
+      WEIGHT_TWAP_HISTORY_BASE,
+      priority,
+      rank,
+      TWAP_HISTORY_MAX_ITEMS,
+    );
+  }
+
+  /** Deposits, withdrawals, transfers, vault and staking movements from
+   * `startTime`, oldest first. */
+  userNonFundingLedgerUpdates(
+    address: string,
+    startTime: number,
+    endTime?: number,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlLedgerUpdate[]> {
+    return this.postList<HlLedgerUpdate[]>(
+      { type: "userNonFundingLedgerUpdates", user: address, startTime, endTime },
+      WEIGHT_LEDGER_UPDATES_BASE,
+      priority,
+      rank,
+      LEDGER_MAX_ITEMS,
+    );
   }
 
   /** Referral and builder rewards for one address (the platform's revenue

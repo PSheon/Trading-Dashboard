@@ -103,6 +103,9 @@ export function summarizeAccount(states: Iterable<HlClearinghouseStateResponse>)
         leverage: numOrNull(p.leverage?.value),
         marginMode: p.leverage?.type ?? null,
         liqPx: numOrNull(p.liquidationPx),
+        marginUsed: num(p.marginUsed),
+        fundingSinceOpen: numOrNull(p.cumFunding?.sinceOpen),
+        returnOnEquity: numOrNull(p.returnOnEquity),
       });
     }
   }
@@ -428,6 +431,8 @@ export function hlFillToTraderFill(f: HlUserFill): TraderFill {
     fee: numOrNull(f.fee),
     ts: new Date(f.time),
     twapId: f.twapId ?? null,
+    startPosition: numOrNull(f.startPosition),
+    liquidation: f.liquidation != null,
   };
 }
 
@@ -443,6 +448,10 @@ export function dbFillToTraderFill(row: {
   ts: Date;
   /** `raw->>'twapId'`: text, or null for a regular fill. */
   twapId: string | null;
+  /** `raw->>'startPosition'`. */
+  startPosition?: string | null;
+  /** `raw ? 'liquidation'` with a non-null value. */
+  liquidation?: boolean | null;
 }): TraderFill {
   const px = num(row.px);
   const sz = num(row.sz);
@@ -458,5 +467,7 @@ export function dbFillToTraderFill(row: {
     fee: numOrNull(row.fee),
     ts: row.ts,
     twapId: numOrNull(row.twapId),
+    startPosition: numOrNull(row.startPosition),
+    liquidation: row.liquidation ?? false,
   };
 }

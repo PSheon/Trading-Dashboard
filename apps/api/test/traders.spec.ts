@@ -354,8 +354,8 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(res.stakedValue).toBeCloseTo(200, 6);
       expect(res.accountValue).toBeCloseTo(perpEquity + 1_400 + 200, 2);
       expect(res.spotBalances).toEqual([
-        { coin: "USDC", token: 0, total: 1000, px: 1, value: 1000, priceKey: null },
-        { coin: "HYPE", token: 150, total: 10, px: 40, value: 400, priceKey: "@107" },
+        { coin: "USDC", token: 0, total: 1000, hold: 0, px: 1, value: 1000, priceKey: null },
+        { coin: "HYPE", token: 150, total: 10, hold: 0, px: 40, value: 400, priceKey: "@107" },
       ]);
       expect(res.perpDexes).toEqual(["", "xyz"]);
       expect(res.marginUsed).toBeCloseTo(21_000 + Number(xyzState.marginSummary.totalMarginUsed), 2);
@@ -377,6 +377,11 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         leverage: 10,
         marginMode: "cross",
         liqPx: 30000,
+        // 持倉's 保證金 / 資金費 / 損益 % columns (CopyDog's); this fixture
+        // sends no funding or return on equity.
+        marginUsed: 13000,
+        fundingSinceOpen: null,
+        returnOnEquity: null,
       });
       expect(byCoin.get("ETH")).toMatchObject({ side: "short", szi: -10, marginMode: "isolated", liqPx: null });
       expect(byCoin.get("xyz:TSLA")).toMatchObject({ side: "short", szi: -17680.262, leverage: 3 });
@@ -690,20 +695,23 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   // --- GET /traders/:address/fills -------------------------------------------------
 
   describe("GET /traders/:address/fills", () => {
-    it("reads our fills table for a tracked address: perps only, this address only, newest first", async () => {
+    it("reads our fills table for a tracked address: perp and spot (CopyDog's 成交), this address only, newest first", async () => {
       await db.insert(leaders).values({ address: A });
       const t = (m: number) => new Date(Date.UTC(2026, 8, 29, 0, m));
       await db.insert(fills).values([
-        { tid: 1n, address: A, coin: "BTC", side: "B", dir: "Open Long", px: "60000", sz: "0.5", fee: "3", closedPnl: "0", ts: t(1), raw: {} },
-        { tid: 2n, address: A, coin: "xyz:TSLA", side: "A", dir: "Open Short", px: "400", sz: "10", fee: "1", closedPnl: null, ts: t(2), raw: {} },
+        { tid: 1n, address: A, coin: "BTC", side: "B", dir: "Open Long", px: "60000", sz: "0.5", fee: "3", closedPnl: "0", ts: t(1), raw: { startPosition: "0.0" } },
+        { tid: 2n, address: A, coin: "xyz:TSLA", side: "A", dir: "Open Short", px: "400", sz: "10", fee: "1", closedPnl: null, ts: t(2),
+          raw: { startPosition: "-2.5", liquidation: { markPx: 401, method: "market" } } },
         { tid: 3n, address: A, coin: "@107", side: "B", dir: "Buy", px: "40", sz: "1", fee: "0", closedPnl: "0", ts: t(3), raw: {} },
         { tid: 4n, address: A, coin: "PURR/USDC", side: "B", dir: "Buy", px: "1", sz: "1", fee: "0", closedPnl: "0", ts: t(4), raw: {} },
         // Counterparty's copy of the same trade.
         { tid: 2n, address: B, coin: "xyz:TSLA", side: "B", dir: "Open Long", px: "400", sz: "10", fee: "1", closedPnl: "0", ts: t(2), raw: {} },
       ]);
 
-      const res = await controller.fills(A, undefined);
-      expect(res.map((f) => f.tid)).toEqual(["2", "1"]);
+      const all = await controller.fills(A, undefined);
+      expect(all.map((f) => f.tid)).toEqual(["4", "3", "2", "1"]);
+      expect(all[0]).toMatchObject({ coin: "PURR/USDC", dir: "Buy", startPosition: null, liquidation: false });
+      const res = all.slice(2);
       expect(res[0]).toEqual({
         tid: "2",
         coin: "xyz:TSLA",
@@ -716,8 +724,10 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         fee: 1,
         ts: t(2),
         twapId: null,
+        startPosition: -2.5,
+        liquidation: true,
       });
-      expect(res[1]).toMatchObject({ side: "buy", notionalUsd: 30000, closedPnl: 0 });
+      expect(res[1]).toMatchObject({ side: "buy", notionalUsd: 30000, closedPnl: 0, startPosition: 0, liquidation: false });
       expect(await controller.fills(A, "1")).toHaveLength(1);
       expect(info.userFills).not.toHaveBeenCalled();
     });
@@ -726,8 +736,9 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       const res = await controller.fills(UNKNOWN, "200");
       const perps = userFillsFixture.filter((f) => !f.coin.startsWith("@"));
       expect(perps.length).toBeLessThan(userFillsFixture.length);
-      expect(res).toHaveLength(perps.length);
-      expect(res.every((f) => !f.coin.startsWith("@"))).toBe(true);
+      // Spot fills too, as CopyDog's 成交 tab lists them.
+      expect(res).toHaveLength(userFillsFixture.length);
+      expect(res.some((f) => f.coin.startsWith("@"))).toBe(true);
       for (let i = 1; i < res.length; i++) expect(res[i - 1].ts.getTime()).toBeGreaterThanOrEqual(res[i].ts.getTime());
       const sample = perps[0];
       const mapped = res.find((f) => f.tid === String(sample.tid))!;
@@ -1015,6 +1026,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       const res = await controller.fills(UNKNOWN, undefined);
       expect(res.map((f) => [f.tid, f.twapId])).toEqual([
         ["25", 2_256_941],
+        ["14", null], // spot, listed as CopyDog's 成交 does
         ["13", null],
         ["22", 2_256_941],
         ["11", null],

@@ -63,6 +63,9 @@ describe("public discovery routes over HTTP", () => {
     allMids: ReturnType<typeof vi.fn>;
     userAbstraction: ReturnType<typeof vi.fn>;
     delegatorSummary: ReturnType<typeof vi.fn>;
+    frontendOpenOrders: ReturnType<typeof vi.fn>;
+    twapHistory: ReturnType<typeof vi.fn>;
+    userNonFundingLedgerUpdates: ReturnType<typeof vi.fn>;
   };
 
   beforeAll(async () => {
@@ -87,6 +90,9 @@ describe("public discovery routes over HTTP", () => {
       allMids: vi.fn(async () => ({ "#12301": "0.25" })),
       userAbstraction: vi.fn(async () => "unifiedAccount"),
       delegatorSummary: vi.fn(async () => ({ delegated: "1", undelegated: "0", totalPendingWithdrawal: "0", nPendingWithdrawals: 0 })),
+      frontendOpenOrders: vi.fn(async () => []),
+      twapHistory: vi.fn(async () => []),
+      userNonFundingLedgerUpdates: vi.fn(async () => []),
     };
     ({ app, auth, settings } = await createAuthedApp({
       db,
@@ -111,6 +117,63 @@ describe("public discovery routes over HTTP", () => {
     }
   });
 
+  it("serves the 訂單 / TWAP / 轉帳 tabs through the wire contract, cached", async () => {
+    const D = `0x${"d4".repeat(20)}`;
+    app.get(TradersService).dexCache.set("dexes", ["", "xyz", "flx"]);
+    info.frontendOpenOrders.mockImplementation(async (_user: string, dex?: string) =>
+      dex === "xyz"
+        ? [{ coin: "xyz:INTC", side: "A", limitPx: "94.5", sz: "0.0", oid: 2, timestamp: 1_789_984_198_470, triggerCondition: "Price below 105",
+            isTrigger: true, triggerPx: "105.0", isPositionTpsl: true, reduceOnly: true, orderType: "Stop Market", origSz: "0.0" }]
+        : [{ coin: "BTC", side: "B", limitPx: "60000", sz: "0.5", oid: 1, timestamp: 1_789_984_000_000, triggerCondition: "N/A",
+            isTrigger: false, triggerPx: "0.0", isPositionTpsl: false, reduceOnly: false, orderType: "Limit", origSz: "1.0" }]);
+    info.twapHistory.mockResolvedValueOnce([
+      { time: 1_790_000_000, twapId: 7, status: { status: "activated" },
+        state: { coin: "ETH", side: "B", sz: "10", executedSz: "0.0", executedNtl: "0.0", minutes: 60, reduceOnly: false, randomize: true, timestamp: 1_790_000_000_000 } },
+    ]);
+    info.userTwapSliceFills.mockResolvedValueOnce([
+      { twapId: 7, fill: { coin: "ETH", px: "2500", sz: "2.5", side: "B", time: 1_790_000_100_000, tid: 99, closedPnl: "0", fee: "0.1", dir: "Open Long", hash: "0x0", oid: 5, crossed: true } },
+    ]);
+    info.userNonFundingLedgerUpdates.mockResolvedValueOnce([
+      { time: 1_790_000_000_000, hash: "0xabc", delta: { type: "send", user: D, destination: A, token: "USDC", amount: "200.0", usdcValue: "200.0", fee: "0" } },
+      { time: 1_790_000_500_000, hash: "0xdef", delta: { type: "deposit", usdc: "1000.0" } },
+    ]);
+    // Unified (the default mock): every dex is asked, without clearinghouse reads.
+    const orders = await request(app.getHttpServer()).get(`/traders/${D}/orders`).set("x-api-contract", "1").expect(200);
+    expect(orders.body.success).toBe(true);
+    expect(orders.body.data.dexes).toEqual(["", "xyz", "flx"]);
+    expect(orders.body.data.orders.map((o: { oid: string; triggerPx: number | null }) => [o.oid, o.triggerPx])).toEqual([["1", null], ["2", 105]]);
+    await request(app.getHttpServer()).get(`/traders/${D}/orders`).expect(200);
+    expect(info.frontendOpenOrders).toHaveBeenCalledTimes(3); // the second read is cached
+
+    const twap = await request(app.getHttpServer()).get(`/traders/${D}/twap`).set("x-api-contract", "1").expect(200);
+    expect(twap.body.data.twaps).toEqual([expect.objectContaining({ twapId: 7, coin: "ETH", side: "buy", size: 10, filledSize: 2.5, filledFraction: 0.25, minutes: 60 })]);
+
+    const transfers = await request(app.getHttpServer()).get(`/traders/${D}/transfers`).set("x-api-contract", "1").expect(200);
+    expect(transfers.body.data.transfers.map((t: { kind: string; direction: string; amount: number }) => [t.kind, t.direction, t.amount]))
+      .toEqual([["deposit", "in", 1000], ["sent", "out", 200]]);
+    expect(transfers.body.data.truncated).toBe(false);
+    expect((await request(app.getHttpServer()).get("/traders/0x12/orders")).status).toBe(400);
+    app.get(TradersService).dexCache.set("dexes", [""]);
+  });
+
+  it("asks a standard account's orders only on dexes where it holds margin or a position", async () => {
+    const E = `0x${"e5".repeat(20)}`;
+    app.get(TradersService).dexCache.set("dexes", ["", "xyz", "flx"]);
+    info.userAbstraction.mockResolvedValueOnce("default");
+    info.clearinghouseState.mockImplementation(async (_user: string, dex?: string) =>
+      dex === "xyz" ? { ...emptyState, marginSummary: { ...emptyState.marginSummary, accountValue: "50" } } : emptyState);
+    info.frontendOpenOrders.mockClear();
+    info.frontendOpenOrders.mockResolvedValue([]);
+    try {
+      const res = await request(app.getHttpServer()).get(`/traders/${E}/orders`).expect(200);
+      expect(res.body.dexes).toEqual(["", "xyz"]);
+      expect(info.frontendOpenOrders.mock.calls.map((c) => c[1])).toEqual([undefined, "xyz"]);
+    } finally {
+      info.clearinghouseState.mockImplementation(async () => emptyState);
+      app.get(TradersService).dexCache.set("dexes", [""]);
+    }
+  });
+
   it("sends the profile's total, its parts and the spot balances through the wire contract", async () => {
     const res = await request(app.getHttpServer()).get(`/traders/${A}`).set("x-api-contract", "1").expect(200);
     const parsed = wireTraderProfileSchema.safeParse(res.body.data);
@@ -126,9 +189,9 @@ describe("public discovery routes over HTTP", () => {
       perpDexes: [""],
     });
     expect(res.body.data.spotBalances).toEqual([
-      { coin: "USDC", token: 0, total: 250.5, px: 1, value: 250.5, priceKey: null },
-      { coin: "HYPE", token: 150, total: 2, px: 50, value: 100, priceKey: "@107" },
-      { coin: "+12301", token: null, total: 100, px: 0.25, value: 25, priceKey: "#12301" },
+      { coin: "USDC", token: 0, total: 250.5, hold: 0, px: 1, value: 250.5, priceKey: null },
+      { coin: "HYPE", token: 150, total: 2, hold: 0, px: 50, value: 100, priceKey: "@107" },
+      { coin: "+12301", token: null, total: 100, hold: 0, px: 0.25, value: 25, priceKey: "#12301" },
     ]);
     // A response without the new fields no longer satisfies the contract.
     const { perpEquity: _p, ...stale } = res.body.data;

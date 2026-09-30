@@ -8,17 +8,21 @@ import {
   type SparklinesResponse,
   type TraderActivityResponse,
   type TraderFill,
+  type TraderOrdersResponse,
   type TraderProfileResponse,
   type TradersQuery,
   type TradersResponse,
+  type TraderTransfersResponse,
+  type TraderTwapsResponse,
   type TraderWindowInput,
 } from "@trading-dashboard/shared/contracts";
 
 import { RoundTripService } from "../analytics/round-trip.service.js";
 import { TradersRepository } from "./traders.repository.js";
-import { HyperliquidInfoClient, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
+import { HyperliquidInfoClient, LEDGER_MAX_ITEMS, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
 import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
-import type { HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
+import type { HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
+import { activeTwaps, mergeOrders, toTraderTransfer } from "./trader-tabs.mappers.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
 import { SPOT_PRICE_TTL_MS, SpotPriceService } from "./spot-price.service.js";
@@ -27,7 +31,6 @@ import {
   dbFillToTraderFill,
   downsample,
   hlFillToTraderFill,
-  isPerpCoin,
   portfolioSeries,
   sampleFromLists,
   type FillSample,
@@ -62,6 +65,16 @@ export const DEX_LIST_TTL_MS = 60 * 60_000;
  * the profile. Staking is revalued at the current HYPE price every time. */
 export const ACCOUNT_MODE_TTL_MS = 10 * 60_000;
 export const STAKING_TTL_MS = 10 * 60_000;
+/** 訂單 / TWAP / 轉帳 tabs: loaded when opened, kept this long. */
+export const ORDERS_TTL_MS = 30_000;
+export const TWAP_TTL_MS = 60_000;
+export const TRANSFERS_TTL_MS = 5 * 60_000;
+/** The 轉帳 tab reads the last 90 days … */
+export const TRANSFERS_WINDOW_MS = 90 * 24 * 3_600_000;
+/** … at most this many rows, the newest … */
+export const TRANSFERS_MAX_ROWS = 500;
+/** … in at most this many calls. */
+export const TRANSFERS_MAX_PAGES = 3;
 export const SPARKLINE_MAX_POINTS = 40;
 /** A sparkline batch answers with what is ready by then (see `sparklines`). */
 export const SPARKLINE_DEADLINE_MS = 8_000;
@@ -100,6 +113,9 @@ export class TradersService {
   readonly abstractionCache = new TtlCache<string>(ACCOUNT_MODE_TTL_MS);
   /** Staked HYPE per address, in HYPE; valued with the live price book. */
   readonly stakingCache = new TtlCache<number>(STAKING_TTL_MS);
+  readonly ordersCache = new TtlCache<TraderOrdersResponse>(ORDERS_TTL_MS);
+  readonly twapCache = new TtlCache<TraderTwapsResponse>(TWAP_TTL_MS);
+  readonly transfersCache = new TtlCache<TraderTransfersResponse>(TRANSFERS_TTL_MS);
   readonly spotPrices: SpotPriceService;
 
   constructor(
@@ -417,19 +433,114 @@ export class TradersService {
 
   // --- GET /traders/:address/fills -----------------------------------------
 
-  /** Recent perp fills, newest first, TWAP slices included (with their
-   * `twapId`): ours when the address is tracked, otherwise Hyperliquid's
-   * latest fills and TWAP slices merged. */
+  /** Recent fills, perp and spot, newest first, TWAP slices included (with
+   * their `twapId`): ours when the address is tracked, otherwise
+   * Hyperliquid's latest fills and TWAP slices merged. */
   async fills(address: string, limit: number): Promise<TraderFill[]> {
     if (await this.isTracked(address)) {
       const rows = await this.repository.recentFills(address, limit);
       return rows.map(dbFillToTraderFill);
     }
     const [regular, twap] = await this.latestFills(address);
+    // Perp and spot, as CopyDog's 成交 tab lists them.
     return [...regular, ...twap]
-      .filter((f) => isPerpCoin(f.coin))
       .sort((a, b) => b.time - a.time || b.tid - a.tid)
       .slice(0, limit)
       .map(hlFillToTraderFill);
+  }
+
+  // --- GET /traders/:address/orders ----------------------------------------
+
+  /**
+   * Resting orders, CopyDog's 訂單 tab. `frontendOpenOrders` names one dex
+   * (the main one carries spot orders too), 20 weight each, so it asks the
+   * main dex and, for a standard account, only the HIP-3 dexes where the
+   * account holds a position or margin (orders there need collateral on
+   * that dex; found with `clearinghouseState`, 2 each). A unified or
+   * portfolio-margin account's collateral serves every dex, so all are
+   * asked. Loaded when the tab opens, at the page's fills rank, and kept 30 s.
+   */
+  orders(address: string): Promise<TraderOrdersResponse> {
+    return this.ordersCache.get(address, async () => {
+      const dexes = await this.orderDexes(address);
+      const lists = await Promise.all(
+        dexes.map((dex) => this.info.frontendOpenOrders(address, dex || undefined, LANE, PAGE_RANK.fills)),
+      );
+      return { orders: mergeOrders(lists), dexes, fetchedAt: new Date() };
+    });
+  }
+
+  private async orderDexes(address: string): Promise<string[]> {
+    const [all, abstraction] = await Promise.all([
+      this.perpDexes(),
+      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.fills)),
+    ]);
+    const hip3 = all.filter((dex) => dex !== "");
+    if (toAccountMode(abstraction) !== "standard" || abstraction === "dexAbstraction") return ["", ...hip3];
+    const states = await Promise.all(
+      hip3.map((dex) => this.info.clearinghouseState(address, dex, LANE, PAGE_RANK.fills).catch(() => null)),
+    );
+    // A dex whose state couldn't be read is asked anyway rather than skipped.
+    const active = hip3.filter((dex, i) => {
+      const state = states[i];
+      if (state === null) return true;
+      return Number(state.marginSummary?.accountValue) > 0 || (state.assetPositions ?? []).some((p) => Number(p.position.szi) !== 0);
+    });
+    return ["", ...active];
+  }
+
+  // --- GET /traders/:address/twap -------------------------------------------
+
+  /**
+   * Running TWAP orders, CopyDog's TWAP tab: `twapHistory` (every TWAP the
+   * address ran, one entry per status change) reduced to those whose latest
+   * status is "activated". Their progress comes from the latest TWAP slice
+   * fills, the list the fills tab already caches, read only when a TWAP is
+   * running. Kept 60 s.
+   */
+  twaps(address: string): Promise<TraderTwapsResponse> {
+    return this.twapCache.get(address, async () => {
+      const history = await this.info.twapHistory(address, LANE, PAGE_RANK.fills);
+      const running = activeTwaps(history, []);
+      const slices = running.length === 0 ? [] : (await this.latestFills(address))[1];
+      return { twaps: running.length === 0 ? [] : activeTwaps(history, slices), fetchedAt: new Date() };
+    });
+  }
+
+  // --- GET /traders/:address/transfers ----------------------------------------
+
+  /**
+   * Deposits, withdrawals, transfers, vault and staking movements of the
+   * last 90 days, newest first, CopyDog's 轉帳 tab. Hyperliquid answers a
+   * window with its *oldest* 2,000 updates, so a full page means a busy
+   * account (a vault's deposits): the read then skips ahead to the span its
+   * density says holds the newest `TRANSFERS_MAX_ROWS`, at most
+   * `TRANSFERS_MAX_PAGES` calls, and reports `truncated`. Kept 5 min.
+   */
+  transfers(address: string): Promise<TraderTransfersResponse> {
+    return this.transfersCache.get(address, async () => {
+      const now = Date.now();
+      let start = now - TRANSFERS_WINDOW_MS;
+      let from = start;
+      let rows: HlLedgerUpdate[] = [];
+      let truncated = false;
+      for (let page = 0; page < TRANSFERS_MAX_PAGES; page++) {
+        const batch = await this.info.userNonFundingLedgerUpdates(address, start, undefined, LANE, PAGE_RANK.fills);
+        rows = batch;
+        from = start;
+        if (batch.length < LEDGER_MAX_ITEMS) break;
+        truncated = true;
+        const first = batch[0].time;
+        const last = batch[batch.length - 1].time;
+        const perMs = batch.length / Math.max(1, last - first);
+        start = Math.max(last + 1, Math.floor(now - TRANSFERS_MAX_ROWS / perMs));
+      }
+      const transfers = rows
+        .map((u) => toTraderTransfer(u, address))
+        .filter((t): t is NonNullable<typeof t> => t !== null)
+        .sort((a, b) => b.time.getTime() - a.time.getTime())
+        .slice(0, TRANSFERS_MAX_ROWS);
+      return { transfers, from: new Date(from), truncated, fetchedAt: new Date() };
+    });
   }
 }

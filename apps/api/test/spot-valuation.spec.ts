@@ -82,9 +82,9 @@ describe("spot valuation", () => {
     );
     expect(spotValue).toBeCloseTo(1000.5 + 400 + 20, 9);
     expect(balances).toEqual([
-      { coin: "USDC", token: 0, total: 1000.5, px: 1, value: 1000.5, priceKey: null },
-      { coin: "HYPE", token: 150, total: 10, px: 40, value: 400, priceKey: "@107" },
-      { coin: "PURR", token: 1, total: 100, px: 0.2, value: 20, priceKey: "PURR/USDC" },
+      { coin: "USDC", token: 0, total: 1000.5, hold: 0, px: 1, value: 1000.5, priceKey: null },
+      { coin: "HYPE", token: 150, total: 10, hold: 0, px: 40, value: 400, priceKey: "@107" },
+      { coin: "PURR", token: 1, total: 100, hold: 0, px: 0.2, value: 20, priceKey: "PURR/USDC" },
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("spot valuation", () => {
   it("values prediction-market outcome tokens (\"+N\") at allMids[\"#N\"]", () => {
     const { spotValue, balances } = valueSpotBalances([bal("+12301", undefined, "1000"), bal("+12300", undefined, "10")], book);
     expect(spotValue).toBeCloseTo(250 + 7.5, 9);
-    expect(balances[0]).toEqual({ coin: "+12301", token: null, total: 1000, px: 0.25, value: 250, priceKey: "#12301" });
+    expect(balances[0]).toEqual({ coin: "+12301", token: null, total: 1000, hold: 0, px: 0.25, value: 250, priceKey: "#12301" });
   });
 
   it("counts unknown and unpriced tokens as 0 and reports each", () => {

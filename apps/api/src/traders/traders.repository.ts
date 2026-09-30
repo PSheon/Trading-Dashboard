@@ -136,9 +136,12 @@ export class TradersRepository {
           closedPnl: fills.closedPnl,
           ts: fills.ts,
           twapId: sql<string | null>`${fills.raw}->>'twapId'`,
+          startPosition: sql<string | null>`${fills.raw}->>'startPosition'`,
+          liquidation: sql<boolean>`coalesce(jsonb_typeof(${fills.raw}->'liquidation') not in ('null'), false)`,
         })
         .from(fills)
-        .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), ...perpFillsOnly))
+        // Perp and spot, as CopyDog's 成交 tab lists them.
+        .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address)))
         .orderBy(desc(fills.ts), desc(fills.tid))
         .limit(limit);
   }

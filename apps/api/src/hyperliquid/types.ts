@@ -33,6 +33,11 @@ export interface HlAssetPosition {
     unrealizedPnl: string;
     /** |szi| × mark price, USD. */
     positionValue?: string;
+    /** Unrealized PnL ÷ margin. */
+    returnOnEquity?: string;
+    /** Funding paid (positive) or received (negative) since the account
+     * started, since the position was opened, and since it last changed. */
+    cumFunding?: { allTime: string; sinceOpen: string; sinceChange: string };
   };
   type: string;
 }
@@ -203,6 +208,9 @@ export type HlInfoRequestBody =
       endTime?: number;
     }
   | { type: "referral"; user: string }
+  | { type: "frontendOpenOrders"; user: string; dex?: string }
+  | { type: "twapHistory"; user: string }
+  | { type: "userNonFundingLedgerUpdates"; user: string; startTime: number; endTime?: number }
   | { type: "userFunding"; user: string; startTime: number; endTime?: number };
 
 /** One `userFunding` entry: a funding payment on one position. Recent ones
@@ -219,6 +227,55 @@ export interface HlUserFundingEntry {
     fundingRate: string;
     nSamples?: number | null;
   };
+}
+
+/** One `frontendOpenOrders` entry (verified live 2026-09-30). A position
+ * TP/SL (`isPositionTpsl`) has `sz` "0.0": it closes the whole position. */
+export interface HlFrontendOpenOrder {
+  coin: string;
+  side: "A" | "B";
+  limitPx: string;
+  sz: string;
+  oid: number;
+  timestamp: number;
+  triggerCondition?: string | null;
+  isTrigger?: boolean;
+  triggerPx?: string | null;
+  isPositionTpsl?: boolean;
+  reduceOnly?: boolean;
+  orderType?: string | null;
+  origSz?: string | null;
+}
+
+/** One `twapHistory` entry: a TWAP's state at a status change (verified live
+ * 2026-09-30: "activated", then "finished" or "terminated"; `time` is in
+ * seconds, `state.timestamp` in ms). Oldest first, every TWAP the address
+ * ever ran. */
+export interface HlTwapHistoryEntry {
+  time: number;
+  state: {
+    coin: string;
+    side: "A" | "B";
+    sz: string;
+    executedSz: string;
+    executedNtl: string;
+    minutes: number;
+    reduceOnly: boolean;
+    randomize: boolean;
+    timestamp: number;
+  };
+  status: { status: string };
+  twapId: number;
+}
+
+/** One `userNonFundingLedgerUpdates` entry: deposits, withdrawals, sends,
+ * spot / perp / sub-account / vault / staking movements, oldest first.
+ * `delta.type` names the kind; the other fields depend on it (see
+ * `toTraderTransfer`). */
+export interface HlLedgerUpdate {
+  time: number;
+  hash: string;
+  delta: { type: string } & Record<string, unknown>;
 }
 
 /** One `portfolio` history: [epoch ms, decimal string] points. */

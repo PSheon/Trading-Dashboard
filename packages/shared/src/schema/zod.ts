@@ -494,6 +494,15 @@ export const livePositionSchema = z.object({
   leverage: z.number().nullable(),
   marginMode: z.string().nullable(),
   liqPx: z.number().nullable(),
+  /** Margin the position ties up (Hyperliquid `marginUsed`), USD. Additive:
+   * optional while older api builds roll out. */
+  marginUsed: z.number().optional(),
+  /** Funding since the position was opened, as Hyperliquid books it
+   * (`cumFunding.sinceOpen`: positive = paid). The 持倉 tab shows its
+   * negation, the funding received, as CopyDog does. Null when absent. */
+  fundingSinceOpen: z.number().nullable().optional(),
+  /** Unrealized PnL ÷ margin (Hyperliquid `returnOnEquity`, 0.12 = 12%). */
+  returnOnEquity: z.number().nullable().optional(),
 });
 export type LivePosition = z.infer<typeof livePositionSchema>;
 
@@ -514,6 +523,9 @@ export const spotBalanceSchema = z.object({
   /** Spot token index; null for prediction-market outcome tokens ("+123"). */
   token: z.number().int().nullable(),
   total: z.number(),
+  /** Held by open orders (Hyperliquid `hold`); available = total − hold.
+   * Additive: optional while older api builds roll out. */
+  hold: z.number().optional(),
   /** USD per unit; null when there is no priced market (valued at 0). */
   px: z.number().nullable(),
   value: z.number(),
@@ -703,8 +715,10 @@ export const sparklinesQuerySchema = z.object({
 export const sparklinesResponseSchema = z.record(z.string(), z.array(seriesPointSchema));
 export type SparklinesResponse = z.infer<typeof sparklinesResponseSchema>;
 
-/** GET /traders/:address/fills?limit= — recent perp fills (ours when
- * tracked, else Hyperliquid's latest), TWAP slices included. */
+/** GET /traders/:address/fills?limit= — recent fills, perp and spot, as
+ * CopyDog's 成交 tab lists them (ours when tracked, else Hyperliquid's
+ * latest), TWAP slices included. Spot fills name a pair ("PURR/USDC") or a
+ * spot index ("@107"). */
 export const traderFillSchema = z.object({
   tid: z.string(),
   coin: z.string(),
@@ -718,8 +732,106 @@ export const traderFillSchema = z.object({
   ts: z.coerce.date(),
   /** The TWAP this fill is a slice of; null for a regular fill. */
   twapId: z.number().int().nullable().optional(),
+  /** Signed position size right before the fill (Hyperliquid
+   * `startPosition`; 成交's 原持倉). Null when Hyperliquid didn't send it. */
+  startPosition: z.number().nullable().optional(),
+  /** The fill was part of a liquidation (Hyperliquid `liquidation`). */
+  liquidation: z.boolean().optional(),
 });
 export type TraderFill = z.infer<typeof traderFillSchema>;
+
+/** One resting order (Hyperliquid `frontendOpenOrders`), for the 訂單 tab. */
+export const traderOrderSchema = z.object({
+  oid: z.string(),
+  coin: z.string(),
+  side: z.enum(["buy", "sell"]),
+  /** "Limit", "Stop Market", "Take Profit Limit", … as Hyperliquid names it. */
+  orderType: z.string(),
+  /** Remaining size; 0 for a position TP/SL, which closes the whole position. */
+  size: z.number(),
+  origSize: z.number(),
+  limitPx: z.number().nullable(),
+  triggerPx: z.number().nullable(),
+  isTrigger: z.boolean(),
+  triggerCondition: z.string().nullable(),
+  reduceOnly: z.boolean(),
+  isPositionTpsl: z.boolean(),
+  placedAt: z.coerce.date(),
+});
+export type TraderOrder = z.infer<typeof traderOrderSchema>;
+
+/** GET /traders/:address/orders — open orders on the main dex (spot
+ * included) and every HIP-3 dex the account can have orders on. */
+export const traderOrdersResponseSchema = z.object({
+  orders: z.array(traderOrderSchema),
+  /** Perp dexes queried ("" = main, which includes spot orders). */
+  dexes: z.array(z.string()),
+  fetchedAt: z.coerce.date(),
+});
+export type TraderOrdersResponse = z.infer<typeof traderOrdersResponseSchema>;
+
+/** One running TWAP (Hyperliquid `twapHistory`, latest status "activated"). */
+export const traderTwapSchema = z.object({
+  twapId: z.number().int(),
+  coin: z.string(),
+  side: z.enum(["buy", "sell"]),
+  size: z.number(),
+  /** Executed so far, from its slice fills we can see (latest 2,000). */
+  filledSize: z.number(),
+  /** filledSize ÷ size, 0–1. */
+  filledFraction: z.number(),
+  minutes: z.number().int(),
+  reduceOnly: z.boolean(),
+  randomize: z.boolean(),
+  startedAt: z.coerce.date(),
+});
+export type TraderTwap = z.infer<typeof traderTwapSchema>;
+
+/** GET /traders/:address/twap — the address's running TWAP orders. */
+export const traderTwapsResponseSchema = z.object({
+  twaps: z.array(traderTwapSchema),
+  fetchedAt: z.coerce.date(),
+});
+export type TraderTwapsResponse = z.infer<typeof traderTwapsResponseSchema>;
+
+/** A ledger update's kind, as CopyDog classifies Hyperliquid's
+ * `userNonFundingLedgerUpdates` (its labels: Deposit, Withdrawal, Sent,
+ * Received, To HyperEVM, Vault Deposit, Staked, …). */
+export const transferKindSchema = z.enum([
+  "deposit", "withdraw", "sent", "received", "generic", "toHyperEvm", "toPerp", "fromPerp", "toSubaccount",
+  "vaultDeposit", "vaultWithdraw", "vaultCreate", "vaultDistribution", "commission", "staked", "unstaked",
+  "genesis", "rewards", "liquidated", "delegationSent", "delegationReceived", "dexAbstraction",
+]);
+export type TransferKind = z.infer<typeof transferKindSchema>;
+
+/** One deposit, withdrawal, transfer, vault or staking movement. */
+export const traderTransferSchema = z.object({
+  time: z.coerce.date(),
+  hash: z.string(),
+  kind: transferKindSchema,
+  /** "in" to the account, "out" of it, or "move" between its own balances. */
+  direction: z.enum(["in", "out", "move"]),
+  token: z.string(),
+  /** In `token` units, or USD when `usd`. Always ≥ 0. */
+  amount: z.number(),
+  usd: z.boolean(),
+  /** Counterparty addresses (lowercase); null when not an address. */
+  from: z.string().nullable(),
+  to: z.string().nullable(),
+});
+export type TraderTransfer = z.infer<typeof traderTransferSchema>;
+
+/** GET /traders/:address/transfers — the last 90 days of ledger updates,
+ * newest first (at most 500). */
+export const traderTransfersResponseSchema = z.object({
+  transfers: z.array(traderTransferSchema),
+  /** Start of the window read. */
+  from: z.coerce.date(),
+  /** More updates exist in the window than were read. */
+  truncated: z.boolean(),
+  fetchedAt: z.coerce.date(),
+});
+export type TraderTransfersResponse = z.infer<typeof traderTransfersResponseSchema>;
 
 // --- trade analytics (any address) -----------------------------------------
 

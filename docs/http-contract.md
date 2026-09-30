@@ -111,5 +111,21 @@ analysis time and is not advanced merely by funding work. Cold computations
 may return 503 with Retry-After while a bounded background job continues.
 See [definitions and release order](trade-analytics.md).
 
+## Trader page tabs (訂單 / TWAP / 轉帳)
+
+`GET /traders/:address/orders`, `/twap` and `/transfers` are public DTO routes
+that read Hyperliquid through the request budgeter at the page's fills rank and
+answer 503 busy with Retry-After after 12 s, like the other trader-page reads.
+
+| Route | Hyperliquid calls (weight) | Cache |
+| --- | --- | --- |
+| `/orders` | `frontendOpenOrders` per dex, 20 each: the main dex (spot orders included), plus every HIP-3 dex for a unified / portfolio-margin account, or, for a standard account, the dexes where it holds margin or a position (found with `clearinghouseState`, 2 each) | 30 s |
+| `/twap` | `twapHistory` (20 + 1 per 20 items); the latest `userTwapSliceFills` (shared with the fills tab) only when a TWAP is running | 60 s |
+| `/transfers` | `userNonFundingLedgerUpdates` over the last 90 days (20 + 1 per 20 items); a full 2,000-item page skips ahead to the newest 500, at most 3 calls, and sets `truncated` | 5 min |
+
+The profile's spot balances carry `hold` (available = total − hold) and its
+positions `marginUsed`, `fundingSinceOpen` and `returnOnEquity`; fills carry
+`startPosition` and `liquidation` and include spot fills. All are additive.
+
 Admin settings mutations additionally require per-section revision preconditions;
 see [admin-settings.md](admin-settings.md) for 428/409 handling and rollout limits.

@@ -1,3 +1,5 @@
+import { kolSchema, kolImportResponseSchema, kolPreviewSchema } from "@trading-dashboard/shared/contracts";
+import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
 import { adminTraderSchema } from "@trading-dashboard/shared/contracts";
@@ -442,6 +444,12 @@ export async function fixtureRequest<T>(
       return wire(crowdResponseSchema, crowd());
 
     // --- admin ---------------------------------------------------------------------
+    case "GET /admin/kols":requireAdmin(token);return wire(z.array(kolSchema),fixtureKols);
+    case "POST /admin/kols":requireAdmin(token);return wire(kolSchema,saveKol(body));
+    case "PATCH /admin/kols/:address":requireAdmin(token);return wire(kolSchema,saveKol(body,addressSchema.parse(parts[2]).toLowerCase()));
+    case "DELETE /admin/kols/:address":requireAdmin(token);removeKol(addressSchema.parse(parts[2]).toLowerCase());return undefined as T;
+    case "POST /admin/kols/import/preview":requireAdmin(token);return wire(kolPreviewSchema,previewKols(body));
+    case "POST /admin/kols/import":requireAdmin(token);return wire(kolImportResponseSchema,importKols(body));
     case "GET /admin/data-sources": {
       requireAdmin(token);const at=new Date().toISOString();
       return wire(adminSourcesSchema,{sampledAt:at,items:[{id:'leaderboard',count:150,latestAt:at},{id:'discovery',count:80,latestAt:at},{id:'kol',count:5,latestAt:at},{id:'watched',count:10,latestAt:null},{id:'favorites',count:favorites.size,latestAt:at},{id:'imports',count:leaderLists.length,latestAt:leaderLists[0]?.importedAt.toISOString()??null}]});

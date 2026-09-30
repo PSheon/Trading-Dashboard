@@ -1,4 +1,4 @@
-import { BadGatewayException, Body, Controller, Delete, Get, HttpCode, HttpException, Logger, Param, Patch, Post, Query, UseFilters } from "@nestjs/common";
+import { BadGatewayException, Body, Controller, Delete, Get, Header, HttpCode, HttpException, Logger, Param, Patch, Post, Query, UseFilters } from "@nestjs/common";
 import type { BoardResponse, CopyScoreResponse, HomeBoardsResponse, Kol, KolImportResponse } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
@@ -82,6 +82,12 @@ export class AdminKolController {
   upsert(@Body() body: KolInputDto, @CurrentUser() user: RequestUser | null): Promise<Kol> {
     return this.kols.upsert({ ...body }, user);
   }
+
+  @Post("import/preview")
+  @HttpCode(200)
+  @Header("Cache-Control", "no-store")
+  @ApiDoc("Preview KOL CSV overwrites and removals without mutation")
+  preview(@Body() body:KolImportDto){return this.kols.previewImport(body.csv,body.replace??false);}
 
   @ResponseMessage("KOLs imported")
   @ApiDoc("Import KOLs from CSV")

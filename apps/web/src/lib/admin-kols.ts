@@ -28,6 +28,8 @@ function useInvalidate() {
   const client = useQueryClient();
   return () => {
     void client.invalidateQueries({ queryKey: queryKeys.admin.kols });
+    void client.invalidateQueries({ queryKey: ["admin", "sources"] });
+    void client.invalidateQueries({ queryKey: ["admin", "trader"] });
     void client.invalidateQueries({ queryKey: queryKeys.discover.home });
     void client.invalidateQueries({ queryKey: queryKeys.discover.boards });
   };

@@ -1,3 +1,4 @@
+import { kolPreviewSchema } from "./kol-preview-contracts.js";
 import { adminSourcesSchema } from "./admin-sources-contracts.js";
 import { importPreviewSchema } from "./import-preview-contracts.js";
 import { adminTraderSchema } from "./admin-trader-contracts.js";
@@ -168,6 +169,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/discover/home", status: 200, auth: "public", response: wireHomeBoardsSchema },
   { method: "GET", path: "/admin/kols", status: 200, auth: "kols.manage", response: z.array(wireKolSchema) },
   { method: "POST", path: "/admin/kols", status: 201, auth: "kols.manage", response: wireKolSchema },
+  { method: "POST", path: "/admin/kols/import/preview", status: 200, auth: "kols.manage", response: kolPreviewSchema },
   { method: "POST", path: "/admin/kols/import", status: 201, auth: "kols.manage", response: s.kolImportResponseSchema },
   { method: "PATCH", path: "/admin/kols/:address", status: 200, auth: "kols.manage", response: wireKolSchema },
   { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },

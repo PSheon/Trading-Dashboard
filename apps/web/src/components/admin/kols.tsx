@@ -1,8 +1,9 @@
 "use client";
 
-import { BadgeCheck, FileUp, Pencil, Trash2, UserRound } from "lucide-react";
+import { BadgeCheck, Pencil, Trash2, UserRound } from "lucide-react";
 import { useState } from "react";
 
+import { KolImportPanel } from "./kol-import";
 import { TraderAvatar } from "@/components/discover/board-bits";
 import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
-import { useImportKols, useKols, useRemoveKol, useSaveKol, type KolDraft } from "@/lib/admin-kols";
+import { useKols, useRemoveKol, useSaveKol, type KolDraft } from "@/lib/admin-kols";
 import { usePermission } from "@/lib/auth";
 import type { Kol } from "@/lib/contracts";
 import { truncateAddress } from "@/lib/format";
@@ -26,11 +27,8 @@ export function AdminKols() {
   const kols = useKols();
   const save = useSaveKol();
   const remove = useRemoveKol();
-  const importKols = useImportKols();
   const [draft, setDraft] = useState<KolDraft>(EMPTY);
   const [editing, setEditing] = useState(false);
-  const [csv, setCsv] = useState<{ name: string; text: string } | null>(null);
-  const [replace, setReplace] = useState(false);
 
   if (!canManage) return <EmptyState title={t("admin.forbiddenTitle")} body={t("admin.forbidden")} />;
 
@@ -39,7 +37,7 @@ export function AdminKols() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
-      <div className="flex flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4">
         <Panel className="flex flex-col gap-4 p-5 md:p-6">
           <div>
             <h2 className="text-base font-bold tracking-tight">{editing ? t("admin.kols.editTitle") : t("admin.kols.addTitle")}</h2>
@@ -96,42 +94,7 @@ export function AdminKols() {
           </form>
         </Panel>
 
-        <Panel className="flex flex-col gap-4 p-5 md:p-6">
-          <div>
-            <h2 className="text-base font-bold tracking-tight">{t("admin.kols.importTitle")}</h2>
-            <p className="mt-1 text-[0.8125rem] leading-relaxed text-muted-foreground">{t("admin.kols.importHint")}</p>
-          </div>
-          <Input
-            type="file"
-            accept=".csv,text/csv"
-            aria-label={t("admin.file")}
-            className="h-11 py-1.5"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              importKols.reset();
-              setCsv(file ? { name: file.name, text: await file.text() } : null);
-            }}
-          />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} className="size-4 accent-primary" />
-            {t("admin.kols.replace")}
-          </label>
-          <Button disabled={!csv || importKols.isPending} onClick={() => csv && importKols.mutate({ csv: csv.text, replace })}>
-            <FileUp />
-            {t("admin.kols.import")}
-          </Button>
-          {importKols.data ? (
-            <div className="text-sm">
-              <p>{t("admin.kols.imported", { inserted: String(importKols.data.inserted), updated: String(importKols.data.updated), removed: String(importKols.data.removed) })}</p>
-              {importKols.data.errors.length > 0 ? (
-                <ul className="mt-2 max-h-32 overflow-y-auto text-xs text-negative">
-                  {importKols.data.errors.map((err) => <li key={err.line}>{t("admin.kols.lineError", { line: String(err.line), message: err.message })}</li>)}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
-          {importKols.error ? <p className="text-sm text-negative">{importKols.error.message}</p> : null}
-        </Panel>
+        <KolImportPanel registryRevision={JSON.stringify(kols.data??[])} registryReady={kols.isSuccess&&!kols.isFetching}/>
       </div>
 
       <Panel className="overflow-hidden">

@@ -1,6 +1,29 @@
 import type { Messages } from "./index";
 
 export const en: Messages = {
+  kolReview: {
+    "stale": "The registry changed locally. Preview again before importing.",
+    "hint": "Preview CSV field overwrites and removals before confirming.",
+    "replace": "Replace unlisted KOLs",
+    "preview": "Preview KOL changes",
+    "confirm": "Confirm KOL import",
+    "title": "KOL changes",
+    "snapshot": "Advisory snapshot, not a registry lock. Concurrent changes may affect import. Previewed at:",
+    "new": "Added",
+    "update": "Changed fields",
+    "unchanged": "Unchanged content",
+    "remove": "Remove KOL identity",
+    "duplicates": "Duplicate address rows",
+    "errors": "Invalid rows",
+    "empty": "Empty / absent",
+    "before": "Before",
+    "after": "After",
+    "removeConfirm": "I confirm removal of {count} KOL entries.",
+    "suppressed": "Invalid rows: valid rows still update, but unlisted KOLs will not be removed.",
+    "noChanges": "There is no applicable import to submit.",
+    "rules": "Blank or omitted fields overwrite with defaults; the last valid duplicate wins. Unchanged rows still refresh updated time and count as updated in the import result. Removal affects KOL identity only, preserving favorites, alerts and watch settings. Discovery membership is rebuilt later.",
+    "limit": "Showing up to 100 changes and 100 errors; summary counts cover the full preview."
+},
   importOps: {
     "source": "Import source",
     "tooLarge": "File exceeds the 100 KiB limit.",

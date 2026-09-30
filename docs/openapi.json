@@ -13941,6 +13941,323 @@
         "description": "Access: kols.manage"
       }
     },
+    "/admin/kols/import/preview": {
+      "post": {
+        "operationId": "AdminKolController_preview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KolImportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "sampledAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "replace": {
+                          "type": "boolean"
+                        },
+                        "canImport": {
+                          "type": "boolean"
+                        },
+                        "inserted": {
+                          "type": "integer"
+                        },
+                        "changed": {
+                          "type": "integer"
+                        },
+                        "unchanged": {
+                          "type": "integer"
+                        },
+                        "removed": {
+                          "type": "integer"
+                        },
+                        "duplicateRows": {
+                          "type": "integer"
+                        },
+                        "errorCount": {
+                          "type": "integer"
+                        },
+                        "deletionsSuppressed": {
+                          "type": "boolean"
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        },
+                        "errors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "line": {
+                                "type": "integer"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "line",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "new",
+                                  "update",
+                                  "unchanged",
+                                  "remove"
+                                ]
+                              },
+                              "before": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "address": {
+                                        "type": "string",
+                                        "pattern": "^0x[0-9a-fA-F]{40}$"
+                                      },
+                                      "displayName": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 64
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "avatarUrl": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "uri",
+                                            "maxLength": 512
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "xHandle": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "pattern": "^[A-Za-z0-9_]{1,15}$"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "verified": {
+                                        "type": "boolean",
+                                        "default": false
+                                      },
+                                      "sortOrder": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 1000000,
+                                        "default": 0
+                                      }
+                                    },
+                                    "required": [
+                                      "address"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "after": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "address": {
+                                        "type": "string",
+                                        "pattern": "^0x[0-9a-fA-F]{40}$"
+                                      },
+                                      "displayName": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 64
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "avatarUrl": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "uri",
+                                            "maxLength": 512
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "xHandle": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "pattern": "^[A-Za-z0-9_]{1,15}$"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "verified": {
+                                        "type": "boolean",
+                                        "default": false
+                                      },
+                                      "sortOrder": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 1000000,
+                                        "default": 0
+                                      }
+                                    },
+                                    "required": [
+                                      "address"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "kind",
+                              "before",
+                              "after"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sampledAt",
+                        "replace",
+                        "canImport",
+                        "inserted",
+                        "changed",
+                        "unchanged",
+                        "removed",
+                        "duplicateRows",
+                        "errorCount",
+                        "deletionsSuppressed",
+                        "hasMore",
+                        "errors",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview KOL CSV overwrites and removals without mutation",
+        "tags": [
+          "AdminKol"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "kols.manage"
+        ],
+        "x-required-roles": [],
+        "description": "Access: kols.manage"
+      }
+    },
     "/admin/kols/import": {
       "post": {
         "operationId": "AdminKolController_import",

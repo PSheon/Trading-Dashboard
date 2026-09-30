@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { kolInputSchema, kolPatchSchema, type Kol, type KolImportResponse } from "@trading-dashboard/shared/contracts";
+import { kolImportRequestSchema, planKolImport, kolInputSchema, kolPatchSchema, type Kol, type KolImportResponse } from "@trading-dashboard/shared/contracts";
 
 import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
 import { parseOr400 } from "../common/http/validation.js";
@@ -33,6 +33,14 @@ export class KolService {
 
   async list(): Promise<Kol[]> {
     return (await this.repository.list()).map(toKol);
+  }
+
+  async previewImport(csv:string,replace:boolean){
+    const input=parseOr400(kolImportRequestSchema,{csv,replace});
+    const existing=await this.repository.previewSnapshot();
+    if(existing.length>5000)throw new BadRequestException("Preview supports up to 5000 registered KOLs");
+    try{return planKolImport(input.csv,input.replace,existing);}
+    catch(error){throw new BadRequestException((error as Error).message);}
   }
 
   /** Adds or replaces the entry for `body.address` (lowercased); omitted

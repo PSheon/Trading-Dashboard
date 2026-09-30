@@ -4,6 +4,29 @@
  * `{name}` and are filled by `t(key, { name })`.
  */
 export const zhTW = {
+  kolReview: {
+    "stale": "本頁名錄已有變更，請重新預覽後再匯入。",
+    "hint": "先預覽 CSV 的欄位覆寫與移除影響，再確認提交。",
+    "replace": "替換未列出的 KOL",
+    "preview": "預覽 KOL 變更",
+    "confirm": "確認 KOL 匯入",
+    "title": "KOL 變更明細",
+    "snapshot": "預覽為當下快照，不鎖定名錄；並發變更可能影響正式匯入。預覽時間：",
+    "new": "新增",
+    "update": "欄位修改",
+    "unchanged": "內容相同",
+    "remove": "移除 KOL 身分",
+    "duplicates": "重複地址列",
+    "errors": "錯誤列",
+    "empty": "空值／無紀錄",
+    "before": "目前",
+    "after": "匯入後",
+    "removeConfirm": "我確認移除 {count} 筆 KOL 身分資料。",
+    "suppressed": "有錯誤列：有效列仍會更新，但本次不刪除未列出的 KOL。",
+    "noChanges": "沒有可提交的資料變更。",
+    "rules": "空白或省略欄位會覆寫為預設值；重複地址採最後一筆有效列。內容相同仍會刷新更新時間，計入匯入結果的 updated。移除只影響 KOL 身分，不會刪除收藏、提醒或監聽設定；候選池會依後續排程重算。",
+    "limit": "明細與錯誤各顯示前 100 筆，摘要為全部資料的計算結果。"
+},
   importOps: {
     "source": "匯入來源",
     "tooLarge": "檔案超過 100 KiB 限制。",

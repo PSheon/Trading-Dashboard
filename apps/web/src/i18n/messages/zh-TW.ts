@@ -608,7 +608,7 @@ export const zhTW = {
       new: "新增分組",
       name: "群組名稱",
       manage: "管理群組",
-      manageHint: "拖曳上下箭頭調整順序；刪除群組不會移除其中的交易員。",
+      manageHint: "用上下箭頭調整順序；刪除群組不會移除其中的交易員。",
       noGroups: "尚無群組",
       delete: "刪除群組",
       deleteTitle: "刪除群組",

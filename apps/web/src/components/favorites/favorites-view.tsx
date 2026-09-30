@@ -377,7 +377,7 @@ function MobileRow({ card, groups }: { card: TraderCard; groups: FavoriteGroup[]
             size={40}
             subtitle={
               <>
-                <span className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs whitespace-nowrap text-muted-foreground">
                   <span className={cn("num font-semibold", signTone(card.pnl))}>{card.pnl === null ? "—" : boardPnl(card.pnl)}</span>
                   <span className="num">{boardRoi(card.roi)} ROI</span>
                   {card.copyScore !== null ? <span className="num">{card.copyScore} {t("favorites.cols.copyScore")}</span> : null}

@@ -5,12 +5,9 @@ import {
   ConflictException,
   HttpException,
   HttpStatus,
-  Inject,
   Injectable,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { and, count, eq, gt, isNull, lt, ne } from "drizzle-orm";
-import { notificationChannels, telegramLinkTokens, users } from "@trading-dashboard/shared/database";
 import {
   type Locale,
   type TelegramLinkResponse,
@@ -18,8 +15,8 @@ import {
   type TelegramTestResponse,
 } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { TelegramLinkRepository } from "./telegram-link.repository.js";
+import { UnitOfWork } from "../db/unit-of-work.js";
 import { NotifyService } from "../notify/notify.service.js";
 
 export const LINK_TOKEN_TTL_MS = 10 * 60_000;
@@ -64,7 +61,8 @@ export function notLinked(): ConflictException {
 export class TelegramLinkService {
   constructor(
     private readonly config: AppConfig,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: TelegramLinkRepository,
+    private readonly unitOfWork: UnitOfWork,
     private readonly notify: NotifyService,
   ) {}
 
@@ -75,7 +73,7 @@ export class TelegramLinkService {
   }
 
   async status(userId: number): Promise<TelegramStatus> {
-    const channel = await this.channelOf(userId);
+    const channel = await this.repository.channelOf(userId);
     return {
       bot: this.bot(),
       linked: channel !== undefined,
@@ -99,19 +97,9 @@ export class TelegramLinkService {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + LINK_TOKEN_TTL_MS);
 
-    await this.db.transaction(async (tx) => {
-      // Serializes one user's requests, so the count below can't be raced.
-      await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
-
-      const [{ n }] = await tx
-        .select({ n: count() })
-        .from(telegramLinkTokens)
-        .where(
-          and(
-            eq(telegramLinkTokens.userId, userId),
-            gt(telegramLinkTokens.createdAt, new Date(now.getTime() - LINK_RATE_WINDOW_MS)),
-          ),
-        );
+    await this.unitOfWork.run(async (tx) => {
+      await this.repository.lockUser(tx, userId);
+      const n = await this.repository.recentTokenCount(tx, userId, new Date(now.getTime() - LINK_RATE_WINDOW_MS));
       if (n >= LINK_RATE_LIMIT) {
         throw new HttpException(
           {
@@ -123,28 +111,8 @@ export class TelegramLinkService {
         );
       }
 
-      // Only the newest link works: older unused ones expire now.
-      await tx
-        .update(telegramLinkTokens)
-        .set({ expiresAt: now })
-        .where(
-          and(
-            eq(telegramLinkTokens.userId, userId),
-            isNull(telegramLinkTokens.usedAt),
-            gt(telegramLinkTokens.expiresAt, now),
-          ),
-        );
-      await tx
-        .delete(telegramLinkTokens)
-        .where(
-          and(
-            eq(telegramLinkTokens.userId, userId),
-            lt(telegramLinkTokens.expiresAt, new Date(now.getTime() - TOKEN_RETENTION_MS)),
-          ),
-        );
-      await tx
-        .insert(telegramLinkTokens)
-        .values({ tokenHash: hashLinkToken(token), userId, createdAt: now, expiresAt });
+      await this.repository.replaceToken(tx, userId, hashLinkToken(token), now, expiresAt,
+        new Date(now.getTime() - TOKEN_RETENTION_MS));
     });
 
     return { url: `https://t.me/${bot}?start=${token}`, expiresAt };
@@ -153,24 +121,12 @@ export class TelegramLinkService {
   /** DELETE /me/telegram. Alerts stay configured; they record as failed
    * until a chat is linked again. */
   async unlink(userId: number): Promise<void> {
-    await this.db
-      .delete(notificationChannels)
-      .where(and(eq(notificationChannels.userId, userId), eq(notificationChannels.kind, "telegram")));
+    await this.repository.unlink(userId);
   }
 
   /** POST /me/telegram/test: 409 without a linked, enabled chat. */
   async sendTest(userId: number): Promise<TelegramTestResponse> {
-    const [row] = await this.db
-      .select({ chatId: notificationChannels.target, locale: users.locale })
-      .from(notificationChannels)
-      .innerJoin(users, eq(users.id, notificationChannels.userId))
-      .where(
-        and(
-          eq(notificationChannels.userId, userId),
-          eq(notificationChannels.kind, "telegram"),
-          eq(notificationChannels.enabled, true),
-        ),
-      );
+    const row = await this.repository.testDestination(userId);
     if (!row) throw notLinked();
     return this.notify.sendTestMessage(row.chatId, row.locale as Locale);
   }
@@ -185,83 +141,30 @@ export class TelegramLinkService {
   async consumeStartToken(token: string, chatId: string, username: string | null): Promise<StartResult> {
     const tokenHash = hashLinkToken(token);
     const now = new Date();
-    return this.db.transaction(async (tx) => {
-      const [row] = await tx
-        .select()
-        .from(telegramLinkTokens)
-        .where(eq(telegramLinkTokens.tokenHash, tokenHash))
-        .for("update");
+    return this.unitOfWork.run(async (tx) => {
+      const row = await this.repository.lockToken(tx, tokenHash);
       if (!row) return { kind: "invalid" } as const;
 
       if (row.usedAt) {
-        const [same] = await tx
-          .select({ id: notificationChannels.id })
-          .from(notificationChannels)
-          .where(
-            and(
-              eq(notificationChannels.userId, row.userId),
-              eq(notificationChannels.kind, "telegram"),
-              eq(notificationChannels.target, chatId),
-            ),
-          );
+        const same = await this.repository.linkedTo(tx, row.userId, chatId);
         return same ? ({ kind: "already_linked" } as const) : ({ kind: "invalid" } as const);
       }
       if (row.expiresAt <= now) return { kind: "invalid" } as const;
 
-      await tx.update(telegramLinkTokens).set({ usedAt: now }).where(eq(telegramLinkTokens.tokenHash, tokenHash));
+      const moved = await this.repository.linkChat(tx, tokenHash, row.userId, chatId, username, now);
 
-      const movedFrom = await tx
-        .delete(notificationChannels)
-        .where(
-          and(
-            eq(notificationChannels.kind, "telegram"),
-            eq(notificationChannels.target, chatId),
-            ne(notificationChannels.userId, row.userId),
-          ),
-        )
-        .returning({ userId: notificationChannels.userId });
-
-      await tx
-        .insert(notificationChannels)
-        .values({ userId: row.userId, kind: "telegram", target: chatId, username, enabled: true, createdAt: now })
-        .onConflictDoUpdate({
-          target: [notificationChannels.userId, notificationChannels.kind],
-          set: { target: chatId, username, enabled: true, createdAt: now },
-        });
-
-      return { kind: "linked", userId: row.userId, moved: movedFrom.length > 0 } as const;
+      return { kind: "linked", userId: row.userId, moved } as const;
     });
   }
 
   /** /stop: pauses the chat's channel. Returns whether one was linked. */
-  async disableChat(chatId: string): Promise<boolean> {
-    const rows = await this.db
-      .update(notificationChannels)
-      .set({ enabled: false })
-      .where(and(eq(notificationChannels.kind, "telegram"), eq(notificationChannels.target, chatId)))
-      .returning({ id: notificationChannels.id });
-    return rows.length > 0;
+  disableChat(chatId: string): Promise<boolean> {
+    return this.repository.disableChat(chatId);
   }
 
-  /** `/start` with no token: "none" (not linked), "linked" (already on) or
-   * "resumed" (was paused by /stop, now on again). */
+  /** Resume a paused chat, or report its existing linkage. */
   async resumeChat(chatId: string): Promise<"none" | "linked" | "resumed"> {
-    const chat = and(eq(notificationChannels.kind, "telegram"), eq(notificationChannels.target, chatId));
-    const resumed = await this.db
-      .update(notificationChannels)
-      .set({ enabled: true })
-      .where(and(chat, eq(notificationChannels.enabled, false)))
-      .returning({ id: notificationChannels.id });
-    if (resumed.length > 0) return "resumed";
-    const [linked] = await this.db.select({ id: notificationChannels.id }).from(notificationChannels).where(chat);
-    return linked ? "linked" : "none";
-  }
-
-  private async channelOf(userId: number) {
-    const [row] = await this.db
-      .select()
-      .from(notificationChannels)
-      .where(and(eq(notificationChannels.userId, userId), eq(notificationChannels.kind, "telegram")));
-    return row;
+    if (await this.repository.resumePausedChat(chatId)) return "resumed";
+    return await this.repository.hasChat(chatId) ? "linked" : "none";
   }
 }

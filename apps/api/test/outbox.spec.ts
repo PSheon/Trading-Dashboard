@@ -1,3 +1,4 @@
+import { OutboxRepository } from "../src/outbox/outbox.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -47,8 +48,8 @@ it("recovers an action whose in-memory event was lost and sends only one persist
   const action = await create();
   expect(await db.select().from(actionOutbox)).toMatchObject([{ actionId: action.id, status: "pending" }]);
   const sender = notify();
-  await new OutboxService(testConfig(), db, rules(sender), sender).drain();
-  await new OutboxService(testConfig(), db, rules(), notify()).drain();
+  await new OutboxService(testConfig(), new OutboxRepository(db), rules(sender), sender).drain();
+  await new OutboxService(testConfig(), new OutboxRepository(db), rules(), notify()).drain();
   expect(sendMessage).toHaveBeenCalledTimes(1);
   expect(await db.select().from(notificationOutbox)).toMatchObject([{ status: "sent", attempts: 1 }]);
   expect(await db.select().from(alerts)).toHaveLength(1);
@@ -150,7 +151,7 @@ it("replays percentage rules using the equity captured with the action", async (
     coin: "BTC", kind: "open", side: "long", notionalUsd: "10000", avgPx: "60000", leverage: null, fillIds: [], ts: new Date(),
   }], true, 50000));
   expect(await db.select().from(actionOutbox)).toMatchObject([{ equityUsd: "50000" }]);
-  await new OutboxService(testConfig(), db, rules(), notify()).drain();
+  await new OutboxService(testConfig(), new OutboxRepository(db), rules(), notify()).drain();
   expect(sendMessage).toHaveBeenCalledTimes(1);
   const [delivery] = await db.select().from(notificationOutbox);
   expect(delivery.payloadJson).toMatchObject({ reasons: { rules: ["R1", "R3"] } });
@@ -180,4 +181,22 @@ it("checks authorization again when a retry follows revocation", async () => {
   await rules().evaluateAction(action);
   expect(sendMessage).toHaveBeenCalledTimes(1);
   expect(await db.select().from(notificationOutbox)).toMatchObject([{ status: "failed" }]);
+});
+
+it("ignores a stale worker failure after another worker reclaims the action", async () => {
+  const action = await create();
+  const repository = new OutboxRepository(db);
+  const now = new Date();
+  const first = await repository.claim(action.id, now, new Date(now.getTime() - 1));
+  expect(first).toBeDefined();
+  const second = await repository.claim(action.id, now, new Date(now.getTime() + 300_000));
+  expect(second?.attempts).toBe(first!.attempts + 1);
+  await repository.recordFailure(action.id, "pending", now, first!.attempts);
+  expect(await db.select().from(actionOutbox)).toMatchObject([
+    { actionId: action.id, status: "processing", attempts: second!.attempts, lockedUntil: second!.lockedUntil },
+  ]);
+  await repository.recordFailure(action.id, "pending", now, second!.attempts);
+  expect(await db.select().from(actionOutbox)).toMatchObject([
+    { actionId: action.id, status: "pending", lockedUntil: null, lastError: "evaluation failed" },
+  ]);
 });

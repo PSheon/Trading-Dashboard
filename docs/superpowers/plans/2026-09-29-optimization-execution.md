@@ -159,3 +159,13 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Repository-boundary tests observed RED in all three services before extraction. Existing real PostgreSQL integration tests remain the behavior gate; strengthened failed-audit test to require no cache invalidation after rollback.
 - Verification: isolated PostgreSQL API suite 60 files / 687 tests passed; API typecheck/lint/build passed; OpenAPI freshness and 4/4 specification tests passed. Compiled bootstrap verified real DI, readiness 200/503, global DTO rejection and runtime/offline Swagger equality.
 - Fresh-context final review (repository_final_review, gpt-6-astra) found no correctness/security regressions in transaction boundaries, authorization, queries or module wiring. Frontend/shared/dependencies are unchanged in this batch.
+
+
+## Eleventh batch — Telegram and outbox repositories (base 6fe78d2)
+
+- Added private TelegramLinkRepository and OutboxRepository providers; Telegram use cases own UnitOfWork. Token hashing, limit/expiry policy, HTTP outcomes, scheduling and retries remain in services. Reused existing PostgreSQL behavior coverage rather than substituting persistence mocks.
+- Architecture boundary tests observed RED for the two services, then GREEN. Initial complete suite: 60 files / 689 tests passed. API typecheck/lint/build, OpenAPI freshness and compiled bootstrap DI/DTO/readiness/Swagger checks passed.
+- Fresh review (telegram_outbox_review, gpt-6-astra) found no extraction regressions, but identified an existing stale-worker failure overwrite after lease reclamation.
+- Ruling: fix the concrete race in this batch using the existing monotonically increasing attempts value as a claim generation. Failure update matches action id, processing status and claimed attempts. Cost: callers must carry the attempt generation; no schema migration, lease heartbeat or exactly-once delivery claim is added.
+- Stale-claim regression observed RED: old failure changed the second claim to pending. After generation matching it is GREEN; the same test proves the current owner can still record failure.
+- Final verification after the fix: isolated PostgreSQL 60 files / 690 tests; API typecheck/lint/build; OpenAPI freshness; compiled bootstrap DI, DTO rejection, readiness 200/503 and Swagger equality all passed. No frontend/shared/schema/dependency changes. Tests stub external Telegram; no real messages or trades sent.

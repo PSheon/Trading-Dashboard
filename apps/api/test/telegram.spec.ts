@@ -1,3 +1,4 @@
+import { TelegramLinkRepository } from "../src/telegram/telegram-link.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { createHash } from "node:crypto";
 
@@ -79,7 +80,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
       db,
       privy,
       controllers: [TelegramController],
-      providers: [TelegramLinkService, NotifyService, TelegramHttpClient],
+      providers: [TelegramLinkRepository, TelegramLinkService, NotifyService, TelegramHttpClient],
     }));
     link = app.get(TelegramLinkService);
   });

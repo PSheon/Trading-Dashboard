@@ -1,3 +1,4 @@
+import { TelegramLinkRepository } from "./telegram-link.repository.js";
 import { Module } from "@nestjs/common";
 
 import { NotifyModule } from "../notify/notify.module.js";
@@ -9,6 +10,6 @@ import { TelegramLinkService } from "./telegram-link.service.js";
 @Module({
   imports: [NotifyModule],
   controllers: [TelegramController],
-  providers: [TelegramLinkService, TelegramBotService],
+  providers: [TelegramLinkRepository, TelegramLinkService, TelegramBotService],
 })
 export class TelegramModule {}

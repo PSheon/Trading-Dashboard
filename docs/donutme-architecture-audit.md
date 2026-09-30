@@ -185,7 +185,7 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 | 全域 transform + 明確略過特殊回應 | `common/http/transform.interceptor.ts` 與 wire contract registry | 已有；一般 JSON 預設 envelope，含 timestamp／分頁 metadata；特殊回應明確略過 |
 | feature module 註冊 service/repository | `InsightsModule`、`UsersModule`、`AdminModule` | 本批新增 InsightsRepository、ProfileRepository、RevenueRepository |
 | service 負責業務規則，repository 負責查詢 | crowd 聚合/快取、個人資料正規化/404、台北日收入計算留在 service | 本批移出 SQL，維持原查詢與回傳契約 |
-| 同一交易內共享 persistence context | 既有 `db/unit-of-work.ts` | AdminUsers 已採 UnitOfWork + 同交易 repository/audit；Auth、Actions 已抽 repository；Telegram/outbox 等仍待 E11 後續處理 |
+| 同一交易內共享 persistence context | 既有 `db/unit-of-work.ts` | AdminUsers 已採 UnitOfWork + 同交易 repository/audit；Auth、Actions 已抽 repository；TelegramLink 已採同交易 repository；Outbox 已抽 repository，其他 worker 仍待 E11 後續處理 |
 
 保留 Drizzle，不為模仿 DonutMe 而改成 TypeORM；移植的是責任邊界。repository 僅在所屬 module 內提供，沒有消費者時不額外 export。Copydog 功能驗收另見 [驗收矩陣](copydog-parity-acceptance.md)。本批沒有改 DonutMe 程式或 Claude 的未合併分支。
 
@@ -203,4 +203,12 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - AdminUsersService 持有 UnitOfWork，repository 共用同一 transaction。依 id 鎖定 enabled admins，再鎖 target；自我降權、最後管理員政策留在 service。使用者異動與稽核紀錄一同提交，提交成功後才 invalidate auth cache。
 - AuthRepository 每次查最新角色與停權狀態；Privy 驗證快取、signup 與 bootstrap admin 政策仍在 AuthService。並行首次登入保留唯一 DID 衝突處理，profile refresh 只更新 email。
 - ActionsRepository 保留 `(ts,id)` 游標、SSE replay 順序、favorites 的 user/chain 範圍與成交明細 address/chain 限制。未知 action 的 404 仍由 service 決定。
-- 後續 repository 範圍仍含 Telegram、outbox、alert rules、admin overview、import、round-trip、rules seed 與 watcher 系列；此批不代表後端已全面完成分層，也不代表 Copydog 跟單執行已實作。
+- 後續 repository 範圍仍含 Notify、Rules、alert rules、admin overview、import、round-trip、rules seed 與 watcher 系列；此批不代表後端已全面完成分層，也不代表 Copydog 跟單執行已實作。
+
+
+## 2026-09-30：Telegram 與 outbox persistence 分層
+
+- TelegramLinkService 保留 token 生成／雜湊、限流與過期政策、HTTP 錯誤及通知協調；TelegramLinkRepository 處理持久化。建立 token 與消耗 token 都由 UnitOfWork 維持原交易邊界，所有交易內操作使用傳入的 tx。
+- OutboxRepository 負責到期查詢、條件式領取、action 讀取與失敗回寫；重試次數、等待時間、排程與停止流程留在 service。
+- 修正既有租約競態：失敗回寫須匹配領取時的 attempts，逾時 worker 無法覆蓋接手 worker 的狀態。每次領取原子增加 attempts，無須 schema migration；不宣稱提供外部通知 exactly-once 保證。
+- NotifyService 與 RulesService 仍有直接 SQL，後續須一起檢查通知投遞與規則評估的交易邊界。Telegram 跨 token 同 chat 競爭仍依現有唯一約束處理，這批未重新設計其併發政策。

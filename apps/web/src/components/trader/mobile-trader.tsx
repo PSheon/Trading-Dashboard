@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/page";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
-import { CopyScoreBar } from "@/components/discover/board-bits";
+import { CopyScoreBar, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { CopyPanel } from "./copy-panel";
@@ -60,8 +60,8 @@ function Pills<T extends string>({
   );
 }
 
-/** The trader page's own top bar on phones (CopyDog's): back, the address,
- * favourite, alert and share. Replaces the app's header there. */
+/** The trader page's own top bar on phones (CopyDog's): back, the address
+ * (a KOL's avatar, name and badge instead), favourite, alert and share. Replaces the app's header there. */
 function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -74,7 +74,15 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
       >
         <ArrowLeft className="size-5" />
       </Link>
-      <span className="num min-w-0 flex-1 truncate text-center font-mono text-[0.9375rem] font-bold">{truncateAddress(profile.address)}</span>
+      {profile.kol ? (
+        <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+          <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol.avatarUrl }} size={24} />
+          <span className="min-w-0 truncate text-[0.9375rem] font-bold" title={profile.address}>{profile.displayName?.trim() || truncateAddress(profile.address)}</span>
+          {profile.kol.verified ? <VerifiedTick className="size-3.5" /> : null}
+        </span>
+      ) : (
+        <span className="num min-w-0 flex-1 truncate text-center font-mono text-[0.9375rem] font-bold">{truncateAddress(profile.address)}</span>
+      )}
       <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
       <AlertBell address={profile.address} />
       <button

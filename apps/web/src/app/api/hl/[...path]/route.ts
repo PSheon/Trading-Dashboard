@@ -15,6 +15,9 @@ import type { NextRequest } from "next/server";
  * re-encoded one by one and `.`/`..`/empty segments are rejected, so the
  * target is always under NEXT_API_URL's origin and base path.
  *
+ * Responses are `Cache-Control: no-store`, except images (cached KOL
+ * avatars), which keep the api's Cache-Control and ETag.
+ *
  * Bodies are buffered, except `text/event-stream` (GET /actions/stream),
  * which is relayed as it arrives; the browser disconnecting cancels the
  * upstream request.
@@ -84,6 +87,10 @@ async function forward(
   if (contentType) headers.set("Content-Type", contentType);
   const acceptLanguage = request.headers.get("accept-language");
   if (acceptLanguage) headers.set("Accept-Language", acceptLanguage);
+  // Revalidation of a cached KOL avatar (304 on a match); JSON routes are
+  // never revalidated.
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (ifNoneMatch && ifNoneMatch.length <= 200 && path.at(-1) === "avatar") headers.set("If-None-Match", ifNoneMatch);
   // SSE resume cursor (an action id); anything else is dropped.
   const lastEventId = request.headers.get("last-event-id");
   if (lastEventId && /^\d{1,19}$/.test(lastEventId)) headers.set("Last-Event-ID", lastEventId);
@@ -145,6 +152,15 @@ async function forward(
   }
   const upstreamType = upstream.headers.get("content-type");
   if (upstreamType) resHeaders.set("Content-Type", upstreamType);
+  // Image bytes (GET /kols/:address/avatar) keep the api's own caching:
+  // a versioned URL is cached for a month, and the ETag allows a 304.
+  const image = upstreamType?.toLowerCase().startsWith("image/") || upstream.status === 304;
+  if (image && request.method === "GET") {
+    for (const name of ["cache-control", "etag", "x-content-type-options", "content-security-policy"]) {
+      const value = upstream.headers.get(name);
+      if (value) resHeaders.set(name, value);
+    }
+  }
   // A 503 busy says when to retry.
   const retryAfter = upstream.headers.get("retry-after");
   if (retryAfter) resHeaders.set("Retry-After", retryAfter);

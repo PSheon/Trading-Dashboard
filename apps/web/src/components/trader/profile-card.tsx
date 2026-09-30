@@ -25,7 +25,6 @@ import { useState } from "react";
 import { cn } from "cn";
 
 import { AlertBell } from "@/components/alerts/alert-bell";
-import { AddressAvatar } from "@/components/traders/address-avatar";
 import { TraderName } from "@/components/traders/trader-name";
 import { FavoriteButton, VaultBadge } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -38,7 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
-import { CopyScoreBar } from "@/components/discover/board-bits";
+import { CopyScoreBar, TraderAvatar, VerifiedTick, XProfileLink } from "@/components/discover/board-bits";
 import { pnlTone, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/trade-format";
 
 function useCopied() {
@@ -189,12 +188,14 @@ export function ProfileCard({
     <aside className="overflow-hidden rounded-2xl border border-border bg-card">
       {identity ? (
         <div className="flex items-center gap-2.5 px-4 pt-4 pb-3.5">
-          <AddressAvatar seed={profile.address} size={40} />
+          <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={40} />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
               <h1 className="flex min-w-0 text-[0.9375rem] font-bold">
                 <TraderName trader={profile} />
               </h1>
+              {profile.kol?.verified ? <VerifiedTick className="size-3.5" /> : null}
+              {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} /> : null}
               {profile.isVault ? <VaultBadge /> : null}
             </div>
             <button

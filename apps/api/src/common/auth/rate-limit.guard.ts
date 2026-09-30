@@ -2,6 +2,12 @@ import { HttpException, Injectable, type CanActivate, type ExecutionContext } fr
 import type { Request, Response } from "express";
 import { AppConfig } from "../../config/app-config.js";
 import type { RequestUser } from "./current-user.js";
+import { clientKey } from "../http/client-key.js";
+
+/** `/health` and `/health/ready` per client and minute: ample for a
+ * platform's health checks (answers are cached for a second anyway), and
+ * outside the ingress and read limits so a busy client can't fail them. */
+export const HEALTH_PER_MINUTE = 120;
 
 /** Single-process bounded windows, matching the supported single-replica topology.
  * Refuse new keys at capacity; evicting active keys would enable bypass. */
@@ -35,6 +41,7 @@ function enforce(context: ExecutionContext, limiter: RequestRateLimiter, key: st
   return true;
 }
 function health(request: Request) { return request.path === "/health" || request.path === "/health/ready"; }
+function ipOf(request: Request) { return clientKey(request.ip ?? request.socket.remoteAddress); }
 
 /** Runs before authentication to bound invalid-token verification work. No raw
  * token or caller-supplied identity is ever used as an independent bucket. */
@@ -43,7 +50,8 @@ export class IngressRateGuard implements CanActivate {
   constructor(private readonly limiter: RequestRateLimiter, private readonly config: AppConfig) {}
   canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<Request>();
-    return health(req) || enforce(context, this.limiter, `ingress:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`, this.config.value.limits.ingressPerMinute);
+    if (health(req)) return enforce(context, this.limiter, `health:${ipOf(req)}`, HEALTH_PER_MINUTE);
+    return enforce(context, this.limiter, `ingress:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`, this.config.value.limits.ingressPerMinute);
   }
 }
 
@@ -53,6 +61,7 @@ export class CallerRateGuard implements CanActivate {
   constructor(private readonly limiter: RequestRateLimiter, private readonly config: AppConfig) {}
   canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<Request & { user?: RequestUser }>();
+    // Already limited by its own bucket in IngressRateGuard.
     if (health(req)) return true;
     const identity = req.user?.kind === "user" ? `user:${req.user.id}` : req.user?.kind === "service" ? "service" : `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
     const write = !["GET", "HEAD", "OPTIONS"].includes(req.method);

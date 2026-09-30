@@ -66,3 +66,22 @@ it("returns canonical 429 and Retry-After through the actual HTTP filter", async
     expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
   } finally { await app.close(); }
 });
+
+it("throttles /health and /health/ready per client in their own bucket, apart from ingress and reads", async () => {
+  const { HEALTH_PER_MINUTE } = await import("../src/common/auth/rate-limit.guard.js");
+  const limiter = new RequestRateLimiter();
+  const ingress = new IngressRateGuard(limiter, config);
+  const caller = new CallerRateGuard(limiter, config);
+  for (let i = 0; i < HEALTH_PER_MINUTE; i++) {
+    const path = i % 2 ? "/health" : "/health/ready";
+    expect(ingress.canActivate(context({ path, ip: "198.51.100.5" }).ctx)).toBe(true);
+    expect(caller.canActivate(context({ path, ip: "198.51.100.5" }).ctx)).toBe(true);
+  }
+  const over = context({ path: "/health/ready", ip: "198.51.100.5" });
+  expect(() => ingress.canActivate(over.ctx)).toThrow("Too many requests");
+  expect(over.setHeader).toHaveBeenCalledWith("Retry-After", expect.any(String));
+  // The platform's checker (another address) and the client's normal
+  // requests are unaffected.
+  expect(ingress.canActivate(context({ path: "/health/ready", ip: "10.0.0.2" }).ctx)).toBe(true);
+  expect(ingress.canActivate(context({ path: "/traders", ip: "198.51.100.5" }).ctx)).toBe(true);
+});

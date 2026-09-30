@@ -160,8 +160,8 @@ export function ProfileCard({
   tradesComputing: boolean;
   /** Avatar, name and actions; off on phones, whose top bar has them. */
   identity?: boolean;
-  /** CopyDog's 複製評分 (0–98); null while loading or unscored; the row is
-   * left out when not given. */
+  /** CopyDog's 複製評分 (0–98); the row is left out while it is null
+   * (loading or unscored) or not given, as on CopyDog. */
   copyScore?: number | null;
 }) {
   const { t, format } = useI18n();
@@ -289,7 +289,7 @@ export function ProfileCard({
         <Row label={t("trader.volume")}>
           <span data-testid="volume">{allTimeVolume === null ? "—" : usd2(allTimeVolume)}</span>
         </Row>
-        {copyScore !== undefined ? (
+        {copyScore != null ? (
           <Row label={t("discover.copyScore")}>
             <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-14" />
           </Row>

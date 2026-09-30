@@ -120,8 +120,8 @@ type MobileTab = "positions" | "insights" | "performance" | "trades";
  * the chart first (損益 / ROI), window pills, a 2×2 card (帳戶價值, 夏普,
  * 勝率 with a ring, 回撤), segmented 持倉 / 洞察 / 表現 / 交易 with cards
  * instead of tables, and a sticky 跟單 button in place of the tab bar that
- * opens the copy panel as a sheet. CopyDog's copy-score bar is left out:
- * Orbie has no copy score yet.
+ * opens the copy panel as a sheet. The copy score sits under the avatar
+ * when the trader has one.
  */
 export function MobileTrader({
   profile,
@@ -204,10 +204,13 @@ export function MobileTrader({
                 <OrbieMark size={26} />
               </span>
             )}
-            <span className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
-              <span className="underline decoration-dotted underline-offset-2">{t("discover.copyScore")}</span>
-              <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-10" />
-            </span>
+            {copyScore != null ? (
+              // CopyDog leaves the score out of the hero while there is none.
+              <span className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground" data-testid="hero-copy-score">
+                <span className="underline decoration-dotted underline-offset-2">{t("discover.copyScore")}</span>
+                <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-10" />
+              </span>
+            ) : null}
           </span>
         </div>
         {portfolio && series.length > 1 ? (

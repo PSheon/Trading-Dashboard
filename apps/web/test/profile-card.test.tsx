@@ -29,6 +29,9 @@ it("keeps CopyDog's rows only: no badges, account breakdown, snapshot sources or
   const scored = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={undefined} tradesComputing={false} copyScore={94} /></I18nProvider>);
   expect(scored).toContain("複製評分");
   expect(scored).toContain(">94<");
+  // No score (unscored or still loading): CopyDog leaves the row out, no "—".
+  const unscored = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={undefined} tradesComputing={false} copyScore={null} /></I18nProvider>);
+  expect(unscored).not.toContain("複製評分");
   expect(html).toContain("$13.43M");
   expect(html).not.toContain("萬");
   expect(html).toContain('aria-expanded="false"');

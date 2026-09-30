@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { catalogs } from "../src/i18n/messages";
 import { agoShort, boardCoinLabel, boardPnl, boardRoi, boardUsd, roiPillShort, roiPillWhole } from "../src/lib/board-format";
 
 describe("CopyDog board formats", () => {
@@ -19,10 +20,13 @@ describe("CopyDog board formats", () => {
     expect(agoShort("2026-09-27T11:00:00Z", now)).toBe("3d ago");
     expect(agoShort("2026-09-30T11:08:00Z", now)).toBe("52m ago");
     expect(agoShort(null, now)).toBeNull();
-    const t = (k: string) => (k === "home.markets.gold" ? "黃金" : "原油");
-    expect(boardCoinLabel("xyz:SP500", t)).toBe("SPX");
-    expect(boardCoinLabel("xyz:GOLD", t)).toBe("黃金");
-    expect(boardCoinLabel("xyz:CL", t)).toBe("原油");
-    expect(boardCoinLabel("BTC", t)).toBe("BTC");
+    // CopyDog keeps "Gold" and "Oil" in English in every language.
+    for (const catalog of Object.values(catalogs)) {
+      const t = (k: "home.markets.gold" | "home.markets.oil") => (k === "home.markets.gold" ? catalog.home.markets.gold : catalog.home.markets.oil);
+      expect(boardCoinLabel("xyz:SP500", t)).toBe("SPX");
+      expect(boardCoinLabel("xyz:GOLD", t)).toBe("Gold");
+      expect(boardCoinLabel("xyz:CL", t)).toBe("Oil");
+      expect(boardCoinLabel("BTC", t)).toBe("BTC");
+    }
   });
 });

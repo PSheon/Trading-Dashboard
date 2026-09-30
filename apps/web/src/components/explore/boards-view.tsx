@@ -24,8 +24,8 @@ import type { BoardMarket, BoardSort, BoardTrader, BoardWindow, TradingStyle } f
 import { useBoard, useSiteSettings } from "@/lib/queries";
 import { useNow } from "@/lib/use-now";
 
-const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
-const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
+const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR"];
+const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"];
 const STYLES: Array<TradingStyle | "any"> = ["any", "scalp", "intraday", "swing", "position"];
 const SORTS: BoardSort[] = ["copyScore", "pnl", "roi", "accountValue"];
 

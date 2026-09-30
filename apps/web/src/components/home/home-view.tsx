@@ -19,8 +19,8 @@ import { useHomeBoards, useSiteSettings } from "@/lib/queries";
 import { historicalSimulation } from "@/lib/historical-simulation";
 import styles from "./home-view.module.css";
 
-const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
-const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
+const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR"];
+const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"];
 
 const exploreHref = (board: string, sort: string, market?: "stocks") =>
   `/explore?${new URLSearchParams({ ...(market ? { market } : {}), ...(board !== "top100" ? { board } : {}), ...(sort !== "copyScore" ? { sort } : {}) })}`;

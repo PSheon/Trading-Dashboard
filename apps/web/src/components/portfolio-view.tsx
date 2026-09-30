@@ -253,7 +253,7 @@ function PhonePortfolio() {
   ];
 
   return (
-    <div className="-mx-4 -mt-5">
+    <div className="-mx-5 -mt-5">
       <PhoneHeader />
       <PhoneBody tab={tab} setTab={setTab} tabs={tabs} wallet={wallet} open={open} setOpen={setOpen} />
     </div>
@@ -291,7 +291,7 @@ function PhoneSignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="-mx-4 -mt-5">
+    <div className="-mx-5 -mt-5">
       <PhoneHeader />
       <div className="flex flex-col items-center px-6 pt-14 text-center">
         <ChartPie className="size-10 text-muted-foreground" strokeWidth={1.5} aria-hidden />

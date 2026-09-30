@@ -1401,8 +1401,8 @@ export const pt: Messages = {
     loginToFavorite: "Entre para salvar traders",
   },
   notFound: {
-    title: "Página não encontrada",
-    body: "O link pode estar quebrado ou o endereço foi digitado errado.",
-    home: "Voltar ao início",
+    title: "404",
+    body: "Esta página não existe.",
+    home: "Voltar ao ranking",
   },
 };

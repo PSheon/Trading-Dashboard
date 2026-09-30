@@ -1401,8 +1401,8 @@ export const ja: Messages = {
     loginToFavorite: "ログインして保存",
   },
   notFound: {
-    title: "ページが見つかりません",
-    body: "リンクが切れているか、アドレスが間違っている可能性があります。",
-    home: "ホームに戻る",
+    title: "404",
+    body: "このページは存在しません。",
+    home: "リーダーボードに戻る",
   },
 };

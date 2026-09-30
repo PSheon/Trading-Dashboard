@@ -128,7 +128,7 @@ export function BoardSparkline({ values, height, className }: { values: number[]
   if (data.length < 2) return <div className={cn("rounded-xl bg-raised-hover/40", className)} style={{ height }} />;
   return (
     <div className={className} style={{ height }}>
-      <AreaChart data={data} height={height} strokeWidth={1.75} zeroLine formatValue={(v) => format.usd(v, { compact: true })} />
+      <AreaChart data={data} height={height} strokeWidth={1.75} grid={4} formatValue={(v) => format.usd(v, { compact: true })} />
     </div>
   );
 }
@@ -158,20 +158,22 @@ export function HScroll({ children, className, label }: { children: React.ReactN
     };
   }, [measure]);
   const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.85, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-  const arrow = "absolute top-1/2 z-10 hidden size-9 -translate-y-1/2 items-center justify-center rounded-full border border-border-strong bg-popover text-foreground shadow-lg shadow-black/40 outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring md:flex";
+  // CopyDog's arrows sit on the row's edges and show only while the row is
+  // hovered or focused (never on touch screens).
+  const arrow = "absolute top-1/2 z-10 hidden size-[38px] -translate-y-1/2 items-center justify-center rounded-full border border-border-strong bg-popover text-foreground opacity-0 shadow-lg shadow-black/40 outline-none transition-opacity group-hover/hscroll:opacity-100 group-focus-within/hscroll:opacity-100 hover:bg-raised-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:pointer-fine:flex";
   return (
-    <div className="relative">
+    <div className="group/hscroll relative">
       {!atStart ? (
-        <button type="button" aria-label={t("discover.scrollLeft")} className={cn(arrow, "-left-4")} onClick={() => scroll(-1)}>
-          <ChevronLeft className="size-4" />
+        <button type="button" aria-label={t("discover.scrollLeft")} className={cn(arrow, "left-0 -translate-x-1/2")} onClick={() => scroll(-1)}>
+          <ChevronLeft className="size-[22px]" />
         </button>
       ) : null}
-      <div ref={ref} role="group" aria-label={label} className={cn("-mx-4 flex snap-x gap-3 overflow-x-auto px-4 py-1 no-scrollbar md:mx-0 md:px-0", className)}>
+      <div ref={ref} role="group" aria-label={label} className={cn("-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 py-1 no-scrollbar md:mx-0 md:scroll-px-0 md:px-0", className)}>
         {children}
       </div>
       {!atEnd ? (
-        <button type="button" aria-label={t("discover.scrollRight")} className={cn(arrow, "-right-4")} onClick={() => scroll(1)}>
-          <ChevronRight className="size-4" />
+        <button type="button" aria-label={t("discover.scrollRight")} className={cn(arrow, "right-0 translate-x-1/2")} onClick={() => scroll(1)}>
+          <ChevronRight className="size-[22px]" />
         </button>
       ) : null}
     </div>

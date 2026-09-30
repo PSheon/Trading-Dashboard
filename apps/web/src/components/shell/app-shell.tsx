@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       >
         <AnnouncementBanner />
-        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] px-4 py-5 md:px-8 md:py-7">
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] px-5 py-5 md:px-8 md:py-7">
           {children}
         </main>
       </div>

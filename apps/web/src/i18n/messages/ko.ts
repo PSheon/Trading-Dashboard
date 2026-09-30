@@ -1401,8 +1401,8 @@ export const ko: Messages = {
     loginToFavorite: "로그인하고 저장하기",
   },
   notFound: {
-    title: "페이지를 찾을 수 없음",
-    body: "링크가 깨졌거나 주소를 잘못 입력했을 수 있습니다.",
-    home: "홈으로 돌아가기",
+    title: "404",
+    body: "존재하지 않는 페이지입니다.",
+    home: "리더보드로 돌아가기",
   },
 };

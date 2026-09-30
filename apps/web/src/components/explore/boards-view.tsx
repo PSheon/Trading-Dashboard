@@ -176,7 +176,7 @@ export function BoardsView() {
         </div>
       </div>
 
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 no-scrollbar md:mx-0 md:flex-wrap md:px-0" role="tablist" aria-label={t("discover.boards")}>
+      <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-0.5 no-scrollbar md:mx-0 md:flex-wrap md:px-0" role="tablist" aria-label={t("discover.boards")}>
         {tabs.map((tab) => (
           <button
             key={tab.key}

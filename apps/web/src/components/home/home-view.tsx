@@ -56,7 +56,7 @@ export function HomeView() {
     : null;
 
   return (
-    <div className={cn(styles.home, "flex flex-col gap-9 md:gap-11")}>
+    <div className={cn(styles.home, "flex flex-col gap-8 md:gap-9")}>
       {/* Phones: CopyDog's compact two-line title (登入 is in Orbie's top bar,
           which phones keep; CopyDog puts it here instead). */}
       <h1 className={cn(styles.mobileTitle, "text-[2rem] leading-[1.15] font-black tracking-tight whitespace-pre-line md:hidden")}>{t("home.heroTitleMobile")}</h1>
@@ -71,10 +71,9 @@ export function HomeView() {
           <h1 className="max-w-[8.2em] text-[3.5rem] leading-[1.08] font-black tracking-tight">{t("home.heroTitle")}</h1>
           <Link
             href="/explore"
-            className="mt-8 inline-flex h-12 items-center gap-2 rounded-full bg-raised px-7 text-base font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-6 inline-flex h-12 items-center rounded-full bg-raised px-6 text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("home.heroBrowse")}
-            <ArrowRight className="size-4" aria-hidden />
           </Link>
         </div>
         <div className="hidden lg:block">
@@ -83,7 +82,7 @@ export function HomeView() {
       </section>
 
       <section className={styles.markets}>
-        <h2 className="mb-3.5 text-lg font-bold tracking-tight md:text-xl">{t("home.byMarket")}</h2>
+        <h2 className="mb-3.5 text-[1.375rem] font-bold tracking-tight md:text-lg md:tracking-normal">{t("home.byMarket")}</h2>
         {/* Desktop: one scrolling row of square tiles. */}
         <div className="hidden md:block">
           <HScroll label={t("home.byMarket")}>
@@ -99,10 +98,11 @@ export function HomeView() {
             <WideTile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<Trophy className="size-5 text-primary" />} />
             <WideTile href={exploreHref("kol", "copyScore")} label={t("home.kols")} icon={<UserRound className="size-5 text-primary" />} />
           </div>
-          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 no-scrollbar">
+          {/* Two rows that scroll sideways, the fifth tile peeking in. */}
+          <div className="-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 no-scrollbar" data-testid="phone-crypto-tiles">
             {crypto.map((c) => <Tile key={c} href={exploreHref(c, "pnl")} label={label(c)} icon={<CoinIcon coin={c} size={30} />} small />)}
           </div>
-          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 no-scrollbar">
+          <div className="-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 no-scrollbar" data-testid="phone-stock-tiles">
             {stocks.map((c) => <Tile key={c} href={exploreHref(c, "pnl", "stocks")} label={label(c)} icon={<CoinIcon coin={c} size={30} />} small />)}
           </div>
         </div>
@@ -125,7 +125,7 @@ export function HomeView() {
           ? Array.from({ length: 3 }, (_, i) => (
               <section key={i}>
                 <Skeleton className="my-2 mb-5.5 h-7 w-40" />
-                <div className="-mx-4 flex gap-3 overflow-hidden px-4 py-1 md:mx-0 md:px-0">
+                <div className="-mx-5 flex gap-3 overflow-hidden px-5 py-1 md:mx-0 md:px-0">
                   {Array.from({ length: 7 }, (_, j) => <HomeCardSkeleton key={j} />)}
                 </div>
               </section>
@@ -151,8 +151,8 @@ function Tile({ href, label, icon, small = false }: { href: string; label: strin
     <Link
       href={href}
       className={cn(
-        "ui-lift flex shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-card text-[0.8125rem] font-semibold outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring",
-        small ? "size-[82px]" : "size-[104px]",
+        "ui-lift flex shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[12px] border border-border bg-card font-semibold outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring",
+        small ? "size-[78px] text-xs" : "size-[104px] text-[0.8125rem]",
       )}
     >
       {icon}
@@ -165,7 +165,7 @@ function WideTile({ href, label, icon }: { href: string; label: string; icon: Re
   return (
     <Link
       href={href}
-      className="flex h-[52px] items-center gap-2.5 rounded-2xl border border-border bg-card px-4 font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-[52px] items-center gap-2.5 rounded-[12px] border border-border bg-card px-4 text-[0.9375rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {icon}
       {label}
@@ -177,14 +177,14 @@ function RowHeader({ title, coin, href }: { title: string; coin?: string; href: 
   const { t } = useI18n();
   return (
     <div className="mb-3.5 flex items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-lg font-bold tracking-tight md:text-xl">
+      <h2 className="flex items-center gap-2 text-[1.375rem] font-bold tracking-tight md:text-lg md:tracking-normal">
         {coin ? <CoinIcon coin={coin} size={24} /> : null}
         {title}
       </h2>
       <Link
         href={href}
         aria-label={`${t("home.seeAll")} · ${title}`}
-        className="flex h-11 items-center justify-center rounded-full bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring max-md:w-11 md:px-4"
+        className="flex items-center justify-center rounded-full bg-raised text-[0.8125rem] font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring max-md:size-8 md:h-[30px] md:px-4"
       >
         <span className="hidden md:inline">{t("home.seeAll")}</span>
         <ArrowRight className="size-4 md:hidden" />
@@ -231,7 +231,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
   const up = change !== null && change >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <section className={cn(styles.calculator, "overflow-hidden rounded-3xl border border-border bg-card")}>
+    <section className={cn(styles.calculator, "overflow-hidden rounded-xl border border-border bg-card")}>
       <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
         <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <TraderAvatar trader={trader} size={32} />
@@ -291,24 +291,23 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
             <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
             {roiPillShort(change)}
           </span> : null}
-          <HoverChartOrEmpty series={series} onHover={setHover} missingRoi={simulation === null} />
+          <HoverChartOrEmpty series={series} hover={hover} onHover={setHover} missingRoi={simulation === null} />
         </div>
       </div>
-      <p className="px-5 pb-4 text-[11px] leading-relaxed text-muted-foreground">{t("home.calculatorTip")}</p>
     </section>
   );
 }
 
-function HoverChartOrEmpty({ series, onHover, missingRoi }: { series: Array<readonly [number, number]>; onHover: (i: number | null) => void; missingRoi: boolean }) {
+function HoverChartOrEmpty({ series, hover, onHover, missingRoi }: { series: Array<readonly [number, number]>; hover: number | null; onHover: (i: number | null) => void; missingRoi: boolean }) {
   const { t } = useI18n();
-  return series.length > 0 ? <HoverChart series={series} onHover={onHover} /> : (
+  return series.length > 0 ? <HoverChart series={series} hover={hover} onHover={onHover} /> : (
     <p className="flex h-[170px] items-center justify-center px-3 text-center text-xs text-muted-foreground" role="status">
       {t(missingRoi ? "home.calculatorMissingRoi" : "home.calculatorMissingCurve")}
     </p>
   );
 }
 
-function HoverChart({ series, onHover }: { series: Array<readonly [number, number]>; onHover: (i: number | null) => void }) {
+function HoverChart({ series, hover, onHover }: { series: Array<readonly [number, number]>; hover: number | null; onHover: (i: number | null) => void }) {
   const { format } = useI18n();
   return (
     <div
@@ -319,7 +318,8 @@ function HoverChart({ series, onHover }: { series: Array<readonly [number, numbe
         onHover(series.length > 1 ? Math.round(f * (series.length - 1)) : null);
       }}
     >
-      <AreaChart data={series} height={170} strokeWidth={2} zeroBaseline={false} formatValue={(v) => format.usd(v, { compact: true })} />
+      {/* CopyDog's crosshair: a dashed line and a dot on the hovered point. */}
+      <AreaChart data={series} height={170} strokeWidth={2} zeroBaseline={false} grid={4} marker={hover} formatValue={(v) => format.usd(v, { compact: true })} />
     </div>
   );
 }

@@ -425,7 +425,7 @@ export const zhTW = {
   home: {
     heroTitle: "跟單最優秀的加密貨幣與股票交易員",
     heroTitleMobile: "跟單\n頂尖交易者",
-    heroBrowse: "探索交易員",
+    heroBrowse: "瀏覽",
     cardPnl: "損益",
     cardRoi: "報酬率",
     ifInvested: "如果你投入",
@@ -1689,8 +1689,8 @@ export const zhTW = {
     loginToFavorite: "登入後即可收藏",
   },
   notFound: {
-    title: "找不到這個頁面",
-    body: "連結可能已失效，或網址打錯了。",
-    home: "回到首頁",
+    title: "404",
+    body: "此頁面不存在。",
+    home: "返回排行榜",
   },
 } as const;

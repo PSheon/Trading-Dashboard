@@ -120,30 +120,27 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   return (
     <Link
       href={traderHref(trader.address)}
-      className="ui-lift flex w-[148px] shrink-0 snap-start flex-col gap-2 rounded-2xl border border-border bg-card p-2.5 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-3 md:p-3.5"
+      className="ui-lift flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-border bg-card p-2 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-3 md:p-[13px]"
     >
       <div className="flex min-w-0 items-center gap-2">
         <TraderAvatar trader={trader} size={32} />
         <span className="ml-auto md:hidden">{pill}</span>
         <span className="hidden min-w-0 items-center gap-1 md:flex">
-          <span className={cn("truncate text-[0.8125rem] font-semibold", !trader.displayName && "font-mono")}>{boardName(trader)}</span>
+          <span className="truncate text-sm font-semibold">{boardName(trader)}</span>
           {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
         </span>
       </div>
       <span className="flex min-w-0 items-center gap-1 md:hidden">
-        <span className={cn("truncate text-[0.8125rem] font-semibold", !trader.displayName && "font-mono")}>{boardName(trader)}</span>
+        <span className="truncate text-base font-semibold">{boardName(trader)}</span>
         {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
       </span>
-      <BoardSparkline values={trader.sparkline} height={64} className="md:hidden" />
+      <BoardSparkline values={trader.sparkline} height={40} className="md:hidden" />
       <BoardSparkline values={trader.sparkline} height={78} className="hidden md:block" />
-      <div className="flex items-end justify-between gap-1.5">
-        <div className="min-w-0">
-          <span className="mb-0.5 block text-[0.6875rem] text-muted-foreground">{t("home.cardPnl")}</span>
-        <span className={cn("num block truncate text-[0.9375rem] font-bold md:text-base", signTone(trader.pnl))}>
+      <div className="flex items-center justify-between gap-1.5">
+        <span className={cn("num block truncate text-base font-bold", signTone(trader.pnl))} title={t("home.cardPnl")}>
           {format.usd(trader.pnl, { compact: true, sign: true })}
         </span>
-        </div>
-        <span className="hidden flex-col items-end gap-0.5 md:inline-flex"><span className="text-[0.6875rem] text-muted-foreground">{t("home.cardRoi")}</span>{pill}</span>
+        <span className="hidden md:inline-flex">{pill}</span>
       </div>
     </Link>
   );

@@ -1401,8 +1401,8 @@ export const vi: Messages = {
     loginToFavorite: "Đăng nhập để lưu trader",
   },
   notFound: {
-    title: "Không tìm thấy trang",
-    body: "Liên kết có thể bị hỏng hoặc địa chỉ bị gõ sai.",
-    home: "Về trang chủ",
+    title: "404",
+    body: "Trang này không tồn tại.",
+    home: "Về bảng xếp hạng",
   },
 };

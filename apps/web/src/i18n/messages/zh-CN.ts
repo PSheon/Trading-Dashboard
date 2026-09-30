@@ -1401,8 +1401,8 @@ export const zhCN: Messages = {
     loginToFavorite: "登录后即可收藏",
   },
   notFound: {
-    title: "页面未找到",
-    body: "链接可能已失效，或网址输入有误。",
-    home: "返回首页",
+    title: "404",
+    body: "此页面不存在。",
+    home: "返回排行榜",
   },
 };

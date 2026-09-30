@@ -1401,8 +1401,8 @@ export const id: Messages = {
     loginToFavorite: "Masuk untuk menyimpan trader",
   },
   notFound: {
-    title: "Halaman tidak ditemukan",
-    body: "Tautannya mungkin rusak, atau alamatnya salah ketik.",
-    home: "Kembali ke beranda",
+    title: "404",
+    body: "Halaman ini tidak ada.",
+    home: "Kembali ke Peringkat",
   },
 };

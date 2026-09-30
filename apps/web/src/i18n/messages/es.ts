@@ -1401,8 +1401,8 @@ export const es: Messages = {
     loginToFavorite: "Inicia sesión para guardar traders",
   },
   notFound: {
-    title: "Página no encontrada",
-    body: "Puede que el enlace esté roto o que la dirección se haya escrito mal.",
-    home: "Volver al inicio",
+    title: "404",
+    body: "Esta página no existe.",
+    home: "Volver a la clasificación",
   },
 };

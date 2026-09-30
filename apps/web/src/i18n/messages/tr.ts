@@ -1401,8 +1401,8 @@ export const tr: Messages = {
     loginToFavorite: "Kaydetmek için giriş yapın",
   },
   notFound: {
-    title: "Sayfa bulunamadı",
-    body: "Bağlantı bozuk olabilir ya da adres yanlış yazılmış olabilir.",
-    home: "Ana sayfaya dön",
+    title: "404",
+    body: "Bu sayfa mevcut değil.",
+    home: "Lider Tablosuna Dön",
   },
 };

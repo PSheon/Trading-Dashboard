@@ -70,7 +70,7 @@ function Pills<T extends string>({
 function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
   return (
-    <div className="sticky top-[env(safe-area-inset-top,0px)] z-30 -mx-4 -mt-5 flex h-14 items-center gap-1 bg-background/90 px-2 backdrop-blur-xl">
+    <div className="sticky top-[env(safe-area-inset-top,0px)] z-30 -mx-5 -mt-5 flex h-14 items-center gap-1 bg-background/90 px-2 backdrop-blur-xl">
       <Link
         href="/explore"
         aria-label={t("common.back")}
@@ -219,8 +219,9 @@ export function MobileTrader({
             axes
             interactive
             zeroBaseline
+            yAxis="left"
             formatValue={fmt}
-            formatTick={(v) => (mode === "roi" ? format.pct(v) : usdCompact(v))}
+            formatTick={(v) => (mode === "roi" ? format.pct(v, { digits: 0 }) : usdCompact(v, { digits: 0 }))}
             formatTime={(ts) => format.dateTime(ts)}
             formatAxisTime={(ts) => format.axisDate(ts, span)}
             ariaLabel={t("trader.chart.pnlLabel")}

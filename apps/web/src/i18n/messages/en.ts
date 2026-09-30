@@ -421,7 +421,7 @@ export const en: Messages = {
   home: {
     heroTitle: "Copy the Best Crypto & Stock Traders",
     heroTitleMobile: "Copy the\nBest Traders",
-    heroBrowse: "Explore traders",
+    heroBrowse: "Browse",
     cardPnl: "PnL",
     cardRoi: "ROI",
     ifInvested: "If you invested",
@@ -1685,8 +1685,8 @@ export const en: Messages = {
     loginToFavorite: "Log in to add favorites",
   },
   notFound: {
-    title: "Page not found",
-    body: "The link may be broken, or the address mistyped.",
-    home: "Back to home",
+    title: "404",
+    body: "This page doesn't exist.",
+    home: "Back to Leaderboard",
   },
 };

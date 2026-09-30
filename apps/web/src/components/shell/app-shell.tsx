@@ -26,6 +26,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // A trader page on a phone has its own top bar and a sticky 跟單 button in
   // place of the header and the tab bar, as on CopyDog's app.
   const traderPage = pathname.startsWith("/trader/");
+  // CopyDog's phone portfolio has its own title bar (投資組合, bell, gear).
+  const ownPhoneHeader = traderPage || pathname === "/portfolio";
 
   return (
     <WalletModalsProvider>
@@ -39,7 +41,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <header
         className={cn(
-          traderPage ? "hidden md:flex" : "flex",
+          ownPhoneHeader ? "hidden md:flex" : "flex",
           "fixed inset-x-0 top-0 z-40 h-16 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-xl md:h-[72px] md:gap-6 md:px-5",
         )}
       >
@@ -69,7 +71,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div
         className={cn(
-          traderPage ? "pt-0 pb-[calc(84px+env(safe-area-inset-bottom))]" : "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]",
+          traderPage
+            ? "pt-0 pb-[calc(84px+env(safe-area-inset-bottom))]"
+            : ownPhoneHeader
+              ? "pt-0 pb-[calc(68px+env(safe-area-inset-bottom))]"
+              : "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]",
           "md:pt-[72px] md:pb-0 md:pl-[76px]",
         )}
       >

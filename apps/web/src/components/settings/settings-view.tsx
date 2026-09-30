@@ -7,7 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Globe,
-  History,
+  RotateCcwClock as History,
   MessageCircle,
   Plus,
   ReceiptText,

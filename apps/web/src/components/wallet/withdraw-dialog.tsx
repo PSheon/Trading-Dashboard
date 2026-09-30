@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
+import { CircleCheck, Loader2, TriangleAlert } from "lucide-react";
 import { useId, useState } from "react";
 import { cn } from "cn";
 
@@ -81,7 +81,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   if (withdraw.isSuccess) {
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <CheckCircle2 className="size-10 text-positive" />
+        <CircleCheck className="size-10 text-positive" />
         <p className="text-sm font-semibold">{t("wallet.withdrawSent")}</p>
         <p className="text-xs text-muted-foreground">
           {t("wallet.receive", { amount: format.usd(Number(amount) - WITHDRAW_FEE_USDC, { digits: 2 }) })}

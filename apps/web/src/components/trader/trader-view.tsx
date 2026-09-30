@@ -21,6 +21,7 @@ import { useLiveTrader } from "@/lib/use-live-trader";
 import { ActivityTabs } from "./activity-tabs";
 import { CopyPanel } from "./copy-panel";
 import { LiveFeed } from "./live-feed";
+import { MobileTrader } from "./mobile-trader";
 import {
   KpiTiles,
   PerformanceChart,
@@ -88,21 +89,45 @@ function TraderLoaded({ address }: { address: string }) {
   const lowSample = activity.data?.sample.lowSample ?? false;
   const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
+  const rail = live.profile ? (
+    <ProfileCard
+      profile={live.profile}
+      activity={activity.isError ? null : activity.data}
+      lowSampleThreshold={settings.data?.lowSampleThreshold ?? 20}
+      liveStatus={live.profile.dataQuality?.partial ? "polling" : live.status}
+      allTimeVolume={allTime.data?.volume ?? null}
+      trades={tradesAll.data}
+      tradesComputing={isComputing(tradesAll)}
+    />
+  ) : null;
+
   return (
+    <>
+    {/* Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs). */}
+    <div className="md:hidden">
+      {profile.isError && !live.profile ? (
+        <ErrorState message={`${t("trader.loadFailed")} · ${profile.error.message}`} onRetry={() => profile.refetch()} />
+      ) : live.profile ? (
+        <MobileTrader
+          profile={live.profile}
+          marks={live.mids}
+          insights={rail}
+          portfolio={portfolio.data}
+          allTime={allTimePerp.data}
+          window={window}
+          onWindow={setWindow}
+          loading={portfolio.isPending}
+        />
+      ) : (
+        <Skeleton className="h-[640px] rounded-2xl" />
+      )}
+    </div>
     <div className="trader-grid -mx-1 md:-mx-3">
       <div data-area="profile">
         {profile.isError && !live.profile ? (
           <ErrorState message={`${t("trader.loadFailed")} · ${profile.error.message}`} onRetry={() => profile.refetch()} />
         ) : live.profile ? (
-          <ProfileCard
-            profile={live.profile}
-            activity={activity.isError ? null : activity.data}
-            lowSampleThreshold={settings.data?.lowSampleThreshold ?? 20}
-            liveStatus={live.profile.dataQuality?.partial ? "polling" : live.status}
-            allTimeVolume={allTime.data?.volume ?? null}
-            trades={tradesAll.data}
-            tradesComputing={isComputing(tradesAll)}
-          />
+          rail
         ) : (
           <Skeleton className="h-[640px] rounded-2xl" />
         )}
@@ -168,5 +193,6 @@ function TraderLoaded({ address }: { address: string }) {
         {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel />}
       </div>
     </div>
+    </>
   );
 }

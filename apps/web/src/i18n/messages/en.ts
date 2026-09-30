@@ -447,6 +447,7 @@ export const en: Messages = {
       },
     },
     copyTrade: "Copy",
+    mobile: { pnl: "PnL", roi: "ROI", drawdown: "Drawdown" },
     noPositions: "No open positions",
     noFills: "No fills",
     noActions: "No actions recorded for this address yet",

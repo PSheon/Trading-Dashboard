@@ -201,6 +201,10 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "profile" "main" "copy";
 }
+/* Phones get CopyDog's app layout instead (MobileTrader). */
+@media (max-width: 767.98px) {
+  .trader-grid { display: none; }
+}
 .trader-grid > [data-area="profile"] { grid-area: profile; }
 .trader-grid > [data-area="main"] { grid-area: main; }
 .trader-grid > [data-area="copy"] { grid-area: copy; }

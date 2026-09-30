@@ -451,6 +451,7 @@ export const zhTW = {
       },
     },
     copyTrade: "跟單",
+    mobile: { pnl: "損益", roi: "ROI", drawdown: "回撤" },
     noPositions: "暫無持倉",
     noFills: "暫無成交",
     noActions: "這個地址還沒有動作紀錄",

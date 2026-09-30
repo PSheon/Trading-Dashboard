@@ -22,6 +22,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useT();
   const pathname = usePathname();
   const isAdmin = useIsAdmin();
+  // A trader page on a phone has its own top bar and a sticky 跟單 button in
+  // place of the header and the tab bar, as on CopyDog's app.
+  const traderPage = pathname.startsWith("/trader/");
 
   return (
     <div className="min-h-dvh">
@@ -32,7 +35,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {t("nav.skip")}
       </a>
 
-      <header className="fixed inset-x-0 top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-xl md:h-[72px] md:gap-6 md:px-5">
+      <header
+        className={cn(
+          traderPage ? "hidden md:flex" : "flex",
+          "fixed inset-x-0 top-0 z-40 h-16 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-xl md:h-[72px] md:gap-6 md:px-5",
+        )}
+      >
         <Link href="/" className="flex shrink-0 items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Lockup className="hidden sm:inline-flex" />
           <OrbieMark size={32} className="sm:hidden" title={APP_NAME} />
@@ -56,7 +64,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      <div className="pt-16 pb-[calc(68px+env(safe-area-inset-bottom))] md:pt-[72px] md:pb-0 md:pl-[76px]">
+      <div
+        className={cn(
+          traderPage ? "pt-0 pb-[calc(84px+env(safe-area-inset-bottom))]" : "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]",
+          "md:pt-[72px] md:pb-0 md:pl-[76px]",
+        )}
+      >
         <AnnouncementBanner />
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] px-4 py-5 md:px-8 md:py-7">
           {children}
@@ -65,7 +78,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <nav
         aria-label={t("nav.primary")}
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
+        className={cn(
+          "fixed inset-x-0 bottom-0 z-40 grid-cols-5 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
+          traderPage ? "hidden" : "grid",
+        )}
       >
         {primaryNav.map((item) => (
           <TabLink key={item.href} item={item} active={isActive(pathname, item.href)} />

@@ -3,8 +3,8 @@ import type { BoardQuery, BoardTrader } from "@trading-dashboard/shared/contract
 import { publicSettings } from "./admin";
 import { leaderboardUpdatedAt, sparklineFor, traderStats } from "./data";
 
-const CRYPTO = ["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR"];
-const STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"];
+const CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
+const STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
 
 export function fixtureBoard(query: BoardQuery) {
   const coins = query.market === "stocks" ? (publicSettings().stockBoards ?? STOCKS) : (publicSettings().cryptoBoards ?? CRYPTO);

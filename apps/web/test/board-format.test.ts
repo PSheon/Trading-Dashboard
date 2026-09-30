@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogs } from "../src/i18n/messages";
-import { agoShort, boardCoinLabel, boardPnl, boardRoi, boardUsd, roiPillShort, roiPillWhole } from "../src/lib/board-format";
+import { agoShort, boardCoinLabel, homeTileOrder, boardPnl, boardRoi, boardUsd, roiPillShort, roiPillWhole } from "../src/lib/board-format";
 
 describe("CopyDog board formats", () => {
   it("formats the grid card, list and home card figures as CopyDog does", () => {
@@ -20,13 +19,20 @@ describe("CopyDog board formats", () => {
     expect(agoShort("2026-09-27T11:00:00Z", now)).toBe("3d ago");
     expect(agoShort("2026-09-30T11:08:00Z", now)).toBe("52m ago");
     expect(agoShort(null, now)).toBeNull();
-    // CopyDog keeps "Gold" and "Oil" in English in every language.
-    for (const catalog of Object.values(catalogs)) {
-      const t = (k: "home.markets.gold" | "home.markets.oil") => (k === "home.markets.gold" ? catalog.home.markets.gold : catalog.home.markets.oil);
-      expect(boardCoinLabel("xyz:SP500", t)).toBe("SPX");
-      expect(boardCoinLabel("xyz:GOLD", t)).toBe("Gold");
-      expect(boardCoinLabel("xyz:CL", t)).toBe("Oil");
-      expect(boardCoinLabel("BTC", t)).toBe("BTC");
-    }
+    const t = (k: "home.markets.gold" | "home.markets.oil") => (k === "home.markets.gold" ? "黃金" : "原油");
+    expect(boardCoinLabel("xyz:SP500", t)).toBe("SPX");
+    expect(boardCoinLabel("xyz:GOLD", t)).toBe("黃金");
+    expect(boardCoinLabel("xyz:CL", t)).toBe("原油");
+    expect(boardCoinLabel("BTC", t)).toBe("BTC");
+    // CopyDog's home keeps "Gold" and "Oil" in English in every language.
+    expect(boardCoinLabel("xyz:GOLD", t, "home")).toBe("Gold");
+    expect(boardCoinLabel("xyz:CL", t, "home")).toBe("Oil");
+  });
+
+  it("orders home tiles as CopyDog's home does, keeping unknown boards after", () => {
+    expect(homeTileOrder(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"])).toEqual(["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR"]);
+    expect(homeTileOrder(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]))
+      .toEqual(["xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"]);
+    expect(homeTileOrder(["PEPE", "BTC"])).toEqual(["BTC", "PEPE"]);
   });
 });

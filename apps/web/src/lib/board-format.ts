@@ -54,10 +54,28 @@ export function agoShort(time: string | number | Date | null | undefined, now = 
 
 /** The label CopyDog shows for a board coin ("xyz:SP500" → "SPX",
  * "xyz:CL" → "Oil"); `t` supplies the translated names. */
-export function boardCoinLabel(coin: string, t: (key: "home.markets.gold" | "home.markets.oil") => string): string {
+export function boardCoinLabel(
+  coin: string,
+  t: (key: "home.markets.gold" | "home.markets.oil") => string,
+  /** CopyDog's home keeps "Gold" and "Oil" in English in every language;
+   * its explore tabs translate them (黃金, 原油). */
+  surface: "explore" | "home" = "explore",
+): string {
   const name = coin.includes(":") ? coin.slice(coin.indexOf(":") + 1) : coin;
   if (name === "SP500") return "SPX";
-  if (name === "GOLD") return t("home.markets.gold");
-  if (name === "CL") return t("home.markets.oil");
+  if (name === "GOLD") return surface === "home" ? "Gold" : t("home.markets.gold");
+  if (name === "CL") return surface === "home" ? "Oil" : t("home.markets.oil");
   return name;
+}
+
+/** CopyDog's home tiles order the same boards differently from its explore
+ * tabs (HYPE before DOGE, Oil after TSLA); unknown coins keep their place
+ * after the known ones. */
+const HOME_ORDER = ["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"];
+export function homeTileOrder(coins: readonly string[]): string[] {
+  const rank = (c: string) => {
+    const i = HOME_ORDER.indexOf(c);
+    return i < 0 ? HOME_ORDER.length : i;
+  };
+  return coins.map((c, i) => [c, i] as const).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([c]) => c);
 }

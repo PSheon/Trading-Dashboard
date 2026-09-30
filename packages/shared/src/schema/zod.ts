@@ -1366,9 +1366,9 @@ export const discoverySettingsSchema = z.object({
    * page traffic under the global budget; it always yields to pages). */
   poolWeightPerMinute: z.number().int().min(0).max(600).default(240),
   /** Explore / home coin boards, in order (Hyperliquid coin names). */
-  cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR"]),
+  cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"]),
   stockBoards: z.array(boardCoinSchema).max(16)
-    .default(["xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"]),
+    .default(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]),
   /** 洞察 cohorts: members per PnL tier whose positions are tracked … */
   cohortMembersPerTier: z.number().int().min(0).max(500).default(150),
   /** … refreshed this often (each member, and one history row per tier) … */

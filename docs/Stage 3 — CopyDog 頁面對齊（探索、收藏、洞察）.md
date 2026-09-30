@@ -165,6 +165,36 @@ Orbie 目前多出來的（刪除以對齊）：眉標「orbit the best traders�
 - 歷史：新增 `cohort_snapshots`（分層、時間、做多比例、名目多空、未實現盈虧分布），每次更新寫一筆；BTC 價格用 Hyperliquid `candleSnapshot`。
 - API：`GET /insights/cohorts/:tier`（摘要、treemap、錢包、市場）與 `GET /insights/cohorts/:tier/history?window=`，都要登記到 `wire-contracts.ts`。
 
+### 3.4 實作與成本（2026-09-30 實測）
+
+**對照 CopyDog 原始碼。** CopyDog 的 `HLCohortPage` chunk 與 `/api/hyperliquid/discover/cohorts/<tier>`：回傳 `hero`（upnlProfit／upnlLoss／upnlProfitPct／walletsInProfit／walletsInLoss／notionalLong／notionalShort／longPct）、`series`（{t, pctLong}）、`btc`（[t, 價]）、`markets`、`wallets`；多空傾向 7 級＝|做多比例 − 50| < 5 中性、< 15 略微、< 30 一般、其餘極度；treemap 取名目金額前 8 名的 squarified 版面。CopyDog 目前只開放 `extremely_profitable`（其他分層直接導回），頁面沒有分層選單；Orbie 依本節規格在標題卡右側加分層選單（七層，`?tier=`）。
+
+**分層成員。** `pnlTier`（CopyDog 的門檻：≥ $1M、$100K–$1M、> 0、= 0、> −$100K、> −$1M、其餘）套在候選池的永續全期損益上，每層取帳戶價值最大的 `discovery.cohortMembersPerTier`（預設 150）人；候選池是全期損益前 1,000 名，虧損層幾乎沒有人，所以不足的層用排行榜（全帳戶全期損益、非 Vault、30 天有交易）依帳戶價值補滿。每 `cohortRefreshMinutes`（15）重建一次。
+
+**持倉刷新。** 背景工作每分鐘最多花 `discovery.cohortWeightPerMinute`（預設 200）weight，rank 與候選池相同（頁面永遠先走）：未讀過的成員先（依分層、名次），其後最久未讀者。每人讀主 dex ＋持有或交易過的 HIP-3 dex 的 `clearinghouseState`（每個 2 weight）；第一次與之後每 24 小時掃全部 11 個 dex（22 weight），之間出現在其他 dex 的新倉位最晚一天內會被看到。失敗保留上一次快照。每個分層每 15 分鐘寫一筆 `cohort_snapshots`（做多比例、多空名目、未實現盈虧分布、錢包數），就是倉位傾向圖的資料；資料從工作啟動那一刻開始累積，沒有更早的歷史。
+
+**實測**（live Hyperliquid、測試程序 200 weight/分、與 3100 的 dev api 共用 IP；三個分層、每層 150 人、三輪、間隔 90 秒）：
+
+| 分層 | 每輪 weight | 呼叫數 | 每人 weight | 每輪時間 |
+| --- | --- | --- | --- | --- |
+| 極度盈利（候選池） | 306 | 153 | 2.0 | 50–56 秒（含 burst） |
+| 高度盈利（候選池） | 300 | 150 | 2.0 | 90 秒 |
+| 爆倉級虧損（多數為排行榜補位，預設加查 xyz） | 416 | 208 | 2.8 | 125 秒 |
+| 全 dex 掃描（每人每天一次） | 22／人 | 11／人 | 22 | 見下 |
+
+**推算（預設 200/分）：** 穩定期一輪 7 層 × 150 人 ≈ 1,050 × 2.3 ≈ 2,400 weight ≈ 12 分鐘；每日掃描 1,050 × 22 ≈ 23,100 weight／天 ≈ 16 weight/分；合計約每 13–15 分鐘刷新每位成員一次。冷啟動第一次要全部掃描：1,050 × 22 ≈ 23,100 weight ≈ 2 小時（極度盈利先完成，約 17 分鐘）。全站預算 840/分中，候選池 240 ＋分層 200，頁面仍有 400。要達到 CopyDog 的規模（極度盈利 474 人、更多分層成員、完整歷史）需自有節點（見《Hyperliquid 節點與索引計畫》）。
+
+**端點與快取：**
+
+| 端點 | Hyperliquid weight | 快取 |
+| --- | --- | --- |
+| `GET /insights/cohorts/:tier` | 0（讀 `cohort_members`） | 每層 30 秒（程序內）；錢包算「新鮮」＝ 3 個刷新間隔（至少 1 小時）內讀過 |
+| `GET /insights/cohorts/:tier/history?window=7d\|30d\|90d\|all` | `candleSnapshot` BTC：20 ＋每 60 根 1（1h／4h／12h／1d，約 90–180 根） | K 線 10 分鐘；歷史點最多 400 個 |
+| 背景分層工作 | ≤ `cohortWeightPerMinute` | `cohort_members`、`cohort_snapshots` 持久化 |
+| `GET /kols/:address/avatar` | 0（外部：unavatar／fxtwitter，每 30 秒最多 1 次） | 版本相符 `max-age=2592000, immutable`，否則 1 小時；ETag／304；每週重抓 |
+
+**全站即時動作流**（§3.2）移到管理區「營運」（`/admin/activity`，需 `admin.access`），群體視角一併移過去；一般使用者在「收藏 → 動態」與交易者頁看動作。
+
 ## 4. 實作順序
 
 

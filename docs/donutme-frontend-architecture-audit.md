@@ -42,4 +42,6 @@ New shared helpers should document the invariant they protect, not restate their
 
 ## Validation
 
+Updated mobile browser tests to use the existing radio-segment navigation and open Insights before checking rail content; desktop tab semantics remain separately tested.
+
 Regression coverage includes permanent/transient/busy retry budgets, actual fetch cancellation, shared profile request deduplication, all-page admin invalidation, existing SSE merging and session/StrictMode tests. The execution ledger records final suite/build/browser outcomes for the integrated revision.

@@ -34,11 +34,17 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/explore");
     await page.locator('a[href^="/trader/"]').first().click();
-    await expect(page.getByTestId("trading-style")).not.toHaveText("—");
-    await page.getByRole("tab", { name: "Performance", exact: true }).click();
-    await expect(page.getByRole("tabpanel").getByText(/Funding read through/)).toBeVisible();
-    await page.getByRole("tab", { name: "Trades", exact: true }).click();
-    const trades = page.getByRole("tabpanel", { name: "Trades" });
+    const mobile = width < 768;
+    const activity = mobile
+      ? page.getByRole("radiogroup", { name: "Trading activity" })
+      : page.getByRole("tablist");
+    const select = (name: string) => activity.getByRole(mobile ? "radio" : "tab", { name, exact: true }).click();
+    if (mobile) await select("Insights");
+    await expect(page.getByTestId("trading-style").filter({ visible: true })).not.toHaveText("—");
+    await select("Performance");
+    await expect(page.getByText(/Funding read through/).filter({ visible: true })).toBeVisible();
+    await select("Trades");
+    const trades = mobile ? page.getByRole("main") : page.getByRole("tabpanel", { name: "Trades" });
     if (width < 640) {
       const card = trades.getByRole("list").getByRole("listitem").first();
       await expect(card).toContainText(/Long|Short/);
@@ -46,7 +52,7 @@ for (const width of [1440, 390]) {
     } else {
       await expect(trades.getByRole("table")).toBeVisible();
     }
-    await expect(page.getByRole("tabpanel").getByText(/Funding read through/)).toBeVisible();
+    await expect(page.getByText(/Funding read through/).filter({ visible: true })).toBeVisible();
     expect(errors).toEqual([]);
   });
 }

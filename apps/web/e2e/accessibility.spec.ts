@@ -10,7 +10,9 @@ for (const width of [1280, 390]) {
     const discovery = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
     expect.soft(discovery.violations).toEqual([]);
     await trader.click();
-    await expect(page.getByRole('tablist')).toBeVisible();
+    await expect(width < 768
+      ? page.getByRole('radiogroup', { name: 'Trading activity' })
+      : page.getByRole('tablist')).toBeVisible();
     const profile = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
     expect(profile.violations).toEqual([]);
   });

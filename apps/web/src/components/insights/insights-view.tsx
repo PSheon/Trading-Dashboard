@@ -49,7 +49,7 @@ export function InsightsView() {
   return (
     <div className="flex flex-col gap-3">
       <header className="flex flex-col gap-4 rounded-2xl border border-border bg-card px-5 py-5 md:flex-row md:items-center md:justify-between md:px-6">
-        <HyperliquidWordmark className="md:order-2 md:hidden" />
+        <HyperliquidWordmark className="flex md:hidden" />
         <h1 className="text-xl font-extrabold tracking-tight md:text-[1.625rem]">{t("insights.cohort.bannerTitle")}</h1>
         <div className="flex items-center gap-4 md:order-3">
           <TierPicker value={tier} onChange={setTier} />

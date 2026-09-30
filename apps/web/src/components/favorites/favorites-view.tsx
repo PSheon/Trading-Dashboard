@@ -10,7 +10,7 @@ import { AlertBell, alertSummary } from "@/components/alerts/alert-bell";
 import { BoardCard, BoardCardSkeleton } from "@/components/discover/board-card";
 import { BoardSparkline, boardName, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { ViewToggle } from "@/components/explore/boards-view";
-import { EmptyState, ErrorState, SignInPrompt, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { FavoriteButton } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
@@ -35,7 +35,6 @@ const TABS: Tab[] = ["saved", "alerts", "copying", "feed"];
  * feed of favorites over the existing SSE; new rows flash).
  */
 export function FavoritesView() {
-  const { t } = useI18n();
   const { status } = useAuth();
   const params = useSearchParams();
   const fromUrl = params.get("tab");
@@ -62,14 +61,31 @@ export function FavoritesView() {
       </div>
     );
   }
-  if (status !== "signedIn") {
-    return (
-      <div className="flex min-h-[60vh] items-start justify-center pt-16 md:pt-24">
-        <SignInPrompt icon={Bookmark} title={t("favorites.signInTitle")} body={t("favorites.signInBody")} />
-      </div>
-    );
-  }
+  if (status !== "signedIn") return <SignedOut />;
   return <SignedIn tab={tab} onTab={setTab} view={view} onView={setView} />;
+}
+
+/** CopyDog's signed-out watchlist: a large bookmark, heading, line and a
+ * wide 登入 button, centred. */
+function SignedOut() {
+  const { t } = useI18n();
+  const { status, login } = useAuth();
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center gap-4 px-4 pt-20 text-center md:pt-28">
+      <Bookmark className="size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
+      <h1 className="text-2xl font-extrabold tracking-tight md:text-[1.75rem]">{t("favorites.signInTitle")}</h1>
+      <p className="text-muted-foreground">{t("favorites.signInBody")}</p>
+      <button
+        type="button"
+        onClick={login}
+        disabled={status === "disabled"}
+        title={status === "disabled" ? t("topbar.loginUnavailable") : undefined}
+        className="mt-5 h-14 w-[200px] rounded-full bg-primary text-base font-bold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+      >
+        {t("common.signIn")}
+      </button>
+    </div>
+  );
 }
 
 function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => void; view: "grid" | "list"; onView: (v: "grid" | "list") => void }) {

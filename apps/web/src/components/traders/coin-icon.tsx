@@ -59,8 +59,10 @@ export function CoinIcon({
         height={size}
         loading="lazy"
         onError={() => setFailed(true)}
-        className={cn("inline-block shrink-0 rounded-full object-contain", LIGHT_DISC.has(coin) && "bg-white p-[12%]", className)}
-        style={{ width: size, height: size }}
+        className={cn("inline-block shrink-0 rounded-full object-contain", LIGHT_DISC.has(coin) && "bg-white", className)}
+        // Padding in px: a percentage resolves against the parent's width,
+        // which blew the disc up inside wide boxes (the insights treemap).
+        style={{ width: size, height: size, ...(LIGHT_DISC.has(coin) ? { padding: Math.round(size * 0.12) } : {}) }}
       />
     );
   }

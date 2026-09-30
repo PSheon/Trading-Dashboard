@@ -94,7 +94,9 @@ export function CopyScoreBar({
   className,
 }: {
   score: number | null;
-  layout?: "value-first" | "bar-first" | "bar-only";
+  /** "value-first": "85/100 ▬"; "number-first": "85 ▬" (CopyDog's
+   * cohort table); "bar-first": "▬ 85"; "bar-only". */
+  layout?: "value-first" | "number-first" | "bar-first" | "bar-only";
   barClassName?: string;
   className?: string;
 }) {
@@ -114,7 +116,7 @@ export function CopyScoreBar({
         {value ?? "—"}
         {layout === "value-first" ? <span className="text-subtle-foreground">/100</span> : null}
       </span>
-      {layout === "value-first" ? bar : null}
+      {layout === "value-first" || layout === "number-first" ? bar : null}
     </span>
   );
 }

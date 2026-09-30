@@ -61,7 +61,7 @@ function Pills<T extends string>({
 }
 
 /** The trader page's own top bar on phones (CopyDog's): back, the address
- * (a KOL's avatar, name and badge instead), favourite, alert and share. Replaces the app's header there. */
+ * (a KOL's name and badge instead), favourite, alert and share. Replaces the app's header there. */
 function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -75,8 +75,7 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
         <ArrowLeft className="size-5" />
       </Link>
       {profile.kol ? (
-        <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
-          <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol.avatarUrl }} size={24} />
+        <span className="flex min-w-0 flex-1 items-center justify-center gap-1">
           <span className="min-w-0 truncate text-[0.9375rem] font-bold" title={profile.address}>{profile.displayName?.trim() || truncateAddress(profile.address)}</span>
           {profile.kol.verified ? <VerifiedTick className="size-3.5" /> : null}
         </span>
@@ -195,9 +194,14 @@ export function MobileTrader({
             {mode === "pnl" && roi !== null ? <RoiPill value={roi} /> : null}
           </div>
           <span className="flex flex-col items-end gap-2">
-            <span className="inline-flex size-12 items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
-              <OrbieMark size={26} />
-            </span>
+            {profile.kol?.avatarUrl ? (
+              // A KOL's picture takes the brand mark's place (CopyDog's).
+              <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol.avatarUrl }} size={48} />
+            ) : (
+              <span className="inline-flex size-12 items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
+                <OrbieMark size={26} />
+              </span>
+            )}
             <span className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
               <span className="underline decoration-dotted underline-offset-2">{t("discover.copyScore")}</span>
               <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-10" />

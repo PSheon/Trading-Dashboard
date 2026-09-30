@@ -77,9 +77,9 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t("insights.cohort.tableEmpty")}</p>;
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   return (
-    <div className="overflow-x-auto">
+    <div className="max-h-[640px] overflow-auto">
       <table className="w-full min-w-[1080px] border-collapse text-sm">
-        <thead className="border-b border-border">
+        <thead className="sticky top-0 z-10 border-b border-border bg-card">
           <tr>
             <Th label={c("address")} col="address" sort={sort} align="left" />
             <th className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</th>
@@ -107,7 +107,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
               <td className={cn("num px-3 py-3 text-right", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</td>
               <td className={cn("num px-3 py-3 text-right", signTone(w.roi))}>{pctText(w.roi)}</td>
               <td className="num px-3 py-3 text-right">{money(w.perpEquity)}</td>
-              <td className="px-3 py-3"><CopyScoreBar score={w.copyScore} className="justify-end" /></td>
+              <td className="px-3 py-3"><CopyScoreBar score={w.copyScore} layout="number-first" className="justify-end" /></td>
               <td className="num px-3 py-3 text-right">{money(w.positionValue)}</td>
               <td className="num px-3 py-3 text-right">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</td>
               <td className={cn("num px-3 py-3 text-right", signTone(w.sumUpnl))}>{money(w.sumUpnl, true)}</td>
@@ -157,9 +157,9 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   const short = t("insights.cohort.short");
   const share = (part: number, whole: number) => (whole > 0 ? Math.round((100 * part) / whole) : 0);
   return (
-    <div className="overflow-x-auto">
+    <div className="max-h-[640px] overflow-auto">
       <table className="w-full min-w-[1080px] border-collapse text-sm">
-        <thead className="border-b border-border">
+        <thead className="sticky top-0 z-10 border-b border-border bg-card">
           <tr>
             <Th label={c("market")} col="coin" sort={sort} align="left" />
             <Th label={c("sentiment")} col="sentiment" sort={sort} align="left" />

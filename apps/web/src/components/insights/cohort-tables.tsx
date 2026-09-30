@@ -99,7 +99,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
               <td className="px-3 py-3">
                 <Link href={`/trader/${w.address}`} className="flex min-w-0 items-center gap-2 rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
                   <TraderAvatar trader={w} size={22} />
-                  <span className={cn("max-w-[160px] truncate font-semibold", !w.displayName && "font-mono")}>{w.displayName ?? truncateAddress(w.address)}</span>
+                  <span className="max-w-[160px] truncate font-semibold">{w.displayName ?? truncateAddress(w.address)}</span>
                   {w.verified ? <VerifiedTick className="size-3.5" /> : null}
                 </Link>
               </td>

@@ -133,7 +133,7 @@ export function BoardsView() {
           >
             <ListFilter className="size-[18px]" />
           </button>
-          <ViewToggle value={view === "grid" ? "grid" : "list"} onChange={setView} />
+          <ViewToggle value={view === "grid" ? "grid" : "list"} onChange={setView} listFirst />
         </div>
       </div>
 
@@ -288,11 +288,16 @@ function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: Bo
   );
 }
 
-export function ViewToggle({ value, onChange }: { value: "grid" | "list"; onChange: (v: "grid" | "list") => void }) {
+export function ViewToggle({ value, onChange, listFirst = false }: {
+  value: "grid" | "list";
+  onChange: (v: "grid" | "list") => void;
+  /** CopyDog's phone switch puts the list first. */
+  listFirst?: boolean;
+}) {
   const { t } = useI18n();
   return (
     <div className="flex h-10 items-center rounded-full bg-raised p-1 md:h-11" role="group" aria-label={t("discover.layout")}>
-      {(["grid", "list"] as const).map((v) => {
+      {(listFirst ? (["list", "grid"] as const) : (["grid", "list"] as const)).map((v) => {
         const Icon = v === "grid" ? LayoutGrid : List;
         return (
           <button
@@ -396,7 +401,7 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
               <td className="px-3 py-3">
                 <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <TraderAvatar trader={trader} size={24} />
-                  <span className={cn("truncate font-semibold", !trader.displayName && "font-mono")}>{boardName(trader)}</span>
+                  <span className="truncate font-semibold">{boardName(trader)}</span>
                   {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
                   {trader.xHandle ? (
                     <span className="text-xs text-subtle-foreground" title={`@${trader.xHandle}`} aria-label={`X @${trader.xHandle}`}>𝕏</span>

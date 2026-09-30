@@ -118,7 +118,7 @@ export function TradersTable({
                     </span>
                     <span className="mt-0.5 flex min-w-0 items-center gap-2">
                       {row.displayName ? (
-                        <span className="num hidden font-mono text-[11px] text-subtle-foreground sm:inline">
+                        <span className="num hidden text-[11px] text-subtle-foreground sm:inline">
                           {truncateAddress(row.address)}
                         </span>
                       ) : null}

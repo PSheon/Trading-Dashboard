@@ -39,7 +39,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
         <TraderAvatar trader={trader} size={40} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1">
-            <span className={cn("truncate text-[0.875rem] font-semibold", !trader.displayName && "font-mono")}>{boardName(trader)}</span>
+            <span className="truncate text-[0.875rem] font-bold">{boardName(trader)}</span>
             {trader.verified ? <VerifiedTick /> : null}
           </span>
           <CoinStack coins={trader.topCoins} />
@@ -169,7 +169,7 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
         <TraderAvatar trader={trader} size={44} />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span className="flex min-w-0 items-center gap-1">
-            <span className={cn("truncate text-[0.9375rem] font-semibold", !trader.displayName && "font-mono")}>{boardName(trader)}</span>
+            <span className="truncate text-[0.9375rem] font-semibold">{boardName(trader)}</span>
             {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
           </span>
           <span className="flex items-center gap-2">

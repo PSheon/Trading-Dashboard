@@ -206,7 +206,7 @@ export function ProfileCard({
               <button
                 type="button"
                 onClick={() => copy("address", profile.address)}
-                className="num flex items-center gap-1 rounded font-mono text-[11px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="num flex items-center gap-1 rounded text-[11px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 title={profile.address}
                 aria-label={`${t("common.copy")} ${profile.address}`}
               >

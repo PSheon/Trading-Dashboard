@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bookmark, ChevronDown, Copy as CopyIcon, Send, X, Zap } from "lucide-react";
+import { Bell, Bookmark, ChevronDown, Copy as CopyIcon, Send, Star, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -68,26 +68,68 @@ export function FavoritesView() {
   return <SignedIn tab={tab} onTab={setTab} view={view} onView={setView} />;
 }
 
-/** CopyDog's signed-out watchlist: a large bookmark, heading, line and a
- * wide 登入 button, centred. */
+/** CopyDog's signed-out watchlist. Desktop: a large bookmark, heading,
+ * line and a wide 登入 button, centred. Phones: the app's 收藏 title with
+ * its ★ / 🔔 switch and a smaller prompt for each. */
 function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
+  const [phoneTab, setPhoneTab] = useState<"saved" | "alerts">("saved");
+  const disabled = status === "disabled";
+  const PhoneIcon = phoneTab === "saved" ? Star : Bell;
   return (
-    <div className="flex min-h-[60vh] flex-col items-center gap-4 px-4 pt-20 text-center md:pt-28">
-      <Bookmark className="size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-      <h1 className="text-2xl font-extrabold tracking-tight md:text-[1.75rem]">{t("favorites.signInTitle")}</h1>
-      <p className="text-muted-foreground">{t("favorites.signInBody")}</p>
-      <button
-        type="button"
-        onClick={login}
-        disabled={status === "disabled"}
-        title={status === "disabled" ? t("topbar.loginUnavailable") : undefined}
-        className="mt-5 h-14 w-[200px] rounded-full bg-primary text-base font-bold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-      >
-        {t("common.signIn")}
-      </button>
-    </div>
+    <>
+      <div className="hidden min-h-[60vh] flex-col items-center gap-4 px-4 pt-28 text-center md:flex">
+        <Bookmark className="size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
+        <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("favorites.signInTitle")}</h1>
+        <p className="text-muted-foreground">{t("favorites.signInBody")}</p>
+        <button
+          type="button"
+          onClick={login}
+          disabled={disabled}
+          title={disabled ? t("topbar.loginUnavailable") : undefined}
+          className="mt-5 h-14 w-[200px] rounded-full bg-primary text-base font-bold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        >
+          {t("common.signIn")}
+        </button>
+      </div>
+      <div className="md:hidden">
+        <div className="flex items-center justify-between">
+          <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("favorites.title")}</h1>
+          <div role="tablist" aria-label={t("favorites.title")} className="flex rounded-full bg-raised p-1">
+            {(["saved", "alerts"] as const).map((key) => {
+              const Icon = key === "saved" ? Star : Bell;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={phoneTab === key}
+                  aria-label={t(`favorites.tabs.${key}`)}
+                  onClick={() => setPhoneTab(key)}
+                  className={cn("flex h-8 w-11 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring", phoneTab === key ? "bg-raised-hover text-foreground" : "text-muted-foreground")}
+                >
+                  <Icon className="size-4" fill="currentColor" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-2 pt-16 text-center">
+          <PhoneIcon className="size-10 text-muted-foreground" strokeWidth={1.5} aria-hidden />
+          <p className="mt-2 text-base font-bold">{t(phoneTab === "saved" ? "favorites.phoneSavedTitle" : "favorites.phoneAlertsTitle")}</p>
+          <p className="text-sm text-muted-foreground">{t(phoneTab === "saved" ? "favorites.phoneSavedBody" : "favorites.phoneAlertsBody")}</p>
+          <button
+            type="button"
+            onClick={login}
+            disabled={disabled}
+            className="mt-4 h-12 rounded-full bg-primary px-5 text-base font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          >
+            {t("common.signIn")}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -269,7 +311,7 @@ function TraderCell({ card, subtitle, size = 44 }: { card: TraderCard; subtitle?
       </Link>
       <div className="min-w-0 flex-1">
         <Link href={`/trader/${card.address}`} className="flex min-w-0 items-center gap-1 rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
-          <span className={cn("truncate text-sm font-semibold", !card.displayName && "font-mono")}>{boardName(card)}</span>
+          <span className="truncate text-sm font-semibold">{boardName(card)}</span>
           {card.verified ? <VerifiedTick className="size-3.5" /> : null}
         </Link>
         {subtitle}

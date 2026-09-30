@@ -10,7 +10,7 @@ import { splitAddress } from "@/lib/format";
 export function AddressText({ address, className }: { address: string; className?: string }) {
   const { head, tail } = splitAddress(address);
   return (
-    <span className={cn("inline-flex max-w-full min-w-0 font-mono whitespace-nowrap num", className)} title={address}>
+    <span className={cn("inline-flex max-w-full min-w-0 whitespace-nowrap num", className)} title={address}>
       <span className="min-w-0 truncate">{head}</span>
       {tail ? <span className="shrink-0">{tail}</span> : null}
     </span>

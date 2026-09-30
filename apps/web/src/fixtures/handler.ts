@@ -355,6 +355,13 @@ export async function fixtureRequest<T>(
       if (patch.locale) meLocale = patch.locale;
       return wire(meResponseSchema, fixtureMe(meLocale));
     }
+    case "DELETE /me": {
+      // The demo account: forget what it saved (the page signs out next).
+      requireUser(token);
+      favorites.clear();
+      meLocale = "zh-TW";
+      return undefined as T;
+    }
     case "GET /me/favorites":
       requireUser(token);
       return wire(

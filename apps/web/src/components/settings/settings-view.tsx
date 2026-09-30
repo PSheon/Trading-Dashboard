@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { cn } from "cn";
 
 import { Wordmark } from "@/components/brand/logo";
@@ -39,6 +40,7 @@ import { useAuth, useMe } from "@/lib/auth";
 import { useChangeLocale } from "@/lib/use-change-locale";
 import { useWallet, useWalletAddress } from "@/lib/wallet";
 import { AlertBotRow, TradingBotRow } from "./bot-rows";
+import { DeleteAccountButton, DeleteAccountDialog } from "./delete-account";
 
 type Tab = "account" | "funds";
 type PhoneView = "root" | "account" | "notifications" | "language" | "history";
@@ -291,6 +293,7 @@ function DesktopSettings() {
               <SectionTitle className="pt-8">{t("settings.notifications")}</SectionTitle>
               <TradingBotRow className="border-b border-border" />
               <AlertBotRow />
+              <DesktopDeleteRow />
             </>
           ) : (
             <div className="flex flex-col gap-5 pt-5">
@@ -304,6 +307,28 @@ function DesktopSettings() {
         </section>
       </div>
     </div>
+  );
+}
+
+/** Not on CopyDog's desktop settings (only its app has it); Orbie keeps a
+ * way in on desktop too, below everything else. */
+function DesktopDeleteRow() {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <SectionTitle className="pt-8">{t("deleteAccount.title")}</SectionTitle>
+      <Row
+        label={t("deleteAccount.cta")}
+        value={t("deleteAccount.rowHint")}
+        action={
+          <Button variant="destructive" size="sm" className="h-9 px-3.5" onClick={() => setOpen(true)}>
+            {t("deleteAccount.cta")}
+          </Button>
+        }
+      />
+      <DeleteAccountDialog open={open} onOpenChange={setOpen} />
+    </>
   );
 }
 
@@ -452,6 +477,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                   <p className="truncate text-lg font-bold">{name}</p>
                 </div>
                 <ProfileAndWallet />
+                <DeleteAccountButton className="mt-10" />
               </>
             ) : view === "notifications" ? (
               <div className="pt-3">

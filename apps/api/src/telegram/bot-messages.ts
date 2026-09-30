@@ -31,6 +31,30 @@ export const botMessages = {
         .join("\n"),
     ),
 
+  /** The prompt `/start <token>` answers with; nothing is linked yet. */
+  confirmLink: (account: string, moved: boolean) =>
+    both(
+      [
+        `🔗 要把這個 Telegram 連結到 Orbie 帳號 ${account} 嗎？`,
+        moved ? "這個 Telegram 目前連結在另一個 Orbie 帳號，確認後會改連到上面這個帳號。" : null,
+        "只有在這是你自己的帳號時才按「確認」。如果連結是別人傳給你的，請按「取消」：確認後對方會收到你的 Telegram 名稱，提醒也會改送到對方帳號。",
+      ].filter(Boolean).join("\n"),
+      [
+        `🔗 Link this Telegram chat to the Orbie account ${account}?`,
+        moved ? "This chat is linked to another Orbie account now; confirming moves it to the one above." : null,
+        "Only confirm if this is your own account. If someone else sent you this link, press Cancel: confirming would show them your Telegram username and move this chat to their account.",
+      ].filter(Boolean).join("\n"),
+    ),
+
+  confirmButton: () => "✅ 確認 Confirm",
+  cancelButton: () => "✖️ 取消 Cancel",
+
+  linkCancelled: (site: string) =>
+    both(
+      `已取消，沒有連結任何帳號。要連結你自己的帳號，請到 Orbie 設定頁按「連接 Telegram」：${site}/settings`,
+      `Cancelled; nothing was linked. To link your own account, press "Connect Telegram" in Orbie settings: ${site}/settings`,
+    ),
+
   alreadyLinked: (site: string) =>
     both(
       `✅ 這個 Telegram 已連結 Orbie，提醒會送到這裡。\n管理提醒：${site}/favorites`,

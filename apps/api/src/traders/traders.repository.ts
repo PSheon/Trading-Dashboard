@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, like, max, notLike, or, sql, type SQL } from "drizzle-orm";
-import { fills, leaders, traderStats, userFavorites } from "@trading-dashboard/shared/database";
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNotNull, like, max, notLike, or, sql, type SQL } from "drizzle-orm";
+import { discoveryTraders, fills, leaders, traderStats, userFavorites } from "@trading-dashboard/shared/database";
 import {
   CHAIN_DEFAULT,
   type ActiveWithin,
@@ -98,6 +98,33 @@ export class TradersRepository {
       .where(and(eq(leaders.chain, CHAIN_DEFAULT), eq(leaders.address, address), eq(leaders.active, true)))
       .limit(1);
     return rows.length > 0;
+  }
+  /** The discovery pool's stored sparklines (refreshed by its own job) for
+   * those of `addresses` it holds. */
+  poolSparklines(addresses: string[]) {
+    if (addresses.length === 0) return Promise.resolve([]);
+    return this.db
+      .select({
+        address: discoveryTraders.address,
+        sparkline: discoveryTraders.sparkline,
+        sparkline30d: discoveryTraders.sparkline30d,
+        spanDays: discoveryTraders.spanDays,
+        portfolioAt: discoveryTraders.portfolioAt,
+      })
+      .from(discoveryTraders)
+      .where(and(eq(discoveryTraders.chain, CHAIN_DEFAULT), inArray(discoveryTraders.address, addresses), isNotNull(discoveryTraders.portfolioAt)));
+  }
+  /** Those of `addresses` the site lists anywhere: the imported leaderboard
+   * or the discovery pool. */
+  async knownAddresses(addresses: string[]): Promise<Set<string>> {
+    if (addresses.length === 0) return new Set();
+    const [stats, pool] = await Promise.all([
+      this.db.select({ address: traderStats.address }).from(traderStats)
+        .where(and(eq(traderStats.chain, CHAIN_DEFAULT), inArray(traderStats.address, addresses))),
+      this.db.select({ address: discoveryTraders.address }).from(discoveryTraders)
+        .where(and(eq(discoveryTraders.chain, CHAIN_DEFAULT), inArray(discoveryTraders.address, addresses))),
+    ]);
+    return new Set([...stats, ...pool].map((r) => r.address));
   }
   findStats(address: string) {
     return this.db.select().from(traderStats).where(and(eq(traderStats.chain, CHAIN_DEFAULT), eq(traderStats.address, address))).limit(1);

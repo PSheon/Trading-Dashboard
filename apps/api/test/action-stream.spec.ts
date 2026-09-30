@@ -8,6 +8,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ACTION_STREAM_OPTIONS, ActionStreamService, clientAddress } from "../src/api/actions/action-stream.service.js";
+import { trustedProxyMatcher } from "../src/common/http/trusted-proxies.js";
 import { ActionsController } from "../src/api/actions/actions.controller.js";
 import { ActionsService } from "../src/api/actions/actions.service.js";
 import { AuthService } from "../src/common/auth/auth.service.js";
@@ -83,7 +84,7 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
         { provide: BackgroundJobs, useValue: jobs },
         {
           provide: ACTION_STREAM_OPTIONS,
-          useValue: { authorizationTimeoutMs: 500, maxQueuedBytes: 4096, setupTimeoutMs: 1000, heartbeatMs: 100, maxPerIp: 3, maxTotal: 5, trustedProxyHops: 1, replayLimit: 5, replayWindowMs: 60 * 60_000 },
+          useValue: { authorizationTimeoutMs: 500, maxQueuedBytes: 4096, setupTimeoutMs: 1000, heartbeatMs: 100, maxPerIp: 3, maxTotal: 5, trustedProxyHops: 1, trustedProxyCidrs: ["127.0.0.1"], replayLimit: 5, replayWindowMs: 60 * 60_000 },
         },
       ],
       // main.ts's middleware, with a short deadline.
@@ -362,11 +363,33 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
   it("identifies the client through the trusted proxy hops only", () => {
     const req = (xff: string | undefined, peer = "::ffff:127.0.0.1") =>
       ({ headers: xff === undefined ? {} : { "x-forwarded-for": xff }, socket: { remoteAddress: peer } }) as never;
-    expect(clientAddress(req("1.2.3.4"), 0)).toBe("127.0.0.1");
-    expect(clientAddress(req("6.6.6.6, 1.2.3.4"), 1)).toBe("1.2.3.4");
-    expect(clientAddress(req("6.6.6.6, 1.2.3.4, 10.0.0.5"), 2)).toBe("1.2.3.4");
-    expect(clientAddress(req(undefined), 2)).toBe("127.0.0.1");
-    expect(clientAddress(req("not-an-ip"), 1)).toBe("::ffff:127.0.0.1");
+    const trusted = trustedProxyMatcher(["127.0.0.1"]);
+    expect(clientAddress(req("1.2.3.4"), 0, trusted)).toBe("127.0.0.1");
+    expect(clientAddress(req("6.6.6.6, 1.2.3.4"), 1, trusted)).toBe("1.2.3.4");
+    expect(clientAddress(req("6.6.6.6, 1.2.3.4, 10.0.0.5"), 2, trusted)).toBe("1.2.3.4");
+    expect(clientAddress(req(undefined), 2, trusted)).toBe("127.0.0.1");
+    expect(clientAddress(req("not-an-ip"), 1, trusted)).toBe("127.0.0.1");
+  });
+
+  it("ignores X-Forwarded-For unless the socket peer is in API_TRUSTED_PROXY_CIDRS", () => {
+    const req = (xff: string, peer: string) => ({ headers: { "x-forwarded-for": xff }, socket: { remoteAddress: peer } }) as never;
+    const edge = trustedProxyMatcher(["10.0.0.0/8", "fd00::/8"]);
+    // A caller reaching the api directly can't name itself.
+    expect(clientAddress(req("1.2.3.4", "203.0.113.9"), 1, edge)).toBe("203.0.113.9");
+    expect(clientAddress(req("1.2.3.4", "203.0.113.9"), 2)).toBe("203.0.113.9"); // no CIDRs configured
+    // Through the trusted edge it can.
+    expect(clientAddress(req("1.2.3.4", "10.1.2.3"), 1, edge)).toBe("1.2.3.4");
+    expect(clientAddress(req("1.2.3.4", "::ffff:10.1.2.3"), 1, edge)).toBe("1.2.3.4");
+    expect(clientAddress(req("2001:db8:5:6::1", "fd00::7"), 1, edge)).toBe("2001:db8:5:6::/64");
+    expect(edge("10.255.0.1")).toBe(true);
+    expect(edge("11.0.0.1")).toBe(false);
+    expect(trustedProxyMatcher([])("127.0.0.1")).toBe(false);
+  });
+
+  it("counts IPv6 stream clients per /64", () => {
+    const req = (peer: string) => ({ headers: {}, socket: { remoteAddress: peer } }) as never;
+    expect(clientAddress(req("2001:db8:1:2::a"), 0)).toBe(clientAddress(req("2001:db8:1:2:ffff::b"), 0));
+    expect(clientAddress(req("2001:db8:1:2::a"), 0)).not.toBe(clientAddress(req("2001:db8:1:3::a"), 0));
   });
 
   // Last: stops the shared BackgroundJobs.

@@ -10,6 +10,8 @@ import type {
   LeaderDetailResponse,
   LeaderSummary,
   LeadersQuery,
+  PublicLeader,
+  PublicLeaderSummary,
   PatchLeaderRequest,
   PositionRow,
 } from "@trading-dashboard/shared/contracts";
@@ -29,10 +31,15 @@ export class LeadersService {
     private readonly roundTrip: RoundTripService,
   ) {}
 
-  async findAll(query: LeadersQuery): Promise<LeaderSummary[]> {
-    const rows = await this.repository.findListed(query);
+  /** `view: "admin"` (callers with `leaders.manage`) lists every leader
+   * with notes and source; `"public"` only imported ones, projected. */
+  findAll(query: LeadersQuery, view: "admin"): Promise<LeaderSummary[]>;
+  findAll(query: LeadersQuery, view?: "public"): Promise<PublicLeaderSummary[]>;
+  findAll(query: LeadersQuery, view?: "public" | "admin"): Promise<LeaderSummary[] | PublicLeaderSummary[]>;
+  async findAll(query: LeadersQuery, view: "public" | "admin" = "public"): Promise<LeaderSummary[] | PublicLeaderSummary[]> {
+    const rows = view === "admin" ? await this.repository.findListed(query) : await this.repository.findListedPublic(query);
 
-    const result: LeaderSummary[] = [];
+    const result: Array<LeaderSummary | PublicLeaderSummary> = [];
     const now = Date.now();
     // Bound bind parameters and per-batch working sets; no concurrent per-leader fanout.
     for (let offset = 0; offset < rows.length; offset += 200) {
@@ -61,7 +68,7 @@ export class LeadersService {
         });
       }
     }
-    return result;
+    return result as LeaderSummary[] | PublicLeaderSummary[];
   }
 
   /** D3: current positions, fill history, self-stored equity curve, coin
@@ -71,11 +78,17 @@ export class LeadersService {
     address: string,
     equityInterval: EquityInterval,
     alertsScope: AlertsScope = "all",
+    view: "public" | "admin" = "public",
   ): Promise<LeaderDetailResponse> {
-    const leader = await this.repository.findOne(chain, address);
-    if (!leader) {
+    const row = await this.repository.findOne(chain, address);
+    // A favorite-only leader is as unknown to the public as any address.
+    if (!row || (view === "public" && row.source !== "import")) {
       throw new NotFoundException(`No leader ${chain}/${address}`);
     }
+    const leader: Leader | PublicLeader = view === "admin" ? (row as unknown as Leader) : {
+      chain: row.chain as PublicLeader["chain"], address: row.address, label: row.label, tier: row.tier as PublicLeader["tier"],
+      active: row.active, firstSeenAt: row.firstSeenAt,
+    };
 
     const [rank, positions, fillsHistory, equityCurve, alertsHistory, winRate] = await Promise.all([
       this.repository.latestRank(address),
@@ -89,7 +102,7 @@ export class LeadersService {
     const coinDistribution = this.coinDistributionFrom(positions);
 
     return {
-      leader: leader as unknown as Leader,
+      leader,
       rank,
       positions,
       fills: fillsHistory,

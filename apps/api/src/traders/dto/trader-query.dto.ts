@@ -32,7 +32,7 @@ export class PortfolioQueryDto {
 }
 export class SparklinesQueryDto {
   @Transform(({ value }) => typeof value === "string" ? value.split(",").filter(Boolean).map(v => v.toLowerCase()) : value, { toClassOnly: true })
-  @ApiProperty({ type: String, description: "Comma-separated wallet addresses, at most 30; empty string means an empty list.", example: "0x0000000000000000000000000000000000000001" })
+  @ApiProperty({ type: String, description: "Comma-separated wallet addresses, at most 30 (25 without a session); empty string means an empty list. Without a session only addresses on the leaderboard or in the discovery pool are fetched; others answer [].", example: "0x0000000000000000000000000000000000000001" })
   @IsArray() @ArrayMaxSize(30) @Matches(/^0x[0-9a-f]{40}$/, { each: true }) declare addresses: string[];
   @ApiPropertyOptional({ type: String, enum: ["day", "week", "month", "allTime"], default: "month" })
   @IsIn(["day", "week", "month", "allTime"]) window: c.TraderWindowInput = "month";

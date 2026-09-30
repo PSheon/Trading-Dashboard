@@ -10,7 +10,9 @@ export const wireAlertSchema = s.alertSchema.extend({ id, actionId: id.nullable(
   pxAtSend: decimal.nullable().optional(), px1h: decimal.nullable().optional(), px4h: decimal.nullable().optional(), px24h: decimal.nullable().optional() });
 export const wireLeaderSchema = s.leaderSchema.extend({ firstSeenAt: iso });
 export const wireLeaderSummarySchema = s.leaderSummarySchema.extend({ firstSeenAt: iso, lastActionAt: iso.nullable() });
-export const wireLeaderDetailSchema = s.leaderDetailResponseSchema.extend({ leader: wireLeaderSchema, fills: z.array(wireFillSchema),
+export const wirePublicLeaderSchema = s.publicLeaderSchema.extend({ firstSeenAt: iso });
+export const wirePublicLeaderSummarySchema = s.publicLeaderSummarySchema.extend({ firstSeenAt: iso, lastActionAt: iso.nullable() });
+export const wireLeaderDetailSchema = s.leaderDetailResponseSchema.extend({ leader: z.union([wirePublicLeaderSchema.strict(), wireLeaderSchema]), fills: z.array(wireFillSchema),
   positions: z.array(s.positionRowSchema.extend({ ts: iso })), equityCurve: z.array(s.equityPointSchema.extend({ ts: iso })), alerts: z.array(wireAlertSchema) });
 export const wireTraderStatsSchema = s.traderStatsSchema.extend({ updatedAt: iso });
 export const wireTradersSchema = s.tradersResponseSchema.extend({ updatedAt: iso.nullable(), items: z.array(wireTraderStatsSchema.extend({ favorite: z.boolean() })) });
@@ -137,8 +139,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
     stream: { contentType: "text/event-stream", events: actionStreamEventSchemas } },
   { method: "GET", path: "/actions/:id/fills", status: 200, auth: "public", response: z.array(wireFillSchema) },
   { method: "GET", path: "/alerts", status: 200, auth: "user own; alerts.readAll for all", response: z.array(wireAlertSchema) },
-  { method: "GET", path: "/leaders", status: 200, auth: "public", response: z.array(wireLeaderSummarySchema) },
-  { method: "GET", path: "/leaders/:chain/:address", status: 200, auth: "public; private alerts scoped", response: wireLeaderDetailSchema },
+  { method: "GET", path: "/leaders", status: 200, auth: "public projection; full rows for leaders.manage", response: z.array(z.union([wirePublicLeaderSummarySchema.strict(), wireLeaderSummarySchema])) },
+  { method: "GET", path: "/leaders/:chain/:address", status: 200, auth: "public projection; full row for leaders.manage; private alerts scoped", response: wireLeaderDetailSchema },
   { method: "PATCH", path: "/leaders/:chain/:address", status: 200, auth: "leaders.manage", response: wireLeaderSchema },
   { method: "GET", path: "/lists", status: 200, auth: "lists.read", response: z.array(s.leaderListSchema.extend({ importedAt: iso })) },
   { method: "GET", path: "/lists/diff", status: 200, auth: "lists.read", response: s.listDiffResponseSchema },

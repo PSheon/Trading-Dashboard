@@ -1,9 +1,9 @@
 import { ApiDoc } from "../../common/decorators/http.decorator.js";
 import { LeadersQueryDto, LeaderDetailQueryDto, PatchLeaderDto } from "./dto/leader.dto.js";
 import { LeaderParamsDto } from "../../common/dto/params.dto.js";
-import { RequirePermissions } from "../../common/auth/permissions.js";
+import { RequirePermissions, hasPermission } from "../../common/auth/permissions.js";
 import { Body, Controller, Get, Param, Patch, Query } from "@nestjs/common";
-import type { Leader, LeaderDetailResponse, LeaderSummary } from "@trading-dashboard/shared/contracts";
+import type { Leader, LeaderDetailResponse, LeaderSummary, PublicLeaderSummary } from "@trading-dashboard/shared/contracts";
 
 
 
@@ -12,16 +12,22 @@ import { Public } from "../../common/auth/public.decorator.js";
 import { alertsVisibleTo } from "../../common/auth/alerts-scope.js";
 import { LeadersService } from "./leaders.service.js";
 
+/** What a caller sees of leaders: full rows only with `leaders.manage`. */
+function viewOf(user: RequestUser | null): "public" | "admin" {
+  return hasPermission(user, "leaders.manage") ? "admin" : "public";
+}
+
 @Controller("leaders")
 export class LeadersController {
   constructor(private readonly leadersService: LeadersService) {}
 
-  /** Market data: public. */
+  /** Market data: public, as the public projection (imported leaders, no
+   * notes or source); full rows for callers with `leaders.manage`. */
   @Public()
   @ApiDoc("Find all")
   @Get()
-  findAll(@Query() query: LeadersQueryDto): Promise<LeaderSummary[]> {
-    return this.leadersService.findAll(query);
+  findAll(@Query() query: LeadersQueryDto, @CurrentUser() user: RequestUser | null = null): Promise<LeaderSummary[] | PublicLeaderSummary[]> {
+    return this.leadersService.findAll(query, viewOf(user));
   }
 
   /** D3: current positions, fill history, equity curve, coin distribution,
@@ -41,6 +47,7 @@ export class LeadersController {
       params.address,
       query.equityInterval ?? "hour",
       alertsVisibleTo(user),
+      viewOf(user),
     );
   }
 

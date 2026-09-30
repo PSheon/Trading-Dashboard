@@ -32,7 +32,27 @@ export function hashLinkToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** What `/start <token>` amounted to. */
+/** What `/start <token>` shows before anything is linked. */
+export type StartPreview =
+  | { kind: "confirm"; account: string; moved: boolean }
+  | { kind: "already_linked" }
+  | { kind: "invalid" };
+
+/**
+ * An account as its owner would recognise it, without giving it away to
+ * whoever else sees the prompt: `p***@gmail.com`, `0x12…abcd`, or its
+ * number when it has neither.
+ */
+export function maskAccount(userId: number, account: { email: string | null; walletAddress: string | null } | undefined): string {
+  const email = account?.email;
+  const at = email?.lastIndexOf("@") ?? -1;
+  if (email && at > 0) return `${email[0]}***${email.slice(at)}`;
+  const wallet = account?.walletAddress;
+  if (wallet && wallet.length > 10) return `${wallet.slice(0, 4)}…${wallet.slice(-4)}`;
+  return `#${userId}`;
+}
+
+/** What confirming `/start <token>` amounted to. */
 export type StartResult =
   | { kind: "linked"; userId: number; moved: boolean }
   | { kind: "already_linked" }
@@ -50,9 +70,15 @@ export function notLinked(): ConflictException {
  * Linking a user's Telegram chat through the official bot:
  * 1. POST /me/telegram/link issues a one-time token (32 random bytes,
  *    base64url, 10 minutes) and returns `t.me/<bot>?start=<token>`;
- * 2. the user presses Start, the bot receives `/start <token>` and calls
- *    `consumeStartToken`, which links that chat;
- * 3. the page, polling GET /me/telegram, sees `linked: true`.
+ * 2. the user presses Start; the bot receives `/start <token>` and, via
+ *    `previewStartToken`, asks in the chat whether to link it to the
+ *    token's account, shown masked (`p***@gmail.com`), with Confirm and
+ *    Cancel buttons. Nothing is linked yet: a link someone else created
+ *    and sent you would otherwise move your chat to their account and
+ *    show them your Telegram username;
+ * 3. Confirm calls `consumeStartToken`, which links that chat (Cancel
+ *    ends the token);
+ * 4. the page, polling GET /me/telegram, sees `linked: true`.
  *
  * One chat belongs to one user: linking a chat that another account had
  * moves it. A user has one Telegram channel (the unique (user, kind) row).
@@ -132,7 +158,30 @@ export class TelegramLinkService {
   }
 
   /**
-   * `/start <token>` from `chatId`. A valid token (unused, unexpired) is
+   * `/start <token>` from `chatId`, before confirmation: whether the token
+   * is usable, the masked account it would link to, and whether the chat
+   * belongs to another account now (so the prompt can say it would move).
+   * Changes nothing.
+   */
+  async previewStartToken(token: string, chatId: string): Promise<StartPreview> {
+    const row = await this.repository.findToken(hashLinkToken(token));
+    if (!row) return { kind: "invalid" };
+    if (row.usedAt) {
+      const same = await this.unitOfWork.run((tx) => this.repository.linkedTo(tx, row.userId, chatId));
+      return same ? { kind: "already_linked" } : { kind: "invalid" };
+    }
+    if (row.expiresAt <= new Date()) return { kind: "invalid" };
+    const [account, owner] = await Promise.all([this.repository.accountOf(row.userId), this.repository.chatOwner(chatId)]);
+    return { kind: "confirm", account: maskAccount(row.userId, account), moved: owner !== undefined && owner !== row.userId };
+  }
+
+  /** Cancel on the prompt: the token can't be used any more. */
+  async cancelStartToken(token: string): Promise<void> {
+    await this.repository.expireToken(hashLinkToken(token), new Date());
+  }
+
+  /**
+   * Confirm on the `/start <token>` prompt in `chatId`. A valid token (unused, unexpired) is
    * marked used and links the chat to its user, enabled, replacing that
    * user's previous chat; if another user had this chat, it moves. A token
    * that was already used to link this very chat (a redelivered update)

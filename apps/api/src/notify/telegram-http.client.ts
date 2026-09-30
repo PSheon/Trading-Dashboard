@@ -53,11 +53,23 @@ export interface TelegramChatMemberUpdated {
   new_chat_member: { status: string };
 }
 
+/** A press on an inline keyboard button under one of the bot's messages. */
+export interface TelegramCallbackQuery {
+  id: string;
+  from: TelegramUser;
+  message?: TelegramMessage;
+  data?: string;
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   my_chat_member?: TelegramChatMemberUpdated;
+  callback_query?: TelegramCallbackQuery;
 }
+
+/** One row of inline keyboard buttons (`callback_data` ≤ 64 bytes). */
+export type InlineKeyboard = { text: string; callback_data: string }[][];
 
 interface BotApiResponse<T> {
   ok: boolean;
@@ -108,9 +120,23 @@ export class TelegramHttpClient {
     return body.result as T;
   }
 
-  /** Plain text; Telegram links bare URLs by itself. */
-  async sendMessage(chatId: string, text: string): Promise<void> {
-    await this.call("sendMessage", { chat_id: chatId, text, link_preview_options: { is_disabled: true } });
+  /** Plain text; Telegram links bare URLs by itself. `keyboard` adds
+   * inline buttons whose presses arrive as `callback_query` updates. */
+  async sendMessage(chatId: string, text: string, keyboard?: InlineKeyboard): Promise<void> {
+    await this.call("sendMessage", {
+      chat_id: chatId, text, link_preview_options: { is_disabled: true },
+      ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+    });
+  }
+
+  /** Acknowledges a button press (stops the client's spinner). */
+  async answerCallbackQuery(callbackQueryId: string): Promise<void> {
+    await this.call("answerCallbackQuery", { callback_query_id: callbackQueryId });
+  }
+
+  /** Removes the inline buttons from one of the bot's messages. */
+  async removeKeyboard(chatId: string, messageId: number): Promise<void> {
+    await this.call("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
   }
 
   getMe(): Promise<TelegramUser> {

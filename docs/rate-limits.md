@@ -39,9 +39,15 @@ have separate user windows but still share the broader ingress allowance. Edge
 per-client limiting or authenticated forwarding metadata must be configured
 and tested for the actual hosting topology before asserting per-visitor limits.
 SSE concurrent-stream limits separately retain STREAM_TRUSTED_PROXY_HOPS
-(default 0) from the live-feed feature. Its hop-count policy is not enabled by
-API_TRUSTED_PROXY_CIDRS; verify a fixed, non-bypassable topology before enabling
-either. No production proxy setting or edge policy was changed by this source update.
+(default 0) from the live-feed feature. The hop count applies only when the
+socket peer is in API_TRUSTED_PROXY_CIDRS (otherwise X-Forwarded-For is ignored
+and the peer is the client), so both must be set; verify a fixed,
+non-bypassable topology before enabling either. Per-client keys (rate limits,
+SSE per-IP caps, the Hyperliquid page budget) count IPv4 per address and IPv6
+per /64. At capacity the limiter evicts expired keys, then admits new clients
+through a shared per-category overflow bucket (10x the limit) rather than
+refusing them. `/health` and `/health/ready` have their own per-client bucket
+(120/min) and answer from a one-second cache. No production proxy setting or edge policy was changed by this source update.
 
 The approach follows DonutMe's verified-user tracker and adapter-resolved IP
 boundary, adapted to Express and this single-process runtime. References:

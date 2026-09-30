@@ -47,10 +47,24 @@ export function parseCsv(text: string): Record<string, string>[] {
   });
 }
 
-/** RFC 4180 CSV from rows; cells with commas, quotes or newlines are quoted. */
+/** A cell a spreadsheet would run as a formula (CSV injection): one that
+ * starts with = + - @, a tab or a carriage return. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/** Plain numbers (a negative PnL, "-12.5") are data, not formulas. */
+const PLAIN_NUMBER = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
+
+/**
+ * RFC 4180 CSV from rows; cells with commas, quotes or newlines are quoted.
+ * A text cell that starts like a formula gets a leading `'` so Excel,
+ * Sheets and LibreOffice show it instead of evaluating it: coin names,
+ * labels and other strings come from users and upstream APIs. Numbers,
+ * negative ones included, are left alone.
+ */
 export function toCsv(header: string[], rows: (string | number | null | undefined)[][]): string {
   const cell = (value: string | number | null | undefined) => {
-    const s = value === null || value === undefined ? "" : String(value);
+    let s = value === null || value === undefined ? "" : String(value);
+    if (typeof value !== "number" && FORMULA_START.test(s) && !PLAIN_NUMBER.test(s)) s = `'${s}`;
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");

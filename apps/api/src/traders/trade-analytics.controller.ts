@@ -8,7 +8,13 @@ import { type TraderAnalyticsResponse, type TraderTradesResponse } from "@tradin
 import { Public } from "../common/auth/public.decorator.js";
 import { BusyException, BusyFilter } from "./busy.js";
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
-import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from "./traders.controller.js";
+import { currentRequestClient } from "../runtime/request-context.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "./traders.controller.js";
+
+/** Addresses one client may have computing (or waiting to) at once. A cold
+ * address runs for many seconds after its 503, so without this one client
+ * could fill every computation slot with random addresses. */
+export const MAX_PENDING_PER_CLIENT = 3;
 
 /**
  * Round-trip analytics for any address: GET /traders/:address/analytics
@@ -24,6 +30,8 @@ export class TradeAnalyticsController {
   private readonly logger = new Logger(TradeAnalyticsController.name);
   /** Settable for tests. */
   pageDeadlineMs = PAGE_DEADLINE_MS;
+  /** Per client: addresses whose answer is still being worked on. */
+  private readonly pending = new Map<string, Map<string, Promise<unknown>>>();
 
   constructor(private readonly analytics: TradeAnalyticsService) {}
 
@@ -32,17 +40,40 @@ export class TradeAnalyticsController {
   summary(@Param() params: AddressParamsDto, @Query() query: AnalyticsQueryDto): Promise<TraderAnalyticsResponse> {
     const addr = params.address;
     const { window } = query;
-    return this.within(this.analytics.analytics(addr, window), addr);
+    return this.within(() => this.analytics.analytics(addr, window), addr);
   }
 
   @ApiDoc("Trades")
   @Get(":address/trades")
   trades(@Param() params: AddressParamsDto, @Query() query: TradesQueryDto): Promise<TraderTradesResponse> {
     const addr = params.address;
-    return this.within(this.analytics.trades(addr, query), addr);
+    return this.within(() => this.analytics.trades(addr, query), addr);
   }
 
-  private async within<T>(promise: Promise<T>, address: string): Promise<T> {
+  /** Runs `work` for the calling client unless it already has
+   * `MAX_PENDING_PER_CLIENT` other addresses in progress (then 503 busy).
+   * An address stays counted until its work settles, 503 or not. */
+  private admit<T>(address: string, work: () => Promise<T>): Promise<T> {
+    const client = currentRequestClient();
+    if (client === undefined) return work();
+    const mine = this.pending.get(client) ?? new Map<string, Promise<unknown>>();
+    if (!mine.has(address) && mine.size >= MAX_PENDING_PER_CLIENT) {
+      this.logger.warn(`Trade analytics ${address}: client already has ${mine.size} addresses in progress, answered 503 busy`);
+      return Promise.reject(new BusyException(BUSY_RETRY_AFTER_MS));
+    }
+    const promise = work();
+    const tracked = promise.catch(() => undefined).finally(() => {
+      if (mine.get(address) !== tracked) return;
+      mine.delete(address);
+      if (mine.size === 0 && this.pending.get(client) === mine) this.pending.delete(client);
+    });
+    mine.set(address, tracked);
+    this.pending.set(client, mine);
+    return promise;
+  }
+
+  private async within<T>(work: () => Promise<T>, address: string): Promise<T> {
+    const promise = this.admit(address, work);
     promise.catch(() => undefined);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
@@ -55,6 +86,7 @@ export class TradeAnalyticsController {
         this.logger.warn(`Trade analytics ${address}: still computing after ${this.pageDeadlineMs} ms, answered 503 busy`);
       }
       if (error instanceof HttpException) throw error;
+      if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
       this.logger.error(`Trade analytics ${address}: ${(error as Error).message}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {

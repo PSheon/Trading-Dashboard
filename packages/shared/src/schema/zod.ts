@@ -1346,7 +1346,7 @@ export const discoverySettingsSchema = z.object({
   /** … refreshed this often (each member, and one history row per tier) … */
   cohortRefreshMinutes: z.number().int().min(5).max(240).default(15),
   /** … within this much Hyperliquid weight per minute (yields to pages). */
-  cohortWeightPerMinute: z.number().int().min(0).max(600).default(150),
+  cohortWeightPerMinute: z.number().int().min(0).max(600).default(200),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 

@@ -51,7 +51,8 @@ export interface CohortRefreshLog {
  * each by account value. A cron tick (every minute) spends at most
  * `discovery.cohortWeightPerMinute` Hyperliquid weight reading members'
  * positions — `clearinghouseState` on the main dex plus the dexes they hold
- * or traded (2 weight each), every dex once a day — oldest first, so each
+ * or traded (2 weight each); every dex on the first read and once a day
+ * after (22 with 11 dexes) — oldest first, so each
  * member is refreshed about every `cohortRefreshMinutes` when the budget
  * allows. After each tick a tier whose last history row is that old gets a
  * new one. Calls rank behind page loads.
@@ -165,7 +166,10 @@ export class CohortService {
     let swept = false;
     try {
       const all = await this.perpDexes();
-      swept = member.sweptAt !== null && now - member.sweptAt.getTime() >= SWEEP_MS;
+      // The first read and then one a day cover every dex; in between only
+      // the dexes it holds or traded (HIP-3 positions elsewhere show up
+      // within a day).
+      swept = member.sweptAt === null || now - member.sweptAt.getTime() >= SWEEP_MS;
       const dexes = swept ? all : member.dexes.filter((d) => all.includes(d));
       const states = await Promise.all(["", ...dexes].map((dex) => {
         weight += WEIGHT_STATE;
@@ -178,7 +182,7 @@ export class CohortService {
       const known = [...new Set([...member.dexes, ...held])].filter((d) => all.includes(d));
       await this.repository.saveSnapshot(member.address, {
         positions, perpEquity: equity, dexes: known, fetchedAt: new Date(now),
-        ...(swept || member.sweptAt === null ? { sweptAt: new Date(now) } : {}),
+        ...(swept ? { sweptAt: new Date(now) } : {}),
       });
       this.record({ address: member.address, tier: member.tier, weight, calls, swept, ms: Date.now() - started, ok: true, at: new Date() });
       return { weight, ok: true };

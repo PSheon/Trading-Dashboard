@@ -134,14 +134,18 @@ describe("cohort job and endpoints (real Postgres)", () => {
     await service.build(2);
     const [first] = await repository.nextDue(1, new Date());
     expect(first.address).toBe(addr(1)); // never attempted, extremely profitable, rank 1
-    expect(await service.refreshOne(first)).toEqual({ weight: 4, ok: true }); // main + xyz
-    expect(info.clearinghouseState.mock.calls.map((c) => c[1])).toEqual([undefined, "xyz"]);
+    // The first read sweeps every dex.
+    expect(await service.refreshOne(first)).toEqual({ weight: 6, ok: true });
+    expect(info.clearinghouseState.mock.calls.map((c) => c[1])).toEqual([undefined, "xyz", "flx"]);
     await service.refreshOne((await repository.nextDue(1, new Date()))[0]);
     const [row1] = await db.select().from(cohortMembers).where(eq(cohortMembers.address, addr(1)));
     expect(row1.positions).toEqual([{ coin: "BTC", notional: 20_000, upnl: 100 }, { coin: "xyz:TSLA", notional: 500, upnl: 5 }]);
     expect(Number(row1.perpEquity)).toBe(10_100);
-    // A day later the sweep reads every dex.
+    // In between: the main dex and the dexes it holds or traded …
     info.clearinghouseState.mockClear();
+    expect((await service.refreshOne(row1, Date.now() + 60_000)).weight).toBe(4);
+    expect(info.clearinghouseState.mock.calls.map((c) => c[1])).toEqual([undefined, "xyz"]);
+    // … and a day later every dex again.
     expect((await service.refreshOne(row1, Date.now() + SWEEP_MS + 1)).weight).toBe(6);
 
     expect(await service.writeSnapshots(15 * 60_000)).toBe(1); // only the tier with fresh wallets
@@ -149,7 +153,7 @@ describe("cohort job and endpoints (real Postgres)", () => {
     const detail = await service.detail("extremely_profitable");
     expect(detail).toMatchObject({ memberCount: 2, walletCount: 2 });
     expect(detail.wallets[0]).toMatchObject({ address: addr(1), displayName: "KOL One", verified: true, copyScore: 91, totalPnl: 4_000_000 });
-    expect(detail.hero).toMatchObject({ notionalLong: 20_500, notionalShort: 20_000 });
+    expect(detail.hero).toMatchObject({ notionalLong: 21_000, notionalShort: 20_000 }); // both swept: TSLA on xyz each
     const history = await service.history("extremely_profitable", "7d");
     expect(history.series).toHaveLength(1);
     expect(history.btc).toEqual([[1, 84000]]);

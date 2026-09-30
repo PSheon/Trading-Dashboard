@@ -3850,115 +3850,215 @@
                     "data": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "chain": {
-                            "type": "string",
-                            "const": "hyperliquid"
-                          },
-                          "address": {
-                            "type": "string"
-                          },
-                          "label": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "tier": {
-                            "type": "string",
-                            "enum": [
-                              "A",
-                              "B",
-                              "C"
-                            ]
-                          },
-                          "notes": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "active": {
-                            "type": "boolean"
-                          },
-                          "source": {
-                            "type": "string",
-                            "enum": [
-                              "import",
-                              "favorite",
-                              "copy"
-                            ],
-                            "default": "import"
-                          },
-                          "firstSeenAt": {
-                            "type": "string",
-                            "format": "date-time"
-                          },
-                          "rank": {
-                            "anyOf": [
-                              {
-                                "type": "integer"
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "chain": {
+                                "type": "string",
+                                "const": "hyperliquid"
                               },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "openPositionCount": {
-                            "type": "integer"
-                          },
-                          "pnl7d": {
-                            "type": "number"
-                          },
-                          "pnl30d": {
-                            "type": "number"
-                          },
-                          "winRate": {
-                            "anyOf": [
-                              {
-                                "type": "number",
-                                "minimum": 0,
-                                "maximum": 1
+                              "address": {
+                                "type": "string"
                               },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "avgHoldTimeSeconds": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "lastActionAt": {
-                            "anyOf": [
-                              {
+                              "label": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "tier": {
+                                "type": "string",
+                                "enum": [
+                                  "A",
+                                  "B",
+                                  "C"
+                                ]
+                              },
+                              "active": {
+                                "type": "boolean"
+                              },
+                              "firstSeenAt": {
                                 "type": "string",
                                 "format": "date-time"
                               },
-                              {
-                                "type": "null"
+                              "rank": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "openPositionCount": {
+                                "type": "integer"
+                              },
+                              "pnl7d": {
+                                "type": "number"
+                              },
+                              "pnl30d": {
+                                "type": "number"
+                              },
+                              "winRate": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "avgHoldTimeSeconds": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "lastActionAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
-                            ]
+                            },
+                            "required": [
+                              "chain",
+                              "address",
+                              "tier",
+                              "active",
+                              "firstSeenAt",
+                              "rank",
+                              "openPositionCount",
+                              "pnl7d",
+                              "pnl30d",
+                              "winRate",
+                              "avgHoldTimeSeconds",
+                              "lastActionAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "chain": {
+                                "type": "string",
+                                "const": "hyperliquid"
+                              },
+                              "address": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "tier": {
+                                "type": "string",
+                                "enum": [
+                                  "A",
+                                  "B",
+                                  "C"
+                                ]
+                              },
+                              "notes": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "active": {
+                                "type": "boolean"
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "import",
+                                  "favorite",
+                                  "copy"
+                                ],
+                                "default": "import"
+                              },
+                              "firstSeenAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "rank": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "openPositionCount": {
+                                "type": "integer"
+                              },
+                              "pnl7d": {
+                                "type": "number"
+                              },
+                              "pnl30d": {
+                                "type": "number"
+                              },
+                              "winRate": {
+                                "anyOf": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "avgHoldTimeSeconds": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "lastActionAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "chain",
+                              "address",
+                              "tier",
+                              "active",
+                              "firstSeenAt",
+                              "rank",
+                              "openPositionCount",
+                              "pnl7d",
+                              "pnl30d",
+                              "winRate",
+                              "avgHoldTimeSeconds",
+                              "lastActionAt"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "chain",
-                          "address",
-                          "tier",
-                          "active",
-                          "firstSeenAt",
-                          "rank",
-                          "openPositionCount",
-                          "pnl7d",
-                          "pnl30d",
-                          "winRate",
-                          "avgHoldTimeSeconds",
-                          "lastActionAt"
-                        ],
-                        "additionalProperties": false
+                        ]
                       }
                     },
                     "meta": {
@@ -3992,7 +4092,7 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": [],
-        "description": "Access: public"
+        "description": "Access: public projection; full rows for leaders.manage"
       }
     },
     "/leaders/{chain}/{address}": {
@@ -4066,60 +4166,105 @@
                       "type": "object",
                       "properties": {
                         "leader": {
-                          "type": "object",
-                          "properties": {
-                            "chain": {
-                              "type": "string",
-                              "const": "hyperliquid"
-                            },
-                            "address": {
-                              "type": "string"
-                            },
-                            "label": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "tier": {
-                              "type": "string",
-                              "enum": [
-                                "A",
-                                "B",
-                                "C"
-                              ]
-                            },
-                            "notes": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "active": {
-                              "type": "boolean"
-                            },
-                            "source": {
-                              "type": "string",
-                              "enum": [
-                                "import",
-                                "favorite",
-                                "copy"
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "chain": {
+                                  "type": "string",
+                                  "const": "hyperliquid"
+                                },
+                                "address": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "tier": {
+                                  "type": "string",
+                                  "enum": [
+                                    "A",
+                                    "B",
+                                    "C"
+                                  ]
+                                },
+                                "active": {
+                                  "type": "boolean"
+                                },
+                                "firstSeenAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "chain",
+                                "address",
+                                "tier",
+                                "active",
+                                "firstSeenAt"
                               ],
-                              "default": "import"
+                              "additionalProperties": false
                             },
-                            "firstSeenAt": {
-                              "type": "string",
-                              "format": "date-time"
+                            {
+                              "type": "object",
+                              "properties": {
+                                "chain": {
+                                  "type": "string",
+                                  "const": "hyperliquid"
+                                },
+                                "address": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "tier": {
+                                  "type": "string",
+                                  "enum": [
+                                    "A",
+                                    "B",
+                                    "C"
+                                  ]
+                                },
+                                "notes": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "active": {
+                                  "type": "boolean"
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "import",
+                                    "favorite",
+                                    "copy"
+                                  ],
+                                  "default": "import"
+                                },
+                                "firstSeenAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "chain",
+                                "address",
+                                "tier",
+                                "active",
+                                "firstSeenAt"
+                              ],
+                              "additionalProperties": false
                             }
-                          },
-                          "required": [
-                            "chain",
-                            "address",
-                            "tier",
-                            "active",
-                            "firstSeenAt"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
                         "rank": {
                           "anyOf": [
@@ -4537,7 +4682,7 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": [],
-        "description": "Access: public; private alerts scoped"
+        "description": "Access: public projection; full row for leaders.manage; private alerts scoped"
       },
       "patch": {
         "operationId": "LeadersController_update",
@@ -5999,7 +6144,8 @@
                       "properties": {
                         "url": {
                           "type": "string",
-                          "format": "uri"
+                          "format": "uri",
+                          "pattern": "^https\\:\\/\\/t\\.me\\/"
                         },
                         "expiresAt": {
                           "type": "string",
@@ -7529,7 +7675,7 @@
             "name": "addresses",
             "required": true,
             "in": "query",
-            "description": "Comma-separated wallet addresses, at most 30; empty string means an empty list.",
+            "description": "Comma-separated wallet addresses, at most 30 (25 without a session); empty string means an empty list. Without a session only addresses on the leaderboard or in the discovery pool are fetched; others answer [].",
             "schema": {
               "example": "0x0000000000000000000000000000000000000001",
               "type": "string"
@@ -11858,10 +12004,16 @@
                           "type": "object",
                           "properties": {
                             "ready": {
-                              "type": "integer"
+                              "type": "integer",
+                              "minimum": 0
                             },
                             "total": {
-                              "type": "integer"
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "tradesReady": {
+                              "type": "integer",
+                              "minimum": 0
                             }
                           },
                           "required": [
@@ -12072,10 +12224,16 @@
                           "type": "object",
                           "properties": {
                             "ready": {
-                              "type": "integer"
+                              "type": "integer",
+                              "minimum": 0
                             },
                             "total": {
-                              "type": "integer"
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "tradesReady": {
+                              "type": "integer",
+                              "minimum": 0
                             }
                           },
                           "required": [
@@ -12358,6 +12516,17 @@
                           "items": {
                             "type": "object",
                             "properties": {
+                              "metricsUpdatedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "address": {
                                 "type": "string"
                               },

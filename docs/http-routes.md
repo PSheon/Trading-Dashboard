@@ -10,8 +10,8 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/actions/stream` | 200 | public; favorites requires user; SSE |
 | GET | `/actions/:id/fills` | 200 | public |
 | GET | `/alerts` | 200 | user own; alerts.readAll for all |
-| GET | `/leaders` | 200 | public |
-| GET | `/leaders/:chain/:address` | 200 | public; private alerts scoped |
+| GET | `/leaders` | 200 | public projection; full rows for leaders.manage |
+| GET | `/leaders/:chain/:address` | 200 | public projection; full row for leaders.manage; private alerts scoped |
 | PATCH | `/leaders/:chain/:address` | 200 | leaders.manage |
 | GET | `/lists` | 200 | lists.read |
 | GET | `/lists/diff` | 200 | lists.read |
@@ -50,6 +50,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | PATCH | `/admin/settings` | 200 | settings.write |
 | GET | `/admin/users` | 200 | users.read |
 | PATCH | `/admin/users/:id` | 200 | users.manage |
+| GET | `/admin/system/overview` | 200 | admin.access |
 | GET | `/admin/overview` | 200 | overview.read |
 | GET | `/admin/revenue` | 200 | revenue.read |
 | GET | `/admin/outbox` | 200 | admin.access |

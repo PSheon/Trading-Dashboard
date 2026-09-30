@@ -42,6 +42,9 @@ export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
   calculator: z.array(wireBoardTraderSchema), updatedAt: iso.nullable(),
 });
 export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso });
+export const wireTraderCardSchema = s.traderCardSchema.extend({ lastTradeAt: iso.nullable() });
+export const wireTraderCardsSchema = s.traderCardsResponseSchema.extend({ items: z.array(wireTraderCardSchema) });
+export const wireFavoriteGroupSchema = s.favoriteGroupSchema.extend({ createdAt: iso });
 export const wireCopyScoreSchema = s.copyScoreResponseSchema;
 const outboxCounts =z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
 /** GET /actions/stream (text/event-stream). Each SSE `event:` name maps to the
@@ -123,6 +126,13 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/admin/kols/import", status: 201, auth: "kols.manage", response: s.kolImportResponseSchema },
   { method: "PATCH", path: "/admin/kols/:address", status: 200, auth: "kols.manage", response: wireKolSchema },
   { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },
+  { method: "GET", path: "/discover/cards", status: 200, auth: "public", response: wireTraderCardsSchema },
+  { method: "GET", path: "/me/favorite-groups", status: 200, auth: "user", response: z.array(wireFavoriteGroupSchema) },
+  { method: "POST", path: "/me/favorite-groups", status: 201, auth: "user", response: wireFavoriteGroupSchema },
+  { method: "PATCH", path: "/me/favorite-groups/:id", status: 200, auth: "user", response: wireFavoriteGroupSchema },
+  { method: "DELETE", path: "/me/favorite-groups/:id", status: 204, auth: "user", response: z.undefined() },
+  { method: "PUT", path: "/me/favorite-groups/:id/members/:address", status: 200, auth: "user", response: wireFavoriteGroupSchema },
+  { method: "DELETE", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
   { method: "GET", path: "/kols/:address/avatar", status: 200, auth: "public; image bytes, 304 on If-None-Match", response: z.never(),
     binary: { contentTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"] } },
 ];
@@ -146,3 +156,6 @@ export type WireBoard = z.infer<typeof wireBoardSchema>;
 export type WireHomeBoards = z.infer<typeof wireHomeBoardsSchema>;
 export type WireKol = z.infer<typeof wireKolSchema>;
 export type WireCopyScore = z.infer<typeof wireCopyScoreSchema>;
+export type WireTraderCard = z.infer<typeof wireTraderCardSchema>;
+export type WireTraderCards = z.infer<typeof wireTraderCardsSchema>;
+export type WireFavoriteGroup = z.infer<typeof wireFavoriteGroupSchema>;

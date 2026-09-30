@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
@@ -21,6 +21,21 @@ export interface BoardSourceRow extends DiscoveryRow {
   leaderboardName: string | null;
   /** Leaderboard account value (free, refreshed with every import). */
   leaderboardAccountValue: string | null;
+}
+
+/** A card's identity and leaderboard figures, for a trader the pool has
+ * no figures for. */
+export interface CardIdentityRow {
+  address: string;
+  displayName: string | null;
+  accountValue: string | null;
+  pnlAllTime: string | null;
+  roiAllTime: string | null;
+  pnlMonth: string | null;
+  kolName: string | null;
+  kolXHandle: string | null;
+  kolVerified: boolean | null;
+  kolAvatarEtag: string | null;
 }
 
 export interface CoinAggregate {
@@ -164,7 +179,17 @@ export class DiscoveryRepository {
   }
 
   /** Every pool row with its KOL entry and leaderboard name (boards). */
-  async boardRows(): Promise<BoardSourceRow[]> {
+  boardRows(): Promise<BoardSourceRow[]> {
+    return this.selectBoardRows(and(mine, eq(discoveryTraders.inPool, true)));
+  }
+
+  /** The stored rows of these addresses, in or out of the pool (cards). */
+  poolRowsOf(addresses: string[]): Promise<BoardSourceRow[]> {
+    if (addresses.length === 0) return Promise.resolve([]);
+    return this.selectBoardRows(and(mine, inArray(discoveryTraders.address, addresses)));
+  }
+
+  private async selectBoardRows(where: SQL | undefined): Promise<BoardSourceRow[]> {
     const rows = await this.db
       .select({
         row: discoveryTraders,
@@ -180,8 +205,43 @@ export class DiscoveryRepository {
       .leftJoin(kolTraders, and(eq(kolTraders.chain, discoveryTraders.chain), eq(kolTraders.address, discoveryTraders.address)))
       .leftJoin(kolAvatars, and(eq(kolAvatars.chain, discoveryTraders.chain), eq(kolAvatars.address, discoveryTraders.address)))
       .leftJoin(traderStats, and(eq(traderStats.chain, discoveryTraders.chain), eq(traderStats.address, discoveryTraders.address)))
-      .where(and(mine, eq(discoveryTraders.inPool, true)));
+      .where(where);
     return rows.map(({ row, ...rest }) => ({ ...row, ...rest }));
+  }
+
+  /** Leaderboard figures and KOL entries of these addresses (cards of
+   * traders the pool has no figures for). */
+  async identitiesOf(addresses: string[]): Promise<CardIdentityRow[]> {
+    if (addresses.length === 0) return [];
+    const [stats, kols] = await Promise.all([
+      this.db
+        .select({
+          address: traderStats.address,
+          displayName: traderStats.displayName,
+          accountValue: traderStats.accountValue,
+          pnlAllTime: traderStats.pnlAllTime,
+          roiAllTime: traderStats.roiAllTime,
+          pnlMonth: traderStats.pnlMonth,
+        })
+        .from(traderStats)
+        .where(and(eq(traderStats.chain, CHAIN_DEFAULT), inArray(traderStats.address, addresses))),
+      this.db
+        .select({
+          address: kolTraders.address,
+          kolName: kolTraders.displayName,
+          kolXHandle: kolTraders.xHandle,
+          kolVerified: kolTraders.verified,
+          kolAvatarEtag: sql<string | null>`case when ${kolAvatars.bytes} is null then null else ${kolAvatars.etag} end`,
+        })
+        .from(kolTraders)
+        .leftJoin(kolAvatars, and(eq(kolAvatars.chain, kolTraders.chain), eq(kolAvatars.address, kolTraders.address)))
+        .where(and(eq(kolTraders.chain, CHAIN_DEFAULT), inArray(kolTraders.address, addresses))),
+    ]);
+    const byAddress = new Map<string, CardIdentityRow>();
+    const empty = (address: string): CardIdentityRow => ({ address, displayName: null, accountValue: null, pnlAllTime: null, roiAllTime: null, pnlMonth: null, kolName: null, kolXHandle: null, kolVerified: null, kolAvatarEtag: null });
+    for (const s of stats) byAddress.set(s.address, { ...empty(s.address), ...s });
+    for (const k of kols) byAddress.set(k.address, { ...(byAddress.get(k.address) ?? empty(k.address)), ...k });
+    return [...byAddress.values()];
   }
 
   /** Pool size and how many rows have figures. */

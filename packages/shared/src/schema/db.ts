@@ -33,6 +33,7 @@ import {
   bigint,
   bigserial,
   customType,
+  foreignKey,
   boolean,
   index,
   integer,
@@ -325,6 +326,53 @@ export const userFavorites = pgTable(
     index("user_favorites_alerting_idx")
       .on(table.chain, table.address)
       .where(sql`${table.alertEnabled}`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// user_favorite_groups / user_favorite_group_members — 收藏群組 (Stage 3 §2.3):
+// a user's named groups of favorites (CopyDog's watchlist groups). A member
+// must be one of the user's favorites; unfavoriting removes it from every
+// group (FK cascade), deleting a group keeps the favorites.
+// ---------------------------------------------------------------------------
+
+export const userFavoriteGroups = pgTable(
+  "user_favorite_groups",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Chip colour, "#rrggbb". */
+    color: text("color").notNull(),
+    /** Ascending; ties by id. */
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("user_favorite_groups_user_name_idx").on(table.userId, table.name)],
+);
+
+export const userFavoriteGroupMembers = pgTable(
+  "user_favorite_group_members",
+  {
+    groupId: integer("group_id")
+      .notNull()
+      .references(() => userFavoriteGroups.id, { onDelete: "cascade" }),
+    /** The group's owner, repeated so the favorite FK below can cascade. */
+    userId: integer("user_id").notNull(),
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.groupId, table.address] }),
+    foreignKey({
+      name: "user_favorite_group_members_favorite_fk",
+      columns: [table.userId, table.chain, table.address],
+      foreignColumns: [userFavorites.userId, userFavorites.chain, userFavorites.address],
+    }).onDelete("cascade"),
+    index("user_favorite_group_members_user_idx").on(table.userId),
   ],
 );
 

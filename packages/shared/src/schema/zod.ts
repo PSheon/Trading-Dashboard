@@ -1096,6 +1096,39 @@ export const favoriteSchema = z.object({
 });
 export type Favorite = z.infer<typeof favoriteSchema>;
 
+/** A favorites group (CopyDog's watchlist groups): a named, coloured set
+ * of the user's favorites. GET /me/favorite-groups lists them in order. */
+export const favoriteGroupSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  color: z.string(),
+  sortOrder: z.number().int(),
+  /** Member addresses (each one of the user's favorites), oldest first. */
+  members: z.array(z.string()),
+  createdAt: z.coerce.date(),
+});
+export type FavoriteGroup = z.infer<typeof favoriteGroupSchema>;
+const favoriteGroupName = z.string().trim().min(1).max(20);
+const favoriteGroupColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+/** POST /me/favorite-groups (201). 409 `group_exists` for a duplicate
+ * name, 409 `group_limit` past `FAVORITE_GROUPS_MAX`. */
+export const createFavoriteGroupRequestSchema = z.object({
+  name: favoriteGroupName,
+  color: favoriteGroupColor.optional(),
+}).strict();
+export type CreateFavoriteGroupRequest = z.infer<typeof createFavoriteGroupRequestSchema>;
+/** PATCH /me/favorite-groups/:id. */
+export const patchFavoriteGroupRequestSchema = z.object({
+  name: favoriteGroupName.optional(),
+  color: favoriteGroupColor.optional(),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+}).strict();
+export type PatchFavoriteGroupRequest = z.infer<typeof patchFavoriteGroupRequestSchema>;
+/** Groups per user. */
+export const FAVORITE_GROUPS_MAX = 20;
+/** CopyDog-like chip colours, assigned in turn when none is given. */
+export const FAVORITE_GROUP_COLORS = ["#ff7a45", "#3b82f6", "#22c55e", "#eab308", "#a855f7", "#ec4899", "#14b8a6", "#f97316"] as const;
+
 /** PATCH /me/favorites/:address/alert → the updated `favoriteSchema`.
  * Turning alerts on answers 409 `{code:"telegram_not_linked"}` without a
  * linked Telegram, and 409 `{code:"alert_limit", limit}` when the user
@@ -1455,6 +1488,29 @@ export const boardResponseSchema = z.object({
   updatedAt: z.coerce.date().nullable(),
 });
 export type BoardResponse = z.infer<typeof boardResponseSchema>;
+
+/** GET /discover/cards?addresses=… — any traders as explore cards with the
+ * extra columns CopyDog's watchlist shows (favorites, insights wallets).
+ * `pnl` / `roi` / `sparkline` are all-time. From the discovery pool when it
+ * has the trader's figures (`source: "pool"`), else the leaderboard
+ * (`"leaderboard"`: no copy score, sparkline, win rate or risk figures),
+ * else identity only (`"none"`). No Hyperliquid calls. */
+export const traderCardSchema = boardTraderSchema.extend({
+  pnl30d: z.number().nullable(),
+  /** Winning ÷ all closed trades of the trade ledger (all coins). */
+  winRate: z.number().nullable(),
+  sharpe: z.number().nullable(),
+  /** 0–1. */
+  maxDrawdown: z.number().nullable(),
+  source: z.enum(["pool", "leaderboard", "none"]),
+});
+export type TraderCard = z.infer<typeof traderCardSchema>;
+export const traderCardsQuerySchema = z.object({
+  /** Comma-separated addresses, at most 200. */
+  addresses: z.string().max(200 * 43),
+}).strict();
+export const traderCardsResponseSchema = z.object({ items: z.array(traderCardSchema) });
+export type TraderCardsResponse = z.infer<typeof traderCardsResponseSchema>;
 
 /** GET /discover/home — every home row in one read (7 cards each). */
 export const homeBoardsResponseSchema = z.object({

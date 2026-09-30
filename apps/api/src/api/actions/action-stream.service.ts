@@ -5,6 +5,7 @@ import type { Request, Response } from "express";
 import { isIP } from "node:net";
 
 import { AppConfig } from "../../config/app-config.js";
+import { clientKey } from "../../common/http/client-key.js";
 import { BackgroundJobs } from "../../runtime/background-jobs.service.js";
 import { releaseRequestDeadline } from "../../runtime/request-middleware.js";
 import { FAVORITES_CHANGED_EVENT, type FavoritesChangedEvent } from "../../users/favorites.service.js";
@@ -73,7 +74,8 @@ export function clientAddress(req: Pick<Request, "headers" | "socket">, hops: nu
     chosen = chain[Math.max(0, chain.length - 1 - hops)];
   }
   const plain = chosen.replace(/^::ffff:/i, "");
-  return isIP(plain) ? plain : peer;
+  // IPv6 counts per /64, so rotating addresses inside one doesn't multiply the cap.
+  return clientKey(isIP(plain) ? plain : peer);
 }
 
 interface Subscriber {

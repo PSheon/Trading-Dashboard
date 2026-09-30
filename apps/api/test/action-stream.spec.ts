@@ -366,7 +366,13 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
     expect(clientAddress(req("6.6.6.6, 1.2.3.4"), 1)).toBe("1.2.3.4");
     expect(clientAddress(req("6.6.6.6, 1.2.3.4, 10.0.0.5"), 2)).toBe("1.2.3.4");
     expect(clientAddress(req(undefined), 2)).toBe("127.0.0.1");
-    expect(clientAddress(req("not-an-ip"), 1)).toBe("::ffff:127.0.0.1");
+    expect(clientAddress(req("not-an-ip"), 1)).toBe("127.0.0.1");
+  });
+
+  it("counts IPv6 stream clients per /64", () => {
+    const req = (peer: string) => ({ headers: {}, socket: { remoteAddress: peer } }) as never;
+    expect(clientAddress(req("2001:db8:1:2::a"), 0)).toBe(clientAddress(req("2001:db8:1:2:ffff::b"), 0));
+    expect(clientAddress(req("2001:db8:1:2::a"), 0)).not.toBe(clientAddress(req("2001:db8:1:3::a"), 0));
   });
 
   // Last: stops the shared BackgroundJobs.

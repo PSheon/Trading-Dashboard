@@ -1,6 +1,6 @@
 import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { describe, expect, it } from "vitest";
-import { RequestRateLimiter } from "../src/common/auth/rate-limit.guard.js";
+import { OVERFLOW_MULTIPLIER, RequestRateLimiter } from "../src/common/auth/rate-limit.guard.js";
 
 describe("bounded inbound rate limits", () => {
   it("rejects overflow with a retry delay and admits after expiration", () => {
@@ -11,12 +11,34 @@ describe("bounded inbound rate limits", () => {
     expect(limiter.consume("bob", 2, 2000)).toBe(0);
     expect(limiter.consume("alice", 2, 61000)).toBe(0);
   });
-  it("refuses new buckets at capacity without evicting active limits", () => {
+  it("at capacity sends new keys to a shared overflow bucket instead of refusing them, never evicting active limits", () => {
     const limiter = new RequestRateLimiter();
-    for (let i = 0; i < 10000; i++) expect(limiter.consume(String(i), 1, 0)).toBe(0);
-    expect(limiter.consume("new", 1, 1)).toBe(60);
-    expect(limiter.consume("0", 1, 1)).toBe(60);
-    expect(limiter.consume("new", 1, 60000)).toBe(0);
+    limiter.maxKeys = 100;
+    for (let i = 0; i < 100; i++) expect(limiter.consume(`read:ip${i}`, 1, 0)).toBe(0);
+    // Active keys keep their windows: no reset by eviction.
+    expect(limiter.consume("read:ip0", 1, 1)).toBe(60);
+    // New clients are admitted through the category's overflow bucket
+    // (OVERFLOW_MULTIPLIER × the limit), not refused outright …
+    for (let i = 0; i < OVERFLOW_MULTIPLIER; i++) expect(limiter.consume(`read:new${i}`, 1, 1)).toBe(0);
+    // … which, once spent, limits the flood rather than everyone.
+    expect(limiter.consume("read:another", 1, 1)).toBe(60);
+    // Other categories have their own overflow.
+    expect(limiter.consume("write:new", 1, 1)).toBe(0);
+    // Once windows expire the new keys get their own buckets again.
+    expect(limiter.consume("read:new0", 1, 60_000)).toBe(0);
+    expect(limiter.consume("read:new0", 1, 60_001)).toBeGreaterThan(0);
+    expect(limiter.consume("read:new1", 1, 60_001)).toBe(0);
+  });
+  it("evicts expired keys before overflowing, even between sweeps", () => {
+    const limiter = new RequestRateLimiter();
+    limiter.maxKeys = 3;
+    expect(limiter.consume("read:a", 1, 0)).toBe(0);
+    expect(limiter.consume("read:b", 1, 0)).toBe(0);
+    expect(limiter.consume("read:c", 1, 59_999)).toBe(0);
+    // a and b expired at 60 000; the periodic sweep last ran at 59 999.
+    expect(limiter.consume("read:d", 1, 60_100)).toBe(0);
+    expect(limiter.consume("read:d", 1, 60_101)).toBeGreaterThan(0); // its own bucket, not overflow
+    expect(limiter.consume("read:e", 1, 60_101)).toBe(0);
   });
 });
 
@@ -84,4 +106,15 @@ it("throttles /health and /health/ready per client in their own bucket, apart fr
   // requests are unaffected.
   expect(ingress.canActivate(context({ path: "/health/ready", ip: "10.0.0.2" }).ctx)).toBe(true);
   expect(ingress.canActivate(context({ path: "/traders", ip: "198.51.100.5" }).ctx)).toBe(true);
+});
+
+it("counts IPv6 clients per /64 and IPv4 per address", () => {
+  const guard = new IngressRateGuard(new RequestRateLimiter(), config); // 1 per minute
+  expect(guard.canActivate(context({ ip: "2001:db8:aa:bb::1" }).ctx)).toBe(true);
+  // Rotating inside the /64 is the same client.
+  expect(() => guard.canActivate(context({ ip: "2001:db8:aa:bb:ffff:1:2:3" }).ctx)).toThrow("Too many requests");
+  expect(guard.canActivate(context({ ip: "2001:db8:aa:bc::1" }).ctx)).toBe(true);
+  expect(guard.canActivate(context({ ip: "198.51.100.1" }).ctx)).toBe(true);
+  expect(guard.canActivate(context({ ip: "198.51.100.2" }).ctx)).toBe(true);
+  expect(() => guard.canActivate(context({ ip: "::ffff:198.51.100.2" }).ctx)).toThrow("Too many requests");
 });

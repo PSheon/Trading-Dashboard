@@ -58,6 +58,39 @@ shows the top 3 winners / losers by net PnL. Coins (`byAsset`): trades, wins,
 losses, volume, net PnL, ordered by net PnL; the rail's 最常交易 sorts them by
 volume (top 3).
 
+## ROI, Sharpe and max drawdown (CopyDog's, `copydog-v1`)
+
+`GET /traders/:address/portfolio` computes these from Hyperliquid's
+`portfolio` series of the window (Hyperliquid's latest point is the live
+value). Reverse-engineered on 2026-09-30 from CopyDog's public API
+(`/summary`, `/chart?window=&kind=perp|combined&metric=pnl|roi`,
+`/copy-score`) on 19 traders, every window; code in
+`apps/api/src/traders/traders.mappers.ts` (`returnMetrics`, `riskMetrics`).
+
+| Metric | Definition | Match |
+| --- | --- | --- |
+| ROI | window PnL ÷ C, C = max over the window of (account value − PnL) (peak net deposits), on the market's own series (perp, or the whole account for 永續＋現貨); 0 when C ≤ 0 | CopyDog's live chart ROI to ±0.1 pt on every trader and window; `stats.roi*` exactly where CopyDog's snapshot is fresh |
+| % chart | PnL ÷ C at each point (ends at the ROI) | same series as CopyDog's `metric=roi` chart |
+| Sharpe | whole account (perp + spot) for every market: rᵢ = ΔPnLᵢ ÷ the window's peak account value, intervals starting from an empty account (value ≤ 0) skipped; mean ÷ sample stdev × √(365 ÷ median spacing of the returns' time index, days) | all-time: median error 0.2 % (0.01 % where CopyDog's metrics were < 5 h old); sample count equals CopyDog's `return_sample_count` |
+| Volatility | stdev(r) × the same √ | 0.3875 vs 0.3874 (0xd70c…) |
+| Max drawdown | same r; largest fall of 1 + Σr from its running peak (starting at 1) ÷ that peak, capped at 1 | all-time: exact to 4 decimals on all 18 comparable traders |
+
+CopyDog's 24H / 7D / 30D figures are snapshots taken up to a day earlier
+(`metricsUpdatedAt`), so their windows cover a different span than a live
+read; where the snapshot was under 5 h old, 30D and 7D Sharpe matched within
+1.5 %. CopyDog's all-time drawdown can be smaller than its 7D one because the
+all-time series is sampled coarsely and divided by a larger peak account
+value; Orbie reproduces that. CopyDog reports 0 for every metric of some
+accounts (0xb48c…), which Orbie does not copy.
+
+The KPI tiles follow CopyDog's layout: 表現 (perp PnL) and ROI use the tile's
+own All / 30D / 7D period; Sharpe, max drawdown and win rate are all-time.
+The ROI tile's subline is the annualised return (1 + ROI)^(365.25 ÷ days) − 1
+(days = 30, 7, or the history's span for All); its title warns that the
+figure is extrapolated when the record is under 90 days old (CopyDog's
+current bundle; an older copy used 41). The 表現 subline is the track record
+since the first point of the history ("<1d", "12d", "1mo", "2.8y").
+
 ## Classification thresholds
 
 | | Basis | Thresholds | Source |

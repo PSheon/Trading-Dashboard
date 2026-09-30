@@ -1,22 +1,25 @@
 "use client";
 
-import type { PortfolioResponse, TradeWindow, TraderAnalyticsResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
+import type { PortfolioResponse, TradeWindow, TraderAnalyticsResponse, TraderWindow } from "@/lib/contracts";
+import { ChevronDown } from "lucide-react";
 import { useMemo } from "react";
-import Link from "next/link";
 import { cn } from "cn";
 
 import { OrbieMark, Wordmark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
 import { Skeleton } from "@/components/page";
 import { RoiPill } from "@/components/traders/bits";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Segmented } from "@/components/ui/segmented";
-import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
+import { pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
 import { useNow } from "@/lib/use-now";
-import { pct1, winRateTone } from "@/lib/trade-format";
-
-const WIN_TEXT = { positive: "text-positive", warning: "text-warning", negative: "text-negative" } as const;
-const WIN_BAR = { positive: "bg-positive", warning: "bg-warning", negative: "bg-negative" } as const;
 
 export type ChartMode = "pnl" | "value";
 export type ChartUnit = "usd" | "pct";
@@ -27,36 +30,95 @@ export const WINDOWS: TraderWindow[] = ["day", "week", "month", "allTime"];
 /** The trade analytics window matching a chart window. */
 export const TRADE_WINDOW: Record<TraderWindow, TradeWindow> = { day: "1d", week: "7d", month: "30d", allTime: "all" };
 
+/** The 表現 tile's periods, CopyDog's All / 30D / 7D. */
+export type KpiPeriod = "allTime" | "month" | "week";
+export const KPI_PERIODS: Array<[KpiPeriod, string]> = [["allTime", "All"], ["month", "30D"], ["week", "7D"]];
+const PERIOD_DAYS: Record<KpiPeriod, number | null> = { allTime: null, month: 30, week: 7 };
+
+type Tone = "positive" | "negative" | "warning";
+const TEXT: Record<Tone, string> = { positive: "text-positive", negative: "text-negative", warning: "text-warning" };
+const BAR: Record<Tone, string> = { positive: "bg-positive", negative: "bg-negative", warning: "bg-warning" };
+
+/** CopyDog's sign tone: up green, down red, ~0 amber. */
+const signTone = (v: number | null | undefined): Tone | null =>
+  v == null || Number.isNaN(v) ? null : Math.abs(v) < 0.005 ? "warning" : v > 0 ? "positive" : "negative";
+/** CopyDog's Sharpe tone: ≥ 1.5 green, ≥ 0 amber, below red. */
+const sharpeTone = (v: number | null | undefined): Tone | null => (v == null ? null : v >= 1.5 ? "positive" : v >= 0 ? "warning" : "negative");
+/** Position of `v` on a min–max bar, 0–100. */
+const along = (v: number | null | undefined, min: number, max: number) =>
+  v == null ? 0 : Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
+
+/** CopyDog's percent format: sign, no decimals from 100% up, one below, with
+ * thousands separators ("+47,374%", "+384%", "−22.7%"). */
+export function signedPctCd(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "—";
+  const n = Math.abs(v * 100);
+  const digits = n >= 100 ? 0 : 1;
+  return `${v >= 0 ? "+" : "-"}${n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
+}
+
+/** CopyDog's track record: "<1d", "12d", "1mo", "2.8y" since the first trade. */
+export function trackRecord(firstMs: number, now: number): string {
+  const days = (now - firstMs) / 86_400_000;
+  if (days < 1) return "<1d";
+  if (days < 30) return `${Math.floor(days)}d`;
+  if (days < 365) return `${Math.floor(days / 30)}mo`;
+  return `${(days / 365).toFixed(1)}y`;
+}
+
+/** CopyDog's annualised return: (1 + ROI)^(365.25 ÷ days) − 1, days being
+ * the period (30 / 7) or, for All, the history's span. */
+export function annualized(roi: number | null | undefined, days: number | null): number | null {
+  if (roi == null || !(days != null && days > 0)) return null;
+  const v = Math.max(1 + roi, 1e-9) ** (1 / (days / 365.25)) - 1;
+  return Number.isFinite(v) ? v : null;
+}
+
+/** CopyDog shows the young-record warning under this many days. */
+export const YOUNG_RECORD_DAYS = 90;
+
+/** The window's ROI: CopyDog's PnL ÷ peak net deposits (the api's `roi`),
+ * shared by the ROI tile and the chart's pill. */
+export function windowRoi(portfolio: PortfolioResponse | undefined): number | null {
+  return portfolio?.roi ?? null;
+}
+
 function Tile({
   label,
+  action,
   value,
-  valueClass,
+  tone,
   fill,
-  barClass,
   sub,
   loading,
+  muted,
 }: {
   label: string;
+  action?: React.ReactNode;
   value: React.ReactNode;
-  valueClass?: string;
+  tone: Tone | null;
   fill: number;
-  barClass: string;
   sub: React.ReactNode;
   loading?: boolean;
+  muted?: boolean;
 }) {
+  const t = muted ? null : tone;
   return (
     <div className="flex min-w-0 flex-col rounded-2xl border border-border bg-card">
-      <div className="border-b border-border px-4 py-2.5 text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground">
+        <span>{label}</span>
+        {action}
+      </div>
       <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3 pb-3.5">
         {loading ? (
           <Skeleton className="h-6 w-24" />
         ) : (
-          <div className={cn("num truncate text-lg font-bold tracking-tight md:text-xl", valueClass)}>{value}</div>
+          <div className={cn("num truncate text-lg font-bold tracking-tight md:text-xl", muted ? "text-subtle-foreground" : t ? TEXT[t] : "")}>{value}</div>
         )}
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
           <div
-            className={cn("h-full rounded-full transition-[width] duration-500", barClass)}
-            style={{ width: `${Math.max(0, Math.min(100, fill * 100))}%` }}
+            className={cn("h-full rounded-full transition-[width] duration-500", muted ? "bg-subtle-foreground" : t ? BAR[t] : "bg-border-strong")}
+            style={{ width: `${fill}%` }}
           />
         </div>
         <div className="num truncate text-[11px] text-subtle-foreground">{sub}</div>
@@ -65,137 +127,128 @@ function Tile({
   );
 }
 
-const signText = (n: number | null | undefined, muted: boolean) =>
-  muted || n === null || n === undefined || n === 0 ? (muted ? "text-subtle-foreground" : "") : n > 0 ? "text-positive" : "text-negative";
-const signBar = (n: number | null | undefined, muted: boolean) =>
-  muted ? "bg-subtle-foreground" : (n ?? 0) >= 0 ? "bg-positive" : "bg-negative";
-
-/** The window's ROI: the api's flow-neutral, time-weighted return over the
- * same `portfolio` series as its PnL (deposits and withdrawals don't count,
- * so it exists even when more was withdrawn than deposited). The trader
- * page never mixes in the leaderboard's ROI: that one adds up subaccounts
- * and is up to 15 minutes old. Shared by the ROI tile and the chart's pill. */
-export function windowRoi(portfolio: PortfolioResponse | undefined): number | null {
-  return portfolio?.roi ?? null;
-}
-
-/** The leaderboard's figure differs enough from the portfolio's to explain. */
-const LEADERBOARD_DIFF = 0.2;
-
-/** Four KPI tiles tied to the window toggle: PnL, ROI, Sharpe (with max
- * drawdown) from Hyperliquid's `portfolio`, and win rate with its trade
- * count from the round trips the api reconstructs for any address (closed
- * in the window, CopyDog's definition). Low-sample traders get their
- * returns greyed. */
+/**
+ * The four KPI tiles as CopyDog lays them out (its "hd-metrics"):
+ *
+ * - 表現: perp PnL of the tile's own All / 30D / 7D period, a ±$1M bar, and
+ *   the track record ("1mo 交易資歷") since the first point of the history;
+ * - ROI: the same period's ROI (PnL ÷ peak net deposits), a ±100% bar, and
+ *   the annualised return, whose title warns when the record is younger
+ *   than 90 days;
+ * - 夏普: all-time Sharpe of the whole account (a −3…3 bar) and all-time max
+ *   drawdown;
+ * - 勝率: all-time win rate of closed round trips and their count.
+ *
+ * Only 表現 and ROI follow the period; the chart's window is separate.
+ */
 export function KpiTiles({
-  profile,
-  portfolio,
+  period,
+  onPeriod,
+  periodPortfolio,
   allTime,
-  window,
-  market,
-  lowSample,
   trades,
   tradesComputing,
+  lowSample,
+  now: nowProp,
 }: {
-  profile: TraderProfileResponse;
-  portfolio: PortfolioResponse | undefined;
+  period: KpiPeriod;
+  onPeriod: (p: KpiPeriod) => void;
+  /** The perp portfolio of `period`. */
+  periodPortfolio: PortfolioResponse | undefined;
+  /** The all-time portfolio (Sharpe, drawdown and the track record). */
   allTime: PortfolioResponse | undefined;
-  window: TraderWindow;
-  market: Market;
-  /** From the activity request; false until it arrives. */
-  lowSample: boolean;
-  /** GET /traders/:address/analytics for this window. */
+  /** GET /traders/:address/analytics?window=all. */
   trades: TraderAnalyticsResponse | undefined;
   /** The api is still reconstructing a cold address's trades. */
   tradesComputing: boolean;
+  /** From the activity request; greys the returns of a low sample. */
+  lowSample: boolean;
+  /** Fixed time for tests; the shared ticking clock otherwise. */
+  now?: number;
 }) {
-  const { t, format } = useI18n();
-  const muted = lowSample;
-  const now = useNow();
-
-  const pnl = portfolio?.pnl.at(-1)?.[1] ?? null;
-  const roi = windowRoi(portfolio);
-
-  const spanYears = allTime && allTime.pnl.length > 1
-    ? (allTime.pnl.at(-1)![0] - allTime.pnl[0][0]) / (365.25 * 86400_000)
-    : null;
-  const allRoi = allTime?.roi ?? null;
-  const annualized =
-    spanYears && spanYears > 0.25 && allRoi !== null && allRoi > -1
-      ? (1 + allRoi) ** (1 / spanYears) - 1
-      : null;
-  // The leaderboard's PnL for the same window (perps + spot, like the "all"
-  // market) when it tells a different story: it adds up the address's
-  // subaccounts.
-  const boardPnl = market === "all" && portfolio?.market === "all" ? profile.stats?.pnl[window] : undefined;
-  const boardDiffers =
-    boardPnl !== undefined &&
-    pnl !== null &&
-    Math.abs(boardPnl - pnl) > LEADERBOARD_DIFF * Math.max(Math.abs(boardPnl), Math.abs(pnl), 1);
-  const history =
-    spanYears === null
-      ? null
-      : spanYears >= 1
-        ? `${format.num(spanYears, 1)}y`
-        : `${Math.max(1, Math.round(spanYears * 365))}d`;
-
-  const sharpe = portfolio?.sharpe ?? null;
+  const { t } = useI18n();
+  const ticking = useNow();
+  const now = nowProp ?? ticking;
+  const pnl = periodPortfolio?.pnl.at(-1)?.[1] ?? null;
+  const roi = windowRoi(periodPortfolio);
+  const first = allTime?.pnl[0]?.[0] ?? null;
+  const spanDays = allTime && allTime.pnl.length > 1 ? (allTime.pnl.at(-1)![0] - allTime.pnl[0][0]) / 86_400_000 : null;
+  const annual = annualized(roi, PERIOD_DAYS[period] ?? spanDays);
+  const recordDays = first === null ? null : Math.round((now - first) / 86_400_000);
+  const annualTitle =
+    period === "allTime" && annual !== null && recordDays !== null && recordDays < YOUNG_RECORD_DAYS
+      ? t("trader.kpi.annualizedYoung", { days: recordDays })
+      : t("trader.kpi.annualized");
+  const sharpe = allTime?.sharpe ?? null;
+  const mdd = allTime?.maxDrawdownPct ?? null;
   const winRate = trades?.summary.winRate ?? null;
-  // CopyDog: ≥ 50% green, ≥ 35% amber, below red; value, bar and sub alike.
   const winTone = winRateTone(winRate);
-  const loading = !portfolio;
+
+  const periodMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={t("trader.kpi.period")}
+        className="inline-flex items-center gap-0.5 rounded-md bg-raised px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {KPI_PERIODS.find(([p]) => p === period)![1]}
+        <ChevronDown className="size-3" aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="min-w-20">
+        <DropdownMenuRadioGroup value={period} onValueChange={(v) => onPeriod(v as KpiPeriod)}>
+          {KPI_PERIODS.map(([p, label]) => (
+            <DropdownMenuRadioItem key={p} value={p}>
+              {label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
-    <div className="flex flex-col gap-1.5">
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <Tile
         label={t("trader.kpi.pnl")}
-        loading={loading}
-        value={format.usd(pnl, { sign: true, compact: Math.abs(pnl ?? 0) >= 1e5, digits: 2 })}
-        valueClass={signText(pnl, muted)}
-        fill={Math.min(1, Math.abs(roi ?? 0))}
-        barClass={signBar(pnl, muted)}
-        sub={history ? t("trader.kpi.history", { value: history }) : t(`windows.${window}`)}
+        action={periodMenu}
+        loading={!periodPortfolio}
+        value={pnl === null ? "—" : signedUsd2(pnl)}
+        tone={signTone(pnl)}
+        muted={lowSample}
+        fill={along(pnl, -1e6, 1e6)}
+        sub={first === null ? "—" : t("trader.kpi.history", { value: trackRecord(first, now) })}
       />
       <Tile
         label={t("trader.kpi.roi")}
-        loading={loading}
-        value={format.pct(roi, { sign: true })}
-        valueClass={signText(roi, muted)}
-        fill={Math.min(1, Math.abs(roi ?? 0) / 3)}
-        barClass={signBar(roi, muted)}
+        loading={!periodPortfolio}
+        value={signedPctCd(roi)}
+        tone={signTone(roi)}
+        muted={lowSample}
+        fill={along(roi, -1, 1)}
         sub={
-          annualized !== null ? (
-            <>
-              <span className={muted ? "" : annualized >= 0 ? "text-positive" : "text-negative"}>
-                {format.pct(annualized, { sign: true })}
-              </span>{" "}
-              {t("trader.kpi.annualized")}
-            </>
+          annual === null ? (
+            "—"
           ) : (
-            t(`windows.${window}`)
+            <span title={annualTitle}>
+              <span className={lowSample ? "" : TEXT[signTone(annual) ?? "warning"]}>{signedPctCd(annual)}</span>{" "}
+              {t("trader.kpi.annualized")}
+            </span>
           )
         }
       />
       <Tile
         label={t("trader.kpi.sharpe")}
-        loading={loading}
-        value={sharpe === null ? "—" : format.num(sharpe, 2)}
-        valueClass={muted ? "text-subtle-foreground" : sharpe !== null && sharpe < 0 ? "text-negative" : ""}
-        fill={Math.min(1, Math.max(0, (sharpe ?? 0) / 3))}
-        barClass={muted ? "bg-subtle-foreground" : "bg-primary"}
+        loading={!allTime}
+        value={sharpe === null ? "—" : sharpe.toFixed(2)}
+        tone={sharpeTone(sharpe)}
+        muted={lowSample}
+        fill={along(sharpe, -3, 3)}
         sub={
-          portfolio ? (
-            <Tooltip content={`${t("trader.kpi.maxDrawdownTitle")} ${format.usd(portfolio.maxDrawdownUsd, { compact: true })}`}>
-              <span tabIndex={0} className="outline-none">
-                <span className="text-negative">
-                  {portfolio.maxDrawdownPct === null ? format.usd(portfolio.maxDrawdownUsd, { compact: true }) : format.pct(portfolio.maxDrawdownPct)}
-                </span>{" "}
-                {t("trader.kpi.maxDrawdown")}
-              </span>
-            </Tooltip>
+          mdd === null ? (
+            "—"
           ) : (
-            t("trader.kpi.sharpeNa")
+            <>
+              <span className="text-negative">{pct1(mdd)}</span> {t("trader.kpi.maxDrawdown")}
+            </>
           )
         }
       />
@@ -203,35 +256,10 @@ export function KpiTiles({
         label={t("trader.kpi.winRate")}
         loading={!trades && tradesComputing}
         value={winRate === null ? "—" : pct1(winRate)}
-        valueClass={muted || !winTone ? "text-subtle-foreground" : WIN_TEXT[winTone]}
-        fill={winRate ?? 0}
-        barClass={muted || !winTone ? "bg-subtle-foreground" : WIN_BAR[winTone]}
-        sub={
-          trades
-            ? t("trader.kpi.trades", { count: trades.summary.trades })
-            : tradesComputing
-              ? t("trader.kpi.computing")
-              : t("trader.kpi.noTrades")
-        }
+        tone={winTone}
+        fill={(winRate ?? 0) * 100}
+        sub={trades ? t("trader.kpi.trades", { count: trades.summary.trades }) : tradesComputing ? t("trader.kpi.computing") : t("trader.kpi.noTrades")}
       />
-    </div>
-      <p className="px-1 text-[11px] leading-relaxed text-subtle-foreground">{t("trader.kpi.winRateBasis")}</p>
-      <p className="px-1 text-[11px] leading-relaxed text-subtle-foreground">
-        {portfolio?.methodology ? t("trader.kpi.estimateQuality", { excluded: portfolio.methodology.excludedIntervals, total: portfolio.methodology.intervals }) : null}{" "}
-        <Link href="/methodology" className="underline underline-offset-2">{t("methodology.title")}</Link>
-      </p>
-      <p className="num px-1 text-[11px] leading-relaxed text-subtle-foreground">
-        {t("trader.kpi.source", { market: t(market === "perp" ? "trader.chart.perp" : "trader.chart.all") })}
-        {boardDiffers && profile.stats ? (
-          <>
-            {" · "}
-            {t("trader.kpi.leaderboardDiff", {
-              value: format.usd(boardPnl, { sign: true, compact: true }),
-              time: format.relative(profile.stats.updatedAt, now),
-            })}
-          </>
-        ) : null}
-      </p>
     </div>
   );
 }
@@ -270,7 +298,7 @@ export function PerformanceChart({
     if (!portfolio) return [];
     const raw = mode === "pnl" ? portfolio.pnl : portfolio.accountValue;
     if (unit === "usd") return raw;
-    // PnL in % is the time-weighted return, so the line ends at the ROI.
+    // PnL in % is PnL ÷ peak net deposits (CopyDog's), ending at the ROI.
     if (mode === "pnl") return portfolio.cumulativeReturn;
     const base = raw[0]?.[1] || 1;
     return raw.map(([ts, v]) => [ts, v / base - 1] as [number, number]);

@@ -175,50 +175,149 @@ export function toPortfolioResponse(
   market: "all" | "perp",
 ): PortfolioResponse {
   const series = portfolioSeries(raw, window, market);
-  // Returns are always measured on the whole account's value: in unified
-  // and portfolio-margin accounts the perp account value history is "not
-  // meaningful" (Hyperliquid docs), and even in standard ones spot ↔ perp
-  // transfers would look like deposits and withdrawals. Falls back to the
-  // market's own series when Hyperliquid didn't send the whole-account one.
+  // Sharpe and max drawdown are always the whole account's (perp + spot), as
+  // CopyDog's are, whichever market the chart shows; ROI and the % curve are
+  // the market's own. Falls back to the market's series when Hyperliquid
+  // didn't send the whole-account one.
   const whole = market === "all" ? series : portfolioSeries(raw, window, "all");
-  const capital = whole.accountValue.length > 0 ? whole : series;
-  return { window, market, ...series, ...portfolioMetrics(series.pnl, capital) };
+  const { roi, cumulativeReturn, capital } = returnMetrics(series);
+  const risk = riskMetrics(whole.pnl.length > 0 ? whole : series);
+  return {
+    window,
+    market,
+    ...series,
+    roi,
+    cumulativeReturn,
+    sharpe: risk.sharpe,
+    volatility: risk.volatility,
+    maxDrawdownPct: risk.maxDrawdownPct,
+    maxDrawdownUsd: risk.maxDrawdownUsd,
+    basis: { version: "copydog-v1", capital, ...risk.basis },
+  };
 }
 
-/** The whole account's value and PnL over the same window: the capital that
- * returns are measured against. */
+/** A window's PnL and account value, as Hyperliquid samples them. */
 export interface CapitalSeries {
   accountValue: Point[];
   pnl: Point[];
 }
 
 const DAY_MS = 24 * 3_600_000;
-/** Fewer daily returns than this and there is no Sharpe (a "day" window
- * never has one). */
-export const SHARPE_MIN_DAYS = 7;
-/** An interval whose capital base is below this many USD … */
-export const MIN_BASE_USD = 10;
-/** … or below this fraction of the window's largest account value is
- * skipped: dust balances, or a deposit, trade and withdrawal netting out
- * inside one sampling interval, would otherwise produce absurd returns, and
- * a few hundred dollars lost before an account grew to millions would
- * otherwise set its all-time return to −100 % for good. */
-export const MIN_BASE_FRACTION = 0.01;
 
-export interface PortfolioMetrics {
-  methodology: {
-    version: "flow-neutral-v1";
-    intervals: number;
-    excludedIntervals: number;
-    excludedFraction: number | null;
-    capitalFloorUsd: number;
-    quality: "observed" | "partial" | "unavailable";
-  };
-  maxDrawdownUsd: number;
-  maxDrawdownPct: number | null;
-  sharpe: number | null;
+/**
+ * CopyDog's ROI (verified against its public API on 18 traders and every
+ * window, 2026-09-30): the window's PnL ÷ its peak net deposits, the most
+ * capital that was ever in the account over the window: C = max over the
+ * window's points of (account value − cumulative PnL). Deposits and
+ * withdrawals move account value and C, never PnL, so they don't count as
+ * return. `cumulativeReturn` is PnL ÷ C at every point, so the chart's %
+ * mode ends at the ROI. C ≤ 0 (nothing was ever deposited) → 0 %.
+ */
+export function returnMetrics({ accountValue, pnl }: CapitalSeries): {
   roi: number | null;
   cumulativeReturn: Point[];
+  capital: number | null;
+} {
+  if (pnl.length === 0) return { roi: null, cumulativeReturn: [], capital: null };
+  let capital = -Infinity;
+  for (let i = 0; i < pnl.length; i++) {
+    const av = valueAt(accountValue, pnl[i][0]);
+    if (av !== null) capital = Math.max(capital, av - pnl[i][1]);
+  }
+  if (!(capital > 0)) return { roi: 0, cumulativeReturn: pnl.map(([t]) => [t, 0]), capital: null };
+  // Hyperliquid starts every window's PnL at 0, so no rebasing is needed.
+  const cumulativeReturn: Point[] = pnl.map(([t, p]) => [t, p / capital]);
+  return { roi: pnl[pnl.length - 1][1] / capital, cumulativeReturn, capital };
+}
+
+/**
+ * CopyDog's Sharpe, volatility and max drawdown (verified against its
+ * public API on 18 traders, 2026-09-30; see docs/trade-analytics.md), all on
+ * the whole account's series of the window, with Hyperliquid's latest point
+ * (the live value) included:
+ *
+ * - interval returns rᵢ = ΔPnLᵢ ÷ the window's peak account value; an
+ *   interval that starts from an empty account (value ≤ 0) is skipped;
+ * - `sharpe` = mean(r) ÷ sample stdev(r) × √(365 ÷ the median spacing of
+ *   the returns' time index, in days): Hyperliquid samples a window at
+ *   uneven spacing (hours for a day, 9 h to a week for all time), and
+ *   CopyDog annualises by the typical one. Null with fewer than 2 returns
+ *   or no variance;
+ * - `maxDrawdownPct`: the largest fall of the equity line 1 + Σr from its
+ *   running peak (which starts at 1), ÷ that peak, capped at 1. Coarse
+ *   all-time sampling and a larger peak account value can make it smaller
+ *   than a shorter window's, on CopyDog too;
+ * - `maxDrawdownUsd`: separately, the largest fall of cumulative PnL from a
+ *   running peak (USD, ≥ 0).
+ */
+export function riskMetrics({ accountValue, pnl }: CapitalSeries): {
+  sharpe: number | null;
+  volatility: number | null;
+  maxDrawdownPct: number | null;
+  maxDrawdownUsd: number;
+  basis: { peakAccountValue: number | null; returns: number; skippedIntervals: number; periodsPerYear: number | null };
+} {
+  let maxDrawdownUsd = 0;
+  if (pnl.length > 0) {
+    let peak = pnl[0][1];
+    for (const [, v] of pnl) {
+      peak = Math.max(peak, v);
+      maxDrawdownUsd = Math.max(maxDrawdownUsd, peak - v);
+    }
+  }
+  const peakAccountValue = accountValue.reduce((m, [, v]) => Math.max(m, v), 0);
+  const returns: number[] = [];
+  /** When each kept return ends: the returns' time index. */
+  const times: number[] = [];
+  let skippedIntervals = 0;
+  for (let i = 1; i < pnl.length; i++) {
+    const prior = valueAt(accountValue, pnl[i - 1][0]);
+    if (prior === null || prior <= 0) {
+      skippedIntervals += 1;
+      continue;
+    }
+    returns.push((pnl[i][1] - pnl[i - 1][1]) / peakAccountValue);
+    times.push(pnl[i][0]);
+  }
+  // The spacing of the returns' own time index (so n − 1 gaps). Hyperliquid's
+  // spacing is often bimodal (daily, then ~9 h), and this median, not the
+  // intervals', is the one that reproduces CopyDog's figures.
+  const gaps = times.slice(1).map((t, i) => (t - times[i]) / DAY_MS);
+  const basis = { peakAccountValue: peakAccountValue > 0 ? peakAccountValue : null, returns: returns.length, skippedIntervals, periodsPerYear: null as number | null };
+  if (!(peakAccountValue > 0) || returns.length === 0) {
+    return { sharpe: null, volatility: null, maxDrawdownPct: null, maxDrawdownUsd, basis };
+  }
+  let equity = 1;
+  let peakEquity = 1;
+  let maxDrawdownPct = 0;
+  for (const r of returns) {
+    equity += r;
+    peakEquity = Math.max(peakEquity, equity);
+    maxDrawdownPct = Math.max(maxDrawdownPct, (peakEquity - equity) / peakEquity);
+  }
+  maxDrawdownPct = Math.min(1, maxDrawdownPct);
+  const typicalGap = median(gaps);
+  const periodsPerYear = typicalGap > 0 ? 365 / typicalGap : null;
+  basis.periodsPerYear = periodsPerYear;
+  if (returns.length < 2 || periodsPerYear === null) return { sharpe: null, volatility: null, maxDrawdownPct, maxDrawdownUsd, basis };
+  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const stdev = Math.sqrt(returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1));
+  // Below this the variance is rounding noise, not risk.
+  if (!(stdev > 1e-12)) return { sharpe: null, volatility: null, maxDrawdownPct, maxDrawdownUsd, basis };
+  return {
+    sharpe: (mean / stdev) * Math.sqrt(periodsPerYear),
+    volatility: stdev * Math.sqrt(periodsPerYear),
+    maxDrawdownPct,
+    maxDrawdownUsd,
+    basis,
+  };
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
 /** The value at `ts`: the point with that timestamp, else the latest one
@@ -231,134 +330,6 @@ function valueAt(series: Point[], ts: number): number | null {
     found = v;
   }
   return found;
-}
-
-/**
- * Flow-neutral (time-weighted) return of each interval between two PnL
- * points, keyed by the interval's end: [ts, r], or [ts, null] when the
- * interval is skipped.
- *
- * - The gain is the change in cumulative PnL (Hyperliquid's `pnlHistory`
- *   excludes deposits, withdrawals and transfers).
- * - Net flow F = change in the whole account's value − change in its PnL:
- *   money that moved in or out, not return.
- * - The base is the prior whole-account value V plus any deposit in the
- *   interval: V + max(F, 0) (Modified Dietz with deposits counted from the
- *   start of the interval and withdrawals at its end: the most capital that
- *   could have been at work). Since the account can't end the interval
- *   below 0, a loss never exceeds the base, so r ≥ −1.
- * - Skipped when the base is below MIN_BASE_USD or MIN_BASE_FRACTION of the
- *   window's largest account value (see those).
- */
-export function periodReturns(pnl: Point[], capital: CapitalSeries): Array<[number, number | null]> {
-  const peak = capital.accountValue.reduce((m, [, v]) => Math.max(m, v), 0);
-  const minBase = Math.max(MIN_BASE_USD, MIN_BASE_FRACTION * peak);
-  const netDeposits = (ts: number): number | null => {
-    const av = valueAt(capital.accountValue, ts);
-    const p = valueAt(capital.pnl, ts);
-    return av === null || p === null ? null : av - p;
-  };
-  const out: Array<[number, number | null]> = [];
-  for (let i = 1; i < pnl.length; i++) {
-    const [t0, p0] = pnl[i - 1];
-    const [t1, p1] = pnl[i];
-    const prior = valueAt(capital.accountValue, t0);
-    const d0 = netDeposits(t0);
-    const d1 = netDeposits(t1);
-    const flow = d0 === null || d1 === null ? 0 : d1 - d0;
-    const base = (prior ?? 0) + Math.max(flow, 0);
-    out.push([t1, base >= minBase ? Math.max(-1, (p1 - p0) / base) : null]);
-  }
-  return out;
-}
-
-/**
- * Risk and return of one portfolio window (§10, 競品分析 §3.1–3.2), all
- * from the flow-neutral interval returns rᵢ of `periodReturns`, so
- * deposits and withdrawals never read as gains, losses or drawdowns:
- *
- * - `cumulativeReturn`: the time-weighted return index minus one at each
- *   PnL point, [ts, ∏(1 + rᵢ) − 1], starting at 0 (skipped intervals count
- *   as 0 %).
- * - `roi`: its last value: what one dollar kept in the account over the
- *   whole window would have returned. Null without a single usable
- *   interval.
- * - `maxDrawdownPct`: the largest fall of the index from a running peak,
- *   1 − index ÷ peak, so always within 0–1 (1 = the account was wiped out).
- *   Null without a usable interval.
- * - `maxDrawdownUsd`: separately, the largest fall of cumulative PnL from a
- *   running peak (USD, ≥ 0).
- * - `sharpe`: the index resampled to UTC days (each day's growth compounds
- *   the intervals ending that day; days without a point return 0), as log
- *   returns ln(growth) (a wiped-out day floored at WIPEOUT_FLOOR); mean ÷
- *   sample stdev (n − 1), risk-free rate 0, × √365. Log returns keep its
- *   sign equal to the ROI's. Null with fewer than SHARPE_MIN_DAYS daily
- *   returns or zero variance.
- */
-export function portfolioMetrics(pnl: Point[], capital: CapitalSeries): PortfolioMetrics {
-  let maxDrawdownUsd = 0;
-  if (pnl.length > 0) {
-    let peak = pnl[0][1];
-    for (const [, v] of pnl) {
-      peak = Math.max(peak, v);
-      maxDrawdownUsd = Math.max(maxDrawdownUsd, peak - v);
-    }
-  }
-
-  const returns = periodReturns(pnl, capital);
-  const usable = returns.some(([, r]) => r !== null);
-  const cumulativeReturn: Point[] = pnl.length > 0 ? [[pnl[0][0], 0]] : [];
-  let index = 1;
-  let peakIndex = 1;
-  let maxDrawdownPct = 0;
-  for (const [ts, r] of returns) {
-    index *= 1 + (r ?? 0);
-    peakIndex = Math.max(peakIndex, index);
-    if (peakIndex > 0) maxDrawdownPct = Math.max(maxDrawdownPct, 1 - index / peakIndex);
-    cumulativeReturn.push([ts, index - 1]);
-  }
-
-  const excludedIntervals = returns.filter(([, r]) => r === null).length;
-  return {
-    methodology: {
-      version: "flow-neutral-v1",
-      intervals: returns.length,
-      excludedIntervals,
-      excludedFraction: returns.length ? excludedIntervals / returns.length : null,
-      capitalFloorUsd: Math.max(MIN_BASE_USD, MIN_BASE_FRACTION * capital.accountValue.reduce((peak, [, v]) => Math.max(peak, v), 0)),
-      quality: !usable ? "unavailable" : excludedIntervals ? "partial" : "observed",
-    },
-    maxDrawdownUsd,
-    maxDrawdownPct: usable ? maxDrawdownPct : null,
-    sharpe: usable ? dailySharpe(pnl[0][0], returns) : null,
-    roi: usable ? index - 1 : null,
-    cumulativeReturn,
-  };
-}
-
-/** A day that lost everything counts as this much growth (−99.99 %) in
- * the Sharpe ratio, whose log return would otherwise be −∞. */
-export const WIPEOUT_FLOOR = 1e-4;
-
-/** Annualized Sharpe of the daily-resampled log returns (see
- * `portfolioMetrics`). */
-function dailySharpe(start: number, returns: Array<[number, number | null]>): number | null {
-  if (returns.length === 0) return null;
-  const firstDay = Math.floor(start / DAY_MS);
-  const days = Math.floor(returns[returns.length - 1][0] / DAY_MS) - firstDay + 1;
-  if (days < SHARPE_MIN_DAYS) return null;
-  const growth = Array.from({ length: days }, () => 1);
-  for (const [ts, r] of returns) growth[Math.floor(ts / DAY_MS) - firstDay] *= 1 + (r ?? 0);
-  // Log returns: their mean has the sign of the window's compounded return,
-  // so the Sharpe never contradicts the ROI next to it (a simple-return mean
-  // can stay positive through a −100% day). A wiped-out day is floored.
-  const daily = growth.map((g) => Math.log(Math.max(g, WIPEOUT_FLOOR)));
-  const mean = daily.reduce((s, r) => s + r, 0) / days;
-  const variance = daily.reduce((s, r) => s + (r - mean) ** 2, 0) / (days - 1);
-  const stdev = Math.sqrt(variance);
-  // Below this the variance is rounding noise, not risk.
-  if (!(stdev > 1e-12)) return null;
-  return (mean / stdev) * Math.sqrt(365);
 }
 
 /** Evenly spaced subset of at most `max` points, always keeping the first

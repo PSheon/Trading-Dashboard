@@ -24,9 +24,9 @@ import { LiveFeed } from "./live-feed";
 import {
   KpiTiles,
   PerformanceChart,
-  TRADE_WINDOW,
   windowRoi,
   type ChartMode,
+  type KpiPeriod,
   type ChartUnit,
   type Market,
 } from "./performance";
@@ -73,11 +73,15 @@ function TraderLoaded({ address }: { address: string }) {
   const portfolio = usePortfolio(address, window, market);
   const allTime = usePortfolio(address, "allTime", market);
   const settings = useSiteSettings();
-  // Round trips for any address: all-time for the rail and the tabs, the
-  // chart's window for the win-rate tile. A cold address computes on the
-  // api for a while (503 busy, retried).
+  // Round trips for any address, all-time (the rail, the tabs and the
+  // win-rate tile). A cold address computes on the api for a while (503
+  // busy, retried).
   const tradesAll = useTraderAnalytics(address, "all");
-  const tradesWindow = useTraderAnalytics(address, TRADE_WINDOW[window]);
+  // The KPI tiles, as CopyDog's: 表現 / ROI follow their own All / 30D / 7D
+  // period (perp), Sharpe, drawdown and win rate are all-time.
+  const [kpiPeriod, setKpiPeriod] = useState<KpiPeriod>("allTime");
+  const kpiPortfolio = usePortfolio(address, kpiPeriod, "perp");
+  const allTimePerp = usePortfolio(address, "allTime", "perp");
   // Positions, account value, fills and marks straight from Hyperliquid's
   // WebSocket, over the REST profile (initial state and fallback).
   const live = useLiveTrader(address, profile.data);
@@ -116,14 +120,13 @@ function TraderLoaded({ address }: { address: string }) {
         ) : null}
         {profile.data ? (
           <KpiTiles
-            profile={profile.data}
-            portfolio={portfolio.data}
-            allTime={allTime.data}
-            window={window}
-            market={market}
+            period={kpiPeriod}
+            onPeriod={setKpiPeriod}
+            periodPortfolio={kpiPortfolio.data?.window === kpiPeriod ? kpiPortfolio.data : undefined}
+            allTime={allTimePerp.data}
             lowSample={lowSample}
-            trades={tradesWindow.data?.window === TRADE_WINDOW[window] ? tradesWindow.data : undefined}
-            tradesComputing={isComputing(tradesWindow) || (tradesWindow.isPlaceholderData && tradesWindow.isFetching)}
+            trades={tradesAll.data}
+            tradesComputing={isComputing(tradesAll)}
           />
         ) : profile.isError ? null : (
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">

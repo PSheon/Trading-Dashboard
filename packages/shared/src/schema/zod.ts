@@ -651,7 +651,9 @@ export type PortfolioQuery = z.infer<typeof portfolioQuerySchema>;
 
 export const seriesPointSchema = z.tuple([z.number(), z.number()]);
 export const portfolioResponseSchema = z.object({
-  /** Additive during rolling deployment. Observed intervals do not prove complete source history. */
+  /** @deprecated The flow-neutral estimate's disclosure; no longer sent
+   * (metrics follow CopyDog's definitions, see `basis`). Kept optional so
+   * older responses still parse. */
   methodology: z.object({
     version: z.literal("flow-neutral-v1"),
     intervals: z.number().int().nonnegative(),
@@ -659,6 +661,23 @@ export const portfolioResponseSchema = z.object({
     excludedFraction: z.number().min(0).max(1).nullable(),
     capitalFloorUsd: z.number().nonnegative(),
     quality: z.enum(["observed", "partial", "unavailable"]),
+  }).optional(),
+  /** What the metrics were computed from (CopyDog's definitions, verified
+   * against its public API 2026-09-30). Additive: optional while older api
+   * builds roll out. */
+  basis: z.object({
+    version: z.literal("copydog-v1"),
+    /** Peak net deposits of this market's series, the ROI's denominator:
+     * max over the window of (account value − PnL). Null when ≤ 0. */
+    capital: z.number().nullable(),
+    /** Peak whole-account value over the window: the Sharpe / drawdown
+     * returns' denominator. */
+    peakAccountValue: z.number().nullable(),
+    /** Interval returns behind the Sharpe (intervals from an empty account
+     * skipped) and the annualisation used (365 ÷ median interval, days). */
+    returns: z.number().int().nonnegative(),
+    skippedIntervals: z.number().int().nonnegative(),
+    periodsPerYear: z.number().nullable(),
   }).optional(),
   window: traderWindowSchema,
   market: z.enum(["all", "perp"]),
@@ -668,33 +687,34 @@ export const portfolioResponseSchema = z.object({
   /** Largest peak-to-trough fall of the window's cumulative PnL (USD, ≥ 0). */
   maxDrawdownUsd: z.number(),
   /**
-   * Largest peak-to-trough fall of the time-weighted return index (see
-   * `cumulativeReturn`), 0–1; 1 = the account was wiped out at some point.
-   * Deposits and withdrawals don't move it. Null without a usable interval.
+   * CopyDog's max drawdown, 0–1, of the whole account (perp + spot, whatever
+   * `market`): interval returns rᵢ = ΔPnLᵢ ÷ the window's peak account value
+   * (intervals from an empty account skipped); the largest fall of 1 + Σr
+   * from its running peak, ÷ that peak, capped at 1. Deposits and
+   * withdrawals don't move it. Coarse all-time sampling can make it smaller
+   * than a shorter window's, as on CopyDog. Null without a usable interval.
    */
   maxDrawdownPct: z.number().nullable(),
   /**
-   * Annualized Sharpe ratio of the time-weighted returns resampled to UTC
-   * days, as log returns (days without a point return 0; a wiped-out day
-   * counts as −99.99 %): mean ÷ sample stdev × √365, risk-free rate 0. Its
-   * sign always matches `roi`'s. Null with fewer than 7 daily returns (e.g.
-   * the "day" window) or zero variance.
+   * CopyDog's Sharpe of the whole account over the window: mean(r) ÷ sample
+   * stdev(r) × √(365 ÷ median interval in days), r as for `maxDrawdownPct`,
+   * risk-free rate 0, Hyperliquid's latest (live) point included. Null with
+   * fewer than 2 returns or zero variance.
    */
   sharpe: z.number().nullable(),
+  /** Annualised volatility of the same returns: stdev(r) × √(365 ÷ median
+   * interval). Additive. */
+  volatility: z.number().nullable().optional(),
   /**
-   * The window's time-weighted return: the last `cumulativeReturn` value,
-   * what a dollar kept in the account for the whole window would have
-   * returned. Flow-neutral, so defined even when more was withdrawn than
-   * deposited. Null without a usable interval. The trader page's ROI.
+   * CopyDog's ROI for this market and window: its PnL ÷ `basis.capital`
+   * (peak net deposits), so deposits and withdrawals don't count as return.
+   * 0 when nothing was ever deposited; null without data. The trader page's
+   * ROI tile and the chart's ROI pill.
    */
   roi: z.number().nullable(),
   /**
-   * Time-weighted return index − 1 at each `pnl` point, starting at 0.
-   * Interval i returns ΔPnLᵢ ÷ (whole-account value at its start + any net
-   * deposit during it), where net deposit = Δaccount value − ΔPnL of the
-   * whole account ("all" market, also for "perp": perp account value isn't
-   * meaningful in unified / portfolio-margin accounts). Intervals whose base
-   * is under $10 or 1% of the window's largest account value count as 0.
+   * PnL ÷ `basis.capital` at each `pnl` point (starting at 0), so the chart's
+   * % mode ends at `roi`.
    */
   cumulativeReturn: z.array(seriesPointSchema),
 });

@@ -187,9 +187,9 @@ export function portfolioFor(address: string, window: TraderWindow, market: "all
   return withRisk({ accountValue, pnl, volume: stats.volume[window] });
 }
 
-/** Drawdown, Sharpe and ROI, computed the way the contract describes them
- * (flow-neutral time-weighted returns; a simplified copy of the api's
- * `portfolioMetrics`, without its dust guard). */
+/** ROI, Sharpe and drawdown, computed the way the contract describes them
+ * (CopyDog's definitions; a simplified copy of the api's `returnMetrics`
+ * and `riskMetrics`, on the fixture's single series). */
 function withRisk(series: {
   accountValue: [number, number][];
   pnl: [number, number][];
@@ -202,43 +202,40 @@ function withRisk(series: {
     peakPnl = Math.max(peakPnl, v);
     maxDrawdownUsd = Math.max(maxDrawdownUsd, peakPnl - v);
   }
-  const cumulativeReturn: [number, number][] = pnl.length > 0 ? [[pnl[0][0], 0]] : [];
-  const daily = new Map<number, number>();
-  let index = 1;
+  // ROI: PnL ÷ peak net deposits.
+  const capital = Math.max(0, ...pnl.map(([, p], i) => (accountValue[i]?.[1] ?? 0) - p));
+  const cumulativeReturn: [number, number][] = pnl.map(([t, p]) => [t, capital > 0 ? p / capital : 0]);
+  // Sharpe / drawdown: ΔPnL ÷ peak account value.
+  const peakAv = Math.max(0, ...accountValue.map(([, v]) => v));
+  const returns: number[] = [];
+  const times: number[] = [];
+  for (let i = 1; i < pnl.length; i++) {
+    if ((accountValue[i - 1]?.[1] ?? 0) <= 0 || peakAv <= 0) continue;
+    returns.push((pnl[i][1] - pnl[i - 1][1]) / peakAv);
+    times.push(pnl[i][0]);
+  }
+  let equity = 1;
   let peak = 1;
   let maxDrawdownPct = 0;
-  let usable = false;
-  for (let i = 1; i < pnl.length; i++) {
-    const prior = accountValue[i - 1]?.[1] ?? 0;
-    const gain = pnl[i][1] - pnl[i - 1][1];
-    const flow = (accountValue[i]?.[1] ?? prior) - prior - gain;
-    const base = prior + Math.max(flow, 0);
-    const r = base > 0 ? Math.max(-1, gain / base) : 0;
-    usable ||= base > 0;
-    index *= 1 + r;
-    peak = Math.max(peak, index);
-    maxDrawdownPct = Math.max(maxDrawdownPct, 1 - index / peak);
-    cumulativeReturn.push([pnl[i][0], index - 1]);
-    const day = Math.floor(pnl[i][0] / 86400_000);
-    daily.set(day, (daily.get(day) ?? 1) * (1 + r));
+  for (const r of returns) {
+    equity += r;
+    peak = Math.max(peak, equity);
+    maxDrawdownPct = Math.max(maxDrawdownPct, (peak - equity) / peak);
   }
   let sharpe: number | null = null;
-  if (pnl.length > 1) {
-    const first = Math.floor(pnl[0][0] / 86400_000);
-    const days = Math.floor(pnl.at(-1)![0] / 86400_000) - first + 1;
-    if (days >= 7) {
-      const returns = Array.from({ length: days }, (_, d) => Math.log(Math.max(1e-4, daily.get(first + d) ?? 1)));
-      const mean = returns.reduce((a, b) => a + b, 0) / days;
-      const std = Math.sqrt(returns.reduce((a, b) => a + (b - mean) ** 2, 0) / (days - 1));
-      sharpe = std > 0 ? (mean / std) * Math.sqrt(365) : null;
-    }
+  if (returns.length > 2) {
+    const gaps = times.slice(1).map((t, i) => (t - times[i]) / 86400_000).sort((a, b) => a - b);
+    const gap = gaps[Math.floor(gaps.length / 2)];
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const std = Math.sqrt(returns.reduce((a, b) => a + (b - mean) ** 2, 0) / (returns.length - 1));
+    sharpe = std > 0 && gap > 0 ? (mean / std) * Math.sqrt(365 / gap) : null;
   }
   return {
     ...series,
     maxDrawdownUsd,
-    maxDrawdownPct: usable ? maxDrawdownPct : null,
-    sharpe: usable ? sharpe : null,
-    roi: usable ? index - 1 : null,
+    maxDrawdownPct: returns.length ? Math.min(1, maxDrawdownPct) : null,
+    sharpe,
+    roi: pnl.length ? cumulativeReturn.at(-1)![1] : null,
     cumulativeReturn,
   };
 }

@@ -5,6 +5,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put } from "@nes
 import { type Favorite, type MeResponse } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
+import { AccountDeletionService } from "./account-deletion.service.js";
 import { FavoritesService } from "./favorites.service.js";
 import { ProfileService } from "./profile.service.js";
 
@@ -17,6 +18,7 @@ export class MeController {
   constructor(
     private readonly profile: ProfileService,
     private readonly favorites: FavoritesService,
+    private readonly deletion: AccountDeletionService,
   ) {}
 
   @ApiDoc("Get me")
@@ -30,6 +32,17 @@ export class MeController {
   patchMe(@CurrentUser() user: RequestUser | null, @Body() body: PatchMeDto): Promise<MeResponse> {
     const userId = requireUserId(user);
     return this.profile.patch(userId, body);
+  }
+
+  /** Deletes the caller's Orbie account and everything it owns here
+   * (favorites, groups, alerts, Telegram link, settings). The Privy login
+   * and embedded wallet are not touched. 409 `last_admin` for the only
+   * enabled admin. */
+  @ApiDoc("Delete my account", "Deletes the Orbie account and its data; the Privy wallet and funds are not affected.")
+  @Delete()
+  @HttpCode(204)
+  async deleteMe(@CurrentUser() user: RequestUser | null): Promise<void> {
+    await this.deletion.delete(requireUserId(user));
   }
 
   @ApiDoc("List favorites")

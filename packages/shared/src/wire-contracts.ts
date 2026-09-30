@@ -108,6 +108,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/:address/transfers", status: 200, auth: "public; 503 busy", response: wireTraderTransfersSchema },
   { method: "GET", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "PATCH", path: "/me", status: 200, auth: "user", response: wireMeSchema },
+  { method: "DELETE", path: "/me", status: 204, auth: "user; 409 last_admin", response: z.undefined() },
   { method: "GET", path: "/me/favorites", status: 200, auth: "user", response: z.array(wireFavoriteSchema) },
   { method: "PUT", path: "/me/favorites/:address", status: 200, auth: "user", response: wireFavoriteSchema },
   { method: "DELETE", path: "/me/favorites/:address", status: 204, auth: "user", response: z.undefined() },

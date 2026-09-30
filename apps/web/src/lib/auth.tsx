@@ -1,5 +1,6 @@
 "use client";
 
+import { queryKeys } from "@/lib/query-keys";
 import type { Permission } from "@trading-dashboard/shared/contracts";
 import { hasPermission } from "@/lib/permissions";
 import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
@@ -50,8 +51,8 @@ export function useAuth(): AuthState {
 export function useMe() {
   const { status } = useAuth();
   return useQuery({
-    queryKey: ["me"],
-    queryFn: () => api.get<MeResponse>("/me"),
+    queryKey: queryKeys.me,
+    queryFn: ({ signal }) => api.get<MeResponse>("/me", signal),
     enabled: status === "signedIn",
     staleTime: 15_000,
     refetchInterval: 30_000,

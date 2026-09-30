@@ -228,3 +228,11 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Ruling: this completes the named service persistence/JSDoc/bootstrap alignment scope, not the separately documented multi-instance watcher ownership, live copy execution or deferred R4–R9/scoring features. Those must not be represented as implemented by moving persistence code.
 - Final verification passed: API 61 files / 735 tests, typecheck/lint/build, OpenAPI freshness and 4/4 specification tests. Compiled app verified real DI, readiness 200/503, global DTO rejection and runtime/offline Swagger equality. All service files pass the recursive persistence gate; no direct service Drizzle/schema imports remain.
 - Dev stayed at e06c68f during verification; frontend/shared/schema/dependencies unchanged. No push, deployment, real notification, trade or production migration. Owned disposable PostgreSQL is cleaned up after verification.
+
+## Batch 17 — Frontend query boundaries (base 1057132)
+
+- Compared actual DonutMe query keys/config, API fetcher, query provider and API-key service/hooks; read installed Next 16.3.6 client/query documentation.
+- Centralized cache keys without changing tuple identities, unified retry policy, propagated read cancellation, reused profile query options and extracted admin-user query/mutation orchestration. Preserved identity-scoped QueryClient and live-stream behavior.
+- Corrected obsolete bootstrap WebSocket JSDoc. Added `docs/donutme-frontend-architecture-audit.md` with adopted patterns, retained strengths, minimal layering conventions and explicit remaining differences.
+- Scope decision: keep simple one-off admin queries inline and endpoint polling unchanged; no repository/service boilerplate or SSR cache introduced. These are design choices for the user's simplicity requirement, not claims of complete DonutMe or CopyDog parity.
+- Validation and final review: pending.

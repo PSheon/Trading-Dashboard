@@ -1,5 +1,6 @@
 "use client";
 
+import { queryKeys } from "@/lib/query-keys";
 import { useQuery } from "@tanstack/react-query";
 import type { ActionFeedItem, ActionKind, Fill } from "@/lib/contracts";
 import { ChevronDown } from "lucide-react";
@@ -152,8 +153,8 @@ export function ActionsTable({
 function FillsRow({ actionId, colSpan }: { actionId: string; colSpan: number }) {
   const { t, format } = useI18n();
   const { data, isLoading } = useQuery({
-    queryKey: ["action-fills", actionId],
-    queryFn: () => api.get<Fill[]>(`/actions/${actionId}/fills`),
+    queryKey: queryKeys.actions.fills(actionId),
+    queryFn: ({ signal }) => api.get<Fill[]>(`/actions/${actionId}/fills`, signal),
     refetchInterval: false,
   });
 

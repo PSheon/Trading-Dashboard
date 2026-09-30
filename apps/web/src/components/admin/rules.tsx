@@ -1,4 +1,5 @@
 "use client";
+import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/lib/auth";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,13 +17,13 @@ export function AdminRules() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const rules = useQuery({
-    queryKey: ["admin", "rules"],
-    queryFn: () => api.get<AlertRule[]>("/alert-rules"),
+    queryKey: queryKeys.admin.rules,
+    queryFn: ({ signal }) => api.get<AlertRule[]>("/alert-rules", signal),
     refetchInterval: false,
   });
   const save = useMutation<AlertRule, ApiError, UpsertAlertRuleRequest>({
     mutationFn: (body) => api.post<AlertRule>("/alert-rules", body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "rules"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.admin.rules }),
   });
 
   return (

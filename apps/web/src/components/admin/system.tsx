@@ -1,5 +1,6 @@
 "use client";
 
+import { queryKeys } from "@/lib/query-keys";
 import { useQuery } from "@tanstack/react-query";
 import type { HeartbeatResponse } from "@/lib/contracts";
 import { cn } from "cn";
@@ -13,8 +14,8 @@ import { truncateAddress } from "@/lib/format";
 export function AdminSystem() {
   const { t, format } = useI18n();
   const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => api.get<HeartbeatResponse>("/health"),
+    queryKey: queryKeys.health,
+    queryFn: ({ signal }) => api.get<HeartbeatResponse>("/health", signal),
   });
   const time = (v: Date | string | null) => (v ? `${format.relative(v)} · ${format.time(v)}` : t("common.never"));
 

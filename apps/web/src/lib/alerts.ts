@@ -1,5 +1,6 @@
 "use client";
 
+import { queryKeys } from "@/lib/query-keys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Favorite,
@@ -17,7 +18,7 @@ import { useAuth } from "@/lib/auth";
  * (CopyDog-style: side + minimum size, up to `maxAlertTraders` traders).
  */
 
-export const TELEGRAM_KEY = ["telegram"] as const;
+export const TELEGRAM_KEY = queryKeys.telegram;
 
 /** GET /me/telegram. While the page waits for the user to press Start in
  * Telegram, `pollUntil` (epoch ms, the link's expiry) makes it poll every
@@ -27,7 +28,7 @@ export function useTelegramStatus(options: { pollMs?: number; pollUntil?: number
   const { pollMs = 2_000, pollUntil = null } = options;
   return useQuery({
     queryKey: TELEGRAM_KEY,
-    queryFn: () => api.get<TelegramStatus>("/me/telegram"),
+    queryFn: ({ signal }) => api.get<TelegramStatus>("/me/telegram", signal),
     enabled: status === "signedIn",
     refetchInterval: (query) =>
       pollUntil !== null && Date.now() < pollUntil && !query.state.data?.linked ? pollMs : false,
@@ -63,11 +64,11 @@ export function useSetFavoriteAlert() {
   return useMutation<Favorite, ApiError, { address: string; patch: PatchFavoriteAlertRequest }>({
     mutationFn: ({ address, patch }) => api.patch<Favorite>(`/me/favorites/${address}/alert`, patch),
     onSuccess: (saved) => {
-      queryClient.setQueryData<Favorite[]>(["favorites"], (list) =>
+      queryClient.setQueryData<Favorite[]>(queryKeys.favorites, (list) =>
         list?.map((f) => (f.address === saved.address ? saved : f)),
       );
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["favorites"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.favorites }),
   });
 }
 
@@ -77,14 +78,14 @@ export function useAddFavorite() {
   return useMutation<Favorite, ApiError, string>({
     mutationFn: (address) => api.put<Favorite>(`/me/favorites/${address}`),
     onSuccess: (saved) => {
-      queryClient.setQueryData<Favorite[]>(["favorites"], (list) =>
+      queryClient.setQueryData<Favorite[]>(queryKeys.favorites, (list) =>
         list ? [saved, ...list.filter((f) => f.address !== saved.address)] : list,
       );
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
-      void queryClient.invalidateQueries({ queryKey: ["trader"] });
-      void queryClient.invalidateQueries({ queryKey: ["traders"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.favorites });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.trader.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.traders.all });
     },
   });
 }

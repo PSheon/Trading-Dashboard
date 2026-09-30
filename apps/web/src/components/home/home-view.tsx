@@ -17,7 +17,7 @@ import { TraderName } from "@/components/traders/trader-name";
 import { TradersTable } from "@/components/traders/traders-table";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
-import { api } from "@/lib/api";
+import { traderProfileOptions } from "@/lib/trader-query-options";
 import { coinDex, coinLabel, toNumber } from "@/lib/format";
 import { useSiteSettings, useSparklines, useTraders } from "@/lib/queries";
 import { useLiveMids } from "@/lib/use-live-mids";
@@ -34,8 +34,7 @@ export function HomeView() {
   const featuredAddresses = settings.data?.featuredAddresses ?? [];
   const featuredProfiles = useQueries({
     queries: featuredAddresses.map((address) => ({
-      queryKey: ["trader", address.toLowerCase()],
-      queryFn: () => api.get<TraderProfileResponse>(`/traders/${address.toLowerCase()}`),
+      ...traderProfileOptions(address.toLowerCase()),
       staleTime: 60_000,
       refetchInterval: false as const,
     })),

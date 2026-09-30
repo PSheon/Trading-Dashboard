@@ -1,4 +1,5 @@
 "use client";
+import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/lib/auth";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,8 +44,8 @@ const SCHEMAS: Record<Section, ZodTypeAny> = {
 export function AdminSettingsForm() {
   const { t } = useI18n();
   const settings = useQuery({
-    queryKey: ["admin", "settings"],
-    queryFn: () => api.get<AdminSettingsSnapshot>("/admin/settings"),
+    queryKey: queryKeys.admin.settings,
+    queryFn: ({ signal }) => api.get<AdminSettingsSnapshot>("/admin/settings", signal),
     refetchInterval: false,
   });
 
@@ -93,8 +94,8 @@ function useSaveSection<S extends Section>(section: S) {
         [section]: patch, expectedRevisions: { [section]: revision },
       } as PatchAdminSettingsRequest),
     onSuccess: (data) => {
-      queryClient.setQueryData(["admin", "settings"], data);
-      void queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+      queryClient.setQueryData(queryKeys.admin.settings, data);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.siteSettings });
     },
   });
 }
@@ -124,7 +125,7 @@ function FormCard<S extends Section>({
   const reload = useMutation({
     mutationFn: () => api.get<AdminSettingsSnapshot>("/admin/settings"),
     onSuccess: (data) => {
-      queryClient.setQueryData(["admin", "settings"], data);
+      queryClient.setQueryData(queryKeys.admin.settings, data);
       onSaved(data[section], data.revisions[section]);
       setClientError(undefined);
       save.reset();

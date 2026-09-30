@@ -1,5 +1,6 @@
 "use client";
 
+import { queryKeys } from "@/lib/query-keys";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { AdminRevenueResponse } from "@/lib/contracts";
 import { Coins, Settings, Wallet } from "lucide-react";
@@ -37,8 +38,8 @@ export function AdminRevenue() {
   const { t, format } = useI18n();
   const [range, setRange] = useState<Range>("30d");
   const revenue = useQuery({
-    queryKey: ["admin", "revenue", range],
-    queryFn: () => api.get<AdminRevenueResponse>(`/admin/revenue?range=${range}`),
+    queryKey: queryKeys.admin.revenue(range),
+    queryFn: ({ signal }) => api.get<AdminRevenueResponse>(`/admin/revenue?range=${range}`, signal),
     placeholderData: keepPreviousData,
     refetchInterval: 5 * 60_000,
   });

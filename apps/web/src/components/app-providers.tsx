@@ -1,15 +1,14 @@
 "use client";
 
-
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages";
 import { I18nProvider } from "@/i18n/provider";
 import { AuthProvider } from "@/lib/auth";
 
 /**
- * Client-side providers: i18n (active catalog from the server), React Query
- * (§11 決策紀錄: poll REST, no WS to the browser — each query sets its own
- * cadence, 10 s by default) and auth (Privy when configured).
+ * Client bootstrap: server-selected translations and Privy authentication.
+ * Auth owns an identity-scoped QueryClient. Queries set their polling cadence;
+ * action SSE and trader WebSockets provide live updates with REST fallback.
  */
 export function AppProviders({
   locale,

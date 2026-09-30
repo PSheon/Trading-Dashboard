@@ -1,0 +1,43 @@
+/** Shared cache identities. Preserve tuple prefixes used by mutations and SSE. */
+export const queryKeys = {
+  siteSettings: ["site-settings"] as const,
+  crowd: ["crowd"] as const,
+  me: ["me"] as const,
+  health: ["health"] as const,
+  favorites: ["favorites"] as const,
+  telegram: ["telegram"] as const,
+  traders: {
+    all: ["traders"] as const,
+    list: (qs: string) => ["traders", qs] as const,
+  },
+  sparklines: (window: string, addresses: string) => ["sparklines", window, addresses] as const,
+  trader: {
+    all: ["trader"] as const,
+    profile: (address: string) => ["trader", address] as const,
+    activity: (address: string) => ["trader-activity", address] as const,
+    portfolio: (address: string, window: string, market: string) => ["portfolio", address, window, market] as const,
+    analytics: (address: string, window: string) => ["trader-analytics", address, window] as const,
+    trades: (address: string, status: string) => ["trader-trades", address, status] as const,
+    orders: (address: string) => ["trader-orders", address] as const,
+    twap: (address: string) => ["trader-twap", address] as const,
+    transfers: (address: string) => ["trader-transfers", address] as const,
+    fills: (address: string, limit: number) => ["trader-fills", address, limit] as const,
+  },
+  actions: {
+    all: ["actions"] as const,
+    list: (qs: string) => ["actions", qs] as const,
+    fills: (id: string) => ["action-fills", id] as const,
+  },
+  alerts: (qs: string) => ["alerts", qs] as const,
+  admin: {
+    users: {
+      all: ["admin", "users"] as const,
+      list: (qs: string) => ["admin", "users", qs] as const,
+    },
+    revenue: (range: string) => ["admin", "revenue", range] as const,
+    lists: ["admin", "lists"] as const,
+    overview: ["admin", "overview"] as const,
+    rules: ["admin", "rules"] as const,
+    settings: ["admin", "settings"] as const,
+  },
+};

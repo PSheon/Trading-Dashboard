@@ -1,5 +1,8 @@
 "use client";
 
+import { busyRetry, computingRetry } from "@/lib/query-policy";
+import { traderProfileOptions } from "@/lib/trader-query-options";
+import { queryKeys } from "@/lib/query-keys";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ActionFeedItem,
@@ -16,7 +19,6 @@ import type {
   TradeWindow,
   TraderFill,
   TraderOrdersResponse,
-  TraderProfileResponse,
   TradersResponse,
   TraderTransfersResponse,
   TraderTwapsResponse,
@@ -42,8 +44,8 @@ import { isStreamingTrader } from "@/lib/use-live-trader";
  * code). */
 export function useSiteSettings() {
   return useQuery({
-    queryKey: ["site-settings"],
-    queryFn: () => api.get<PublicSettings>("/settings"),
+    queryKey: queryKeys.siteSettings,
+    queryFn: ({ signal }) => api.get<PublicSettings>("/settings", signal),
     staleTime: 5 * 60_000,
     refetchInterval: false,
   });
@@ -51,8 +53,8 @@ export function useSiteSettings() {
 
 export function useCrowd() {
   return useQuery({
-    queryKey: ["crowd"],
-    queryFn: () => api.get<CrowdResponse>("/insights/crowd"),
+    queryKey: queryKeys.crowd,
+    queryFn: ({ signal }) => api.get<CrowdResponse>("/insights/crowd", signal),
     refetchInterval: 60_000,
   });
 }
@@ -86,8 +88,8 @@ export function useTraders(params: TradersParams) {
   if (params.hideVaults !== undefined) qs.set("hideVaults", String(params.hideVaults));
   if (params.active !== undefined) qs.set("active", params.active);
   return useQuery({
-    queryKey: ["traders", qs.toString()],
-    queryFn: () => api.get<TradersResponse>(`/traders?${qs.toString()}`),
+    queryKey: queryKeys.traders.list(qs.toString()),
+    queryFn: ({ signal }) => api.get<TradersResponse>(`/traders?${qs.toString()}`, signal),
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
   });
@@ -112,10 +114,11 @@ export function missingSparklines(addresses: string[], data: SparklinesResponse 
 export function useSparklines(addresses: string[], window: TraderWindow = "month") {
   const key = addresses.join(",");
   return useQuery({
-    queryKey: ["sparklines", window, key],
-    queryFn: () =>
+    queryKey: queryKeys.sparklines(window, key),
+    queryFn: ({ signal }) =>
       api.get<SparklinesResponse>(
         `/traders/sparklines?addresses=${encodeURIComponent(key)}&window=${window}`,
+        signal,
       ),
     enabled: addresses.length > 0,
     staleTime: 10 * 60_000,
@@ -126,23 +129,6 @@ export function useSparklines(addresses: string[], window: TraderWindow = "month
   });
 }
 
-/**
- * Trader-page requests answer 503 `{code: "busy"}` when the api's
- * Hyperliquid budget can't serve them in time (e.g. right after a deploy).
- * Those are retried after their Retry-After for a couple of minutes, and
- * the page shows a "retrying" state meanwhile; other errors keep React
- * Query's default of 3 retries.
- */
-const BUSY_MAX_RETRIES = 12;
-const busyRetry = {
-  retry: (failureCount: number, error: Error) =>
-    failureCount < (isBusy(error) ? BUSY_MAX_RETRIES : 3),
-  retryDelay: (attempt: number, error: Error) =>
-    isBusy(error)
-      ? Math.min(30_000, error.retryAfterMs ?? 5_000)
-      : Math.min(1000 * 2 ** attempt, 30_000),
-};
-
 /** While the trader page streams an address from Hyperliquid's WebSocket,
  * its REST data is only the fallback: refresh it rarely. */
 const POLL_MS = 30_000;
@@ -152,8 +138,7 @@ const livePoll = (address: string) => () => (isStreamingTrader(address) ? POLL_W
 /** GET /traders/:address: the first paint (account, positions, stats). */
 export function useTraderProfile(address: string) {
   return useQuery({
-    queryKey: ["trader", address],
-    queryFn: () => api.get<TraderProfileResponse>(`/traders/${address}`),
+    ...traderProfileOptions(address),
     refetchInterval: query => query.state.data?.dataQuality?.partial ? 5_000 : livePoll(address)(),
     ...busyRetry,
   });
@@ -163,8 +148,8 @@ export function useTraderProfile(address: string) {
  * alongside the profile (it costs the api more and arrives later). */
 export function useTraderActivity(address: string) {
   return useQuery({
-    queryKey: ["trader-activity", address],
-    queryFn: () => api.get<TraderActivityResponse>(`/traders/${address}/activity`),
+    queryKey: queryKeys.trader.activity(address),
+    queryFn: ({ signal }) => api.get<TraderActivityResponse>(`/traders/${address}/activity`, signal),
     refetchInterval: 60_000,
     ...busyRetry,
   });
@@ -172,9 +157,9 @@ export function useTraderActivity(address: string) {
 
 export function usePortfolio(address: string, window: TraderWindow, market: "all" | "perp") {
   return useQuery({
-    queryKey: ["portfolio", address, window, market],
-    queryFn: () =>
-      api.get<PortfolioResponse>(`/traders/${address}/portfolio?window=${window}&market=${market}`),
+    queryKey: queryKeys.trader.portfolio(address, window, market),
+    queryFn: ({ signal }) =>
+      api.get<PortfolioResponse>(`/traders/${address}/portfolio?window=${window}&market=${market}`, signal),
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
     ...busyRetry,
@@ -187,11 +172,7 @@ export function usePortfolio(address: string, window: TraderWindow, market: "all
  * are stored, and these queries keep asking, every Retry-After, for up to
  * ~10 minutes. The page shows a "computing" state meanwhile.
  */
-export const ANALYTICS_BUSY_RETRIES = 120;
-const computingRetry = {
-  retry: (failureCount: number, error: Error) => failureCount < (isBusy(error) ? ANALYTICS_BUSY_RETRIES : 3),
-  retryDelay: busyRetry.retryDelay,
-};
+export { ANALYTICS_BUSY_RETRIES } from "@/lib/query-policy";
 
 /** Still computing: no data yet and the last answer was busy. */
 export function isComputing(query: { data?: unknown; failureReason: Error | null; isPending: boolean }): boolean {
@@ -202,8 +183,8 @@ export function isComputing(query: { data?: unknown; failureReason: Error | null
  * coins and tiers, for any address (served from the api's store). */
 export function useTraderAnalytics(address: string, window: TradeWindow) {
   return useQuery({
-    queryKey: ["trader-analytics", address, window],
-    queryFn: () => api.get<TraderAnalyticsResponse>(`/traders/${address}/analytics?window=${window}`),
+    queryKey: queryKeys.trader.analytics(address, window),
+    queryFn: ({ signal }) => api.get<TraderAnalyticsResponse>(`/traders/${address}/analytics?window=${window}`, signal),
     placeholderData: keepPreviousData,
     // The api refreshes a stored answer older than 10 minutes on read.
     refetchInterval: 2 * 60_000,
@@ -217,11 +198,12 @@ export const TRADES_PAGE = 50;
 /** GET /traders/:address/trades: the round-trip ledger, "show more" pages. */
 export function useTraderTrades(address: string, status: TradeStatusFilter, enabled = true) {
   return useInfiniteQuery({
-    queryKey: ["trader-trades", address, status],
+    queryKey: queryKeys.trader.trades(address, status),
     refetchInterval: 2 * 60_000,
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       api.get<TraderTradesResponse>(
         `/traders/${address}/trades?status=${status}&limit=${TRADES_PAGE}${pageParam ? `&cursor=${pageParam}` : ""}`,
+        signal,
       ),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
@@ -234,8 +216,8 @@ export function useTraderTrades(address: string, status: TradeStatusFilter, enab
  * tab), loaded when the tab opens; the api keeps them 30 s. */
 export function useTraderOrders(address: string, enabled = true) {
   return useQuery({
-    queryKey: ["trader-orders", address],
-    queryFn: () => api.get<TraderOrdersResponse>(`/traders/${address}/orders`),
+    queryKey: queryKeys.trader.orders(address),
+    queryFn: ({ signal }) => api.get<TraderOrdersResponse>(`/traders/${address}/orders`, signal),
     enabled,
     refetchInterval: 30_000,
     ...busyRetry,
@@ -245,8 +227,8 @@ export function useTraderOrders(address: string, enabled = true) {
 /** GET /traders/:address/twap: running TWAP orders (the TWAP tab). */
 export function useTraderTwap(address: string, enabled = true) {
   return useQuery({
-    queryKey: ["trader-twap", address],
-    queryFn: () => api.get<TraderTwapsResponse>(`/traders/${address}/twap`),
+    queryKey: queryKeys.trader.twap(address),
+    queryFn: ({ signal }) => api.get<TraderTwapsResponse>(`/traders/${address}/twap`, signal),
     enabled,
     refetchInterval: 60_000,
     ...busyRetry,
@@ -257,8 +239,8 @@ export function useTraderTwap(address: string, enabled = true) {
  * tab and the live feed). */
 export function useTraderTransfers(address: string, enabled = true) {
   return useQuery({
-    queryKey: ["trader-transfers", address],
-    queryFn: () => api.get<TraderTransfersResponse>(`/traders/${address}/transfers`),
+    queryKey: queryKeys.trader.transfers(address),
+    queryFn: ({ signal }) => api.get<TraderTransfersResponse>(`/traders/${address}/transfers`, signal),
     enabled,
     refetchInterval: 5 * 60_000,
     ...busyRetry,
@@ -267,8 +249,8 @@ export function useTraderTransfers(address: string, enabled = true) {
 
 export function useTraderFills(address: string, limit = 100) {
   return useQuery({
-    queryKey: ["trader-fills", address, limit],
-    queryFn: () => api.get<TraderFill[]>(`/traders/${address}/fills?limit=${limit}`),
+    queryKey: queryKeys.trader.fills(address, limit),
+    queryFn: ({ signal }) => api.get<TraderFill[]>(`/traders/${address}/fills?limit=${limit}`, signal),
     refetchInterval: livePoll(address),
     ...busyRetry,
   });
@@ -284,7 +266,7 @@ export const ACTIONS_LIVE_POLL_MS = 60_000;
 export function useActions(params: ActionsParams, options: { enabled?: boolean; refetchInterval?: number } = {}) {
   const queryClient = useQueryClient();
   const qs = actionsQueryString(params);
-  const queryKey = ["actions", qs];
+  const queryKey = queryKeys.actions.list(qs);
   return useQuery({
     queryKey,
     queryFn: async ({ signal }) => {
@@ -317,8 +299,8 @@ export function useAlerts(address: string | undefined, options: { enabled?: bool
   const qs = new URLSearchParams({ limit: "100" });
   if (address) qs.set("address", address);
   return useQuery({
-    queryKey: ["alerts", qs.toString()],
-    queryFn: () => api.get<AlertEntry[]>(`/alerts?${qs.toString()}`),
+    queryKey: queryKeys.alerts(qs.toString()),
+    queryFn: ({ signal }) => api.get<AlertEntry[]>(`/alerts?${qs.toString()}`, signal),
     enabled: options.enabled ?? true,
     refetchInterval: 30_000,
   });
@@ -327,8 +309,8 @@ export function useAlerts(address: string | undefined, options: { enabled?: bool
 export function useFavorites() {
   const { status } = useAuth();
   return useQuery({
-    queryKey: ["favorites"],
-    queryFn: () => api.get<Favorite[]>("/me/favorites"),
+    queryKey: queryKeys.favorites,
+    queryFn: ({ signal }) => api.get<Favorite[]>("/me/favorites", signal),
     enabled: status === "signedIn",
     refetchInterval: 60_000,
   });
@@ -344,10 +326,10 @@ export function useToggleFavorite() {
       else await api.delete<void>(`/me/favorites/${address}`);
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["favorites"] });
-      void queryClient.invalidateQueries({ queryKey: ["traders"] });
-      void queryClient.invalidateQueries({ queryKey: ["trader"] });
-      void queryClient.invalidateQueries({ queryKey: ["actions"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.favorites });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.traders.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.trader.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.actions.all });
     },
   });
 

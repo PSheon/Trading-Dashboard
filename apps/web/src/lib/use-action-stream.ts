@@ -1,5 +1,6 @@
 "use client";
 
+import { queryKeys } from "@/lib/query-keys";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { actionStreamEventSchemas, type ActionFeedItem } from "@/lib/contracts";
@@ -44,7 +45,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
  * returns whether this stream's own list gained the row. */
 export function applyToCaches(client: QueryClient, ownKey: string, streamScope: "all" | "favorites", event: StreamEventName, item: ActionFeedItem): boolean {
   let addedToOwn = false;
-  for (const [key, data] of client.getQueriesData<ActionFeedItem[]>({ queryKey: ["actions"] })) {
+  for (const [key, data] of client.getQueriesData<ActionFeedItem[]>({ queryKey: queryKeys.actions.all })) {
     const qs = key[1];
     if (typeof qs !== "string" || !data) continue;
     const target = parseActionsQuery(qs);
@@ -101,7 +102,7 @@ export function useActionStream(params: ActionsParams, enabled: boolean): { stat
     };
     const onEvent = (evt: SseEvent) => {
       if (evt.event === "reset") {
-        void client.invalidateQueries({ queryKey: ["actions", listKey] });
+        void client.invalidateQueries({ queryKey: queryKeys.actions.list(listKey) });
         return;
       }
       if (evt.event !== "action" && evt.event !== "update") return;
@@ -123,7 +124,7 @@ export function useActionStream(params: ActionsParams, enabled: boolean): { stat
         let watchdog: ReturnType<typeof setInterval> | undefined;
         let retryAfter: number | undefined;
         try {
-          const cursor = lastEventId ?? newestId(client.getQueryData<ActionFeedItem[]>(["actions", listKey]));
+          const cursor = lastEventId ?? newestId(client.getQueryData<ActionFeedItem[]>(queryKeys.actions.list(listKey)));
           const res = await openEventStream(`/actions/stream${streamQs ? `?${streamQs}` : ""}`, { signal: connection.signal, lastEventId: cursor });
           const openedAt = Date.now();
           let heardAt = openedAt;

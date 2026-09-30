@@ -1,5 +1,6 @@
 "use client";
 
+import { queryKeys } from "@/lib/query-keys";
 import { useQuery } from "@tanstack/react-query";
 import type { AdminOverview as Overview } from "@/lib/contracts";
 import { BellRing, CircleDollarSign, Radar, Users } from "lucide-react";
@@ -36,8 +37,8 @@ export function KpiCard({
 export function AdminOverview() {
   const { t, format } = useI18n();
   const overview = useQuery({
-    queryKey: ["admin", "overview"],
-    queryFn: () => api.get<Overview>("/admin/overview"),
+    queryKey: queryKeys.admin.overview,
+    queryFn: ({ signal }) => api.get<Overview>("/admin/overview", signal),
     refetchInterval: 60_000,
   });
 

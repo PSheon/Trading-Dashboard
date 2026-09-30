@@ -1,7 +1,6 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AdminUser, AdminUsersResponse, PatchAdminUserRequest, UserRole } from "@/lib/contracts";
+import type { UserRole } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
@@ -12,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
-import { api, type ApiError } from "@/lib/api";
+import { useAdminUsers, useUpdateAdminUser } from "@/lib/admin-users";
 import { useMe, usePermission } from "@/lib/auth";
 import { truncateAddress } from "@/lib/format";
 
@@ -20,7 +19,6 @@ const PAGE = 20;
 
 export function AdminUsers() {
   const { t, format } = useI18n();
-  const queryClient = useQueryClient();
   const { data: me } = useMe();
   const canManage = usePermission("users.manage");
   const [query, setQuery] = useState("");
@@ -36,20 +34,8 @@ export function AdminUsers() {
     return () => clearTimeout(id);
   }, [query]);
 
-  const qs = new URLSearchParams({ limit: String(PAGE), offset: String(page * PAGE) });
-  if (q) qs.set("q", q);
-  if (role) qs.set("role", role);
-  const users = useQuery({
-    queryKey: ["admin", "users", qs.toString()],
-    queryFn: () => api.get<AdminUsersResponse>(`/admin/users?${qs.toString()}`),
-    placeholderData: keepPreviousData,
-    refetchInterval: false,
-  });
-
-  const update = useMutation<AdminUser, ApiError, { id: number; patch: PatchAdminUserRequest }>({
-    mutationFn: ({ id, patch }) => api.patch<AdminUser>(`/admin/users/${id}`, patch),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
-  });
+  const users = useAdminUsers({ q, role, limit: PAGE, offset: page * PAGE });
+  const update = useUpdateAdminUser();
 
   const total = users.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE));

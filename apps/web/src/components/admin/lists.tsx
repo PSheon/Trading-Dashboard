@@ -1,4 +1,5 @@
 "use client";
+import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/lib/auth";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,8 +26,8 @@ export function AdminLists() {
   const [parseError, setParseError] = useState<string>();
 
   const lists = useQuery({
-    queryKey: ["admin", "lists"],
-    queryFn: () => api.get<LeaderList[]>("/lists"),
+    queryKey: queryKeys.admin.lists,
+    queryFn: ({ signal }) => api.get<LeaderList[]>("/lists", signal),
     refetchInterval: false,
   });
 
@@ -37,7 +38,7 @@ export function AdminLists() {
         fileName: fileName ?? "unknown",
         rows,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "lists"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.admin.lists }),
   });
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {

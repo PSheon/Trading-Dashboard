@@ -7,7 +7,6 @@ import { cn } from "cn";
 
 import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
-import { DiscoveryCoverage } from "@/components/discover/discovery-coverage";
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, Skeleton } from "@/components/page";
 import { SiteFooter } from "@/components/shell/site-footer";
@@ -108,8 +107,6 @@ export function HomeView() {
           </div>
         </div>
       </section>
-
-      {home.data ? <DiscoveryCoverage data={home.data} /> : null}
 
       {home.isError && !home.data ? <ErrorState message={t("discover.error")} onRetry={() => home.refetch()} /> : null}
 

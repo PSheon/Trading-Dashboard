@@ -309,6 +309,8 @@ export const zhTW = {
     "milliseconds": "{value} 毫秒"
 },
   methodology: {
+    scope: "榜單從目前候選池中排序，不代表 Hyperliquid 全市場排名。候選池取近 30 天有交易量、非 Vault、帳戶價值大於 0 的全期損益前 N 名，再加入 KOL；N 依平台設定。",
+    copyScore: "複製評分為模型估算，並非全市場百分位排名。",
     title: "績效計算方法",
     intro: "績效由 Hyperliquid 可取得的投資組合抽樣歷史與成交資料計算。曾以公開樣本對帳，但快照時間與部分公式仍有差異，尚未證明與其他平台全面一致；不代表跟單者實際收益。",
     flow: "ROI = 期間盈虧 ÷ 期間最高淨入金（各資料點「帳戶價值 − 累計盈虧」的最大值）。入金與出金只改變帳戶價值，不計為收益；圖表的 % 模式為各點盈虧 ÷ 同一基數，終點即 ROI。永續 ROI 用永續序列，永續＋現貨用全帳戶序列。",
@@ -509,16 +511,6 @@ export const zhTW = {
     },
   },
   discover: {
-    dataCoverage: {
-      summary: "候選池 {total} 人 · 已取得績效 {ready} 人 · 資料範圍",
-      scope: "榜單從目前候選池中排序，不代表 Hyperliquid 全市場排名。候選池取近 30 天有交易量、非 Vault、帳戶價值大於 0 的全期損益前 N 名，再加入 KOL；N 依平台設定。",
-      trades: "已建立交易分析：{ready}／{total} 人；不代表全歷史完整。",
-      updated: "目前顯示資料的計算時間：{oldest} 至 {newest}。",
-      unknown: "目前顯示資料的計算時間尚無法確認。",
-      missing: "部分顯示資料缺少更新時間。",
-      history: "資料分批更新；計算時間不等於成交資料截止時間，也不代表所有交易員同步更新。各交易員分析另列歷史範圍。",
-      score: "複製評分為模型估算，並非全市場百分位排名。",
-    },
     title: "探索",
     crypto: "加密貨幣",
     stocks: "股票",

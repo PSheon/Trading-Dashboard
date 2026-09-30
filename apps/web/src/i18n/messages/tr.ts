@@ -22,6 +22,8 @@ export const tr: Messages = {
     more: "İlk 20 eşleşme gösteriliyor. Daha belirgin bir isim veya kullanıcı adı girin.",
   },
   methodology: {
+    scope: "Sıralama aday havuzu içindedir, tüm Hyperliquid trader'ları arasında değil. Havuz, son 30 günde işlem hacmi olan ve hesap değeri pozitif olan vault dışı hesaplar arasından tüm zamanların K/Z'sine göre ilk N kişiyi alır, ardından KOL'ları ekler. N platform tarafından belirlenir.",
+    copyScore: "Kopyalama puanları model tahminidir, tüm piyasadaki yüzdelik sıralama değildir.",
     history: "İşlem analizi yalnızca elde edilen gerçekleşmeleri kapsar. Tamamlanan geri doldurma, kaynağın sunduğu aralığın tarandığı anlamına gelir; tüm geçmişin eksiksiz olduğu anlamına gelmez. Kaynağın artık saklamadığı kayıtlar geri doldurmayla kurtarılamaz. Fonlamanın ayrı bir kapsamı vardır; alınamayan fonlama, doğrulanmış sıfır maliyet değildir.",
     missing: "Uzun tire verinin olmadığı anlamına gelir, sıfır değil. Hesaplama zamanı rakamların yerel olarak ne zaman hesaplandığını, işlem verisi sınırı ise analizin nereye kadar uzandığını gösterir. Bunlar farklı zaman damgalarıdır.",
     title: "Performans metodolojisi",
@@ -221,16 +223,6 @@ export const tr: Messages = {
     },
   },
   discover: {
-    dataCoverage: {
-      summary: "{total} aday · performans verisi olan {ready} · Veri kapsamı",
-      scope: "Sıralama aday havuzu içindedir, tüm Hyperliquid trader'ları arasında değil. Havuz, son 30 günde işlem hacmi olan ve hesap değeri pozitif olan vault dışı hesaplar arasından tüm zamanların K/Z'sine göre ilk N kişiyi alır, ardından KOL'ları ekler. N platform tarafından belirlenir.",
-      trades: "İşlem analizi mevcut: {ready}/{total}; bu, geçmişin eksiksiz olduğu anlamına gelmez.",
-      updated: "Gösterilen veriler {oldest} ile {newest} arasında hesaplandı.",
-      unknown: "Gösterilen veriler için doğrulanmış bir hesaplama zamanı yok.",
-      missing: "Gösterilen bazı rakamların güncelleme zaman damgası yok.",
-      history: "Veriler toplu halde yenilenir. Hesaplama zamanları işlem verisi sınırı değildir ve tüm trader'ların birlikte güncellendiğini kanıtlamaz. Her trader'ın analizi kendi geçmiş kapsamını gösterir.",
-      score: "Kopyalama puanları model tahminidir, tüm piyasadaki yüzdelik sıralama değildir.",
-    },
     title: "Keşfet",
     crypto: "Kripto",
     stocks: "Hisseler",

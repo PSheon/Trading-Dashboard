@@ -306,6 +306,8 @@ export const en: Messages = {
     "milliseconds": "{value} ms"
 },
   methodology: {
+    scope: "Ranked within the candidate pool, not all Hyperliquid traders. The pool takes the top N by all-time PnL among non-vault accounts with positive account value and trading volume in the last 30 days, then adds KOLs. N is configured by the platform.",
+    copyScore: "Copy scores are model estimates, not percentile ranks across the entire market.",
     title: "Performance methodology",
     intro: "Performance is computed from available Hyperliquid portfolio samples and fills. Public samples have been compared, but snapshot times and some formulas differ; full equivalence with other platforms has not been established. These figures are not actual follower returns.",
     flow: "ROI = the period's PnL ÷ its peak net deposits (the largest account value minus cumulative PnL at any point). Deposits and withdrawals move account value, never PnL, so they are not return. The chart's % mode is PnL ÷ the same base at every point and ends at the ROI. Perp ROI uses the perp series, perp + spot the whole account's.",
@@ -505,16 +507,6 @@ export const en: Messages = {
     },
   },
   discover: {
-    dataCoverage: {
-      summary: "{total} candidates · {ready} with performance data · Data coverage",
-      scope: "Ranked within the candidate pool, not all Hyperliquid traders. The pool takes the top N by all-time PnL among non-vault accounts with positive account value and trading volume in the last 30 days, then adds KOLs. N is configured by the platform.",
-      trades: "Trade analysis available: {ready}/{total}; this does not imply complete lifetime history.",
-      updated: "Displayed data was computed between {oldest} and {newest}.",
-      unknown: "No confirmed computation time is available for the displayed data.",
-      missing: "Some displayed figures have no update timestamp.",
-      history: "Data refreshes in batches. Computation times are not trade-data cutoffs or proof that all traders are updated together. Each trader’s analysis shows its history coverage.",
-      score: "Copy scores are model estimates, not percentile ranks across the entire market.",
-    },
     title: "Explore",
     crypto: "Crypto",
     stocks: "Stocks",

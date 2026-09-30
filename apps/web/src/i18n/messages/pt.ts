@@ -22,6 +22,8 @@ export const pt: Messages = {
     more: "Mostrando os primeiros 20 resultados. Digite um nome ou usuário mais específico.",
   },
   methodology: {
+    scope: "Ranking dentro do grupo de candidatos, não de todos os traders da Hyperliquid. O grupo reúne os N primeiros por PnL histórico entre contas que não são vaults, com valor de conta positivo e volume negociado nos últimos 30 dias, e depois adiciona KOLs. N é definido pela plataforma.",
+    copyScore: "As pontuações de cópia são estimativas de modelo, não percentis de todo o mercado.",
     history: "A análise de operações cobre apenas as execuções obtidas. Um backfill concluído significa que o intervalo disponível da fonte foi varrido, não que o histórico completo esteja disponível. Registros que a fonte não guarda mais não podem ser recuperados com backfill. O funding tem cobertura própria; funding indisponível não é custo zero confirmado.",
     missing: "Um travessão indica dado indisponível, não zero. O horário de cálculo informa quando os números foram calculados localmente; o corte dos dados de operações informa até onde a análise cobre. São marcas de tempo diferentes.",
     title: "Metodologia de desempenho",
@@ -221,16 +223,6 @@ export const pt: Messages = {
     },
   },
   discover: {
-    dataCoverage: {
-      summary: "{total} candidatos · {ready} com dados de desempenho · Cobertura de dados",
-      scope: "Ranking dentro do grupo de candidatos, não de todos os traders da Hyperliquid. O grupo reúne os N primeiros por PnL histórico entre contas que não são vaults, com valor de conta positivo e volume negociado nos últimos 30 dias, e depois adiciona KOLs. N é definido pela plataforma.",
-      trades: "Análise de operações disponível: {ready}/{total}; isso não implica histórico completo.",
-      updated: "Os dados exibidos foram calculados entre {oldest} e {newest}.",
-      unknown: "Não há horário de cálculo confirmado para os dados exibidos.",
-      missing: "Alguns números exibidos não têm horário de atualização.",
-      history: "Os dados são atualizados em lotes. Horários de cálculo não são cortes dos dados de operações nem provam que todos os traders foram atualizados juntos. A análise de cada trader mostra sua cobertura de histórico.",
-      score: "As pontuações de cópia são estimativas de modelo, não percentis de todo o mercado.",
-    },
     title: "Explorar",
     crypto: "Cripto",
     stocks: "Ações",

@@ -1,6 +1,5 @@
 "use client";
 
-import { DiscoveryCoverage } from "@/components/discover/discovery-coverage";
 
 import { Bitcoin, CandlestickChart, ChevronDown, ChevronRight, LayoutGrid, List, ListFilter, Trophy, UserRound, X } from "lucide-react";
 import Link from "next/link";
@@ -195,8 +194,6 @@ export function BoardsView() {
           </button>
         ))}
       </div>
-
-      {data ? <DiscoveryCoverage data={data} /> : null}
 
       {query.isError && !data ? (
         <ErrorState message={t("discover.error")} onRetry={() => query.refetch()} />

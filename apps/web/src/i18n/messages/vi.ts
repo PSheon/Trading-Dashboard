@@ -22,6 +22,8 @@ export const vi: Messages = {
     more: "Chỉ hiển thị 20 kết quả đầu. Hãy nhập tên hoặc tài khoản cụ thể hơn.",
   },
   methodology: {
+    scope: "Xếp hạng trong nhóm ứng viên, không phải toàn bộ trader trên Hyperliquid. Nhóm lấy N người đứng đầu theo PnL toàn thời gian trong các tài khoản không phải vault, có giá trị tài khoản dương và có khối lượng giao dịch trong 30 ngày gần nhất, rồi thêm các KOL. N do nền tảng cấu hình.",
+    copyScore: "Điểm sao chép là ước tính của mô hình, không phải thứ hạng phân vị trên toàn thị trường.",
     history: "Phân tích giao dịch chỉ bao gồm các lệnh khớp đã lấy được. Backfill hoàn tất nghĩa là phạm vi có sẵn của nguồn đã được quét, không có nghĩa toàn bộ lịch sử đã đầy đủ. Các bản ghi mà nguồn không còn lưu thì không thể khôi phục bằng backfill. Funding có phạm vi riêng; funding không có dữ liệu không phải là chi phí bằng 0 đã được xác nhận.",
     missing: "Dấu gạch dài nghĩa là không có dữ liệu, không phải bằng 0. Thời điểm tính toán cho biết khi nào số liệu được tính cục bộ; mốc dữ liệu giao dịch cho biết phân tích bao phủ đến đâu. Đây là hai mốc thời gian khác nhau.",
     title: "Phương pháp tính hiệu suất",
@@ -221,16 +223,6 @@ export const vi: Messages = {
     },
   },
   discover: {
-    dataCoverage: {
-      summary: "{total} ứng viên · {ready} có dữ liệu hiệu suất · Phạm vi dữ liệu",
-      scope: "Xếp hạng trong nhóm ứng viên, không phải toàn bộ trader trên Hyperliquid. Nhóm lấy N người đứng đầu theo PnL toàn thời gian trong các tài khoản không phải vault, có giá trị tài khoản dương và có khối lượng giao dịch trong 30 ngày gần nhất, rồi thêm các KOL. N do nền tảng cấu hình.",
-      trades: "Có phân tích giao dịch: {ready}/{total}; điều này không có nghĩa lịch sử đã đầy đủ.",
-      updated: "Dữ liệu hiển thị được tính trong khoảng {oldest} đến {newest}.",
-      unknown: "Không có thời điểm tính toán đã xác nhận cho dữ liệu hiển thị.",
-      missing: "Một số số liệu hiển thị không có mốc thời gian cập nhật.",
-      history: "Dữ liệu được làm mới theo từng đợt. Thời điểm tính toán không phải mốc dữ liệu giao dịch và không chứng minh mọi trader được cập nhật cùng lúc. Phân tích của từng trader hiển thị phạm vi lịch sử của họ.",
-      score: "Điểm sao chép là ước tính của mô hình, không phải thứ hạng phân vị trên toàn thị trường.",
-    },
     title: "Khám phá",
     crypto: "Crypto",
     stocks: "Cổ phiếu",

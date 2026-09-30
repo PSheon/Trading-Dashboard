@@ -49,7 +49,18 @@ let sessionController = new AbortController();
 
 /** Registered by the auth provider (Privy's `getAccessToken`, or the
  * fixture login). The getter itself returns null when signed out. */
+/** "loading" and "anonymous" are the same identity: no token, public data. */
+export function stableScope(scope: string | null): string | null {
+  return scope === "loading" ? "anonymous" : scope;
+}
+
 export function setAccessTokenGetter(getter: AccessTokenGetter | null, scope: string | null = null) {
+  // While the identity provider is still starting ("loading"), requests go
+  // out without a token, exactly like an anonymous visitor's. Treating it as
+  // its own identity would cancel them and refetch everything the moment the
+  // visitor turns out to be anonymous. Only a real change (sign-in, sign-out,
+  // account switch) cancels in-flight requests.
+  scope = stableScope(scope);
   if (identityScope !== scope) {
     sessionController.abort();
     sessionController = new AbortController();

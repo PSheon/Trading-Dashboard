@@ -50,3 +50,35 @@ it("isolates identical query keys and late mutation writes between sessions", as
   expect(bob.getQueryData(["me"])).toBeUndefined();
   alice.clear(); bob.clear();
 });
+
+it("keeps a request running when a loading session turns out to be anonymous", async () => {
+  setAccessTokenGetter(async () => null, "loading");
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => { started = resolve; });
+  let respond!: () => void;
+  vi.stubGlobal("fetch", vi.fn((_url, options: RequestInit) => new Promise((resolve, reject) => {
+    options.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    respond = () => resolve(new Response(null, { status: 204 }));
+    started();
+  })));
+  const pending = api.delete("/me/favorites/0x0000000000000000000000000000000000000000");
+  await ready;
+  setAccessTokenGetter(async () => null, "anonymous");
+  respond();
+  await expect(pending).resolves.toBeUndefined();
+});
+
+it("still aborts a loading session's requests when the visitor turns out to be signed in", async () => {
+  setAccessTokenGetter(async () => null, "loading");
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => { started = resolve; });
+  vi.stubGlobal("fetch", vi.fn((_url, options: RequestInit) => new Promise((_resolve, reject) => {
+    options.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    started();
+  })));
+  const pending = api.get("/traders");
+  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  await ready;
+  setAccessTokenGetter(async () => "alice-token", "alice");
+  await rejected;
+});

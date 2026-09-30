@@ -146,7 +146,9 @@ export function ActivityTabs({
           )
         ) : null}
         {tab === "alerts" ? (
-          status !== "signedIn" ? (
+          status === "loading" ? (
+            <Loading />
+          ) : status !== "signedIn" ? (
             <SignInPrompt title={t("trader.alertsSignIn")} />
           ) : alerts.isError ? (
             <ErrorState message={alerts.error.message} onRetry={() => alerts.refetch()} />

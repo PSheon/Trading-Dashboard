@@ -31,7 +31,7 @@ function walletNetwork(source: Environment) {
   const defaults = WALLET_NETWORKS[raw];
   return {
     network: raw as "mainnet" | "testnet",
-    infoUrl: defaults.infoUrl,
+    infoUrl: defaults.infoUrl as string,
     arbitrumRpcUrl: urlValue("HYPERLIQUID_ARBITRUM_RPC_URL", optional(source.HYPERLIQUID_ARBITRUM_RPC_URL), defaults.arbitrumRpcUrl, ["http:", "https:"]),
   };
 }

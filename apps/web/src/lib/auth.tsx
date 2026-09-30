@@ -21,7 +21,7 @@ import { ARBITRUM_CHAINS } from "@/lib/hyperliquid-network";
 import type { WalletSigner } from "@/lib/wallet-signer";
 
 import { SessionQueries } from "@/lib/session-queries";
-import { APP_NAME, PRIVY_APP_ID } from "@/lib/config";
+import { PRIVY_APP_ID } from "@/lib/config";
 import { api, sessionKey, setAccessTokenGetter } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";

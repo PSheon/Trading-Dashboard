@@ -37,7 +37,7 @@ export const ARBITRUM_CHAINS = [
 export function erc20TransferData(to: string, amountUnits: bigint): `0x${string}` {
   const address = to.toLowerCase().replace(/^0x/, "");
   if (!/^[0-9a-f]{40}$/.test(address)) throw new Error("Invalid address");
-  if (amountUnits <= 0n) throw new Error("Invalid amount");
+  if (amountUnits <= BigInt(0)) throw new Error("Invalid amount");
   return `0xa9059cbb${address.padStart(64, "0")}${amountUnits.toString(16).padStart(64, "0")}`;
 }
 
@@ -45,7 +45,7 @@ export function erc20TransferData(to: string, amountUnits: bigint): `0x${string}
 export function usdcToUnits(amount: string): bigint {
   const match = /^(\d+)(?:\.(\d{0,6}))?$/.exec(amount.trim());
   if (!match) throw new Error("Invalid amount");
-  return BigInt(match[1]!) * 10n ** BigInt(USDC_DECIMALS) + BigInt((match[2] ?? "").padEnd(USDC_DECIMALS, "0"));
+  return BigInt(match[1]!) * BigInt(10) ** BigInt(USDC_DECIMALS) + BigInt((match[2] ?? "").padEnd(USDC_DECIMALS, "0"));
 }
 
 /** Largest USDC amount ≤ `value` with at most 6 decimals, as Hyperliquid

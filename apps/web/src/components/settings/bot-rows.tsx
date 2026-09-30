@@ -107,10 +107,6 @@ export function AlertBotRow({ className }: { className?: string }) {
 
   const data = status.data;
   const linked = data?.linked ?? false;
-  // Once linked, forget the used link so a later unlink starts from 連接.
-  useEffect(() => {
-    if (linked) setPending(null);
-  }, [linked]);
 
   function connect() {
     // Opened inside the click so popup blockers allow it; pointed at the
@@ -225,7 +221,8 @@ export function AlertBotRow({ className }: { className?: string }) {
             size="xs"
             variant="destructive"
             disabled={unlink.isPending}
-            onClick={() => unlink.mutate(undefined, { onSettled: () => setConfirming(false) })}
+            // Forget the used link too, so the row starts from 連接 again.
+            onClick={() => unlink.mutate(undefined, { onSettled: () => { setConfirming(false); setPending(null); } })}
           >
             {t("settings.unlinkYes")}
           </Button>

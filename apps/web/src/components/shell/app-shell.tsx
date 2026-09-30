@@ -26,8 +26,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // A trader page on a phone has its own top bar and a sticky 跟單 button in
   // place of the header and the tab bar, as on CopyDog's app.
   const traderPage = pathname.startsWith("/trader/");
+  // CopyDog's 市場 pages are bare on a phone: no top bar and no tab bar,
+  // only the page and its breadcrumb.
+  const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
   // CopyDog's phone portfolio has its own title bar (投資組合, bell, gear).
-  const ownPhoneHeader = traderPage || pathname === "/portfolio";
+  const ownPhoneHeader = traderPage || barePhonePage || pathname === "/portfolio";
 
   return (
     <WalletModalsProvider>
@@ -73,7 +76,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={cn(
           traderPage
             ? "pt-0 pb-[calc(84px+env(safe-area-inset-bottom))]"
-            : ownPhoneHeader
+            : barePhonePage
+              ? "pt-4 pb-10"
+              : ownPhoneHeader
               ? "pt-0 pb-[calc(68px+env(safe-area-inset-bottom))]"
               : "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]",
           "md:pt-[72px] md:pb-0 md:pl-[76px]",
@@ -89,7 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label={t("nav.primary")}
         className={cn(
           "fixed inset-x-0 bottom-0 z-40 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
-          traderPage ? "hidden" : "grid",
+          traderPage || barePhonePage ? "hidden" : "grid",
         )}
       >
         {mobileNav.map((item) => (

@@ -24,6 +24,9 @@ export const queryKeys = {
     board: (qs: string) => ["discover-board", qs] as const,
     home: ["discover-home"] as const,
     cards: (addresses: string) => ["discover-cards", addresses] as const,
+    coins: ["discover-coins"] as const,
+    coin: (coin: string) => ["discover-coin", coin] as const,
+    search: (q: string) => ["discover-search", q] as const,
   },
   trader: {
     all: ["trader"] as const,

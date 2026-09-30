@@ -16,8 +16,11 @@ import type {
   CohortHistory,
   CohortTier,
   CohortWindow,
+  CoinBoardResponse,
+  CoinIndexResponse,
   CopyScoreResponse,
   HomeBoardsResponse,
+  TraderSearchResponse,
   TradingStyle,
   CrowdResponse,
   Favorite,
@@ -164,6 +167,42 @@ export function useHomeBoards() {
     queryFn: ({ signal }) => api.get<HomeBoardsResponse>("/discover/home", signal),
     staleTime: 30_000,
     refetchInterval: 60_000,
+  });
+}
+
+/** GET /discover/coins: CopyDog's 市場 index, from the pool snapshot. */
+export function useCoinIndex() {
+  return useQuery({
+    queryKey: queryKeys.discover.coins,
+    queryFn: ({ signal }) => api.get<CoinIndexResponse>("/discover/coins", signal),
+    staleTime: 30_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+/** GET /discover/coins/:coin: one coin's leaderboard (`coin` is the
+ * Hyperliquid name, "xyz:TSLA"). */
+export function useCoinBoard(coin: string) {
+  return useQuery({
+    queryKey: queryKeys.discover.coin(coin),
+    queryFn: ({ signal }) => api.get<CoinBoardResponse>(`/discover/coins/${encodeURIComponent(coin)}`, signal),
+    staleTime: 30_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+/** GET /discover/search: the header search's dropdown (the api caches each
+ * query 30 s). Disabled for an empty query; the previous list stays while
+ * the next one loads, as CopyDog's does. */
+export function useTraderSearch(q: string) {
+  const query = q.trim();
+  return useQuery({
+    queryKey: queryKeys.discover.search(query.toLowerCase()),
+    queryFn: ({ signal }) => api.get<TraderSearchResponse>(`/discover/search?${new URLSearchParams({ q: query, limit: "5" })}`, signal),
+    enabled: query.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    retry: false,
   });
 }
 

@@ -203,7 +203,7 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - AdminUsersService 持有 UnitOfWork，repository 共用同一 transaction。依 id 鎖定 enabled admins，再鎖 target；自我降權、最後管理員政策留在 service。使用者異動與稽核紀錄一同提交，提交成功後才 invalidate auth cache。
 - AuthRepository 每次查最新角色與停權狀態；Privy 驗證快取、signup 與 bootstrap admin 政策仍在 AuthService。並行首次登入保留唯一 DID 衝突處理，profile refresh 只更新 email。
 - ActionsRepository 保留 `(ts,id)` 游標、SSE replay 順序、favorites 的 user/chain 範圍與成交明細 address/chain 限制。未知 action 的 404 仍由 service 決定。
-- 後續 repository 範圍仍含 Notify、Rules、alert rules、admin overview、import、round-trip、rules seed 與 watcher 系列；此批不代表後端已全面完成分層，也不代表 Copydog 跟單執行已實作。
+- 後續 repository 範圍仍含 alert rules、admin overview、import、round-trip、rules seed 與 watcher 系列；此批不代表後端已全面完成分層，也不代表 Copydog 跟單執行已實作。
 
 
 ## 2026-09-30：Telegram 與 outbox persistence 分層
@@ -211,7 +211,7 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - TelegramLinkService 保留 token 生成／雜湊、限流與過期政策、HTTP 錯誤及通知協調；TelegramLinkRepository 處理持久化。建立 token 與消耗 token 都由 UnitOfWork 維持原交易邊界，所有交易內操作使用傳入的 tx。
 - OutboxRepository 負責到期查詢、條件式領取、action 讀取與失敗回寫；重試次數、等待時間、排程與停止流程留在 service。
 - 修正既有租約競態：失敗回寫須匹配領取時的 attempts，逾時 worker 無法覆蓋接手 worker 的狀態。每次領取原子增加 attempts，無須 schema migration；不宣稱提供外部通知 exactly-once 保證。
-- NotifyService 與 RulesService 仍有直接 SQL，後續須一起檢查通知投遞與規則評估的交易邊界。Telegram 跨 token 同 chat 競爭仍依現有唯一約束處理，這批未重新設計其併發政策。
+- NotifyService 與 RulesService 已於後續批次完成 repository／UnitOfWork 分層（見下方更新）。Telegram 跨 token 同 chat 競爭仍依現有唯一約束處理，這批未重新設計其併發政策。
 
 
 ## 2026-09-30：JSDoc 與 bootstrap 風格
@@ -220,3 +220,13 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 - main 僅協調啟動順序；HTTP 與 process shutdown 分別抽到 bootstrap setup。維持驗證 env 在 Nest 建立前、stop listener 在 Nest hooks 前、security/request context 在 listen 前與 Swagger 環境限制。
 - 最近新增的 AdminUsers、Auth、TelegramLink、Outbox repositories 補上交易／鎖定前提、缺值語意與 claim generation 的 JSDoc；不是用註解數量作為品質門檻。
 - [Backend conventions](backend-conventions.md) 定義後續修改的風格與驗證要求；未宣稱全專案格式已統一或已由 formatter 強制。
+
+
+## 2026-09-30：Notify／Rules repository 與交易協作
+
+- 新增 NotifyRepository、RulesRepository，feature module 僅匯出既有 service。規則匹配、收件人合併、冷卻政策、通知授權、文案與重試仍由 service 協調；repository 負責持久化。
+- RulesRepository 所有操作要求 DbTransaction，沒有 root DB fallback。advisory lock、冷卻預留、通知待送紀錄、alert 紀錄與 action 評估完成仍在同一 UnitOfWork；外部發送在提交後執行。
+- Notify 保留 lease token 條件式結果回寫；同一交易更新待送狀態與 alert，舊 lease 不得改寫。每次立即重試重新讀取停權、Telegram 綁定與通知設定／收藏條件。
+- Rules 的同交易查詢改為依序 await，移除對同一 PostgreSQL connection 的 Promise.all；保持原有交易原子性。
+- AlertContext／AlertRecipient 移到 notify.types.ts，原 service 保留 type re-export；JSDoc 說明去重與交易前提，移除過時的「每次 retry 新增 alert」與固定延遲敘述。
+- 仍未完成：watcher、import、admin overview、alert rules、rules seed、round-trip 的 persistence 邊界；R4–R9 與真正的跟單下單功能亦非本批範圍。

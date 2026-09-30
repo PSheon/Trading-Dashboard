@@ -1,3 +1,5 @@
+import { RulesRepository } from "../src/rules/rules.repository.js";
+import { NotifyRepository } from "../src/notify/notify.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -122,7 +124,7 @@ async function resetWithLeader(source: LeaderSource = "import") {
 }
 
 function rulesWith(notify: NotifyService, equity: number | null = 1_000_000) {
-  return new RulesService(db, fakeWatcher(equity), notify, settings);
+  return new RulesService(new RulesRepository(), new UnitOfWork(db), fakeWatcher(equity), notify, settings);
 }
 
 afterAll(async () => {
@@ -391,7 +393,7 @@ describe("RulesService + NotifyService — real sends (mocked Telegram)", () => 
 
   function realNotify() {
     const telegram = { sendMessage: vi.fn(async () => {}) } as unknown as TelegramHttpClient;
-    return { telegram, notify: new NotifyService(testConfig(), db, telegram) };
+    return { telegram, notify: new NotifyService(testConfig(), new NotifyRepository(db), new UnitOfWork(db), telegram) };
   }
 
   it("each recipient's message goes to their own chat; no linked chat → a 'failed' row saying why", async () => {

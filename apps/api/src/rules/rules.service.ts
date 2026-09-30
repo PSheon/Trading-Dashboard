@@ -1,36 +1,19 @@
-import { Optional } from "@nestjs/common";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
-import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
-import {
-  actionOutbox,
-  notificationCooldowns,
-  alertRules,
-  alerts,
-  leaders,
-  notificationChannels,
-  traderStats,
-  userFavorites,
-  users,
-} from "@trading-dashboard/shared/database";
-import { type AlertRuleKind, type Locale } from "@trading-dashboard/shared/contracts";
+import type { AlertRuleKind } from "@trading-dashboard/shared/contracts";
 
-import type { DbOrTx } from "../watcher/action-store.js";
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { tradeSideOf } from "../notify/message-template.js";
 import { NotifyService } from "../notify/notify.service.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { AccountStateService } from "../watcher/account-state.service.js";
-import { ruleMatches } from "./rule-policy.js";
 import { ACTION_CREATED_EVENT, type ActionCreatedEvent } from "../watcher/action-created.event.js";
-
-type AlertRuleRow = typeof alertRules.$inferSelect;
-type LeaderRow = typeof leaders.$inferSelect;
+import { ruleMatches } from "./rule-policy.js";
+import { RulesRepository, type AlertRuleRow, type LeaderRow } from "./rules.repository.js";
 
 /** Address-scope rule kinds that are evaluated. R4/R5 are real PRD kinds
- * but not implemented (see `matches()`'s `default: return false`). */
+ * but not implemented; ruleMatches rejects them. */
 const ADDRESS_SCOPE_KINDS_IN_SCOPE: AlertRuleKind[] = ["R1", "R2", "R3"];
 
 /** A favorite alert fires at most once per (user, trader, coin) in this
@@ -45,7 +28,7 @@ interface Recipient {
 
 /**
  * Decides who gets a Telegram message for each new action, in-process,
- * driven by the Watcher's `action.created` event (≤5 s fill-to-Telegram).
+ * driven by the Watcher's `action.created` event and durable outbox replay.
  *
  * Two ways to receive one:
  * - **Favorite alerts** (CopyDog-style): every user with an alert switched
@@ -64,7 +47,8 @@ export class RulesService {
   private readonly logger = new Logger(RulesService.name);
 
   constructor(
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: RulesRepository,
+    private readonly unitOfWork: UnitOfWork,
     @Inject(AccountStateService) private readonly accounts: Pick<AccountStateService, "getEquityUsd">,
     private readonly notify: NotifyService,
     private readonly settings: SettingsService,
@@ -90,30 +74,30 @@ export class RulesService {
   }
 
   private async evaluate(action: ActionCreatedEvent): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      // Serialize reservation + enqueue, including first-ever cooldown keys.
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(73105, hashtext(${`${action.chain}|${action.address}|${action.coin}`}))`);
-      const [event] = await tx.select().from(actionOutbox).where(eq(actionOutbox.actionId, action.id));
+    await this.unitOfWork.run(async (tx) => {
+      await this.repository.lockActionScope(tx, action);
+      const event = await this.repository.actionEvent(tx, action.id);
       if (event?.status === "done") return;
       const equityUsd = event ? (event.equityUsd === null ? null : Number(event.equityUsd)) : this.accounts.getEquityUsd(action.address);
       await this.evaluateInTransaction(action, tx, equityUsd);
-      await tx.update(actionOutbox).set({ status: "done", lockedUntil: null, lastError: null }).where(eq(actionOutbox.actionId, action.id));
+      await this.repository.markDone(tx, action.id);
     });
     await this.notify.deliverAction(action.id);
   }
 
-  private async evaluateInTransaction(action: ActionCreatedEvent, db: DbOrTx, equityUsd: number | null): Promise<void> {
+  private async evaluateInTransaction(action: ActionCreatedEvent, db: DbTransaction, equityUsd: number | null): Promise<void> {
     if (!(await this.settings.get("notifications")).alertsEnabled) return;
 
-    const leader = await this.getLeader(action.chain, action.address, db);
+    const leader = await this.repository.getLeader(action.chain, action.address, db);
     // An action only exists for a watched address; a leader deleted
     // mid-flight is a no-op.
     if (!leader) return;
 
-    const [favoriteUserIds, ruleHits] = await Promise.all([
-      this.favoriteRecipients(action, db),
-      leader.source === "import" ? this.adminRuleHits(action, leader, db, equityUsd) : Promise.resolve(new Map<number, AlertRuleRow[]>()),
-    ]);
+    // One PostgreSQL transaction owns one connection; issue queries sequentially.
+    const favoriteUserIds = await this.favoriteRecipients(action, db);
+    const ruleHits = leader.source === "import"
+      ? await this.adminRuleHits(action, leader, db, equityUsd)
+      : new Map<number, AlertRuleRow[]>();
 
     const recipients = new Map<number, Recipient>();
     for (const userId of favoriteUserIds) recipients.set(userId, { favorite: true, rules: [] });
@@ -122,26 +106,21 @@ export class RulesService {
     }
     if (recipients.size === 0) return;
 
-    const [contacts, traderName] = await Promise.all([
-      this.contacts([...recipients.keys()], db),
-      this.traderName(leader, db),
-    ]);
-
-    await Promise.all(
-      [...recipients].map(([userId, { favorite, rules }]) =>
-        this.notify.notifyAlert({
-          action,
-          traderName,
-          recipient: {
-            userId,
-            telegramChatId: contacts.get(userId)?.chatId ?? null,
-            locale: contacts.get(userId)?.locale ?? "zh-TW",
-          },
-          rules,
-          favorite,
-        }, db),
-      ),
-    );
+    const contacts = await this.repository.contacts([...recipients.keys()], db);
+    const traderName = await this.traderName(leader, db);
+    for (const [userId, { favorite, rules }] of recipients) {
+      await this.notify.notifyAlert({
+        action,
+        traderName,
+        recipient: {
+          userId,
+          telegramChatId: contacts.get(userId)?.chatId ?? null,
+          locale: contacts.get(userId)?.locale ?? "zh-TW",
+        },
+        rules,
+        favorite,
+      }, db);
+    }
   }
 
   /** R6–R9 (group rules) are not implemented; no caller wires this up. */
@@ -151,23 +130,8 @@ export class RulesService {
 
   /** Users whose alert on this trader matches the action's side and size,
    * and who aren't inside the burst guard. Marks them as alerted. */
-  private async favoriteRecipients(action: ActionCreatedEvent, db: DbOrTx): Promise<number[]> {
-    const rows = await db
-      .select({
-        userId: userFavorites.userId,
-        sides: userFavorites.alertSides,
-        minUsd: userFavorites.alertMinUsd,
-      })
-      .from(userFavorites)
-      .innerJoin(users, eq(users.id, userFavorites.userId))
-      .where(
-        and(
-          eq(userFavorites.chain, action.chain),
-          eq(userFavorites.address, action.address),
-          eq(userFavorites.alertEnabled, true),
-          isNull(users.disabledAt),
-        ),
-      );
+  private async favoriteRecipients(action: ActionCreatedEvent, db: DbTransaction): Promise<number[]> {
+    const rows = await this.repository.favoriteCandidates(action, db);
 
     const side = tradeSideOf(action);
     const notional = Number(action.notionalUsd);
@@ -178,31 +142,18 @@ export class RulesService {
       if (row.minUsd !== null && notional < Number(row.minUsd)) continue;
       // Reservation and notification enqueue share the address/coin transaction lock.
       const key = `${row.userId}|${action.chain}|${action.address}|${action.coin}`;
-      if (!(await this.reserveCooldown(db, `favorite|${key}`, FAVORITE_BURST_GUARD_MS, now))) continue;
+      if (!(await this.repository.reserveCooldown(db, `favorite|${key}`, FAVORITE_BURST_GUARD_MS, now))) continue;
       out.push(row.userId);
     }
     return out;
   }
 
-  private async reserveCooldown(db: DbOrTx, key: string, milliseconds: number, now: number): Promise<boolean> {
-    const rows = await db.insert(notificationCooldowns).values({ key, reservedAt: new Date(now) })
-      .onConflictDoUpdate({ target: notificationCooldowns.key, set: { reservedAt: new Date(now) },
-        setWhere: sql`${notificationCooldowns.reservedAt} <= ${new Date(now - milliseconds)}`,
-      }).returning({ key: notificationCooldowns.key });
-    return rows.length > 0;
-  }
-
   /** Imported leader: each admin → the default rules that fire for them
    * (matching and outside that admin's cooldown for the rule). */
-  private async adminRuleHits(action: ActionCreatedEvent, leader: LeaderRow, db: DbOrTx, equityUsd: number | null): Promise<Map<number, AlertRuleRow[]>> {
+  private async adminRuleHits(action: ActionCreatedEvent, leader: LeaderRow, db: DbTransaction, equityUsd: number | null): Promise<Map<number, AlertRuleRow[]>> {
     const hits = new Map<number, AlertRuleRow[]>();
-    const [admins, rules] = await Promise.all([
-      db
-        .select({ id: users.id })
-        .from(users)
-        .where(and(eq(users.role, "admin"), isNull(users.disabledAt))),
-      this.getApplicableDefaultRules(leader.tier, db),
-    ]);
+    const admins = await this.repository.enabledAdmins(db);
+    const rules = await this.getApplicableDefaultRules(leader.tier, db);
     if (admins.length === 0 || rules.length === 0) return hits;
 
     const matching = rules.filter((rule) => {
@@ -218,7 +169,7 @@ export class RulesService {
     if (matching.length === 0) return hits;
 
     const adminIds = admins.map((a) => a.id);
-    const lastSent = await this.lastSent(
+    const lastSent = await this.repository.lastSent(
       adminIds,
       matching.map((r) => r.id),
       action,
@@ -231,78 +182,23 @@ export class RulesService {
         const last = lastSent.get(`${userId}|${rule.id}`);
         if (last && (now - last.getTime()) / 1000 < rule.cooldownS) continue;
         const key = `rule|${userId}|${rule.id}|${action.chain}|${action.address}|${action.coin}`;
-        if (await this.reserveCooldown(db, key, rule.cooldownS * 1000, now)) firing.push(rule);
+        if (await this.repository.reserveCooldown(db, key, rule.cooldownS * 1000, now)) firing.push(rule);
       }
       if (firing.length > 0) hits.set(userId, firing);
     }
     return hits;
   }
 
-  /** Preserve cooldowns from pre-outbox alerts as well as new durable reservations.
-   * Default rules are shared; cooldown remains per admin/address/coin. */
-  private async lastSent(userIds: number[], ruleIds: number[], action: ActionCreatedEvent, db: DbOrTx): Promise<Map<string, Date>> {
-    const rows = await db
-      .select({ userId: alerts.userId, ruleId: alerts.ruleId, lastSentAt: max(alerts.sentAt) })
-      .from(alerts)
-      .where(
-        and(
-          inArray(alerts.userId, userIds),
-          inArray(alerts.ruleId, ruleIds),
-          eq(alerts.address, action.address),
-          eq(alerts.coin, action.coin),
-        ),
-      )
-      .groupBy(alerts.userId, alerts.ruleId);
-    const result = new Map<string, Date>();
-    for (const row of rows) {
-      if (row.lastSentAt) result.set(`${row.userId}|${row.ruleId}`, new Date(row.lastSentAt));
-    }
-    return result;
-  }
-
-  /** Each recipient's locale and linked, enabled Telegram chat (if any). */
-  private async contacts(userIds: number[], db: DbOrTx): Promise<Map<number, { locale: Locale; chatId: string | null }>> {
-    const rows = await db
-      .select({ userId: users.id, locale: users.locale, chatId: notificationChannels.target })
-      .from(users)
-      .leftJoin(
-        notificationChannels,
-        and(
-          eq(notificationChannels.userId, users.id),
-          eq(notificationChannels.kind, "telegram"),
-          eq(notificationChannels.enabled, true),
-        ),
-      )
-      .where(inArray(users.id, userIds));
-    return new Map(rows.map((r) => [r.userId, { locale: r.locale, chatId: r.chatId }]));
-  }
-
   /** The admin's label, else the leaderboard's display name. */
-  private async traderName(leader: LeaderRow, db: DbOrTx): Promise<string | null> {
+  private async traderName(leader: LeaderRow, db: DbTransaction): Promise<string | null> {
     if (leader.label) return leader.label;
-    const [row] = await db
-      .select({ displayName: traderStats.displayName })
-      .from(traderStats)
-      .where(and(eq(traderStats.chain, leader.chain), eq(traderStats.address, leader.address)));
-    return row?.displayName ?? null;
-  }
-
-  private async getLeader(chain: string, address: string, db: DbOrTx): Promise<LeaderRow | undefined> {
-    const [row] = await db
-      .select()
-      .from(leaders)
-      .where(and(eq(leaders.chain, chain), eq(leaders.address, address)))
-      .limit(1);
-    return row;
+    return this.repository.displayName(leader, db);
   }
 
   /** Enabled, address-scope, implemented default rules whose `tiers[]`
    * include this leader's tier. */
-  private async getApplicableDefaultRules(tier: LeaderRow["tier"], db: DbOrTx): Promise<AlertRuleRow[]> {
-    const rows = await db
-      .select()
-      .from(alertRules)
-      .where(and(isNull(alertRules.userId), eq(alertRules.scope, "address"), eq(alertRules.enabled, true)));
+  private async getApplicableDefaultRules(tier: LeaderRow["tier"], db: DbTransaction): Promise<AlertRuleRow[]> {
+    const rows = await this.repository.enabledDefaultRules(db);
     return rows.filter((r) => ADDRESS_SCOPE_KINDS_IN_SCOPE.includes(r.kind) && r.tiers.includes(tier));
   }
 }

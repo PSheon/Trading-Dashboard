@@ -179,3 +179,14 @@ The official [referral example](https://hyperliquid.gitbook.io/hyperliquid-docs/
 - Behavior-preserving extraction uses existing full API and compiled bootstrap tests instead of new source-text tests for function/file layout.
 - Validation passed: API typecheck/lint/build, OpenAPI freshness, 60 test files / 690 tests, compiled bootstrap readiness 200/503, DTO rejection and runtime/offline Swagger equality. Disposable database cluster removed.
 - Fresh review (bootstrap_style_review, gpt-6-astra) found no concrete regression in startup order, shutdown, HTTP settings or JSDoc semantics. No feature parity or whole-repository style completion claim.
+
+
+## Thirteenth batch — Notify and Rules repositories (base 4f5c998)
+
+- Extended the repository boundary gate; observed RED for both services before extraction. Feature modules privately register repositories; Notify context types move to a dedicated file with compatibility type re-exports.
+- Services retain policy, rendering, retries and use-case sequencing. RulesRepository requires the caller's DbTransaction for all operations. UnitOfWork keeps advisory lock, cooldown reservation, intent/log insertion and action completion atomic; delivery remains after commit. Notify result writes retain the lease-token predicate and atomic alert update.
+- JSDoc now describes existing alert-row updates on retry and durable replay without promising a fixed delivery latency. No runtime HTTP/wire/schema change intended.
+- Ruling: remove parallel query submission on the single Rules transaction connection after pg emitted its query-concurrency deprecation warning in real integration tests. Use sequential awaits and recipient iteration, preserving the transaction and policies. Cost: ordering is now explicit; independent transactions remain concurrent.
+- Pre-rebase verification: API 60 files / 692 tests, typecheck/lint/build, OpenAPI freshness and compiled bootstrap DI/DTO/readiness/Swagger checks passed. The final suite no longer emitted the single-client query-concurrency warning.
+- Fresh review (notify_rules_final_review, gpt-6-astra) found no concrete regression, including sequential queries. Addressed minor module import grouping and stale conventions wording.
+- Concurrent dev advanced to 026f742 with Claude's trader-page/API parity changes. Preserve those commits and verify the combined shared/API/web contracts after rebase.

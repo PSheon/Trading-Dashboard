@@ -1,53 +1,18 @@
-import { recoverSettingsSection } from "../settings/settings-recovery.js";
-import { AppConfig } from "../config/app-config.js";
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
-import type { DbOrTx } from "../watcher/action-store.js";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
-import {
-  actions,
-  alertRules,
-  alerts,
-  notificationOutbox,
-  notificationChannels,
-  userFavorites,
-  appSettings,
-  users,
-} from "@trading-dashboard/shared/database";
+
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { notificationDeliveryPayloadSchema, type Locale } from "@trading-dashboard/shared/contracts";
 
-import { DRIZZLE_CLIENT } from "../db/db.constants.js";
-import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { AppConfig } from "../config/app-config.js";
+import { recoverSettingsSection } from "../settings/settings-recovery.js";
+import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
+import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { NotifyRepository, type DeliveryRow } from "./notify.repository.js";
+import type { AlertContext } from "./notify.types.js";
 import { renderAlertMessage, renderTestMessage, tradeSideOf } from "./message-template.js";
 import { TelegramApiError, TelegramHttpClient } from "./telegram-http.client.js";
 
-type ActionRow = typeof actions.$inferSelect;
-type AlertRuleRow = typeof alertRules.$inferSelect;
-
-export interface AlertRecipient {
-  userId: number;
-  /** The user's linked, enabled Telegram chat, or null when they have none. */
-  telegramChatId: string | null;
-  locale: Locale;
-}
-
-/**
- * One action, one recipient, one message. RulesService has already decided
- * this person gets it and why:
- * - `favorite`: their own alert on this trader matched (side, minimum);
- * - `rules`: default rules that matched, for an admin on an imported leader.
- * Both can be true for an admin who also set an alert; they still get one
- * message.
- */
-export interface AlertContext {
-  action: ActionRow;
-  /** Leader label or leaderboard name; null → the short address. */
-  traderName: string | null;
-  recipient: AlertRecipient;
-  rules: AlertRuleRow[];
-  favorite: boolean;
-}
+export type { AlertContext, AlertRecipient } from "./notify.types.js";
 
 /** Backoff between attempts for alerts and system messages: 3 retries
  * after the first attempt = 4 attempts in all. */
@@ -72,9 +37,9 @@ function errorText(error: unknown): string {
  * (linking, /stop) don't come through here and are always sent; see
  * TelegramBotService.
  *
- * Every alert attempt — dry run, sent, failed, no chat — writes `alerts`
- * rows (N2): one per matched default rule, or a single row with no rule
- * for an alert that only a favorite triggered.
+ * Enqueue creates one alert row per matched default rule, or one rule-free
+ * row for a favorite-only alert. Delivery updates those same rows, including
+ * dry-run and failed outcomes; retries do not append duplicate alert rows.
  */
 @Injectable()
 export class NotifyService {
@@ -82,20 +47,21 @@ export class NotifyService {
 
   constructor(
     private readonly config: AppConfig,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: NotifyRepository,
+    private readonly unitOfWork: UnitOfWork,
     private readonly telegram: TelegramHttpClient,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
   /** Persist intent before any external delivery. Transaction callers enqueue
    * only; the rules engine commits cooldowns and intent together. */
-  async notifyAlert(ctx: AlertContext, tx?: DbOrTx): Promise<void> {
+  async notifyAlert(ctx: AlertContext, tx?: DbTransaction): Promise<void> {
     if (tx) { await this.enqueue(ctx, tx); return; }
-    await this.db.transaction((tx) => this.enqueue(ctx, tx));
+    await this.unitOfWork.run((tx) => this.enqueue(ctx, tx));
     await this.deliverAction(ctx.action.id);
   }
 
-  private async enqueue(ctx: AlertContext, db: DbOrTx): Promise<void> {
+  private async enqueue(ctx: AlertContext, db: DbTransaction): Promise<void> {
     const { action, recipient, rules } = ctx;
     const dashboardUrl = `${this.config.value.telegram.linkBaseUrl}/trader/${action.address}`;
     const ruleKinds = rules.map((r) => r.kind);
@@ -125,22 +91,14 @@ export class NotifyService {
       },
     });
 
-    const inserted = await db.insert(notificationOutbox).values({
-      actionId: action.id, userId: recipient.userId, payloadJson,
-    }).onConflictDoNothing().returning({ id: notificationOutbox.id });
-    if (inserted.length) await this.insertAlertRows(ctx, payloadJson, "pending", db);
+    await this.repository.enqueue(ctx, payloadJson, db);
   }
 
+  /** Drain a bounded batch of due intents; each send requires an owned lease. */
   async deliverAction(actionId?: bigint): Promise<void> {
     if (this.jobs.stopping) return;
     const now = new Date();
-    const due = or(
-      and(eq(notificationOutbox.status, "pending"), lte(notificationOutbox.availableAt, now)),
-      and(eq(notificationOutbox.status, "processing"), lte(notificationOutbox.lockedUntil, now)),
-    );
-    const rows = await this.db.select({ id: notificationOutbox.id }).from(notificationOutbox)
-      .where(and(due, actionId === undefined ? undefined : eq(notificationOutbox.actionId, actionId)))
-      .orderBy(notificationOutbox.id).limit(20);
+    const rows = await this.repository.findDue(now, actionId);
     for (const row of rows) {
       if (this.jobs.stopping) break;
       await this.deliverOne(row.id);
@@ -150,19 +108,13 @@ export class NotifyService {
   private async deliverOne(id: bigint): Promise<void> {
     const now = new Date();
     const leaseToken = randomUUID();
-    const [row] = await this.db.update(notificationOutbox).set({ status: "processing", leaseToken,
-      lockedUntil: new Date(now.getTime() + 300_000), attempts: sql`${notificationOutbox.attempts} + 1`,
-    }).where(and(eq(notificationOutbox.id, id), or(
-      and(eq(notificationOutbox.status, "pending"), lte(notificationOutbox.availableAt, now)),
-      and(eq(notificationOutbox.status, "processing"), lte(notificationOutbox.lockedUntil, now)),
-    ))).returning();
+    const row = await this.repository.claim(id, now, leaseToken, new Date(now.getTime() + 300_000));
     if (!row) return;
     const retry = { delayMs: 0, permanent: false };
     let status: "sent" | "dry_run" | "failed" = "failed";
     let reason: string | undefined;
     try {
-      const [recipient] = await this.db.select({ id: users.id, role: users.role }).from(users)
-        .where(and(eq(users.id, row.userId), isNull(users.disabledAt)));
+      const recipient = await this.repository.enabledRecipient(row.userId);
       const payload = notificationDeliveryPayloadSchema.parse(row.payloadJson);
       if (row.attempts > 5) { retry.permanent = true; reason = "attempt limit"; }
       else if (!recipient) { retry.permanent = true; reason = "recipient disabled"; }
@@ -171,17 +123,12 @@ export class NotifyService {
       }
       else if (this.config.value.telegram.dryRun) { status = "dry_run"; }
       else {
-        const [channel] = await this.db.select().from(notificationChannels).where(and(
-          eq(notificationChannels.userId, row.userId), eq(notificationChannels.kind, "telegram"), eq(notificationChannels.enabled, true),
-        ));
+        const channel = await this.repository.enabledChannel(row.userId);
         if (!channel || channel.target !== payload.chatId || typeof payload.text !== "string") {
           retry.permanent = true; reason = "no enabled Telegram channel";
         } else if (await this.sendWithRetry(channel.target, payload.text, retry, async () => {
-          const [current] = await this.db.select().from(users).where(and(eq(users.id, row.userId), isNull(users.disabledAt)));
-          const [linked] = await this.db.select().from(notificationChannels).where(and(
-            eq(notificationChannels.userId, row.userId), eq(notificationChannels.kind, "telegram"),
-            eq(notificationChannels.enabled, true), eq(notificationChannels.target, channel.target),
-          ));
+          const current = await this.repository.enabledRecipient(row.userId);
+          const linked = await this.repository.enabledChannel(row.userId, channel.target);
           return Boolean(current && linked && await this.deliveryStillAllowed(row, payload, current.role));
         })) status = "sent";
         else reason = "Telegram send failed";
@@ -191,33 +138,23 @@ export class NotifyService {
       this.logger.error(`Delivery ${id} failed: ${errorText(error)}`);
     }
     const pending = status === "failed" && !retry.permanent && row.attempts < 5;
-    await this.db.transaction(async (tx) => {
-      const updated = await tx.update(notificationOutbox).set({ status: pending ? "pending" : status,
-        availableAt: new Date(Date.now() + Math.max(60_000, retry.delayMs)), lockedUntil: null, leaseToken: null,
-        lastError: reason ?? null,
-      }).where(and(eq(notificationOutbox.id, id), eq(notificationOutbox.leaseToken, leaseToken))).returning({ id: notificationOutbox.id });
-      if (!updated.length) return;
-      await tx.update(alerts).set({ sendStatus: status, sentAt: new Date(),
-        payloadJson: reason ? { ...row.payloadJson, reason } : row.payloadJson,
-      }).where(and(eq(alerts.actionId, row.actionId), eq(alerts.userId, row.userId)));
-    });
+    await this.unitOfWork.run((tx) => this.repository.recordDelivery(tx, row, leaseToken, {
+      status, pending, availableAt: new Date(Date.now() + Math.max(60_000, retry.delayMs)), reason,
+    }));
   }
 
   private async deliveryStillAllowed(
-    row: typeof notificationOutbox.$inferSelect,
+    row: DeliveryRow,
     payload: ReturnType<typeof notificationDeliveryPayloadSchema.parse>,
     role: string,
   ): Promise<boolean> {
-    const [config] = await this.db.select().from(appSettings).where(eq(appSettings.key, "notifications"));
+    const config = await this.repository.notificationSettings();
     if (!recoverSettingsSection("notifications", config ? config.value : {}, Boolean(config)).value.alertsEnabled) return false;
     if (role === "admin" && payload.reasons.rules.length > 0) return true;
     if (!payload.reasons.favorite) return false;
-    const [action] = await this.db.select().from(actions).where(eq(actions.id, row.actionId));
+    const action = await this.repository.action(row.actionId);
     if (!action) return false;
-    const [favorite] = await this.db.select().from(userFavorites).where(and(
-      eq(userFavorites.userId, row.userId), eq(userFavorites.chain, action.chain),
-      eq(userFavorites.address, action.address), eq(userFavorites.alertEnabled, true),
-    ));
+    const favorite = await this.repository.enabledFavorite(row.userId, action.chain, action.address);
     return Boolean(favorite && (favorite.alertSides === "both" || favorite.alertSides === payload.values.tradeSide)
       && (favorite.alertMinUsd === null || Number(payload.values.notionalUsd) >= Number(favorite.alertMinUsd)));
   }
@@ -271,7 +208,7 @@ export class NotifyService {
         const retryAfterMs = error instanceof TelegramApiError && Number.isFinite(error.retryAfterS)
             ? Math.max(0, error.retryAfterS! * 1000) : 0;
         // Long rate limits are recorded as failed, never retried earlier than Telegram permits.
-          result.delayMs = Math.max(result.delayMs, retryAfterMs);
+        result.delayMs = Math.max(result.delayMs, retryAfterMs);
         if (retryAfterMs > 60_000) return false;
         if (attempt < RETRY_DELAYS_MS.length) {
           try { await delay(Math.max(RETRY_DELAYS_MS[attempt], retryAfterMs), this.jobs.signal); }
@@ -282,26 +219,4 @@ export class NotifyService {
     return false;
   }
 
-  private async insertAlertRows(
-    ctx: AlertContext,
-    payloadJson: Record<string, unknown>,
-    sendStatus: "sent" | "dry_run" | "failed" | "pending",
-    db: DbOrTx = this.db,
-  ): Promise<void> {
-    // sent_at is "when this attempt happened" for every outcome, so the log
-    // sorts failed rows in place too.
-    const sentAt = sendStatus === "pending" ? null : new Date();
-    const row = {
-      userId: ctx.recipient.userId,
-      chain: ctx.action.chain,
-      address: ctx.action.address,
-      coin: ctx.action.coin,
-      actionId: ctx.action.id,
-      payloadJson,
-      sentAt,
-      sendStatus,
-    };
-    const ruleIds: (number | null)[] = ctx.rules.length > 0 ? ctx.rules.map((r) => r.id) : [null];
-    await db.insert(alerts).values(ruleIds.map((ruleId) => ({ ...row, ruleId })));
-  }
 }

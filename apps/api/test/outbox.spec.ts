@@ -1,3 +1,5 @@
+import { RulesRepository } from "../src/rules/rules.repository.js";
+import { NotifyRepository } from "../src/notify/notify.repository.js";
 import { OutboxRepository } from "../src/outbox/outbox.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
@@ -27,8 +29,8 @@ const db = getTestDb();
 const address = "0x" + "ab".repeat(20);
 const sendMessage = vi.fn(async () => {});
 let userId: number;
-const notify = () => new NotifyService(testConfig(), db, { sendMessage } as unknown as TelegramHttpClient);
-const rules = (sender = notify()) => new RulesService(db, { getEquityUsd: () => null } as unknown as WatcherService, sender, new SettingsService(new SettingsRepository(db), new UnitOfWork(db)));
+const notify = () => new NotifyService(testConfig(), new NotifyRepository(db), new UnitOfWork(db), { sendMessage } as unknown as TelegramHttpClient);
+const rules = (sender = notify()) => new RulesService(new RulesRepository(), new UnitOfWork(db), { getEquityUsd: () => null } as unknown as WatcherService, sender, new SettingsService(new SettingsRepository(db), new UnitOfWork(db)));
 const create = () => withActionLock(db, address, (tx) => insertActions(tx, address, [{
   coin: "BTC", kind: "open", side: "long", notionalUsd: "60000", avgPx: "60000", leverage: null, fillIds: [], ts: new Date(),
 }], true)).then(([row]) => row);

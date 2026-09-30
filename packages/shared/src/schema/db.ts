@@ -732,3 +732,73 @@ export const kolAvatars = pgTable(
     index("kol_avatars_next_idx").on(table.nextAttemptAt),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// cohort_members / cohort_snapshots — 洞察 (Stage 3 §3, CopyDog's cohorts):
+// each PnL tier's members (the discovery pool's traders by all-time perp
+// PnL, topped up from the leaderboard), their latest positions across every
+// perp dex, and one aggregate row per tier every refresh interval (the
+// 倉位傾向 history). Members are derived data: the job rebuilds them.
+// ---------------------------------------------------------------------------
+
+/** One open perp position of a cohort member. `notional` is signed (long
+ * > 0, short < 0), at the mark. */
+export interface CohortPosition {
+  coin: string;
+  notional: number;
+  upnl: number;
+}
+
+export const cohortMembers = pgTable(
+  "cohort_members",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    /** A `PnlTier` (extremely_profitable … rekt). */
+    tier: text("tier").notNull(),
+    /** "pool" (discovery pool figures) or "leaderboard" (top-up). */
+    source: text("source").notNull(),
+    /** Order within the tier (account value, largest first). */
+    rank: integer("rank").notNull(),
+    pnlAll: numeric("pnl_all"),
+    roiAll: numeric("roi_all"),
+    /** Perp equity summed over every dex, from the latest snapshot. */
+    perpEquity: numeric("perp_equity"),
+    positions: jsonb("positions").$type<CohortPosition[]>().notNull().default([]),
+    /** Dexes (besides the main one) the member held positions on or has
+     * traded; queried every refresh. Every dex is swept now and then. */
+    dexes: text("dexes").array().notNull().default(sql`'{}'::text[]`),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    /** Last full sweep of every dex. */
+    sweptAt: timestamp("swept_at", { withTimezone: true }),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+    lastError: text("last_error"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.chain, table.address] }),
+    index("cohort_members_tier_idx").on(table.tier, table.rank),
+    index("cohort_members_attempted_idx").on(table.attemptedAt),
+  ],
+);
+
+export const cohortSnapshots = pgTable(
+  "cohort_snapshots",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    tier: text("tier").notNull(),
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    /** Members of the tier / members with a fresh snapshot. */
+    memberCount: integer("member_count").notNull(),
+    walletCount: integer("wallet_count").notNull(),
+    notionalLong: numeric("notional_long").notNull(),
+    notionalShort: numeric("notional_short").notNull(),
+    /** Long ÷ (long + short) notional, 0–100; null without positions. */
+    longPct: numeric("long_pct"),
+    upnlProfit: numeric("upnl_profit").notNull(),
+    upnlLoss: numeric("upnl_loss").notNull(),
+    walletsInProfit: integer("wallets_in_profit").notNull(),
+    walletsInLoss: integer("wallets_in_loss").notNull(),
+  },
+  (table) => [index("cohort_snapshots_tier_ts_idx").on(table.chain, table.tier, table.ts)],
+);

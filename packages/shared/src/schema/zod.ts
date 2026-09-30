@@ -1209,6 +1209,90 @@ export const crowdResponseSchema = z.object({
 });
 export type CrowdResponse = z.infer<typeof crowdResponseSchema>;
 
+// --- insights: cohorts (Stage 3 §3, CopyDog's /hyperliquid/cohorts) -----------
+
+/** A PnL tier as a cohort (CopyDog's cohorts; 極度盈利 is the default). */
+export const cohortTierSchema = pnlTierSchema;
+export type CohortTier = z.infer<typeof cohortTierSchema>;
+
+export const cohortWalletSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  verified: z.boolean(),
+  /** Coins held, largest notional first, at most 5. */
+  topAssets: z.array(z.string()),
+  /** All-time perp PnL and ROI (CopyDog's definition); null when unknown. */
+  totalPnl: z.number().nullable(),
+  roi: z.number().nullable(),
+  perpEquity: z.number().nullable(),
+  copyScore: z.number().int().nullable(),
+  /** Σ |notional| of open positions. */
+  positionValue: z.number(),
+  /** positionValue ÷ perpEquity; null without equity. */
+  leverage: z.number().nullable(),
+  sumUpnl: z.number(),
+  /** Long share of the wallet's notional, 0–100; null when flat. */
+  biasPct: z.number().nullable(),
+});
+export type CohortWallet = z.infer<typeof cohortWalletSchema>;
+
+export const cohortMarketSchema = z.object({
+  coin: z.string(),
+  notionalLong: z.number(),
+  notionalShort: z.number(),
+  /** Long share of the market's notional, 0–100. */
+  biasPct: z.number().nullable(),
+  upnl: z.number(),
+  tradersLong: z.number().int(),
+  tradersShort: z.number().int(),
+  /** Members whose position in this market is in profit / at a loss. */
+  tradersProfit: z.number().int(),
+  tradersLoss: z.number().int(),
+});
+export type CohortMarket = z.infer<typeof cohortMarketSchema>;
+
+/** GET /insights/cohorts/:tier — the tier's current positioning. */
+export const cohortDetailResponseSchema = z.object({
+  tier: cohortTierSchema,
+  /** Members of the tier (≤ `discovery.cohortMembersPerTier`). */
+  memberCount: z.number().int(),
+  /** Members with a fresh snapshot (the wallets below). */
+  walletCount: z.number().int(),
+  hero: z.object({
+    upnlProfit: z.number(),
+    upnlLoss: z.number(),
+    /** upnlProfit ÷ (upnlProfit + upnlLoss), 0–100. */
+    upnlProfitPct: z.number().nullable(),
+    walletsInProfit: z.number().int(),
+    walletsInLoss: z.number().int(),
+    notionalLong: z.number(),
+    notionalShort: z.number(),
+    longPct: z.number().nullable(),
+  }),
+  /** By notional, largest first. */
+  markets: z.array(cohortMarketSchema),
+  /** By perp equity, largest first. */
+  wallets: z.array(cohortWalletSchema),
+  /** Oldest snapshot among the wallets; null when none. */
+  updatedAt: z.coerce.date().nullable(),
+});
+export type CohortDetailResponse = z.infer<typeof cohortDetailResponseSchema>;
+
+export const cohortWindowSchema = z.enum(["7d", "30d", "90d", "all"]);
+export type CohortWindow = z.infer<typeof cohortWindowSchema>;
+
+/** GET /insights/cohorts/:tier/history?window= — 倉位傾向: the long share
+ * per refresh, and BTC's price over the same window (Hyperliquid candles). */
+export const cohortHistoryResponseSchema = z.object({
+  tier: cohortTierSchema,
+  window: cohortWindowSchema,
+  series: z.array(z.object({ t: z.coerce.date(), pctLong: z.number() })),
+  /** [epoch ms, close], oldest first. */
+  btc: z.array(z.tuple([z.number(), z.number()])),
+});
+export type CohortHistoryResponse = z.infer<typeof cohortHistoryResponseSchema>;
+
 // --- site settings (admin) -------------------------------------------------------
 
 export const localizedTextSchema = z.object({
@@ -1257,6 +1341,12 @@ export const discoverySettingsSchema = z.object({
   cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"]),
   stockBoards: z.array(boardCoinSchema).max(16)
     .default(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]),
+  /** 洞察 cohorts: members per PnL tier whose positions are tracked … */
+  cohortMembersPerTier: z.number().int().min(0).max(500).default(150),
+  /** … refreshed this often (each member, and one history row per tier) … */
+  cohortRefreshMinutes: z.number().int().min(5).max(240).default(15),
+  /** … within this much Hyperliquid weight per minute (yields to pages). */
+  cohortWeightPerMinute: z.number().int().min(0).max(600).default(150),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 

@@ -36,6 +36,8 @@ import { SettingsService } from "../src/settings/settings.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
 import { FavoritesRepository } from "../src/users/favorites.repository.js";
+import { AccountRepository } from "../src/users/account.repository.js";
+import { AccountDeletionService } from "../src/users/account-deletion.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -102,7 +104,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       controllers: [CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyAdminReadService, FillSyncRepository,
+        CopyControlService, CopyStrategyService, CopyAdminReadService, FillSyncRepository, AccountRepository, AccountDeletionService,
         { provide: HyperliquidInfoClient, useValue: info },
       ],
     }));
@@ -550,6 +552,16 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       const [leader] = await db.select().from(leaders).where(eq(leaders.address, LEADER));
       expect(leader!.active).toBe(false);
       await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(409);
+    });
+
+    it("account deletion waits until every copy is stopped (CopyDog)", async () => {
+      const { id } = await startCopy();
+      const [u] = await db.select().from(users);
+      await expect(app.get(AccountDeletionService).delete(u!.id)).rejects.toMatchObject({ status: 409 });
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
+      await execution.settleStopping();
+      await app.get(AccountDeletionService).delete(u!.id);
+      expect(await db.select().from(copyStrategies)).toHaveLength(0);
     });
   });
 

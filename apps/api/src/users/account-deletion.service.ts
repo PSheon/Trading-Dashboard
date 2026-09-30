@@ -41,7 +41,7 @@ export class AccountDeletionService {
   /**
    * @throws NotFoundException when the user row is already gone.
    * @throws ConflictException `{code: "last_admin"}` when the caller is the
-   *   only enabled admin.
+   *   only enabled admin, `{code: "copies_active"}` while a copy isn't stopped.
    */
   async delete(userId: number): Promise<void> {
     await this.uow.run(async (tx) => {
@@ -51,6 +51,10 @@ export class AccountDeletionService {
       const enabledAdmin = user.role === "admin" && user.disabledAt === null;
       if (enabledAdmin && !admins.some((a) => a.id !== userId)) {
         throw new ConflictException({ statusCode: 409, code: "last_admin", message: "At least one enabled admin must remain" });
+      }
+      // As on CopyDog: copies must be stopped first, so no allocation is left behind.
+      if (await this.accounts.hasLiveCopies(tx, userId)) {
+        throw new ConflictException({ statusCode: 409, code: "copies_active", message: "Stop your copies before deleting your account" });
       }
       const before = await this.accounts.footprint(tx, userId, user.role);
       for (const address of await this.accounts.favoriteAddresses(tx, userId)) {

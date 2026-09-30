@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, eq, isNull } from "drizzle-orm";
-import { notificationChannels, userFavoriteGroups, userFavorites, users } from "@trading-dashboard/shared/database";
+import { and, asc, count, eq, isNull, ne } from "drizzle-orm";
+import { copyStrategies, notificationChannels, userFavoriteGroups, userFavorites, users } from "@trading-dashboard/shared/database";
 
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -32,6 +32,12 @@ export class AccountRepository {
   }
 
   /** The user row, locked; undefined when it no longer exists. */
+  /** Whether the user still has a copy that isn't stopped (its funds are still allocated). */
+  async hasLiveCopies(tx: DbTransaction, userId: number): Promise<boolean> {
+    const [row] = await tx.select({ n: count() }).from(copyStrategies).where(and(eq(copyStrategies.userId, userId), ne(copyStrategies.status, "stopped")));
+    return Number(row?.n ?? 0) > 0;
+  }
+
   async lockUser(tx: DbTransaction, userId: number) {
     const [row] = await tx.select({ id: users.id, role: users.role, disabledAt: users.disabledAt }).from(users).where(eq(users.id, userId)).for("update");
     return row;

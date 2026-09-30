@@ -3,10 +3,22 @@
 import { queryKeys } from "@/lib/query-keys";
 import type { Permission } from "@trading-dashboard/shared/contracts";
 import { hasPermission } from "@/lib/permissions";
-import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
-import { useQuery } from "@tanstack/react-query";
+import {
+  PrivyProvider,
+  useCreateWallet,
+  useExportWallet,
+  usePrivy,
+  useSendTransaction,
+  useSignTypedData,
+  useWallets,
+} from "@privy-io/react-auth";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MeResponse } from "@/lib/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useRef } from "react";
+
+import { Lockup } from "@/components/brand/logo";
+import { ARBITRUM_CHAINS } from "@/lib/hyperliquid-network";
+import type { WalletSigner } from "@/lib/wallet-signer";
 
 import { SessionQueries } from "@/lib/session-queries";
 import { APP_NAME, PRIVY_APP_ID } from "@/lib/config";
@@ -32,6 +44,8 @@ export interface AuthState {
   logout: () => Promise<void>;
   /** Email or wallet from the identity provider, before /me loads. */
   identity: string | null;
+  /** The user's own embedded wallet (Privy mode only); null otherwise. */
+  wallet: WalletSigner | null;
 }
 
 const noop = () => {};
@@ -41,6 +55,7 @@ const AuthContext = createContext<AuthState>({
   login: noop,
   logout: async () => {},
   identity: null,
+  wallet: null,
 });
 
 export function useAuth(): AuthState {
@@ -73,6 +88,7 @@ export function useIsAdmin(): boolean {
 
 function PrivyBridge({ children }: { children: React.ReactNode }) {
   const { ready, authenticated, login, logout, getAccessToken, user } = usePrivy();
+  const wallet = useEmbeddedWallet(ready && authenticated);
 
   // Registered during render (idempotent) rather than in an effect: child
   // queries subscribe in their own effects, which run before ours, and the
@@ -91,11 +107,59 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
       login: () => login(),
       logout: () => logout(),
       identity: user?.email?.address ?? user?.wallet?.address ?? null,
+      wallet,
     }),
-    [ready, authenticated, login, logout, user],
+    [ready, authenticated, login, logout, user, wallet],
   );
 
   return <AuthContext value={value}><SessionQueries key={sessionKey()}>{children}</SessionQueries></AuthContext>;
+}
+
+/**
+ * The signed-in user's Privy embedded wallet: their Orbie main account and
+ * Hyperliquid address. New users get one at login (`createOnLogin`); a user
+ * who signed up before that setting existed gets one here, once, on their
+ * next visit. The api learns the address from Privy itself (GET /me/wallet),
+ * never from this page.
+ */
+function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
+  const { wallets, ready } = useWallets();
+  const { exportWallet } = useExportWallet();
+  const { signTypedData } = useSignTypedData();
+  const { sendTransaction } = useSendTransaction();
+  const { createWallet } = useCreateWallet();
+  const queryClient = useQueryClient();
+  const creating = useRef(false);
+  const embedded = wallets.find((w) => w.walletClientType === "privy") ?? null;
+
+  useEffect(() => {
+    if (!signedIn || !ready || embedded || creating.current) return;
+    creating.current = true;
+    createWallet()
+      .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.wallet.all }))
+      .catch(() => {
+        // Already has one (created in another tab) or Privy refused: the
+        // wallet panel shows "not ready" and a reload tries again.
+      });
+  }, [signedIn, ready, embedded, createWallet, queryClient]);
+
+  const address = embedded?.address ?? null;
+  return useMemo<WalletSigner | null>(() => {
+    if (!signedIn) return null;
+    const target = address ? { address } : undefined;
+    return {
+      address,
+      exportKey: () => exportWallet(target),
+      signTypedData: async (data) => {
+        const { signature } = await signTypedData(data, target);
+        return signature as `0x${string}`;
+      },
+      sendTransaction: async (tx, sponsor) => {
+        const { hash } = await sendTransaction(tx, { sponsor, ...target });
+        return hash;
+      },
+    };
+  }, [signedIn, address, exportWallet, signTypedData, sendTransaction]);
 }
 
 function hasSavedPrivySession(): boolean {
@@ -126,6 +190,7 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
       login: () => persist(true),
       logout: async () => persist(false),
       identity: signedIn ? "demo@example.com" : null,
+      wallet: null,
     }),
     [signedIn, persist],
   );
@@ -158,11 +223,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         config={{
           // Login methods come from the Privy dashboard, not from here.
           appearance: {
-            // Orbie navy panel and orange accent (Stage 2 §9).
+            // Orbie navy panel and orange accent (Stage 2 §9). The logo is
+            // rendered in this document, so the wordmark keeps its Fredoka
+            // face; the title stays Privy's "Log in or sign up", as on CopyDog.
             theme: "#17142b",
             accentColor: "#ff7a45",
-            landingHeader: APP_NAME,
+            logo: <Lockup markSize={34} />,
           },
+          // Every user gets an embedded wallet: their main account.
+          embeddedWallets: { ethereum: { createOnLogin: "all-users" } },
+          // Deposits bridge from Arbitrum (Arbitrum Sepolia on testnet).
+          supportedChains: [...ARBITRUM_CHAINS],
+          defaultChain: ARBITRUM_CHAINS[0],
         }}
       >
         <PrivyBridge>

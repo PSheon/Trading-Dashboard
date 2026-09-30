@@ -19,7 +19,7 @@ let calls = 0;
 @Controller()
 class PipelineProbe {
   @Post("optional") optional(@Body() body: PatchMeDto) { calls++; return body; }
-  @Post("pipeline") create(@Body() body: InputDto) { calls++; return { instance: body instanceof InputDto, ...body }; }
+  @SkipTransform() @Post("pipeline") create(@Body() body: InputDto) { calls++; return { instance: body instanceof InputDto, ...body }; }
   @Get("actions") @ResponseMessage("Actions loaded") actions() { return []; }
   @Get("raw-probe") @SkipTransform() raw() { return { raw: true }; }
 }
@@ -37,7 +37,7 @@ it("runs class transformation and nested whitelist validation globally before co
   const before = calls;
   for (const body of [{ ...valid, surprise: 1 }, { ...valid, child: { enabled: "false" } }, { ...valid, child: { enabled: false, secret: 1 } }, { ...valid, count: "3oops" }]) {
     const res = await request(app.getHttpServer()).post("/pipeline").send(body).expect(400);
-    expect(res.body.code).toBe("validation_error");
+    expect(res.body.error.code).toBe("validation_error");
   }
   expect(calls).toBe(before);
 });

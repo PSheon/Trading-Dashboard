@@ -1,25 +1,34 @@
 # HTTP boundary
 
-The browser sends `X-API-Contract: 1`. For this version, successful responses are
-`{success:true,statusCode,message,data,meta:{requestId,path}}`; failures are
-`{success:false,statusCode,message,error:{code,details?,fields?},meta}`. HTTP statuses
-retain their meaning. Fields use dotted paths (`rows.0.address`). Business codes
-such as `alert_limit`, `telegram_not_linked`, and `telegram_not_configured` remain
-stable. Generic codes include validation_error, unauthorized, forbidden,
-not_found, conflict, rate_limited, unavailable, bad_gateway and internal_error.
-Internal errors never return exception stacks, SQL or bound values. Unique/FK
-conflicts alone are mapped to 409; other DB/program errors stay 500.
+All ordinary JSON endpoints now return the canonical envelope by default:
+`{success:true,statusCode,message,data,meta:{requestId,path,timestamp,pagination?}}`.
+Failures return
+`{success:false,statusCode,message,error:{code,details?,fields?},meta}`.
+`timestamp` is an ISO UTC timestamp; request IDs remain sanitized and correlated.
+HTTP statuses retain their meaning. Validation fields use dotted paths
+(`rows.0.address`); business codes and error details remain stable.
 
-Clients without the header keep legacy response bodies, validated and stripped by
-the same response DTO allowlist as negotiated clients. Unknown versions also
-receive legacy bodies and no version acknowledgement. New clients accept a
-validated legacy DTO while rolling out; a response acknowledging version 1 must
-have a valid envelope. Keep this compatibility until all external callers have
-migrated and an announced API version removes it; no silent removal is planned.
-Health/readiness, HEAD, 204 and StreamableFile responses remain raw. Negotiated
-responses advertise X-API-Contract; Vary includes it. Same-origin proxy forwards
-contract/request IDs and Retry-After, rejects redirects, cancels upstream on
-client disconnect and normalizes its own gateway failures.
+**Breaking change:** raw JSON success/error bodies for clients without
+`X-API-Contract: 1` have been removed. Update external clients to unwrap `data`
+and read `error.code` / `error.details` before deploying this release.
+The header is now only a response format marker; omitting it or sending an
+unknown value cannot select another format. Responses no longer vary by it.
+The browser requires a valid envelope, timestamp and matching HTTP status for
+ordinary successful JSON responses. Its defensive error parser can still read
+raw operational/gateway errors, but the application server emits one error format.
+
+Health/readiness, HEAD, 204, SSE and StreamableFile success responses remain raw.
+Only the two actual health paths keep raw operational errors; unknown health
+subpaths still receive canonical 404 envelopes. Errors before an SSE stream starts
+are canonical JSON. Internal errors never expose SQL, stacks or bound values.
+The same-origin proxy normalizes its own failures even without a request header.
+
+`GET /traders` and `GET /admin/users` add
+`meta.pagination:{type:"offset",limit,offset,total,hasMore}`.
+`GET /traders/:address/trades` adds
+`{type:"cursor",limit,total,nextCursor,hasMore}`.
+The existing `data.total`, `data.items` and `data.nextCursor` are retained.
+Array feeds do not fabricate totals or pagination guarantees.
 
 `wire-contracts.ts` defines every endpoint's response allowlist. The interceptor
 serializes Date to ISO strings and bigint to decimal strings, validates the DTO
@@ -28,10 +37,9 @@ strings. Explicit dynamic objects (`paramsJson`, payloadJson, raw upstream fill
 records and keyed sparkline results) retain their declared extensibility. These
 fields are deliberately not automatic persistence-row spreading. Owned alert
 payloads can include delivery details; the existing recipient scope still applies.
-New DB columns do not enter either registered legacy or version 1 responses
-automatically. Health/readiness and non-JSON exceptions above stay unchanged.
-Unregistered legacy handlers retain their existing behavior; CI prevents any
-production controller route from lacking a registry entry.
+New DB columns do not enter registered responses automatically. Health/readiness and non-JSON exceptions above stay unchanged.
+Unregistered ordinary JSON handlers fail closed; CI prevents any production
+controller route from lacking a registry entry.
 
 Browser requests and fixtures validate against the same registry before data
 enters the UI. Malformed payloads raise `invalid_response`, never silently pass as
@@ -64,12 +72,19 @@ and delivery drain per subscriber so blocked private authorization cannot stall
 public delivery. Database work already in flight remains subject to the database
 driver/statement deadlines; ending a stream is not a SQL cancellation claim.
 
-Controller input parsing uses common/http/validation.ts; domain refinements such
-as rule-specific parameters and import row semantics remain in their use cases.
-The shared route list supplies [generated route documentation](http-routes.md).
-A test compares controller routes to the registry; adding an endpoint requires a
-response schema and docs regeneration. The existing request schemas and access
-matrix complement the route document; this is not an OpenAPI document.
+Controller inputs use native class DTOs and the global Nest ValidationPipe;
+domain refinements remain in their use cases. The registry supplies
+[route documentation](http-routes.md) and [OpenAPI response schemas](openapi-responses.json).
+Regenerate with `node scripts/http-contract-docs.mjs` and `node scripts/openapi.mjs`
+after building shared; CI checks both artifacts. The OpenAPI artifact covers
+responses, statuses, access descriptions and SSE event schemas. It deliberately
+does **not** claim complete request schemas or generated-client readiness.
+Request DTO/OpenAPI integration and Swagger UI remain tracked follow-up work.
+
+The build-time converter is pinned to `zod-to-json-schema@3.25.2` for the current
+Zod 3 runtime schemas. The converter is deprecated upstream; replace it with
+native generation when migrating those schemas to Zod 4. It is not a production
+API dependency.
 
 Implementation follows DonutMe's transform/filter split while retaining Zod and
 Express. Framework boundaries checked against [Nest interceptors](https://docs.nestjs.com/interceptors)
@@ -103,7 +118,7 @@ snapshots unchanged by numerical socket overlays until a complete refresh arrive
 
 `GET /traders/:address/analytics?window=all|30d|7d|1d` and
 `GET /traders/:address/trades?status=all|closed|open&limit&cursor` are public,
-registered DTO routes supporting both legacy raw and v1 envelopes. Cursor
+registered DTO routes using the default envelope. Cursor
 validation rejects unrepresentable dates/int64 IDs before invoking the service.
 Coverage includes `fundingFrom` and `fundingThrough` as nullable ISO timestamps;
 funding values can be partial beyond that interval. `computedAt` is the fill

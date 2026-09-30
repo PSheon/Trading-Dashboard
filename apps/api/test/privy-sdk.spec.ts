@@ -1,3 +1,4 @@
+import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppConfig } from "../src/config/app-config.js";
@@ -64,7 +65,7 @@ it("real signed Privy tokens resolve database RBAC through the HTTP guards", asy
   const db = getTestDb();
   await truncateAll(db);
   await db.insert(users).values({ privyUserId: did, email: "local@example.com", role: "user" });
-  @Controller("sdk-probe") class Probe {
+  @SkipTransform() @Controller("sdk-probe") class Probe {
     @RequirePermissions("users.manage") @Get() read() { return { ok: true }; }
   }
   const fetcher = vi.fn(() => { throw new Error("Unexpected network access"); });

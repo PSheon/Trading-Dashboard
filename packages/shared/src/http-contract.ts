@@ -2,7 +2,13 @@ import { z } from "zod";
 
 export const API_CONTRACT_HEADER = "x-api-contract";
 export const API_CONTRACT_VERSION = "1";
-export const responseMetaSchema = z.object({ requestId: z.string(), path: z.string() });
+export const paginationSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("offset"), limit: z.number().int().positive(), offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(), hasMore: z.boolean() }),
+  z.object({ type: z.literal("cursor"), limit: z.number().int().positive(), total: z.number().int().nonnegative(),
+    nextCursor: z.string().nullable(), hasMore: z.boolean() }),
+]);
+export const responseMetaSchema = z.object({ requestId: z.string(), path: z.string(), timestamp: z.string().datetime(), pagination: paginationSchema.optional() });
 export const successEnvelopeSchema = z.object({
   success: z.literal(true), statusCode: z.number().int(), message: z.string(),
   data: z.unknown(), meta: responseMetaSchema,

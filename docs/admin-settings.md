@@ -2,7 +2,7 @@
 
 `GET /admin/settings` returns the four settings sections plus `revisions` (an
 opaque token for each section) and `invalidSections`. Admin reads bypass the
-30-second business settings cache. GET and PATCH retain the existing negotiated
+30-second business settings cache. GET and PATCH retain the default
 HTTP envelope described in [http-contract.md](http-contract.md).
 
 Send only changed fields and the revision last read for every touched section:

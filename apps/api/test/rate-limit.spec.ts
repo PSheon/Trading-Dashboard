@@ -1,3 +1,4 @@
+import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { describe, expect, it } from "vitest";
 import { RequestRateLimiter } from "../src/common/auth/rate-limit.guard.js";
 
@@ -50,8 +51,8 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { HttpModule } from "../src/common/http/http.module.js";
 
-it("returns negotiated 429 and Retry-After through the actual HTTP filter", async () => {
-  @Controller("rate-probe") class Probe { @Get() read() { return { ok: true }; } }
+it("returns canonical 429 and Retry-After through the actual HTTP filter", async () => {
+  @SkipTransform() @Controller("rate-probe") class Probe { @Get() read() { return { ok: true }; } }
   const module = await Test.createTestingModule({
     imports: [HttpModule], controllers: [Probe],
     providers: [RequestRateLimiter, { provide: AppConfig, useValue: config }, { provide: APP_GUARD, useClass: IngressRateGuard }],

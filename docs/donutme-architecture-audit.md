@@ -182,7 +182,7 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 | DonutMe 實作原則 | Trading-Dashboard 對應 | 狀態 |
 | --- | --- | --- |
 | config factory 驗證 env 再提供型別化設定 | `config/env.ts`、`parse-env.ts` | 已有；保留本專案驗證工具，並非照搬 class-validator |
-| 全域 transform + 明確略過特殊回應 | `common/http/transform.interceptor.ts` 與 wire contract registry | 已有；legacy raw DTO 也驗證白名單，保留既有客戶端格式 |
+| 全域 transform + 明確略過特殊回應 | `common/http/transform.interceptor.ts` 與 wire contract registry | 已有；一般 JSON 預設 envelope，含 timestamp／分頁 metadata；特殊回應明確略過 |
 | feature module 註冊 service/repository | `InsightsModule`、`UsersModule`、`AdminModule` | 本批新增 InsightsRepository、ProfileRepository、RevenueRepository |
 | service 負責業務規則，repository 負責查詢 | crowd 聚合/快取、個人資料正規化/404、台北日收入計算留在 service | 本批移出 SQL，維持原查詢與回傳契約 |
 | 同一交易內共享 persistence context | 既有 `db/unit-of-work.ts` | 本批未改跨模組交易；auth/admin users/Telegram/outbox 等仍待 E11 後續處理 |

@@ -1,3 +1,4 @@
+import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { testConfig } from "./config-test-utils.js";
 import { RequirePermissions } from "../src/common/auth/permissions.js";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
@@ -17,6 +18,7 @@ import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
 const SERVICE_TOKEN = "service-token-for-tests-0123456789";
 
+@SkipTransform()
 @Controller("t")
 class ProbeController {
   @Public()
@@ -50,6 +52,7 @@ class ProbeController {
 }
 
 @Roles("admin")
+@SkipTransform()
 @Controller("admin-class")
 class AdminClassController {
   @Get()
@@ -391,7 +394,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     it("a new Privy user: no row created; anonymous on @Public, 403 {code:'signups_closed'} elsewhere", async () => {
       expect((await get("/t/public", "newbie-token").expect(200)).body).toEqual({ user: null });
       const res = await get("/t/protected", "newbie-token").expect(403);
-      expect(res.body).toMatchObject({ code: "signups_closed" });
+      expect(res.body.error).toMatchObject({ code: "signups_closed" });
       await get("/t/admin", "newbie-token").expect(403);
       expect(await db.select().from(users)).toHaveLength(0);
     });

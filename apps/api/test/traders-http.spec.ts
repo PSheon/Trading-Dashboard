@@ -158,24 +158,25 @@ describe("public discovery routes over HTTP", () => {
     await db.insert(userFavorites).values({ userId: alice.id, address: B });
 
     const mine = await request(app.getHttpServer()).get("/traders").set("Authorization", "Bearer alice-token");
-    expect(mine.body.items.map((i: { address: string; favorite: boolean }) => [i.address, i.favorite])).toEqual([
+    expect(mine.body.meta.pagination).toEqual({ type: "offset", limit: 50, offset: 0, total: mine.body.data.total, hasMore: false });
+    expect(mine.body.data.items.map((i: { address: string; favorite: boolean }) => [i.address, i.favorite])).toEqual([
       [A, false],
       [B, true],
     ]);
     const profile = await request(app.getHttpServer()).get(`/traders/${B}`).set("Authorization", "Bearer alice-token");
-    expect(profile.body).toMatchObject({ favorite: true, isVault: false });
-    expect(profile.body).not.toHaveProperty("sample");
+    expect(profile.body.data).toMatchObject({ favorite: true, isVault: false });
+    expect(profile.body.data).not.toHaveProperty("sample");
     const activity = await request(app.getHttpServer()).get(`/traders/${B}/activity`);
     expect(activity.status).toBe(200);
-    expect(activity.body).toMatchObject({
+    expect(activity.body.data).toMatchObject({
       address: B,
       lastTradeAt: null,
       sample: { fills30d: 0, capped: false, lowSample: true },
     });
 
     const anon = await request(app.getHttpServer()).get("/traders");
-    expect(anon.body.items.some((i: { favorite: boolean }) => i.favorite)).toBe(false);
-    expect((await request(app.getHttpServer()).get(`/traders/${B}`)).body.favorite).toBe(false);
+    expect(anon.body.data.items.some((i: { favorite: boolean }) => i.favorite)).toBe(false);
+    expect((await request(app.getHttpServer()).get(`/traders/${B}`)).body.data.favorite).toBe(false);
 
     // A bad token on a public route is treated as anonymous, not rejected.
     const bad = await request(app.getHttpServer()).get("/traders").set("Authorization", "Bearer nope");
@@ -184,22 +185,22 @@ describe("public discovery routes over HTTP", () => {
 
   it("serves hideVaults, 400s and the crowd view without sign-in", async () => {
     const shown = await request(app.getHttpServer()).get("/traders?hideVaults=false");
-    expect(shown.body.items[0]).toMatchObject({ address: V, isVault: true });
-    expect((await request(app.getHttpServer()).get("/traders")).body.total).toBe(2);
+    expect(shown.body.data.items[0]).toMatchObject({ address: V, isVault: true });
+    expect((await request(app.getHttpServer()).get("/traders")).body.data.total).toBe(2);
     expect((await request(app.getHttpServer()).get("/traders?hideVaults=1")).status).toBe(400);
     expect((await request(app.getHttpServer()).get("/traders/0x123")).status).toBe(400);
 
     // Activity filter (§12): the holder only shows with active=any.
     const active = await request(app.getHttpServer()).get("/traders?active=any");
-    expect(active.body.items[0]).toMatchObject({ address: H, activity: "inactive" });
-    expect(active.body.total).toBe(3);
-    expect((await request(app.getHttpServer()).get("/traders?active=month")).body.total).toBe(2);
-    expect((await request(app.getHttpServer()).get("/traders?active=day")).body.total).toBe(0);
+    expect(active.body.data.items[0]).toMatchObject({ address: H, activity: "inactive" });
+    expect(active.body.data.total).toBe(3);
+    expect((await request(app.getHttpServer()).get("/traders?active=month")).body.data.total).toBe(2);
+    expect((await request(app.getHttpServer()).get("/traders?active=day")).body.data.total).toBe(0);
     expect((await request(app.getHttpServer()).get("/traders?active=inactive")).status).toBe(400);
 
     const crowd = await request(app.getHttpServer()).get("/insights/crowd");
     expect(crowd.status).toBe(200);
-    expect(crowd.body).toEqual({ trackedTraders: 0, coins: [], updatedAt: null, comparison: { currentTraders: 0, pastTraders: 0, matchedTraders: 0 } });
+    expect(crowd.body.data).toEqual({ trackedTraders: 0, coins: [], updatedAt: null, comparison: { currentTraders: 0, pastTraders: 0, matchedTraders: 0 } });
   });
 
   it("answers 503 busy with Retry-After past the page deadline, and the retry gets the finished work", async () => {
@@ -216,7 +217,7 @@ describe("public discovery routes over HTTP", () => {
       const profile = await request(app.getHttpServer()).get(`/traders/${C}`);
       expect(profile.status).toBe(503);
       expect(profile.headers["retry-after"]).toBe("5");
-      expect(profile.body).toEqual({ statusCode: 503, code: "busy", message: expect.any(String), retryAfterSeconds: 5 });
+      expect(profile.body).toMatchObject({ statusCode: 503, error: { code: "busy", details: { retryAfterSeconds: 5 } } });
       const activity = await request(app.getHttpServer()).get(`/traders/${C}/activity`);
       expect(activity.status).toBe(503);
       expect(activity.headers["retry-after"]).toBe("5");

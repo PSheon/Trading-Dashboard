@@ -158,7 +158,7 @@ describe("trade analytics for any address", () => {
     const busy = await get(`/traders/${X}/analytics`);
     expect(busy.status).toBe(503);
     expect(busy.headers["retry-after"]).toBe("5");
-    expect(busy.body).toMatchObject({ code: "busy" });
+    expect(busy.body.error).toMatchObject({ code: "busy" });
     // A second caller joins the same computation.
     expect((await get(`/traders/${X}/trades`)).status).toBe(503);
     release();
@@ -181,9 +181,9 @@ describe("trade analytics for any address", () => {
     expect(traders.latestFills).toHaveBeenCalledTimes(1);
 
     // Both closed within 7 days.
-    expect((await get(`/traders/${X}/analytics?window=7d`).expect(200)).body.summary).toMatchObject({ trades: 2 });
+    expect((await get(`/traders/${X}/analytics?window=7d`).expect(200)).body.data.summary).toMatchObject({ trades: 2 });
     // ETH closed 20 hours ago.
-    expect((await get(`/traders/${X}/analytics?window=1d`).expect(200)).body.summary.trades).toBe(1);
+    expect((await get(`/traders/${X}/analytics?window=1d`).expect(200)).body.data.summary.trades).toBe(1);
     expect((await get(`/traders/${X}/analytics?window=90d`)).status).toBe(400);
     expect((await get(`/traders/0x12/analytics`)).status).toBe(400);
   });
@@ -196,11 +196,12 @@ describe("trade analytics for any address", () => {
     expect(first.body.data.items.map((t: { coin: string }) => t.coin)).toEqual(["SOL", "ETH"]);
     expect(first.body.data.items[0]).toMatchObject({ status: "open", exitTime: null, exitPx: null });
     expect(first.body.data.total).toBe(3);
+    expect(first.body.meta.pagination).toEqual({ type: "cursor", limit: 2, total: 3, nextCursor: first.body.data.nextCursor, hasMore: true });
     const next = await get(`/traders/${X}/trades?limit=2&cursor=${first.body.data.nextCursor}`).expect(200);
-    expect(next.body.items.map((t: { coin: string }) => t.coin)).toEqual(["BTC"]);
-    expect(next.body.nextCursor).toBeNull();
-    expect((await get(`/traders/${X}/trades?status=open`)).body.items.map((t: { coin: string }) => t.coin)).toEqual(["SOL"]);
-    expect((await get(`/traders/${X}/trades?status=closed`)).body.items).toHaveLength(2);
+    expect(next.body.data.items.map((t: { coin: string }) => t.coin)).toEqual(["BTC"]);
+    expect(next.body.data.nextCursor).toBeNull();
+    expect((await get(`/traders/${X}/trades?status=open`)).body.data.items.map((t: { coin: string }) => t.coin)).toEqual(["SOL"]);
+    expect((await get(`/traders/${X}/trades?status=closed`)).body.data.items).toHaveLength(2);
     expect((await get(`/traders/${X}/trades?cursor=abc`)).status).toBe(400);
   });
 
@@ -220,21 +221,21 @@ describe("trade analytics for any address", () => {
     // Stale: a read serves the stored answer and starts a refresh.
     await db.update(traderAnalytics).set({ computedAt: new Date(Date.now() - STALE_MS - 1000) });
     const stale = await get(`/traders/${X}/analytics`).expect(200);
-    expect(stale.body.summary.trades).toBe(2);
+    expect(stale.body.data.summary.trades).toBe(2);
     await waitFor(async () => (await db.select().from(traderAnalytics))[0].fillCursor!.getTime() === T(0.5));
     expect(traders.latestFills).not.toHaveBeenCalled();
     expect(info.userFillsByTime.mock.calls.every(([, start]) => start === cursor)).toBe(true);
 
     await waitFor(async () => (await db.select().from(traderAnalytics))[0].fundingCursor!.getTime() >= NOW);
     const res = await get(`/traders/${X}/analytics`).expect(200);
-    expect(res.body.summary).toMatchObject({ trades: 3, wins: 2, openTrades: 1 });
-    const sol = (await get(`/traders/${X}/trades?status=closed`)).body.items.find((t: { coin: string }) => t.coin === "SOL");
+    expect(res.body.data.summary).toMatchObject({ trades: 3, wins: 2, openTrades: 1 });
+    const sol = (await get(`/traders/${X}/trades?status=closed`)).body.data.items.find((t: { coin: string }) => t.coin === "SOL");
     // Funding of the SOL hold: −0.5 read cold, −0.25 on the refresh.
     expect(sol).toMatchObject({ realizedPnl: 10, funding: -0.75, exitPx: 12 });
     // ETH opened within funding coverage and received +0.25.
-    const eth = (await get(`/traders/${X}/trades?status=closed`)).body.items.find((t: { coin: string }) => t.coin === "ETH");
+    const eth = (await get(`/traders/${X}/trades?status=closed`)).body.data.items.find((t: { coin: string }) => t.coin === "ETH");
     expect(eth.funding).toBe(0.25);
-    expect(res.body.coverage.fundingFrom).not.toBeNull();
+    expect(res.body.data.coverage.fundingFrom).not.toBeNull();
   });
 
   it("does not use a partial profile as evidence that positions closed", async () => {
@@ -244,8 +245,8 @@ describe("trade analytics for any address", () => {
     } });
     await service.compute(X, true);
     const res = await get(`/traders/${X}/trades?status=open`).expect(200);
-    expect(res.body.items.map((t: { coin: string }) => t.coin)).toContain("SOL");
-    expect((await get(`/traders/${X}/analytics`)).body.classification.perpAccountValue).toBe(2500000);
+    expect(res.body.data.items.map((t: { coin: string }) => t.coin)).toContain("SOL");
+    expect((await get(`/traders/${X}/analytics`)).body.data.classification.perpAccountValue).toBe(2500000);
   });
 
   it("uses upstream observation time instead of a newer profile assembly time", async () => {
@@ -254,7 +255,7 @@ describe("trade analytics for any address", () => {
     } });
     info.clearinghouseState.mockImplementationOnce(async () => ({ time: T(20), marginSummary: { accountValue: "1250000" }, assetPositions: [] }));
     await service.compute(X, true);
-    expect((await get(`/traders/${X}/trades?status=open`)).body.items).toHaveLength(1);
+    expect((await get(`/traders/${X}/trades?status=open`)).body.data.items).toHaveLength(1);
   });
 
   it("rolls back trade writes if the state checkpoint fails, so retry does not lose or replay fills", async () => {
@@ -268,7 +269,7 @@ describe("trade analytics for any address", () => {
       expect(await repository.allTrades(X)).toEqual(before);
     } finally { save.mockRestore(); }
     await service.compute(X, false);
-    expect((await get(`/traders/${X}/analytics`)).body.summary.trades).toBe(3);
+    expect((await get(`/traders/${X}/analytics`)).body.data.summary.trades).toBe(3);
   });
 
   it("bounds admission even when many stale addresses arrive in the same tick", async () => {
@@ -311,7 +312,7 @@ describe("trade analytics for any address", () => {
     const after = await repository.state(X);
     expect(after?.computedAt).toEqual(before?.computedAt);
     const res = await get(`/traders/${X}/trades`).expect(200);
-    expect(new Date(res.body.coverage.fundingThrough).getTime()).toBeGreaterThan(T(0) - 1000);
+    expect(new Date(res.body.data.coverage.fundingThrough).getTime()).toBeGreaterThan(T(0) - 1000);
   });
 
   it("rejects out-of-range pagination cursors before querying storage", async () => {
@@ -344,8 +345,8 @@ describe("trade analytics for any address", () => {
     livePositions = [];
     await service.compute(X, true);
     const res = await get(`/traders/${X}/trades?status=open`).expect(200);
-    expect(res.body.items).toEqual([]);
-    expect((await get(`/traders/${X}/analytics`)).body.summary).toMatchObject({ trades: 2, openTrades: 0 });
+    expect(res.body.data.items).toEqual([]);
+    expect((await get(`/traders/${X}/analytics`)).body.data.summary).toMatchObject({ trades: 2, openTrades: 0 });
   });
 
   it("marks coverage truncated when history starts mid-position, and counts the partial trade", async () => {
@@ -353,10 +354,10 @@ describe("trade analytics for any address", () => {
     traders.leaderboardAllTimePnl.mockResolvedValueOnce(2_000_000);
     await service.compute(X, true);
     const res = await get(`/traders/${X}/analytics`).expect(200);
-    expect(res.body.coverage).toMatchObject({ truncated: true, fills: 7 });
-    expect(res.body.summary).toMatchObject({ trades: 3, wins: 2 });
-    expect(res.body.classification).toMatchObject({ allTimePnl: 2_000_000, pnlTier: "extremely_profitable" });
-    const doge = (await get(`/traders/${X}/trades?status=closed`)).body.items.find((t: { coin: string }) => t.coin === "DOGE");
+    expect(res.body.data.coverage).toMatchObject({ truncated: true, fills: 7 });
+    expect(res.body.data.summary).toMatchObject({ trades: 3, wins: 2 });
+    expect(res.body.data.classification).toMatchObject({ allTimePnl: 2_000_000, pnlTier: "extremely_profitable" });
+    const doge = (await get(`/traders/${X}/trades?status=closed`)).body.data.items.find((t: { coin: string }) => t.coin === "DOGE");
     expect(doge).toMatchObject({ partial: true, entryApprox: false, size: 100, netPnl: 2 });
     expect(doge.entryPx).toBeCloseTo(0.07);
   });
@@ -368,7 +369,7 @@ describe("trade analytics for any address", () => {
     expect(info.userFillsByTime).not.toHaveBeenCalled();
     expect(traders.latestFills).not.toHaveBeenCalled();
     const res = await get(`/traders/${TRACKED}/analytics`).expect(200);
-    expect(res.body).toMatchObject({ coverage: { source: "tracked", fills: 6 }, summary: { trades: 2, winRate: 0.5 } });
+    expect(res.body.data).toMatchObject({ coverage: { source: "tracked", fills: 6 }, summary: { trades: 2, winRate: 0.5 } });
     const stored = await db.select().from(traderTrades).where(eq(traderTrades.address, TRACKED));
     expect(stored).toHaveLength(3);
     expect(stored.find((t) => t.coin === "ETH")?.twap).toBe(true);

@@ -1,6 +1,6 @@
 # HTTP route contracts
 
-Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scripts/http-contract-docs.mjs`; CI checks `--check`. See [HTTP boundary](http-contract.md) for negotiation, validation and errors.
+Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scripts/http-contract-docs.mjs`; CI checks `--check`. See [HTTP boundary](http-contract.md) for default envelopes, validation and errors.
 
 | Method | Path | Success status | Access |
 | --- | --- | --- | --- |

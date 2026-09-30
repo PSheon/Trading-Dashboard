@@ -120,7 +120,7 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
 
     const [btc, ethRow, close] = await create(row(), row({ coin: "ETH", address: OTHER }), row({ address: OTHER, kind: "close", side: "short" }));
     await all.waitFor(() => all.events("action").length === 3);
-    const rest = (await request(app.getHttpServer()).get("/actions").expect(200)).body as unknown[];
+    const rest = (await request(app.getHttpServer()).get("/actions").expect(200)).body.data as unknown[];
     // Byte-for-byte the REST row (same mapper and leader join), and valid wire.
     expect(all.events("action").map((e) => e.data)).toEqual([...rest].reverse());
     expect(wireActionSchema.parse(all.events("action")[0].data)).toMatchObject({ id: String(btc.id), leaderLabel: "Whale", leaderTier: "A", fillIds: ["9007199254740993"] });
@@ -323,13 +323,13 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
     const perIp = await sse("/actions/stream", { "x-forwarded-for": "10.0.0.1" });
     expect(perIp.status).toBe(429);
     expect(perIp.headers.get("retry-after")).toBe("30");
-    expect(perIp.body).toMatchObject({ code: "rate_limited", limit: "ip" });
+    expect(perIp.body).toMatchObject({ error: { code: "rate_limited", details: { limit: "ip" } } });
 
     const second = await Promise.all([1, 2].map(() => sse("/actions/stream", { "x-forwarded-for": "10.0.0.9" })));
     expect(second.map((c) => c.status)).toEqual([200, 200]);
     const global = await sse("/actions/stream", { "x-forwarded-for": "10.0.0.7" });
     expect(global.status).toBe(429);
-    expect(global.body).toMatchObject({ limit: "total" });
+    expect(global.body).toMatchObject({ error: { details: { limit: "total" } } });
     expect(streams.stats()).toEqual({ total: 5, perIp: { "10.0.0.1": 3, "10.0.0.9": 2 } });
 
     // Freed slots are reusable.

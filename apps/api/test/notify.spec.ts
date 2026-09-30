@@ -164,9 +164,15 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
   it.each([null, {}, { alertsEnabled: "true" }, { alertsEnabled: false, maxAlertTraders: "bad" }])("blocks delivery for malformed or disabled stored switches: %j", async value => {
     await db.insert(appSettings).values({ key: "notifications", value: value === null ? sql`'null'::jsonb` : value });
     const telegram = fakeTelegram(async () => {});
-    await new NotifyService(testConfig(), db, telegram).notifyAlert(ctx());
+    const service = new NotifyService(testConfig(), db, telegram);
+    await service.notifyAlert(ctx());
+    // PostgreSQL's available_at has microseconds; the immediate JS millisecond
+    // poll can precede it. Exercise the normal worker retry instead of racing it.
+    await expect.poll(async () => {
+      await service.deliverAction(actionRow.id);
+      return db.select().from(notificationOutbox);
+    }).toMatchObject([{ status: "failed", lastError: "alert authorization withdrawn" }]);
     expect(telegram.sendMessage).not.toHaveBeenCalled();
-    expect(await db.select().from(notificationOutbox)).toMatchObject([{ status: "failed", lastError: "alert authorization withdrawn" }]);
   });
 
   it("waits for Telegram retry_after instead of retrying early", async () => {

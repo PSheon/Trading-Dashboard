@@ -99,13 +99,13 @@ describe("admin routes over HTTP", () => {
   });
 
   it("rejects stale section edits and leaves unrelated settings intact", async () => {
-    const initial = (await get("/admin/settings", "admin-token").expect(200)).body;
+    const initial = (await get("/admin/settings", "admin-token").expect(200)).body.data;
     expect(initial.revisions?.general).toEqual(expect.any(String));
     const patch = (body: object) => request(app.getHttpServer()).patch("/admin/settings")
       .set("Authorization", "Bearer admin-token").send(body);
     await patch({ general: { signupsOpen: false }, expectedRevisions: { general: initial.revisions.general } }).expect(200);
     await patch({ general: { ...initial.general, copyTradingEnabled: true }, expectedRevisions: { general: initial.revisions.general } }).expect(409);
-    const latest = (await get("/admin/settings", "admin-token").expect(200)).body;
+    const latest = (await get("/admin/settings", "admin-token").expect(200)).body.data;
     expect(latest.general).toMatchObject({ signupsOpen: false, copyTradingEnabled: false });
     await patch({ discovery: { lowSampleThreshold: 42 }, expectedRevisions: { discovery: initial.revisions.discovery } }).expect(200);
   });
@@ -123,14 +123,14 @@ describe("admin routes over HTTP", () => {
   it("serves the public settings to anyone", async () => {
     const res = await get("/settings");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ lowSampleThreshold: 20 });
-    expect(res.body).not.toHaveProperty("builderAddress");
+    expect(res.body.data).toMatchObject({ lowSampleThreshold: 20 });
+    expect(res.body.data).not.toHaveProperty("builderAddress");
   });
 
   it("applies a promotion or a disable to the user's very next request", async () => {
     expect((await get("/admin/users", "user-token")).status).toBe(403); // now cached as a plain user
     const users = await get("/admin/users?q=", "admin-token");
-    const target = users.body.items.find((u: { role: string }) => u.role === "user");
+    const target = users.body.data.items.find((u: { role: string }) => u.role === "user");
 
     await request(app.getHttpServer())
       .patch(`/admin/users/${target.id}`)

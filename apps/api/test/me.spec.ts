@@ -85,8 +85,8 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.get("/me").expect(200);
       const responses = await Promise.all([alice.put(`/me/favorites/${ADDR}`), alice.put(`/me/favorites/${OTHER}`)]);
       expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
-      expect(responses.find((r) => r.status === 409)?.body.code).toBe("favorite_limit");
-      const winner = responses.find((r) => r.status === 200)!.body.address;
+      expect(responses.find((r) => r.status === 409)?.body.error.code).toBe("favorite_limit");
+      const winner = responses.find((r) => r.status === 200)!.body.data.address;
       await alice.put(`/me/favorites/${winner}`).expect(200);
       expect(await db.select().from(userFavorites)).toHaveLength(1);
       expect(await db.select().from(leaders)).toHaveLength(1);
@@ -121,13 +121,13 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   });
 
   it("sign-up doesn't copy the default rules", async () => {
-    const me = (await alice.get("/me").expect(200)).body as { id: number };
+    const me = (await alice.get("/me").expect(200)).body.data as { id: number };
     expect(await db.select().from(alertRules).where(eq(alertRules.userId, me.id))).toEqual([]);
   });
 
   describe("GET/PATCH /me", () => {
     it("returns the caller's profile and updates locale/displayName", async () => {
-      const me = (await alice.get("/me").expect(200)).body;
+      const me = (await alice.get("/me").expect(200)).body.data;
       expect(me).toMatchObject({
         privyUserId: "did:privy:alice",
         email: "alice@example.com",
@@ -136,9 +136,9 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
         displayName: null,
       });
 
-      const patched = (await alice.patch("/me", { locale: "en", displayName: "  Alice  " }).expect(200)).body;
+      const patched = (await alice.patch("/me", { locale: "en", displayName: "  Alice  " }).expect(200)).body.data;
       expect(patched).toMatchObject({ locale: "en", displayName: "Alice" });
-      expect((await alice.get("/me").expect(200)).body).toMatchObject({ locale: "en", displayName: "Alice" });
+      expect((await alice.get("/me").expect(200)).body.data).toMatchObject({ locale: "en", displayName: "Alice" });
     });
 
     it("rejects an unknown locale or an over-long name with 400", async () => {
@@ -152,7 +152,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put("/me/favorites/not-an-address").expect(400);
       await alice.put("/me/favorites/0x1234").expect(400);
       const res = await alice.put(`/me/favorites/${ADDR_MIXED}`).expect(200);
-      expect(res.body).toMatchObject({ address: ADDR, stats: null });
+      expect(res.body.data).toMatchObject({ address: ADDR, stats: null });
     });
 
     it("a new address becomes an active favorite-sourced leader and is backfilled once", async () => {
@@ -189,7 +189,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put(`/me/favorites/${OTHER}`).expect(200);
       await bob.put(`/me/favorites/${OTHER}`).expect(200);
 
-      const list = (await alice.get("/me/favorites").expect(200)).body as { address: string; stats: unknown }[];
+      const list = (await alice.get("/me/favorites").expect(200)).body.data as { address: string; stats: unknown }[];
       expect(list.map((f) => f.address).sort()).toEqual([ADDR, OTHER].sort());
       const whale = list.find((f) => f.address === ADDR)!;
       expect(whale.stats).toMatchObject({
@@ -200,7 +200,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
         volume: { allTime: 40 },
       });
       expect(list.find((f) => f.address === OTHER)!.stats).toBeNull();
-      expect((await bob.get("/me/favorites").expect(200)).body).toHaveLength(1);
+      expect((await bob.get("/me/favorites").expect(200)).body.data).toHaveLength(1);
     });
 
     it("DELETE deactivates a favorite-sourced leader only when nobody else favorites it", async () => {
@@ -246,7 +246,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
 
   describe("favorite alerts: PATCH /me/favorites/:address/alert", () => {
     async function aliceId() {
-      const me = (await alice.get("/me").expect(200)).body as { id: number };
+      const me = (await alice.get("/me").expect(200)).body.data as { id: number };
       return me.id;
     }
     async function linkTelegram(userId: number, enabled = true) {
@@ -266,14 +266,14 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
     it("turning on without a linked, enabled Telegram → 409 telegram_not_linked", async () => {
       await alice.put(`/me/favorites/${ADDR}`).expect(200);
       const res = await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(409);
-      expect(res.body).toMatchObject({ code: "telegram_not_linked" });
+      expect(res.body.error).toMatchObject({ code: "telegram_not_linked" });
 
       await linkTelegram(await aliceId(), false); // paused with /stop
-      expect((await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(409)).body.code).toBe(
+      expect((await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(409)).body.error.code).toBe(
         "telegram_not_linked",
       );
       // Side and minimum can still be set while off.
-      const off = (await alice.patch(`/me/favorites/${ADDR}/alert`, { sides: "sell", minUsd: 5000 }).expect(200)).body;
+      const off = (await alice.patch(`/me/favorites/${ADDR}/alert`, { sides: "sell", minUsd: 5000 }).expect(200)).body.data;
       expect(off.alert).toEqual({ enabled: false, sides: "sell", minUsd: 5000 });
     });
 
@@ -281,10 +281,10 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await linkTelegram(await aliceId());
       await alice.put(`/me/favorites/${ADDR}`).expect(200);
       const res = await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true, sides: "buy", minUsd: 25000 }).expect(200);
-      expect(res.body).toMatchObject({ address: ADDR, alert: { enabled: true, sides: "buy", minUsd: 25000 } });
+      expect(res.body.data).toMatchObject({ address: ADDR, alert: { enabled: true, sides: "buy", minUsd: 25000 } });
 
       await alice.patch(`/me/favorites/${ADDR}/alert`, { minUsd: null }).expect(200);
-      const [fav] = (await alice.get("/me/favorites").expect(200)).body as { alert: unknown }[];
+      const [fav] = (await alice.get("/me/favorites").expect(200)).body.data as { alert: unknown }[];
       expect(fav.alert).toEqual({ enabled: true, sides: "buy", minUsd: null });
     });
 
@@ -294,7 +294,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       for (let i = 1; i <= 3; i++) await alice.patch(`/me/favorites/${addr(i)}/alert`, { enabled: true }).expect(200);
 
       const res = await alice.patch(`/me/favorites/${addr(4)}/alert`, { enabled: true }).expect(409);
-      expect(res.body).toMatchObject({ code: "alert_limit", limit: 3 });
+      expect(res.body.error).toMatchObject({ code: "alert_limit", details: { limit: 3 } });
 
       // Editing one that is already on isn't counted again; switching one off frees a slot.
       await alice.patch(`/me/favorites/${addr(1)}/alert`, { enabled: true, sides: "sell" }).expect(200);
@@ -325,12 +325,12 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.patch(`/me/favorites/${addr(2)}/alert`, { enabled: true }).expect(200);
 
       await settings.patch({ notifications: { maxAlertTraders: 1 } }, null);
-      const list = (await alice.get("/me/favorites").expect(200)).body as { alert: { enabled: boolean } }[];
+      const list = (await alice.get("/me/favorites").expect(200)).body.data as { alert: { enabled: boolean } }[];
       expect(list.filter((f) => f.alert.enabled)).toHaveLength(2);
       await alice.patch(`/me/favorites/${addr(2)}/alert`, { minUsd: 10 }).expect(200);
-      expect((await alice.patch(`/me/favorites/${addr(3)}/alert`, { enabled: true }).expect(409)).body).toMatchObject({
+      expect((await alice.patch(`/me/favorites/${addr(3)}/alert`, { enabled: true }).expect(409)).body.error).toMatchObject({
         code: "alert_limit",
-        limit: 1,
+        details: { limit: 1 },
       });
     });
 
@@ -340,7 +340,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.put(`/me/favorites/${ADDR}`).expect(200);
       await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(200);
 
-      const bobMe = (await bob.get("/me").expect(200)).body as { id: number };
+      const bobMe = (await bob.get("/me").expect(200)).body.data as { id: number };
       await linkTelegram(bobMe.id);
       await bob.put(`/me/favorites/${ADDR}`).expect(200);
       await bob.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(200);
@@ -353,7 +353,7 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       await alice.delete(`/me/favorites/${ADDR}`).expect(204);
       expect(await db.select().from(userFavorites)).toHaveLength(0);
 
-      const again = (await alice.put(`/me/favorites/${ADDR}`).expect(200)).body;
+      const again = (await alice.put(`/me/favorites/${ADDR}`).expect(200)).body.data;
       expect(again.alert).toEqual({ enabled: false, sides: "both", minUsd: null });
     });
   });

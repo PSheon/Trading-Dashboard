@@ -105,11 +105,12 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   let parsed: unknown;
   try { parsed = text ? JSON.parse(text) : undefined; }
   catch { throw new ApiError(502, "Invalid API response", { code: "invalid_response" }); }
+  if (findHttpContract(method, path)?.raw) return validateData<T>(method, path, parsed);
   const envelope = successEnvelopeSchema.safeParse(parsed);
-  if (res.headers.get(API_CONTRACT_HEADER) === API_CONTRACT_VERSION && !envelope.success) {
+  if (!envelope.success || envelope.data.statusCode !== res.status) {
     throw new ApiError(502, "Invalid API response", { code: "invalid_response" });
   }
-  return validateData<T>(method, path, envelope.success ? envelope.data.data : parsed);
+  return validateData<T>(method, path, envelope.data.data);
 }
 
 /** A non-2xx answer as an ApiError, from either error body shape. */

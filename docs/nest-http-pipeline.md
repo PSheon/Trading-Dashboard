@@ -56,8 +56,8 @@ existing protection against accidental persistence-column exposure.
 
 Validation failures remain 400 / validation_error with dotted field paths, preserving
 the browser error contract rather than adopting DonutMe's 422. Native validation error
-targets and raw values are excluded. Existing envelope negotiation, business error
-codes, request IDs and legacy output compatibility remain intact.
+targets and raw values are excluded. Business error codes and request IDs remain intact. Ordinary JSON responses now
+use the default envelope with timestamp and optional pagination; see http-contract.md.
 
 ## Compatibility and maintenance
 
@@ -73,8 +73,9 @@ checks representative defaults/conversions against shared contracts plus rejecti
 nullable/omitted PATCH and precision cases. This is a regression guard, not a proof
 that all future schema edits remain equivalent; update both declarations and tests.
 
-This batch does not add Swagger/OpenAPI generation, response class-serialization,
-or new transaction policies. DonutMe's API documentation and project-specific auth
+The response OpenAPI artifact now has a freshness gate. Complete request DTO
+documentation, Swagger UI, response class-serialization,
+and new transaction policies remain follow-up work. DonutMe's API documentation and project-specific auth
 metadata are not copied blindly. Existing repository ownership and transaction locks
 remain unchanged; direct DB access still present in some services is separately tracked.
 

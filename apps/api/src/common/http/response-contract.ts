@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { API_CONTRACT_HEADER, API_CONTRACT_VERSION } from "@trading-dashboard/shared/contracts";
 
 export function usesEnvelope(req: Request): boolean {
-  return req.header(API_CONTRACT_HEADER) === API_CONTRACT_VERSION && !/^\/health(?:\/|$)/.test(req.path);
+  return !["/health", "/health/ready"].includes(req.path.replace(/\/$/, ""));
 }
 export function responseMeta(req: Request, res: Response) {
   let requestId = res.getHeader("x-request-id");
@@ -12,11 +12,10 @@ export function responseMeta(req: Request, res: Response) {
     requestId = supplied && /^[a-zA-Z0-9_-]{1,64}$/.test(supplied) ? supplied : randomUUID();
     res.setHeader("x-request-id", requestId);
   }
-  return { requestId, path: req.path };
+  return { requestId, path: req.path, timestamp: new Date().toISOString() };
 }
 export function contractHeaders(res: Response) {
   res.setHeader(API_CONTRACT_HEADER, API_CONTRACT_VERSION);
-  res.vary(API_CONTRACT_HEADER);
 }
 export function sendHttpError(req: Request, res: Response, status: number, message: string, code: string,
   details: Record<string, unknown> = {}, fields?: { path: string; message: string }[]) {
@@ -27,7 +26,6 @@ export function sendHttpError(req: Request, res: Response, status: number, messa
     res.status(status).json({ success: false, statusCode: status, message,
       error: { code, ...(Object.keys(details).length ? { details } : {}), ...(fields?.length ? { fields } : {}) }, meta });
   } else {
-    res.vary(API_CONTRACT_HEADER);
     res.status(status).json({ ...details, statusCode: status, message, code, ...(fields?.length ? { issues: fields } : {}) });
   }
 }

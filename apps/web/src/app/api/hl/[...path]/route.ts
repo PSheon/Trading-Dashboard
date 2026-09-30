@@ -27,12 +27,11 @@ function requestId(request: NextRequest) {
   return supplied && /^[a-zA-Z0-9_-]{1,64}$/.test(supplied) ? supplied : crypto.randomUUID();
 }
 function json(status: number, message: string, request: NextRequest, id: string) {
-  const v1 = request.headers.get("x-api-contract") === "1";
-  const body = v1 ? { success: false, statusCode: status, message,
+  const body = { success: false, statusCode: status, message,
     error: { code: status === 504 ? "deadline_exceeded" : status === 400 ? "bad_request" : "bad_gateway" },
-    meta: { requestId: id, path: request.nextUrl.pathname } } : { statusCode: status, message };
+    meta: { requestId: id, path: request.nextUrl.pathname, timestamp: new Date().toISOString() } };
   return Response.json(body, { status, headers: { "x-request-id": id, "Cache-Control": "no-store",
-    ...(v1 ? { "x-api-contract": "1" } : {}), Vary: "x-api-contract" } });
+    "x-api-contract": "1" } });
 }
 
 function buildTarget(apiUrl: string, segments: string[], search: string): URL | null {

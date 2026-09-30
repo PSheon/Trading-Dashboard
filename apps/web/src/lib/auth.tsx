@@ -16,7 +16,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { MeResponse } from "@/lib/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useRef } from "react";
 
-import { Lockup } from "@/components/brand/logo";
 import { ARBITRUM_CHAINS } from "@/lib/hyperliquid-network";
 import type { WalletSigner } from "@/lib/wallet-signer";
 
@@ -224,11 +223,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Login methods come from the Privy dashboard, not from here.
           appearance: {
             // Orbie navy panel and orange accent (Stage 2 §9). The logo is
-            // rendered in this document, so the wordmark keeps its Fredoka
-            // face; the title stays Privy's "Log in or sign up", as on CopyDog.
+            // the lockup exported from docs/Orbie Logo.html (Fredoka 600
+            // wordmark baked in; Privy didn't render a React element there).
+            // No landingHeader: the title stays Privy's "Log in or sign up",
+            // as on CopyDog.
             theme: "#17142b",
             accentColor: "#ff7a45",
-            logo: <Lockup markSize={34} />,
+            logo: "/orbie-lockup.png",
           },
           // Every user gets an embedded wallet: their main account.
           embeddedWallets: { ethereum: { createOnLogin: "all-users" } },

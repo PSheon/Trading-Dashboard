@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
 import { useSiteSettings, useSparklines, useTraders, type TraderSort } from "@/lib/queries";
+import { usd0 } from "@/lib/trade-format";
 
 const PAGE_SIZE = 25;
 const MIN_VALUES = [0, 10_000, 100_000, 1_000_000, 10_000_000];
@@ -134,7 +135,7 @@ export function ExploreView() {
           >
             {MIN_VALUES.map((v) => (
               <option key={v} value={v} className="bg-popover">
-                {v === 0 ? t("explore.anyValue") : `≥ ${format.usd(v, { compact: true })}`}
+                {v === 0 ? t("explore.anyValue") : `≥ ${usd0(v)}`}
               </option>
             ))}
           </select>

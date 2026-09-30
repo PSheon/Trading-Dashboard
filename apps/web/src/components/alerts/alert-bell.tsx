@@ -17,16 +17,17 @@ import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Formatter } from "@/lib/format";
 import { useFavorites, useSiteSettings } from "@/lib/queries";
+import { usd0 } from "@/lib/trade-format";
 
 const SIDE_KEY = { buy: "alerts.sideBuy", sell: "alerts.sideSell", both: "alerts.sideBoth" } as const;
 
-/** "買入 · ≥ $5萬" / "Both · any size" / "Off". */
+/** "買入 · ≥ $50K" / "Both · any size" / "Off" (thresholds in whole K / M). */
 export function alertSummary(alert: FavoriteAlert, t: Translate, format: Formatter): string {
   if (!alert.enabled) return t("alerts.off");
   const side = t(SIDE_KEY[alert.sides]);
   return alert.minUsd === null
     ? t("alerts.summaryAny", { side })
-    : t("alerts.summaryMin", { side, min: format.usd(alert.minUsd, { compact: true }) });
+    : t("alerts.summaryMin", { side, min: alert.minUsd >= 1000 ? usd0(alert.minUsd) : format.usd(alert.minUsd) });
 }
 
 /**

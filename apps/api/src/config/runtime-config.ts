@@ -1,5 +1,7 @@
 import { isIP } from "node:net";
 import { createPublicKey } from "node:crypto";
+import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
+
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
 
 type Environment = Record<string, string | undefined>;
@@ -15,12 +17,6 @@ function urlValue(key: string, raw: string | undefined, fallback: string, protoc
   }
   return value;
 }
-
-/** Per-network endpoints of the user wallet (Stage 4 step 2). */
-const WALLET_NETWORKS = {
-  mainnet: { infoUrl: "https://api.hyperliquid.xyz/info", arbitrumRpcUrl: "https://arb1.arbitrum.io/rpc" },
-  testnet: { infoUrl: "https://api.hyperliquid-testnet.xyz/info", arbitrumRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" },
-} as const;
 
 /**
  * HYPERLIQUID_NETWORK picks where the user's own wallet lives: the network

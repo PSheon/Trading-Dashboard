@@ -200,6 +200,7 @@ export class AuthService {
       privyUserId,
       email,
       walletAddress: profile?.walletAddress ?? null,
+      embeddedWalletAddress: profile?.embeddedWalletAddress ?? null,
       role: bootstrapAdmin ? "admin" : "user",
     });
     if (created) {
@@ -216,20 +217,24 @@ export class AuthService {
    * applies only when inserting a new user; a persisted demotion must survive
    * future authentication even when the email remains allowlisted. */
   private async refreshMissingProfile(user: UserRow): Promise<UserRow> {
-    if (user.email !== null) return user;
+    // A missing embedded wallet is backfilled the same way: users who signed
+    // up before every account got one receive it at their next login.
+    if (user.email !== null && user.embeddedWalletAddress !== null) return user;
 
-    let email: string | null = user.email;
-    if (email === null) {
-      const now = Date.now();
-      if ((this.profileRetryAt.get(user.id) ?? 0) > now) return user;
-      this.profileRetryAt.set(user.id, now + PROFILE_RETRY_MS);
-      email = (await this.privy.fetchProfile(user.privyUserId))?.email ?? null;
-      if (email === null) return user;
-      this.profileRetryAt.delete(user.id);
+    const now = Date.now();
+    if ((this.profileRetryAt.get(user.id) ?? 0) > now) return user;
+    this.profileRetryAt.set(user.id, now + PROFILE_RETRY_MS);
+    const profile = await this.privy.fetchProfile(user.privyUserId);
+    const email = user.email ?? profile?.email ?? null;
+    const embedded = user.embeddedWalletAddress ?? profile?.embeddedWalletAddress ?? null;
+    if (email !== null && embedded !== null) this.profileRetryAt.delete(user.id);
+
+    let row = user;
+    if (email !== user.email && email !== null) row = await this.repository.updateEmail(user.id, email) ?? row;
+    if (embedded !== user.embeddedWalletAddress && embedded !== null) {
+      row = await this.repository.setEmbeddedWallet(user.id, embedded) ?? row;
     }
-
-    if (email === user.email) return user;
-    return await this.repository.updateEmail(user.id, email) ?? user;
+    return row;
   }
 
   private asResult(row: UserRow): SignInResult {

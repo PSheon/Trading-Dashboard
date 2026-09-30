@@ -19,6 +19,7 @@ import { SettingsModule } from "./settings/settings.module.js";
 import { TelegramModule } from "./telegram/telegram.module.js";
 import { TradersModule } from "./traders/traders.module.js";
 import { UsersModule } from "./users/users.module.js";
+import { WalletModule } from "./wallet/wallet.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
 
 @Module({
@@ -39,6 +40,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     RulesModule,
     NotifyModule,
     UsersModule,
+    WalletModule,
     TelegramModule,
     TradersModule,
     TradersWorkerModule,

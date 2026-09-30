@@ -31,10 +31,25 @@ export class AuthRepository {
   }
 
   /** Return undefined when another first sign-in won the unique Privy DID insert. */
-  async createIfAbsent(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress" | "role">) {
+  async createIfAbsent(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress" | "role"> & { embeddedWalletAddress?: string | null }) {
     // Concurrent first sign-ins share one identity; the loser reads the winner.
     const [row] = await this.db.insert(users).values(input)
       .onConflictDoNothing({ target: users.privyUserId }).returning();
+    return row;
+  }
+
+  /** Record the Privy embedded wallet once. It never changes for a Privy user,
+   * so an address already stored is kept (undefined = not updated, e.g.
+   * another request stored it first or the address belongs to another row). */
+  async setEmbeddedWallet(id: number, address: string) {
+    const [row] = await this.db.update(users).set({ embeddedWalletAddress: address })
+      .where(and(eq(users.id, id), isNull(users.embeddedWalletAddress))).returning()
+      .catch((error: { code?: string }) => {
+        // 23505: the address is already on another user row. Privy never
+        // shares a wallet between users, so leave both rows as they are.
+        if (error?.code === "23505") return [];
+        throw error;
+      });
     return row;
   }
 

@@ -15,6 +15,9 @@ export interface VerifiedPrivyToken {
 export interface PrivyProfile {
   email: string | null;
   walletAddress: string | null;
+  /** The Privy embedded Ethereum wallet: the user's Orbie main account.
+   * Optional so stubs written before it keep compiling; absent = unknown. */
+  embeddedWalletAddress?: string | null;
 }
 
 /**
@@ -34,7 +37,8 @@ export const PRIVY_VERIFIER = Symbol("PRIVY_VERIFIER");
  * accounts. The email is the email-login address, else the one from a
  * Google or Apple login (verified by that provider). An external
  * (self-custodied) wallet wins over the embedded one: it's the address the
- * person trades from. */
+ * person trades from. The embedded wallet is also returned on its own: it is
+ * the main account the wallet pages use. */
 export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfile {
   let email: string | null = null;
   let oauthEmail: string | null = null;
@@ -52,7 +56,11 @@ export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfi
   }
   const wallet = external ?? embedded;
   const chosen = email ?? oauthEmail;
-  return { email: chosen?.toLowerCase() ?? null, walletAddress: wallet?.toLowerCase() ?? null };
+  return {
+    email: chosen?.toLowerCase() ?? null,
+    walletAddress: wallet?.toLowerCase() ?? null,
+    embeddedWalletAddress: embedded?.toLowerCase() ?? null,
+  };
 }
 
 /**

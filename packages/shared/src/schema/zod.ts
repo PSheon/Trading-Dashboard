@@ -317,6 +317,14 @@ export const leaderSummarySchema = leaderSchema.extend({
 });
 export type LeaderSummary = z.infer<typeof leaderSummarySchema>;
 
+/** A leader as anyone may see it (`GET /leaders*` without `leaders.manage`):
+ * no admin `notes`, and no `source`, which would say that users favorited
+ * the address. Favorite-only leaders aren't shown publicly at all. */
+export const publicLeaderSchema = leaderSchema.omit({ notes: true, source: true });
+export type PublicLeader = z.infer<typeof publicLeaderSchema>;
+export const publicLeaderSummarySchema = leaderSummarySchema.omit({ notes: true, source: true });
+export type PublicLeaderSummary = z.infer<typeof publicLeaderSummarySchema>;
+
 /** GET /leaders/:chain/:address (D3) */
 export const positionRowSchema = z.object({
   coin: z.string(),
@@ -352,7 +360,8 @@ export const leaderDetailQuerySchema = z.object({
 export type LeaderDetailQuery = z.infer<typeof leaderDetailQuerySchema>;
 
 export const leaderDetailResponseSchema = z.object({
-  leader: leaderSchema,
+  /** The full row for `leaders.manage`, else the public projection. */
+  leader: z.union([publicLeaderSchema.strict(), leaderSchema]),
   rank: z.number().int().nullable(),
   positions: z.array(positionRowSchema),
   fills: z.array(fillSchema),

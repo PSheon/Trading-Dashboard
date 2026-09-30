@@ -107,6 +107,33 @@ describe("route access on the existing controllers", () => {
     }
   });
 
+  it("public /leaders shows imported leaders without notes or source; leaders.manage sees every full row", async () => {
+    await db.insert(leaders).values([
+      { address: WHALE, notes: "admin-only: KYC'd desk, do not share", label: "Whale", source: "import" },
+      // Only there because a user favorited it.
+      { address: OTHER, source: "favorite" },
+    ]);
+    for (const token of [undefined, "alice-token"]) {
+      const list = (await call("get", "/leaders", token).expect(200)).body.data as Array<Record<string, unknown>>;
+      expect(list.map((l) => l.address)).toEqual([WHALE]);
+      expect(list[0]).toMatchObject({ address: WHALE, label: "Whale", tier: "B", active: true });
+      expect(list[0]).not.toHaveProperty("notes");
+      expect(list[0]).not.toHaveProperty("source");
+      const detail = (await call("get", `/leaders/hyperliquid/${WHALE}`, token).expect(200)).body.data.leader as Record<string, unknown>;
+      expect(Object.keys(detail).sort()).toEqual(["active", "address", "chain", "firstSeenAt", "label", "tier"]);
+      // A favorite-only leader is as unknown as any other address.
+      await call("get", `/leaders/hyperliquid/${OTHER}`, token).expect(404);
+    }
+    for (const token of ["boss-token", SERVICE_TOKEN]) {
+      const list = (await call("get", "/leaders", token).expect(200)).body.data as Array<Record<string, unknown>>;
+      expect(list.map((l) => l.address).sort()).toEqual([WHALE, OTHER]);
+      expect(list.find((l) => l.address === WHALE)).toMatchObject({ notes: "admin-only: KYC'd desk, do not share", source: "import" });
+      expect(list.find((l) => l.address === OTHER)).toMatchObject({ source: "favorite" });
+      const detail = (await call("get", `/leaders/hyperliquid/${OTHER}`, token).expect(200)).body.data.leader;
+      expect(detail).toMatchObject({ source: "favorite" });
+    }
+  });
+
   it("admin routes: anonymous 401, user 403, admin 200, service 200", async () => {
     await db.insert(leaders).values({ address: WHALE });
     const adminRoutes: [("get" | "post" | "patch"), string, object?][] = [

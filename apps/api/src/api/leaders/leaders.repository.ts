@@ -24,16 +24,37 @@ import type { AlertsScope } from "../../common/auth/alerts-scope.js";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 
+/** The public projection of a leader (`publicLeaderSchema`). */
+export const PUBLIC_LEADER_COLUMNS = {
+  chain: leaders.chain,
+  address: leaders.address,
+  label: leaders.label,
+  tier: leaders.tier,
+  active: leaders.active,
+  firstSeenAt: leaders.firstSeenAt,
+};
+
 const FILLS_HISTORY_LIMIT = 200;
 const ALERTS_HISTORY_LIMIT = 50;
 @Injectable()
 export class LeadersRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  /** Full rows, favorite-only leaders and admin notes included: for
+   * `leaders.manage` only. */
   findListed(query: LeadersQuery) {
+    return this.db.select().from(leaders).where(and(...this.listConditions(query)));
+  }
+  /** What anyone may see: imported leaders only (a favorite-only leader
+   * would reveal that users favorited it), without notes or source. */
+  findListedPublic(query: LeadersQuery) {
+    return this.db.select(PUBLIC_LEADER_COLUMNS).from(leaders)
+      .where(and(...this.listConditions(query), eq(leaders.source, "import")));
+  }
+  private listConditions(query: LeadersQuery) {
     const conditions = [eq(leaders.chain, CHAIN_DEFAULT)];
     if (query.tier) conditions.push(eq(leaders.tier, query.tier));
     if (query.active !== undefined) conditions.push(eq(leaders.active, query.active));
-    return this.db.select().from(leaders).where(and(...conditions));
+    return conditions;
   }
   async summaryMetadata(addresses: string[]) {
     if (addresses.length === 0) return new Map<string, { rank: number | null; openPositionCount: number; lastActionAt: Date | null }>();

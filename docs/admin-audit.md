@@ -3,7 +3,7 @@
 Migration 0009 adds admin_audit_logs. Apply migrations before deploying this API;
 only the isolated local test DB has been migrated during this implementation.
 
-Successful user role/disable edits, settings patches, rule creates/updates,
+Successful user role/disable edits, self-service account deletions (`user.delete`, counts only; see account-deletion.md), settings patches, rule creates/updates,
 leader edits and list imports record an event in the same transaction as their
 business writes. An audit insert failure rolls back the business change. A
 rejected operation leaves no successful-change record. Authentication failures

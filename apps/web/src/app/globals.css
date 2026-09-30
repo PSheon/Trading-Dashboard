@@ -212,6 +212,14 @@
     grid-template-areas: "profile main" "copy main";
     align-items: start;
   }
+  /* The copy panel (or the live feed in its place) stays in view while the
+     page scrolls, as CopyDog's right column does (sticky 8 px under its
+     header): here 12 px under the 72 px top bar. A grid item sticks within
+     its own grid area, which stretches to the tallest column. */
+  .trader-grid > [data-area="copy"] {
+    position: sticky;
+    top: calc(72px + 0.75rem);
+  }
 }
 @media (min-width: 1280px) {
   .trader-grid {

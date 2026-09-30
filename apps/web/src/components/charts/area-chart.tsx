@@ -25,6 +25,9 @@ export interface AreaChartProps {
   /** Right-hand y labels and bottom x labels. */
   axes?: boolean;
   formatValue?: (value: number) => string;
+  /** Y-axis labels; defaults to `formatValue`. CopyDog's axes are unsigned
+   * compact figures ("$6.9M", "-$403") while the tooltip keeps the sign. */
+  formatTick?: (value: number) => string;
   formatTime?: (time: number) => string;
   formatAxisTime?: (time: number) => string;
   /** Dotted line at zero (sparklines). */
@@ -71,6 +74,7 @@ export function AreaChart({
   interactive = false,
   axes = false,
   formatValue = (v) => v.toFixed(2),
+  formatTick,
   formatTime = (t) => new Date(t).toISOString(),
   formatAxisTime,
   zeroLine = false,
@@ -205,7 +209,7 @@ export function AreaChart({
                     dy="0.32em"
                     className="fill-subtle-foreground font-mono text-[10.5px]"
                   >
-                    {formatValue(v)}
+                    {(formatTick ?? formatValue)(v)}
                   </text>
                 </g>
               ))

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n } from "@/i18n/provider";
+import { usdCompact } from "@/lib/format";
 import { pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
 import { useNow } from "@/lib/use-now";
 
@@ -400,6 +401,7 @@ export function PerformanceChart({
             interactive
             zeroBaseline={mode === "pnl"}
             formatValue={fmt}
+            formatTick={(v) => (unit === "pct" ? format.pct(v) : usdCompact(v))}
             formatTime={(ts) => format.dateTime(ts)}
             formatAxisTime={(ts) => format.axisDate(ts, span)}
             ariaLabel={t(mode === "pnl" ? "trader.chart.pnlLabel" : "trader.chart.valueLabel")}

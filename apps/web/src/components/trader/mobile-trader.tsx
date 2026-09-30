@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/page";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
-import { truncateAddress } from "@/lib/format";
+import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { CopyPanel } from "./copy-panel";
 import { signedPctCd, WINDOWS } from "./performance";
@@ -194,6 +194,7 @@ export function MobileTrader({
             interactive
             zeroBaseline
             formatValue={fmt}
+            formatTick={(v) => (mode === "roi" ? format.pct(v) : usdCompact(v))}
             formatTime={(ts) => format.dateTime(ts)}
             formatAxisTime={(ts) => format.axisDate(ts, span)}
             ariaLabel={t("trader.chart.pnlLabel")}

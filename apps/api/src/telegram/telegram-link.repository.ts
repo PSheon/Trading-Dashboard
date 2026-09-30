@@ -116,6 +116,31 @@ export class TelegramLinkRepository {
     return row;
   }
 
+  /** A token row without locking it (the confirmation prompt only reads). */
+  async findToken(tokenHash: string) {
+    const [row] = await this.db.select().from(telegramLinkTokens).where(eq(telegramLinkTokens.tokenHash, tokenHash));
+    return row;
+  }
+
+  /** What identifies an account to its owner: email, else wallet. */
+  async accountOf(userId: number) {
+    const [row] = await this.db.select({ email: users.email, walletAddress: users.walletAddress }).from(users).where(eq(users.id, userId));
+    return row;
+  }
+
+  /** The user a chat is linked to, if any. */
+  async chatOwner(chatId: string): Promise<number | undefined> {
+    const [row] = await this.db.select({ userId: notificationChannels.userId }).from(notificationChannels)
+      .where(and(eq(notificationChannels.kind, "telegram"), eq(notificationChannels.target, chatId)));
+    return row?.userId;
+  }
+
+  /** Ends an unused token now (the chat pressed Cancel). */
+  async expireToken(tokenHash: string, now: Date) {
+    await this.db.update(telegramLinkTokens).set({ expiresAt: now })
+      .where(and(eq(telegramLinkTokens.tokenHash, tokenHash), isNull(telegramLinkTokens.usedAt), gt(telegramLinkTokens.expiresAt, now)));
+  }
+
   async linkedTo(tx: DbTransaction, userId: number, chatId: string) {
     const [same] = await tx
       .select({ id: notificationChannels.id })

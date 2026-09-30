@@ -4,6 +4,7 @@ import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy }
 import {
   TelegramApiError,
   TelegramHttpClient,
+  type TelegramCallbackQuery,
   type TelegramMessage,
   type TelegramUpdate,
 } from "../notify/telegram-http.client.js";
@@ -14,10 +15,13 @@ import { TelegramLinkService } from "./telegram-link.service.js";
 const LONG_POLL_S = 30;
 /** The HTTP request may take the long poll plus this before we give up. */
 const REQUEST_SLACK_MS = 15_000;
-const ALLOWED_UPDATES = ["message", "my_chat_member"];
+const ALLOWED_UPDATES = ["message", "my_chat_member", "callback_query"];
 /** A deep-link payload: [A-Za-z0-9_-], at most 64 chars. Ours are 43. */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const COMMAND_PATTERN = /^\/([A-Za-z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/;
+/** Callback data of the link prompt's buttons: `link:ok:<token>` (51 bytes
+ * with our 43-char tokens; Telegram allows 64) or `link:no:<token>`. */
+const LINK_CALLBACK = /^link:(ok|no):([A-Za-z0-9_-]{16,55})$/;
 
 /** 409 from getUpdates: another process polls this token (or a webhook is
  * set). Back off, doubling, up to a minute; it may be a deploy overlap. */
@@ -32,7 +36,9 @@ function errorText(error: unknown): string {
 /**
  * The official bot's side of the conversation: receives updates by long
  * polling `getUpdates` (with an offset, so each update is confirmed once
- * handled) in the background, and answers `/start <token>` (link a chat),
+ * handled) in the background, and answers `/start <token>` (asks to link
+ * the chat to the token's account, masked, with Confirm / Cancel buttons;
+ * only Confirm links it),
  * `/start` (welcome, or resume a paused chat), `/stop` (pause) and
  * `/help`. Blocking the bot pauses the chat's alerts too.
  *
@@ -178,7 +184,36 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       }
       return;
     }
+    if (update.callback_query) {
+      await this.handleCallback(update.callback_query);
+      return;
+    }
     if (update.message?.text) await this.handleMessage(update.message);
+  }
+
+  /** Confirm / Cancel on a link prompt. The chat the prompt is in is the
+   * chat that gets linked; the presser's username is the one stored. */
+  private async handleCallback(query: TelegramCallbackQuery): Promise<void> {
+    const site = this.config.value.telegram.linkBaseUrl;
+    const match = LINK_CALLBACK.exec(query.data ?? "");
+    const chat = query.message?.chat;
+    // Acknowledge first so the button stops spinning, whatever happens next.
+    await this.telegram.answerCallbackQuery(query.id).catch((error) => this.logger.warn(`answerCallbackQuery failed: ${errorText(error)}`));
+    if (!match || !chat || !query.message) return;
+    const chatId = String(chat.id);
+    if (chat.type !== "private") {
+      await this.reply(chatId, botMessages.privateOnly());
+      return;
+    }
+    // One answer per prompt: the buttons go away.
+    await this.telegram.removeKeyboard(chatId, query.message.message_id).catch((error) => this.logger.warn(`Removing the link buttons failed: ${errorText(error)}`));
+    const [, action, token] = match;
+    if (action === "no") {
+      await this.link.cancelStartToken(token);
+      await this.reply(chatId, botMessages.linkCancelled(site));
+      return;
+    }
+    await this.reply(chatId, await this.confirmToken(token, chatId, query.from.username ?? null));
   }
 
   private async handleMessage(message: TelegramMessage): Promise<void> {
@@ -195,7 +230,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     if (name === "start") {
       const payload = command?.[2]?.trim();
       if (payload) {
-        await this.reply(chatId, await this.startWithToken(payload, chatId, message.from?.username ?? null));
+        await this.startWithToken(payload, chatId);
         return;
       }
       const state = await this.link.resumeChat(chatId);
@@ -219,9 +254,21 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     await this.reply(chatId, botMessages.help(site));
   }
 
-  private async startWithToken(token: string, chatId: string, username: string | null): Promise<string> {
+  /** `/start <token>`: asks before linking (see the class comment). */
+  private async startWithToken(token: string, chatId: string): Promise<void> {
     const site = this.config.value.telegram.linkBaseUrl;
-    if (!TOKEN_PATTERN.test(token)) return botMessages.invalidToken(site);
+    if (!TOKEN_PATTERN.test(token)) return this.reply(chatId, botMessages.invalidToken(site));
+    const preview = await this.link.previewStartToken(token, chatId);
+    if (preview.kind === "invalid") return this.reply(chatId, botMessages.invalidToken(site));
+    if (preview.kind === "already_linked") return this.reply(chatId, botMessages.alreadyLinked(site));
+    await this.telegram.sendMessage(chatId, botMessages.confirmLink(preview.account, preview.moved), [[
+      { text: botMessages.confirmButton(), callback_data: `link:ok:${token}` },
+      { text: botMessages.cancelButton(), callback_data: `link:no:${token}` },
+    ]]);
+  }
+
+  private async confirmToken(token: string, chatId: string, username: string | null): Promise<string> {
+    const site = this.config.value.telegram.linkBaseUrl;
     const result = await this.link.consumeStartToken(token, chatId, username);
     switch (result.kind) {
       case "linked":

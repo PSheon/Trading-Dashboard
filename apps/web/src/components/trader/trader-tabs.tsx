@@ -397,10 +397,21 @@ export function OrdersTab({ address }: { address: string }) {
 
 // --- 成交 -------------------------------------------------------------------------
 
+/** CopyDog's 成交 reads one page of Hyperliquid fills: 2,000, the most
+ * `userFills` returns. A full page means older fills were cut off. */
+export const FILL_LIMIT = 2000;
+
+/** Whether a fills list hit the page limit (CopyDog's `truncated`). */
+export function fillsTruncated(restFills: readonly TraderFill[] | undefined): boolean {
+  return (restFills?.length ?? 0) >= FILL_LIMIT;
+}
+
 /** Consecutive fills of one order stream (same coin, side, direction and
- * liquidation flag), merged into one row as CopyDog does: summed size, value
- * and PnL, volume-weighted price, the oldest fill's starting position, and
- * the fill count. `partial` marks the oldest row when the list is capped. */
+ * liquidation flag), newest first, merged into one row as CopyDog does
+ * (its bundle's grouping, 2026-10-01): summed size, value and PnL,
+ * volume-weighted price, the oldest fill's starting position, and the fill
+ * count shown as a badge. `partial` marks the oldest row when the list was
+ * capped, whose size and value then read "≥". */
 export interface FillGroup {
   key: string;
   coin: string;
@@ -478,9 +489,9 @@ const FILL_KEYS: Record<FillKey, (g: FillGroup) => number | string> = {
 
 /** 成交: fills (perp and spot) grouped by order stream, 資產 (count) / 方向
  * / 數量 / 原持倉 / 價格 / 價值 / 損益 / 強平 / 時間, newest first. */
-export function FillsTab({ rows }: { rows: TraderFill[] }) {
+export function FillsTab({ rows, truncated = false }: { rows: TraderFill[]; truncated?: boolean }) {
   const { t } = useI18n();
-  const groups = useMemo(() => groupFills(rows), [rows]);
+  const groups = useMemo(() => groupFills(rows, truncated), [rows, truncated]);
   const { sorted, sort, onSort } = useSorted<FillGroup, FillKey>(groups, FILL_KEYS, { key: "time", dir: "desc" });
   if (rows.length === 0) return <Empty title={t("trader.empty.fillsTitle")} body={t("trader.empty.fillsDesc")} />;
   const head = { sort, onSort };
@@ -509,7 +520,9 @@ export function FillsTab({ rows }: { rows: TraderFill[] }) {
                   <CoinIcon coin={g.coin} size={18} />
                   {coinLabel(g.coin)}
                   {g.count > 1 ? (
-                    <span className="rounded-full bg-raised px-1.5 text-[10px] font-semibold text-muted-foreground">{g.count}</span>
+                    <span className="num rounded-full bg-raised px-1.5 text-[10px] font-semibold text-muted-foreground" data-testid="fill-count" title={String(g.count)}>
+                      {g.count}
+                    </span>
                   ) : null}
                 </span>
               </TableCell>
@@ -522,8 +535,11 @@ export function FillsTab({ rows }: { rows: TraderFill[] }) {
               </TableCell>
               <TableCell className="text-right">{g.startPosition === null ? "—" : qty(g.startPosition)}</TableCell>
               <TableCell className="text-right">{price(g.price)}</TableCell>
-              <TableCell className="text-right">{usd2(g.value)}</TableCell>
-              <TableCell className={cn("text-right", pnlTone(g.pnl))}>{Math.abs(g.pnl) >= 0.005 ? signedUsd2(g.pnl) : "—"}</TableCell>
+              <TableCell className="text-right">
+                {g.partial ? "≥" : ""}
+                {usd2(g.value)}
+              </TableCell>
+              <TableCell className={cn("text-right", pnlTone(g.pnl))}>{g.pnl ? signedUsd2(g.pnl) : "—"}</TableCell>
               <TableCell className="text-right">
                 {g.liquidation ? <span className="text-negative">{t("trader.yes")}</span> : t("trader.no")}
               </TableCell>

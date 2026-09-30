@@ -11,7 +11,7 @@ import { coinLabel } from "@/lib/format";
 import { mergeLiveFills } from "@/lib/live-trader";
 import { useTraderFills, useTraderTransfers } from "@/lib/queries";
 import { feedTime, price, qty, signedUsd2, usd2 } from "@/lib/trade-format";
-import { groupFills, type FillGroup } from "./trader-tabs";
+import { FILL_LIMIT, fillsTruncated, groupFills, type FillGroup } from "./trader-tabs";
 
 const NO_FILLS: TraderFill[] = [];
 /** CopyDog lists at most this many events. */
@@ -97,11 +97,11 @@ export function LiveFeed({
   onCopy: () => void;
 }) {
   const { t } = useI18n();
-  const fills = useTraderFills(address, 2000);
+  const fills = useTraderFills(address, FILL_LIMIT);
   const transfers = useTraderTransfers(address);
   const rows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
   const events = useMemo<FeedEvent[]>(() => {
-    const groups = groupFills(rows ?? []).map((g) => ({ ...g, source: "fill" as const }));
+    const groups = groupFills(rows ?? [], fillsTruncated(fills.data)).map((g) => ({ ...g, source: "fill" as const }));
     const oldest = groups.length ? Math.min(...groups.map((g) => g.time)) : 0;
     const xfers = (transfers.data?.transfers ?? [])
       .map((x, i) => ({ ...x, source: "xfer" as const, key: `x${x.time}-${i}`, at: new Date(x.time).getTime() }))
@@ -109,7 +109,7 @@ export function LiveFeed({
     return [...groups, ...xfers]
       .sort((a, b) => (b.source === "fill" ? b.time : b.at) - (a.source === "fill" ? a.time : a.at))
       .slice(0, MAX_EVENTS);
-  }, [rows, transfers.data]);
+  }, [rows, fills.data, transfers.data]);
 
   return (
     <div className="flex flex-col gap-3">

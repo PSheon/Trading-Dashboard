@@ -13,7 +13,7 @@ import { downloadCsv, toCsv } from "@/lib/csv";
 import { mergeLiveFills } from "@/lib/live-trader";
 import { isComputing, useTraderAnalytics, useTraderFills } from "@/lib/queries";
 import { PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
-import { BalancesTab, FillsTab, OrdersTab, PositionsTab, TransfersTab, TwapTab } from "./trader-tabs";
+import { BalancesTab, FILL_LIMIT, FillsTab, fillsTruncated, OrdersTab, PositionsTab, TransfersTab, TwapTab } from "./trader-tabs";
 
 export type Tab =
   | "positions"
@@ -61,7 +61,7 @@ export function ActivityTabs({
   const panelId = useId();
   const [tab, setTab] = useState<Tab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
-  const fills = useTraderFills(profile.address, 2000);
+  const fills = useTraderFills(profile.address, FILL_LIMIT);
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
   // All-time, like CopyDog's performance tab; shared with the profile rail.
   const analytics = useTraderAnalytics(profile.address, "all");
@@ -149,7 +149,7 @@ export function ActivityTabs({
           ) : !fillRows ? (
             <Loading />
           ) : (
-            <FillsTab rows={fillRows} />
+            <FillsTab rows={fillRows} truncated={fillsTruncated(fills.data)} />
           )
         ) : null}
         {tab === "trades" ? <TradesTab address={profile.address} /> : null}

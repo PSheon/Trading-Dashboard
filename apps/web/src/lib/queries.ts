@@ -82,7 +82,10 @@ export interface TradersParams {
   offset: number;
 }
 
-export function useTraders(params: TradersParams) {
+/** `enabled: false` holds the request until the caller's defaults are known
+ * (the full leaderboard waits for the admin settings, so the first request
+ * isn't replaced, and aborted, by a second one). */
+export function useTraders(params: TradersParams, options: { enabled?: boolean } = {}) {
   const qs = new URLSearchParams({
     window: params.window,
     sort: params.sort,
@@ -99,6 +102,7 @@ export function useTraders(params: TradersParams) {
     queryFn: ({ signal }) => api.get<TradersResponse>(`/traders?${qs.toString()}`, signal),
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
+    enabled: options.enabled ?? true,
   });
 }
 

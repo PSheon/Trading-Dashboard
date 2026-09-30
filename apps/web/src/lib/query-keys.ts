@@ -2,6 +2,8 @@
 export const queryKeys = {
   siteSettings: ["site-settings"] as const,
   crowd: ["crowd"] as const,
+  cohort: (tier: string) => ["cohort", tier] as const,
+  cohortHistory: (tier: string, window: string) => ["cohort-history", tier, window] as const,
   me: ["me"] as const,
   health: ["health"] as const,
   favorites: ["favorites"] as const,

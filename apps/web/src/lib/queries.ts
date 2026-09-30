@@ -12,6 +12,10 @@ import type {
   BoardResponse,
   BoardSort,
   BoardWindow,
+  CohortDetail,
+  CohortHistory,
+  CohortTier,
+  CohortWindow,
   CopyScoreResponse,
   HomeBoardsResponse,
   TradingStyle,
@@ -127,6 +131,29 @@ export function useBoard(params: BoardParams) {
     placeholderData: keepPreviousData,
     staleTime: 30_000,
     refetchInterval: 60_000,
+  });
+}
+
+/** GET /insights/cohorts/:tier: a PnL tier's positioning (the api
+ * refreshes members every ~15 min and caches the view 30 s). */
+export function useCohort(tier: CohortTier) {
+  return useQuery({
+    queryKey: queryKeys.cohort(tier),
+    queryFn: ({ signal }) => api.get<CohortDetail>(`/insights/cohorts/${tier}`, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+}
+
+/** GET /insights/cohorts/:tier/history?window=: 倉位傾向 and BTC. */
+export function useCohortHistory(tier: CohortTier, window: CohortWindow) {
+  return useQuery({
+    queryKey: queryKeys.cohortHistory(tier, window),
+    queryFn: ({ signal }) => api.get<CohortHistory>(`/insights/cohorts/${tier}/history?window=${window}`, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   });
 }
 

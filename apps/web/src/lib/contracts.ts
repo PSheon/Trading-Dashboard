@@ -44,3 +44,5 @@ export type CopyScoreResponse = Domain.WireCopyScore;
 export type TraderCard = Domain.WireTraderCard;
 export type TraderCardsResponse = Domain.WireTraderCards;
 export type FavoriteGroup = Domain.WireFavoriteGroup;
+export type CohortDetail = Domain.WireCohortDetail;
+export type CohortHistory = Domain.WireCohortHistory;

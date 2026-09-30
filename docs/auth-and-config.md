@@ -170,3 +170,30 @@ new key. Live Privy login, provider-side revocation and remote JWKS fetching/
 rotation are not claimed by these offline tests. The installed SDK configures
 remote JWKS cache/refresh behavior when no pinned key is supplied. Reference:
 [Privy access tokens](https://docs.privy.io/authentication/user-authentication/access-tokens).
+
+## Content-Security-Policy (web)
+
+`apps/web/src/proxy.ts` sets a per-request CSP (built in `src/lib/csp.ts`):
+scripts only by nonce with `'strict-dynamic'` (no `'unsafe-inline'`, and
+`'unsafe-eval'` only under `next dev`), `connect-src` limited to the same
+origin (the API goes through the `/api/hl` forwarder), Privy
+(`auth.privy.io`, `*.rpc.privy.systems`, WalletConnect/walletlink, Cloudflare
+Turnstile), Hyperliquid mainnet and testnet (REST and WebSocket), the Arbitrum
+One and Sepolia RPCs the embedded wallet uses, and `t.me`; frames only Privy,
+WalletConnect verify and Turnstile. The Privy app's custom auth domain
+(`privy.stage.orbie.fun` today, where its iframe and API live) is allowed, as
+is `privy.orbie.fun`; add others with `NEXT_PRIVY_AUTH_ORIGINS`. A new
+browser-side origin must be added to `csp.ts`, or it is blocked.
+
+Owner actions (Privy dashboard, not code):
+
+- **Allowed domains.** Set Privy's `allowed_domains` to the deployed origins
+  (`https://app.orbie.fun`, stage, and `http://localhost:3001` for development).
+  Privy's own iframe on `privy.stage.orbie.fun` already refuses to be framed
+  by any origin but `app.orbie.fun` and `stage.orbie.fun`, so a local build on
+  another port can open the login modal but can't finish signing in.
+- **HttpOnly cookie sessions.** Privy's cookie sessions need the custom auth
+  domain on the same site as the app (e.g. `privy.orbie.fun` for
+  `app.orbie.fun`), configured when the production domain is set up; then
+  add it to `NEXT_PRIVY_AUTH_ORIGINS` if it isn't one of the built-in ones.
+

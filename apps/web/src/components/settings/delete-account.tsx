@@ -78,7 +78,8 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
       onOpenChange(false);
       router.replace("/?accountDeleted=1");
     } catch (err) {
-      setError(apiErrorCode(err) === "last_admin" ? t("deleteAccount.lastAdmin") : t("deleteAccount.failed"));
+      const code = apiErrorCode(err);
+      setError(code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "copies_active" ? t("deleteAccount.copiesActive") : t("deleteAccount.failed"));
     } finally {
       setBusy(false);
     }

@@ -14,6 +14,12 @@ export const queryKeys = {
     summary: ["wallet", "summary"] as const,
     history: ["wallet", "history"] as const,
   },
+  /** Paper copies: every mutation invalidates `all` (overview + orders). */
+  copy: {
+    all: ["copy"] as const,
+    overview: ["copy", "overview"] as const,
+    orders: (strategyId: number) => ["copy", "orders", strategyId] as const,
+  },
   traders: {
     all: ["traders"] as const,
     list: (qs: string) => ["traders", qs] as const,

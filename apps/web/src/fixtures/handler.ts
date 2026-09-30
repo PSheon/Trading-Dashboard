@@ -49,6 +49,9 @@ import {
   telegramLinkResponseSchema,
   walletHistoryResponseSchema,
   walletResponseSchema,
+  copyOverviewResponseSchema,
+  copyStrategySchema,
+  copyOrdersResponseSchema,
   telegramStatusSchema,
   telegramTestResponseSchema,
   traderActivityResponseSchema,
@@ -102,6 +105,7 @@ import {
   setAdminUsers,
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
+import { fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
 import { createGroup, deleteGroup, listGroups, patchGroup, setMember, traderCards } from "./watchlist";
 
 // Mutable demo state (per browser tab).
@@ -441,6 +445,24 @@ export async function fixtureRequest<T>(
     case "GET /me/wallet":
       requireUser(token);
       return wire(walletResponseSchema, fixtureWallet());
+    case "GET /me/copy":
+      requireUser(token);
+      return wire(copyOverviewResponseSchema, fixtureCopyOverview());
+    case "POST /me/copy/strategies":
+      requireUser(token);
+      return wire(copyStrategySchema, fixtureStartCopy(body as Record<string, unknown>));
+    case "PATCH /me/copy/strategies/:id":
+      requireUser(token);
+      return wire(copyStrategySchema, fixturePatchCopy(Number(parts[3]), body as Record<string, unknown>));
+    case "POST /me/copy/strategies/:id/funds":
+      requireUser(token);
+      return wire(copyStrategySchema, fixtureAddFunds(Number(parts[3]), body as Record<string, unknown>));
+    case "POST /me/copy/strategies/:id/commands":
+      requireUser(token);
+      return wire(copyStrategySchema, fixtureCopyCommand(Number(parts[3]), body as Record<string, unknown>));
+    case "GET /me/copy/strategies/:id/orders":
+      requireUser(token);
+      return wire(copyOrdersResponseSchema, fixtureCopyOrders(Number(parts[3])));
     case "GET /me/wallet/history":
       requireUser(token);
       return wire(walletHistoryResponseSchema, fixtureWalletHistory());

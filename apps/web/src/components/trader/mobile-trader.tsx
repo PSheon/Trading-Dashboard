@@ -17,6 +17,8 @@ import { CopyScoreBar, TraderAvatar, VerifiedTick } from "@/components/discover/
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { CopyPanel } from "./copy-panel";
+import { useAuth } from "@/lib/auth";
+import { useCopyOf } from "@/lib/copy";
 import { signedPctCd, WINDOWS } from "./performance";
 import { PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { PositionsTab } from "./trader-tabs";
@@ -150,6 +152,8 @@ export function MobileTrader({
   const [tab, setTab] = useState<MobileTab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
   const [sheet, setSheet] = useState(false);
+  const { status: authStatus, login } = useAuth();
+  const copying = useCopyOf(profile.address) !== undefined;
   const trades = useTraderAnalytics(profile.address, "all");
   const winRate = (trades.data as TraderAnalyticsResponse | undefined)?.summary.winRate ?? null;
   const winTone = winRateTone(winRate);
@@ -307,10 +311,10 @@ export function MobileTrader({
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl md:hidden">
         <button
           type="button"
-          onClick={() => setSheet(true)}
+          onClick={() => (authStatus === "signedOut" ? login() : setSheet(true))}
           className="h-13 w-full rounded-full bg-primary py-3.5 text-base font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {t("trader.copyTrade")}
+          {authStatus === "signedOut" ? t("trader.copy.signInToCopy") : copying ? t("trader.copy.manage") : t("trader.copyTrade")}
         </button>
       </div>
 
@@ -325,7 +329,7 @@ export function MobileTrader({
             >
               <X className="size-4" />
             </button>
-            <CopyPanel />
+            <CopyPanel address={profile.address} sheet />
           </div>
         </div>
       ) : null}

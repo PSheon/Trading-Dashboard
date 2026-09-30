@@ -21,6 +21,10 @@ import {
   adminUsersResponseSchema,
   adminUserSchema,
   crowdResponseSchema,
+  createFavoriteGroupRequestSchema,
+  favoriteGroupSchema,
+  patchFavoriteGroupRequestSchema,
+  traderCardsResponseSchema,
   patchAdminSettingsRequestSchema,
   patchAdminUserRequestSchema,
   publicSettingsSchema,
@@ -96,6 +100,7 @@ import {
   setAdminUsers,
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
+import { createGroup, deleteGroup, listGroups, patchGroup, setMember, traderCards } from "./watchlist";
 
 // Mutable demo state (per browser tab).
 const NO_ALERT: FavoriteAlert = { enabled: false, sides: "both", minUsd: null };
@@ -355,6 +360,36 @@ export async function fixtureRequest<T>(
       requireUser(token);
       favorites.delete(addressSchema.parse(parts[2]).toLowerCase());
       return undefined as T;
+    }
+    case "GET /me/favorite-groups":
+      requireUser(token);
+      return wire(z.array(favoriteGroupSchema), listGroups(new Set(favorites.keys())));
+    case "POST /me/favorite-groups": {
+      requireUser(token);
+      const parsed = createFavoriteGroupRequestSchema.safeParse(body ?? {});
+      if (!parsed.success) throw new ApiError(400, parsed.error.message);
+      return wire(favoriteGroupSchema, createGroup(parsed.data));
+    }
+    case "PATCH /me/favorite-groups/:id": {
+      requireUser(token);
+      const parsed = patchFavoriteGroupRequestSchema.safeParse(body ?? {});
+      if (!parsed.success) throw new ApiError(400, parsed.error.message);
+      return wire(favoriteGroupSchema, patchGroup(Number(parts[2]), parsed.data));
+    }
+    case "DELETE /me/favorite-groups/:id":
+      requireUser(token);
+      deleteGroup(Number(parts[2]));
+      return undefined as T;
+    case "PUT /me/favorite-groups/:id/members/:address":
+    case "DELETE /me/favorite-groups/:id/members/:address": {
+      requireUser(token);
+      const group = setMember(Number(parts[2]), addressSchema.parse(parts[4]).toLowerCase(), method === "PUT", new Set(favorites.keys()));
+      return (method === "PUT" ? wire(favoriteGroupSchema, group) : undefined) as T;
+    }
+    case "GET /discover/cards": {
+      const addresses = (search.get("addresses") ?? "").toLowerCase().split(",").filter(Boolean);
+      if (addresses.length === 0 || addresses.some((a) => !/^0x[0-9a-f]{40}$/.test(a))) throw new ApiError(400, "Invalid addresses");
+      return wire(traderCardsResponseSchema, { items: traderCards([...new Set(addresses)].slice(0, 200)) });
     }
     case "GET /me/telegram":
       requireUser(token);

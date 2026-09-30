@@ -27,7 +27,7 @@ export const es: Messages = {
   },
   topbar: {
     search: "Buscar dirección de trader en Hyperliquid…",
-    searchShort: "Buscar dirección…",
+    searchShort: "Buscar…",
     searchLabel: "Buscar dirección de trader",
     invalidAddress: "Introduce una dirección 0x completa (42 caracteres)",
     searchClear: "Borrar búsqueda",

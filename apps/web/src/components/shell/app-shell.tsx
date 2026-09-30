@@ -56,7 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header
         className={cn(
           ownPhoneHeader ? "hidden md:flex" : "flex",
-          "fixed inset-x-0 top-0 z-40 h-16 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-xl md:h-[72px] md:gap-6 md:px-5",
+          "fixed inset-x-0 top-0 z-40 h-16 items-center gap-3 border-b border-border bg-background/95 px-3 md:h-[72px] md:bg-background/90 md:backdrop-blur-xl md:gap-6 md:px-5",
         )}
       >
         <Link href="/" className="flex shrink-0 items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -104,7 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav
         aria-label={t("nav.primary")}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-40 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
+          "fixed inset-x-0 bottom-0 z-30 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
           traderPage || barePhonePage ? "hidden" : "grid",
         )}
       >

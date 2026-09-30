@@ -27,7 +27,7 @@ export const ru: Messages = {
   },
   topbar: {
     search: "Поиск адреса трейдера Hyperliquid…",
-    searchShort: "Поиск адреса…",
+    searchShort: "Поиск…",
     searchLabel: "Поиск адреса трейдера",
     invalidAddress: "Введите полный 0x-адрес (42 символа)",
     searchClear: "Очистить поиск",

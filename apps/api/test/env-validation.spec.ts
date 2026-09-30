@@ -46,6 +46,14 @@ describe("startup environment", () => {
   ])("rejects invalid %s without echoing its value", (key, value) => {
     expect(() => validateEnvironment({ ...base, [key]: value })).toThrow(key);
   });
+  it("copy trading is paper by default; testnet and live are refused in this build", () => {
+    expect(validateEnvironment(base).copy).toEqual({ mode: "paper", workerIntervalMs: 2000 });
+    expect(validateEnvironment({ ...base, COPY_TRADING_MODE: "disabled" }).copy.mode).toBe("disabled");
+    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "live" })).toThrow("not available in this build");
+    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "testnet" })).toThrow("not available in this build");
+    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "yolo" })).toThrow("paper or disabled");
+  });
+
   it("requires a database explicitly", () => {
     expect(() => validateEnvironment({})).toThrow("DATABASE_URL");
   });

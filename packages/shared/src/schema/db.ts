@@ -32,6 +32,7 @@ export * from "../enums.js";
 import {
   bigint,
   bigserial,
+  customType,
   boolean,
   index,
   integer,
@@ -643,5 +644,43 @@ export const discoveryTraders = pgTable(
     primaryKey({ columns: [table.chain, table.address] }),
     index("discovery_traders_attempted_idx").on(table.attemptedAt),
     index("discovery_traders_score_idx").on(table.copyScore.desc()),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// kol_avatars — each KOL's picture, fetched once by the api (the admin's
+// avatar URL, else the 𝕏 profile picture by handle) and served from
+// GET /kols/:address/avatar, so boards never hotlink a third-party host.
+// Refreshed weekly; a row without bytes records failed attempts.
+// ---------------------------------------------------------------------------
+
+/** Postgres `bytea` as a Node Buffer. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
+export const kolAvatars = pgTable(
+  "kol_avatars",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    /** What was fetched: the stored avatar URL or "x:<handle>". A KOL whose
+     * source changes is fetched again. */
+    source: text("source").notNull(),
+    /** Null until a fetch succeeds; kept when a later refresh fails. */
+    bytes: bytea("bytes"),
+    contentType: text("content_type"),
+    /** Quoted strong ETag of `bytes` (sha-256 prefix). */
+    etag: text("etag"),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Earliest next attempt (weekly after a success, later after a failure). */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    failures: integer("failures").notNull().default(0),
+    lastError: text("last_error"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.chain, table.address] }),
+    index("kol_avatars_next_idx").on(table.nextAttemptAt),
   ],
 );

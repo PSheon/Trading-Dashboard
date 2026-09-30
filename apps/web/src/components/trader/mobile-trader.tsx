@@ -13,10 +13,12 @@ import { Skeleton } from "@/components/page";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
-import { CopyScoreBar } from "@/components/discover/board-bits";
+import { CopyScoreBar, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { CopyPanel } from "./copy-panel";
+import { useAuth } from "@/lib/auth";
+import { useCopyOf } from "@/lib/copy";
 import { signedPctCd, WINDOWS } from "./performance";
 import { PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { PositionsTab } from "./trader-tabs";
@@ -60,8 +62,8 @@ function Pills<T extends string>({
   );
 }
 
-/** The trader page's own top bar on phones (CopyDog's): back, the address,
- * favourite, alert and share. Replaces the app's header there. */
+/** The trader page's own top bar on phones (CopyDog's): back, the address
+ * (a KOL's name and badge instead), favourite, alert and share. Replaces the app's header there. */
 function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -74,7 +76,14 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
       >
         <ArrowLeft className="size-5" />
       </Link>
-      <span className="num min-w-0 flex-1 truncate text-center font-mono text-[0.9375rem] font-bold">{truncateAddress(profile.address)}</span>
+      {profile.kol ? (
+        <span className="flex min-w-0 flex-1 items-center justify-center gap-1">
+          <span className="min-w-0 truncate text-[0.9375rem] font-bold" title={profile.address}>{profile.displayName?.trim() || truncateAddress(profile.address)}</span>
+          {profile.kol.verified ? <VerifiedTick className="size-3.5" /> : null}
+        </span>
+      ) : (
+        <span className="num min-w-0 flex-1 truncate text-center font-mono text-[0.9375rem] font-bold">{truncateAddress(profile.address)}</span>
+      )}
       <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
       <AlertBell address={profile.address} />
       <button
@@ -143,6 +152,8 @@ export function MobileTrader({
   const [tab, setTab] = useState<MobileTab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
   const [sheet, setSheet] = useState(false);
+  const { status: authStatus, login } = useAuth();
+  const copying = useCopyOf(profile.address) !== undefined;
   const trades = useTraderAnalytics(profile.address, "all");
   const winRate = (trades.data as TraderAnalyticsResponse | undefined)?.summary.winRate ?? null;
   const winTone = winRateTone(winRate);
@@ -187,9 +198,14 @@ export function MobileTrader({
             {mode === "pnl" && roi !== null ? <RoiPill value={roi} /> : null}
           </div>
           <span className="flex flex-col items-end gap-2">
-            <span className="inline-flex size-12 items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
-              <OrbieMark size={26} />
-            </span>
+            {profile.kol?.avatarUrl ? (
+              // A KOL's picture takes the brand mark's place (CopyDog's).
+              <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol.avatarUrl }} size={48} />
+            ) : (
+              <span className="inline-flex size-12 items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
+                <OrbieMark size={26} />
+              </span>
+            )}
             <span className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
               <span className="underline decoration-dotted underline-offset-2">{t("discover.copyScore")}</span>
               <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-10" />
@@ -295,10 +311,10 @@ export function MobileTrader({
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl md:hidden">
         <button
           type="button"
-          onClick={() => setSheet(true)}
+          onClick={() => (authStatus === "signedOut" ? login() : setSheet(true))}
           className="h-13 w-full rounded-full bg-primary py-3.5 text-base font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {t("trader.copyTrade")}
+          {authStatus === "signedOut" ? t("trader.copy.signInToCopy") : copying ? t("trader.copy.manage") : t("trader.copyTrade")}
         </button>
       </div>
 
@@ -313,7 +329,7 @@ export function MobileTrader({
             >
               <X className="size-4" />
             </button>
-            <CopyPanel />
+            <CopyPanel address={profile.address} sheet />
           </div>
         </div>
       ) : null}

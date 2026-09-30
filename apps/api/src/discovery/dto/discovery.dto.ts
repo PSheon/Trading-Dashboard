@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsBoolean, IsIn, IsInt, IsString, Matches, Max, MaxLength, Min, MinLength } from "class-validator";
-import { Nullable, Optional, ToLowerCase, Trim } from "../../common/decorators/input.decorator.js";
+import { Nullable, Optional, ToLowerCase, ToNumber, Trim } from "../../common/decorators/input.decorator.js";
 import type * as c from "@trading-dashboard/shared/contracts";
 
 /** Same rule as the shared `boardCoinSchema`, plus the two named boards. */
@@ -53,4 +53,29 @@ export class KolImportDto {
   @IsString() @MinLength(1) @MaxLength(500_000) declare csv: string;
   @ApiPropertyOptional({ type: Boolean, default: false, description: "Remove KOLs the file doesn't list (only when every row is valid)" })
   @Optional() @IsBoolean() declare replace?: boolean;
+}
+
+export class AvatarQueryDto {
+  @ApiPropertyOptional({ type: String, pattern: "^[A-Za-z0-9_-]{1,32}$", description: "Version from the avatar URL a board returned; a matching version is cached for a month" })
+  @Optional() @Matches(/^[A-Za-z0-9_-]{1,32}$/) declare v?: string;
+}
+
+/** A Hyperliquid coin name, as the shared `boardCoinSchema` (BTC, xyz:TSLA). */
+const COIN = /^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$/;
+
+export class CoinParamsDto {
+  @ApiProperty({ type: String, description: "Hyperliquid coin (BTC, xyz:TSLA)", pattern: COIN.source })
+  @Matches(COIN) declare coin: string;
+}
+
+export class TraderSearchQueryDto {
+  @ApiProperty({ type: String, minLength: 1, maxLength: 64, description: "Name, X handle or address prefix" })
+  @Trim() @IsString() @MinLength(1) @MaxLength(64) declare q: string;
+  @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 10, default: 5 })
+  @ToNumber() @IsInt() @Min(1) @Max(10) limit = 5;
+}
+
+export class TraderCardsQueryDto {
+  @ApiProperty({ type: String, description: "Comma-separated addresses, at most 200", pattern: "^0x[0-9a-fA-F]{40}(,0x[0-9a-fA-F]{40}){0,199}$" })
+  @ToLowerCase() @Matches(/^0x[0-9a-f]{40}(?:,0x[0-9a-f]{40}){0,199}$/) declare addresses: string;
 }

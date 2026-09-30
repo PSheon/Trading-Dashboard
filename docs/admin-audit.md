@@ -3,8 +3,11 @@
 Migration 0009 adds admin_audit_logs. Apply migrations before deploying this API;
 only the isolated local test DB has been migrated during this implementation.
 
-Successful user role/disable edits, settings patches, rule creates/updates,
-leader edits and list imports record an event in the same transaction as their
+Successful user role/disable edits, self-service account deletions (`user.delete`, counts only; see account-deletion.md), settings patches, rule creates/updates,
+leader edits, list imports, copy stop/resume commands at platform or user level
+(`copy.control`, target `platform:0` / `user:<id>`, with command, reason and
+revisions) and copy risk-policy versions (`copy.risk`, target `policy:<version>`)
+record an event in the same transaction as their
 business writes. An audit insert failure rolls back the business change. A
 rejected operation leaves no successful-change record. Authentication failures
 and denied attempts belong to request/security logs, not this success ledger.

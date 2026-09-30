@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { kolInputSchema, kolPatchSchema, type Kol, type KolImportResponse } from "@trading-dashboard/shared/contracts";
 
 import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
 import { parseOr400 } from "../common/http/validation.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
+import { kolAvatarPath } from "./kol-avatar.js";
+import { KolAvatarRepository } from "./kol-avatar.repository.js";
 import { parseKolCsv } from "./kol-csv.js";
 import { KolRepository, type KolRow } from "./kol.repository.js";
 
@@ -29,10 +31,15 @@ export class KolService {
   constructor(
     private readonly repository: KolRepository,
     private readonly unitOfWork: UnitOfWork,
+    @Optional() private readonly avatars?: KolAvatarRepository,
   ) {}
 
+  /** Registry order, each with the api's cached avatar URL (null until the
+   * drip job has fetched it). */
   async list(): Promise<Kol[]> {
-    return (await this.repository.list()).map(toKol);
+    const [rows, cached] = await Promise.all([this.repository.list(), this.avatars?.candidates() ?? []]);
+    const etags = new Map(cached.map((c) => [c.address, c.etag]));
+    return rows.map((row) => ({ ...toKol(row), cachedAvatarUrl: kolAvatarPath(row.address, etags.get(row.address)) }));
   }
 
   /** Adds or replaces the entry for `body.address` (lowercased); omitted

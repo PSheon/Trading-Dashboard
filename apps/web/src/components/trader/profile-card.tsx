@@ -25,7 +25,6 @@ import { useState } from "react";
 import { cn } from "cn";
 
 import { AlertBell } from "@/components/alerts/alert-bell";
-import { AddressAvatar } from "@/components/traders/address-avatar";
 import { TraderName } from "@/components/traders/trader-name";
 import { FavoriteButton, VaultBadge } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -38,7 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
-import { CopyScoreBar } from "@/components/discover/board-bits";
+import { CopyScoreBar, TraderAvatar, VerifiedTick, XProfileLink } from "@/components/discover/board-bits";
 import { pnlTone, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/trade-format";
 
 function useCopied() {
@@ -188,34 +187,43 @@ export function ProfileCard({
   return (
     <aside className="overflow-hidden rounded-2xl border border-border bg-card">
       {identity ? (
-        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3.5">
-          <AddressAvatar seed={profile.address} size={40} />
+        <div className="flex items-center gap-2 px-4 pt-4 pb-3.5">
+          {/* A verified KOL's badge sits on the avatar, so the name keeps the
+              narrow rail's width. */}
+          <span className="relative shrink-0">
+            <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={40} />
+            {profile.kol?.verified ? <VerifiedTick className="absolute -right-0.5 -bottom-0.5 size-4 rounded-full bg-card" /> : null}
+          </span>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <h1 className="flex min-w-0 text-[0.9375rem] font-bold">
+            <div className="flex min-w-0 items-center gap-1">
+              <h1 className={cn("flex min-w-0", profile.kol ? "text-[0.8125rem] font-semibold" : "text-[0.9375rem] font-bold")}>
                 <TraderName trader={profile} />
               </h1>
               {profile.isVault ? <VaultBadge /> : null}
             </div>
-            <button
-              type="button"
-              onClick={() => copy("address", profile.address)}
-              className="num mt-0.5 flex items-center gap-1 rounded font-mono text-[11px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              title={profile.address}
-              aria-label={`${t("common.copy")} ${profile.address}`}
-            >
-              {truncateAddress(profile.address)}
-              {copied === "address" ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
-            </button>
+            <span className="mt-0.5 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => copy("address", profile.address)}
+                className="num flex items-center gap-1 rounded font-mono text-[11px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                title={profile.address}
+                aria-label={`${t("common.copy")} ${profile.address}`}
+              >
+                {truncateAddress(profile.address)}
+                {copied === "address" ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
+              </button>
+              {/* The KOL's 𝕏 profile sits on this line so the name keeps its width. */}
+              {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
+            </span>
           </div>
           <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
-          <AlertBell address={profile.address} className="-ml-1.5" />
+          <AlertBell address={profile.address} className="-ml-2" />
           <button
             type="button"
             onClick={() => copy("link", window.location.href)}
             aria-label={copied === "link" ? t("common.linkCopied") : t("common.share")}
             title={copied === "link" ? t("common.linkCopied") : t("common.share")}
-            className="-ml-1.5 inline-flex size-7 items-center justify-center rounded-full text-subtle-foreground outline-none hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="-ml-2 inline-flex size-7 items-center justify-center rounded-full text-subtle-foreground outline-none hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             {copied === "link" ? <Check className="size-4 text-positive" /> : <Share2 className="size-4" />}
           </button>

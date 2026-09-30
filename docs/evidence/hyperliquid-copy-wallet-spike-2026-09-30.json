@@ -1,0 +1,33 @@
+{
+  "at": "2026-09-30T12:30:17.159Z",
+  "steps": [
+    {
+      "name": "sdk-vector",
+      "matches": true
+    },
+    {
+      "name": "fresh-account",
+      "address": "0x427e7629A33a072B89B1A58736Cb20B628B2f4af"
+    },
+    {
+      "name": "info.subAccounts(before)",
+      "result": null
+    },
+    {
+      "name": "info.userRole",
+      "result": {
+        "role": "missing"
+      }
+    },
+    {
+      "name": "exchange.createSubAccount",
+      "status": 200,
+      "body": "{\"status\":\"err\",\"response\":\"User or API Wallet 0x427e7629a33a072b89b1a58736cb20b628b2f4af does not exist.\"}"
+    },
+    {
+      "name": "exchange.usdSend",
+      "status": 200,
+      "body": "{\"status\":\"err\",\"response\":\"Must deposit before performing actions. User: 0x427e7629a33a072b89b1a58736cb20b628b2f4af\"}"
+    }
+  ]
+}

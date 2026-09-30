@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
+import { OG_LOCALES } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import { APP_NAME, APP_URL } from "@/lib/config";
 
@@ -42,7 +43,7 @@ export async function generateMetadata(): Promise<Metadata> {
       url: "/",
       title,
       description: messages.meta.description,
-      locale: locale === "zh-TW" ? "zh_TW" : "en_US",
+      locale: OG_LOCALES[locale],
     },
     twitter: {
       card: "summary_large_image",

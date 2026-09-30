@@ -21,6 +21,7 @@ const SECTIONS: { href: string; label: MessageKey; permission: Permission }[] = 
   { href: "/admin/lists", label: "admin.nav.lists", permission: "lists.read" },
   { href: "/admin/kols", label: "admin.nav.kols", permission: "kols.manage" },
   { href: "/admin/rules", label: "admin.nav.rules", permission: "rules.read" },
+  { href: "/admin/activity", label: "admin.nav.activity", permission: "admin.access" },
   { href: "/admin/system", label: "admin.nav.system", permission: "admin.access" },
 ];
 

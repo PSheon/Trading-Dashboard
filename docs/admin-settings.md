@@ -83,10 +83,18 @@ avatar_url]`; `x_handle` may be a handle, `@handle` or an x.com URL).
 Invalid rows are reported with their line and skipped; `replace` removes
 KOLs the file doesn't list, only when every row is valid. Every change
 writes an admin audit event (`kol.upsert`, `kol.delete`, `kol.import`) in
-the same transaction. Avatars: an explicit https URL, else the 𝕏 profile
-picture through `unavatar.io/x/<handle>`, else the generated avatar (also
-the fallback when the image fails). Orbie never hotlinks CopyDog's image
-CDN.
+the same transaction. Avatars are cached by the api (`kol_avatars`) and
+served from `GET /kols/:address/avatar`; pages never load a third-party
+image. A drip job fetches one picture every 30 s: the explicit https URL,
+else the 𝕏 profile picture by handle through unavatar.io (anonymous quota
+25 a day per IP; a 429 pauses it for its Retry-After) and, while unavatar
+is paused, fxtwitter's public profile API (the pbs.twimg.com 400×400
+picture). Bytes must be PNG, JPEG, GIF or WebP (never SVG) and at most
+512 KB; they are refreshed weekly, and a failed refresh keeps the old
+picture. Until a picture is cached the boards return `avatarUrl: null` and
+the web draws the generated avatar (also its fallback when the image
+fails). Orbie never fetches from CopyDog's hosts: an avatar URL on
+`copydog.xyz` is ignored in favour of the handle.
 
 **Seed.** `apps/api/data/kol/copydog-kol-2026-09-30.csv` is CopyDog's KOL
 list: `GET https://api.copydog.xyz/api/hyperliquid/discover/tagged`,

@@ -31,6 +31,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/traders/:address/transfers` | 200 | public; 503 busy |
 | GET | `/me` | 200 | user |
 | PATCH | `/me` | 200 | user |
+| DELETE | `/me` | 204 | user; 409 last_admin |
 | GET | `/me/favorites` | 200 | user |
 | PUT | `/me/favorites/:address` | 200 | user |
 | DELETE | `/me/favorites/:address` | 204 | user |
@@ -39,6 +40,10 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/telegram/link` | 200 | user |
 | POST | `/me/telegram/test` | 200 | user |
 | DELETE | `/me/telegram` | 204 | user |
+| GET | `/me/wallet` | 200 | user; 503 busy |
+| GET | `/me/wallet/history` | 200 | user; 503 busy |
+| GET | `/insights/cohorts/:tier` | 200 | public |
+| GET | `/insights/cohorts/:tier/history` | 200 | public |
 | GET | `/insights/crowd` | 200 | public |
 | GET | `/settings` | 200 | public |
 | GET | `/admin/settings` | 200 | settings.read |
@@ -51,8 +56,25 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/traders/:address/copy-score` | 200 | public; 503 busy |
 | GET | `/discover/boards` | 200 | public |
 | GET | `/discover/home` | 200 | public |
+| GET | `/discover/coins` | 200 | public |
+| GET | `/discover/coins/:coin` | 200 | public |
+| GET | `/discover/search` | 200 | public |
 | GET | `/admin/kols` | 200 | kols.manage |
 | POST | `/admin/kols` | 201 | kols.manage |
 | POST | `/admin/kols/import` | 201 | kols.manage |
 | PATCH | `/admin/kols/:address` | 200 | kols.manage |
 | DELETE | `/admin/kols/:address` | 204 | kols.manage |
+| GET | `/discover/cards` | 200 | public |
+| GET | `/me/favorite-groups` | 200 | user |
+| POST | `/me/favorite-groups` | 201 | user |
+| PATCH | `/me/favorite-groups/:id` | 200 | user |
+| DELETE | `/me/favorite-groups/:id` | 204 | user |
+| PUT | `/me/favorite-groups/:id/members/:address` | 200 | user |
+| DELETE | `/me/favorite-groups/:id/members/:address` | 204 | user |
+| GET | `/me/copy` | 200 | user |
+| POST | `/me/copy/strategies` | 201 | user; 409 already_copying / insufficient_balance / copy_paused |
+| PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
+| POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
+| POST | `/me/copy/strategies/:id/commands` | 200 | user (owner) |
+| GET | `/me/copy/strategies/:id/orders` | 200 | user (owner) |
+| GET | `/kols/:address/avatar` | 200 | public; image bytes, 304 on If-None-Match |

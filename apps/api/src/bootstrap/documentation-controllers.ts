@@ -7,15 +7,18 @@ import { HealthController } from "../api/health/health.controller.js";
 import { ReadinessController } from "../api/health/readiness.controller.js";
 import { LeadersController } from "../api/leaders/leaders.controller.js";
 import { ListsController } from "../api/lists/lists.controller.js";
-import { AdminKolController, CopyScoreController, DiscoveryController } from "../discovery/discovery.controller.js";
+import { AdminKolController, CopyScoreController, DiscoveryController, KolAvatarController } from "../discovery/discovery.controller.js";
 import { ImportController } from "../import/import.controller.js";
 import { InsightsController } from "../insights/insights.controller.js";
 import { OutboxController } from "../outbox/outbox.controller.js";
 import { TelegramController } from "../telegram/telegram.controller.js";
 import { TradeAnalyticsController } from "../traders/trade-analytics.controller.js";
 import { TradersController } from "../traders/traders.controller.js";
+import { FavoriteGroupsController } from "../users/favorite-groups.controller.js";
 import { MeController } from "../users/me.controller.js";
+import { WalletController } from "../wallet/wallet.controller.js";
+import { CopyController } from "../copy/copy.controller.js";
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
 export const documentationControllers = [
-  AdminSystemController,AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController];
+  AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, FavoriteGroupsController, WalletController, CopyController];

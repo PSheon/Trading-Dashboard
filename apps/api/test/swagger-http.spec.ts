@@ -22,7 +22,7 @@ it.each(["development", "test", "staging", "production"])("serves Swagger only i
       expect(html.headers["content-security-policy"]).toContain("script-src 'self'");
       expect(json.body.openapi).toBe("3.1.0");
       expect(json.body).not.toHaveProperty("success");
-      expect(json.body.components.schemas.PatchMeDto.properties.locale.enum).toEqual(["zh-TW", "en"]);
+      expect(json.body.components.schemas.PatchMeDto.properties.locale.enum).toEqual(["en", "zh-TW", "zh-CN", "ko", "ja", "ru", "tr", "vi", "es", "pt", "id"]);
     } else {
       expect(html.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'none'");
     }

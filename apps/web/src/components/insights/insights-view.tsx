@@ -1,128 +1,225 @@
 "use client";
 
-import type { ActionKind } from "@/lib/contracts";
-import { Activity, X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { cn } from "cn";
 
-import { ACTION_KINDS, ActionsTable } from "@/components/actions/actions-table";
-import { LiveBadge } from "@/components/actions/live-badge";
-import { EmptyState, ErrorState, PageHeader, Panel, Skeleton } from "@/components/page";
-import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/page";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
-import { useLiveActions } from "@/lib/queries";
-import { CrowdView } from "./crowd-view";
+import type { CohortDetail, CohortTier, CohortWindow } from "@/lib/contracts";
+import { usdCompact } from "@/lib/format";
+import { useCohort, useCohortHistory } from "@/lib/queries";
+import { MarketsTable, WalletsTable } from "./cohort-tables";
+import { MarketTreemap } from "./market-treemap";
+import { PositioningChart } from "./positioning-chart";
+import { SplitBar } from "./sentiment";
 
-const TIERS = ["A", "B", "C"] as const;
+export const TIERS: CohortTier[] = ["extremely_profitable", "very_profitable", "profitable", "break_even", "unprofitable", "very_unprofitable", "rekt"];
+const FILTERS = ["all", "crypto", "tradfi"] as const;
 
-const selectClass =
-  "h-10 rounded-full bg-raised px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
+/**
+ * 洞察 (CopyDog's /hyperliquid/cohorts): a PnL tier's positioning — the
+ * banner with the tier picker, unrealized PnL and notional split cards, the
+ * 倉位傾向 chart against BTC, the 各市場持倉方向 treemap, and the 錢包 /
+ * 市場 tables. `?tier=` selects the tier (極度盈利 by default).
+ */
 export function InsightsView() {
   const { t } = useI18n();
   const params = useSearchParams();
-  const [coin, setCoin] = useState(params.get("coin") ?? "");
-  const [kind, setKind] = useState<ActionKind | "">("");
-  const [tier, setTier] = useState("");
+  const fromUrl = params.get("tier");
+  const [tier, setTier] = useState<CohortTier>(fromUrl && (TIERS as string[]).includes(fromUrl) ? (fromUrl as CohortTier) : "extremely_profitable");
+  const [window, setWindow] = useState<CohortWindow>("all");
+  const [tab, setTab] = useState<"wallets" | "markets">("wallets");
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
+  const detail = useCohort(tier);
+  const history = useCohortHistory(tier, window);
+  const data = detail.data;
+  const tierName = t(`trader.pnlTiers.${tier}`);
 
-  // Market chips on Home link here with ?coin=.
-  const urlCoin = params.get("coin") ?? "";
-  const [seenUrlCoin, setSeenUrlCoin] = useState(urlCoin);
-  if (urlCoin !== seenUrlCoin) {
-    setSeenUrlCoin(urlCoin);
-    setCoin(urlCoin);
-  }
-
-  const coinFilter = coin.trim().toUpperCase();
-  const { query: actions, status: streamStatus, highlight } = useLiveActions({
-    coin: coinFilter || undefined,
-    kind: kind || undefined,
-    tier: tier || undefined,
-    limit: 100,
-  });
-  const filtered = Boolean(coinFilter || kind || tier);
+  useEffect(() => {
+    const qs = new URLSearchParams(globalThis.location.search);
+    if (tier === "extremely_profitable") qs.delete("tier");
+    else qs.set("tier", tier);
+    const next = `${globalThis.location.pathname}${qs.size ? `?${qs}` : ""}`;
+    if (next !== `${globalThis.location.pathname}${globalThis.location.search}`) globalThis.history.replaceState(null, "", next);
+  }, [tier]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title={t("insights.title")} subtitle={t("insights.subtitle")} />
-
-      <CrowdView onCoin={(c) => setCoin(c)} />
-
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="mr-2 flex items-center gap-2 text-lg font-bold tracking-tight">
-            {t("insights.liveFeed")}
-            <LiveBadge status={streamStatus} />
-          </h2>
-          <input
-            value={coin}
-            onChange={(e) => setCoin(e.target.value)}
-            placeholder={t("insights.coin")}
-            aria-label={t("insights.coin")}
-            className="h-10 w-44 rounded-full bg-raised px-4 text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as ActionKind | "")}
-            aria-label={t("insights.allKinds")}
-            className={selectClass}
-          >
-            <option value="" className="bg-popover">
-              {t("insights.allKinds")}
-            </option>
-            {ACTION_KINDS.map((k) => (
-              <option key={k} value={k} className="bg-popover">
-                {t(`actions.kinds.${k}`)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={tier}
-            onChange={(e) => setTier(e.target.value)}
-            aria-label={t("insights.allTiers")}
-            className={selectClass}
-          >
-            <option value="" className="bg-popover">
-              {t("insights.allTiers")}
-            </option>
-            {TIERS.map((tr) => (
-              <option key={tr} value={tr} className="bg-popover">
-                {t("insights.tier", { tier: tr })}
-              </option>
-            ))}
-          </select>
-          {filtered ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setCoin("");
-                setKind("");
-                setTier("");
-              }}
-            >
-              <X />
-              {t("insights.clearFilters")}
-            </Button>
-          ) : null}
+    <div className="flex flex-col gap-3">
+      <header className="flex flex-col gap-4 rounded-2xl border border-border bg-card px-5 py-5 md:flex-row md:items-center md:justify-between md:px-6">
+        <HyperliquidWordmark className="flex md:hidden" />
+        <h1 className="text-xl font-extrabold tracking-tight md:text-[1.625rem]">{t("insights.cohort.bannerTitle")}</h1>
+        <div className="flex items-center gap-4 md:order-3">
+          <TierPicker value={tier} onChange={setTier} />
+          <HyperliquidWordmark className="hidden md:flex" />
         </div>
+      </header>
 
-        <Panel className="overflow-hidden">
-          {actions.isError ? (
-            <ErrorState message={actions.error.message} onRetry={() => actions.refetch()} />
-          ) : !actions.data ? (
-            <div className="flex flex-col gap-2 p-5">
-              {Array.from({ length: 8 }, (_, i) => (
-                <Skeleton key={i} className="h-10" />
-              ))}
+      {detail.isError && !data ? (
+        <div className="rounded-2xl border border-border bg-card py-10 text-center text-sm text-muted-foreground">
+          {t("insights.cohort.loadError")}{" "}
+          <button type="button" className="text-primary underline" onClick={() => detail.refetch()}>{t("insights.cohort.retry")}</button>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3 md:grid-cols-2">
+            <HeroCards data={data} />
+          </div>
+          {data && data.walletCount === 0 ? (
+            <p className="rounded-xl bg-raised/60 px-4 py-2.5 text-xs text-muted-foreground">{t("insights.cohort.building")}</p>
+          ) : null}
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
+            <PositioningChart
+              title={t("insights.cohort.positioning", { name: tierName })}
+              series={history.data?.series ?? []}
+              btc={history.data?.btc ?? []}
+              window={window}
+              onWindow={setWindow}
+              loading={!history.data}
+              latest={data?.hero.longPct ?? null}
+              emptyHint={t("insights.cohort.chartEmpty", { minutes: 15 })}
+            />
+            <MarketTreemap title={t("insights.cohort.byMarket")} markets={data?.markets} loading={!data} />
+          </div>
+          <section className="rounded-2xl border border-border bg-card">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4">
+              <div className="flex gap-5" role="tablist">
+                {(["wallets", "markets"] as const).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === key}
+                    onClick={() => setTab(key)}
+                    className={cn(
+                      "-mb-px border-b-2 py-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      tab === key ? "border-primary text-foreground" : "border-transparent text-subtle-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t(`insights.cohort.${key}`)}
+                  </button>
+                ))}
+              </div>
+              {tab === "markets" ? (
+                <div className="flex gap-3" role="radiogroup" aria-label={t("insights.cohort.markets")}>
+                  {FILTERS.map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      role="radio"
+                      aria-checked={filter === f}
+                      onClick={() => setFilter(f)}
+                      className={cn("rounded text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "text-primary" : "text-subtle-foreground hover:text-foreground")}
+                    >
+                      {t(`insights.cohort.filter.${f}`)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
-          ) : actions.data.length === 0 ? (
-            <EmptyState icon={Activity} title={t("insights.empty")} />
-          ) : (
-            <ActionsTable rows={actions.data} highlight={highlight} />
-          )}
-        </Panel>
-      </section>
+            {!data ? (
+              <div className="flex flex-col gap-2 p-4">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-10" />)}</div>
+            ) : tab === "wallets" ? (
+              <WalletsTable rows={data.wallets} />
+            ) : (
+              <MarketsTable rows={data.markets} filter={filter} />
+            )}
+          </section>
+        </>
+      )}
     </div>
+  );
+}
+
+function TierPicker({ value, onChange }: { value: CohortTier; onChange: (tier: CohortTier) => void }) {
+  const { t } = useI18n();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={t("insights.cohort.tierLabel")}
+        className="flex h-10 items-center gap-1.5 rounded-full bg-raised px-4 text-sm font-bold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {t(`trader.pnlTiers.${value}`)}
+        <ChevronDown className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-52">
+        <DropdownMenuRadioGroup value={value} onValueChange={(v) => onChange(v as CohortTier)}>
+          {TIERS.map((tier) => (
+            <DropdownMenuRadioItem key={tier} value={tier} className="flex flex-col items-start gap-0">
+              <span className="font-semibold">{t(`trader.pnlTiers.${tier}`)}</span>
+              <span className="text-[0.6875rem] text-subtle-foreground">{t(`trader.pnlTierHints.${tier}`)}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Hyperliquid's name set like its wordmark ("Hyper" upright, "liquid"
+ * italic); text, not their logo file. */
+function HyperliquidWordmark({ className }: { className?: string }) {
+  return (
+    <span className={cn("items-center gap-2 text-[1.75rem] leading-none tracking-tight text-foreground select-none", className)} aria-hidden>
+      <svg viewBox="0 0 32 20" className="h-5 w-8" fill="currentColor">
+        <path d="M6 0C2.7 0 0 3.6 0 10s2.7 10 6 10c2.4 0 3.9-1.9 5.6-4.2C13 13.9 14.5 12 16 12s3 1.9 4.4 3.8C22.1 18.1 23.6 20 26 20c3.3 0 6-3.6 6-10S29.3 0 26 0c-2.4 0-3.9 1.9-5.6 4.2C19 6.1 17.5 8 16 8s-3-1.9-4.4-3.8C9.9 1.9 8.4 0 6 0Z" />
+      </svg>
+      <span className="font-light">Hyper<span className="font-serif italic">liquid</span></span>
+    </span>
+  );
+}
+
+function HeroCards({ data }: { data: CohortDetail | undefined }) {
+  const { t } = useI18n();
+  if (!data) {
+    return (
+      <>
+        {[0, 1].map((i) => (
+          <div key={i} className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-1.5 w-full" />
+            <div className="flex justify-between"><Skeleton className="h-4 w-32" /><Skeleton className="h-4 w-32" /></div>
+          </div>
+        ))}
+      </>
+    );
+  }
+  const h = data.hero;
+  const wallets = h.walletsInProfit + h.walletsInLoss;
+  const inProfit = wallets > 0 ? Math.round((100 * h.walletsInProfit) / wallets) : null;
+  const pct = (v: number | null, digits = 1) => (v === null ? "—" : `${v.toFixed(digits)}%`);
+  const dot = <span className="text-[0.5rem] text-subtle-foreground">▪</span>;
+  return (
+    <>
+      <HeroCard
+        title={t("insights.cohort.unrealizedPnl")}
+        pos={h.upnlProfitPct}
+        left={<><span className="num font-semibold text-positive">{pct(h.upnlProfitPct)}</span> {dot} <span>{inProfit === null ? "—" : `${100 - inProfit}% ${t("insights.cohort.inLoss")}`}</span></>}
+        right={<><span>{inProfit === null ? "—" : `${inProfit}% ${t("insights.cohort.inProfit")}`}</span> {dot} <span className="num font-semibold text-negative">{h.upnlProfitPct === null ? "—" : pct(100 - h.upnlProfitPct)}</span></>}
+      />
+      <HeroCard
+        title={t("insights.cohort.notional")}
+        pos={h.longPct}
+        left={<><span className="num font-semibold text-positive">{usdCompact(h.notionalLong, { digits: 2 })}</span> {dot} <span>{h.longPct === null ? "—" : `${Math.round(h.longPct)}% ${t("insights.cohort.long")}`}</span></>}
+        right={<><span>{h.longPct === null ? "—" : `${Math.round(100 - h.longPct)}% ${t("insights.cohort.short")}`}</span> {dot} <span className="num font-semibold text-negative">{usdCompact(h.notionalShort, { digits: 2 })}</span></>}
+      />
+    </>
+  );
+}
+
+function HeroCard({ title, pos, left, right }: { title: string; pos: number | null; left: React.ReactNode; right: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-border bg-card">
+      <h2 className="border-b border-border px-4 py-2.5 text-[0.8125rem] font-medium text-muted-foreground">{title}</h2>
+      <div className="flex flex-col gap-3 px-4 py-4">
+        <SplitBar pos={pos} />
+        <div className="flex items-center justify-between gap-3 text-[0.6875rem] text-muted-foreground">
+          <span className="flex items-center gap-1.5">{left}</span>
+          <span className="flex items-center gap-1.5">{right}</span>
+        </div>
+      </div>
+    </section>
   );
 }

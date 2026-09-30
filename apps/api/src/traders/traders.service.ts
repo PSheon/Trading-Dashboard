@@ -40,6 +40,8 @@ import {
   toTraderStats,
 } from "./traders.mappers.js";
 import { TtlCache } from "./ttl-cache.js";
+import { kolAvatarPath } from "../discovery/kol-avatar.js";
+import { KolAvatarRepository } from "../discovery/kol-avatar.repository.js";
 
 /**
  * Page loads go ahead of backfill and sweeps (lower rank first within the
@@ -127,6 +129,7 @@ export class TradersService {
     private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() spotPrices?: SpotPriceService,
+    @Optional() private readonly kols?: KolAvatarRepository,
   ) {
     this.spotPrices = spotPrices ?? new SpotPriceService(info);
   }
@@ -164,16 +167,20 @@ export class TradersService {
    * are `activity()`. `address` must already be validated and lowercased.
    */
   async profile(address: string, userId: number | null): Promise<TraderProfileResponse> {
-    const [shared, favorites] = await Promise.all([
+    const [shared, favorites, kol] = await Promise.all([
       this.profileCache.get(address, () => this.loadProfile(address), value => value.dataQuality?.partial ? 5_000 : PROFILE_TTL_MS),
       this.repository.favoritesAmong(userId, [address]),
+      this.kols?.card(address),
     ]);
     const dataQuality = shared.dataQuality && { ...shared.dataQuality, sources: Object.fromEntries(
       Object.entries(shared.dataQuality.sources).map(([key, source]) => [key, { ...source,
         stale: source.asOf !== null && Date.now() - Date.parse(source.asOf) > source.maxAgeMs,
       }]),
     ) };
-    return { ...shared, dataQuality, favorite: favorites.has(address) };
+    // The KOL entry is read per request (one indexed row), so an admin's
+    // edit or a newly cached avatar shows without waiting for the profile TTL.
+    const card = kol ? { displayName: kol.displayName, xHandle: kol.xHandle, verified: kol.verified, avatarUrl: kolAvatarPath(address, kol.avatarEtag) } : null;
+    return { ...shared, displayName: kol?.displayName ?? shared.displayName, dataQuality, favorite: favorites.has(address), kol: card };
   }
 
   /**

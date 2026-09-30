@@ -11,7 +11,10 @@ import { APP_NAME } from "@/lib/config";
 import { AnnouncementBanner } from "./announcement-banner";
 import { AccountControls } from "./account-controls";
 import { AddressSearch } from "./address-search";
-import { adminNav, isActive, mobileNav, primaryNav, settingsNav, type NavItem } from "./nav";
+import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
+import { adminNav, isActive, mobileNav, primaryNav, type NavItem } from "./nav";
+
+const BARE_PAGES = new Set(["/privacy", "/terms", "/delete-account"]);
 
 /**
  * CopyDog-style frame: full-width top bar (lockup, wide address search,
@@ -25,11 +28,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // A trader page on a phone has its own top bar and a sticky 跟單 button in
   // place of the header and the tab bar, as on CopyDog's app.
   const traderPage = pathname.startsWith("/trader/");
+  // CopyDog's 市場 pages are bare on a phone: no top bar and no tab bar,
+  // only the page and its breadcrumb.
+  const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
+  // CopyDog's phone portfolio has its own title bar (投資組合, bell, gear).
+  const ownPhoneHeader = traderPage || barePhonePage || pathname === "/portfolio";
+
+  // CopyDog's legal pages are plain documents: no top bar, rail or tabs.
+  if (BARE_PAGES.has(pathname)) {
+    return (
+      <main id="main" tabIndex={-1} className="min-h-dvh outline-none">
+        {children}
+      </main>
+    );
+  }
 
   // The design lab owns its frame; the production shell stays unchanged.
   if (pathname === "/dev" || pathname.startsWith("/dev/")) return <>{children}</>;
 
   return (
+    <WalletModalsProvider>
     <div className="min-h-dvh">
       <a
         href="#main"
@@ -40,8 +58,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <header
         className={cn(
-          traderPage ? "hidden md:flex" : "flex",
-          "fixed inset-x-0 top-0 z-40 h-16 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-xl md:h-[72px] md:gap-6 md:px-5",
+          ownPhoneHeader ? "hidden md:flex" : "flex",
+          "fixed inset-x-0 top-0 z-40 h-16 items-center gap-3 border-b border-border bg-background/95 px-3 md:h-[72px] md:bg-background/90 md:backdrop-blur-xl md:gap-6 md:px-5",
         )}
       >
         <Link href="/" className="flex shrink-0 items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -62,14 +80,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <RailLink key={item.href} item={item} active={isActive(pathname, item.href)} />
         ))}
         <div className="mt-auto flex flex-col items-center gap-1">
+          {/* No 設定 here, as on CopyDog: settings open from the avatar
+              menu (desktop) and the portfolio gear (phone). */}
           {isAdmin ? <RailLink item={adminNav} active={isActive(pathname, adminNav.href)} /> : null}
-          <RailLink item={settingsNav} active={isActive(pathname, settingsNav.href)} />
         </div>
       </nav>
 
       <div
         className={cn(
-          traderPage ? "pt-0 pb-[calc(84px+env(safe-area-inset-bottom))]" : "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]",
+          traderPage
+            ? "pt-0 pb-[calc(84px+env(safe-area-inset-bottom))]"
+            : barePhonePage
+              ? "pt-4 pb-10"
+              : ownPhoneHeader
+              ? "pt-0 pb-[calc(68px+env(safe-area-inset-bottom))]"
+              : "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]",
           "md:pt-[72px] md:pb-0 md:pl-[76px]",
         )}
       >
@@ -82,8 +107,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav
         aria-label={t("nav.primary")}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-40 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
-          traderPage ? "hidden" : "grid",
+          "fixed inset-x-0 bottom-0 z-30 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
+          traderPage || barePhonePage ? "hidden" : "grid",
         )}
       >
         {mobileNav.map((item) => (
@@ -91,6 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
     </div>
+    </WalletModalsProvider>
   );
 }
 

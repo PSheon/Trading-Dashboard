@@ -3,8 +3,13 @@ import { ProfileRepository } from "../src/users/profile.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
 import {
+  adminAuditLogs,
   alertRules,
   leaders,
+  telegramLinkTokens,
+  userFavoriteGroupMembers,
+  userFavoriteGroups,
+  users,
   notificationChannels,
   traderStats,
   userFavorites,
@@ -16,6 +21,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { SettingsService } from "../src/settings/settings.service.js";
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
+import { AccountDeletionService } from "../src/users/account-deletion.service.js";
+import { AccountRepository } from "../src/users/account.repository.js";
 import { FavoritesService } from "../src/users/favorites.service.js";
 import { MeController } from "../src/users/me.controller.js";
 import { ProfileService } from "../src/users/profile.service.js";
@@ -49,6 +56,8 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
         ProfileRepository,
         ProfileService,
         FavoritesService,
+        AccountRepository,
+        AccountDeletionService,
         { provide: BackfillService, useValue: backfill },
       ],
     }));
@@ -140,6 +149,12 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       const patched = (await alice.patch("/me", { locale: "en", displayName: "  Alice  " }).expect(200)).body.data;
       expect(patched).toMatchObject({ locale: "en", displayName: "Alice" });
       expect((await alice.get("/me").expect(200)).body.data).toMatchObject({ locale: "en", displayName: "Alice" });
+    });
+
+    it("accepts CopyDog's eleven languages", async () => {
+      for (const locale of ["en", "zh-CN", "ko", "ja", "ru", "tr", "vi", "es", "pt", "id", "zh-TW"]) {
+        expect((await alice.patch("/me", { locale }).expect(200)).body.data.locale).toBe(locale);
+      }
     });
 
     it("rejects an unknown locale or an over-long name with 400", async () => {
@@ -356,6 +371,65 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
 
       const again = (await alice.put(`/me/favorites/${ADDR}`).expect(200)).body.data;
       expect(again.alert).toEqual({ enabled: false, sides: "both", minUsd: null });
+    });
+  });
+
+  describe("DELETE /me (account deletion)", () => {
+    it("deletes the account and everything it owns here, releases the watch list and audits counts only", async () => {
+      const id = (await alice.get("/me").expect(200)).body.data.id as number;
+      await db.insert(notificationChannels).values({ userId: id, kind: "telegram", target: "555", enabled: true });
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      await alice.put(`/me/favorites/${OTHER}`).expect(200);
+      await bob.put(`/me/favorites/${OTHER}`).expect(200);
+      await alice.patch(`/me/favorites/${ADDR}/alert`, { enabled: true }).expect(200);
+      const [group] = await db.insert(userFavoriteGroups).values({ userId: id, name: "Core", color: "#ff7a45" }).returning();
+      await db.insert(userFavoriteGroupMembers).values({ groupId: group.id, userId: id, address: ADDR });
+      await db.insert(telegramLinkTokens).values({ userId: id, tokenHash: "hash-for-deletion-test", expiresAt: new Date(Date.now() + 60_000) });
+
+      await alice.delete("/me").expect(204);
+
+      expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(0);
+      expect(await db.select().from(userFavorites).where(eq(userFavorites.userId, id))).toHaveLength(0);
+      expect(await db.select().from(userFavoriteGroups)).toHaveLength(0);
+      expect(await db.select().from(userFavoriteGroupMembers)).toHaveLength(0);
+      expect(await db.select().from(notificationChannels)).toHaveLength(0);
+      expect(await db.select().from(telegramLinkTokens)).toHaveLength(0);
+      // ADDR was only Alice's: no longer watched. OTHER is still Bob's.
+      expect(await leaderRow(ADDR)).toMatchObject({ active: false, source: "favorite" });
+      expect((await leaderRow(OTHER)).active).toBe(true);
+      const [audit] = await db.select().from(adminAuditLogs).where(eq(adminAuditLogs.event, "user.delete"));
+      expect(audit).toMatchObject({ actorKind: "user", actorUserId: id, target: `user:${id}`, afterJson: null,
+        beforeJson: { role: "user", favorites: 2, alerts: 1, groups: 1, telegramLinked: true } });
+      expect(JSON.stringify(audit.beforeJson)).not.toContain("alice@example.com");
+
+      // The same token is refused while its cache entry lives (requests in
+      // flight during sign-out can't recreate the account) …
+      await alice.get("/me").expect(401);
+      await alice.delete("/me").expect(401);
+      await alice.put(`/me/favorites/${ADDR}`).expect(401);
+      expect(await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"))).toHaveLength(0);
+      // … and a later sign-in is a brand-new, empty account.
+      auth.clearCache();
+      const again = (await alice.get("/me").expect(200)).body.data as { id: number };
+      expect(again.id).not.toBe(id);
+      expect((await alice.get("/me/favorites").expect(200)).body.data).toEqual([]);
+    });
+
+    it("refuses the only enabled admin (409 last_admin), allows an admin when another remains", async () => {
+      const id = (await alice.get("/me").expect(200)).body.data.id as number;
+      await db.update(users).set({ role: "admin" }).where(eq(users.id, id));
+      auth.clearCache();
+      expect((await alice.delete("/me").expect(409)).body.error.code).toBe("last_admin");
+      const bobId = (await bob.get("/me").expect(200)).body.data.id as number;
+      await db.update(users).set({ role: "admin" }).where(eq(users.id, bobId));
+      auth.clearCache();
+      await alice.delete("/me").expect(204);
+      expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(0);
+    });
+
+    it("anonymous: 401; service token: 403", async () => {
+      await http().delete("/me").expect(401);
+      await as(SERVICE_TOKEN).delete("/me").expect(403);
     });
   });
 

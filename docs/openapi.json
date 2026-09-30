@@ -825,6 +825,24 @@
                                 "xyz:BRENTOIL",
                                 "xyz:SILVER"
                               ]
+                            },
+                            "cohortMembersPerTier": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 500,
+                              "default": 150
+                            },
+                            "cohortRefreshMinutes": {
+                              "type": "integer",
+                              "minimum": 5,
+                              "maximum": 240,
+                              "default": 15
+                            },
+                            "cohortWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 200
                             }
                           },
                           "additionalProperties": false
@@ -1166,6 +1184,24 @@
                                 "xyz:BRENTOIL",
                                 "xyz:SILVER"
                               ]
+                            },
+                            "cohortMembersPerTier": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 500,
+                              "default": 150
+                            },
+                            "cohortRefreshMinutes": {
+                              "type": "integer",
+                              "minimum": 5,
+                              "maximum": 240,
+                              "default": 15
+                            },
+                            "cohortWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 200
                             }
                           },
                           "additionalProperties": false
@@ -1427,8 +1463,17 @@
                               "locale": {
                                 "type": "string",
                                 "enum": [
+                                  "en",
                                   "zh-TW",
-                                  "en"
+                                  "zh-CN",
+                                  "ko",
+                                  "ja",
+                                  "ru",
+                                  "tr",
+                                  "vi",
+                                  "es",
+                                  "pt",
+                                  "id"
                                 ]
                               },
                               "favorites": {
@@ -1596,8 +1641,17 @@
                         "locale": {
                           "type": "string",
                           "enum": [
+                            "en",
                             "zh-TW",
-                            "en"
+                            "zh-CN",
+                            "ko",
+                            "ja",
+                            "ru",
+                            "tr",
+                            "vi",
+                            "es",
+                            "pt",
+                            "id"
                           ]
                         },
                         "favorites": {
@@ -3832,7 +3886,8 @@
                             "type": "string",
                             "enum": [
                               "import",
-                              "favorite"
+                              "favorite",
+                              "copy"
                             ],
                             "default": "import"
                           },
@@ -4047,7 +4102,8 @@
                               "type": "string",
                               "enum": [
                                 "import",
-                                "favorite"
+                                "favorite",
+                                "copy"
                               ],
                               "default": "import"
                             },
@@ -4584,7 +4640,8 @@
                           "type": "string",
                           "enum": [
                             "import",
-                            "favorite"
+                            "favorite",
+                            "copy"
                           ],
                           "default": "import"
                         },
@@ -5151,6 +5208,497 @@
         "x-required-permissions": [],
         "x-required-roles": [],
         "description": "Access: public"
+      }
+    },
+    "/insights/cohorts/{tier}": {
+      "get": {
+        "description": "Hero figures, per-market split and wallets of one PnL tier (CopyDog's cohorts).\n\nAccess: public",
+        "operationId": "InsightsController_cohort",
+        "parameters": [
+          {
+            "name": "tier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "extremely_profitable",
+                "very_profitable",
+                "profitable",
+                "break_even",
+                "unprofitable",
+                "very_unprofitable",
+                "rekt"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "tier": {
+                          "type": "string",
+                          "enum": [
+                            "extremely_profitable",
+                            "very_profitable",
+                            "profitable",
+                            "break_even",
+                            "unprofitable",
+                            "very_unprofitable",
+                            "rekt"
+                          ]
+                        },
+                        "memberCount": {
+                          "type": "integer"
+                        },
+                        "walletCount": {
+                          "type": "integer"
+                        },
+                        "hero": {
+                          "type": "object",
+                          "properties": {
+                            "upnlProfit": {
+                              "type": "number"
+                            },
+                            "upnlLoss": {
+                              "type": "number"
+                            },
+                            "upnlProfitPct": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "walletsInProfit": {
+                              "type": "integer"
+                            },
+                            "walletsInLoss": {
+                              "type": "integer"
+                            },
+                            "notionalLong": {
+                              "type": "number"
+                            },
+                            "notionalShort": {
+                              "type": "number"
+                            },
+                            "longPct": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "upnlProfit",
+                            "upnlLoss",
+                            "upnlProfitPct",
+                            "walletsInProfit",
+                            "walletsInLoss",
+                            "notionalLong",
+                            "notionalShort",
+                            "longPct"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "markets": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "notionalLong": {
+                                "type": "number"
+                              },
+                              "notionalShort": {
+                                "type": "number"
+                              },
+                              "biasPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "upnl": {
+                                "type": "number"
+                              },
+                              "tradersLong": {
+                                "type": "integer"
+                              },
+                              "tradersShort": {
+                                "type": "integer"
+                              },
+                              "tradersProfit": {
+                                "type": "integer"
+                              },
+                              "tradersLoss": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "notionalLong",
+                              "notionalShort",
+                              "biasPct",
+                              "upnl",
+                              "tradersLong",
+                              "tradersShort",
+                              "tradersProfit",
+                              "tradersLoss"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "wallets": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "topAssets": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "totalPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "perpEquity": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "positionValue": {
+                                "type": "number"
+                              },
+                              "leverage": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "sumUpnl": {
+                                "type": "number"
+                              },
+                              "biasPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "verified",
+                              "topAssets",
+                              "totalPnl",
+                              "roi",
+                              "perpEquity",
+                              "copyScore",
+                              "positionValue",
+                              "leverage",
+                              "sumUpnl",
+                              "biasPct"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "tier",
+                        "memberCount",
+                        "walletCount",
+                        "hero",
+                        "markets",
+                        "wallets",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Cohort",
+        "tags": [
+          "Insights"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/insights/cohorts/{tier}/history": {
+      "get": {
+        "description": "The tier's long share per refresh and BTC's price over 7d / 30d / 90d / all.\n\nAccess: public",
+        "operationId": "InsightsController_cohortHistory",
+        "parameters": [
+          {
+            "name": "tier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "extremely_profitable",
+                "very_profitable",
+                "profitable",
+                "break_even",
+                "unprofitable",
+                "very_unprofitable",
+                "rekt"
+              ]
+            }
+          },
+          {
+            "name": "window",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "7d",
+                "30d",
+                "90d",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "tier": {
+                          "type": "string",
+                          "enum": [
+                            "extremely_profitable",
+                            "very_profitable",
+                            "profitable",
+                            "break_even",
+                            "unprofitable",
+                            "very_unprofitable",
+                            "rekt"
+                          ]
+                        },
+                        "window": {
+                          "type": "string",
+                          "enum": [
+                            "7d",
+                            "30d",
+                            "90d",
+                            "all"
+                          ]
+                        },
+                        "series": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "t": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "pctLong": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "t",
+                              "pctLong"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "btc": {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": false,
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "tier",
+                        "window",
+                        "series",
+                        "btc"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Cohort history",
+        "tags": [
+          "Insights"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
       }
     },
     "/admin/outbox": {
@@ -7548,6 +8096,46 @@
                         "favorite": {
                           "type": "boolean"
                         },
+                        "kol": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "displayName": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "xHandle": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "verified": {
+                                  "type": "boolean"
+                                },
+                                "avatarUrl": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "displayName",
+                                "xHandle",
+                                "verified",
+                                "avatarUrl"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "analytics": {
                           "anyOf": [
                             {
@@ -8871,7 +9459,11 @@
                               "rules.read",
                               "rules.manage",
                               "alerts.readAll",
-                              "kols.manage"
+                              "kols.manage",
+                              "copy.read",
+                              "execution.pause",
+                              "execution.resume",
+                              "risk.manage"
                             ]
                           }
                         },
@@ -8903,8 +9495,17 @@
                         "locale": {
                           "type": "string",
                           "enum": [
+                            "en",
                             "zh-TW",
-                            "en"
+                            "zh-CN",
+                            "ko",
+                            "ja",
+                            "ru",
+                            "tr",
+                            "vi",
+                            "es",
+                            "pt",
+                            "id"
                           ]
                         },
                         "createdAt": {
@@ -9027,7 +9628,11 @@
                               "rules.read",
                               "rules.manage",
                               "alerts.readAll",
-                              "kols.manage"
+                              "kols.manage",
+                              "copy.read",
+                              "execution.pause",
+                              "execution.resume",
+                              "risk.manage"
                             ]
                           }
                         },
@@ -9059,8 +9664,17 @@
                         "locale": {
                           "type": "string",
                           "enum": [
+                            "en",
                             "zh-TW",
-                            "en"
+                            "zh-CN",
+                            "ko",
+                            "ja",
+                            "ru",
+                            "tr",
+                            "vi",
+                            "es",
+                            "pt",
+                            "id"
                           ]
                         },
                         "createdAt": {
@@ -9112,6 +9726,37 @@
         "x-required-permissions": [],
         "x-required-roles": [],
         "description": "Access: user"
+      },
+      "delete": {
+        "description": "Deletes the Orbie account and its data; the Privy wallet and funds are not affected.\n\nAccess: user; 409 last_admin",
+        "operationId": "MeController_deleteMe",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Delete my account",
+        "tags": [
+          "Me"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
       }
     },
     "/me/favorites": {
@@ -11140,6 +11785,769 @@
         "x-required-roles": []
       }
     },
+    "/discover/coins": {
+      "get": {
+        "description": "CopyDog's 市場 page: every coin a pool trader made money on, with the count and summed PnL of those traders.\n\nAccess: public",
+        "operationId": "DiscoveryController_coins",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "market": {
+                                "type": "string",
+                                "enum": [
+                                  "crypto",
+                                  "stocks"
+                                ]
+                              },
+                              "traders": {
+                                "type": "integer"
+                              },
+                              "profit": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "market",
+                              "traders",
+                              "profit"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pool": {
+                          "type": "object",
+                          "properties": {
+                            "ready": {
+                              "type": "integer"
+                            },
+                            "total": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "ready",
+                            "total"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "pool",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Coin index",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/coins/{coin}": {
+      "get": {
+        "description": "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals.\n\nAccess: public",
+        "operationId": "DiscoveryController_coin",
+        "parameters": [
+          {
+            "name": "coin",
+            "required": true,
+            "in": "path",
+            "description": "Hyperliquid coin (BTC, xyz:TSLA)",
+            "schema": {
+              "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "coin": {
+                          "type": "string"
+                        },
+                        "market": {
+                          "type": "string",
+                          "enum": [
+                            "crypto",
+                            "stocks"
+                          ]
+                        },
+                        "stats": {
+                          "type": "object",
+                          "properties": {
+                            "traders": {
+                              "type": "integer"
+                            },
+                            "profit": {
+                              "type": "number"
+                            },
+                            "volume": {
+                              "type": "number"
+                            },
+                            "trades": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "traders",
+                            "profit",
+                            "volume",
+                            "trades"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "pnl": {
+                                "type": "number"
+                              },
+                              "winRate": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "trades": {
+                                "type": "integer"
+                              },
+                              "volume": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "pnl",
+                              "winRate",
+                              "trades",
+                              "volume"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pool": {
+                          "type": "object",
+                          "properties": {
+                            "ready": {
+                              "type": "integer"
+                            },
+                            "total": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "ready",
+                            "total"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "coin",
+                        "market",
+                        "stats",
+                        "items",
+                        "pool",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Coin leaderboard",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/search": {
+      "get": {
+        "description": "Header search: KOL name, X handle, leaderboard name or address prefix; by all-time PnL.\n\nAccess: public",
+        "operationId": "DiscoveryController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "description": "Name, X handle or address prefix",
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 10,
+              "default": 5,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "pnl",
+                              "roi",
+                              "accountValue"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Trader search",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/cards": {
+      "get": {
+        "description": "Watchlist cards (explore card plus 30-day PnL, win rate, Sharpe, max drawdown) for up to 200 addresses.\n\nAccess: public",
+        "operationId": "DiscoveryController_cards",
+        "parameters": [
+          {
+            "name": "addresses",
+            "required": true,
+            "in": "query",
+            "description": "Comma-separated addresses, at most 200",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}(,0x[0-9a-fA-F]{40}){0,199}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "avatarUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "xHandle": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "verified": {
+                                "type": "boolean"
+                              },
+                              "kol": {
+                                "type": "boolean"
+                              },
+                              "accountValue": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roi": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "copyScore": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "style": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "scalp",
+                                      "intraday",
+                                      "swing",
+                                      "position"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "topCoins": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "sparkline": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              },
+                              "pnl30d": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "winRate": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "sharpe": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "maxDrawdown": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "pool",
+                                  "leaderboard",
+                                  "none"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "address",
+                              "displayName",
+                              "avatarUrl",
+                              "xHandle",
+                              "verified",
+                              "kol",
+                              "accountValue",
+                              "pnl",
+                              "roi",
+                              "copyScore",
+                              "style",
+                              "topCoins",
+                              "lastTradeAt",
+                              "sparkline",
+                              "pnl30d",
+                              "winRate",
+                              "sharpe",
+                              "maxDrawdown",
+                              "source"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Trader cards",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
     "/traders/{address}/copy-score": {
       "get": {
         "operationId": "CopyScoreController_copyScore",
@@ -11352,6 +12760,12 @@
                               "null"
                             ]
                           },
+                          "cachedAvatarUrl": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "xHandle": {
                             "type": [
                               "string",
@@ -11477,6 +12891,12 @@
                           ]
                         },
                         "avatarUrl": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cachedAvatarUrl": {
                           "type": [
                             "string",
                             "null"
@@ -11743,6 +13163,12 @@
                             "null"
                           ]
                         },
+                        "cachedAvatarUrl": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
                         "xHandle": {
                           "type": [
                             "string",
@@ -11854,6 +13280,3022 @@
         ],
         "x-required-roles": [],
         "description": "Access: kols.manage"
+      }
+    },
+    "/kols/{address}/avatar": {
+      "get": {
+        "description": "The cached image bytes (PNG, JPEG, GIF or WebP). A URL whose `v` matches the current version is cached for a month; If-None-Match answers 304.\n\nAccess: public; image bytes, 304 on If-None-Match",
+        "operationId": "KolAvatarController_avatar",
+        "parameters": [
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "v",
+            "required": false,
+            "in": "query",
+            "description": "Version from the avatar URL a board returned; a matching version is cached for a month",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,32}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Image bytes",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "KOL avatar",
+        "tags": [
+          "KolAvatar"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/favorite-groups": {
+      "get": {
+        "operationId": "FavoriteGroupsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "color": {
+                            "type": "string"
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "members": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "color",
+                          "sortOrder",
+                          "members",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List favorite groups",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      },
+      "post": {
+        "description": "409 group_exists for a duplicate name, group_limit past 20 groups.\n\nAccess: user",
+        "operationId": "FavoriteGroupsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFavoriteGroupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        201
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "color": {
+                          "type": "string"
+                        },
+                        "sortOrder": {
+                          "type": "integer"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "color",
+                        "sortOrder",
+                        "members",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create a favorite group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/favorite-groups/{id}": {
+      "patch": {
+        "operationId": "FavoriteGroupsController_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchFavoriteGroupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "color": {
+                          "type": "string"
+                        },
+                        "sortOrder": {
+                          "type": "integer"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "color",
+                        "sortOrder",
+                        "members",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Rename, recolour or reorder a favorite group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      },
+      "delete": {
+        "operationId": "FavoriteGroupsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Delete a favorite group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
+    "/me/favorite-groups/{id}/members/{address}": {
+      "put": {
+        "operationId": "FavoriteGroupsController_addMember",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "color": {
+                          "type": "string"
+                        },
+                        "sortOrder": {
+                          "type": "integer"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "color",
+                        "sortOrder",
+                        "members",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Add a favorite to a group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      },
+      "delete": {
+        "operationId": "FavoriteGroupsController_removeMember",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "address",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Remove a favorite from a group",
+        "tags": [
+          "FavoriteGroups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
+    "/me/wallet": {
+      "get": {
+        "operationId": "WalletController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "mainnet",
+                            "testnet"
+                          ]
+                        },
+                        "address": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "hyperliquid": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "perpValue": {
+                                  "type": "number"
+                                },
+                                "withdrawable": {
+                                  "type": "number"
+                                },
+                                "spotUsdc": {
+                                  "type": "number"
+                                },
+                                "spotUsdcHold": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "perpValue",
+                                "withdrawable",
+                                "spotUsdc",
+                                "spotUsdcHold"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "arbitrum": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "usdc": {
+                                  "type": "number"
+                                },
+                                "eth": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "usdc",
+                                "eth"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "totalValue": {
+                          "type": "number"
+                        },
+                        "fetchedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "network",
+                        "address",
+                        "hyperliquid",
+                        "arbitrum",
+                        "totalValue",
+                        "fetchedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get my wallet",
+        "tags": [
+          "Wallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user; 503 busy"
+      }
+    },
+    "/me/wallet/history": {
+      "get": {
+        "operationId": "WalletController_history",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "transfers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "time": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "hash": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "deposit",
+                                  "withdraw",
+                                  "sent",
+                                  "received",
+                                  "generic",
+                                  "toHyperEvm",
+                                  "toPerp",
+                                  "fromPerp",
+                                  "toSubaccount",
+                                  "vaultDeposit",
+                                  "vaultWithdraw",
+                                  "vaultCreate",
+                                  "vaultDistribution",
+                                  "commission",
+                                  "staked",
+                                  "unstaked",
+                                  "genesis",
+                                  "rewards",
+                                  "liquidated",
+                                  "delegationSent",
+                                  "delegationReceived",
+                                  "dexAbstraction"
+                                ]
+                              },
+                              "direction": {
+                                "type": "string",
+                                "enum": [
+                                  "in",
+                                  "out",
+                                  "move"
+                                ]
+                              },
+                              "token": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "number"
+                              },
+                              "usd": {
+                                "type": "boolean"
+                              },
+                              "from": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "to": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "time",
+                              "hash",
+                              "kind",
+                              "direction",
+                              "token",
+                              "amount",
+                              "usd",
+                              "from",
+                              "to"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "truncated": {
+                          "type": "boolean"
+                        },
+                        "fetchedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "mainnet",
+                            "testnet"
+                          ]
+                        },
+                        "address": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "transfers",
+                        "from",
+                        "truncated",
+                        "fetchedAt",
+                        "network",
+                        "address"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get my wallet history",
+        "tags": [
+          "Wallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user; 503 busy"
+      }
+    },
+    "/me/copy": {
+      "get": {
+        "operationId": "CopyController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "disabled",
+                            "paper",
+                            "testnet",
+                            "live"
+                          ]
+                        },
+                        "paper": {
+                          "type": "object",
+                          "properties": {
+                            "balance": {
+                              "type": "number"
+                            },
+                            "startingBalance": {
+                              "type": "number"
+                            },
+                            "allocated": {
+                              "type": "number"
+                            },
+                            "totalValue": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "totalPnl": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "balance",
+                            "startingBalance",
+                            "allocated",
+                            "totalValue",
+                            "totalPnl"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "limits": {
+                          "type": "object",
+                          "properties": {
+                            "minAllocationUsd": {
+                              "type": "number"
+                            },
+                            "maxAllocationUsd": {
+                              "type": "number"
+                            },
+                            "maxStrategies": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "minAllocationUsd",
+                            "maxAllocationUsd",
+                            "maxStrategies"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "platform": {
+                          "type": "object",
+                          "properties": {
+                            "pauseNewRisk": {
+                              "type": "boolean"
+                            },
+                            "reduceOnly": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "pauseNewRisk",
+                            "reduceOnly",
+                            "revision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "pauseNewRisk": {
+                              "type": "boolean"
+                            },
+                            "reduceOnly": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "pauseNewRisk",
+                            "reduceOnly",
+                            "revision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "strategies": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "mode": {
+                                "type": "string",
+                                "const": "paper"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "paused",
+                                  "stopping",
+                                  "stopped"
+                                ]
+                              },
+                              "version": {
+                                "type": "integer"
+                              },
+                              "settings": {
+                                "type": "object",
+                                "properties": {
+                                  "direction": {
+                                    "type": "string",
+                                    "enum": [
+                                      "same",
+                                      "reverse"
+                                    ]
+                                  },
+                                  "sizingMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ratio",
+                                      "fixed"
+                                    ]
+                                  },
+                                  "perTradeUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxTotalExposureUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxLeverage": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 1,
+                                        "maximum": 50
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "copyStartMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "adopt",
+                                      "delta"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "direction",
+                                  "sizingMode",
+                                  "perTradeUsd",
+                                  "maxTotalExposureUsd",
+                                  "maxLeverage",
+                                  "copyStartMode"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "allocated": {
+                                "type": "number"
+                              },
+                              "cash": {
+                                "type": "number"
+                              },
+                              "equity": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "fees": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "totalPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roiPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "exposureUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pauseNewRisk": {
+                                "type": "boolean"
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "tradesCopied": {
+                                "type": "integer"
+                              },
+                              "pendingOrders": {
+                                "type": "integer"
+                              },
+                              "positions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "coin": {
+                                      "type": "string"
+                                    },
+                                    "size": {
+                                      "type": "number"
+                                    },
+                                    "entryPx": {
+                                      "type": "number"
+                                    },
+                                    "markPx": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "notionalUsd": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "unrealizedPnl": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "realizedPnl": {
+                                      "type": "number"
+                                    },
+                                    "funding": {
+                                      "type": "number"
+                                    },
+                                    "openedAt": {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    }
+                                  },
+                                  "required": [
+                                    "coin",
+                                    "size",
+                                    "entryPx",
+                                    "markPx",
+                                    "notionalUsd",
+                                    "unrealizedPnl",
+                                    "realizedPnl",
+                                    "funding",
+                                    "openedAt"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "activatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "stoppedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "mode",
+                              "leaderAddress",
+                              "status",
+                              "version",
+                              "settings",
+                              "allocated",
+                              "cash",
+                              "equity",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "fees",
+                              "funding",
+                              "totalPnl",
+                              "roiPct",
+                              "exposureUsd",
+                              "pauseNewRisk",
+                              "reduceOnly",
+                              "tradesCopied",
+                              "pendingOrders",
+                              "positions",
+                              "activatedAt",
+                              "createdAt",
+                              "stoppedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pricedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "paper",
+                        "limits",
+                        "platform",
+                        "user",
+                        "strategies",
+                        "pricedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get my paper copies",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
+    "/me/copy/strategies": {
+      "post": {
+        "operationId": "CopyController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCopyStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        201
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Start a paper copy",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user; 409 already_copying / insufficient_balance / copy_paused"
+      }
+    },
+    "/me/copy/strategies/{id}": {
+      "patch": {
+        "operationId": "CopyController_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCopyStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Edit a paper copy (new version)",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/funds": {
+      "post": {
+        "operationId": "CopyController_addFunds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCopyFundsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Add paper funds to a copy",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/commands": {
+      "post": {
+        "operationId": "CopyController_command",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyStrategyCommandDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Pause, resume, reduce-only, cancel pending, close positions or stop a copy",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/orders": {
+      "get": {
+        "operationId": "CopyController_orders",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "cloid": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "leg": {
+                                "type": "string",
+                                "enum": [
+                                  "open",
+                                  "close",
+                                  "adopt",
+                                  "stop_close"
+                                ]
+                              },
+                              "side": {
+                                "type": "string",
+                                "enum": [
+                                  "B",
+                                  "A"
+                                ]
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "signalPx": {
+                                "type": "number"
+                              },
+                              "signalTime": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "intent",
+                                  "risk_approved",
+                                  "submitting",
+                                  "submitted",
+                                  "unknown",
+                                  "partial",
+                                  "filled",
+                                  "rejected",
+                                  "cancelled"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "filledSize": {
+                                "type": "number"
+                              },
+                              "avgPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "fee": {
+                                "type": "number"
+                              },
+                              "builderFee": {
+                                "type": "number"
+                              },
+                              "strategyVersion": {
+                                "type": "integer"
+                              },
+                              "riskPolicyVersion": {
+                                "type": "integer"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "cloid",
+                              "strategyId",
+                              "userId",
+                              "leaderAddress",
+                              "coin",
+                              "leg",
+                              "side",
+                              "reduceOnly",
+                              "size",
+                              "signalPx",
+                              "signalTime",
+                              "status",
+                              "reason",
+                              "filledSize",
+                              "avgPx",
+                              "fee",
+                              "builderFee",
+                              "strategyVersion",
+                              "riskPolicyVersion",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List a copy's paper orders",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
       }
     }
   },
@@ -11992,6 +16434,21 @@
               "type": "string",
               "pattern": "^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$"
             }
+          },
+          "cohortMembersPerTier": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "cohortRefreshMinutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 240
+          },
+          "cohortWeightPerMinute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600
           }
         },
         "additionalProperties": false,
@@ -12259,8 +16716,17 @@
           "locale": {
             "type": "string",
             "enum": [
+              "en",
               "zh-TW",
-              "en"
+              "zh-CN",
+              "ko",
+              "ja",
+              "ru",
+              "tr",
+              "vi",
+              "es",
+              "pt",
+              "id"
             ]
           },
           "displayName": {
@@ -12397,6 +16863,182 @@
             "maximum": 1000000
           }
         },
+        "additionalProperties": false
+      },
+      "CreateFavoriteGroupDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "description": "Chip colour; assigned in turn when omitted"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "PatchFavoriteGroupDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateCopyStrategyDto": {
+        "type": "object",
+        "properties": {
+          "leader": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "description": "Leader address; stored lower-case"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "same",
+              "reverse"
+            ],
+            "default": "same",
+            "description": "順向 same / 反向 reverse (CopyDog copy_direction)"
+          },
+          "allocationUsd": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "description": "Paper USDC moved from the paper balance into this copy (CopyDog allocation_amount); at most 6 decimals"
+          },
+          "sizingMode": {
+            "type": "string",
+            "enum": [
+              "ratio",
+              "fixed"
+            ],
+            "default": "ratio"
+          },
+          "perTradeUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Fixed mode: USDC notional per copied open"
+          },
+          "maxTotalExposureUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "CopyDog max_total_exposure; null = allocation × 5"
+          },
+          "maxLeverage": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 50,
+            "description": "CopyDog max_leverage; null = platform cap"
+          },
+          "copyStartMode": {
+            "type": "string",
+            "enum": [
+              "adopt",
+              "delta"
+            ],
+            "default": "adopt",
+            "description": "adopt = 跟單目前持倉 on"
+          }
+        },
+        "required": [
+          "leader",
+          "allocationUsd"
+        ],
+        "additionalProperties": false
+      },
+      "PatchCopyStrategyDto": {
+        "type": "object",
+        "properties": {
+          "sizingMode": {
+            "type": "string",
+            "enum": [
+              "ratio",
+              "fixed"
+            ]
+          },
+          "perTradeUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxTotalExposureUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxLeverage": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      },
+      "AddCopyFundsDto": {
+        "type": "object",
+        "properties": {
+          "amountUsd": {
+            "type": "number",
+            "description": "Paper USDC to add (CopyDog 加碼); at most 6 decimals"
+          }
+        },
+        "required": [
+          "amountUsd"
+        ],
+        "additionalProperties": false
+      },
+      "CopyStrategyCommandDto": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "pause",
+              "resume",
+              "reduce_only",
+              "cancel_pending",
+              "close_positions",
+              "stop"
+            ],
+            "description": "pause = pause_new_risk; stop = close_positions, then the copy's cash returns to the paper balance"
+          }
+        },
+        "required": [
+          "command"
+        ],
         "additionalProperties": false
       },
       "ResponseMeta": {

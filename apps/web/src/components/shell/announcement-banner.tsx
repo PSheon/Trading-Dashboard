@@ -15,7 +15,7 @@ export function AnnouncementBanner() {
   const [dismissed, setDismissed] = useLocalStorage(DISMISS_KEY);
 
   const announcement = data?.announcement;
-  const text = announcement?.enabled ? announcement.text[locale].trim() : "";
+  const text = announcement?.enabled ? announcement.text[locale === "zh-TW" ? "zh-TW" : "en"].trim() : "";
   if (!text || dismissed === text) return null;
 
   return (

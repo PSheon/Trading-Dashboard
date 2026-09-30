@@ -10,6 +10,7 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 import type { ActionDraft } from "./action-classifier.js";
 import { actionsCovering, chunks, draftToRow, insertActions, lockActions, storedFills } from "./action-store.js";
 import { toFillRow } from "./fill-row.js";
+import { enqueueCopySignals, lockCopyLeader } from "../copy/copy-outbox.js";
 
 export type { ActionRow } from "./action-store.js";
 
@@ -34,15 +35,22 @@ export class FillSyncRepository {
     return row;
   }
 
-  /** Chunk inserts to respect bind limits; return tids inserted by this call only. */
+  /** Chunk inserts to respect bind limits; return tids inserted by this call only.
+   * Each chunk commits together with its copy-execution outbox rows (fills
+   * of a copied leader), under the copy leader lock. */
   async insertFills(address: string, perps: HlUserFill[]): Promise<Set<bigint>> {
     const insertedTids = new Set<bigint>();
     for (const chunk of chunks(perps)) {
-      const inserted = await this.db
-        .insert(fills)
-        .values(chunk.map((f) => toFillRow(address, f)))
-        .onConflictDoNothing()
-        .returning({ tid: fills.tid });
+      const inserted = await this.db.transaction(async (tx) => {
+        await lockCopyLeader(tx, address);
+        const rows = await tx
+          .insert(fills)
+          .values(chunk.map((f) => toFillRow(address, f)))
+          .onConflictDoNothing()
+          .returning({ tid: fills.tid, ts: fills.ts });
+        await enqueueCopySignals(tx, address, rows);
+        return rows;
+      });
       for (const r of inserted) insertedTids.add(r.tid);
     }
     return insertedTids;

@@ -67,11 +67,11 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
   const privy = stubPrivy({
     "alice-token": {
       privyUserId: "did:privy:alice",
-      profile: { email: "alice@example.com", walletAddress: "0xa11ce00000000000000000000000000000000000" },
+      profile: { email: "alice@example.com", walletAddress: "0xa11ce00000000000000000000000000000000000", embeddedWalletAddress: "0xa11ce0000000000000000000000000000000e3b0" },
     },
-    "boss-token": { privyUserId: "did:privy:boss", profile: { email: "boss@example.com", walletAddress: null } },
+    "boss-token": { privyUserId: "did:privy:boss", profile: { email: "boss@example.com", walletAddress: null, embeddedWalletAddress: "0xb055000000000000000000000000000000000e3b" } },
     "expired-token": { privyUserId: "did:privy:late", expiresAt: new Date(Date.now() - 1000) },
-    "newbie-token": { privyUserId: "did:privy:newbie", profile: { email: "newbie@example.com", walletAddress: null } },
+    "newbie-token": { privyUserId: "did:privy:newbie", profile: { email: "newbie@example.com", walletAddress: null, embeddedWalletAddress: "0x9e3b1e000000000000000000000000000000e3b0" } },
   });
   let app: INestApplication;
   let auth: AuthService;
@@ -224,6 +224,7 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(alice).toMatchObject({
         email: "alice@example.com",
         walletAddress: "0xa11ce00000000000000000000000000000000000",
+        embeddedWalletAddress: "0xa11ce0000000000000000000000000000000e3b0",
         role: "user",
         locale: "zh-TW",
       });
@@ -297,12 +298,25 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
         privy.fetchProfile.mockImplementation(
           async (did: string) =>
             ({
-              "did:privy:alice": { email: "alice@example.com", walletAddress: "0xa11ce00000000000000000000000000000000000" },
-              "did:privy:boss": { email: "boss@example.com", walletAddress: null },
-              "did:privy:newbie": { email: "newbie@example.com", walletAddress: null },
+              "did:privy:alice": { email: "alice@example.com", walletAddress: "0xa11ce00000000000000000000000000000000000", embeddedWalletAddress: "0xa11ce0000000000000000000000000000000e3b0" },
+              "did:privy:boss": { email: "boss@example.com", walletAddress: null, embeddedWalletAddress: "0xb055000000000000000000000000000000000e3b" },
+              "did:privy:newbie": { email: "newbie@example.com", walletAddress: null, embeddedWalletAddress: "0x9e3b1e000000000000000000000000000000e3b0" },
             })[did] ?? null,
         );
       }
+    });
+
+    it("backfills a missing embedded wallet from Privy at the next login", async () => {
+      await get("/t/protected", "alice-token").expect(200);
+      await db.update(users).set({ embeddedWalletAddress: null }).where(eq(users.privyUserId, "did:privy:alice"));
+      auth.clearCache();
+      // Earlier cases leave this id inside its Privy retry window.
+      (auth as unknown as { profileRetryAt: Map<number, number> }).profileRetryAt.clear();
+      privy.fetchProfile.mockClear();
+      await get("/t/protected", "alice-token").expect(200);
+      const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+      expect(alice.embeddedWalletAddress).toBe("0xa11ce0000000000000000000000000000000e3b0");
+      expect(privy.fetchProfile).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -459,7 +473,7 @@ describe("profileFromLinkedAccounts", () => {
       { type: "wallet", chain_type: "solana", wallet_client: "phantom", address: "So1ana" },
       { type: "wallet", chain_type: "ethereum", wallet_client: "unknown", address: "0xEXTERNAL" },
     ] as never);
-    expect(profile).toEqual({ email: "me@example.com", walletAddress: "0xexternal" });
+    expect(profile).toEqual({ email: "me@example.com", walletAddress: "0xexternal", embeddedWalletAddress: "0xembedded" });
   });
 
   it("uses a Google or Apple login's email when there is no email login", () => {
@@ -479,7 +493,7 @@ describe("profileFromLinkedAccounts", () => {
       profileFromLinkedAccounts([
         { type: "wallet", chain_type: "ethereum", wallet_client: "privy", address: "0xEMB" },
       ] as never),
-    ).toEqual({ email: null, walletAddress: "0xemb" });
-    expect(profileFromLinkedAccounts([])).toEqual({ email: null, walletAddress: null });
+    ).toEqual({ email: null, walletAddress: "0xemb", embeddedWalletAddress: "0xemb" });
+    expect(profileFromLinkedAccounts([])).toEqual({ email: null, walletAddress: null, embeddedWalletAddress: null });
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { LOCALE_NAMES, type Locale } from "@/i18n/config";
 import type { UserRole } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -163,7 +164,7 @@ export function AdminUsers() {
                         {t(`admin.users.roles.${u.role}`)}
                       </span>
                     </TableCell>
-                    <TableCell className="hidden text-muted-foreground md:table-cell">{t(`locales.${u.locale}`)}</TableCell>
+                    <TableCell className="hidden text-muted-foreground md:table-cell">{LOCALE_NAMES[u.locale as Locale] ?? u.locale}</TableCell>
                     <TableCell className="hidden text-right md:table-cell">{u.favorites}</TableCell>
                     <TableCell className="hidden lg:table-cell">
                       <span className={u.telegramEnabled ? "text-positive" : "text-subtle-foreground"}>

@@ -1,31 +1,32 @@
 "use client";
 
-import { Globe, LogOut, Settings, ShieldCheck } from "lucide-react";
+import { Banknote, Briefcase, Globe, LogOut, Settings, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { Skeleton } from "@/components/page";
-import { AddressAvatar } from "@/components/traders/address-avatar";
+import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip } from "@/components/ui/tooltip";
-import { LOCALES, isLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
-import { useChangeLocale } from "@/lib/use-change-locale";
 import { useAuth, useIsAdmin, useMe } from "@/lib/auth";
 import { API_FIXTURES } from "@/lib/config";
+import { LanguageMenu } from "./language-menu";
+import { useWallet } from "@/lib/wallet";
 
-/** Top-right: demo badge (fixture mode), language, login / account menu. */
+/** Top-right, as on CopyDog: signed out → language + 登入; signed in → the
+ * balance pill (total value + 儲值) and the avatar menu. Plus the demo badge
+ * in fixture mode. */
 export function AccountControls() {
   const { t } = useI18n();
+  const { status } = useAuth();
   return (
     <div className="flex shrink-0 items-center gap-2">
       {API_FIXTURES ? (
@@ -33,38 +34,22 @@ export function AccountControls() {
           {t("topbar.fixtureBadge")}
         </span>
       ) : null}
-      <LocaleMenu />
+      {status === "signedIn" ? <BalancePill /> : <LocaleMenu />}
       <AuthButton />
     </div>
   );
 }
 
 function LocaleMenu() {
-  const { t, locale } = useI18n();
-  const changeLocale = useChangeLocale();
+  const { t } = useI18n();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <LanguageMenu
+      trigger={
         <Button variant="secondary" size="icon" className="size-10 md:size-11" aria-label={t("topbar.language")}>
           <Globe className="size-[18px]" />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuLabel>{t("topbar.language")}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={locale}
-          onValueChange={(value) => {
-            if (isLocale(value)) changeLocale(value);
-          }}
-        >
-          {LOCALES.map((l) => (
-            <DropdownMenuRadioItem key={l} value={l}>
-              {t(`locales.${l}`)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      }
+    />
   );
 }
 
@@ -102,8 +87,7 @@ function AuthButton() {
     );
   }
 
-  const label = me?.displayName || me?.email || identity || t("topbar.account");
-  const seed = me?.walletAddress || me?.privyUserId || label;
+  const label = me?.displayName || me?.email?.split("@")[0] || identity || t("topbar.account");
 
   return (
     <DropdownMenu>
@@ -111,10 +95,9 @@ function AuthButton() {
         <button
           type="button"
           aria-label={t("topbar.account")}
-          className="flex items-center gap-2 rounded-full bg-raised p-1 pr-1 outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring md:pr-3.5"
+          className="flex size-10 items-center justify-center rounded-full bg-raised text-sm font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring md:size-11"
         >
-          <AddressAvatar seed={seed} size={34} />
-          <span className="hidden max-w-32 truncate text-sm font-semibold md:inline">{label}</span>
+          {label.slice(0, 1).toUpperCase()}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-60">
@@ -125,6 +108,12 @@ function AuthButton() {
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/portfolio">
+            <Briefcase />
+            {t("nav.portfolio")}
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/settings">
             <Settings />
@@ -146,5 +135,28 @@ function AuthButton() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** CopyDog's signed-in pill: cash icon, total value, 儲值 (opens the
+ * deposit modal). The value is the main account's /me/wallet total. */
+function BalancePill() {
+  const { t, format } = useI18n();
+  const wallet = useWallet();
+  const { openDeposit } = useWalletModals();
+  return (
+    <div className="hidden h-11 items-center gap-2 rounded-full bg-raised py-1 pr-1 pl-3.5 sm:flex">
+      <Banknote className="size-5 text-positive" aria-hidden />
+      {wallet.data ? (
+        <span className="num text-sm font-semibold">{format.usd(wallet.data.totalValue, { digits: 2 })}</span>
+      ) : wallet.isError ? (
+        <span className="text-sm text-muted-foreground">—</span>
+      ) : (
+        <Skeleton className="h-4 w-12" />
+      )}
+      <Button className="h-9 px-3.5" onClick={openDeposit}>
+        {t("portfolio.deposit")}
+      </Button>
+    </div>
   );
 }

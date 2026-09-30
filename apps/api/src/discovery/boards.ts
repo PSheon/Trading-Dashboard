@@ -5,13 +5,17 @@ import type {
   BoardSort,
   BoardTrader,
   BoardWindow,
+  CoinBoardResponse,
+  CoinIndexRow,
+  CoinTrader,
+  TraderCard,
   TradingStyle,
 } from "@trading-dashboard/shared/contracts";
 import { tradingStyleSchema } from "@trading-dashboard/shared/contracts";
 
 import { isStockCoin, realized } from "./discovery-figures.js";
-import type { BoardSourceRow } from "./discovery.repository.js";
-import { kolAvatarUrl } from "./kol-csv.js";
+import type { BoardSourceRow, CardIdentityRow } from "./discovery.repository.js";
+import { kolAvatarPath } from "./kol-avatar.js";
 
 /** CopyDog shows a fixed top 100 per board, no paging. */
 export const BOARD_SIZE = 100;
@@ -37,7 +41,7 @@ export function toCandidate(row: BoardSourceRow): Candidate {
       address: row.address,
       metricsUpdatedAt: row.portfolioAt,
       displayName: (kol ? row.kolName : null) ?? row.leaderboardName ?? null,
-      avatarUrl: kol ? kolAvatarUrl({ avatarUrl: row.kolAvatarUrl, xHandle: row.kolXHandle }) : null,
+      avatarUrl: kol ? kolAvatarPath(row.address, row.kolAvatarEtag) : null,
       xHandle: kol ? row.kolXHandle : null,
       verified: kol ? Boolean(row.kolVerified) : false,
       kol,
@@ -150,4 +154,113 @@ export function boardFreshness(items: BoardTrader[]) {
     newestUpdatedAt: times.length ? new Date(Math.max(...times)) : null,
     missingTimestamps: items.length - times.length,
   };
+}
+
+/**
+ * Any trader as a watchlist card: the pool's all-time figures when it has
+ * them, else the leaderboard's (no copy score, sparkline, win rate or
+ * risk figures), else identity only. KOL name, handle, badge and cached
+ * avatar come from the registry either way.
+ */
+export function traderCard(address: string, row: BoardSourceRow | undefined, identity: CardIdentityRow | undefined): TraderCard {
+  if (row && row.portfolioAt !== null) {
+    const { card } = toCandidate(row);
+    let trades = 0;
+    let wins = 0;
+    for (const stat of Object.values(row.coinStats)) {
+      trades += stat.trades;
+      wins += stat.wins;
+    }
+    return {
+      ...card,
+      pnl: num(row.pnlAll),
+      roi: num(row.roiAll),
+      sparkline: row.sparkline ?? [],
+      pnl30d: num(row.pnl30d),
+      winRate: trades > 0 ? wins / trades : null,
+      sharpe: num(row.sharpe),
+      maxDrawdown: num(row.maxDrawdown),
+      source: "pool",
+    };
+  }
+  const kol = identity?.kolVerified !== null && identity?.kolVerified !== undefined;
+  return {
+    address,
+    displayName: (kol ? identity!.kolName : null) ?? identity?.displayName ?? row?.leaderboardName ?? null,
+    avatarUrl: kol ? kolAvatarPath(address, identity!.kolAvatarEtag) : null,
+    xHandle: kol ? identity!.kolXHandle : null,
+    verified: kol ? Boolean(identity!.kolVerified) : false,
+    kol,
+    accountValue: num(identity?.accountValue),
+    pnl: num(identity?.pnlAllTime),
+    roi: num(identity?.roiAllTime),
+    copyScore: row?.copyScore ?? null,
+    style: null,
+    topCoins: row?.topCoins ?? [],
+    lastTradeAt: row?.lastTradeAt ?? null,
+    sparkline: [],
+    pnl30d: num(identity?.pnlMonth),
+    winRate: null,
+    sharpe: null,
+    maxDrawdown: null,
+    source: identity?.pnlAllTime != null ? "leaderboard" : "none",
+  };
+}
+
+/** CopyDog lists 40 traders on a coin page. */
+export const COIN_BOARD_SIZE = 40;
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * CopyDog's 市場 index (`/hyperliquid/coins`): every coin on which at least
+ * one pool trader has a positive realized PnL, with how many did and their
+ * summed PnL, highest total first. Account size is not considered.
+ */
+export function coinIndex(candidates: Candidate[]): CoinIndexRow[] {
+  const byCoin = new Map<string, { traders: number; profit: number }>();
+  for (const { row } of candidates) {
+    for (const [coin, stat] of Object.entries(row.coinStats)) {
+      if (!(stat.pnl > 0)) continue;
+      const entry = byCoin.get(coin) ?? { traders: 0, profit: 0 };
+      entry.traders += 1;
+      entry.profit += stat.pnl;
+      byCoin.set(coin, entry);
+    }
+  }
+  return [...byCoin.entries()]
+    .map(([coin, e]) => ({ coin, market: isStockCoin(coin) ? ("stocks" as const) : ("crypto" as const), traders: e.traders, profit: round2(e.profit) }))
+    .sort((a, b) => b.profit - a.profit || a.coin.localeCompare(b.coin));
+}
+
+/**
+ * One coin's page (「Hyperliquid 上最強的 BTC 交易者」): the pool traders who
+ * made money on `coin`, by its realized PnL (then address), at most `limit`;
+ * win rate is winning ÷ closed round trips. `stats` sums the listed rows,
+ * as CopyDog's 列出的交易者 / 獲利總額 / 交易量 / 交易數 do.
+ */
+export function coinBoard(candidates: Candidate[], coin: string, limit = COIN_BOARD_SIZE): Pick<CoinBoardResponse, "coin" | "market" | "stats" | "items"> & { updatedAt: Date | null } {
+  const rows: Array<{ trader: CoinTrader; at: Date | null }> = [];
+  for (const c of candidates) {
+    const stat = c.row.coinStats[coin];
+    if (!stat || !(stat.pnl > 0)) continue;
+    const { address, displayName, avatarUrl, xHandle, verified, kol } = c.card;
+    rows.push({
+      trader: { address, displayName, avatarUrl, xHandle, verified, kol, pnl: stat.pnl, winRate: stat.trades > 0 ? stat.wins / stat.trades : null, trades: stat.trades, volume: stat.volume },
+      at: c.row.tradesAt,
+    });
+  }
+  rows.sort((a, b) => b.trader.pnl - a.trader.pnl || a.trader.address.localeCompare(b.trader.address));
+  const listed = rows.slice(0, limit);
+  const stats = { traders: listed.length, profit: 0, volume: 0, trades: 0 };
+  let updatedAt: Date | null = null;
+  for (const { trader, at } of listed) {
+    stats.profit += trader.pnl;
+    stats.volume += trader.volume;
+    stats.trades += trader.trades;
+    if (at && (!updatedAt || at > updatedAt)) updatedAt = at;
+  }
+  stats.profit = round2(stats.profit);
+  stats.volume = round2(stats.volume);
+  return { coin, market: isStockCoin(coin) ? "stocks" : "crypto", stats, items: listed.map((r) => r.trader), updatedAt };
 }

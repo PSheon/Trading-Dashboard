@@ -310,7 +310,11 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
   it("recovers actions after fills were committed but action creation failed", async () => {
     const t = Date.now() - 1000;
     byAddress.set(A, [fill({ time: t })]);
-    const failure = vi.spyOn(db, "transaction").mockRejectedValueOnce(new Error("interrupted action write"));
+    // Transaction 1 stores the fills (with their copy-execution outbox rows); transaction 2, the action write, fails.
+    const real = db.transaction.bind(db);
+    let calls = 0;
+    const failure = vi.spyOn(db, "transaction").mockImplementation(((work: never, config?: never) =>
+      ++calls === 2 ? Promise.reject(new Error("interrupted action write")) : real(work, config)) as typeof db.transaction);
     await expect(sync.sync(A, "sweep", t - 1)).rejects.toThrow("interrupted action write");
     failure.mockRestore();
     expect(await db.select().from(fills)).toHaveLength(1);

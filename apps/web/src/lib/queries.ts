@@ -12,8 +12,15 @@ import type {
   BoardResponse,
   BoardSort,
   BoardWindow,
+  CohortDetail,
+  CohortHistory,
+  CohortTier,
+  CohortWindow,
+  CoinBoardResponse,
+  CoinIndexResponse,
   CopyScoreResponse,
   HomeBoardsResponse,
+  TraderSearchResponse,
   TradingStyle,
   CrowdResponse,
   Favorite,
@@ -130,6 +137,29 @@ export function useBoard(params: BoardParams) {
   });
 }
 
+/** GET /insights/cohorts/:tier: a PnL tier's positioning (the api
+ * refreshes members every ~15 min and caches the view 30 s). */
+export function useCohort(tier: CohortTier) {
+  return useQuery({
+    queryKey: queryKeys.cohort(tier),
+    queryFn: ({ signal }) => api.get<CohortDetail>(`/insights/cohorts/${tier}`, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+}
+
+/** GET /insights/cohorts/:tier/history?window=: 倉位傾向 and BTC. */
+export function useCohortHistory(tier: CohortTier, window: CohortWindow) {
+  return useQuery({
+    queryKey: queryKeys.cohortHistory(tier, window),
+    queryFn: ({ signal }) => api.get<CohortHistory>(`/insights/cohorts/${tier}/history?window=${window}`, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
 /** GET /discover/home: every home row and the calculator's traders. */
 export function useHomeBoards() {
   return useQuery({
@@ -137,6 +167,42 @@ export function useHomeBoards() {
     queryFn: ({ signal }) => api.get<HomeBoardsResponse>("/discover/home", signal),
     staleTime: 30_000,
     refetchInterval: 60_000,
+  });
+}
+
+/** GET /discover/coins: CopyDog's 市場 index, from the pool snapshot. */
+export function useCoinIndex() {
+  return useQuery({
+    queryKey: queryKeys.discover.coins,
+    queryFn: ({ signal }) => api.get<CoinIndexResponse>("/discover/coins", signal),
+    staleTime: 30_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+/** GET /discover/coins/:coin: one coin's leaderboard (`coin` is the
+ * Hyperliquid name, "xyz:TSLA"). */
+export function useCoinBoard(coin: string) {
+  return useQuery({
+    queryKey: queryKeys.discover.coin(coin),
+    queryFn: ({ signal }) => api.get<CoinBoardResponse>(`/discover/coins/${encodeURIComponent(coin)}`, signal),
+    staleTime: 30_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+/** GET /discover/search: the header search's dropdown (the api caches each
+ * query 30 s). Disabled for an empty query; the previous list stays while
+ * the next one loads, as CopyDog's does. */
+export function useTraderSearch(q: string) {
+  const query = q.trim();
+  return useQuery({
+    queryKey: queryKeys.discover.search(query.toLowerCase()),
+    queryFn: ({ signal }) => api.get<TraderSearchResponse>(`/discover/search?${new URLSearchParams({ q: query, limit: "5" })}`, signal),
+    enabled: query.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    retry: false,
   });
 }
 
@@ -387,6 +453,8 @@ export function useToggleFavorite() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.traders.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.trader.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.actions.all });
+      // Unfavoriting drops the trader from its groups (server-side cascade).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.favoriteGroups });
     },
   });
 

@@ -12,11 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useI18n } from "@/i18n/provider";
 import { useImportKols, useKols, useRemoveKol, useSaveKol, type KolDraft } from "@/lib/admin-kols";
 import { usePermission } from "@/lib/auth";
-import type { Kol } from "@/lib/contracts";
 import { truncateAddress } from "@/lib/format";
 
 const EMPTY: KolDraft = { address: "", displayName: null, avatarUrl: null, xHandle: null, verified: false, sortOrder: 0 };
-const avatarOf = (k: Pick<Kol, "avatarUrl" | "xHandle">) => k.avatarUrl ?? (k.xHandle ? `https://unavatar.io/x/${encodeURIComponent(k.xHandle)}` : null);
 
 /** The KOL registry (Stage 3 §1.7): the explore KOL board and home 精選.
  * List, add / edit (upsert by address), remove, CSV import. */
@@ -161,7 +159,7 @@ export function AdminKols() {
                     <TableCell className="num text-subtle-foreground">{kol.sortOrder}</TableCell>
                     <TableCell>
                       <span className="flex min-w-0 items-center gap-2">
-                        <TraderAvatar trader={{ address: kol.address, avatarUrl: avatarOf(kol) }} size={24} />
+                        <TraderAvatar trader={{ address: kol.address, avatarUrl: kol.cachedAvatarUrl ?? null }} size={24} />
                         <span className="min-w-0">
                           <span className="flex items-center gap-1 font-semibold">
                             {kol.displayName ?? "—"}

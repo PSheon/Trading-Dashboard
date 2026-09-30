@@ -11,6 +11,13 @@ import { API_CONTRACT_HEADER, API_CONTRACT_VERSION, errorEnvelopeSchema, success
  */
 const API_BASE = "/api/hl";
 
+/** A URL the api returned for a browser to load directly (a cached KOL
+ * avatar, `/kols/:address/avatar?v=…`): api paths go through the same-origin
+ * forwarder; absolute URLs are returned unchanged. */
+export function apiAssetUrl(url: string): string {
+  return url.startsWith("/") && !url.startsWith("//") ? `${API_BASE}${url}` : url;
+}
+
 /** A non-2xx answer. `details` is the api's JSON error body when it had
  * one, e.g. 409 `{code: "alert_limit", limit: 3}`. */
 export class ApiError extends Error {

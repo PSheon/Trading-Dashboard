@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
-import { discoveryTraders, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
+import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, isNull, like, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -13,13 +13,29 @@ export type DiscoveryFigures = Partial<Omit<typeof discoveryTraders.$inferInsert
 /** A pool row with the KOL entry and leaderboard name it is shown with. */
 export interface BoardSourceRow extends DiscoveryRow {
   kolName: string | null;
-  kolAvatarUrl: string | null;
+  /** ETag of the KOL's cached avatar; null when none is cached. */
+  kolAvatarEtag: string | null;
   kolXHandle: string | null;
   kolVerified: boolean | null;
   kolSortOrder: number | null;
   leaderboardName: string | null;
   /** Leaderboard account value (free, refreshed with every import). */
   leaderboardAccountValue: string | null;
+}
+
+/** A card's identity and leaderboard figures, for a trader the pool has
+ * no figures for. */
+export interface CardIdentityRow {
+  address: string;
+  displayName: string | null;
+  accountValue: string | null;
+  pnlAllTime: string | null;
+  roiAllTime: string | null;
+  pnlMonth: string | null;
+  kolName: string | null;
+  kolXHandle: string | null;
+  kolVerified: boolean | null;
+  kolAvatarEtag: string | null;
 }
 
 export interface CoinAggregate {
@@ -31,6 +47,8 @@ export interface CoinAggregate {
 }
 
 const mine = eq(discoveryTraders.chain, CHAIN_DEFAULT);
+/** Escapes LIKE wildcards so a query is matched literally. */
+const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /**
  * `discovery_traders` (the pool's cached figures) plus the reads the pool
@@ -163,12 +181,22 @@ export class DiscoveryRepository {
   }
 
   /** Every pool row with its KOL entry and leaderboard name (boards). */
-  async boardRows(): Promise<BoardSourceRow[]> {
+  boardRows(): Promise<BoardSourceRow[]> {
+    return this.selectBoardRows(and(mine, eq(discoveryTraders.inPool, true)));
+  }
+
+  /** The stored rows of these addresses, in or out of the pool (cards). */
+  poolRowsOf(addresses: string[]): Promise<BoardSourceRow[]> {
+    if (addresses.length === 0) return Promise.resolve([]);
+    return this.selectBoardRows(and(mine, inArray(discoveryTraders.address, addresses)));
+  }
+
+  private async selectBoardRows(where: SQL | undefined): Promise<BoardSourceRow[]> {
     const rows = await this.db
       .select({
         row: discoveryTraders,
         kolName: kolTraders.displayName,
-        kolAvatarUrl: kolTraders.avatarUrl,
+        kolAvatarEtag: sql<string | null>`case when ${kolAvatars.bytes} is null then null else ${kolAvatars.etag} end`,
         kolXHandle: kolTraders.xHandle,
         kolVerified: kolTraders.verified,
         kolSortOrder: kolTraders.sortOrder,
@@ -177,9 +205,76 @@ export class DiscoveryRepository {
       })
       .from(discoveryTraders)
       .leftJoin(kolTraders, and(eq(kolTraders.chain, discoveryTraders.chain), eq(kolTraders.address, discoveryTraders.address)))
+      .leftJoin(kolAvatars, and(eq(kolAvatars.chain, discoveryTraders.chain), eq(kolAvatars.address, discoveryTraders.address)))
       .leftJoin(traderStats, and(eq(traderStats.chain, discoveryTraders.chain), eq(traderStats.address, discoveryTraders.address)))
-      .where(and(mine, eq(discoveryTraders.inPool, true)));
+      .where(where);
     return rows.map(({ row, ...rest }) => ({ ...row, ...rest }));
+  }
+
+  /** Leaderboard figures and KOL entries of these addresses (cards of
+   * traders the pool has no figures for). */
+  async identitiesOf(addresses: string[]): Promise<CardIdentityRow[]> {
+    if (addresses.length === 0) return [];
+    const [stats, kols] = await Promise.all([
+      this.db
+        .select({
+          address: traderStats.address,
+          displayName: traderStats.displayName,
+          accountValue: traderStats.accountValue,
+          pnlAllTime: traderStats.pnlAllTime,
+          roiAllTime: traderStats.roiAllTime,
+          pnlMonth: traderStats.pnlMonth,
+        })
+        .from(traderStats)
+        .where(and(eq(traderStats.chain, CHAIN_DEFAULT), inArray(traderStats.address, addresses))),
+      this.db
+        .select({
+          address: kolTraders.address,
+          kolName: kolTraders.displayName,
+          kolXHandle: kolTraders.xHandle,
+          kolVerified: kolTraders.verified,
+          kolAvatarEtag: sql<string | null>`case when ${kolAvatars.bytes} is null then null else ${kolAvatars.etag} end`,
+        })
+        .from(kolTraders)
+        .leftJoin(kolAvatars, and(eq(kolAvatars.chain, kolTraders.chain), eq(kolAvatars.address, kolTraders.address)))
+        .where(and(eq(kolTraders.chain, CHAIN_DEFAULT), inArray(kolTraders.address, addresses))),
+    ]);
+    const byAddress = new Map<string, CardIdentityRow>();
+    const empty = (address: string): CardIdentityRow => ({ address, displayName: null, accountValue: null, pnlAllTime: null, roiAllTime: null, pnlMonth: null, kolName: null, kolXHandle: null, kolVerified: null, kolAvatarEtag: null });
+    for (const s of stats) byAddress.set(s.address, { ...empty(s.address), ...s });
+    for (const k of kols) byAddress.set(k.address, { ...(byAddress.get(k.address) ?? empty(k.address)), ...k });
+    return [...byAddress.values()];
+  }
+
+  /**
+   * Addresses whose name matches `q` (the header search): KOL names and 𝕏
+   * handles, leaderboard display names (substring, case-insensitive), or an
+   * address starting with `q`. Each source is bounded by `perSource`
+   * (leaderboard names by all-time PnL), so a one-letter query stays cheap.
+   */
+  async searchAddresses(q: string, perSource: number): Promise<string[]> {
+    const text = `%${likeEscape(q)}%`;
+    const prefix = /^0x[0-9a-f]*$/i.test(q) ? `${likeEscape(q.toLowerCase())}%` : null;
+    const handle = q.replace(/^@/, "").replace(/^(?:https?:\/\/)?(?:www\.)?(?:x|twitter)\.com\//i, "");
+    const [kols, stats] = await Promise.all([
+      this.db
+        .select({ address: kolTraders.address })
+        .from(kolTraders)
+        .where(and(eq(kolTraders.chain, CHAIN_DEFAULT), or(
+          ilike(kolTraders.displayName, text),
+          handle ? ilike(kolTraders.xHandle, `%${likeEscape(handle)}%`) : undefined,
+          prefix ? like(kolTraders.address, prefix) : undefined,
+        )))
+        .orderBy(asc(kolTraders.sortOrder), asc(kolTraders.address))
+        .limit(perSource),
+      this.db
+        .select({ address: traderStats.address })
+        .from(traderStats)
+        .where(and(eq(traderStats.chain, CHAIN_DEFAULT), or(ilike(traderStats.displayName, text), prefix ? like(traderStats.address, prefix) : undefined)))
+        .orderBy(sql`${traderStats.pnlAllTime} desc nulls last`, asc(traderStats.address))
+        .limit(perSource),
+    ]);
+    return [...new Set([...kols, ...stats].map((r) => r.address))];
   }
 
   /** Pool size and how many rows have figures. */

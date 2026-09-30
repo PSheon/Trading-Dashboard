@@ -1,18 +1,35 @@
 import { Injectable } from "@nestjs/common";
-import type { BoardQuery, BoardResponse, BoardTrader, CopyScoreResponse, HomeBoardsResponse } from "@trading-dashboard/shared/contracts";
+import type {
+  BoardQuery,
+  BoardResponse,
+  BoardTrader,
+  CoinBoardResponse,
+  CoinIndexResponse,
+  CopyScoreResponse,
+  HomeBoardsResponse,
+  TraderCardsResponse,
+  TraderSearchQuery,
+  TraderSearchResponse,
+} from "@trading-dashboard/shared/contracts";
 
 import { SettingsService } from "../settings/settings.service.js";
 import { TradersService } from "../traders/traders.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
-import { boardFreshness, buildBoard, toCandidate, type Candidate } from "./boards.js";
+import { boardFreshness, buildBoard, coinBoard, coinIndex, toCandidate, traderCard, type Candidate } from "./boards.js";
 import { isStockCoin, portfolioNumbers, scoreOf } from "./discovery-figures.js";
 import { DiscoveryRepository } from "./discovery.repository.js";
 
 /** Boards read the pool table at most this often (it changes a row at a
  * time, a few times a minute). */
 export const BOARDS_TTL_MS = 30_000;
+/** Addresses per GET /discover/cards. */
+export const CARDS_MAX = 200;
 /** Cards per home row (CopyDog scrolls 7 on desktop, more on swipe). */
 export const HOME_ROW_SIZE = 12;
+/** Header search answers stay this long per query (names change rarely). */
+export const SEARCH_TTL_MS = 30_000;
+/** Matches read per source (KOL registry, leaderboard) before ranking. */
+export const SEARCH_PER_SOURCE = 25;
 
 interface Snapshot {
   candidates: Candidate[];
@@ -28,6 +45,7 @@ interface Snapshot {
 @Injectable()
 export class DiscoveryService {
   private readonly cache = new TtlCache<Snapshot>(BOARDS_TTL_MS, 1);
+  private readonly searches = new TtlCache<TraderSearchResponse>(SEARCH_TTL_MS, 500);
 
   constructor(
     private readonly repository: DiscoveryRepository,
@@ -49,6 +67,43 @@ export class DiscoveryService {
   async board(query: BoardQuery): Promise<BoardResponse> {
     const { candidates, pool } = await this.snapshot();
     return buildBoard(candidates, query, pool);
+  }
+
+  /**
+   * CopyDog's 市場 index: every coin some pool trader made money on, from
+   * the pool snapshot (no Hyperliquid calls). See {@link coinIndex}.
+   */
+  async coins(): Promise<CoinIndexResponse> {
+    const { candidates, pool } = await this.snapshot();
+    const dates = candidates.map((c) => c.row.tradesAt).filter((d): d is Date => d !== null);
+    const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
+    return { items: coinIndex(candidates), pool, updatedAt };
+  }
+
+  /** One coin's leaderboard from the pool snapshot. An unknown coin is an
+   * empty board, not an error (the pool may not have reached it yet). */
+  async coin(coin: string): Promise<CoinBoardResponse> {
+    const { candidates, pool } = await this.snapshot();
+    return { ...coinBoard(candidates, coin), pool };
+  }
+
+  /**
+   * The header search (CopyDog's `/traders/search`): traders whose KOL
+   * name, 𝕏 handle or leaderboard name contains `q`, or whose address
+   * starts with it, as cards, by all-time PnL (unknown counts as 0, as
+   * CopyDog orders them). Two indexed-or-bounded reads plus the card reads;
+   * each answer is cached `SEARCH_TTL_MS`; no Hyperliquid calls.
+   */
+  search(query: TraderSearchQuery): Promise<TraderSearchResponse> {
+    const q = query.q.trim();
+    return this.searches.get(`${q.toLowerCase()}|${query.limit}`, async () => {
+      const addresses = await this.repository.searchAddresses(q, SEARCH_PER_SOURCE);
+      const { items } = await this.cards(addresses);
+      const ranked = items
+        .map(({ address, displayName, avatarUrl, xHandle, verified, kol, pnl, roi, accountValue }) => ({ address, displayName, avatarUrl, xHandle, verified, kol, pnl, roi, accountValue }))
+        .sort((a, b) => (b.pnl ?? 0) - (a.pnl ?? 0) || a.address.localeCompare(b.address));
+      return { items: ranked.slice(0, query.limit) };
+    });
   }
 
   /**
@@ -83,6 +138,19 @@ export class DiscoveryService {
     const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
     return { featured, crypto, stocks, markets, calculator, updatedAt, pool, rankingScope: "candidate_pool",
       freshness: boardFreshness([...featured, ...crypto, ...stocks, ...markets.flatMap(m => m.items), ...calculator]) };
+  }
+
+  /**
+   * Watchlist cards for these addresses, in the order given (duplicates
+   * dropped, at most `CARDS_MAX`): two indexed reads, no cache (a user's
+   * own list, small), no Hyperliquid calls. See {@link traderCard}.
+   */
+  async cards(addresses: string[]): Promise<TraderCardsResponse> {
+    const unique = [...new Set(addresses.map((a) => a.toLowerCase()))].slice(0, CARDS_MAX);
+    const [rows, identities] = await Promise.all([this.repository.poolRowsOf(unique), this.repository.identitiesOf(unique)]);
+    const byRow = new Map(rows.map((r) => [r.address, r]));
+    const byIdentity = new Map(identities.map((r) => [r.address, r]));
+    return { items: unique.map((address) => traderCard(address, byRow.get(address), byIdentity.get(address))) };
   }
 
   /**

@@ -8,6 +8,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
   HlAllMidsResponse,
+  HlMetaAndAssetCtxsResponse,
   HlClearinghouseStateResponse,
   HlDelegatorSummary,
   HlFrontendOpenOrder,
@@ -25,6 +26,7 @@ import type {
   HlReferralResponse,
   HlUserFillsByTimeResponse,
   HlUserFundingEntry,
+  HlCandle,
 } from "./types.js";
 
 /** Hyperliquid `info` request weights (verified live against the docs —
@@ -33,6 +35,8 @@ const WEIGHT_CLEARINGHOUSE_STATE = 2;
 const WEIGHT_USER_FILLS_BY_TIME_BASE = 20;
 const WEIGHT_META = 20;
 const WEIGHT_PERP_DEXS = 20;
+/** Not in the weight-2 list, so 20. */
+const WEIGHT_META_AND_ASSET_CTXS = 20;
 /** In the docs' weight-2 list with clearinghouseState (rate-limits-and-user-limits). */
 const WEIGHT_ALL_MIDS = 2;
 const WEIGHT_PORTFOLIO = 20;
@@ -51,6 +55,11 @@ const WEIGHT_TWAP_SLICE_FILLS_BASE = 20;
 /** Not in the weight-2 list, so "all other documented info requests" = 20
  * (rate-limits-and-user-limits, checked 2026-09-29). */
 const WEIGHT_REFERRAL = 20;
+/** `candleSnapshot`: base 20 plus 1 per 60 candles returned (rate-limits
+ * docs, "additional weight per 60 items"). At most 5,000 candles a call. */
+const WEIGHT_CANDLE_SNAPSHOT_BASE = 20;
+const CANDLES_PER_EXTRA_WEIGHT = 60;
+export const MAX_CANDLES = 5000;
 /** `frontendOpenOrders`: not in the weight-2 list, so 20, per dex (the
  * request names one dex; spot orders come with the main one). */
 const WEIGHT_FRONTEND_OPEN_ORDERS = 20;
@@ -108,6 +117,8 @@ export class HyperliquidInfoClient {
     rank?: number,
     /** The part of `weight` that is certain (list calls: the base). */
     known?: number,
+    /** Another info host (the wallet network's), still under this budget. */
+    apiUrl?: string,
   ): Promise<T> {
     const caller = currentRequestSignal();
     // Time in the budget queue doesn't count against the request timeout:
@@ -119,7 +130,7 @@ export class HyperliquidInfoClient {
     queued.throwIfAborted();
     const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
 
-    const url = this.config.value.hyperliquid.apiUrl;
+    const url = apiUrl ?? this.config.value.hyperliquid.apiUrl;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -159,11 +170,12 @@ export class HyperliquidInfoClient {
     priority: RequestPriority,
     rank: number | undefined,
     maxItems = MAX_LIST_ITEMS,
+    apiUrl?: string,
   ): Promise<T> {
     const worst = surcharge(maxItems);
     let result: T;
     try {
-      result = await this.post<T>(body, base + worst, priority, rank, base);
+      result = await this.post<T>(body, base + worst, priority, rank, base, apiUrl);
     } catch (error) {
       if (!(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-worst);
       throw error;
@@ -201,6 +213,33 @@ export class HyperliquidInfoClient {
     return this.post<HlMetaResponse>(dex ? { type: "meta", dex } : { type: "meta" }, WEIGHT_META, priority);
   }
 
+  /**
+   * Candles of one coin, oldest first (`interval`: "1h", "4h", "12h", "1d",
+   * …). Acquires the base plus the surcharge of `expected` candles up front
+   * and settles the difference to the real count afterwards.
+   */
+  async candleSnapshot(
+    coin: string,
+    interval: string,
+    startTime: number,
+    endTime: number,
+    expected: number,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlCandle[]> {
+    const extra = (n: number) => Math.ceil(Math.min(n, MAX_CANDLES) / CANDLES_PER_EXTRA_WEIGHT);
+    const guess = extra(expected);
+    const candles = await this.post<HlCandle[]>(
+      { type: "candleSnapshot", req: { coin, interval, startTime, endTime } },
+      WEIGHT_CANDLE_SNAPSHOT_BASE + guess,
+      priority,
+      rank,
+      WEIGHT_CANDLE_SNAPSHOT_BASE,
+    );
+    this.budgeter.adjust(extra(candles.length) - guess);
+    return candles;
+  }
+
   /** All perp dexes: `[null, {name: "xyz"}, …]`, main dex first. */
   perpDexs(priority: RequestPriority = "background", rank?: number): Promise<HlPerpDexsResponse> {
     return this.post<HlPerpDexsResponse>({ type: "perpDexs" }, WEIGHT_PERP_DEXS, priority, rank);
@@ -214,12 +253,15 @@ export class HyperliquidInfoClient {
     dex?: string,
     priority: RequestPriority = "background",
     rank?: number,
+    apiUrl?: string,
   ): Promise<HlClearinghouseStateResponse> {
     return this.post<HlClearinghouseStateResponse>(
       dex ? { type: "clearinghouseState", user: address, dex } : { type: "clearinghouseState", user: address },
       WEIGHT_CLEARINGHOUSE_STATE,
       priority,
       rank,
+      undefined,
+      apiUrl,
     );
   }
 
@@ -282,6 +324,12 @@ export class HyperliquidInfoClient {
 
   /** Mid prices for every main-dex perp and spot pair ("@107", "#123"
    * outcomes), used for alert scoring (N3) and outcome-token values. */
+  /** Main-dex perp universe (sizes, leverage) with each asset's mark, mid,
+   * oracle price and current hourly funding rate. Weight 20. */
+  metaAndAssetCtxs(priority: RequestPriority = "background", rank?: number): Promise<HlMetaAndAssetCtxsResponse> {
+    return this.post<HlMetaAndAssetCtxsResponse>({ type: "metaAndAssetCtxs" }, WEIGHT_META_AND_ASSET_CTXS, priority, rank);
+  }
+
   allMids(priority: RequestPriority = "background", rank?: number): Promise<HlAllMidsResponse> {
     return this.post<HlAllMidsResponse>({ type: "allMids" }, WEIGHT_ALL_MIDS, priority, rank);
   }
@@ -292,12 +340,15 @@ export class HyperliquidInfoClient {
     address: string,
     priority: RequestPriority = "background",
     rank?: number,
+    apiUrl?: string,
   ): Promise<HlSpotClearinghouseStateResponse> {
     return this.post<HlSpotClearinghouseStateResponse>(
       { type: "spotClearinghouseState", user: address },
       WEIGHT_SPOT_CLEARINGHOUSE_STATE,
       priority,
       rank,
+      undefined,
+      apiUrl,
     );
   }
 
@@ -375,6 +426,7 @@ export class HyperliquidInfoClient {
     endTime?: number,
     priority: RequestPriority = "background",
     rank?: number,
+    apiUrl?: string,
   ): Promise<HlLedgerUpdate[]> {
     return this.postList<HlLedgerUpdate[]>(
       { type: "userNonFundingLedgerUpdates", user: address, startTime, endTime },
@@ -382,6 +434,7 @@ export class HyperliquidInfoClient {
       priority,
       rank,
       LEDGER_MAX_ITEMS,
+      apiUrl,
     );
   }
 

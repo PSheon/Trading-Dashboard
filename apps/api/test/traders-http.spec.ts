@@ -16,6 +16,7 @@ import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 
 import { InsightsController } from "../src/insights/insights.controller.js";
+import { CohortService } from "../src/insights/cohort.service.js";
 import { InsightsService } from "../src/insights/insights.service.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import { parseLeaderboard } from "../src/traders/leaderboard.js";
@@ -109,6 +110,8 @@ describe("public discovery routes over HTTP", () => {
           inject: [SettingsService],
         },
         { provide: InsightsService, useValue: new InsightsService(new InsightsRepository(db)) },
+        // The cohort routes are covered by cohorts.spec.ts.
+        { provide: CohortService, useValue: {} },
       ],
     }));
   });

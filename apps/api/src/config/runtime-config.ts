@@ -1,5 +1,7 @@
 import { isIP } from "node:net";
 import { createPublicKey } from "node:crypto";
+import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
+
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
 
 type Environment = Record<string, string | undefined>;
@@ -14,6 +16,41 @@ function urlValue(key: string, raw: string | undefined, fallback: string, protoc
     throw new Error(`${key} must be a valid ${protocols.join("/")} URL without credentials or fragment`);
   }
   return value;
+}
+
+/**
+ * HYPERLIQUID_NETWORK picks where the user's own wallet lives: the network
+ * whose balances /me/wallet reads and whose chain the browser signs bridge
+ * and withdraw actions for. Default testnet: mainnet signing needs Paul's
+ * explicit approval (Stage 4 §6). The discovery reads keep using
+ * HYPERLIQUID_API_URL (mainnet) either way.
+ */
+function walletNetwork(source: Environment) {
+  const raw = (source.HYPERLIQUID_NETWORK ?? "testnet").trim().toLowerCase();
+  if (raw !== "mainnet" && raw !== "testnet") throw new Error("HYPERLIQUID_NETWORK must be mainnet or testnet");
+  const defaults = WALLET_NETWORKS[raw];
+  return {
+    network: raw as "mainnet" | "testnet",
+    infoUrl: defaults.infoUrl as string,
+    arbitrumRpcUrl: urlValue("HYPERLIQUID_ARBITRUM_RPC_URL", optional(source.HYPERLIQUID_ARBITRUM_RPC_URL), defaults.arbitrumRpcUrl, ["http:", "https:"]),
+  };
+}
+
+/**
+ * COPY_TRADING_MODE is the deployment's copy capability (review #11):
+ * `paper` (default: virtual balances, simulated fills) or `disabled`.
+ * `testnet` and `live` need signing, nonces and reconciliation that this
+ * build doesn't have, so they are refused at startup rather than silently
+ * running as paper; no admin setting can switch a deployment to live.
+ */
+function copyTrading(source: Environment) {
+  const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
+  if (mode === "testnet" || mode === "live") throw new Error(`COPY_TRADING_MODE=${mode} is not available in this build (paper only)`);
+  if (mode !== "paper" && mode !== "disabled") throw new Error("COPY_TRADING_MODE must be paper or disabled");
+  return {
+    mode: mode as "paper" | "disabled",
+    workerIntervalMs: integerValue("COPY_WORKER_INTERVAL_MS", source.COPY_WORKER_INTERVAL_MS, 2000, 250, 60_000),
+  };
 }
 
 function productionSecret(key: string, value: string | undefined, production: boolean): void {
@@ -73,6 +110,7 @@ export function validateEnvironment(source: Environment = process.env) {
     wsUrl: urlValue("HYPERLIQUID_WS_URL", source.HYPERLIQUID_WS_URL, "wss://api.hyperliquid.xyz/ws", ["ws:", "wss:"]),
     budgetPerMin: integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
     burst: integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
+    wallet: walletNetwork(source),
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };
   const stream = {
@@ -96,6 +134,6 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source) };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

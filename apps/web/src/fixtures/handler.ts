@@ -26,6 +26,10 @@ import {
   adminUsersResponseSchema,
   adminUserSchema,
   crowdResponseSchema,
+  createFavoriteGroupRequestSchema,
+  favoriteGroupSchema,
+  patchFavoriteGroupRequestSchema,
+  traderCardsResponseSchema,
   patchAdminSettingsRequestSchema,
   patchAdminUserRequestSchema,
   publicSettingsSchema,
@@ -48,6 +52,11 @@ import {
   sparklinesQuerySchema,
   sparklinesResponseSchema,
   telegramLinkResponseSchema,
+  walletHistoryResponseSchema,
+  walletResponseSchema,
+  copyOverviewResponseSchema,
+  copyStrategySchema,
+  copyOrdersResponseSchema,
   telegramStatusSchema,
   telegramTestResponseSchema,
   traderActivityResponseSchema,
@@ -102,6 +111,8 @@ import {
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
 import { fixtureBoard, fixtureHome } from "./discovery";
+import { fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
+import { createGroup, deleteGroup, listGroups, patchGroup, setMember, traderCards } from "./watchlist";
 
 // Mutable demo state (per browser tab).
 const NO_ALERT: FavoriteAlert = { enabled: false, sides: "both", minUsd: null };
@@ -132,6 +143,44 @@ const startLinked =
 let telegram: Omit<TelegramStatus, "bot"> = startLinked
   ? { linked: true, username: "orbie_demo", enabled: true, linkedAt: new Date(Date.now() - 3 * 86400_000) }
   : { linked: false, username: null, enabled: false, linkedAt: null };
+// `?wallet=funded` / `?wallet=pending` start the demo wallet with Hyperliquid
+// balances / with USDC waiting on Arbitrum; otherwise it is empty ($0.00, as
+// on a new CopyDog account). Testnet, like the api default.
+const walletMode = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("wallet") : null;
+const FIXTURE_WALLET = "0x5f0e6a3b1c2d4e5f60718293a4b5c6d7e8f90a1b";
+
+function fixtureWallet() {
+  const funded = walletMode === "funded";
+  const pending = walletMode === "pending";
+  const hyperliquid = funded
+    ? { perpValue: 1_250.42, withdrawable: 1_180.17, spotUsdc: 64.5, spotUsdcHold: 0 }
+    : { perpValue: 0, withdrawable: 0, spotUsdc: 0, spotUsdcHold: 0 };
+  const arbitrum = { usdc: pending ? 25 : 0, eth: pending ? 0.0004 : 0 };
+  return {
+    network: "testnet" as const,
+    address: FIXTURE_WALLET,
+    hyperliquid,
+    arbitrum,
+    totalValue: hyperliquid.perpValue + hyperliquid.spotUsdc + arbitrum.usdc,
+    fetchedAt: new Date(),
+  };
+}
+
+function fixtureWalletHistory() {
+  const day = 86_400_000;
+  const transfers = walletMode === "funded"
+    ? [
+        { time: new Date(Date.now() - 1 * day), hash: `0x${"e1".repeat(32)}`, kind: "withdraw" as const, direction: "out" as const, token: "USDC", amount: 120,
+          usd: false, from: FIXTURE_WALLET, to: null },
+        { time: new Date(Date.now() - 3 * day), hash: `0x${"e2".repeat(32)}`, kind: "toPerp" as const, direction: "move" as const, token: "USDC", amount: 200,
+          usd: false, from: FIXTURE_WALLET, to: FIXTURE_WALLET },
+        { time: new Date(Date.now() - 6 * day), hash: `0x${"e3".repeat(32)}`, kind: "deposit" as const, direction: "in" as const, token: "USDC", amount: 1_500,
+          usd: false, from: null, to: FIXTURE_WALLET },
+      ]
+    : [];
+  return { network: "testnet" as const, address: FIXTURE_WALLET, transfers, from: new Date(Date.now() - 90 * day), truncated: false, fetchedAt: new Date() };
+}
+
 /** Set by POST /me/telegram/link: when the fixture "presses Start". */
 let pendingLinkAt: number | null = null;
 
@@ -320,6 +369,13 @@ export async function fixtureRequest<T>(
       if (patch.locale) meLocale = patch.locale;
       return wire(meResponseSchema, fixtureMe(meLocale));
     }
+    case "DELETE /me": {
+      // The demo account: forget what it saved (the page signs out next).
+      requireUser(token);
+      favorites.clear();
+      meLocale = "zh-TW";
+      return undefined as T;
+    }
     case "GET /me/favorites":
       requireUser(token);
       return wire(
@@ -366,6 +422,60 @@ export async function fixtureRequest<T>(
       favorites.delete(addressSchema.parse(parts[2]).toLowerCase());
       return undefined as T;
     }
+    case "GET /me/favorite-groups":
+      requireUser(token);
+      return wire(z.array(favoriteGroupSchema), listGroups(new Set(favorites.keys())));
+    case "POST /me/favorite-groups": {
+      requireUser(token);
+      const parsed = createFavoriteGroupRequestSchema.safeParse(body ?? {});
+      if (!parsed.success) throw new ApiError(400, parsed.error.message);
+      return wire(favoriteGroupSchema, createGroup(parsed.data));
+    }
+    case "PATCH /me/favorite-groups/:id": {
+      requireUser(token);
+      const parsed = patchFavoriteGroupRequestSchema.safeParse(body ?? {});
+      if (!parsed.success) throw new ApiError(400, parsed.error.message);
+      return wire(favoriteGroupSchema, patchGroup(Number(parts[2]), parsed.data));
+    }
+    case "DELETE /me/favorite-groups/:id":
+      requireUser(token);
+      deleteGroup(Number(parts[2]));
+      return undefined as T;
+    case "PUT /me/favorite-groups/:id/members/:address":
+    case "DELETE /me/favorite-groups/:id/members/:address": {
+      requireUser(token);
+      const group = setMember(Number(parts[2]), addressSchema.parse(parts[4]).toLowerCase(), method === "PUT", new Set(favorites.keys()));
+      return (method === "PUT" ? wire(favoriteGroupSchema, group) : undefined) as T;
+    }
+    case "GET /discover/cards": {
+      const addresses = (search.get("addresses") ?? "").toLowerCase().split(",").filter(Boolean);
+      if (addresses.length === 0 || addresses.some((a) => !/^0x[0-9a-f]{40}$/.test(a))) throw new ApiError(400, "Invalid addresses");
+      return wire(traderCardsResponseSchema, { items: traderCards([...new Set(addresses)].slice(0, 200)) });
+    }
+    case "GET /me/wallet":
+      requireUser(token);
+      return wire(walletResponseSchema, fixtureWallet());
+    case "GET /me/copy":
+      requireUser(token);
+      return wire(copyOverviewResponseSchema, fixtureCopyOverview());
+    case "POST /me/copy/strategies":
+      requireUser(token);
+      return wire(copyStrategySchema, fixtureStartCopy(body as Record<string, unknown>));
+    case "PATCH /me/copy/strategies/:id":
+      requireUser(token);
+      return wire(copyStrategySchema, fixturePatchCopy(Number(parts[3]), body as Record<string, unknown>));
+    case "POST /me/copy/strategies/:id/funds":
+      requireUser(token);
+      return wire(copyStrategySchema, fixtureAddFunds(Number(parts[3]), body as Record<string, unknown>));
+    case "POST /me/copy/strategies/:id/commands":
+      requireUser(token);
+      return wire(copyStrategySchema, fixtureCopyCommand(Number(parts[3]), body as Record<string, unknown>));
+    case "GET /me/copy/strategies/:id/orders":
+      requireUser(token);
+      return wire(copyOrdersResponseSchema, fixtureCopyOrders(Number(parts[3])));
+    case "GET /me/wallet/history":
+      requireUser(token);
+      return wire(walletHistoryResponseSchema, fixtureWalletHistory());
     case "GET /me/telegram":
       requireUser(token);
       return wire(telegramStatusSchema, telegramStatus());

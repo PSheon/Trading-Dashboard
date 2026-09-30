@@ -66,7 +66,43 @@ export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
   calculator: z.array(wireBoardTraderSchema), updatedAt: iso.nullable(),
 });
 export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso });
+export const wireCoinIndexSchema = s.coinIndexResponseSchema.extend({ updatedAt: iso.nullable() });
+export const wireCoinBoardSchema = s.coinBoardResponseSchema.extend({ updatedAt: iso.nullable() });
+export const wireTraderSearchSchema = s.traderSearchResponseSchema;
+export const wireTraderCardSchema = s.traderCardSchema.extend({ lastTradeAt: iso.nullable() });
+export const wireTraderCardsSchema = s.traderCardsResponseSchema.extend({ items: z.array(wireTraderCardSchema) });
+export const wireFavoriteGroupSchema = s.favoriteGroupSchema.extend({ createdAt: iso });
+export const wireCohortDetailSchema = s.cohortDetailResponseSchema.extend({ updatedAt: iso.nullable() });
+export const wireCohortHistorySchema = s.cohortHistoryResponseSchema.extend({ series: z.array(z.object({ t: iso, pctLong: z.number() })) });
 export const wireCopyScoreSchema = s.copyScoreResponseSchema;
+export const wireWalletSchema = s.walletResponseSchema.extend({ fetchedAt: iso });
+export const wireWalletHistorySchema = s.walletHistoryResponseSchema.extend({ transfers: z.array(s.traderTransferSchema.extend({ time: iso })), from: iso, fetchedAt: iso });
+const wireCopyPositionSchema = s.copyPositionSchema.extend({ openedAt: iso });
+export const wireCopyStrategySchema = s.copyStrategySchema.extend({ positions: z.array(wireCopyPositionSchema), activatedAt: iso, createdAt: iso, stoppedAt: iso.nullable() });
+export const wireCopyOverviewSchema = s.copyOverviewResponseSchema.extend({ strategies: z.array(wireCopyStrategySchema), pricedAt: iso.nullable() });
+export const wireCopyOrderSchema = s.copyOrderSchema.extend({ signalTime: iso, createdAt: iso, updatedAt: iso });
+export const wireCopyOrdersSchema = z.object({ items: z.array(wireCopyOrderSchema) });
+const wireCopyControlEventSchema = s.copyControlEventSchema.extend({ createdAt: iso });
+export const wireAdminCopyControlSchema = s.adminCopyControlResponseSchema.extend({ event: wireCopyControlEventSchema });
+export const wireAdminCopyOverviewSchema = s.adminCopyOverviewSchema.extend({
+  platform: s.copyControlStateSchema.extend({ updatedAt: iso.nullable() }),
+  outbox: s.adminCopyOverviewSchema.shape.outbox.extend({ oldestPendingAt: iso.nullable() }),
+  events: z.array(wireCopyControlEventSchema),
+});
+const wireAdminCopyStrategySchema = s.adminCopyStrategySchema.extend({ positions: z.array(wireCopyPositionSchema), activatedAt: iso, createdAt: iso, stoppedAt: iso.nullable() });
+export const wireAdminCopyStrategiesSchema = z.object({ items: z.array(wireAdminCopyStrategySchema) });
+export const wireAdminCopyStrategyDetailSchema = s.adminCopyStrategyDetailSchema.extend({
+  strategy: wireAdminCopyStrategySchema,
+  versions: z.array(s.adminCopyStrategyDetailSchema.shape.versions.element.extend({ createdAt: iso })),
+  orders: z.array(wireCopyOrderSchema),
+  ledger: z.array(s.adminCopyStrategyDetailSchema.shape.ledger.element.extend({ createdAt: iso })),
+});
+export const wireAdminCopyOrdersSchema = z.object({ items: z.array(wireCopyOrderSchema.extend({ userEmail: z.string().nullable() })) });
+export const wireAdminCopyExposureSchema = s.adminCopyExposureResponseSchema.extend({ pricedAt: iso.nullable() });
+export const wireAdminCopyRiskSchema = s.adminCopyRiskResponseSchema.extend({
+  createdAt: iso.nullable(),
+  history: z.array(s.adminCopyRiskResponseSchema.shape.history.element.extend({ createdAt: iso })),
+});
 const outboxCounts =z.array(z.object({ status: z.string(), count: z.number().int().nonnegative() }));
 /** GET /actions/stream (text/event-stream). Each SSE `event:` name maps to the
  * schema of its JSON `data:`; both ends validate every event.
@@ -87,6 +123,9 @@ export interface HttpRouteContract {
   /** Set for server-sent-event routes. */
   stream?: HttpStreamContract;
   raw?: boolean;
+  /** Set for routes answering bytes (an image), not JSON: the media types
+   * it may send. `response` is `z.never()`; errors keep the JSON envelope. */
+  binary?: { contentTypes: string[] };
   pagination?: { type: "offset" | "cursor"; query: z.ZodTypeAny };
 }
 /** One registry drives server output validation, browser validation and route docs. */
@@ -119,6 +158,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/:address/transfers", status: 200, auth: "public; 503 busy", response: wireTraderTransfersSchema },
   { method: "GET", path: "/me", status: 200, auth: "user", response: wireMeSchema },
   { method: "PATCH", path: "/me", status: 200, auth: "user", response: wireMeSchema },
+  { method: "DELETE", path: "/me", status: 204, auth: "user; 409 last_admin", response: z.undefined() },
   { method: "GET", path: "/me/favorites", status: 200, auth: "user", response: z.array(wireFavoriteSchema) },
   { method: "PUT", path: "/me/favorites/:address", status: 200, auth: "user", response: wireFavoriteSchema },
   { method: "DELETE", path: "/me/favorites/:address", status: 204, auth: "user", response: z.undefined() },
@@ -127,6 +167,10 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/telegram/link", status: 200, auth: "user", response: s.telegramLinkResponseSchema.extend({ expiresAt: iso }) },
   { method: "POST", path: "/me/telegram/test", status: 200, auth: "user", response: s.telegramTestResponseSchema },
   { method: "DELETE", path: "/me/telegram", status: 204, auth: "user", response: z.undefined() },
+  { method: "GET", path: "/me/wallet", status: 200, auth: "user; 503 busy", response: wireWalletSchema },
+  { method: "GET", path: "/me/wallet/history", status: 200, auth: "user; 503 busy", response: wireWalletHistorySchema },
+  { method: "GET", path: "/insights/cohorts/:tier", status: 200, auth: "public", response: wireCohortDetailSchema },
+  { method: "GET", path: "/insights/cohorts/:tier/history", status: 200, auth: "public", response: wireCohortHistorySchema },
   { method: "GET", path: "/insights/crowd", status: 200, auth: "public", response: s.crowdResponseSchema.extend({ updatedAt: iso.nullable() }) },
   { method: "GET", path: "/settings", status: 200, auth: "public", response: s.publicSettingsSchema },
   { method: "GET", path: "/admin/settings", status: 200, auth: "settings.read", response: s.adminSettingsSnapshotSchema },
@@ -140,11 +184,29 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/:address/copy-score", status: 200, auth: "public; 503 busy", response: wireCopyScoreSchema },
   { method: "GET", path: "/discover/boards", status: 200, auth: "public", response: wireBoardSchema },
   { method: "GET", path: "/discover/home", status: 200, auth: "public", response: wireHomeBoardsSchema },
+  { method: "GET", path: "/discover/coins", status: 200, auth: "public", response: wireCoinIndexSchema },
+  { method: "GET", path: "/discover/coins/:coin", status: 200, auth: "public", response: wireCoinBoardSchema },
+  { method: "GET", path: "/discover/search", status: 200, auth: "public", response: wireTraderSearchSchema },
   { method: "GET", path: "/admin/kols", status: 200, auth: "kols.manage", response: z.array(wireKolSchema) },
   { method: "POST", path: "/admin/kols", status: 201, auth: "kols.manage", response: wireKolSchema },
   { method: "POST", path: "/admin/kols/import", status: 201, auth: "kols.manage", response: s.kolImportResponseSchema },
   { method: "PATCH", path: "/admin/kols/:address", status: 200, auth: "kols.manage", response: wireKolSchema },
   { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },
+  { method: "GET", path: "/discover/cards", status: 200, auth: "public", response: wireTraderCardsSchema },
+  { method: "GET", path: "/me/favorite-groups", status: 200, auth: "user", response: z.array(wireFavoriteGroupSchema) },
+  { method: "POST", path: "/me/favorite-groups", status: 201, auth: "user", response: wireFavoriteGroupSchema },
+  { method: "PATCH", path: "/me/favorite-groups/:id", status: 200, auth: "user", response: wireFavoriteGroupSchema },
+  { method: "DELETE", path: "/me/favorite-groups/:id", status: 204, auth: "user", response: z.undefined() },
+  { method: "PUT", path: "/me/favorite-groups/:id/members/:address", status: 200, auth: "user", response: wireFavoriteGroupSchema },
+  { method: "DELETE", path: "/me/favorite-groups/:id/members/:address", status: 204, auth: "user", response: z.undefined() },
+  { method: "GET", path: "/me/copy", status: 200, auth: "user", response: wireCopyOverviewSchema },
+  { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
+  { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "POST", path: "/me/copy/strategies/:id/funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "POST", path: "/me/copy/strategies/:id/commands", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "GET", path: "/me/copy/strategies/:id/orders", status: 200, auth: "user (owner)", response: wireCopyOrdersSchema },
+  { method: "GET", path: "/kols/:address/avatar", status: 200, auth: "public; image bytes, 304 on If-None-Match", response: z.never(),
+    binary: { contentTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"] } },
 ];
 export function findHttpContract(method: string, path: string) {
   const clean = (path.split("?")[0] ?? "").replace(/\/$/, "");
@@ -165,4 +227,25 @@ export type WireBoardTrader = z.infer<typeof wireBoardTraderSchema>;
 export type WireBoard = z.infer<typeof wireBoardSchema>;
 export type WireHomeBoards = z.infer<typeof wireHomeBoardsSchema>;
 export type WireKol = z.infer<typeof wireKolSchema>;
+export type WireCoinIndex = z.infer<typeof wireCoinIndexSchema>;
+export type WireCoinBoard = z.infer<typeof wireCoinBoardSchema>;
+export type WireTraderSearch = z.infer<typeof wireTraderSearchSchema>;
 export type WireCopyScore = z.infer<typeof wireCopyScoreSchema>;
+export type WireTraderCard = z.infer<typeof wireTraderCardSchema>;
+export type WireTraderCards = z.infer<typeof wireTraderCardsSchema>;
+export type WireFavoriteGroup = z.infer<typeof wireFavoriteGroupSchema>;
+export type WireCohortDetail = z.infer<typeof wireCohortDetailSchema>;
+export type WireCohortHistory = z.infer<typeof wireCohortHistorySchema>;
+export type WireWallet = z.infer<typeof wireWalletSchema>;
+export type WireWalletHistory = z.infer<typeof wireWalletHistorySchema>;
+export type WireCopyOverview = z.infer<typeof wireCopyOverviewSchema>;
+export type WireCopyStrategy = z.infer<typeof wireCopyStrategySchema>;
+export type WireCopyOrder = z.infer<typeof wireCopyOrderSchema>;
+export type WireCopyOrders = z.infer<typeof wireCopyOrdersSchema>;
+export type WireAdminCopyOverview = z.infer<typeof wireAdminCopyOverviewSchema>;
+export type WireAdminCopyStrategies = z.infer<typeof wireAdminCopyStrategiesSchema>;
+export type WireAdminCopyStrategyDetail = z.infer<typeof wireAdminCopyStrategyDetailSchema>;
+export type WireAdminCopyOrders = z.infer<typeof wireAdminCopyOrdersSchema>;
+export type WireAdminCopyExposure = z.infer<typeof wireAdminCopyExposureSchema>;
+export type WireAdminCopyRisk = z.infer<typeof wireAdminCopyRiskSchema>;
+export type WireAdminCopyControl = z.infer<typeof wireAdminCopyControlSchema>;

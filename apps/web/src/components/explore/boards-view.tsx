@@ -291,7 +291,7 @@ function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: Bo
   );
 }
 
-function ViewToggle({ value, onChange }: { value: "grid" | "list"; onChange: (v: View) => void }) {
+export function ViewToggle({ value, onChange }: { value: "grid" | "list"; onChange: (v: "grid" | "list") => void }) {
   const { t } = useI18n();
   return (
     <div className="flex h-10 items-center rounded-full bg-raised p-1 md:h-11" role="group" aria-label={t("discover.layout")}>

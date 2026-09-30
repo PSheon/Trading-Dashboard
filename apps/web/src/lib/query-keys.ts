@@ -2,11 +2,25 @@
 export const queryKeys = {
   siteSettings: ["site-settings"] as const,
   crowd: ["crowd"] as const,
+  cohort: (tier: string) => ["cohort", tier] as const,
+  cohortHistory: (tier: string, window: string) => ["cohort-history", tier, window] as const,
   me: ["me"] as const,
   adminSystem: ["admin", "system"] as const,
   health: ["health"] as const,
   favorites: ["favorites"] as const,
+  favoriteGroups: ["favorite-groups"] as const,
   telegram: ["telegram"] as const,
+  wallet: {
+    all: ["wallet"] as const,
+    summary: ["wallet", "summary"] as const,
+    history: ["wallet", "history"] as const,
+  },
+  /** Paper copies: every mutation invalidates `all` (overview + orders). */
+  copy: {
+    all: ["copy"] as const,
+    overview: ["copy", "overview"] as const,
+    orders: (strategyId: number) => ["copy", "orders", strategyId] as const,
+  },
   traders: {
     all: ["traders"] as const,
     list: (qs: string) => ["traders", qs] as const,
@@ -16,6 +30,10 @@ export const queryKeys = {
     boards: ["discover-board"] as const,
     board: (qs: string) => ["discover-board", qs] as const,
     home: ["discover-home"] as const,
+    cards: (addresses: string) => ["discover-cards", addresses] as const,
+    coins: ["discover-coins"] as const,
+    coin: (coin: string) => ["discover-coin", coin] as const,
+    search: (q: string) => ["discover-search", q] as const,
   },
   trader: {
     all: ["trader"] as const,

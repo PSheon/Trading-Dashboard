@@ -44,9 +44,11 @@ export async function truncateAll(db: TestDb): Promise<void> {
     TRUNCATE TABLE
       admin_audit_logs,
       alerts, alert_rules, actions, position_snapshots, equity_snapshots,
-      analysis_history_fills, analysis_history_jobs, fills, coin_meta, leader_list_items, leader_lists, leaders, trader_trades, trader_analytics, kol_traders, discovery_traders,
-      notification_channels, user_favorites, users, trader_stats,
-      app_settings, revenue_snapshots, telegram_link_tokens, notification_cooldowns, notification_outbox, action_outbox
+      analysis_history_fills, analysis_history_jobs, fills, coin_meta, leader_list_items, leader_lists, leaders, trader_trades, trader_analytics, kol_traders, kol_avatars, discovery_traders, cohort_members, cohort_snapshots,
+      notification_channels, user_favorite_group_members, user_favorite_groups, user_favorites, users, trader_stats,
+      app_settings, revenue_snapshots, telegram_link_tokens, notification_cooldowns, notification_outbox, action_outbox,
+      copy_ledger, copy_paper_fills, copy_reservations, copy_orders, copy_signal_legs, copy_positions, copy_strategy_versions, copy_strategies,
+      copy_signal_outbox, copy_consumer_checkpoints, copy_controls, copy_control_events, copy_risk_policies, paper_accounts
     RESTART IDENTITY CASCADE
   `);
 }

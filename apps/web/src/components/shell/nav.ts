@@ -3,7 +3,6 @@ import {
   ChartSpline,
   Compass,
   House,
-  Settings,
   ShieldCheck,
   Star,
   type LucideIcon,
@@ -34,7 +33,6 @@ export const mobileNav: NavItem[] = [
   { href: "/portfolio", label: "nav.portfolio", icon: Briefcase },
 ];
 
-export const settingsNav: NavItem = { href: "/settings", label: "nav.settings", icon: Settings };
 export const adminNav: NavItem = { href: "/admin", label: "nav.admin", icon: ShieldCheck };
 
 export function isActive(pathname: string, href: string): boolean {

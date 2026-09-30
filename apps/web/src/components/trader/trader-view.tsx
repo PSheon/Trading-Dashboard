@@ -196,7 +196,7 @@ function TraderLoaded({ address }: { address: string }) {
       </div>
 
       <div data-area="copy">
-        {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel />}
+        {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel address={address} />}
       </div>
     </div>
     </>

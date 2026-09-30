@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { INestApplication } from "@nestjs/common";
-import { adminAuditLogs, discoveryTraders, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
-import { wireBoardSchema, wireCopyScoreSchema, wireHomeBoardsSchema } from "@trading-dashboard/shared/contracts";
+import { adminAuditLogs, discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
+import { wireBoardSchema, wireCoinBoardSchema, wireCoinIndexSchema, wireCopyScoreSchema, wireHomeBoardsSchema, wireTraderSearchSchema } from "@trading-dashboard/shared/contracts";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +15,7 @@ import { AdminKolController, CopyScoreController, DiscoveryController } from "..
 import { DiscoveryPoolService } from "../src/discovery/discovery-pool.service.js";
 import { DiscoveryRepository } from "../src/discovery/discovery.repository.js";
 import { DiscoveryService } from "../src/discovery/discovery.service.js";
-import { kolAvatarUrl, parseKolCsv } from "../src/discovery/kol-csv.js";
+import { parseKolCsv } from "../src/discovery/kol-csv.js";
 import { KolRepository } from "../src/discovery/kol.repository.js";
 import { KolService } from "../src/discovery/kol.service.js";
 import { DEFAULT_KOL_FILE } from "../src/discovery/seed-kols.js";
@@ -86,12 +86,6 @@ describe("KOL CSV and board rules", () => {
       expect.objectContaining({ address: addr(2), displayName: "Bob", xHandle: "bob", verified: true, sortOrder: 5 }),
     ]);
     expect(() => parseKolCsv("name\nx")).toThrow(/address/);
-  });
-
-  it("derives avatars from the 𝕏 handle, never another CDN", () => {
-    expect(kolAvatarUrl({ avatarUrl: null, xHandle: "mk4_lul" })).toBe("https://unavatar.io/x/mk4_lul");
-    expect(kolAvatarUrl({ avatarUrl: "https://example.com/a.png", xHandle: "x" })).toBe("https://example.com/a.png");
-    expect(kolAvatarUrl({ avatarUrl: null, xHandle: null })).toBeNull();
   });
 
   it("follows CopyDog's board rules for windows, sorts and markets", () => {
@@ -284,7 +278,13 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       const top = await get("");
       expect(top.items.map((t) => t.address)).toEqual([addr(1), addr(2)]); // no figures / no account value left out
       expect(top).toMatchObject({ sort: "copyScore", window: "all", pool: { total: 4, ready: 3, tradesReady: 0 } });
-      expect(top.items[1]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, avatarUrl: "https://unavatar.io/x/two", pnl: 900 });
+      // No cached avatar yet → null (the web draws its generated one) …
+      expect(top.items[1]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, avatarUrl: null, pnl: 900 });
+      // … and the api's own versioned URL once the drip job has cached it.
+      await db.insert(kolAvatars).values({ address: addr(2), source: "x:two", bytes: Buffer.from([0xff, 0xd8, 0xff]), contentType: "image/jpeg", etag: '"abcdefghijklmnop"', fetchedAt: new Date() });
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31_000); // past the 30 s pool snapshot
+      expect((await get("")).items[1].avatarUrl).toBe(`/kols/${addr(2)}/avatar?v=abcdefghijkl`);
+      clock.mockRestore();
       const month = await get("sort=roi&window=30d");
       expect(month.items.map((t) => t.roi)).toEqual([0.5, -0.1]);
       expect(month.items[0].sparkline).toEqual([0, 1]);
@@ -340,6 +340,57 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       const empty = buildBoard(candidates, { market: "crypto", board: "ETH", sort: "pnl", window: "all" }, { total: 4, ready: 3 });
       expect(empty.freshness).toEqual({ oldestUpdatedAt: null, newestUpdatedAt: null, missingTimestamps: 0 });
       expect(empty.eligibleCount).toBe(0);
+    });
+
+    it("serves CopyDog's market index and one coin's leaderboard from the pool's coin stats", async () => {
+      await seedPool();
+      const server = app.getHttpServer();
+      const index = wireCoinIndexSchema.parse((await request(server).get("/discover/coins").expect(200)).body.data);
+      // GOLD (−10) has no trader who made money on it, so it isn't listed.
+      expect(index.items).toEqual([
+        { coin: "BTC", market: "crypto", traders: 2, profit: 370 },
+        { coin: "xyz:TSLA", market: "stocks", traders: 1, profit: 40 },
+      ]);
+      expect(index.pool).toEqual({ total: 4, ready: 3, tradesReady: 0 });
+
+      const btc = wireCoinBoardSchema.parse((await request(server).get("/discover/coins/BTC").expect(200)).body.data);
+      expect(btc).toMatchObject({ coin: "BTC", market: "crypto", stats: { traders: 2, profit: 370, volume: 1700, trades: 4 } });
+      expect(btc.items.map((t) => [t.address, t.pnl, t.winRate, t.trades, t.volume])).toEqual([
+        [addr(2), 300, 1, 1, 1000],
+        [addr(1), 70, 2 / 3, 3, 700],
+      ]);
+      expect(btc.items[0]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, xHandle: "two" });
+
+      const tsla = wireCoinBoardSchema.parse((await request(server).get("/discover/coins/xyz%3ATSLA").expect(200)).body.data);
+      expect(tsla).toMatchObject({ coin: "xyz:TSLA", market: "stocks", stats: { traders: 1, profit: 40, volume: 400, trades: 2 } });
+      expect(tsla.items.map((t) => [t.address, t.winRate])).toEqual([[addr(2), 0.5]]);
+
+      const gold = wireCoinBoardSchema.parse((await request(server).get("/discover/coins/xyz:GOLD").expect(200)).body.data);
+      expect(gold).toMatchObject({ market: "stocks", items: [], stats: { traders: 0, profit: 0, volume: 0, trades: 0 } });
+      await request(server).get("/discover/coins/..%2Fx").expect(400);
+      await request(server).get("/discover/coins/BTC-USD").expect(400);
+    });
+
+    it("finds traders by KOL name, X handle, leaderboard name or address prefix, by PnL", async () => {
+      await seedPool();
+      await db.update(traderStats).set({ displayName: "x.com/AlphaBtc" }).where(eq(traderStats.address, addr(1)));
+      const server = app.getHttpServer();
+      const search = async (q: string, limit?: number) => {
+        const qs = new URLSearchParams({ q, ...(limit ? { limit: String(limit) } : {}) });
+        return wireTraderSearchSchema.parse((await request(server).get(`/discover/search?${qs}`).expect(200)).body.data).items;
+      };
+      expect((await search("kol tw")).map((r) => [r.address, r.displayName, r.kol, r.pnl])).toEqual([[addr(2), "KOL Two", true, 900]]);
+      expect((await search("@TWO")).map((r) => r.address)).toEqual([addr(2)]);
+      expect((await search("https://x.com/two")).map((r) => r.address)).toEqual([addr(2)]);
+      expect((await search("alphabtc")).map((r) => [r.address, r.displayName, r.pnl, r.roi])).toEqual([[addr(1), "x.com/AlphaBtc", 100, 1]]);
+      // An address prefix matches every row; highest all-time PnL first.
+      const prefix = await search("0x00000000", 2);
+      expect(prefix.map((r) => r.address)).toEqual([addr(2), addr(1)]);
+      expect(await search("100%")).toEqual([]);
+      expect(await search("nobody")).toEqual([]);
+      await request(server).get("/discover/search").expect(400);
+      await request(server).get(`/discover/search?q=${"a".repeat(65)}`).expect(400);
+      await request(server).get("/discover/search?q=a&limit=11").expect(400);
     });
 
     it("computes any trader's copy score from the portfolio", async () => {

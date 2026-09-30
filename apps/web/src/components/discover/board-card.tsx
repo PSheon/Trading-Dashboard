@@ -15,13 +15,17 @@ const traderHref = (address: string) => `/trader/${address}`;
 
 /** Explore grid card (CopyDog's hl-card): identity and coins, last trade,
  * PnL and ROI beside the sparkline, copy score and 跟單. */
-export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now }: {
+export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory, tags }: {
   trader: BoardTrader;
   pnlLabel: string;
   roiLabel: string;
   /** Coin boards explain their ROI (PnL ÷ notional traded). */
   roiHint?: string;
   now: number;
+  /** Top-right, after the last-trade time (favorites: the star). */
+  accessory?: React.ReactNode;
+  /** Under the coins (favorites: group tags). */
+  tags?: React.ReactNode;
 }) {
   const { t, format } = useI18n();
   const router = useRouter();
@@ -39,6 +43,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now }: {
             {trader.verified ? <VerifiedTick /> : null}
           </span>
           <CoinStack coins={trader.topCoins} />
+          {tags}
         </div>
         {ago ? (
           <span
@@ -49,6 +54,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now }: {
             {ago}
           </span>
         ) : null}
+        {accessory}
       </div>
       <div className="flex min-w-0 items-end gap-3">
         <div className="flex min-w-0 shrink-0 flex-col gap-3">

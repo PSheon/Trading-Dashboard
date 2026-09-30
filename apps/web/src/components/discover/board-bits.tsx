@@ -9,17 +9,18 @@ import { AddressAvatar } from "@/components/traders/address-avatar";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import type { BoardTrader } from "@/lib/contracts";
+import { apiAssetUrl } from "@/lib/api";
 import { truncateAddress } from "@/lib/format";
 
-/** A KOL's picture (its 𝕏 avatar), else — and when the image fails — the
- * generated planet avatar. */
+/** A KOL's picture (the api's cached copy of its 𝕏 avatar), else — and
+ * when the image fails — the generated planet avatar. */
 export function TraderAvatar({ trader, size, className }: { trader: Pick<BoardTrader, "address" | "avatarUrl">; size: number; className?: string }) {
   const [failed, setFailed] = useState(false);
   if (!trader.avatarUrl || failed) return <AddressAvatar seed={trader.address} size={size} className={className} />;
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- remote avatars of arbitrary hosts; next/image would need every host allow-listed
+    // eslint-disable-next-line @next/next/no-img-element -- the api serves the bytes with a month-long versioned cache; next/image would re-encode them
     <img
-      src={trader.avatarUrl}
+      src={apiAssetUrl(trader.avatarUrl)}
       alt=""
       width={size}
       height={size}
@@ -40,6 +41,22 @@ export function boardName(trader: Pick<BoardTrader, "displayName" | "address">):
 export function VerifiedTick({ className }: { className?: string }) {
   const { t } = useI18n();
   return <BadgeCheck aria-label={t("discover.verified")} className={cn("size-4 shrink-0 fill-sky-500 text-background", className)} />;
+}
+
+/** A KOL's 𝕏 profile link (CopyDog's small 𝕏 after the name). */
+export function XProfileLink({ handle, className }: { handle: string; className?: string }) {
+  return (
+    <a
+      href={`https://x.com/${encodeURIComponent(handle)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`@${handle}`}
+      aria-label={`X @${handle}`}
+      className={cn("shrink-0 rounded text-xs leading-none text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", className)}
+    >
+      𝕏
+    </a>
+  );
 }
 
 /** Up to five coin icons, overlapping (CopyDog's asset stack). */
@@ -77,7 +94,9 @@ export function CopyScoreBar({
   className,
 }: {
   score: number | null;
-  layout?: "value-first" | "bar-first" | "bar-only";
+  /** "value-first": "85/100 ▬"; "number-first": "85 ▬" (CopyDog's
+   * cohort table); "bar-first": "▬ 85"; "bar-only". */
+  layout?: "value-first" | "number-first" | "bar-first" | "bar-only";
   barClassName?: string;
   className?: string;
 }) {
@@ -97,7 +116,7 @@ export function CopyScoreBar({
         {value ?? "—"}
         {layout === "value-first" ? <span className="text-subtle-foreground">/100</span> : null}
       </span>
-      {layout === "value-first" ? bar : null}
+      {layout === "value-first" || layout === "number-first" ? bar : null}
     </span>
   );
 }

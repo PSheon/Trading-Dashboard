@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { appSettingsKeyEnum } from "../enums.js";
+import { appSettingsKeyEnum, localeEnum } from "../enums.js";
 import { PERMISSIONS } from "../permissions.js";
 
 export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -95,7 +95,7 @@ export const leaderSchema = z.object({
   tier: tierSchema,
   notes: z.string().nullable().optional(),
   active: z.boolean(),
-  source: z.enum(["import", "favorite"]).default("import"),
+  source: z.enum(["import", "favorite", "copy"]).default("import"),
   firstSeenAt: z.coerce.date(),
 });
 export type Leader = z.infer<typeof leaderSchema>;
@@ -399,7 +399,7 @@ export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
 // ===========================================================================
 
 export const userRoleSchema = z.enum(["user", "admin"]);
-export const localeSchema = z.enum(["zh-TW", "en"]);
+export const localeSchema = z.enum(localeEnum);
 export type LocaleInput = z.infer<typeof localeSchema>;
 
 /** GET /me */
@@ -535,6 +535,17 @@ export const spotBalanceSchema = z.object({
 });
 export type SpotBalance = z.infer<typeof spotBalanceSchema>;
 
+/** A KOL as the trader page header shows it. `avatarUrl` is the api's
+ * cached copy (`/kols/:address/avatar?v=…`, a path on the api), null until
+ * the drip job has fetched it. */
+export const kolCardSchema = z.object({
+  displayName: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  avatarUrl: z.string().nullable(),
+});
+export type KolCard = z.infer<typeof kolCardSchema>;
+
 /** GET /traders/:address — the trader page's left column and header. Public;
  * `favorite` is false when signed out. */
 export const traderProfileResponseSchema = z.object({
@@ -592,6 +603,10 @@ export const traderProfileResponseSchema = z.object({
     })
     .optional(),
   favorite: z.boolean(),
+  /** The KOL registry's entry for this address (name, 𝕏 handle, verified
+   * badge, cached avatar); null when it is not a KOL. Optional while older
+   * clients and fixtures roll forward. */
+  kol: kolCardSchema.nullable().optional(),
   /** @deprecated Tracked addresses only, from the actions table. The web
    * reads GET /traders/:address/analytics (any address) instead; kept for
    * API clients for one step. */
@@ -853,6 +868,47 @@ export const traderTransfersResponseSchema = z.object({
 });
 export type TraderTransfersResponse = z.infer<typeof traderTransfersResponseSchema>;
 
+// --- the signed-in user's wallet (Stage 4 step 2) ---------------------------
+
+/** Where the user's own wallet lives (api HYPERLIQUID_NETWORK). The browser
+ * signs bridge / withdraw actions for this network only. */
+export const walletNetworkSchema = z.enum(["mainnet", "testnet"]);
+export type WalletNetwork = z.infer<typeof walletNetworkSchema>;
+
+/** GET /me/wallet — the main account (the user's Privy embedded wallet).
+ * `address` is null until Privy reports one; the balances are then null too.
+ * A part that couldn't be read is null (the rest still answers). USD values. */
+export const walletResponseSchema = z.object({
+  network: walletNetworkSchema,
+  address: z.string().nullable(),
+  hyperliquid: z
+    .object({
+      /** Perp account value (margin summary). */
+      perpValue: z.number(),
+      /** What `withdraw3` can take right now. */
+      withdrawable: z.number(),
+      /** Spot USDC, total and on hold by open spot orders. */
+      spotUsdc: z.number(),
+      spotUsdcHold: z.number(),
+    })
+    .nullable(),
+  /** The deposit address's balances on the network's Arbitrum chain: USDC
+   * not yet bridged, and ETH for gas. */
+  arbitrum: z.object({ usdc: z.number(), eth: z.number() }).nullable(),
+  /** Perp value + spot USDC + Arbitrum USDC waiting to be bridged. */
+  totalValue: z.number(),
+  fetchedAt: z.coerce.date(),
+});
+export type WalletResponse = z.infer<typeof walletResponseSchema>;
+
+/** GET /me/wallet/history — the main account's deposits, withdrawals and
+ * transfers on the wallet network (the 90-day ledger of the 轉帳 tab). */
+export const walletHistoryResponseSchema = traderTransfersResponseSchema.extend({
+  network: walletNetworkSchema,
+  address: z.string().nullable(),
+});
+export type WalletHistoryResponse = z.infer<typeof walletHistoryResponseSchema>;
+
 // --- trade analytics (any address) -----------------------------------------
 
 /** Window of the trade analytics: every closed trade in coverage, or those
@@ -1090,6 +1146,39 @@ export const favoriteSchema = z.object({
 });
 export type Favorite = z.infer<typeof favoriteSchema>;
 
+/** A favorites group (CopyDog's watchlist groups): a named, coloured set
+ * of the user's favorites. GET /me/favorite-groups lists them in order. */
+export const favoriteGroupSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  color: z.string(),
+  sortOrder: z.number().int(),
+  /** Member addresses (each one of the user's favorites), oldest first. */
+  members: z.array(z.string()),
+  createdAt: z.coerce.date(),
+});
+export type FavoriteGroup = z.infer<typeof favoriteGroupSchema>;
+const favoriteGroupName = z.string().trim().min(1).max(20);
+const favoriteGroupColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+/** POST /me/favorite-groups (201). 409 `group_exists` for a duplicate
+ * name, 409 `group_limit` past `FAVORITE_GROUPS_MAX`. */
+export const createFavoriteGroupRequestSchema = z.object({
+  name: favoriteGroupName,
+  color: favoriteGroupColor.optional(),
+}).strict();
+export type CreateFavoriteGroupRequest = z.infer<typeof createFavoriteGroupRequestSchema>;
+/** PATCH /me/favorite-groups/:id. */
+export const patchFavoriteGroupRequestSchema = z.object({
+  name: favoriteGroupName.optional(),
+  color: favoriteGroupColor.optional(),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+}).strict();
+export type PatchFavoriteGroupRequest = z.infer<typeof patchFavoriteGroupRequestSchema>;
+/** Groups per user. */
+export const FAVORITE_GROUPS_MAX = 20;
+/** CopyDog-like chip colours, assigned in turn when none is given. */
+export const FAVORITE_GROUP_COLORS = ["#ff7a45", "#3b82f6", "#22c55e", "#eab308", "#a855f7", "#ec4899", "#14b8a6", "#f97316"] as const;
+
 /** PATCH /me/favorites/:address/alert → the updated `favoriteSchema`.
  * Turning alerts on answers 409 `{code:"telegram_not_linked"}` without a
  * linked Telegram, and 409 `{code:"alert_limit", limit}` when the user
@@ -1133,11 +1222,6 @@ export const telegramTestResponseSchema = z.object({
 });
 export type TelegramTestResponse = z.infer<typeof telegramTestResponseSchema>;
 
-// --- copy trading (panel only in Stage 2; nothing is executed) ------------
-
-export const copyDirectionSchema = z.enum(["follow", "reverse"]);
-export type CopyDirection = z.infer<typeof copyDirectionSchema>;
-
 // --- insights: crowd view (競品分析 §3.4) -------------------------------------
 
 /** GET /insights/crowd — what the tracked traders hold, per coin. Public.
@@ -1169,6 +1253,90 @@ export const crowdResponseSchema = z.object({
   updatedAt: z.coerce.date().nullable(),
 });
 export type CrowdResponse = z.infer<typeof crowdResponseSchema>;
+
+// --- insights: cohorts (Stage 3 §3, CopyDog's /hyperliquid/cohorts) -----------
+
+/** A PnL tier as a cohort (CopyDog's cohorts; 極度盈利 is the default). */
+export const cohortTierSchema = pnlTierSchema;
+export type CohortTier = z.infer<typeof cohortTierSchema>;
+
+export const cohortWalletSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  verified: z.boolean(),
+  /** Coins held, largest notional first, at most 5. */
+  topAssets: z.array(z.string()),
+  /** All-time perp PnL and ROI (CopyDog's definition); null when unknown. */
+  totalPnl: z.number().nullable(),
+  roi: z.number().nullable(),
+  perpEquity: z.number().nullable(),
+  copyScore: z.number().int().nullable(),
+  /** Σ |notional| of open positions. */
+  positionValue: z.number(),
+  /** positionValue ÷ perpEquity; null without equity. */
+  leverage: z.number().nullable(),
+  sumUpnl: z.number(),
+  /** Long share of the wallet's notional, 0–100; null when flat. */
+  biasPct: z.number().nullable(),
+});
+export type CohortWallet = z.infer<typeof cohortWalletSchema>;
+
+export const cohortMarketSchema = z.object({
+  coin: z.string(),
+  notionalLong: z.number(),
+  notionalShort: z.number(),
+  /** Long share of the market's notional, 0–100. */
+  biasPct: z.number().nullable(),
+  upnl: z.number(),
+  tradersLong: z.number().int(),
+  tradersShort: z.number().int(),
+  /** Members whose position in this market is in profit / at a loss. */
+  tradersProfit: z.number().int(),
+  tradersLoss: z.number().int(),
+});
+export type CohortMarket = z.infer<typeof cohortMarketSchema>;
+
+/** GET /insights/cohorts/:tier — the tier's current positioning. */
+export const cohortDetailResponseSchema = z.object({
+  tier: cohortTierSchema,
+  /** Members of the tier (≤ `discovery.cohortMembersPerTier`). */
+  memberCount: z.number().int(),
+  /** Members with a fresh snapshot (the wallets below). */
+  walletCount: z.number().int(),
+  hero: z.object({
+    upnlProfit: z.number(),
+    upnlLoss: z.number(),
+    /** upnlProfit ÷ (upnlProfit + upnlLoss), 0–100. */
+    upnlProfitPct: z.number().nullable(),
+    walletsInProfit: z.number().int(),
+    walletsInLoss: z.number().int(),
+    notionalLong: z.number(),
+    notionalShort: z.number(),
+    longPct: z.number().nullable(),
+  }),
+  /** By notional, largest first. */
+  markets: z.array(cohortMarketSchema),
+  /** By perp equity, largest first. */
+  wallets: z.array(cohortWalletSchema),
+  /** Oldest snapshot among the wallets; null when none. */
+  updatedAt: z.coerce.date().nullable(),
+});
+export type CohortDetailResponse = z.infer<typeof cohortDetailResponseSchema>;
+
+export const cohortWindowSchema = z.enum(["7d", "30d", "90d", "all"]);
+export type CohortWindow = z.infer<typeof cohortWindowSchema>;
+
+/** GET /insights/cohorts/:tier/history?window= — 倉位傾向: the long share
+ * per refresh, and BTC's price over the same window (Hyperliquid candles). */
+export const cohortHistoryResponseSchema = z.object({
+  tier: cohortTierSchema,
+  window: cohortWindowSchema,
+  series: z.array(z.object({ t: z.coerce.date(), pctLong: z.number() })),
+  /** [epoch ms, close], oldest first. */
+  btc: z.array(z.tuple([z.number(), z.number()])),
+});
+export type CohortHistoryResponse = z.infer<typeof cohortHistoryResponseSchema>;
 
 // --- site settings (admin) -------------------------------------------------------
 
@@ -1218,6 +1386,12 @@ export const discoverySettingsSchema = z.object({
   cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"]),
   stockBoards: z.array(boardCoinSchema).max(16)
     .default(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]),
+  /** 洞察 cohorts: members per PnL tier whose positions are tracked … */
+  cohortMembersPerTier: z.number().int().min(0).max(500).default(150),
+  /** … refreshed this often (each member, and one history row per tier) … */
+  cohortRefreshMinutes: z.number().int().min(5).max(240).default(15),
+  /** … within this much Hyperliquid weight per minute (yields to pages). */
+  cohortWeightPerMinute: z.number().int().min(0).max(600).default(200),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 
@@ -1427,6 +1601,8 @@ export const boardTraderSchema = z.object({
   address: z.string(),
   /** KOL name, else the leaderboard's display name; null → short address. */
   displayName: z.string().nullable(),
+  /** A KOL's cached avatar, a path on the api (`/kols/:address/avatar?v=…`);
+   * null → the web's generated avatar. */
   avatarUrl: z.string().nullable(),
   xHandle: z.string().nullable(),
   verified: z.boolean(),
@@ -1464,6 +1640,29 @@ export const boardResponseSchema = z.object({
 });
 export type BoardResponse = z.infer<typeof boardResponseSchema>;
 
+/** GET /discover/cards?addresses=… — any traders as explore cards with the
+ * extra columns CopyDog's watchlist shows (favorites, insights wallets).
+ * `pnl` / `roi` / `sparkline` are all-time. From the discovery pool when it
+ * has the trader's figures (`source: "pool"`), else the leaderboard
+ * (`"leaderboard"`: no copy score, sparkline, win rate or risk figures),
+ * else identity only (`"none"`). No Hyperliquid calls. */
+export const traderCardSchema = boardTraderSchema.extend({
+  pnl30d: z.number().nullable(),
+  /** Winning ÷ all closed trades of the trade ledger (all coins). */
+  winRate: z.number().nullable(),
+  sharpe: z.number().nullable(),
+  /** 0–1. */
+  maxDrawdown: z.number().nullable(),
+  source: z.enum(["pool", "leaderboard", "none"]),
+});
+export type TraderCard = z.infer<typeof traderCardSchema>;
+export const traderCardsQuerySchema = z.object({
+  /** Comma-separated addresses, at most 200. */
+  addresses: z.string().max(200 * 43),
+}).strict();
+export const traderCardsResponseSchema = z.object({ items: z.array(traderCardSchema) });
+export type TraderCardsResponse = z.infer<typeof traderCardsResponseSchema>;
+
 /** GET /discover/home — every home row in one read (7 cards each). */
 export const homeBoardsResponseSchema = z.object({
   pool: discoveryPoolSchema.optional(),
@@ -1480,6 +1679,92 @@ export const homeBoardsResponseSchema = z.object({
   updatedAt: z.coerce.date().nullable(),
 });
 export type HomeBoardsResponse = z.infer<typeof homeBoardsResponseSchema>;
+
+// --- Coin leaderboards (CopyDog's 市場 pages) -----------------------------------
+
+/** One row of GET /discover/coins (CopyDog's `/hyperliquid/coins`): a market
+ * with at least one pool trader who made money on it. */
+export const coinIndexRowSchema = z.object({
+  /** Hyperliquid name: "BTC", "xyz:TSLA". */
+  coin: z.string(),
+  market: boardMarketSchema,
+  /** 獲利交易者: pool traders with realized PnL > 0 on this coin. */
+  traders: z.number().int(),
+  /** 獲利總額: their realized PnL, summed. */
+  profit: z.number(),
+});
+export type CoinIndexRow = z.infer<typeof coinIndexRowSchema>;
+export const coinIndexResponseSchema = z.object({
+  /** By `profit`, highest first. */
+  items: z.array(coinIndexRowSchema),
+  pool: discoveryPoolSchema,
+  updatedAt: z.coerce.date().nullable(),
+});
+export type CoinIndexResponse = z.infer<typeof coinIndexResponseSchema>;
+
+/** A row of one coin's leaderboard: identity plus that coin's realized
+ * figures from the trade ledger (all-time, net of fees). */
+export const coinTraderSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  kol: z.boolean(),
+  pnl: z.number(),
+  /** Winning ÷ closed round trips on this coin; null when none closed. */
+  winRate: z.number().nullable(),
+  trades: z.number().int(),
+  volume: z.number(),
+});
+export type CoinTrader = z.infer<typeof coinTraderSchema>;
+
+/** GET /discover/coins/:coin — 「Hyperliquid 上最強的 BTC 交易者」: the pool's
+ * traders who made money on the coin, by realized PnL, at most 40 (as
+ * CopyDog lists); `stats` sums the listed rows. */
+export const coinBoardResponseSchema = z.object({
+  coin: z.string(),
+  market: boardMarketSchema,
+  stats: z.object({
+    /** 列出的交易者 */
+    traders: z.number().int(),
+    /** 獲利總額 */
+    profit: z.number(),
+    /** 交易量 */
+    volume: z.number(),
+    /** 交易數 */
+    trades: z.number().int(),
+  }),
+  items: z.array(coinTraderSchema),
+  pool: discoveryPoolSchema,
+  updatedAt: z.coerce.date().nullable(),
+});
+export type CoinBoardResponse = z.infer<typeof coinBoardResponseSchema>;
+
+// --- Header search (CopyDog's /traders/search) ------------------------------------
+
+/** GET /discover/search?q=&limit= — name (KOL name, 𝕏 handle, leaderboard
+ * name) or address prefix. */
+export const traderSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(64),
+  limit: z.coerce.number().int().min(1).max(10).default(5),
+}).strict();
+export type TraderSearchQuery = z.infer<typeof traderSearchQuerySchema>;
+export const traderSearchResultSchema = z.object({
+  address: z.string(),
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  kol: z.boolean(),
+  /** All-time PnL and ROI: the pool's perp figures, else the leaderboard's. */
+  pnl: z.number().nullable(),
+  roi: z.number().nullable(),
+  accountValue: z.number().nullable(),
+});
+export type TraderSearchResult = z.infer<typeof traderSearchResultSchema>;
+export const traderSearchResponseSchema = z.object({ items: z.array(traderSearchResultSchema) });
+export type TraderSearchResponse = z.infer<typeof traderSearchResponseSchema>;
 
 /** GET /traders/:address/copy-score — the trader page's 複製評分 and its
  * inputs (CopyDog's `/copy-score`), from the all-time portfolio. */
@@ -1504,8 +1789,11 @@ export type CopyScoreResponse = z.infer<typeof copyScoreResponseSchema>;
 export const kolSchema = z.object({
   address: z.string(),
   displayName: z.string().nullable(),
-  /** As stored; the boards derive one from the 𝕏 handle when null. */
+  /** As stored: the admin's explicit source URL; null → the 𝕏 handle's
+   * profile picture. Pages never load it directly. */
   avatarUrl: z.string().nullable(),
+  /** The api's cached copy (see `kolCardSchema`); null until fetched. */
+  cachedAvatarUrl: z.string().nullable().optional(),
   xHandle: z.string().nullable(),
   verified: z.boolean(),
   sortOrder: z.number().int(),
@@ -1544,3 +1832,6 @@ export const kolImportResponseSchema = z.object({
   errors: z.array(z.object({ line: z.number().int(), message: z.string() })),
 });
 export type KolImportResponse = z.infer<typeof kolImportResponseSchema>;
+
+// Copy trading (Stage 4 step 3, paper mode).
+export * from "./copy.js";

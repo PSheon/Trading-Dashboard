@@ -130,6 +130,15 @@ Orbie 目前多出來的（刪除以對齊）：眉標「orbit the best traders�
 - 新增收藏群組：`user_favorite_groups`（id、user_id、name、排序）、`user_favorite_group_members`（group_id、address）；API：群組 CRUD、加入／移出群組。
 - 其餘沿用現有收藏、提醒、Telegram、SSE。
 
+### 2.4 實作（2026-09-30）
+
+**對照 CopyDog 原始碼。** CopyDog 的收藏頁（`index-C5ZUTtKg.js` 與 `/locales/zh-TW/watchlist.json`）目前是三個分頁「收藏／提醒／動態」，語系檔另有「跟單」；Orbie 依本節規格做四個分頁，文字用 CopyDog 的（收藏、提醒、跟單、動態）。
+
+- **資料表**：`user_favorite_groups`（id、user_id、name（1–20 字、每人唯一）、color、sort_order、created_at）、`user_favorite_group_members`（group_id、user_id、chain、address；外鍵到 `user_favorites`，取消收藏時自動移出所有群組；刪除群組不動收藏）。每人最多 20 個群組。
+- **API**（皆需登入、只看得到自己的）：`GET/POST /me/favorite-groups`、`PATCH/DELETE /me/favorite-groups/:id`、`PUT/DELETE /me/favorite-groups/:id/members/:address`（成員必須是自己的收藏，否則 404；重名 409 `group_exists`、超量 409 `group_limit`）。寫入在使用者列鎖內完成。
+- **卡片資料**：`GET /discover/cards?addresses=`（公開、最多 200 個、0 Hyperliquid weight、不快取）：候選池有數字者給全期損益／ROI／走勢、30 天損益、勝率（交易帳勝場 ÷ 已平倉筆數）、夏普、最大回撤、複製評分（`source: "pool"`）；否則用排行榜的全帳戶數字（`"leaderboard"`，無評分與風險數字，走勢改向 `/traders/sparklines` 借全期走勢）；都沒有就只有身分（`"none"`）。
+- **頁面**：未登入＝CopyDog 置中提示（書籤圖示、登入以檢視您的收藏、登入）。已登入：標題「收藏」＋分頁列（各分頁數量）；收藏分頁＝群組籤（全部／各群組含色點與數量，滑過出現 × 刪除並確認／＋新增分組就地輸入／管理群組：改名、上下移、刪除）＋探索同款卡片（網格，右上星號、名稱下群組標籤與「＋」勾選群組）或 CopyDog 的收藏表格（列表：交易員／複製評分／帳戶價值／總損益／投報率／損益(30天)／勝率／夏普值／最大回撤／損益走勢，表頭可排序，列尾 移除、鈴鐺、跟單）；手機為 CopyDog 的卡片列。提醒分頁＝右上「提醒 x / N」（達上限轉黃）與未連結時的「連接 Telegram」，已開提醒者列出摘要＋就地編輯（鈴鐺彈窗）＋刪除，其餘收藏在下方可直接開啟。跟單分頁＝空狀態說明。動態分頁＝右上「即時／連線中…」，列「{名稱} 買入/賣出 {幣種}，{金額} @ {價格}」＋時間，用 `GET /actions/stream?scope=favorites`，新列閃一下。`?tab=` 與 `?view=list` 可分享。
+
 ## 3. 洞察（`/insights`，對應 CopyDog `/hyperliquid/cohorts`）
 
 
@@ -155,6 +164,36 @@ Orbie 目前多出來的（刪除以對齊）：眉標「orbit the best traders�
 - 持倉：每個分層成員定期抓 `clearinghouseState`（所有 dex）。受 Hyperliquid 每 IP 請求額度限制，第一版每層最多 150 人、每 15 分鐘更新；要做到 CopyDog 規模需自架資料節點（見第 2 步的實測建議）。
 - 歷史：新增 `cohort_snapshots`（分層、時間、做多比例、名目多空、未實現盈虧分布），每次更新寫一筆；BTC 價格用 Hyperliquid `candleSnapshot`。
 - API：`GET /insights/cohorts/:tier`（摘要、treemap、錢包、市場）與 `GET /insights/cohorts/:tier/history?window=`，都要登記到 `wire-contracts.ts`。
+
+### 3.4 實作與成本（2026-09-30 實測）
+
+**對照 CopyDog 原始碼。** CopyDog 的 `HLCohortPage` chunk 與 `/api/hyperliquid/discover/cohorts/<tier>`：回傳 `hero`（upnlProfit／upnlLoss／upnlProfitPct／walletsInProfit／walletsInLoss／notionalLong／notionalShort／longPct）、`series`（{t, pctLong}）、`btc`（[t, 價]）、`markets`、`wallets`；多空傾向 7 級＝|做多比例 − 50| < 5 中性、< 15 略微、< 30 一般、其餘極度；treemap 取名目金額前 8 名的 squarified 版面。CopyDog 目前只開放 `extremely_profitable`（其他分層直接導回），頁面沒有分層選單；Orbie 依本節規格在標題卡右側加分層選單（七層，`?tier=`）。
+
+**分層成員。** `pnlTier`（CopyDog 的門檻：≥ $1M、$100K–$1M、> 0、= 0、> −$100K、> −$1M、其餘）套在候選池的永續全期損益上，每層取帳戶價值最大的 `discovery.cohortMembersPerTier`（預設 150）人；候選池是全期損益前 1,000 名，虧損層幾乎沒有人，所以不足的層用排行榜（全帳戶全期損益、非 Vault、30 天有交易）依帳戶價值補滿。每 `cohortRefreshMinutes`（15）重建一次。
+
+**持倉刷新。** 背景工作每分鐘最多花 `discovery.cohortWeightPerMinute`（預設 200）weight，rank 與候選池相同（頁面永遠先走）：未讀過的成員先（依分層、名次），其後最久未讀者。每人讀主 dex ＋持有或交易過的 HIP-3 dex 的 `clearinghouseState`（每個 2 weight）；第一次與之後每 24 小時掃全部 11 個 dex（22 weight），之間出現在其他 dex 的新倉位最晚一天內會被看到。失敗保留上一次快照。每個分層每 15 分鐘寫一筆 `cohort_snapshots`（做多比例、多空名目、未實現盈虧分布、錢包數），就是倉位傾向圖的資料；資料從工作啟動那一刻開始累積，沒有更早的歷史。
+
+**實測**（live Hyperliquid、測試程序 200 weight/分、與 3100 的 dev api 共用 IP；三個分層、每層 150 人、三輪、間隔 90 秒）：
+
+| 分層 | 每輪 weight | 呼叫數 | 每人 weight | 每輪時間 |
+| --- | --- | --- | --- | --- |
+| 極度盈利（候選池） | 306 | 153 | 2.0 | 50–56 秒（含 burst） |
+| 高度盈利（候選池） | 300 | 150 | 2.0 | 90 秒 |
+| 爆倉級虧損（多數為排行榜補位，預設加查 xyz） | 416 | 208 | 2.8 | 125 秒 |
+| 全 dex 掃描（第一次讀取與之後每天一次；實測極度盈利 150 人） | 3,300 | 1,650 | 22 | 763 秒（250/分） |
+
+**推算（預設 200/分）：** 穩定期一輪 7 層 × 150 人 ≈ 1,050 × 2.3 ≈ 2,400 weight ≈ 12 分鐘；每日掃描 1,050 × 22 ≈ 23,100 weight／天 ≈ 16 weight/分；合計約每 13–15 分鐘刷新每位成員一次。冷啟動第一次要全部掃描：1,050 × 22 ≈ 23,100 weight ≈ 2 小時（極度盈利先完成，約 17 分鐘）。全站預算 840/分中，候選池 240 ＋分層 200，頁面仍有 400。要達到 CopyDog 的規模（極度盈利 474 人、更多分層成員、完整歷史）需自有節點（見《Hyperliquid 節點與索引計畫》）。
+
+**端點與快取：**
+
+| 端點 | Hyperliquid weight | 快取 |
+| --- | --- | --- |
+| `GET /insights/cohorts/:tier` | 0（讀 `cohort_members`） | 每層 30 秒（程序內）；錢包算「新鮮」＝ 3 個刷新間隔（至少 1 小時）內讀過 |
+| `GET /insights/cohorts/:tier/history?window=7d\|30d\|90d\|all` | `candleSnapshot` BTC：20 ＋每 60 根 1（1h／4h／12h／1d，約 90–180 根） | K 線 10 分鐘；歷史點最多 400 個 |
+| 背景分層工作 | ≤ `cohortWeightPerMinute` | `cohort_members`、`cohort_snapshots` 持久化 |
+| `GET /kols/:address/avatar` | 0（外部：unavatar／fxtwitter，每 30 秒最多 1 次） | 版本相符 `max-age=2592000, immutable`，否則 1 小時；ETag／304；每週重抓 |
+
+**全站即時動作流**（§3.2）移到管理區「營運」（`/admin/activity`，需 `admin.access`），群體視角一併移過去；一般使用者在「收藏 → 動態」與交易者頁看動作。
 
 ## 4. 實作順序
 
@@ -187,7 +226,36 @@ Orbie 目前多出來的（刪除以對齊）：眉標「orbit the best traders�
 - 交易者頁尚未顯示 KOL 名稱與頭像（交易者頁仍用排行榜名稱），列為後續。
 
 **暫時做不到（原因）**
-- KOL 頭像：unavatar.io 匿名額度很小，本機測試很快就回 429，瀏覽器改顯示產生的頭像。需要 unavatar API key，或由 api 伺服端快取頭像（一次抓、長期保存），待決定。
+- ~~KOL 頭像~~：已於 2026-09-30 下一輪解決（api 自行快取，見 §6）。
 - 幣種榜／股票榜完整度：首次交易帳需要約 6.6 天（預設額度）才能跑完全池；期間這兩類榜人數較少（頁面顯示「探索資料建立中 x / y」）。
 - 頁尾的常見問題、X、電子郵件、TG 情報、隱私政策、使用條款：頁面／帳號尚未建立，顯示為「即將推出」；關於我們連到績效計算方法，即時動態連到洞察，Telegram 連到官方 bot。
 - App 商店徽章：Orbie 沒有 App。
+
+## 6. 驗收：KOL 頭像、收藏、洞察（2026-09-30）
+
+並排截圖（1440×900、390×844，zh-TW）存於本輪的 scratchpad `screens-stage3-favorites-insights/`，命名 `<頁面>-<copydog|orbie>-<檢視>.png`。Orbie 公開頁面來自本機 api（NODE_ENV=test、Hyperliquid 200 weight/分、dev 資料庫的排行榜／候選池／KOL 複本＋實測分層：極度盈利、高度盈利、爆倉級虧損各 150 人三輪、極度盈利全 dex 掃描）；登入後的收藏頁用 fixture 模式（`NEXT_PUBLIC_API_FIXTURES=1`、`--webpack`、`localStorage['fixture-signed-in']=1`）。每張都記錄 console error 與失敗請求：Orbie 所有頁面 0 個 console error；失敗請求只有 (1) 頁面本身的 `ERR_ABORTED`（headless 截圖在載入後結束連線，CopyDog 同樣出現）、(2) Hyperliquid 沒有圖示的幣（kPEPE、kBONK、xyz:PURRDAT 等，`ERR_BLOCKED_BY_ORB`，改用內建字形；CopyDog 同樣）、(3) 交易者頁在測試額度（200/分）下冷啟動交易帳時的 503 busy（前端依 Retry-After 重試後成功顯示；正式額度 840/分不會這麼擁擠）。
+
+**一致**
+- KOL 頭像：看板、首頁、KOL 管理頁、交易者頁都從 `/kols/:address/avatar` 讀 api 的快取（本輪實抓 14 位：unavatar 額度已用完，自動改用 fxtwitter），不再向 unavatar 或 CopyDog 熱連結；沒有快取時顯示產生的頭像。
+- 交易者頁（KOL）：桌面左欄＝頭像、KOL 名稱、𝕏 連結；手機＝頂列顯示名稱（取代地址），右上大圓顯示 KOL 頭像（CopyDog 同樣以頭像取代品牌標誌）。
+- 收藏未登入：書籤圖示、「登入以檢視您的收藏」、「儲存您喜愛的交易員，即時追蹤其表現」、寬的登入按鈕，置中（桌面與手機）。
+- 收藏已登入：分頁與文字取自 CopyDog 語系檔（收藏／提醒／跟單／動態）；群組籤（全部＋數量、色點群組＋數量、滑過 × 刪除並確認「群組中的交易員不會從您的關注清單中移除」、＋新增分組就地輸入）；列表欄位與 CopyDog 收藏表格相同（交易員＋群組標籤與＋／複製評分／帳戶價值／總損益／投報率／損益(30天)／勝率／夏普值／最大回撤／損益走勢／移除・鈴鐺・跟單）；提醒分頁右上「提醒 x / N」與「連接 Telegram」；動態列「{名稱} 買入/賣出 {幣種}，{金額} @ {價格}」＋時間、右上「即時／連線中…」；手機為卡片列。
+- 洞察：標題卡＋Hyperliquid 字標（手機在標題上方）、未實現盈虧與名目金額兩張長條卡（左右百分比、人數比例、金額）、「{分層} 倉位傾向」面積圖（做多綠在線下、做空紅在線上、線在 50% 上下換色、BTC 灰線、7D/30D/90D/ALL、左上「ALL - 略微看空 / 39.2% 做多」、滑鼠讀值）、各市場持倉方向 treemap（名目前 8、squarified、多空色深淺、幣種＋「57% 做空」＋小長條）、錢包分頁（地址／交易資產／盈虧／報酬率／永續權益／跟單評分「85 ▬」／部位價值／槓桿／未實現盈虧／多空傾向 7 級＋箭頭，表頭可排序，表格在卡片內捲動）、市場分頁（全部／加密貨幣／傳統金融；情緒、名目金額多 vs 空、交易員多 vs 空、未實現盈虧獲利 vs 虧損人數）。載入骨架、空分層提示、錯誤＋重試、中英文字串。
+
+**不同（原因）**
+- 配色：做多／獲利用 Orbie 綠、做空／虧損用紅（CopyDog 為螢光綠）；主按鈕與作用中分頁用 Orbie 橘。
+- 洞察多了分層選單：CopyDog 目前只開放「極度盈利」（其他分層在它的程式裡直接導回），Orbie 依 §3 規格提供七層（`?tier=`）；「持平」只收全期損益剛好 $0 的帳戶。
+- 洞察的數字與 CopyDog 不同：成員不同（Orbie 為候選池／排行榜依帳戶價值前 150 人，CopyDog 極度盈利 316 人、278 個有快照），本輪實測極度盈利 39.2% 做多、CopyDog 69.3%。
+- 倉位傾向歷史：Orbie 從分層工作啟動才開始累積（截圖時約 30 分鐘、5 個點，所以圖幾乎是一條線）；CopyDog 從 2026-03-14 起每小時一點。
+- 收藏多了第四個分頁「跟單」（規格要求；CopyDog 現行版只在語系檔有這個字）與「管理群組」對話框（改名、上下移、刪除）；CopyDog 以每列的「＋」管理群組，Orbie 兩者都有。
+- 收藏網格用探索卡片（規格要求），CopyDog 桌面只有表格；列表檢視即 CopyDog 的表格。
+- 提醒分頁：Orbie 沿用現有的 Telegram 提醒（每位收藏交易員一組 買入／賣出／兩者＋最小金額），就地用鈴鐺彈窗編輯；未開提醒的收藏列在「其他收藏的交易員」可直接開啟。CopyDog 另有「新增提醒」對話框與群組提醒（Pro 方案），Orbie 沒有方案制。
+- 交易者頁桌面左欄：驗證標章疊在頭像右下角、𝕏 放在地址旁（左欄寬度放不下「名稱＋標章＋𝕏＋三個按鈕」；CopyDog 沒有標章與鈴鐺）。
+- 全站即時動作流移到管理區「營運」（§3.2），洞察頁不再有。
+
+**暫時做不到（原因）**
+- CopyDog 已登入的收藏頁無法截圖（沒有 CopyDog 帳號）；版面依其原始碼（`index-C5ZUTtKg.js`）與語系檔還原，Orbie 登入後的截圖來自 fixture 資料。
+- fixture 模式沒有 SSE，所以動態分頁顯示「連線中…」；正式環境走 `GET /actions/stream?scope=favorites`。
+- 洞察的規模與歷史長度：受 Hyperliquid 公開 API 額度限制（見 §3.4），要到 CopyDog 的規模需自有節點。
+- 候選池外、排行榜也沒有的收藏交易員：卡片只有身分，沒有複製評分與風險數字（`source: "none"`）；候選池外但在排行榜上的，數字來自排行榜的全帳戶數字。
+- unavatar 匿名額度每 IP 每天 25 次：已用 fxtwitter 備援；兩者都失敗的 KOL 一天後重試，期間顯示產生的頭像。

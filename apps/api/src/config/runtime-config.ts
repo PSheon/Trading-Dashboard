@@ -36,6 +36,23 @@ function walletNetwork(source: Environment) {
   };
 }
 
+/**
+ * COPY_TRADING_MODE is the deployment's copy capability (review #11):
+ * `paper` (default: virtual balances, simulated fills) or `disabled`.
+ * `testnet` and `live` need signing, nonces and reconciliation that this
+ * build doesn't have, so they are refused at startup rather than silently
+ * running as paper; no admin setting can switch a deployment to live.
+ */
+function copyTrading(source: Environment) {
+  const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
+  if (mode === "testnet" || mode === "live") throw new Error(`COPY_TRADING_MODE=${mode} is not available in this build (paper only)`);
+  if (mode !== "paper" && mode !== "disabled") throw new Error("COPY_TRADING_MODE must be paper or disabled");
+  return {
+    mode: mode as "paper" | "disabled",
+    workerIntervalMs: integerValue("COPY_WORKER_INTERVAL_MS", source.COPY_WORKER_INTERVAL_MS, 2000, 250, 60_000),
+  };
+}
+
 function productionSecret(key: string, value: string | undefined, production: boolean): void {
   if (!production || value === undefined) return;
   if (value.trim().length < 32 || /change[-_ ]?me|your[-_ ]?secret|replace[-_ ]?with|example|placeholder/i.test(value)) {
@@ -113,6 +130,6 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source) };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

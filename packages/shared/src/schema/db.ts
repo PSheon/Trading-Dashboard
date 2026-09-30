@@ -948,7 +948,7 @@ export const copySignalOutbox = pgTable("copy_signal_outbox", {
  * row is done, advanced in the same transaction that marks rows done. */
 export const copyConsumerCheckpoints = pgTable("copy_consumer_checkpoints", {
   consumer: text("consumer").primaryKey(),
-  lastOutboxId: bigint("last_outbox_id", { mode: "bigint" }).notNull().default(0n),
+  lastOutboxId: bigint("last_outbox_id", { mode: "bigint" }).notNull().default(sql`0`),
   processed: bigint("processed", { mode: "number" }).notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

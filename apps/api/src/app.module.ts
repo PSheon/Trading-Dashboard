@@ -20,6 +20,7 @@ import { TelegramModule } from "./telegram/telegram.module.js";
 import { TradersModule } from "./traders/traders.module.js";
 import { UsersModule } from "./users/users.module.js";
 import { WalletModule } from "./wallet/wallet.module.js";
+import { CopyModule } from "./copy/copy.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
 
 @Module({
@@ -41,6 +42,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     NotifyModule,
     UsersModule,
     WalletModule,
+    CopyModule,
     TelegramModule,
     TradersModule,
     TradersWorkerModule,

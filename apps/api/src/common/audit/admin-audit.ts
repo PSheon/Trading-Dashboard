@@ -6,7 +6,7 @@ export type AuditActor = RequestUser | number | null;
 /** Records only caller-selected policy fields, never headers/tokens or full
  * request bodies. Await inside the business transaction; failures roll it back. */
 export async function recordAdminAudit(tx: DbTransaction, actor: AuditActor,
-  event: "user.update" | "user.delete" | "settings.update" | "rule.create" | "rule.update" | "leader.update" | "list.import" | "kol.upsert" | "kol.delete" | "kol.import",
+  event: "user.update" | "user.delete" | "settings.update" | "rule.create" | "rule.update" | "leader.update" | "list.import" | "kol.upsert" | "kol.delete" | "kol.import" | "copy.control" | "copy.risk",
   target: string, before: unknown, after: unknown) {
   const actorKind = typeof actor === "number" || actor?.kind === "user" ? "user" : actor?.kind === "service" ? "service" : "system";
   const actorUserId = typeof actor === "number" ? actor : actor?.kind === "user" ? actor.id : null;

@@ -15,5 +15,6 @@ export function testConfig(): AppConfig {
     hyperliquid: { apiUrl: env.hyperliquidApiUrl(), wsUrl: env.hyperliquidWsUrl(), budgetPerMin: env.hyperliquidWeightBudgetPerMin(), burst: getIntEnv("HYPERLIQUID_WEIGHT_BURST", 200, 1, 1200),
       wallet: { network: "testnet" as const, infoUrl: "https://api.hyperliquid-testnet.xyz/info", arbitrumRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" } },
     alert: { maxActionAgeSeconds: env.alertMaxActionAgeSeconds() },
+    copy: { mode: (process.env.COPY_TRADING_MODE === "disabled" ? "disabled" : "paper") as "paper" | "disabled", workerIntervalMs: 2000 },
   }; } };
 }

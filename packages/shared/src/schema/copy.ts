@@ -22,8 +22,30 @@ import {
   copyTradingModeEnum,
 } from "../enums.js";
 
-const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+/** Leader addresses are compared and stored lower-case everywhere (dedupe,
+ * one live copy per leader, signal matching, DB uniqueness). */
+const address = z.string().trim().regex(/^0x[0-9a-fA-F]{40}$/).transform((v) => v.toLowerCase());
 const usd = z.number().finite();
+/** A USDC amount a user or admin types: at most 6 decimals (USDC's own
+ * precision), so what is validated is exactly what is stored. */
+const usdAmount = z.number().finite().refine((v) => Number(v.toFixed(6)) === v, "At most 6 decimals");
+
+/**
+ * The one comparison key of a Hyperliquid perp name, used when an admin saves
+ * a coin list and when a signal is checked against it. Hyperliquid names are
+ * case-sensitive in spelling (`kPEPE`) but never differ only by case, so the
+ * key is case-insensitive; a HIP-3 name keeps its `dex:` prefix.
+ */
+export function coinKey(coin: string): string {
+  return coin.trim().toLowerCase();
+}
+
+/** The dex of a perp name: "" for the main dex, else the HIP-3 prefix
+ * ("xyz" for "xyz:TSLA"), exactly as fills and positions name them. */
+export function coinDex(coin: string): string {
+  const i = coin.indexOf(":");
+  return i < 0 ? "" : coin.slice(0, i).trim().toLowerCase();
+}
 
 export const copyDirectionSchema = z.enum(copyDirectionEnum);
 export const copySizingModeSchema = z.enum(copySizingModeEnum);
@@ -67,9 +89,18 @@ export const copyRiskLimitsSchema = z.object({
   maxOrdersPerMinute: z.number().int().min(1).max(1_000).default(30),
   /** HIP-3 builder-dex markets (`xyz:TSLA`). Off: only the main perp dex is copied. */
   allowHip3: z.boolean().default(false),
-  /** Coins never copied (upper case, as Hyperliquid names them). */
-  blockedCoins: z.array(z.string().trim().min(1).max(32)).max(200).default([]),
-}).strict();
+  /** Coins never copied. Matched with {@link coinKey}; the admin service
+   * stores each entry in Hyperliquid's own spelling and rejects unknown names. */
+  blockedCoins: z.array(z.string().trim().min(1).max(40).regex(/^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$/, "A Hyperliquid perp name, e.g. BTC, kPEPE or xyz:TSLA"))
+    .max(200).default([])
+    .transform((list) => [...new Map(list.map((c) => [coinKey(c), c.trim()])).values()]),
+}).strict().superRefine((v, ctx) => {
+  // Reject a policy no order could ever satisfy.
+  if (v.minAllocationUsd > v.maxAllocationUsd) ctx.addIssue({ code: "custom", path: ["minAllocationUsd"], message: "Must not exceed maxAllocationUsd" });
+  if (v.minOrderNotionalUsd > v.maxOrderNotionalUsd) ctx.addIssue({ code: "custom", path: ["minOrderNotionalUsd"], message: "Must not exceed maxOrderNotionalUsd" });
+  if (v.maxCoinExposureUsd > v.maxUserExposureUsd) ctx.addIssue({ code: "custom", path: ["maxCoinExposureUsd"], message: "Must not exceed maxUserExposureUsd" });
+  if (v.minOrderNotionalUsd > v.maxCoinExposureUsd) ctx.addIssue({ code: "custom", path: ["minOrderNotionalUsd"], message: "Must not exceed maxCoinExposureUsd" });
+});
 export type CopyRiskLimits = z.infer<typeof copyRiskLimitsSchema>;
 export const DEFAULT_COPY_RISK_LIMITS: CopyRiskLimits = copyRiskLimitsSchema.parse({});
 
@@ -87,10 +118,10 @@ export type CopyStrategySettings = z.infer<typeof copyStrategySettingsSchema>;
 export const createCopyStrategyRequestSchema = z.object({
   leader: address,
   direction: copyDirectionSchema.default("same"),
-  allocationUsd: usd.positive(),
+  allocationUsd: usdAmount.pipe(z.number().positive()),
   sizingMode: copySizingModeSchema.default("ratio"),
-  perTradeUsd: usd.positive().nullable().default(null),
-  maxTotalExposureUsd: usd.positive().nullable().default(null),
+  perTradeUsd: usdAmount.pipe(z.number().positive()).nullable().default(null),
+  maxTotalExposureUsd: usdAmount.pipe(z.number().positive()).nullable().default(null),
   maxLeverage: usd.min(1).max(50).nullable().default(null),
   copyStartMode: copyStartModeSchema.default("adopt"),
 }).strict();
@@ -99,14 +130,14 @@ export type CreateCopyStrategyRequest = z.infer<typeof createCopyStrategyRequest
 /** PATCH /me/copy/strategies/:id — CopyDog's 跟單交易設定 (edit) dialog: a new strategy version. */
 export const patchCopyStrategyRequestSchema = z.object({
   sizingMode: copySizingModeSchema.optional(),
-  perTradeUsd: usd.positive().nullable().optional(),
-  maxTotalExposureUsd: usd.positive().nullable().optional(),
+  perTradeUsd: usdAmount.pipe(z.number().positive()).nullable().optional(),
+  maxTotalExposureUsd: usdAmount.pipe(z.number().positive()).nullable().optional(),
   maxLeverage: usd.min(1).max(50).nullable().optional(),
 }).strict().refine((v) => Object.keys(v).length > 0, "Empty patch");
 export type PatchCopyStrategyRequest = z.infer<typeof patchCopyStrategyRequestSchema>;
 
 /** POST /me/copy/strategies/:id/funds — CopyDog's 加碼. */
-export const addCopyFundsRequestSchema = z.object({ amountUsd: usd.positive() }).strict();
+export const addCopyFundsRequestSchema = z.object({ amountUsd: usdAmount.pipe(z.number().positive()) }).strict();
 export type AddCopyFundsRequest = z.infer<typeof addCopyFundsRequestSchema>;
 
 /** The owner's commands on one strategy. pause = pause_new_risk; stop =
@@ -219,13 +250,18 @@ export type CopyOrdersResponse = z.infer<typeof copyOrdersResponseSchema>;
 /** POST /admin/copy/controls — a stop / resume command at platform or user
  * level. `expectedRevision` must equal the scope's current revision (409
  * otherwise), so a stale screen can't undo a newer command. */
-export const adminCopyControlRequestSchema = z.object({
-  scope: z.enum(["platform", "user"]),
-  userId: z.number().int().positive().nullable().default(null),
+const controlCommon = {
   command: copyControlCommandSchema,
   reason: z.string().trim().min(3).max(500),
   expectedRevision: z.number().int().min(0),
-}).strict();
+};
+/** The target is exactly one of: the platform (no userId), or one user
+ * (userId required). Authorization and the command act on this parsed
+ * target only. */
+export const adminCopyControlRequestSchema = z.discriminatedUnion("scope", [
+  z.object({ scope: z.literal("platform"), ...controlCommon }).strict(),
+  z.object({ scope: z.literal("user"), userId: z.number().int().positive().max(2_147_483_647), ...controlCommon }).strict(),
+]);
 export type AdminCopyControlRequest = z.infer<typeof adminCopyControlRequestSchema>;
 
 export const copyControlEventSchema = z.object({

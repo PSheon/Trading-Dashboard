@@ -29,6 +29,10 @@ const rewardPair = z.tuple([integer, rewards]);
 const tokenRewards = z.union([list(rewardPair), rewardPair.transform(pair => [pair])]);
 const schemas = {
   meta: z.object({ universe: list(z.object({ name, szDecimals: integer, maxLeverage: z.number().finite().positive() }).passthrough()) }).passthrough(),
+  metaAndAssetCtxs: z.tuple([
+    z.object({ universe: list(z.object({ name, szDecimals: integer, maxLeverage: z.number().finite().positive() }).passthrough()) }).passthrough(),
+    list(z.object({ funding: decimal, markPx: decimal, midPx: decimal.nullable().optional(), oraclePx: decimal, openInterest: decimal }).passthrough()),
+  ]),
   perpDexs: list(z.object({ name }).passthrough().nullable()),
   clearinghouseState: z.object({
     assetPositions: list(z.object({ position: z.object({

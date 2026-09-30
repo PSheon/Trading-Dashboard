@@ -8,6 +8,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
   HlAllMidsResponse,
+  HlMetaAndAssetCtxsResponse,
   HlClearinghouseStateResponse,
   HlDelegatorSummary,
   HlFrontendOpenOrder,
@@ -34,6 +35,8 @@ const WEIGHT_CLEARINGHOUSE_STATE = 2;
 const WEIGHT_USER_FILLS_BY_TIME_BASE = 20;
 const WEIGHT_META = 20;
 const WEIGHT_PERP_DEXS = 20;
+/** Not in the weight-2 list, so 20. */
+const WEIGHT_META_AND_ASSET_CTXS = 20;
 /** In the docs' weight-2 list with clearinghouseState (rate-limits-and-user-limits). */
 const WEIGHT_ALL_MIDS = 2;
 const WEIGHT_PORTFOLIO = 20;
@@ -321,6 +324,12 @@ export class HyperliquidInfoClient {
 
   /** Mid prices for every main-dex perp and spot pair ("@107", "#123"
    * outcomes), used for alert scoring (N3) and outcome-token values. */
+  /** Main-dex perp universe (sizes, leverage) with each asset's mark, mid,
+   * oracle price and current hourly funding rate. Weight 20. */
+  metaAndAssetCtxs(priority: RequestPriority = "background", rank?: number): Promise<HlMetaAndAssetCtxsResponse> {
+    return this.post<HlMetaAndAssetCtxsResponse>({ type: "metaAndAssetCtxs" }, WEIGHT_META_AND_ASSET_CTXS, priority, rank);
+  }
+
   allMids(priority: RequestPriority = "background", rank?: number): Promise<HlAllMidsResponse> {
     return this.post<HlAllMidsResponse>({ type: "allMids" }, WEIGHT_ALL_MIDS, priority, rank);
   }

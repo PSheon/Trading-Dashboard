@@ -22,6 +22,17 @@ export interface HlMetaResponse {
   universe: HlMetaUniverseAsset[];
 }
 
+/** One `metaAndAssetCtxs` context, index-aligned with `universe`.
+ * `funding` is the current hourly funding rate. */
+export interface HlPerpAssetCtx {
+  funding: string;
+  markPx: string;
+  midPx?: string | null;
+  oraclePx: string;
+  openInterest: string;
+}
+export type HlMetaAndAssetCtxsResponse = [HlMetaResponse, HlPerpAssetCtx[]];
+
 export interface HlAssetPosition {
   position: {
     coin: string;
@@ -194,6 +205,7 @@ export type HlInfoRequestBody =
       endTime?: number;
     }
   | { type: "allMids" }
+  | { type: "metaAndAssetCtxs" }
   | { type: "spotClearinghouseState"; user: string }
   | { type: "spotMetaAndAssetCtxs" }
   | { type: "userAbstraction"; user: string }

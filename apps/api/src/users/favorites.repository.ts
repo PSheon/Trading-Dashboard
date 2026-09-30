@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, count, desc, eq, sql } from "drizzle-orm";
-import { leaders, notificationChannels, traderStats, userFavorites, users } from "@trading-dashboard/shared/database";
+import { copyStrategies, leaders, notificationChannels, traderStats, userFavorites, users } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -52,7 +52,9 @@ export class FavoritesRepository {
     const removed = await tx.delete(userFavorites).where(this.owned(userId, address)).returning({ address: userFavorites.address });
     await tx.select({ address: leaders.address }).from(leaders).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).for("update");
     await tx.update(leaders).set({ active: false }).where(and(eq(leaders.chain, chain), eq(leaders.address, address), eq(leaders.source, "favorite"),
-      sql`not exists (select 1 from ${userFavorites} where ${userFavorites.chain} = ${chain} and ${userFavorites.address} = ${address})`));
+      sql`not exists (select 1 from ${userFavorites} where ${userFavorites.chain} = ${chain} and ${userFavorites.address} = ${address})`,
+      // A leader someone is copying stays watched: its fills are copy signals.
+      sql`not exists (select 1 from ${copyStrategies} where ${copyStrategies.chain} = ${chain} and ${copyStrategies.leaderAddress} = ${address} and ${copyStrategies.status} <> 'stopped')`));
     return removed.length > 0;
   }
 }

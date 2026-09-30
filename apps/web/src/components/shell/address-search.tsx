@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, X } from "lucide-react";
+import { ArrowLeft, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
@@ -55,7 +55,9 @@ function useDebounced(value: string, ms: number): string {
  * traders (avatar, name with the match lit, short address, all-time PnL and
  * ROI); nothing opens on an empty focus. ↑/↓ move, Enter opens the
  * highlighted trader (a full 0x address opens directly; any other text with
- * no match goes to the full leaderboard's search), Esc closes.
+ * no match goes to the full leaderboard's search), Esc closes. On a phone
+ * the search takes the whole screen while open (back arrow, field, then
+ * name + full address rows), as CopyDog's app-style search does.
  */
 export function AddressSearch() {
   const t = useT();
@@ -140,9 +142,32 @@ export function AddressSearch() {
   }
 
   const optionId = (i: number) => `${listId}-${i}`;
+  // Phones: a full-screen search while it's open.
+  const overlay = wide === false && open;
+  const close = () => {
+    setOpen(false);
+    inputRef.current?.blur();
+  };
 
   return (
-    <form ref={rootRef} role="search" onSubmit={submit} className="relative w-full max-w-[460px]">
+    <form
+      ref={rootRef}
+      role="search"
+      onSubmit={submit}
+      className={overlay ? "fixed inset-0 z-[60] flex flex-col bg-background px-3 pt-2.5" : "relative w-full max-w-[460px]"}
+    >
+      <div className="flex items-center gap-1.5">
+      {overlay ? (
+        <button
+          type="button"
+          aria-label={t("settings.back")}
+          onClick={close}
+          className="flex size-10 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ArrowLeft className="size-5" />
+        </button>
+      ) : null}
+      <div className="relative min-w-0 flex-1">
       <Search
         aria-hidden
         className="pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-muted-foreground"
@@ -189,6 +214,8 @@ export function AddressSearch() {
           <X className="size-4" />
         </button>
       ) : null}
+      </div>
+      </div>
       {invalid ? (
         <p
           id={hintId}
@@ -203,7 +230,11 @@ export function AddressSearch() {
           id={listId}
           role="listbox"
           aria-label={t("topbar.searchResults")}
-          className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-border bg-popover py-1.5 shadow-2xl"
+          className={
+            overlay
+              ? "mt-2 min-h-0 flex-1 overflow-y-auto"
+              : "absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-border bg-popover py-1.5 shadow-2xl"
+          }
         >
           {rows.length === 0 ? (
             <div className="px-4 py-3">
@@ -214,6 +245,27 @@ export function AddressSearch() {
             rows.map((row, i) => {
               const direct = "direct" in row;
               const name = direct ? null : row.displayName?.trim() || null;
+              if (overlay) {
+                // CopyDog's phone list: the name, then the whole address.
+                return (
+                  <div
+                    key={row.address}
+                    id={optionId(i)}
+                    role="option"
+                    aria-selected={i === active}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      go(row.address);
+                    }}
+                    className={cn("cursor-pointer rounded-xl px-2 py-2.5", i === active && "bg-raised/60")}
+                  >
+                    <p className="truncate text-[0.9375rem] font-semibold">
+                      {direct ? t("topbar.searchOpenAddress") : name ? <Highlighted text={name} query={trimmed} /> : truncateAddress(row.address)}
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{row.address}</p>
+                  </div>
+                );
+              }
               return (
                 <div
                   key={row.address}

@@ -14,8 +14,7 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
@@ -117,7 +116,6 @@ export function BoardsView() {
   }
 
   const sortLabel = (s: BoardSort) => t(`discover.sort.${s}`);
-  const styleLabel = (s: TradingStyle | "any") => t(`discover.style.${s}`);
 
   return (
     <div className="flex flex-col gap-4 md:gap-5">
@@ -141,10 +139,10 @@ export function BoardsView() {
         <AssetSwitch value={market} onChange={switchMarket} />
         <div className="hidden flex-wrap items-center gap-2 md:flex">
           <PillMenu
-            label={style === "any" ? t("discover.styleLabel") : styleLabel(style)}
+            label={style === "any" ? t("discover.styleLabel") : STYLE_MENU[style]}
             active={style !== "any"}
             value={style}
-            options={STYLES.map((s) => ({ value: s, label: styleLabel(s) }))}
+            options={STYLES.map((s) => ({ value: s, label: STYLE_MENU[s] }))}
             onChange={(v) => setStyle(v as TradingStyle | "any")}
           />
           <PillMenu
@@ -327,29 +325,39 @@ function PillMenu({ label, value, options, onChange, active = false, strong = fa
   active?: boolean;
   strong?: boolean;
 }) {
+  // CopyDog's pill menus: the list drops from the pill's left edge at least
+  // as wide as the pill, the current choice in the accent colour, and the
+  // chevron turns while it's open.
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "flex h-11 items-center gap-1.5 rounded-full bg-raised px-4 text-sm outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
+          "group flex h-11 items-center gap-1.5 rounded-full bg-raised px-4 text-sm outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
           strong || active ? "font-bold text-foreground" : "font-semibold text-subtle-foreground",
         )}
       >
         {label}
-        <ChevronDown className="size-3.5" />
+        <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
-        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
-          {options.map((o) => (
-            <DropdownMenuRadioItem key={o.value} value={o.value}>
-              {o.label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+      <DropdownMenuContent align="start" className="min-w-[var(--radix-dropdown-menu-trigger-width)]">
+        {options.map((o) => (
+          <DropdownMenuItem
+            key={o.value}
+            onSelect={() => onChange(o.value)}
+            aria-current={o.value === value ? "true" : undefined}
+            className={cn("text-[0.8125rem]", o.value === value ? "font-bold text-primary" : "font-medium")}
+          >
+            {o.label}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+
+/** CopyDog's desktop Style menu is in English in every language (its phone
+ * filter sheet translates the same choices). */
+const STYLE_MENU: Record<TradingStyle | "any", string> = { any: "All styles", scalp: "Scalp", intraday: "Intraday", swing: "Swing", position: "Position" };
 
 /** Desktop list (CopyDog's table): trader, copy score, assets, PnL, ROI,
  * equity; sortable where the board allows. */

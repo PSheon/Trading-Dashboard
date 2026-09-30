@@ -10,7 +10,8 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import type { BoardTrader } from "@/lib/contracts";
 import { apiAssetUrl } from "@/lib/api";
-import { truncateAddress } from "@/lib/format";
+import { Tooltip } from "@/components/ui/tooltip";
+import { coinLabel, truncateAddress } from "@/lib/format";
 
 /** A KOL's picture (the api's cached copy of its 𝕏 avatar), else — and
  * when the image fails — the generated planet avatar. */
@@ -64,11 +65,13 @@ export function XProfileLink({ handle, className }: { handle: string; className?
 export function CoinStack({ coins, size = 14, className, dash = false }: { coins: string[]; size?: number; className?: string; dash?: boolean }) {
   if (coins.length === 0) return dash ? <span className="text-subtle-foreground">—</span> : null;
   return (
-    <span className={cn("inline-flex items-center", className)} title={coins.join(", ")}>
+    <span className={cn("inline-flex items-center", className)} aria-label={coins.join(", ")}>
       {coins.slice(0, 5).map((coin, i) => (
-        <span key={coin} className="rounded-full ring-2 ring-card" style={{ marginLeft: i === 0 ? 0 : -size * 0.28, zIndex: 5 - i }}>
-          <CoinIcon coin={coin} size={size} />
-        </span>
+        <Tooltip key={coin} content={coinLabel(coin)} side="top" variant="chip">
+          <span className="rounded-full ring-2 ring-card" style={{ marginLeft: i === 0 ? 0 : -size * 0.28, zIndex: 5 - i }}>
+            <CoinIcon coin={coin} size={size} />
+          </span>
+        </Tooltip>
       ))}
     </span>
   );

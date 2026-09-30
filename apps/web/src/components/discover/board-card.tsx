@@ -13,6 +13,11 @@ import { BoardSparkline, boardName, CoinStack, CopyScoreBar, signTone, TraderAva
 
 const traderHref = (address: string) => `/trader/${address}`;
 
+/** CopyDog's last-trade chip reads "Oct 1, 01:44" in every language. */
+function lastTradeStamp(at: string): string {
+  return new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
 /** Explore grid card (CopyDog's hl-card): identity and coins, last trade,
  * PnL and ROI beside the sparkline, copy score and 跟單. */
 export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory, tags }: {
@@ -27,13 +32,13 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   /** Under the coins (favorites: group tags). */
   tags?: React.ReactNode;
 }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const router = useRouter();
   const ago = agoShort(trader.lastTradeAt, now);
   return (
     <Link
       href={traderHref(trader.address)}
-      className="ui-lift group flex min-w-0 flex-col gap-3 rounded-2xl border border-border bg-card p-4 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring"
+      className="ui-lift group flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex min-w-0 items-start gap-2.5">
         <TraderAvatar trader={trader} size={40} />
@@ -46,24 +51,24 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
           {tags}
         </div>
         {ago ? (
-          <span
-            className="num flex shrink-0 items-center gap-1 text-[0.6875rem] font-medium tracking-wide text-subtle-foreground uppercase"
-            title={`${t("discover.lastTrade")} · ${trader.lastTradeAt ? format.dateTime(trader.lastTradeAt) : ""}`}
-          >
-            <Clock3 className="size-3" aria-hidden />
-            {ago}
-          </span>
+          <Tooltip variant="chip" side="top" content={`${t("discover.lastTrade")} · ${trader.lastTradeAt ? lastTradeStamp(trader.lastTradeAt) : ""}`}>
+            <span className="num flex shrink-0 items-center gap-1 text-[0.6875rem] font-medium tracking-wide text-subtle-foreground uppercase">
+              <Clock3 className="size-3" aria-hidden />
+              {ago}
+            </span>
+          </Tooltip>
         ) : null}
         {accessory}
       </div>
       <div className="flex min-w-0 items-end gap-3">
         <div className="flex min-w-0 shrink-0 flex-col gap-3">
           <div>
-            <div className={cn("num text-lg leading-tight font-bold", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</div>
+            {/* CopyDog prints the card's PnL in white and colours only the ROI. */}
+            <div className="num text-[1.0625rem] leading-tight font-extrabold text-foreground">{boardPnl(trader.pnl)}</div>
             <div className="text-[0.6875rem] text-subtle-foreground">{pnlLabel}</div>
           </div>
           <div>
-            <div className={cn("num text-base leading-tight font-bold", signTone(trader.roi))}>{boardRoi(trader.roi)}</div>
+            <div className={cn("num text-[1.0625rem] leading-tight font-bold", signTone(trader.roi))}>{boardRoi(trader.roi)}</div>
             {roiHint ? (
               <Tooltip content={roiHint}>
                 <span tabIndex={0} className="cursor-help text-[0.6875rem] text-subtle-foreground underline decoration-dotted underline-offset-2 outline-none">
@@ -75,7 +80,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
             )}
           </div>
         </div>
-        <BoardSparkline values={trader.sparkline} height={82} className="min-w-0 flex-1" />
+        <BoardSparkline values={trader.sparkline} height={90} className="min-w-0 flex-1" />
       </div>
       <div className="flex items-center justify-between gap-2">
         <CopyScoreBar score={trader.copyScore} />
@@ -86,7 +91,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
             e.stopPropagation();
             router.push(`${traderHref(trader.address)}#copy-amount`);
           }}
-          className="h-8 rounded-full bg-primary px-3.5 text-[0.8125rem] font-bold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-[34px] rounded-full bg-primary px-[11px] text-[0.8125rem] font-semibold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("discover.copy")}
         </button>
@@ -97,7 +102,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
 
 export function BoardCardSkeleton() {
   return (
-    <div aria-hidden="true" className="ui-skeleton flex h-[226px] flex-col gap-4 rounded-2xl border border-border bg-card p-4">
+    <div aria-hidden="true" className="ui-skeleton flex h-[214px] flex-col gap-4 rounded-xl border border-border bg-card px-4 py-3">
       <div className="flex items-center gap-2.5"><div className="size-10 rounded-full bg-raised" /><div className="h-3 w-24 rounded bg-raised" /></div>
       <div className="flex flex-1 items-end gap-4"><div className="h-16 w-16 rounded-lg bg-raised" /><div className="h-20 flex-1 rounded-lg bg-raised/60" /></div>
       <div className="flex justify-between"><div className="h-5 w-20 rounded bg-raised" /><div className="h-8 w-16 rounded-full bg-raised" /></div>

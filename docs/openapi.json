@@ -12376,6 +12376,349 @@
         "x-required-roles": [],
         "description": "Access: user"
       }
+    },
+    "/me/wallet": {
+      "get": {
+        "operationId": "WalletController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "mainnet",
+                            "testnet"
+                          ]
+                        },
+                        "address": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "hyperliquid": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "perpValue": {
+                                  "type": "number"
+                                },
+                                "withdrawable": {
+                                  "type": "number"
+                                },
+                                "spotUsdc": {
+                                  "type": "number"
+                                },
+                                "spotUsdcHold": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "perpValue",
+                                "withdrawable",
+                                "spotUsdc",
+                                "spotUsdcHold"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "arbitrum": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "usdc": {
+                                  "type": "number"
+                                },
+                                "eth": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "usdc",
+                                "eth"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "totalValue": {
+                          "type": "number"
+                        },
+                        "fetchedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "network",
+                        "address",
+                        "hyperliquid",
+                        "arbitrum",
+                        "totalValue",
+                        "fetchedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get my wallet",
+        "tags": [
+          "Wallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user; 503 busy"
+      }
+    },
+    "/me/wallet/history": {
+      "get": {
+        "operationId": "WalletController_history",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "transfers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "time": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "hash": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "deposit",
+                                  "withdraw",
+                                  "sent",
+                                  "received",
+                                  "generic",
+                                  "toHyperEvm",
+                                  "toPerp",
+                                  "fromPerp",
+                                  "toSubaccount",
+                                  "vaultDeposit",
+                                  "vaultWithdraw",
+                                  "vaultCreate",
+                                  "vaultDistribution",
+                                  "commission",
+                                  "staked",
+                                  "unstaked",
+                                  "genesis",
+                                  "rewards",
+                                  "liquidated",
+                                  "delegationSent",
+                                  "delegationReceived",
+                                  "dexAbstraction"
+                                ]
+                              },
+                              "direction": {
+                                "type": "string",
+                                "enum": [
+                                  "in",
+                                  "out",
+                                  "move"
+                                ]
+                              },
+                              "token": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "number"
+                              },
+                              "usd": {
+                                "type": "boolean"
+                              },
+                              "from": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "to": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "time",
+                              "hash",
+                              "kind",
+                              "direction",
+                              "token",
+                              "amount",
+                              "usd",
+                              "from",
+                              "to"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "truncated": {
+                          "type": "boolean"
+                        },
+                        "fetchedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "mainnet",
+                            "testnet"
+                          ]
+                        },
+                        "address": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "transfers",
+                        "from",
+                        "truncated",
+                        "fetchedAt",
+                        "network",
+                        "address"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get my wallet history",
+        "tags": [
+          "Wallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user; 503 busy"
+      }
     }
   },
   "info": {

@@ -64,7 +64,8 @@ import { createAuthedApp } from "./auth-test-utils.js";
 it("real signed Privy tokens resolve database RBAC through the HTTP guards", async () => {
   const db = getTestDb();
   await truncateAll(db);
-  await db.insert(users).values({ privyUserId: did, email: "local@example.com", role: "user" });
+  // A complete profile (email + embedded wallet): nothing to backfill from Privy.
+  await db.insert(users).values({ privyUserId: did, email: "local@example.com", embeddedWalletAddress: "0x" + "5d".repeat(20), role: "user" });
   @SkipTransform() @Controller("sdk-probe") class Probe {
     @RequirePermissions("users.manage") @Get() read() { return { ok: true }; }
   }

@@ -132,9 +132,11 @@ CopyDog 匯出私鑰頁寫明：「私鑰是控制你主帳戶的安全密碼，
   - 手機：自己的標題列（投資組合、鈴鐺、齒輪；不顯示共用頂欄），總價值與展開箭頭，儲值／提款，Copying／Insights／Exposure 分頁。Insights 與 Exposure 在跟單上線前是空狀態。
   - 未登入：桌面照 CopyDog 桌面版；手機保留標題列，顯示餅圖、登入以查看你的投資組合、登入。
 - 頂欄：登入後顯示餘額膠囊（現金圖示＋總價值＋儲值）與頭像字母按鈕；頭像選單有投資組合、設定、管理（限管理員）、登出。未登入時維持語言＋登入。
-- Privy 登入視窗：`appearance.logo` 改用 Orbie lockup 元件（在同一個 document 裡渲染，字型保留 Fredoka），拿掉 `landingHeader`，標題回到 Privy 預設的「Log in or sign up」，與 CopyDog 相同。Google 登入要在 Privy dashboard 開，程式碼改不到。
-  - **未截圖**：fixture 模式沒有 Privy，這個視窗要有 Privy app id 才看得到。
-  - 沒有另外匯出 PNG 放進 `public/`。Privy 的 logo 可以直接收 React element，比圖片清楚，字型也一致。
+- Privy 登入視窗：
+  - `appearance.logo` 改成 `apps/web/public/orbie-lockup.png`：從 `docs/Orbie Logo.html` 的星球標誌加上 Fredoka 600 字標匯出，透明背景，2 倍解析度。先試過直接傳 React element，Privy 沒有渲染。
+  - 拿掉 `landingHeader`，標題回到 Privy 預設的「Log in or sign up」，與 CopyDog 相同。
+  - 已用 Privy 模式（只帶公開的 app id）實際截圖：`login-orbie-1440.png` 對照 `login-copydog-1440.png`。版面一致，Google 登入已在 Privy dashboard 開啟（要改只能在 dashboard，程式碼改不到）。
+  - 同一輪 Privy 模式測試抓到一個 bug：內建錢包 hook 在 session QueryClient 之外呼叫 `useQueryClient`，登入模式整頁會壞掉。已修正；fixture 模式沒有 Privy，所以之前沒測出來。
 
 #### 對照清單（Playwright，1440×900 與 390×844，fixture 登入）
 
@@ -157,6 +159,7 @@ CopyDog 匯出私鑰頁寫明：「私鑰是控制你主帳戶的安全密碼，
 | 匯出私鑰 | logo、標題、文案、按鈕、Protected by privy | 以視窗顯示（CopyDog 是獨立頁面）；多一行警語 |
 | 頂欄 | 餘額膠囊＋儲值、頭像字母 | fixture 模式多了「示範資料」標籤 |
 | 側欄 | 沒有設定 | 保留管理（僅管理員看得到） |
+| 登入視窗 | logo、Log in or sign up、Email、Google、錢包、Protected by privy | 配色為 Orbie |
 | 首頁（頭像選單截圖的背景） | — | fixture 模式下榜單顯示「載入失敗」，是既有問題：這個分支的 fixture 沒有 `/discover/home` |
 
 **尚未驗證**（fixture 模式沒有 Privy，也沒有測試網資金）：

@@ -9,6 +9,11 @@ export const queryKeys = {
   favorites: ["favorites"] as const,
   favoriteGroups: ["favorite-groups"] as const,
   telegram: ["telegram"] as const,
+  wallet: {
+    all: ["wallet"] as const,
+    summary: ["wallet", "summary"] as const,
+    history: ["wallet", "history"] as const,
+  },
   traders: {
     all: ["traders"] as const,
     list: (qs: string) => ["traders", qs] as const,

@@ -597,7 +597,6 @@ export const ru: Messages = {
         limit: "Одновременно можно копировать не более {limit} трейдеров",
         disabled: "Копитрейдинг отключён в этой среде",
       },
-      referral: "Ещё нет аккаунта Hyperliquid? Зарегистрируйтесь с кодом {code}",
     },
   },
   actions: {

@@ -643,7 +643,6 @@ export const en: Messages = {
         limit: "You can copy at most {limit} traders at once",
         disabled: "Copy trading is off on this deployment",
       },
-      referral: "No Hyperliquid account yet? Sign up with code {code}",
     },
   },
   actions: {

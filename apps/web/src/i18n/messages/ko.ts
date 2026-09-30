@@ -597,7 +597,6 @@ export const ko: Messages = {
         limit: "최대 {limit}명의 트레이더를 동시에 카피할 수 있습니다",
         disabled: "이 환경에서는 카피 트레이딩이 꺼져 있습니다",
       },
-      referral: "아직 Hyperliquid 계정이 없나요? 추천 코드 {code}로 가입하세요",
     },
   },
   actions: {

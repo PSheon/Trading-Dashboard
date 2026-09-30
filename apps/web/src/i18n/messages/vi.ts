@@ -597,7 +597,6 @@ export const vi: Messages = {
         limit: "Bạn chỉ có thể sao chép tối đa {limit} trader cùng lúc",
         disabled: "Sao chép giao dịch đang tắt trên môi trường này",
       },
-      referral: "Chưa có tài khoản Hyperliquid? Đăng ký với mã {code}",
     },
   },
   actions: {

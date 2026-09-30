@@ -597,7 +597,6 @@ export const tr: Messages = {
         limit: "Aynı anda en fazla {limit} trader kopyalayabilirsiniz",
         disabled: "Bu ortamda kopya işlem kapalı",
       },
-      referral: "Henüz Hyperliquid hesabınız yok mu? {code} koduyla kaydolun",
     },
   },
   actions: {

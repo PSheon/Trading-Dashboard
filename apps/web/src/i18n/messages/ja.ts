@@ -597,7 +597,6 @@ export const ja: Messages = {
         limit: "同時にコピーできるトレーダーは最大{limit}人です",
         disabled: "この環境ではコピートレードが無効です",
       },
-      referral: "Hyperliquidのアカウントをお持ちでない方は、紹介コード {code} で登録",
     },
   },
   actions: {

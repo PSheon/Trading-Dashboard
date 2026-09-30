@@ -597,7 +597,6 @@ export const zhCN: Messages = {
         limit: "最多可同时跟单 {limit} 位交易员",
         disabled: "此环境未开启跟单",
       },
-      referral: "还没有 Hyperliquid 账户？用推荐码 {code} 注册",
     },
   },
   actions: {

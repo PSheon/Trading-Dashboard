@@ -597,7 +597,6 @@ export const id: Messages = {
         limit: "Kamu hanya bisa menyalin maksimal {limit} trader sekaligus",
         disabled: "Copy trading tidak aktif di lingkungan ini",
       },
-      referral: "Belum punya akun Hyperliquid? Daftar dengan kode {code}",
     },
   },
   actions: {

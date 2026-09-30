@@ -647,7 +647,6 @@ export const zhTW = {
         limit: "最多可同時跟單 {limit} 位交易員",
         disabled: "此環境未開啟跟單",
       },
-      referral: "還沒有 Hyperliquid 帳戶？用推薦碼 {code} 註冊",
     },
   },
   actions: {

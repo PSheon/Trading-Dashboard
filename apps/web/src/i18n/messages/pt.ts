@@ -597,7 +597,6 @@ export const pt: Messages = {
         limit: "Você pode copiar no máximo {limit} traders ao mesmo tempo",
         disabled: "O copy trading está desativado neste ambiente",
       },
-      referral: "Ainda não tem conta na Hyperliquid? Cadastre-se com o código {code}",
     },
   },
   actions: {

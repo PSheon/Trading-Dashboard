@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Check, ChevronDown, Delete, Gift, TriangleAlert } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Check, ChevronDown, Delete, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "cn";
@@ -11,7 +11,6 @@ import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
-import { useSiteSettings } from "@/lib/queries";
 import { rovingFocus } from "@/lib/roving-focus";
 
 type Direction = "same" | "reverse";
@@ -35,7 +34,6 @@ const KEYPAD = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["00", "0", "
 export function CopyPanel({ address, sheet = false }: { address: string; sheet?: boolean }) {
   const { t, format } = useI18n();
   const { status, login } = useAuth();
-  const { data: settings } = useSiteSettings();
   const overview = useCopyOverview();
   const existing = useCopyOf(address);
   const start = useStartCopy();
@@ -346,13 +344,6 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
           <p className="text-center text-[11px] leading-relaxed text-subtle-foreground">{t("trader.copy.paperHint")}</p>
         )}
       </div>
-
-      {settings?.referralCode ? (
-        <p className="flex items-start gap-2 rounded-xl bg-raised px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-          <Gift className="mt-px size-3.5 shrink-0 text-primary" />
-          <span>{t("trader.copy.referral", { code: settings.referralCode })}</span>
-        </p>
-      ) : null}
     </Shell>
   );
 }

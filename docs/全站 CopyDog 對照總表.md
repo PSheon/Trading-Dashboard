@@ -16,12 +16,12 @@
 | 儲值、提款、匯出私鑰視窗 | 同名視窗 | 🔧 第 2 步 | 已有登入後截圖（`.playwright-mcp/compare/signed-in/`） |
 | 頂端餘額＋儲值、頭像選單 | 同 | 🔧 第 2 步 | |
 | 登入視窗 | Privy 視窗 | ❌ | CopyDog 有品牌 logo、「Log in or sign up」、Google 登入；Orbie 只有文字標題、沒有 Google。Google 要在 Privy 後台開啟（需 Paul），logo 用 `appearance.logo` |
-| 幣種排行頁（無） | `/hyperliquid/coins`、市場 › BTC | ❌ | 「Hyperliquid 上最強的 BTC 交易者」：麵包屑、統計（交易者數、獲利總額、交易量、交易數）、依已實現損益排名的表格。資料可用候選池交易重建 |
-| 搜尋 | 頂端搜尋（可搜名稱） | ❌ 未檢查 | `copydog-search-focus.png`、`copydog-search-name.png`；Orbie 需確認能搜 KOL 名稱 |
-| 語言 | 11 種語言 | ❌ | Orbie 只有繁中、英文 |
-| 關於、說明／FAQ、隱私、條款 | `about`、`help`、`privacy`、條款 | ❌ | 頁尾目前顯示「即將推出」；需要 Paul 提供或確認內容 |
-| 新聞、部落格 | `news`、`blog` | ❌ | 需要內容來源，先確認要不要做 |
-| 刪除帳號 | `delete-account` | ❌ | 手機設定裡的流程 |
+| `/coins`、`/coins/:coin` 市場排行 | `/hyperliquid/coins`、市場 › BTC | 🟡 第 2.5 步（`stage4-pages`） | 麵包屑、統計、前 40 名表格、HIP-3 股票（`/coins/xyz-TSLA`）；資料來自候選池 `coin_stats`，數量比 CopyDog 少（只算候選池）；CopyDog 首頁／探索也沒有連到這兩頁 |
+| 搜尋 | 頂端搜尋（可搜名稱） | 🟡 第 2.5 步 | `GET /discover/search`：KOL 名稱、𝕏 帳號、排行榜名稱、地址前綴；桌面下拉、手機全螢幕，與 CopyDog 相同 |
+| 語言 | 11 種語言 | 🟡 第 2.5 步 | 11 種、順序與名稱同 CopyDog；金額一律 en-US、日期跟語言；長篇頁面與 Telegram 通知只有繁中／英文，其他語言用英文 |
+| `/about`、`/help`、`/privacy`、`/terms` | `about`、`help`、`privacy`、`terms` | 🟡 第 2.5 步 | 內文來自 `docs/content`（草稿，【待填】仍待 Paul 補；隱私與條款上線前須法律審閱）；頁尾與手機設定已連上 |
+| 新聞、部落格 | `news`、`blog` | 不做 | Paul 2026-09-30 決定不做 |
+| 刪除帳號、`/delete-account` | 手機設定 › 帳號 › 刪除帳號、`delete-account` | 🟡 第 2.5 步 | `DELETE /me`；Privy 使用者與錢包不刪（見 `account-deletion.md`）；桌面多一個入口 |
 | App 下載徽章 | App Store／Google Play | 不做 | Orbie 沒有 App |
 | `/methodology`、`/admin/*` | 無 | — | Orbie 專有 |
 
@@ -33,3 +33,4 @@
 - 新聞、部落格：不做。
 - 第 2 步（錢包）一併做：設定、投資組合、儲值／提款／匯出、頂端餘額、登入視窗 logo。
 - 第 2 步之後、第 3 步之前插入「第 2.5 步」：幣種排行頁、搜尋對齊、刪除帳號、11 種語言、關於／FAQ／隱私／條款頁面。
+- 第 2.5 步已完成於分支 `stage4-pages`（基於 `stage4-wallet`），對照清單與截圖見 `Stage 4 — 跟單與管理（執行順序）.md` 的「第 2.5 步」。

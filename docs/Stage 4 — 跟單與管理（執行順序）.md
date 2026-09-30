@@ -171,3 +171,52 @@ CopyDog 匯出私鑰頁寫明：「私鑰是控制你主帳戶的安全密碼，
 - Arbitrum 代付 gas。
 
 這些需要一個有 Privy app id 的環境，並由 Paul 手動登入測一次。
+
+## 第 2.5 步：補齊漏掉的頁面（實作結果，2026-09-30，分支 `stage4-pages`，基於 `stage4-wallet`）
+
+### API
+
+| 路由 | 內容 | Hyperliquid 權重 | 快取 |
+| --- | --- | --- | --- |
+| `GET /discover/coins` | 市場索引：每個至少有一位候選池交易者獲利的幣種，列出獲利交易者數與獲利總額（依獲利總額排序），含 HIP-3 股票／商品（`market: "stocks"`） | 0（只讀 `discovery_traders.coin_stats`） | 共用候選池快照 30 秒 |
+| `GET /discover/coins/:coin` | 單一幣種排行：在該幣種已實現損益 > 0 的交易者，依損益排序、最多 40 位；勝率＝獲利筆數 ÷ 已平倉筆數；統計＝列出的列加總（CopyDog 同樣做法）。`:coin` 是 Hyperliquid 名稱（`BTC`、`xyz:TSLA`） | 0 | 同上 |
+| `GET /discover/search?q=&limit=` | 頂端搜尋：KOL 名稱、𝕏 帳號（可含 `@` 或 x.com 網址）、排行榜名稱（不分大小寫子字串）或地址前綴；依全期 PnL 排序（未知當 0，與 CopyDog 相同），預設 5 筆、最多 10 | 0（`kol_traders`、`trader_stats`、候選池） | 每個查詢 30 秒（最多 500 個） |
+| `DELETE /me` | 刪除自己的 Orbie 帳號（見 [account-deletion.md](account-deletion.md)） | 0 | — |
+
+全部登記在 `wire-contracts.ts`、`docs/http-routes.md`、`docs/openapi.json`。**不需要 migration**：沒有新增欄位或資料表；語言存在 `users.locale`（text），新增語言不必改 schema；稽核事件 `user.delete` 是 `admin_audit_logs.event` 的文字值。
+
+### 前端頁面
+
+- `/coins`、`/coins/BTC`、`/coins/xyz-TSLA`（網址規則照 CopyDog：`xyz:TSLA` → `xyz-TSLA`）。手機版照 CopyDog 不顯示頂端列與分頁列，只有麵包屑。
+- CopyDog 本身沒有從首頁、探索、交易者頁、洞察連到 `/coins`（在 5 頁上實測沒有任何 `/coins` 連結；首頁市場磚連到 `discover?focus=BTC`），所以 Orbie 也只在市場索引↔幣種頁與麵包屑之間互連，行為一致。
+- 頂端搜尋：桌面下拉最多 5 位（頭像、名稱中符合的字亮起、短地址、全期 PnL 與 ROI），無結果顯示「未找到交易員／以地址或名稱搜尋」；手機點開後全螢幕（返回鍵、輸入框、名稱＋完整地址）。↑↓ 選擇、Enter 開啟、Esc 關閉。
+- 刪除帳號：手機「設定 › 帳號列 › 刪除帳號」（CopyDog 的路徑）；桌面「設定 › 帳戶」最下方另有一列（CopyDog 桌面沒有，Orbie 保留入口）。確認視窗先說明資金留在自己的錢包、提供「先匯出私鑰」，再列出會刪除的資料；需勾選並輸入 `DELETE`。說明頁 `/delete-account` 照 CopyDog 的章節。
+- `/about`、`/help`（CopyDog 的路徑）、`/privacy`、`/terms`、`/delete-account`：內文來自 `docs/content/*.md`，由 `pnpm --filter @trading-dashboard/web content:sync` 複製到 `apps/web/src/content/pages.generated.ts`（執行時不讀 docs；`test/content.test.ts` 檢查兩邊一致）。繁中與英文各一份，其他語言顯示英文。【待填：…】以橘色標出，草稿警語顯示在日期下方。
+- 頁尾（首頁、關於、說明）：關於我們、常見問題、隱私、條款都已連上；語言按鈕改為 11 種語言的選單。手機設定頁的隱私／條款也已連上。
+
+### 11 種語言
+
+- 順序與名稱照 CopyDog 的選單：English、繁體中文、简体中文、한국어、日本語、Русский、Türkçe、Tiếng Việt、Español、Português、Bahasa Indonesia。頂端地球、頁尾、設定下拉、手機語言列表共用同一份清單；選擇照舊存 `locale` cookie，登入時同步 `PATCH /me`。
+- 9 個新語言由英文翻譯（對照繁中語意），用語盡量採用 CopyDog 各語言的官方 JSON（`copydog.xyz/locales/<lang>/{common,leaderboard,trader,portfolio,watchlist,settings}.json`）。PnL、ROI、KOL、TWAP、品牌、代號、`{佔位符}` 保持不變。`test/locales.test.ts` 檢查每個語言的鍵與 zh-TW 完全相同、每個字串非空且佔位符一致。
+- 數字：CopyDog 在各語言都用 `$6,293,415.05`、`37.89%`，所以金額與百分比一律 en-US（繁中維持原本）；日期、相對時間、時長單位跟著語言。$K/$M/$B 不變。
+- Telegram 通知只有繁中與英文，其他語言的使用者收英文；站內公告同樣以英文為後備。
+
+### 對照清單（Playwright，1440×900 與 390×844）
+
+截圖：`/private/tmp/claude-501/-Users-paul-jiang-Desktop-Paul-Trading-Dashboard/cf2c7a5c-704e-4165-9f08-dcbfdf25e788/scratchpad/screens-stage4-pages/`，檔名 `<頁面>-<copydog|orbie>-<檢視>.png`。Orbie 用自己的 api（4800，NODE_ENV=test）與 web（3360）；資料庫是本機新建的資料庫，由 api 從 Hyperliquid 公開資料建立的候選池（50 位＋168 位 KOL）。刪除帳號流程用 fixture 模式（示範登入）。每張 Orbie 截圖都記錄水平溢出、失敗請求與 console error：水平溢出全部 0；失敗請求只有兩類：交易者頁在 200 權重／分鐘的低預算下回 503 busy（前端照常重試）、Hyperliquid 自己的 `xyz:*.svg` 圖示被瀏覽器 ORB 擋下（改顯示字形圖示，既有行為）。
+
+| 項目 | 一致 | 不同（原因） |
+| --- | --- | --- |
+| 市場索引 桌面／手機 | 小標「市場」、標題、說明、三欄（市場／獲利交易者／獲利總額）、幣種圖示、綠色金額、依獲利排序、手機無頂端列與分頁列 | 數字小很多：Orbie 只算候選池（約 1,200 位，本機只有 50＋KOL 且交易紀錄仍在補），CopyDog 算全體 |
+| 幣種頁 BTC 桌面／手機 | 麵包屑 Orbie › 市場 › BTC、標題、兩行說明、四個統計、表格 # / 交易員 / 損益 / 勝率 / 交易數 / 交易量、最多 40 位、手機表格橫向捲動 | 本機資料少，BTC 只有少數或沒有交易者（顯示空狀態）；正式環境取決於候選池交易紀錄的補齊進度 |
+| 股票幣種頁（xyz-TSLA） | 同上，標題顯示 TSLA（去掉 dex 前綴） | 同上 |
+| 搜尋 桌面 | 下拉位置與寬度、頭像、名稱亮起、短地址、PnL、ROI 小字、清除鍵、空焦點不開下拉、無結果文案 | Enter：Orbie 開啟選中的交易者（CopyDog 會導到 `/hyperliquid/<查詢字>`，實測該頁 API 全部 400，不照抄） |
+| 搜尋 手機 | 全螢幕、返回鍵、名稱＋完整地址 | Orbie 頂端列一直顯示搜尋框（CopyDog 是放大鏡圖示），點下去後行為相同 |
+| 刪除帳號 | 手機設定 › 帳號列 › 刪除帳號、確認後立即刪除、說明頁章節（概覽／刪除前／如何刪除／無法登入／會刪除／會保留／問題） | 桌面多一列入口；確認需勾選＋輸入 DELETE；CopyDog 會在還有跟單資金時擋下，Orbie 目前沒有跟單錢包，第 3 步要補 |
+| 關於 | 置中主標＋按鈕、三步驟三欄、左右交錯的功能區、置中資金安全＋盾牌、結尾呼籲、頁尾 | 插圖是 Orbie 的圖示面板，不是 CopyDog 的產品截圖；沒有 KOL 跑馬燈 |
+| 說明 | 置中大標、單欄可展開問答、第一題展開、頁尾 | Orbie 的 43 題分 10 組，組名以小字顯示 |
+| 隱私、條款、刪除帳號說明 | 無 app 外框、「← Orbie」、標題、日期、章節 | 草稿警語框、【待填】標示 |
+| 語言選單 | 11 種、順序、自己的語言名稱、目前語言標示 | 桌面是下拉選單＋標題「語言」（CopyDog 無標題）；手機設定列表與 CopyDog 相同 |
+| 首頁＋交易者頁（ru、vi、ja） | 版面不溢出、按鈕與分頁不換行錯位、數字格式與 CopyDog 相同（$、%） | 越南文主標較長，桌面折成 4 行；ru 側欄「Сохранённые」貼齊欄寬 |
+
+**尚未驗證**：真正的 Privy 登入後刪除帳號（fixture 模式已走完整流程，伺服器端由 `test/me.spec.ts` 以真實 Postgres 驗證）。

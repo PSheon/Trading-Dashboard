@@ -37,6 +37,15 @@ export interface AreaChartProps {
   className?: string;
   /** Rendered faintly in the middle of the plot (brand watermark). */
   watermark?: React.ReactNode;
+  /** CopyDog's card charts: this many faint dotted lines, evenly spaced
+   * from the top of the plot to the bottom. */
+  grid?: number;
+  /** Where the y labels sit: CopyDog's desktop chart keeps them in a right
+   * gutter, its phone chart draws them over the plot's left edge. */
+  yAxis?: "right" | "left";
+  /** A marker driven from outside (the home calculator): a dashed vertical
+   * line and a dot on that point, with no tooltip. */
+  marker?: number | null;
   ariaLabel?: string;
 }
 
@@ -57,15 +66,45 @@ function useWidth<T extends HTMLElement>() {
   return [ref, width] as const;
 }
 
-function niceTicks(min: number, max: number, count: number): number[] {
-  const span = max - min;
-  if (!Number.isFinite(span) || span <= 0) return [min];
-  const raw = span / Math.max(1, count);
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? raw;
-  const ticks: number[] = [];
-  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-6; v += step) ticks.push(v);
-  return ticks;
+/** CopyDog's y labels: the series' low and high and three evenly spaced
+ * values between them ("$341K $247K $152K $57K -$38K"). */
+export function spanTicks(min: number, max: number, count = 5): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (max <= min) return [min];
+  return Array.from({ length: count }, (_, i) => min + ((max - min) * i) / (count - 1));
+}
+
+/** A monotone cubic path through the points (d3's curveMonotoneX): smooth
+ * like CopyDog's curves, never overshooting a high or a low. */
+export function monotonePath(points: ReadonlyArray<readonly [number, number]>): string {
+  const n = points.length;
+  if (n === 0) return "";
+  const f = (v: number) => v.toFixed(2);
+  if (n < 3) return points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${f(x)},${f(y)}`).join("");
+  const dx: number[] = [];
+  const m: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx.push(points[i + 1][0] - points[i][0]);
+    m.push(dx[i] === 0 ? 0 : (points[i + 1][1] - points[i][1]) / dx[i]);
+  }
+  const t: number[] = [m[0]];
+  for (let i = 1; i < n - 1; i++) {
+    if (m[i - 1] * m[i] <= 0) t.push(0);
+    else {
+      const w1 = 2 * dx[i] + dx[i - 1];
+      const w2 = dx[i] + 2 * dx[i - 1];
+      t.push((w1 + w2) / (w1 / m[i - 1] + w2 / m[i]));
+    }
+  }
+  t.push(m[n - 2]);
+  let d = `M${f(points[0][0])},${f(points[0][1])}`;
+  for (let i = 0; i < n - 1; i++) {
+    const [x0, y0] = points[i];
+    const [x1, y1] = points[i + 1];
+    const h = dx[i] / 3;
+    d += `C${f(x0 + h)},${f(y0 + h * t[i])},${f(x1 - h)},${f(y1 - h * t[i + 1])},${f(x1)},${f(y1)}`;
+  }
+  return d;
 }
 
 export function AreaChart({
@@ -82,6 +121,9 @@ export function AreaChart({
   strokeWidth = 2,
   className,
   watermark,
+  grid = 0,
+  yAxis = "right",
+  marker = null,
   ariaLabel,
 }: AreaChartProps) {
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -106,7 +148,7 @@ export function AreaChart({
   }, [ref, hasData, revealed]);
 
   const pad = axes
-    ? { top: 16, right: 64, bottom: 28, left: 4 }
+    ? { top: 12, right: yAxis === "right" ? 64 : 6, bottom: 28, left: 4 }
     : { top: strokeWidth * 3 + 2, right: 6, bottom: 3, left: 2 };
 
   const geo = useMemo(() => {
@@ -123,7 +165,9 @@ export function AreaChart({
       minY -= 1;
       maxY += 1;
     }
-    const headroom = (maxY - minY) * (axes ? 0.08 : 0.04);
+    const low = minY;
+    const high = maxY;
+    const headroom = (maxY - minY) * 0.04;
     maxY += headroom;
     if (!zeroBaseline || minY < 0) minY -= headroom;
 
@@ -136,9 +180,9 @@ export function AreaChart({
     const bottom = pad.top + innerH;
     const zeroY = zeroBaseline ? Math.min(bottom, Math.max(pad.top, y(0))) : bottom;
 
-    const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(d[0]).toFixed(2)},${y(d[1]).toFixed(2)}`).join("");
+    const line = monotonePath(data.map((d) => [x(d[0]), y(d[1])] as const));
     const area = `${line}L${x(maxX).toFixed(2)},${zeroY.toFixed(2)}L${x(minX).toFixed(2)},${zeroY.toFixed(2)}Z`;
-    const yTicks = axes ? niceTicks(minY + headroom * 0.5, maxY - headroom * 0.5, 4) : [];
+    const yTicks = axes ? spanTicks(zeroBaseline ? Math.min(...ys) : low, zeroBaseline ? Math.max(...ys) : high) : [];
     const xTickCount = width < 420 ? 3 : 5;
     const xTicks = axes
       ? Array.from({ length: xTickCount }, (_, i) => minX + ((maxX - minX) * (i + 0.5)) / xTickCount)
@@ -164,6 +208,7 @@ export function AreaChart({
   }
 
   const last = data[data.length - 1];
+  const markerPoint = marker !== null && marker >= 0 && marker < data.length ? data[marker] : null;
   const hovered = hover !== null ? data[hover] : null;
   const ids = {
     above: `above-${uid}`,
@@ -214,26 +259,22 @@ export function AreaChart({
             </pattern>
           </defs>
 
+          {grid > 0
+            ? Array.from({ length: grid }, (_, i) => pad.top + ((height - pad.top - pad.bottom) * i) / Math.max(1, grid - 1)).map((gy) => (
+                <line key={gy} x1={0} x2={width} y1={gy} y2={gy} stroke="var(--border-strong)" strokeOpacity={0.6} strokeDasharray="1.5 3" />
+              ))
+            : null}
           {axes
-            ? geo.yTicks.map((v) => (
-                <g key={v}>
-                  <line
-                    x1={pad.left}
-                    x2={width - pad.right + 6}
-                    y1={geo.y(v)}
-                    y2={geo.y(v)}
-                    stroke="var(--border)"
-                    strokeDasharray="2 4"
-                  />
-                  <text
-                    x={width - pad.right + 10}
-                    y={geo.y(v)}
-                    dy="0.32em"
-                    className="fill-subtle-foreground font-mono text-[10.5px]"
-                  >
-                    {(formatTick ?? formatValue)(v)}
-                  </text>
-                </g>
+            ? geo.yTicks.map((v, i) => (
+                <text
+                  key={i}
+                  x={yAxis === "right" ? width - pad.right + 10 : pad.left + 2}
+                  y={geo.y(v)}
+                  dy={yAxis === "right" ? "0.32em" : i === geo.yTicks.length - 1 ? "0.9em" : "-0.35em"}
+                  className="fill-subtle-foreground font-mono text-[10.5px]"
+                >
+                  {(formatTick ?? formatValue)(v)}
+                </text>
               ))
             : null}
           {axes && formatAxisTime
@@ -297,7 +338,7 @@ export function AreaChart({
             </g>
           ) : null}
 
-          {last && hover === null ? (
+          {last && hover === null && !markerPoint ? (
             <g>
               <circle
                 cx={geo.x(last[0])}
@@ -316,6 +357,21 @@ export function AreaChart({
           ) : null}
 
           </g>
+
+          {markerPoint ? (
+            <g>
+              <line
+                x1={geo.x(markerPoint[0])}
+                x2={geo.x(markerPoint[0])}
+                y1={0}
+                y2={height}
+                stroke="var(--muted-foreground)"
+                strokeOpacity={0.7}
+                strokeDasharray="3 3"
+              />
+              <circle cx={geo.x(markerPoint[0])} cy={geo.y(markerPoint[1])} r={strokeWidth * 1.8} fill={markerPoint[1] < 0 && zeroBaseline ? "var(--chart-2)" : "var(--chart-1)"} />
+            </g>
+          ) : null}
 
           {hovered ? (
             <g>

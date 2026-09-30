@@ -8,6 +8,13 @@ import type {
   ActionFeedItem,
   ActiveWithin,
   AlertEntry,
+  BoardMarket,
+  BoardResponse,
+  BoardSort,
+  BoardWindow,
+  CopyScoreResponse,
+  HomeBoardsResponse,
+  TradingStyle,
   CrowdResponse,
   Favorite,
   PublicSettings,
@@ -92,6 +99,52 @@ export function useTraders(params: TradersParams) {
     queryFn: ({ signal }) => api.get<TradersResponse>(`/traders?${qs.toString()}`, signal),
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
+  });
+}
+
+export interface BoardParams {
+  market: BoardMarket;
+  /** "top100", "kol" or a coin ("BTC", "xyz:TSLA"). */
+  board: string;
+  sort: BoardSort;
+  window: BoardWindow;
+  style?: TradingStyle;
+}
+
+/** GET /discover/boards: one explore board (fixed top 100), from the api's
+ * discovery pool; it changes a row at a time, so a minute's polling is
+ * plenty. The previous board stays up while the next one loads. */
+export function useBoard(params: BoardParams) {
+  const qs = new URLSearchParams({ market: params.market, board: params.board, sort: params.sort, window: params.window });
+  if (params.style) qs.set("style", params.style);
+  return useQuery({
+    queryKey: queryKeys.discover.board(qs.toString()),
+    queryFn: ({ signal }) => api.get<BoardResponse>(`/discover/boards?${qs.toString()}`, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+/** GET /discover/home: every home row and the calculator's traders. */
+export function useHomeBoards() {
+  return useQuery({
+    queryKey: queryKeys.discover.home,
+    queryFn: ({ signal }) => api.get<HomeBoardsResponse>("/discover/home", signal),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+/** GET /traders/:address/copy-score: the rail's 複製評分 (shares the api's
+ * portfolio cache with the chart, so it costs no extra upstream read). */
+export function useCopyScore(address: string) {
+  return useQuery({
+    queryKey: queryKeys.trader.copyScore(address),
+    queryFn: ({ signal }) => api.get<CopyScoreResponse>(`/traders/${address}/copy-score`, signal),
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+    ...busyRetry,
   });
 }
 

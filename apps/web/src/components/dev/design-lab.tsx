@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ArrowUpRight, SlidersHorizontal, Bookmark } from "lucide-react";
+import { ArrowRight, ArrowUpRight, SlidersHorizontal, Bookmark, Settings } from "lucide-react";
 import { useState } from "react";
 import { OrbieMark } from "@/components/brand/logo";
 import { AccountControls } from "@/components/shell/account-controls";
 import { AddressSearch } from "@/components/shell/address-search";
-import { primaryNav, settingsNav } from "@/components/shell/nav";
+import { primaryNav, type NavItem } from "@/components/shell/nav";
 import { HistoricalSimulator } from "./historical-simulator";
 import { BoardsView } from "@/components/explore/boards-view";
 import { PortfolioView } from "@/components/portfolio-view";
-import { FavoritesView } from "@/components/favorites-view";
-import { SettingsView } from "@/components/settings-view";
+import { FavoritesView } from "@/components/favorites/favorites-view";
+import { SettingsView } from "@/components/settings/settings-view";
 import { InsightsView } from "@/components/insights/insights-view";
 import { BoardSparkline, boardName, TraderAvatar } from "@/components/discover/board-bits";
 import { ErrorState, Skeleton } from "@/components/page";
@@ -23,6 +23,10 @@ import { boardCoinLabel, boardPnl, boardRoi } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
 import { concepts, previousConcepts } from "./concepts";
 import styles from "./design-lab.module.css";
+
+/** The site rail no longer lists Settings (CopyDog reaches it from the
+ * account menu); the lab keeps it as a screen to preview. */
+const settingsNav: NavItem = { href: "/settings", label: "nav.settings", icon: Settings };
 
 export function DesignLab({ concept, screen }: { concept: string; screen: string }) {
   const router = useRouter();

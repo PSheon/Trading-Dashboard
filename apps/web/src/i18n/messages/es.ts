@@ -1,7 +1,12 @@
+import { en } from "./en";
 import type { Messages } from "./index";
 
 export const es: Messages = {
+  // Admin-only system monitoring: English until it is translated.
+  monitoring: en.monitoring,
   methodology: {
+    history: "El análisis de operaciones solo cubre las ejecuciones obtenidas. Un backfill completado significa que se escaneó el rango disponible de la fuente, no que el historial completo esté disponible. Los registros que la fuente ya no conserva no se pueden recuperar con backfill. El funding tiene su propia cobertura; un funding no disponible no es un coste cero confirmado.",
+    missing: "Un guion largo significa dato no disponible, no cero. La hora de cálculo indica cuándo se calcularon las cifras localmente; el corte de datos de operaciones indica hasta dónde llega el análisis. Son marcas de tiempo distintas.",
     title: "Metodología de rendimiento",
     intro: "El ROI, el Sharpe y la caída siguen las definiciones de CopyDog y se calculan a partir del historial muestreado del portafolio de Hyperliquid (contrastado con los datos públicos de CopyDog). No son rendimientos garantizados para quien copia ni prueban que el historial esté completo.",
     flow: "ROI = PnL del periodo ÷ su máximo de depósitos netos (el mayor valor de cuenta menos el PnL acumulado en cualquier punto). Los depósitos y retiros mueven el valor de cuenta, nunca el PnL, así que no cuentan como rendimiento. El modo % del gráfico es PnL ÷ esa misma base en cada punto y termina en el ROI. El ROI de perpetuos usa la serie de perpetuos; el de perpetuos + spot, la de toda la cuenta.",
@@ -111,6 +116,10 @@ export const es: Messages = {
     allTime: "Histórico",
   },
   home: {
+    cardPnl: "PnL",
+    cardRoi: "ROI",
+    calculatorMissingRoi: "ROI no disponible",
+    calculatorMissingCurve: "No hay datos suficientes para ilustrar la curva",
     heroTitle: "Copia a los mejores traders de cripto y acciones",
     heroTitleMobile: "Copia a los\nmejores traders",
     heroBrowse: "Explorar",
@@ -195,6 +204,16 @@ export const es: Messages = {
     },
   },
   discover: {
+    dataCoverage: {
+      summary: "{total} candidatos · {ready} con datos de rendimiento · Cobertura de datos",
+      scope: "Clasificación dentro del grupo de candidatos, no de todos los traders de Hyperliquid. El grupo toma los N primeros por PnL histórico entre cuentas que no son vaults, con valor de cuenta positivo y volumen de trading en los últimos 30 días, y luego añade KOLs. N lo configura la plataforma.",
+      trades: "Análisis de operaciones disponible: {ready}/{total}; esto no implica un historial completo.",
+      updated: "Los datos mostrados se calcularon entre {oldest} y {newest}.",
+      unknown: "No hay una hora de cálculo confirmada para los datos mostrados.",
+      missing: "Algunas cifras mostradas no tienen marca de hora de actualización.",
+      history: "Los datos se actualizan por lotes. Las horas de cálculo no son cortes de datos de operaciones ni prueban que todos los traders se actualicen a la vez. El análisis de cada trader muestra su cobertura de historial.",
+      score: "Las puntuaciones de copia son estimaciones de un modelo, no percentiles de todo el mercado.",
+    },
     title: "Explorar",
     crypto: "Cripto",
     stocks: "Acciones",
@@ -257,6 +276,10 @@ export const es: Messages = {
     error: "No se pudo cargar este tablero",
   },
   trader: {
+    historyThroughUnknown: "Corte de datos de operaciones no disponible; esto no significa que los datos estén al día.",
+    historyThrough: "Datos de operaciones hasta {date}.",
+    historyStatus: { pending: "Se están recopilando operaciones anteriores.", caught_up: "Se ha leído el historial disponible.", blocked: "Los datos históricos tienen un hueco sin resolver; se conservan los resultados existentes." },
+    historyRetention: "Es posible que la fuente no ofrezca el historial completo de la cuenta.",
     title: "Trader",
     invalidAddress: "No es una dirección de Hyperliquid válida",
     loadFailed: "No se pudo cargar esta dirección",

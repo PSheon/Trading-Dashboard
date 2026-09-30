@@ -1,7 +1,12 @@
+import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ja: Messages = {
+  // Admin-only system monitoring: English until it is translated.
+  monitoring: en.monitoring,
   methodology: {
+    history: "取引分析は取得できた約定のみを対象とします。バックフィル完了は、ソースで取得可能な範囲をスキャンし終えたという意味で、全期間の履歴がそろったという意味ではありません。ソースが保持していない記録はバックフィルでも復元できません。資金調達料は別の範囲で集計され、取得できない資金調達料はコストゼロが確認されたことを意味しません。",
+    missing: "「—」はデータがないことを示し、ゼロではありません。計算時刻は数値をローカルで計算した時刻、取引データの基準日時は分析がどこまでを対象とするかを示します。両者は別のタイムスタンプです。",
     title: "パフォーマンスの算出方法",
     intro: "収益率・シャープレシオ・ドローダウンは CopyDog の定義に従い、Hyperliquid のポートフォリオ履歴のサンプルから算出しています（CopyDog の公開データと照合済み）。フォロワーの実際のリターンを保証するものでも、履歴が完全であることを証明するものでもありません。",
     flow: "収益率 = 期間の損益 ÷ 期間中の最大純入金額（各時点の「口座資産 − 累計損益」の最大値）。入金と出金は口座資産を動かしますが損益は変えないため、リターンには含めません。チャートの % モードは各時点の損益を同じ基数で割った値で、終点が収益率になります。無期限の収益率は無期限の系列、無期限＋現物は口座全体の系列を使います。",
@@ -111,6 +116,10 @@ export const ja: Messages = {
     allTime: "全期間",
   },
   home: {
+    cardPnl: "損益",
+    cardRoi: "収益率",
+    calculatorMissingRoi: "収益率を取得できません",
+    calculatorMissingCurve: "曲線を表示するのに十分なデータがありません",
     heroTitle: "トップのクリプト＆株式トレーダーをコピー",
     heroTitleMobile: "トップトレーダーを\nコピーしよう",
     heroBrowse: "探す",
@@ -195,6 +204,16 @@ export const ja: Messages = {
     },
   },
   discover: {
+    dataCoverage: {
+      summary: "候補 {total} 人 · 成績データあり {ready} 人 · データ範囲",
+      scope: "順位は候補プール内でのもので、Hyperliquid の全トレーダーの順位ではありません。候補プールは、過去 30 日に取引量があり、口座価値がプラスの Vault 以外の口座から累計損益の上位 N 人を選び、KOL を加えたものです。N はプラットフォームの設定で決まります。",
+      trades: "取引分析あり：{ready}/{total}。全期間の履歴がそろっているという意味ではありません。",
+      updated: "表示中のデータは {oldest} から {newest} の間に計算されました。",
+      unknown: "表示中のデータには確認済みの計算時刻がありません。",
+      missing: "表示中の一部の数値には更新時刻がありません。",
+      history: "データは順次更新されます。計算時刻は取引データの基準日時ではなく、全トレーダーが同時に更新されたことを示すものでもありません。各トレーダーの分析に履歴の範囲が表示されます。",
+      score: "コピースコアはモデルによる推定値で、市場全体でのパーセンタイル順位ではありません。",
+    },
     title: "探索",
     crypto: "クリプト",
     stocks: "株式",
@@ -257,6 +276,10 @@ export const ja: Messages = {
     error: "このボードを読み込めませんでした",
   },
   trader: {
+    historyThroughUnknown: "取引データの基準日時を取得できません。データが最新であるという意味ではありません。",
+    historyThrough: "{date} までの取引データ。",
+    historyStatus: { pending: "過去の取引を収集中です。", caught_up: "取得可能な履歴を読み込みました。", blocked: "履歴データに未解決の欠落があります。既存の結果はそのまま保持されます。" },
+    historyRetention: "ソースが口座の全履歴を提供していない場合があります。",
     title: "トレーダー",
     invalidAddress: "有効な Hyperliquid アドレスではありません",
     loadFailed: "このアドレスを読み込めませんでした",

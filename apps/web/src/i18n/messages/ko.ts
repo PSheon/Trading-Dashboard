@@ -1,7 +1,12 @@
+import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ko: Messages = {
+  // Admin-only system monitoring: English until it is translated.
+  monitoring: en.monitoring,
   methodology: {
+    history: "거래 분석은 확보한 체결만 대상으로 합니다. 백필 완료는 소스에서 가져올 수 있는 범위를 모두 스캔했다는 뜻이며, 전체 기간의 기록이 완전하다는 뜻은 아닙니다. 소스가 더 이상 보관하지 않는 기록은 백필로도 복구할 수 없습니다. 펀딩은 별도 범위로 집계되며, 확인할 수 없는 펀딩은 비용이 0이라는 뜻이 아닙니다.",
+    missing: "대시(—)는 데이터가 없다는 뜻이며 0이 아닙니다. 계산 시각은 수치를 로컬에서 계산한 시각이고, 거래 데이터 기준 시각은 분석이 어디까지를 다루는지 나타냅니다. 서로 다른 타임스탬프입니다.",
     title: "성과 산출 방법",
     intro: "수익률(ROI), 샤프 지수, 낙폭은 CopyDog의 정의를 따르며, 샘플링한 Hyperliquid 포트폴리오 이력으로 계산합니다(CopyDog 공개 데이터와 대조 확인). 팔로워의 실제 수익을 보장하거나 이력이 완전하다는 것을 증명하지는 않습니다.",
     flow: "수익률(ROI) = 기간 손익 ÷ 기간 최고 순입금액(각 시점의 '계정 자산 − 누적 손익' 중 최댓값). 입금과 출금은 계정 자산만 바꾸고 손익은 바꾸지 않으므로 수익으로 보지 않습니다. 차트의 % 모드는 각 시점의 손익을 같은 기준값으로 나눈 값이며, 끝점이 수익률입니다. 무기한 수익률은 무기한 시계열을, 무기한 & 현물은 계정 전체 시계열을 사용합니다.",
@@ -111,6 +116,10 @@ export const ko: Messages = {
     allTime: "전체",
   },
   home: {
+    cardPnl: "손익",
+    cardRoi: "수익률",
+    calculatorMissingRoi: "수익률을 확인할 수 없음",
+    calculatorMissingCurve: "곡선을 표시하기에 데이터가 충분하지 않습니다",
     heroTitle: "최고의 크립토·주식 트레이더를 카피하세요",
     heroTitleMobile: "최고의 트레이더를\n카피하세요",
     heroBrowse: "둘러보기",
@@ -195,6 +204,16 @@ export const ko: Messages = {
     },
   },
   discover: {
+    dataCoverage: {
+      summary: "후보 {total}명 · 성과 데이터 {ready}명 · 데이터 범위",
+      scope: "순위는 후보 풀 안에서 매긴 것으로, Hyperliquid 전체 트레이더의 순위가 아닙니다. 후보 풀은 최근 30일간 거래량이 있고 계정 가치가 0보다 큰 Vault가 아닌 계정 중 누적 손익 상위 N명에 KOL을 더한 것입니다. N은 플랫폼 설정으로 정해집니다.",
+      trades: "거래 분석 가능: {ready}/{total}. 전체 기간의 기록이 완전하다는 뜻은 아닙니다.",
+      updated: "표시된 데이터는 {oldest}부터 {newest} 사이에 계산되었습니다.",
+      unknown: "표시된 데이터의 계산 시각을 확인할 수 없습니다.",
+      missing: "표시된 일부 수치에는 업데이트 시각이 없습니다.",
+      history: "데이터는 순차적으로 갱신됩니다. 계산 시각은 거래 데이터 기준 시각이 아니며, 모든 트레이더가 함께 갱신되었다는 뜻도 아닙니다. 각 트레이더의 분석에 기록 범위가 표시됩니다.",
+      score: "카피 점수는 모델 추정치이며, 시장 전체에서의 백분위 순위가 아닙니다.",
+    },
     title: "탐색",
     crypto: "크립토",
     stocks: "주식",
@@ -257,6 +276,10 @@ export const ko: Messages = {
     error: "이 보드를 불러오지 못했습니다",
   },
   trader: {
+    historyThroughUnknown: "거래 데이터 기준 시각을 확인할 수 없습니다. 데이터가 최신이라는 뜻은 아닙니다.",
+    historyThrough: "{date}까지의 거래 데이터.",
+    historyStatus: { pending: "이전 거래를 수집하고 있습니다.", caught_up: "가져올 수 있는 기록을 모두 읽었습니다.", blocked: "과거 데이터에 해결되지 않은 공백이 있습니다. 기존 결과는 유지됩니다." },
+    historyRetention: "소스가 계정의 전체 기록을 제공하지 않을 수 있습니다.",
     title: "트레이더",
     invalidAddress: "유효한 Hyperliquid 주소가 아닙니다",
     loadFailed: "이 주소를 불러오지 못했습니다",

@@ -1,7 +1,12 @@
+import { en } from "./en";
 import type { Messages } from "./index";
 
 export const vi: Messages = {
+  // Admin-only system monitoring: English until it is translated.
+  monitoring: en.monitoring,
   methodology: {
+    history: "Phân tích giao dịch chỉ bao gồm các lệnh khớp đã lấy được. Backfill hoàn tất nghĩa là phạm vi có sẵn của nguồn đã được quét, không có nghĩa toàn bộ lịch sử đã đầy đủ. Các bản ghi mà nguồn không còn lưu thì không thể khôi phục bằng backfill. Funding có phạm vi riêng; funding không có dữ liệu không phải là chi phí bằng 0 đã được xác nhận.",
+    missing: "Dấu gạch dài nghĩa là không có dữ liệu, không phải bằng 0. Thời điểm tính toán cho biết khi nào số liệu được tính cục bộ; mốc dữ liệu giao dịch cho biết phân tích bao phủ đến đâu. Đây là hai mốc thời gian khác nhau.",
     title: "Phương pháp tính hiệu suất",
     intro: "ROI, Sharpe và sụt giảm theo định nghĩa của CopyDog, được tính từ lịch sử danh mục Hyperliquid đã lấy mẫu (đã đối chiếu với dữ liệu công khai của CopyDog). Đây không phải lợi nhuận đảm bảo cho người sao chép, cũng không chứng minh lịch sử là đầy đủ.",
     flow: "ROI = PnL của giai đoạn ÷ tiền nạp ròng cao nhất trong giai đoạn (giá trị tài khoản trừ PnL lũy kế, lấy mức lớn nhất tại mọi thời điểm). Nạp và rút làm thay đổi giá trị tài khoản chứ không thay đổi PnL, nên không được tính là lợi nhuận. Chế độ % của biểu đồ là PnL ÷ cùng một mức cơ sở tại mọi điểm và kết thúc đúng bằng ROI. ROI vĩnh cửu dùng chuỗi dữ liệu vĩnh cửu, vĩnh cửu + spot dùng chuỗi của toàn tài khoản.",
@@ -111,6 +116,10 @@ export const vi: Messages = {
     allTime: "Tất cả",
   },
   home: {
+    cardPnl: "PnL",
+    cardRoi: "ROI",
+    calculatorMissingRoi: "Không có ROI",
+    calculatorMissingCurve: "Không đủ dữ liệu để minh họa đường cong",
     heroTitle: "Sao chép những trader crypto & cổ phiếu giỏi nhất",
     heroTitleMobile: "Sao chép\nnhà giao dịch giỏi nhất",
     heroBrowse: "Khám phá",
@@ -195,6 +204,16 @@ export const vi: Messages = {
     },
   },
   discover: {
+    dataCoverage: {
+      summary: "{total} ứng viên · {ready} có dữ liệu hiệu suất · Phạm vi dữ liệu",
+      scope: "Xếp hạng trong nhóm ứng viên, không phải toàn bộ trader trên Hyperliquid. Nhóm lấy N người đứng đầu theo PnL toàn thời gian trong các tài khoản không phải vault, có giá trị tài khoản dương và có khối lượng giao dịch trong 30 ngày gần nhất, rồi thêm các KOL. N do nền tảng cấu hình.",
+      trades: "Có phân tích giao dịch: {ready}/{total}; điều này không có nghĩa lịch sử đã đầy đủ.",
+      updated: "Dữ liệu hiển thị được tính trong khoảng {oldest} đến {newest}.",
+      unknown: "Không có thời điểm tính toán đã xác nhận cho dữ liệu hiển thị.",
+      missing: "Một số số liệu hiển thị không có mốc thời gian cập nhật.",
+      history: "Dữ liệu được làm mới theo từng đợt. Thời điểm tính toán không phải mốc dữ liệu giao dịch và không chứng minh mọi trader được cập nhật cùng lúc. Phân tích của từng trader hiển thị phạm vi lịch sử của họ.",
+      score: "Điểm sao chép là ước tính của mô hình, không phải thứ hạng phân vị trên toàn thị trường.",
+    },
     title: "Khám phá",
     crypto: "Crypto",
     stocks: "Cổ phiếu",
@@ -257,6 +276,10 @@ export const vi: Messages = {
     error: "Không tải được bảng này",
   },
   trader: {
+    historyThroughUnknown: "Không có mốc dữ liệu giao dịch; điều này không có nghĩa dữ liệu đã mới nhất.",
+    historyThrough: "Dữ liệu giao dịch đến {date}.",
+    historyStatus: { pending: "Đang thu thập các giao dịch trước đây.", caught_up: "Đã đọc hết lịch sử có sẵn.", blocked: "Dữ liệu lịch sử có khoảng trống chưa được xử lý; kết quả hiện có được giữ nguyên." },
+    historyRetention: "Nguồn có thể không cung cấp toàn bộ lịch sử của tài khoản.",
     title: "Trader",
     invalidAddress: "Đây không phải địa chỉ Hyperliquid hợp lệ",
     loadFailed: "Không tải được địa chỉ này",

@@ -1,7 +1,12 @@
+import { en } from "./en";
 import type { Messages } from "./index";
 
 export const zhCN: Messages = {
+  // Admin-only system monitoring: English until it is translated.
+  monitoring: en.monitoring,
   methodology: {
+    history: "交易分析只涵盖已取得的成交。回补完成代表已扫描数据源可提供的范围，不代表全部历史完整。数据源已不保留的记录无法通过回补恢复。资金费率另有覆盖范围；取不到的资金费率不等于已确认的零成本。",
+    missing: "破折号表示无数据，不是零。计算时间是数字在本地计算的时间；交易数据截止时间是分析涵盖到的时间点。两者是不同的时间戳。",
     title: "绩效计算方法",
     intro: "ROI、夏普与回撤采用 CopyDog 的定义，由 Hyperliquid 投资组合的抽样历史计算（已对照 CopyDog 公开数据验证），不代表跟单者的实际收益，也不证明历史完整。",
     flow: "ROI = 期间盈亏 ÷ 期间最高净入金（各数据点“账户价值 − 累计盈亏”的最大值）。入金与出金只改变账户价值，不计为收益；图表的 % 模式为各点盈亏 ÷ 同一基数，终点即 ROI。永续 ROI 用永续序列，永续＋现货用全账户序列。",
@@ -111,6 +116,10 @@ export const zhCN: Messages = {
     allTime: "全部",
   },
   home: {
+    cardPnl: "盈亏",
+    cardRoi: "ROI",
+    calculatorMissingRoi: "暂无 ROI",
+    calculatorMissingCurve: "数据不足，无法绘制曲线",
     heroTitle: "跟单最优秀的加密货币与股票交易员",
     heroTitleMobile: "跟单\n顶尖交易者",
     heroBrowse: "浏览",
@@ -195,6 +204,16 @@ export const zhCN: Messages = {
     },
   },
   discover: {
+    dataCoverage: {
+      summary: "候选池 {total} 人 · 已取得绩效 {ready} 人 · 数据范围",
+      scope: "榜单在当前候选池内排序，不代表 Hyperliquid 全市场排名。候选池取近 30 天有交易量、非 Vault、账户价值大于 0 的全期盈亏前 N 名，再加入 KOL；N 由平台设置。",
+      trades: "已有交易分析：{ready}/{total}；不代表历史完整。",
+      updated: "显示的数据计算于 {oldest} 至 {newest} 之间。",
+      unknown: "显示的数据没有已确认的计算时间。",
+      missing: "部分显示的数字没有更新时间。",
+      history: "数据分批更新。计算时间不是交易数据截止时间，也不代表所有交易员同时更新。每位交易员的分析会显示其历史覆盖范围。",
+      score: "跟单评分为模型估算，并非全市场百分位排名。",
+    },
     title: "探索",
     crypto: "加密货币",
     stocks: "股票",
@@ -257,6 +276,10 @@ export const zhCN: Messages = {
     error: "无法加载榜单",
   },
   trader: {
+    historyThroughUnknown: "无法取得交易数据截止时间；这不代表数据是最新的。",
+    historyThrough: "交易数据截至 {date}。",
+    historyStatus: { pending: "正在收集更早的交易。", caught_up: "已读取可取得的历史。", blocked: "历史数据存在未解决的缺口；保留现有结果。" },
+    historyRetention: "数据源可能无法提供账户的完整历史。",
     title: "交易员",
     invalidAddress: "这不是有效的 Hyperliquid 地址",
     loadFailed: "无法加载该地址",

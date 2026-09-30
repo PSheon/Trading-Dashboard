@@ -1,7 +1,12 @@
+import { en } from "./en";
 import type { Messages } from "./index";
 
 export const id: Messages = {
+  // Admin-only system monitoring: English until it is translated.
+  monitoring: en.monitoring,
   methodology: {
+    history: "Analisis trade hanya mencakup fill yang berhasil diperoleh. Backfill yang selesai berarti rentang yang tersedia dari sumber sudah dipindai, bukan berarti seluruh riwayat lengkap. Catatan yang sudah tidak disimpan sumber tidak dapat dipulihkan dengan backfill. Funding memiliki cakupan tersendiri; funding yang tidak tersedia bukan biaya nol yang terkonfirmasi.",
+    missing: "Tanda pisah panjang berarti data tidak tersedia, bukan nol. Waktu perhitungan menunjukkan kapan angka dihitung secara lokal; batas data trade menunjukkan sejauh mana analisis mencakup. Keduanya adalah stempel waktu yang berbeda.",
     title: "Metodologi performa",
     intro: "ROI, Sharpe, dan penurunan mengikuti definisi CopyDog, dihitung dari sampel riwayat portofolio Hyperliquid (sudah dicocokkan dengan data publik CopyDog). Angka ini bukan jaminan hasil bagi penyalin, juga bukan bukti riwayat yang lengkap.",
     flow: "ROI = PnL periode ÷ deposit neto tertingginya (nilai akun dikurangi PnL kumulatif yang terbesar di titik mana pun). Deposit dan penarikan mengubah nilai akun, bukan PnL, jadi tidak dihitung sebagai imbal hasil. Mode % pada grafik adalah PnL ÷ basis yang sama di setiap titik dan berakhir di ROI. ROI perp memakai seri perp, perp + spot memakai seluruh akun.",
@@ -111,6 +116,10 @@ export const id: Messages = {
     allTime: "Semua",
   },
   home: {
+    cardPnl: "PnL",
+    cardRoi: "ROI",
+    calculatorMissingRoi: "ROI tidak tersedia",
+    calculatorMissingCurve: "Data tidak cukup untuk menggambarkan kurva",
     heroTitle: "Salin Trader Kripto & Saham Terbaik",
     heroTitleMobile: "Salin\nTrader Terbaik",
     heroBrowse: "Jelajahi",
@@ -195,6 +204,16 @@ export const id: Messages = {
     },
   },
   discover: {
+    dataCoverage: {
+      summary: "{total} kandidat · {ready} dengan data kinerja · Cakupan data",
+      scope: "Peringkat dalam kumpulan kandidat, bukan seluruh trader Hyperliquid. Kumpulan ini mengambil N teratas berdasarkan PnL sepanjang waktu dari akun non-vault dengan nilai akun positif dan volume trading dalam 30 hari terakhir, lalu menambahkan KOL. N diatur oleh platform.",
+      trades: "Analisis trade tersedia: {ready}/{total}; ini tidak berarti riwayat lengkap.",
+      updated: "Data yang ditampilkan dihitung antara {oldest} dan {newest}.",
+      unknown: "Tidak ada waktu perhitungan terkonfirmasi untuk data yang ditampilkan.",
+      missing: "Sebagian angka yang ditampilkan tidak memiliki stempel waktu pembaruan.",
+      history: "Data diperbarui secara bertahap. Waktu perhitungan bukan batas data trade dan tidak membuktikan semua trader diperbarui bersamaan. Analisis tiap trader menunjukkan cakupan riwayatnya.",
+      score: "Skor copy adalah estimasi model, bukan peringkat persentil di seluruh pasar.",
+    },
     title: "Jelajahi",
     crypto: "Kripto",
     stocks: "Saham",
@@ -257,6 +276,10 @@ export const id: Messages = {
     error: "Papan ini tidak dapat dimuat",
   },
   trader: {
+    historyThroughUnknown: "Batas data trade tidak tersedia; ini tidak berarti data sudah terkini.",
+    historyThrough: "Data trade hingga {date}.",
+    historyStatus: { pending: "Trade sebelumnya sedang dikumpulkan.", caught_up: "Riwayat yang tersedia sudah dibaca.", blocked: "Data historis memiliki celah yang belum terselesaikan; hasil yang ada tetap dipertahankan." },
+    historyRetention: "Sumber mungkin tidak menyediakan riwayat lengkap akun.",
     title: "Trader",
     invalidAddress: "Itu bukan alamat Hyperliquid yang valid",
     loadFailed: "Alamat ini tidak dapat dimuat",

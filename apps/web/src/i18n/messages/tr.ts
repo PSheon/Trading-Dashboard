@@ -1,7 +1,12 @@
+import { en } from "./en";
 import type { Messages } from "./index";
 
 export const tr: Messages = {
+  // Admin-only system monitoring: English until it is translated.
+  monitoring: en.monitoring,
   methodology: {
+    history: "İşlem analizi yalnızca elde edilen gerçekleşmeleri kapsar. Tamamlanan geri doldurma, kaynağın sunduğu aralığın tarandığı anlamına gelir; tüm geçmişin eksiksiz olduğu anlamına gelmez. Kaynağın artık saklamadığı kayıtlar geri doldurmayla kurtarılamaz. Fonlamanın ayrı bir kapsamı vardır; alınamayan fonlama, doğrulanmış sıfır maliyet değildir.",
+    missing: "Uzun tire verinin olmadığı anlamına gelir, sıfır değil. Hesaplama zamanı rakamların yerel olarak ne zaman hesaplandığını, işlem verisi sınırı ise analizin nereye kadar uzandığını gösterir. Bunlar farklı zaman damgalarıdır.",
     title: "Performans metodolojisi",
     intro: "ROI, Sharpe ve düşüş, CopyDog'un tanımlarını izler ve örneklenmiş Hyperliquid portföy geçmişinden hesaplanır (CopyDog'un herkese açık verileriyle karşılaştırılmıştır). Takipçiler için garanti edilmiş getiri ya da eksiksiz geçmişin kanıtı değildir.",
     flow: "ROI = dönem K/Z ÷ dönemin en yüksek net yatırma tutarı (herhangi bir noktadaki hesap değeri eksi kümülatif K/Z değerlerinin en büyüğü). Para yatırma ve çekme hesap değerini değiştirir, K/Z'yi asla değiştirmez; bu yüzden getiri sayılmaz. Grafiğin % modu her noktada K/Z ÷ aynı tabandır ve ROI değerinde biter. Vadesiz ROI vadesiz serisini, vadesiz + spot ise tüm hesabın serisini kullanır.",
@@ -111,6 +116,10 @@ export const tr: Messages = {
     allTime: "Tümü",
   },
   home: {
+    cardPnl: "K/Z",
+    cardRoi: "ROI",
+    calculatorMissingRoi: "ROI mevcut değil",
+    calculatorMissingCurve: "Eğriyi göstermek için yeterli veri yok",
     heroTitle: "En İyi Kripto ve Hisse Trader'larını Kopyalayın",
     heroTitleMobile: "En iyi\ntrader'ları kopyala",
     heroBrowse: "Gözat",
@@ -195,6 +204,16 @@ export const tr: Messages = {
     },
   },
   discover: {
+    dataCoverage: {
+      summary: "{total} aday · performans verisi olan {ready} · Veri kapsamı",
+      scope: "Sıralama aday havuzu içindedir, tüm Hyperliquid trader'ları arasında değil. Havuz, son 30 günde işlem hacmi olan ve hesap değeri pozitif olan vault dışı hesaplar arasından tüm zamanların K/Z'sine göre ilk N kişiyi alır, ardından KOL'ları ekler. N platform tarafından belirlenir.",
+      trades: "İşlem analizi mevcut: {ready}/{total}; bu, geçmişin eksiksiz olduğu anlamına gelmez.",
+      updated: "Gösterilen veriler {oldest} ile {newest} arasında hesaplandı.",
+      unknown: "Gösterilen veriler için doğrulanmış bir hesaplama zamanı yok.",
+      missing: "Gösterilen bazı rakamların güncelleme zaman damgası yok.",
+      history: "Veriler toplu halde yenilenir. Hesaplama zamanları işlem verisi sınırı değildir ve tüm trader'ların birlikte güncellendiğini kanıtlamaz. Her trader'ın analizi kendi geçmiş kapsamını gösterir.",
+      score: "Kopyalama puanları model tahminidir, tüm piyasadaki yüzdelik sıralama değildir.",
+    },
     title: "Keşfet",
     crypto: "Kripto",
     stocks: "Hisseler",
@@ -257,6 +276,10 @@ export const tr: Messages = {
     error: "Bu liste yüklenemedi",
   },
   trader: {
+    historyThroughUnknown: "İşlem verisi sınırı mevcut değil; bu, verilerin güncel olduğu anlamına gelmez.",
+    historyThrough: "{date} tarihine kadar işlem verisi.",
+    historyStatus: { pending: "Önceki işlemler toplanıyor.", caught_up: "Mevcut geçmiş okundu.", blocked: "Geçmiş verilerde çözülmemiş bir boşluk var; mevcut sonuçlar korunuyor." },
+    historyRetention: "Kaynak, hesabın tüm geçmişini sağlamayabilir.",
     title: "Trader",
     invalidAddress: "Bu geçerli bir Hyperliquid adresi değil",
     loadFailed: "Bu adres yüklenemedi",

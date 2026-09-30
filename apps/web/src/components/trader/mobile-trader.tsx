@@ -14,7 +14,7 @@ import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
 import { truncateAddress } from "@/lib/format";
-import { pct1, winRateTone } from "@/lib/trade-format";
+import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { CopyPanel } from "./copy-panel";
 import { signedPctCd, WINDOWS } from "./performance";
 import { PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
@@ -177,7 +177,7 @@ export function MobileTrader({
               <Skeleton className="h-9 w-44" />
             ) : (
               <div className={cn("num text-[2rem] leading-none font-bold tracking-tight", headline === null ? "" : headline >= 0 ? "text-positive" : "text-negative")}>
-                {headline === null ? "—" : mode === "pnl" ? format.usd(headline, { compact: true, sign: true, digits: 2 }) : signedPctCd(headline)}
+                {headline === null ? "—" : mode === "pnl" ? signedUsdShort(headline) : signedPctCd(headline)}
               </div>
             )}
             {mode === "pnl" && roi !== null ? <RoiPill value={roi} /> : null}
@@ -225,7 +225,7 @@ export function MobileTrader({
       <dl className="grid grid-cols-2 gap-x-4 gap-y-5 rounded-2xl border border-border bg-card p-5">
         <div className="flex flex-col gap-1.5">
           <dt className="text-xs text-muted-foreground">{t("trader.accountValue")}</dt>
-          <dd className="num text-xl font-bold">{format.usd(profile.accountValue, { compact: true, digits: 2 })}</dd>
+          <dd className="num text-xl font-bold">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
         </div>
         <div className="flex flex-col gap-1.5">
           <dt className="text-xs text-muted-foreground">{t("trader.kpi.sharpe")}</dt>

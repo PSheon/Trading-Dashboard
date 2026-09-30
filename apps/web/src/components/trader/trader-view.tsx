@@ -122,7 +122,7 @@ function TraderLoaded({ address }: { address: string }) {
         <Skeleton className="h-[640px] rounded-2xl" />
       )}
     </div>
-    <div className="trader-grid -mx-1 md:-mx-3">
+    <div className="trader-grid -mx-1 md:-mx-6">
       <div data-area="profile">
         {profile.isError && !live.profile ? (
           <ErrorState message={`${t("trader.loadFailed")} · ${profile.error.message}`} onRetry={() => profile.refetch()} />

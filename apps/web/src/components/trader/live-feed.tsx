@@ -97,7 +97,7 @@ export function LiveFeed({
   onCopy: () => void;
 }) {
   const { t } = useI18n();
-  const fills = useTraderFills(address, 200);
+  const fills = useTraderFills(address, 2000);
   const transfers = useTraderTransfers(address);
   const rows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
   const events = useMemo<FeedEvent[]>(() => {

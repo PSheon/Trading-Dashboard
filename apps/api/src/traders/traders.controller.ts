@@ -32,7 +32,8 @@ import { BusyException, BusyFilter } from "./busy.js";
 import { TradersService } from "./traders.service.js";
 
 export const DEFAULT_FILLS_LIMIT = 50;
-export const MAX_FILLS_LIMIT = 200;
+/** CopyDog's 成交 tab reads up to 2,000 fills (one `userFills` page). */
+export const MAX_FILLS_LIMIT = 2000;
 /** A trader-page request answers within this long, well inside the web
  * forwarder's 20 s timeout: past it, 503 busy. */
 export const PAGE_DEADLINE_MS = 12_000;

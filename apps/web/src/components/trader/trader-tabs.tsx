@@ -75,8 +75,14 @@ export function markOf(p: LivePosition, marks: Readonly<Record<string, number>>)
   return marks[p.coin] ?? (p.szi !== 0 ? p.positionValue / Math.abs(p.szi) : null);
 }
 
-/** Unrealized PnL as a % of margin (Hyperliquid's return on equity). */
-const pnlPct = (p: LivePosition) => (p.returnOnEquity == null ? null : p.returnOnEquity * 100);
+/** Unrealized PnL as a % of the entry notional, as CopyDog shows it (e.g.
+ * −$700K on 310K DRAM entered at $63.07 → −3.6%); Hyperliquid's return on
+ * margin when there is no entry price. */
+const pnlPct = (p: LivePosition) => {
+  const entryNotional = p.entryPx === null ? 0 : Math.abs(p.szi) * p.entryPx;
+  if (entryNotional > 0) return (p.unrealizedPnl / entryNotional) * 100;
+  return p.returnOnEquity == null ? null : p.returnOnEquity * 100;
+};
 /** Funding received since open: CopyDog shows −cumFunding.sinceOpen. */
 const fundingOf = (p: LivePosition) => (p.fundingSinceOpen == null ? null : -p.fundingSinceOpen);
 

@@ -70,7 +70,7 @@ export function ActivityTabs({
   const [tab, setTab] = useState<Tab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
   const { status } = useAuth();
-  const fills = useTraderFills(profile.address, 200);
+  const fills = useTraderFills(profile.address, 2000);
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
   const {
     query: actions,

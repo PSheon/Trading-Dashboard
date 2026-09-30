@@ -752,8 +752,8 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(info.userTwapSliceFills.mock.calls).toEqual([[UNKNOWN, "background", 2]]);
     });
 
-    it("validates limit (1–200, default 50)", async () => {
-      await expectStatus(() => controller.fills(A, "201"), 400);
+    it("validates limit (1–2,000, default 50)", async () => {
+      await expectStatus(() => controller.fills(A, "2001"), 400);
       await expectStatus(() => controller.fills(A, "0"), 400);
       await expectStatus(() => controller.fills(A, "abc"), 400);
       const many = Array.from({ length: 80 }, (_, i) => ({ ...userFillsFixture[0], coin: "BTC", tid: i + 1, time: i }));

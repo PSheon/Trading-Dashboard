@@ -12,7 +12,7 @@ import {
   useSignTypedData,
   useWallets,
 } from "@privy-io/react-auth";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { MeResponse } from "@/lib/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useRef } from "react";
 
@@ -128,20 +128,20 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
   const { signTypedData } = useSignTypedData();
   const { sendTransaction } = useSendTransaction();
   const { createWallet } = useCreateWallet();
-  const queryClient = useQueryClient();
   const creating = useRef(false);
   const embedded = wallets.find((w) => w.walletClientType === "privy") ?? null;
 
   useEffect(() => {
     if (!signedIn || !ready || embedded || creating.current) return;
     creating.current = true;
-    createWallet()
-      .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.wallet.all }))
-      .catch(() => {
+    // No query invalidation here: this runs above the session QueryClient.
+    // The pages show the new address from Privy at once (useWalletAddress)
+    // and /me/wallet picks it up on its next poll.
+    createWallet().catch(() => {
         // Already has one (created in another tab) or Privy refused: the
         // wallet panel shows "not ready" and a reload tries again.
       });
-  }, [signedIn, ready, embedded, createWallet, queryClient]);
+  }, [signedIn, ready, embedded, createWallet]);
 
   const address = embedded?.address ?? null;
   return useMemo<WalletSigner | null>(() => {

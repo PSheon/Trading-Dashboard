@@ -64,6 +64,9 @@ CopyDog 匯出私鑰頁寫明：「私鑰是控制你主帳戶的安全密碼，
 - 兩條都經過既有的 budgeter，排在 background lane 的頁面等級（profile rank 0、fills rank 2）。12 秒內拿不到額度回 503 busy（附 Retry-After），其他上游錯誤回 502，不會把失敗顯示成 $0。只有 Arbitrum RPC 失敗時，`arbitrum` 回 null，其餘照常。
 - 已登記在 `wire-contracts.ts`、`docs/http-routes.md`、`docs/openapi.json`。匿名呼叫回 401，service token 回 403。
 - 伺服器沒有任何簽名，也不存金鑰或 signer 參照。
+- 對外讀取實測（2026-09-30，用編譯後的 api 類別直接打測試網）：
+  - `ArbitrumBalanceClient` 在 Arbitrum Sepolia 讀到測試網橋的 USDC2 餘額，空地址讀到 0；
+  - 測試網 info 的 `clearinghouseState`、`spotClearinghouseState`、`userNonFundingLedgerUpdates` 都通過 api 既有的回應驗證。
 
 #### 儲值：USDC 怎麼從 Arbitrum 進到 Hyperliquid
 

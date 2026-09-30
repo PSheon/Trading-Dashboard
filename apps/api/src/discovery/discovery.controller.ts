@@ -1,15 +1,18 @@
-import { BadGatewayException, Body, Controller, Delete, Get, HttpCode, HttpException, Logger, Param, Patch, Post, Query, UseFilters } from "@nestjs/common";
+import { BadGatewayException, Body, Controller, Delete, Get, HttpCode, HttpException, Logger, NotFoundException, Param, Patch, Post, Query, Req, Res, StreamableFile, UseFilters } from "@nestjs/common";
+import type { Request, Response } from "express";
 import type { BoardResponse, CopyScoreResponse, HomeBoardsResponse, Kol, KolImportResponse } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { RequirePermissions } from "../common/auth/permissions.js";
 import { Public } from "../common/auth/public.decorator.js";
-import { ApiDoc, ResponseMessage } from "../common/decorators/http.decorator.js";
+import { ApiDoc, ResponseMessage, SkipTransform } from "../common/decorators/http.decorator.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from "../traders/traders.controller.js";
 import { DiscoveryService } from "./discovery.service.js";
-import { BoardQueryDto, KolImportDto, KolInputDto, KolPatchDto } from "./dto/discovery.dto.js";
+import { AvatarQueryDto, BoardQueryDto, KolImportDto, KolInputDto, KolPatchDto } from "./dto/discovery.dto.js";
+import { AVATAR_MAX_AGE_S, avatarVersion } from "./kol-avatar.js";
+import { KolAvatarService } from "./kol-avatar.service.js";
 import { KolService } from "./kol.service.js";
 
 /** Explore boards and home rows (Stage 3). Public; served from the
@@ -102,5 +105,38 @@ export class AdminKolController {
   @HttpCode(204)
   async remove(@Param() params: AddressParamsDto, @CurrentUser() user: RequestUser | null): Promise<void> {
     await this.kols.remove(params.address, user);
+  }
+}
+
+/** GET /kols/:address/avatar: a KOL's picture from the api's own cache
+ * (`kol_avatars`), so pages never hotlink a third-party host. 404 until the
+ * drip job has fetched it; the web then draws its generated avatar. */
+@Public()
+@Controller("kols")
+export class KolAvatarController {
+  constructor(private readonly avatars: KolAvatarService) {}
+
+  @ApiDoc("KOL avatar", "The cached image bytes (PNG, JPEG, GIF or WebP). A URL whose `v` matches the current version is cached for a month; If-None-Match answers 304.")
+  @SkipTransform()
+  @Get(":address/avatar")
+  async avatar(
+    @Param() params: AddressParamsDto,
+    @Query() query: AvatarQueryDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile | undefined> {
+    const image = await this.avatars.find(params.address);
+    if (!image) throw new NotFoundException("No cached avatar");
+    const current = query.v === avatarVersion(image.etag);
+    res.setHeader("ETag", image.etag);
+    res.setHeader("Cache-Control", current ? `public, max-age=${AVATAR_MAX_AGE_S}, immutable` : "public, max-age=3600");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+    const match = req.header("if-none-match");
+    if (match && match.split(",").some((tag) => tag.trim().replace(/^W\//, "") === image.etag)) {
+      res.status(304);
+      return undefined;
+    }
+    return new StreamableFile(image.bytes, { type: image.contentType, length: image.bytes.length });
   }
 }

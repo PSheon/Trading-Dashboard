@@ -32,14 +32,6 @@ function fields(line: string): string[] {
   return out.map((f) => f.trim());
 }
 
-/** The avatar a board shows: the stored one, else the 𝕏 profile picture
- * through unavatar.io (never another site's CDN), else null (the web draws
- * its generated avatar, also its fallback when the image fails). */
-export function kolAvatarUrl(kol: { avatarUrl: string | null; xHandle: string | null }): string | null {
-  if (kol.avatarUrl) return kol.avatarUrl;
-  return kol.xHandle ? `https://unavatar.io/x/${encodeURIComponent(kol.xHandle)}` : null;
-}
-
 /** "https://x.com/handle", "@handle" or "handle" → "handle"; anything else
  * is returned unchanged so validation reports it. */
 export function normalizeXHandle(value: string): string {

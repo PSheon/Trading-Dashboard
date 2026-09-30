@@ -89,6 +89,8 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
         : contract.stream ? { description: "Server-sent events. Errors before admission use the JSON error envelope.",
           content: { "text/event-stream": { schema: { type: "string" } } },
           "x-event-schemas": Object.fromEntries(Object.entries(contract.stream.events).map(([name, value]) => [name, schema(value)])) }
+        : contract.binary ? { description: "Image bytes",
+          content: Object.fromEntries(contract.binary.contentTypes.map((type) => [type, { schema: { type: "string", format: "binary" } }])) }
         : { description: "Success", content: { "application/json": { schema: contract.raw ? schema(contract.response) : {
           type: "object", required: ["success", "statusCode", "message", "data", "meta"],
           properties: { success: { type: "boolean", enum: [true] }, statusCode: { type: "integer", enum: [contract.status] },

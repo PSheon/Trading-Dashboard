@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { INestApplication } from "@nestjs/common";
-import { adminAuditLogs, discoveryTraders, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
+import { adminAuditLogs, discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
 import { wireBoardSchema, wireCopyScoreSchema, wireHomeBoardsSchema } from "@trading-dashboard/shared/contracts";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
@@ -15,7 +15,7 @@ import { AdminKolController, CopyScoreController, DiscoveryController } from "..
 import { DiscoveryPoolService } from "../src/discovery/discovery-pool.service.js";
 import { DiscoveryRepository } from "../src/discovery/discovery.repository.js";
 import { DiscoveryService } from "../src/discovery/discovery.service.js";
-import { kolAvatarUrl, parseKolCsv } from "../src/discovery/kol-csv.js";
+import { parseKolCsv } from "../src/discovery/kol-csv.js";
 import { KolRepository } from "../src/discovery/kol.repository.js";
 import { KolService } from "../src/discovery/kol.service.js";
 import { DEFAULT_KOL_FILE } from "../src/discovery/seed-kols.js";
@@ -86,12 +86,6 @@ describe("KOL CSV and board rules", () => {
       expect.objectContaining({ address: addr(2), displayName: "Bob", xHandle: "bob", verified: true, sortOrder: 5 }),
     ]);
     expect(() => parseKolCsv("name\nx")).toThrow(/address/);
-  });
-
-  it("derives avatars from the 𝕏 handle, never another CDN", () => {
-    expect(kolAvatarUrl({ avatarUrl: null, xHandle: "mk4_lul" })).toBe("https://unavatar.io/x/mk4_lul");
-    expect(kolAvatarUrl({ avatarUrl: "https://example.com/a.png", xHandle: "x" })).toBe("https://example.com/a.png");
-    expect(kolAvatarUrl({ avatarUrl: null, xHandle: null })).toBeNull();
   });
 
   it("follows CopyDog's board rules for windows, sorts and markets", () => {
@@ -284,7 +278,11 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       const top = await get("");
       expect(top.items.map((t) => t.address)).toEqual([addr(1), addr(2)]); // no figures / no account value left out
       expect(top).toMatchObject({ sort: "copyScore", window: "all", pool: { total: 4, ready: 3 } });
-      expect(top.items[1]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, avatarUrl: "https://unavatar.io/x/two", pnl: 900 });
+      // No cached avatar yet → null (the web draws its generated one) …
+      expect(top.items[1]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, avatarUrl: null, pnl: 900 });
+      // … and the api's own versioned URL once the drip job has cached it.
+      await db.insert(kolAvatars).values({ address: addr(2), source: "x:two", bytes: Buffer.from([0xff, 0xd8, 0xff]), contentType: "image/jpeg", etag: '"abcdefghijklmnop"', fetchedAt: new Date() });
+      expect((await get("")).items[1].avatarUrl).toBe(`/kols/${addr(2)}/avatar?v=abcdefghijkl`);
       const month = await get("sort=roi&window=30d");
       expect(month.items.map((t) => t.roi)).toEqual([0.5, -0.1]);
       expect(month.items[0].sparkline).toEqual([0, 1]);

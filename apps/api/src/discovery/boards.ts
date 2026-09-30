@@ -11,7 +11,7 @@ import { tradingStyleSchema } from "@trading-dashboard/shared/contracts";
 
 import { isStockCoin, realized } from "./discovery-figures.js";
 import type { BoardSourceRow } from "./discovery.repository.js";
-import { kolAvatarUrl } from "./kol-csv.js";
+import { kolAvatarPath } from "./kol-avatar.js";
 
 /** CopyDog shows a fixed top 100 per board, no paging. */
 export const BOARD_SIZE = 100;
@@ -36,7 +36,7 @@ export function toCandidate(row: BoardSourceRow): Candidate {
     card: {
       address: row.address,
       displayName: (kol ? row.kolName : null) ?? row.leaderboardName ?? null,
-      avatarUrl: kol ? kolAvatarUrl({ avatarUrl: row.kolAvatarUrl, xHandle: row.kolXHandle }) : null,
+      avatarUrl: kol ? kolAvatarPath(row.address, row.kolAvatarEtag) : null,
       xHandle: kol ? row.kolXHandle : null,
       verified: kol ? Boolean(row.kolVerified) : false,
       kol,

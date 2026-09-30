@@ -535,6 +535,17 @@ export const spotBalanceSchema = z.object({
 });
 export type SpotBalance = z.infer<typeof spotBalanceSchema>;
 
+/** A KOL as the trader page header shows it. `avatarUrl` is the api's
+ * cached copy (`/kols/:address/avatar?v=…`, a path on the api), null until
+ * the drip job has fetched it. */
+export const kolCardSchema = z.object({
+  displayName: z.string().nullable(),
+  xHandle: z.string().nullable(),
+  verified: z.boolean(),
+  avatarUrl: z.string().nullable(),
+});
+export type KolCard = z.infer<typeof kolCardSchema>;
+
 /** GET /traders/:address — the trader page's left column and header. Public;
  * `favorite` is false when signed out. */
 export const traderProfileResponseSchema = z.object({
@@ -592,6 +603,10 @@ export const traderProfileResponseSchema = z.object({
     })
     .optional(),
   favorite: z.boolean(),
+  /** The KOL registry's entry for this address (name, 𝕏 handle, verified
+   * badge, cached avatar); null when it is not a KOL. Optional while older
+   * clients and fixtures roll forward. */
+  kol: kolCardSchema.nullable().optional(),
   /** @deprecated Tracked addresses only, from the actions table. The web
    * reads GET /traders/:address/analytics (any address) instead; kept for
    * API clients for one step. */
@@ -1405,6 +1420,8 @@ export const boardTraderSchema = z.object({
   address: z.string(),
   /** KOL name, else the leaderboard's display name; null → short address. */
   displayName: z.string().nullable(),
+  /** A KOL's cached avatar, a path on the api (`/kols/:address/avatar?v=…`);
+   * null → the web's generated avatar. */
   avatarUrl: z.string().nullable(),
   xHandle: z.string().nullable(),
   verified: z.boolean(),
@@ -1476,8 +1493,11 @@ export type CopyScoreResponse = z.infer<typeof copyScoreResponseSchema>;
 export const kolSchema = z.object({
   address: z.string(),
   displayName: z.string().nullable(),
-  /** As stored; the boards derive one from the 𝕏 handle when null. */
+  /** As stored: the admin's explicit source URL; null → the 𝕏 handle's
+   * profile picture. Pages never load it directly. */
   avatarUrl: z.string().nullable(),
+  /** The api's cached copy (see `kolCardSchema`); null until fetched. */
+  cachedAvatarUrl: z.string().nullable().optional(),
   xHandle: z.string().nullable(),
   verified: z.boolean(),
   sortOrder: z.number().int(),

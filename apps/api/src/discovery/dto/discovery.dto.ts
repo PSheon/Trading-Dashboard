@@ -54,3 +54,8 @@ export class KolImportDto {
   @ApiPropertyOptional({ type: Boolean, default: false, description: "Remove KOLs the file doesn't list (only when every row is valid)" })
   @Optional() @IsBoolean() declare replace?: boolean;
 }
+
+export class AvatarQueryDto {
+  @ApiPropertyOptional({ type: String, pattern: "^[A-Za-z0-9_-]{1,32}$", description: "Version from the avatar URL a board returned; a matching version is cached for a month" })
+  @Optional() @Matches(/^[A-Za-z0-9_-]{1,32}$/) declare v?: string;
+}

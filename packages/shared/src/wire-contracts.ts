@@ -63,6 +63,9 @@ export interface HttpRouteContract {
   /** Set for server-sent-event routes. */
   stream?: HttpStreamContract;
   raw?: boolean;
+  /** Set for routes answering bytes (an image), not JSON: the media types
+   * it may send. `response` is `z.never()`; errors keep the JSON envelope. */
+  binary?: { contentTypes: string[] };
   pagination?: { type: "offset" | "cursor"; query: z.ZodTypeAny };
 }
 /** One registry drives server output validation, browser validation and route docs. */
@@ -120,6 +123,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/admin/kols/import", status: 201, auth: "kols.manage", response: s.kolImportResponseSchema },
   { method: "PATCH", path: "/admin/kols/:address", status: 200, auth: "kols.manage", response: wireKolSchema },
   { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },
+  { method: "GET", path: "/kols/:address/avatar", status: 200, auth: "public; image bytes, 304 on If-None-Match", response: z.never(),
+    binary: { contentTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"] } },
 ];
 export function findHttpContract(method: string, path: string) {
   const clean = (path.split("?")[0] ?? "").replace(/\/$/, "");

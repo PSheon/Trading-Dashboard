@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gt, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
-import { discoveryTraders, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
+import { discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -13,7 +13,8 @@ export type DiscoveryFigures = Partial<Omit<typeof discoveryTraders.$inferInsert
 /** A pool row with the KOL entry and leaderboard name it is shown with. */
 export interface BoardSourceRow extends DiscoveryRow {
   kolName: string | null;
-  kolAvatarUrl: string | null;
+  /** ETag of the KOL's cached avatar; null when none is cached. */
+  kolAvatarEtag: string | null;
   kolXHandle: string | null;
   kolVerified: boolean | null;
   kolSortOrder: number | null;
@@ -168,7 +169,7 @@ export class DiscoveryRepository {
       .select({
         row: discoveryTraders,
         kolName: kolTraders.displayName,
-        kolAvatarUrl: kolTraders.avatarUrl,
+        kolAvatarEtag: sql<string | null>`case when ${kolAvatars.bytes} is null then null else ${kolAvatars.etag} end`,
         kolXHandle: kolTraders.xHandle,
         kolVerified: kolTraders.verified,
         kolSortOrder: kolTraders.sortOrder,
@@ -177,6 +178,7 @@ export class DiscoveryRepository {
       })
       .from(discoveryTraders)
       .leftJoin(kolTraders, and(eq(kolTraders.chain, discoveryTraders.chain), eq(kolTraders.address, discoveryTraders.address)))
+      .leftJoin(kolAvatars, and(eq(kolAvatars.chain, discoveryTraders.chain), eq(kolAvatars.address, discoveryTraders.address)))
       .leftJoin(traderStats, and(eq(traderStats.chain, discoveryTraders.chain), eq(traderStats.address, discoveryTraders.address)))
       .where(and(mine, eq(discoveryTraders.inPool, true)));
     return rows.map(({ row, ...rest }) => ({ ...row, ...rest }));

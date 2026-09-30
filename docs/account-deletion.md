@@ -15,6 +15,7 @@
 `AccountDeletionService.delete` 在同一個 transaction 裡：
 
 1. 鎖住所有啟用中的管理員與使用者本身；如果這個人是**唯一**啟用中的管理員，回 `409 {code: "last_admin"}`，避免網站沒有管理員。
+1a. 還有沒停止的跟單（`copy_strategies.status <> 'stopped'`）時回 `409 {code: "copies_active"}`，與 CopyDog 在跟單資金未收回時擋下刪除相同；前端提示先到投資組合停止跟單（第 3 步，模擬跟單）。已停止的跟單、訂單與帳本隨使用者一起 cascade 刪除。
 2. 逐一移除收藏並釋放監控清單（`removeAndUnwatch`）：只有他收藏的 favorite-sourced 交易員會停止監控，別人也收藏的照常。
 3. 刪除 `users` 這一列。外鍵 cascade 刪除：收藏、收藏群組與成員、提醒設定（`user_favorites.alert_*`）、個人規則與提醒紀錄（`alert_rules`、`alerts`）、Telegram 連結（`notification_channels`、`telegram_link_tokens`）、待送通知（`notification_outbox`）。管理員改過的網站設定保留，`updated_by_user_id` 變成 null。
 4. 寫一筆 `admin_audit_logs`：`event = "user.delete"`、`target = "user:<id>"`、`actor_user_id = <id>`，`before_json` 只有角色與數量（收藏數、開啟提醒數、群組數、是否連結 Telegram），不含 email、Privy ID、地址或 chat id。

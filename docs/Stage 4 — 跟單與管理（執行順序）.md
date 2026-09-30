@@ -15,7 +15,7 @@
 | 1 | 收藏、洞察（進行中） | Stage 3 §2–3，含 KOL 頭像快取 | Stage 3 對照清單 |
 | 2 | 錢包 | Privy 內建錢包；儲值、提領、紀錄、匯出私鑰；投資組合頁照 CopyDog | 桌面／手機截圖；不存私鑰；撤銷／錯誤狀態 |
 | 2.5 | 補齊漏掉的頁面 | 幣種排行頁、搜尋對齊、刪除帳號、11 種語言、關於／FAQ／隱私／條款頁（見 `全站 CopyDog 對照總表.md`） | 每頁 1440／390 並排截圖 |
-| 3 | 模擬跟單＋跟單後台 | 策略（順向／反向、金額、比例、上限）、canonical 成交信號、風控、reservation、虛擬帳本；後台：策略與模擬訂單、每人曝險、緊急停止（停開新倉／撤單／只減倉／全平）、風控上限 | 重播、重複、亂序信號不重複下單；停止命令在 worker 生效 |
+| 3 | 模擬跟單＋跟單後台（🟡 資料層與使用者畫面完成於 `stage4-paper-copy`；後台畫面改由 Codex） | 策略（順向／反向、金額、比例、上限）、canonical 成交信號、風控、reservation、虛擬帳本；後台：策略與模擬訂單、每人曝險、緊急停止（停開新倉／撤單／只減倉／全平）、風控上限 | 重播、重複、亂序信號不重複下單；停止命令在 worker 生效 |
 | 4 | 管理功能補齊 | 權限分級＋高風險覆核、稽核紀錄頁、使用者詳情、通知監控與 dry-run 開關、探索資料狀態、收入地址歷史、預設規則表單、設定生效狀態（review A03/A04/A06–A12） | 各項測試＋截圖 |
 | 5 | 測試網實單 | 簽署授權／撤銷、nonce、client order ID、未知結果恢復、部分成交、對帳 | 故障演練清單（review §12）全過 |
 | 6 | 正式上線 | builder fee 授權、依實際成交對帳收入、SLO／告警、小額受控實測 | Paul 明確同意後才開真實資金 |
@@ -220,3 +220,195 @@ CopyDog 匯出私鑰頁寫明：「私鑰是控制你主帳戶的安全密碼，
 | 首頁＋交易者頁（ru、vi、ja） | 版面不溢出、按鈕與分頁不換行錯位、數字格式與 CopyDog 相同（$、%） | 越南文主標較長，桌面折成 4 行；ru 側欄「Сохранённые」貼齊欄寬 |
 
 **尚未驗證**：真正的 Privy 登入後刪除帳號（fixture 模式已走完整流程，伺服器端由 `test/me.spec.ts` 以真實 Postgres 驗證）。
+
+## 第 3 步：模擬跟單（實作結果，2026-09-30，分支 `stage4-paper-copy`，基於 `stage4-pages`）
+
+只有 paper 模式：虛擬 USDC、依交易者的**真實成交**模擬下單，不簽名、不用 Privy 伺服器錢包、不送任何訂單到 Hyperliquid。
+
+**範圍調整（Paul，2026-09-30）**：後台畫面與 admin HTTP 路由改由 Codex 做。本步只做資料層（資料表、服務、權限、稽核）與使用者畫面；管理功能以服務介面交出，見下方「給 Codex：跟單管理介面」。
+
+### CopyDog 的跟單設定與 Orbie 對應
+
+來源：CopyDog 交易者頁的跟單元件原始碼（`HLTraderDetail-*.js`，`POST /api/copy-trading/configure`）、`copyWidget.json`／`portfolio.json` 語系檔，以及未登入時自己的 headless Chromium 實測。
+
+| CopyDog 欄位（Hyperliquid 預設） | 在哪裡設定 | Orbie 欄位 | 預設 |
+| --- | --- | --- | --- |
+| `copy_direction`：`same` 順向／`reverse` 反向 | 面板上方 | `direction` | `same` |
+| `allocation_amount`：跟單金額（USDC），最低 $100 | 面板大數字＋最大＋可交易餘額滑桿 | `allocationUsd`（從模擬餘額撥出） | —（最低 $100，由風控政策設定） |
+| `allocation_mode`：`ratio`（HL 唯一可選）／`fixed` | 投資組合 › 編輯設定 | `sizingMode` | `ratio` |
+| `copy_size`：每筆交易金額（固定模式） | 投資組合 › 編輯設定 | `perTradeUsd` | null |
+| `max_total_exposure`：最大分配額（HL 送 null，畫面顯示 金額×5） | 投資組合 › 編輯設定 | `maxTotalExposureUsd` | null（= 金額 × 5） |
+| `max_leverage`（HL 送 null） | 無畫面 | `maxLeverage` | null（= 平台上限） |
+| `copy_start_mode`：`adopt`（跟單目前持倉 開）／`delta` | 面板 › 更多設定（唯一一項） | `copyStartMode` | `adopt` |
+| 加碼 | 投資組合 | `POST …/funds` | — |
+| 暫停／恢復／停止（停止並平倉） | 投資組合 | `POST …/commands` | — |
+
+- CopyDog 的「更多設定」**只有**「跟單目前持倉」一項；沒有停利停損、最小下單或槓桿欄位。Orbie 照做；最小下單金額（$10，Hyperliquid 規則）與槓桿上限屬於平台風控政策。
+- CTA 文字順序照 CopyDog：請輸入金額 → 最低 $100 才能跟單 → 餘額不足 → 開始跟單 $X → 已啟動！；已在跟單時顯示「跟單中 · 管理」（連到投資組合的該筆跟單）。
+
+### 資料表（**需要 migration**，目前只在 `packages/shared/src/schema/db.ts`）
+
+dev 可以合併後執行 `pnpm db:generate`，會產生下列建表（測試資料庫目前用 `drizzle-kit push`）：
+
+| 資料表 | 用途 |
+| --- | --- |
+| `copy_risk_policies` | 風控政策的不可變版本（review A07）；最新一版生效，每筆訂單記錄版本 |
+| `copy_controls` | 平台（`platform`/0）與每位使用者（`user`/id）的停止狀態＋`revision` |
+| `copy_control_events` | 每個停止／恢復命令（任一層級）：誰、原因、revision、結果 |
+| `paper_accounts` | 每位使用者的虛擬 USDC 餘額（預設 10,000，政策可調） |
+| `copy_strategies` | 一位使用者跟一位交易者：狀態、目前版本、已投入、現金、損益、手續費、資金費、策略層停止旗標、啟用 cursor `activated_at`；部分唯一索引「每人每交易者一筆未停止的跟單」 |
+| `copy_strategy_versions` | 設定的不可變版本 |
+| `copy_signal_outbox` | 執行 outbox：被跟單地址的每筆已驗證成交一列，(chain, address, tid) 唯一 |
+| `copy_consumer_checkpoints` | 執行 consumer 自己的 checkpoint（與通知 outbox 無關） |
+| `copy_signal_legs` | 信號去重：(strategy, tid, leg) 主鍵，`dedupe_key` = `strategy:tid:leg:vN` |
+| `copy_orders` | 訂單狀態機，綁定策略版本、政策版本、三層 control revision、client order id |
+| `copy_reservations` | 下單保證金 reservation（與訂單同一個 transaction） |
+| `copy_paper_fills` | 模擬成交（價格來源、滑價、手續費、builder fee、已實現損益） |
+| `copy_positions` | 每個策略自己的部位（與其他策略、交易者本人分開） |
+| `copy_ledger` | 只增不改的資金流水（撥款、已實現、手續費、builder fee、資金費、收回） |
+
+另外：`leaders.source` 多一個文字值 `copy`（不需 migration）；`users.embedded_wallet_address` 仍是第 2 步留下的待產生欄位。`copy_consumer_checkpoints.last_outbox_id` 的預設值寫成 `sql\`0\``，因為 bigint 字面值會讓 drizzle-kit 序列化失敗。
+
+### API
+
+| 路由 | 內容 | Hyperliquid 權重 | 快取 |
+| --- | --- | --- | --- |
+| `GET /me/copy` | 模擬帳戶（可用、已投入、總值、總損益）、限額、平台／個人停止狀態、每筆跟單（設定、部位、損益、ROI、曝險） | 有部位時 `allMids` 2 | mids 全站共用 3 秒；其餘直接讀 DB |
+| `POST /me/copy/strategies` | 開始跟單（201）；409 `already_copying`／`insufficient_balance`／`below_min_allocation`／`above_max_allocation`／`strategy_limit`／`copy_paused`；503 `leader_unavailable`／`copy_disabled` | 跟單目前持倉開啟時 `clearinghouseState` 2（＋`allMids` 2、`metaAndAssetCtxs` 20 若未快取） | 交易者權益 60 秒；universe 1 小時 |
+| `PATCH /me/copy/strategies/:id` | 編輯設定＝新版本 | 0（有部位時 mids 2） | — |
+| `POST /me/copy/strategies/:id/funds` | 加碼 | 同上 | — |
+| `POST /me/copy/strategies/:id/commands` | `pause`／`resume`／`reduce_only`／`cancel_pending`／`close_positions`／`stop` | 平倉時 mids 2 | — |
+| `GET /me/copy/strategies/:id/orders` | 最近 100 筆模擬訂單（含拒絕／取消原因） | 0 | — |
+
+- 全部只作用在呼叫者自己的策略（別人的回 404），匿名 401、service token 403。登記在 `wire-contracts.ts`、`docs/http-routes.md`、`docs/openapi.json`。
+- 背景 worker（每 `COPY_WORKER_INTERVAL_MS`，預設 2 秒）：consumer 有待處理信號時 `allMids` 2 ＋每位被跟單者 `clearinghouseState` 2（60 秒快取）；executor 有待成交訂單時 `allMids` 2（3 秒快取）；資金費每小時 `metaAndAssetCtxs` 20。全部經既有 budgeter 的 background lane。
+- 新設定 `COPY_TRADING_MODE`：`paper`（預設）或 `disabled`；`testnet`／`live` 在這個版本啟動時直接拒絕（review #11：部署能力與 app_settings 分開，沒有任何後台開關能把部署變成 live）。
+
+### Canonical 信號與冪等
+
+- **來源是已驗證成交（`fills`），不是通知用的 `actions`。** `FillSyncRepository.insertFills` 每一批在同一個 transaction 內寫入 fills 並把「有人跟單的地址、時間在最早啟用 cursor 之後」的新成交寫進 `copy_signal_outbox`。兩邊都拿同一把地址 advisory lock（namespace 7402），開始跟單時也在同一把鎖下從已存的 fills 補寫 outbox，所以兩者不會互相漏掉成交。
+- 每筆成交用它自己的 `startPosition` 拆成 leg：開倉／加倉＝`open`，減倉／平倉＝`close`（帶「平掉交易者部位的比例」），反手＝一個全平 `close` ＋一個新方向 `open`。沒有 `startPosition` 的成交記為 `unclassifiable`，不猜。
+- Consumer 依 (時間, tid) 排序處理；同一個 coin、同一種 leg、同方向且相鄰的 leg 合成一筆訂單（交易者一張單的多筆成交）。
+- 去重：`copy_signal_legs` 主鍵 (strategy, tid, leg) 在建立訂單的同一個 transaction 裡寫入；`dedupe_key` 記錄 `strategy:tid:leg:vN`。策略版本**不在唯一鍵內**，因此改設定（新版本）後重播舊成交也不會再下一次。重複同步、重播 outbox、重新補寫 outbox 都只會成交一次（有測試）。
+- 亂序與遲到：
+  - 只有啟用 cursor 之後的成交算數（跟單目前持倉開啟時，cursor＝交易者快照的時間，快照裡的部位用 `adopt` 訂單同步，之後的成交才照抄，不會重複）。
+  - 遲到的 `open`：如果這個策略在**先前批次**已處理過同 coin 更新的 leg，記為 `superseded`，不開倉；超過 `maxSignalAgeSeconds`（預設 120 秒）則拒絕 `stale_signal`。
+  - 遲到的 `close` 一律照比例減倉（減倉永遠不會讓使用者比交易者更暴露）；使用者沒有對應部位時記 `nothing_to_reduce`。
+- Checkpoint：同一個 transaction 把處理完的 outbox 列標為 done，並把 `copy_consumer_checkpoints.last_outbox_id` 推進到「之下再無 pending」的最大 id。失敗時整批 rollback，列保持 pending（attempts＋1、指數退避，8 次後標 failed 讓後台看得到）。重啟後 consumer 從 pending 列繼續；executor 從 `risk_approved` 與逾時的 `submitting` 繼續。
+
+### 下單量與風控
+
+- 比例模式：交易者這筆成交名目 × 策略權益 ÷ 交易者帳戶價值（CopyDog：「他用 5% 你也用 5%」）；交易者帳戶價值讀不到時拒絕 `leader_equity_unknown`，不當成 0。固定模式：每筆 `perTradeUsd`。
+- 減倉：策略自己部位（含待成交訂單）× 交易者減掉的比例；一律 reduce-only，executor 成交時再以實際部位夾住，永不反手（夾住時狀態 `partial`）。
+- 數量向下取到 `szDecimals`，價格取 5 位有效數字且小數不超過 6 − szDecimals（來源 `metaAndAssetCtxs`）。
+- 三層交集（`evaluateRisk`，純函式）：
+  1. 平台硬上限（政策版本）：幣種黑名單、HIP-3 開關、單筆上限、每人單幣與總曝險、槓桿上限、最小下單 $10、滑價（中間價偏離交易者成交價）、信號時效、每分鐘下單數；
+  2. 使用者層：該使用者所有策略的曝險（含保留中的保證金）、使用者層停止狀態、模擬餘額；
+  3. 策略層：策略停止狀態、`maxTotalExposureUsd`（預設 金額×5）、`maxLeverage`、可用保證金。
+  增加風險的訂單被夾到每一層剩餘額度，低於最小下單就拒絕並記原因；減倉只會被「整個停止」以外的東西放行。
+- 通過風控的訂單與保證金 reservation 在同一個 transaction 寫入；讀取鎖順序固定為 control 列（FOR SHARE）→ 策略（FOR UPDATE）→ 訂單，與停止命令相同，避免死結。
+
+### 模擬成交與帳本
+
+- 狀態機：`risk_approved → submitting → filled／partial／cancelled`，建立時被拒為 `rejected`；`intent`、`submitted`、`unknown` 保留給測試網。
+- 成交價：當下 `allMids` 中間價 ± `simulatedSlippageBps`（預設 5 bps，買高賣低），拿不到中間價時用信號價並記 `price_source = signal_px`。手續費：`takerFeeBps`（預設 4.5 bps）；builder fee：`revenue.builderFeeTenthsBps`。資金費：每整點以當下費率 × 標記價 × 部位計一次（停機漏掉的小時以當下費率補）。
+- 帳本：`cash = 撥款 + 已實現 − 手續費 − builder fee − 資金費`；權益 = cash + 未實現；每個策略獨立，另有 `copy_ledger` 流水，總和等於 cash（測試用手算數字對帳：買 0.05 BTC @100,050、賣 @109,945，cash = 1,488.9751375）。
+- 停止（`stop`）：取消待成交、送出全平，全部平完且無未完成訂單後，現金退回模擬餘額、狀態 `stopped`，若沒有其他人跟單或收藏，copy 來源的交易者停止監控。
+
+### 停止命令（kill switch）
+
+| 命令 | 效果 | 層級 |
+| --- | --- | --- |
+| `pause_new_risk` | 不再建立增加風險的訂單；尚未送出的增加風險訂單立即取消；交易者的減倉照跟 | 策略（使用者「暫停跟單」）、使用者、平台 |
+| `reduce_only` | 同上（paper 沒有掛單，兩者效果相同；live 時另會撤掉掛著的增加風險單） | 同上 |
+| `cancel_pending` | 取消所有尚未送出的訂單並釋放保證金 | 同上 |
+| `close_positions` | `pause_new_risk` ＋ 取消待成交 ＋ 每個部位一筆 reduce-only 全平 | 同上；使用者「停止跟單」＝它＋收回資金 |
+| `resume` | 只清除**這一層**的旗標；策略層恢復不能解除使用者或平台的停止 | 同上 |
+
+- 作用點有兩個，都讀資料庫裡的權威列（不經 30 秒快取）：
+  1. 建立訂單時（consumer／planner）在同一個 transaction 以 FOR SHARE 讀平台與使用者列、以 FOR UPDATE 鎖策略列；命令以 FOR UPDATE 更新 control 列並把 revision＋1，因此命令一 commit，下一筆訂單就看得到。
+  2. 執行邊界（executor 的 `submit`）：送出前重讀三層狀態，任何一層停止就把增加風險的訂單取消為 `<scope>_paused_before_submit`。
+- 每筆訂單記下核准時的三個 revision；每個命令寫 `copy_control_events`，平台／使用者層再寫 `admin_audit_logs`（`copy.control`），同一個 transaction。
+
+### 測試（真實 Postgres，`paper_copy_test`）
+
+- `test/copy-math.spec.ts`（18）：leg 拆分與反手、比例／固定下單量、減倉比例、取整規則、手算帳本與資金費、三層風控的拒絕與夾住、schema 正規化（地址小寫、6 位小數、discriminated union、不可能的政策、幣名比對）。
+- `test/copy-paper.spec.ts`（34）：outbox 只寫被跟單者且在 cursor 之後、取消收藏不會停止監控被跟單者；比例開倉＋同 transaction 的 reservation；重複、重播、重新補寫都只成交一次；新版本不重交易；亂序（先到的平倉不減、遲到的開倉 superseded）；一批內依時間排序；遲到開倉 stale、遲到減倉照做；反手拆兩腿；反向跟單；固定模式；同一交易者兩個策略帳本分開；reduce-only 不反手／無部位取消；黑名單（大小寫）、政策 400／403／409、頻率上限、交易者權益未知；平台暫停在下一筆訂單前生效並取消已核准訂單；執行邊界不靠快取；暫停／只減倉時仍跟減倉；平台全平後策略恢復不能解除平台停止；admin 命令的 stale revision、權限與單一目標；策略命令只作用在自己的策略；停止→收回→停止監控；有跟單時不能刪帳號；consumer 失敗後從 checkpoint 繼續；`submitting` 當機恢復只成交一次；手算帳本與每小時一次的資金費；後台讀取模型。
+- `test/env-validation.spec.ts`：`COPY_TRADING_MODE` 預設 paper，testnet／live 拒絕。
+- 整套 api 測試：68 個檔案 860 個測試全過（`fill-sync.spec` 的失敗注入改成讓第二個 transaction 失敗，因為 fills 寫入現在也是一個 transaction）。web：26 個檔案 129 個測試全過，含 locales（11 種語言，新字串由英文翻譯並盡量沿用 CopyDog 各語言原文）。
+
+### 對照清單（Playwright，1440×900 與 390×844，fixture 登入）
+
+截圖：`/private/tmp/claude-501/-Users-paul-jiang-Desktop-Paul-Trading-Dashboard/cf2c7a5c-704e-4165-9f08-dcbfdf25e788/scratchpad/screens-stage4-paper/`，`<頁面>-<copydog|orbie>-<檢視>.png`。CopyDog 未登入畫面是自己的 headless Chromium 實測（`trader-copy-copydog-*`），登入後畫面沿用 `.playwright-mcp/compare/signed-in/`。每張 Orbie 截圖都記錄失敗請求、console error 與水平溢出：全部 0（`report-orbie.json`）。
+
+| 項目 | 一致 | 不同（原因） |
+| --- | --- | --- |
+| 面板 順向／反向 | 滿版膠囊、↗／↘ 圖示、選中色塊（順向主色、反向紅） | 顏色為 Orbie 配色 |
+| 金額 | 大字「0 USDC」、最大按鈕、長數字自動縮小 | — |
+| 可交易餘額＋滑桿 | 文字「可交易餘額：」、USDC 數值、滑桿＋百分比 | 多了「模擬」標籤；餘額是模擬帳戶，不是錢包 |
+| 更多設定 | 展開後只有「跟單目前持倉」＋開關，預設開 | 說明文字放在 title（CopyDog 語系檔有但畫面不顯示） |
+| CTA 與驗證 | 請輸入金額／最低 $100 才能跟單／餘額不足／開始跟單 $X／已啟動！ | CopyDog 錯誤用 toast，Orbie 顯示在按鈕下方；多一行模擬說明 |
+| 已跟單狀態 | 「跟單中」 | CopyDog 顯示停用的「跟單中」按鈕；Orbie 顯示已投入／損益／持倉摘要＋「跟單中 · 管理」連到投資組合 |
+| 手機 底部按鈕 | 未登入「登入以跟單」（開登入）、已登入「跟單」、跟單中「跟單中 · 管理」 | — |
+| 手機 跟單面板 | 方向、大數字、25%／50%／75%／最大、USDC 可用列、數字鍵盤（00、0、⌫）、更多設定、CTA | CopyDog 登入後面板只有原始碼可對照（未登入會開登入視窗） |
+| 投資組合 桌面 列表 | 交易員／已跟單天數／持倉／權益／權益曲線／未實現損益／損益／ROI 膠囊／展開持倉、已暫停標籤 | 多了模擬帳戶卡；權益曲線顯示「—」（尚無每日權益歷史，CopyDog 少於兩點時同樣顯示 —） |
+| 投資組合 單筆跟單 | 總損益、報酬率、初始資金、權益、跟單天數、方向；暫停／加碼／停止（停止並平倉對話框文案照 CopyDog） | 多了編輯設定按鈕、跟單設定區、模擬訂單表（含拒絕原因） |
+| 編輯設定／加碼對話框 | 固定／比例、最大分配額、每筆交易金額、比例說明、儲存；加碼 | 加碼快捷為 10/25/50/最大 |
+| 投資組合 空狀態 | 你尚未跟單任何交易員＋尋找交易員 | 多了模擬帳戶卡（10,000） |
+| 手機 Copying／Insights／Exposure | 卡片（頭像、名稱、權益、損益＋ROI、未實現列＋幣種圖示＋展開）；Insights 總覽與各交易員貢獻；Exposure 方向、加權槓桿、依資產 | Insights／Exposure 的內容依 CopyDog 語系檔的欄位名自行排版（沒有登入後的 CopyDog 畫面可比） |
+| 後台 跟單 | — | 改由 Codex 做（見下節） |
+
+**尚未驗證**：實際 api＋真實成交的端到端畫面（本機 api 用 NODE_ENV=test，不跑 watcher 與 worker；流程由上面的 Postgres 測試覆蓋）。api 已在 4900 以編譯後的程式啟動確認模組注入正常（`/me/copy` 401、`/health/ready` 200）。
+
+### 延到第 5 步（測試網）
+
+- Privy 伺服器錢包＋`approveAgent` 的跟單錢包、簽署授權／撤銷（上線阻擋 #1）；nonce lease（#8）；
+- `submitting → submitted／unknown`：送單逾時以 cloid 查單再決定，不重送（#7）；部分成交、撤單、回報亂序；
+- 對帳（訂單、成交、部位、餘額）與人工改倉偵測（#9）；
+- builder fee 授權與依實際成交對帳（#10）；
+- HIP-3 市場（目前政策預設關閉，開啟後也會因 mids／精度缺少而拒絕）；
+- live 的 reduce_only 撤掉掛著的增加風險單；故障演練清單（#12）。
+
+## 給 Codex：跟單管理介面
+
+資料層已完成，後台 controller 與頁面由 Codex 做。服務都從 `CopyModule`（`apps/api/src/copy/copy.module.ts`）export，匯入 `CopyModule` 即可注入。
+
+### 權限（`packages/shared/src/permissions.ts`，admin 角色預設全部擁有）
+
+| 權限 | 用途 |
+| --- | --- |
+| `copy.read` | 所有跟單讀取頁 |
+| `execution.pause` | `pause_new_risk`／`reduce_only`／`cancel_pending`／`close_positions` |
+| `execution.resume` | `resume` |
+| `risk.manage` | 儲存風控政策 |
+
+route 層請掛 `copy.read`（讀）；命令與政策的細分權限由服務自己檢查（依解析後的命令），route 可再掛 `admin.access`。
+
+### 服務方法
+
+| 方法 | 內容 | 錯誤 |
+| --- | --- | --- |
+| `CopyControlService.apply(input: unknown, actor: RequestUser)` | 平台或使用者層的命令。`input` 在服務內用 `adminCopyControlRequestSchema` 解析：discriminated union，`{scope:"platform", command, reason, expectedRevision}` 不可帶 userId；`{scope:"user", userId, …}` userId 必填。授權與執行只看這個解析後的目標。回 `AdminCopyControlResponse`（新狀態＋事件） | 400 驗證、403 缺權限、404 使用者不存在、409 `stale_revision`（附目前 revision） |
+| `CopyRiskPolicyService.get()` | 目前政策（版本、各上限、原因、時間）與最近 20 版歷史 | — |
+| `CopyRiskPolicyService.put(input: unknown, actor)` | 新版本。`putCopyRiskRequestSchema`：`{limits, reason(3–500), expectedVersion}`，limits 為完整表單（嚴格、有上下限與交叉檢查：min ≤ max）。黑名單幣名以 `coinKey`（不分大小寫）對 Hyperliquid universe 解析成官方拼法（`kpepe`→`kPEPE`、`xyz:tsla`→`xyz:TSLA`） | 400 驗證／`unknown_coin`、403、409 `stale_version`、503 universe 讀不到（不儲存） |
+| `CopyAdminReadService.overview()` | 模式、平台停止狀態＋revision、各狀態策略數、24 小時訂單狀態數、outbox pending／failed／checkpoint／最舊 pending 時間、政策版本、最近 30 個命令 | — |
+| `CopyAdminReadService.strategies({status?, userId?, limit?})` | 策略列表（含使用者 email、部位、損益） | — |
+| `CopyAdminReadService.strategy(id)` | 單一策略：所有版本、最近 200 筆訂單、帳本流水 | 404 |
+| `CopyAdminReadService.orders({status?, userId?, strategyId?, limit?})` | 模擬訂單；`status: ["rejected","cancelled"]` 就是失敗清單，`reason` 為原因碼 | — |
+| `CopyAdminReadService.exposure()` | 每位使用者：策略數、已投入、權益、總曝險、每個幣的多／空／淨，以及該使用者的停止狀態＋revision | — |
+
+型別與 wire schema 都已在 shared：`adminCopyControlRequestSchema`、`putCopyRiskRequestSchema`、`copyRiskLimitsSchema`、`wireAdminCopyOverviewSchema`、`wireAdminCopyStrategiesSchema`、`wireAdminCopyStrategyDetailSchema`、`wireAdminCopyOrdersSchema`、`wireAdminCopyExposureSchema`、`wireAdminCopyRiskSchema`、`wireAdminCopyControlSchema`。新增 route 時請登記到 `httpRouteContracts` 並重產 `docs/http-routes.md`、`docs/openapi.json`。建議路徑：`GET /admin/copy/{overview,strategies,strategies/:id,orders,exposure,risk}`、`POST /admin/copy/controls`（201）、`PUT /admin/copy/risk`。controller 的 DTO 請照 class-validator 慣例鏡像上述 schema，body 原樣交給服務（服務會再用 zod 解析，zod 是唯一權威）。
+
+### 稽核
+
+- 平台／使用者層命令：`admin_audit_logs.event = "copy.control"`，`target = "platform:0"` 或 `"user:<id>"`，before＝旗標與 revision，after＝命令、原因、新旗標、revision、取消數、平倉單數；與命令同一個 transaction。另有 `copy_control_events`（三層都有，含策略層的使用者命令）。
+- 政策：`event = "copy.risk"`，`target = "policy:<version>"`，before／after 為完整上限。
+- 請在後台稽核頁顯示這兩種事件。
+
+### 後台頁面應顯示
+
+1. **總覽**：模式（paper）、平台狀態（暫停新風險／只減倉，revision，更新時間），四個命令＋恢復按鈕；每個命令要確認對話框（顯示影響範圍：策略數、部位數）並要求填原因，送出時帶畫面載入時的 `expectedRevision`，409 時提示重新載入。outbox pending／failed 與 checkpoint、24 小時訂單狀態、最近命令列表。
+2. **策略列表／詳情**：使用者、交易者、狀態、已投入、權益、損益、部位數、待成交數；詳情顯示版本歷史、訂單（含原因）、帳本。
+3. **模擬訂單**：可依狀態篩選，失敗原因碼（`platform_paused`、`stale_signal`、`price_moved`、`frequency`、`symbol_blocked`、`below_min_*`、`leader_equity_unknown`、`*_before_submit`、`reduce_only_no_position` 等）轉成可讀文字。
+4. **每人曝險**：每位使用者的總曝險、每幣多空淨額與使用者層停止狀態；列上提供該使用者的四個命令＋恢復（同樣確認＋原因＋expectedRevision）。
+5. **風控上限**：用表單（不是 JSON）編輯 `copyRiskLimitsSchema` 的每個欄位，顯示目前版本與歷史；儲存時帶 `expectedVersion`。

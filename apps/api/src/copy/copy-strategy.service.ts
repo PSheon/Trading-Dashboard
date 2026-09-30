@@ -222,4 +222,3 @@ export class CopyStrategyService {
     return toCopyStrategy(row.strategy, row.settings as CopyStrategySettings, positions, mids, counts.get(strategyId));
   }
 }
-

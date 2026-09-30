@@ -326,4 +326,3 @@ function HoverChart({ series, onHover }: { series: Array<readonly [number, numbe
     </div>
   );
 }
-

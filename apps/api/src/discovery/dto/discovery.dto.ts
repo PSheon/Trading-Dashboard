@@ -59,3 +59,8 @@ export class AvatarQueryDto {
   @ApiPropertyOptional({ type: String, pattern: "^[A-Za-z0-9_-]{1,32}$", description: "Version from the avatar URL a board returned; a matching version is cached for a month" })
   @Optional() @Matches(/^[A-Za-z0-9_-]{1,32}$/) declare v?: string;
 }
+
+export class TraderCardsQueryDto {
+  @ApiProperty({ type: String, description: "Comma-separated addresses, at most 200", pattern: "^0x[0-9a-fA-F]{40}(,0x[0-9a-fA-F]{40}){0,199}$" })
+  @ToLowerCase() @Matches(/^0x[0-9a-f]{40}(?:,0x[0-9a-f]{40}){0,199}$/) declare addresses: string;
+}

@@ -5,12 +5,13 @@ import type {
   BoardSort,
   BoardTrader,
   BoardWindow,
+  TraderCard,
   TradingStyle,
 } from "@trading-dashboard/shared/contracts";
 import { tradingStyleSchema } from "@trading-dashboard/shared/contracts";
 
 import { isStockCoin, realized } from "./discovery-figures.js";
-import type { BoardSourceRow } from "./discovery.repository.js";
+import type { BoardSourceRow, CardIdentityRow } from "./discovery.repository.js";
 import { kolAvatarPath } from "./kol-avatar.js";
 
 /** CopyDog shows a fixed top 100 per board, no paging. */
@@ -138,4 +139,55 @@ export function buildBoard(
   }
   items.sort(compare(sort));
   return { market: query.market, board: query.board, coin, sort, window, style, items: items.slice(0, limit), pool, updatedAt };
+}
+
+/**
+ * Any trader as a watchlist card: the pool's all-time figures when it has
+ * them, else the leaderboard's (no copy score, sparkline, win rate or
+ * risk figures), else identity only. KOL name, handle, badge and cached
+ * avatar come from the registry either way.
+ */
+export function traderCard(address: string, row: BoardSourceRow | undefined, identity: CardIdentityRow | undefined): TraderCard {
+  if (row && row.portfolioAt !== null) {
+    const { card } = toCandidate(row);
+    let trades = 0;
+    let wins = 0;
+    for (const stat of Object.values(row.coinStats)) {
+      trades += stat.trades;
+      wins += stat.wins;
+    }
+    return {
+      ...card,
+      pnl: num(row.pnlAll),
+      roi: num(row.roiAll),
+      sparkline: row.sparkline ?? [],
+      pnl30d: num(row.pnl30d),
+      winRate: trades > 0 ? wins / trades : null,
+      sharpe: num(row.sharpe),
+      maxDrawdown: num(row.maxDrawdown),
+      source: "pool",
+    };
+  }
+  const kol = identity?.kolVerified !== null && identity?.kolVerified !== undefined;
+  return {
+    address,
+    displayName: (kol ? identity!.kolName : null) ?? identity?.displayName ?? row?.leaderboardName ?? null,
+    avatarUrl: kol ? kolAvatarPath(address, identity!.kolAvatarEtag) : null,
+    xHandle: kol ? identity!.kolXHandle : null,
+    verified: kol ? Boolean(identity!.kolVerified) : false,
+    kol,
+    accountValue: num(identity?.accountValue),
+    pnl: num(identity?.pnlAllTime),
+    roi: num(identity?.roiAllTime),
+    copyScore: row?.copyScore ?? null,
+    style: null,
+    topCoins: row?.topCoins ?? [],
+    lastTradeAt: row?.lastTradeAt ?? null,
+    sparkline: [],
+    pnl30d: num(identity?.pnlMonth),
+    winRate: null,
+    sharpe: null,
+    maxDrawdown: null,
+    source: identity?.pnlAllTime != null ? "leaderboard" : "none",
+  };
 }

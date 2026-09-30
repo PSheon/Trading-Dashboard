@@ -1,6 +1,6 @@
 import { BadGatewayException, Body, Controller, Delete, Get, HttpCode, HttpException, Logger, NotFoundException, Param, Patch, Post, Query, Req, Res, StreamableFile, UseFilters } from "@nestjs/common";
 import type { Request, Response } from "express";
-import type { BoardResponse, CopyScoreResponse, HomeBoardsResponse, Kol, KolImportResponse } from "@trading-dashboard/shared/contracts";
+import type { BoardResponse, CopyScoreResponse, HomeBoardsResponse, Kol, KolImportResponse, TraderCardsResponse } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { RequirePermissions } from "../common/auth/permissions.js";
@@ -10,7 +10,7 @@ import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from "../traders/traders.controller.js";
 import { DiscoveryService } from "./discovery.service.js";
-import { AvatarQueryDto, BoardQueryDto, KolImportDto, KolInputDto, KolPatchDto } from "./dto/discovery.dto.js";
+import { AvatarQueryDto, BoardQueryDto, KolImportDto, KolInputDto, KolPatchDto, TraderCardsQueryDto } from "./dto/discovery.dto.js";
 import { AVATAR_MAX_AGE_S, avatarVersion } from "./kol-avatar.js";
 import { KolAvatarService } from "./kol-avatar.service.js";
 import { KolService } from "./kol.service.js";
@@ -32,6 +32,12 @@ export class DiscoveryController {
   @Get("home")
   home(): Promise<HomeBoardsResponse> {
     return this.discovery.home();
+  }
+
+  @ApiDoc("Trader cards", "Watchlist cards (explore card plus 30-day PnL, win rate, Sharpe, max drawdown) for up to 200 addresses.")
+  @Get("cards")
+  cards(@Query() query: TraderCardsQueryDto): Promise<TraderCardsResponse> {
+    return this.discovery.cards(query.addresses.split(","));
   }
 }
 

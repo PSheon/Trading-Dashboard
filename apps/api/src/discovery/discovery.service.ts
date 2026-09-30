@@ -1,16 +1,18 @@
 import { Injectable } from "@nestjs/common";
-import type { BoardQuery, BoardResponse, BoardTrader, CopyScoreResponse, HomeBoardsResponse } from "@trading-dashboard/shared/contracts";
+import type { BoardQuery, BoardResponse, BoardTrader, CopyScoreResponse, HomeBoardsResponse, TraderCardsResponse } from "@trading-dashboard/shared/contracts";
 
 import { SettingsService } from "../settings/settings.service.js";
 import { TradersService } from "../traders/traders.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
-import { buildBoard, toCandidate, type Candidate } from "./boards.js";
+import { buildBoard, toCandidate, traderCard, type Candidate } from "./boards.js";
 import { isStockCoin, portfolioNumbers, scoreOf } from "./discovery-figures.js";
 import { DiscoveryRepository } from "./discovery.repository.js";
 
 /** Boards read the pool table at most this often (it changes a row at a
  * time, a few times a minute). */
 export const BOARDS_TTL_MS = 30_000;
+/** Addresses per GET /discover/cards. */
+export const CARDS_MAX = 200;
 /** Cards per home row (CopyDog scrolls 7 on desktop, more on swipe). */
 export const HOME_ROW_SIZE = 12;
 
@@ -78,6 +80,19 @@ export class DiscoveryService {
     const dates = candidates.map((c) => c.row.portfolioAt).filter((d): d is Date => d !== null);
     const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
     return { featured, crypto, stocks, markets, calculator, updatedAt };
+  }
+
+  /**
+   * Watchlist cards for these addresses, in the order given (duplicates
+   * dropped, at most `CARDS_MAX`): two indexed reads, no cache (a user's
+   * own list, small), no Hyperliquid calls. See {@link traderCard}.
+   */
+  async cards(addresses: string[]): Promise<TraderCardsResponse> {
+    const unique = [...new Set(addresses.map((a) => a.toLowerCase()))].slice(0, CARDS_MAX);
+    const [rows, identities] = await Promise.all([this.repository.poolRowsOf(unique), this.repository.identitiesOf(unique)]);
+    const byRow = new Map(rows.map((r) => [r.address, r]));
+    const byIdentity = new Map(identities.map((r) => [r.address, r]));
+    return { items: unique.map((address) => traderCard(address, byRow.get(address), byIdentity.get(address))) };
   }
 
   /**

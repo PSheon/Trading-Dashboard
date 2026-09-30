@@ -13,7 +13,8 @@ import { OutboxController } from "../outbox/outbox.controller.js";
 import { TelegramController } from "../telegram/telegram.controller.js";
 import { TradeAnalyticsController } from "../traders/trade-analytics.controller.js";
 import { TradersController } from "../traders/traders.controller.js";
+import { FavoriteGroupsController } from "../users/favorite-groups.controller.js";
 import { MeController } from "../users/me.controller.js";
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
-export const documentationControllers = [AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController];
+export const documentationControllers = [AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, FavoriteGroupsController];

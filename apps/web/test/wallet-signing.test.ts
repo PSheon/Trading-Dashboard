@@ -15,7 +15,8 @@ import {
 // was reproduced by signing this exact typed data with viem: r 0x8363…7cf9, s 0x58b1…3881,
 // v 28 (Stage 4 doc, wallet step). These tests pin the payload that produced it.
 describe("withdraw3", () => {
-  const testnet = { ...networkConfig("testnet"), signatureChainId: "0x66eee" as const };
+  // Testnet already signs with 0x66eee, the chain id the SDK always uses.
+  const testnet = networkConfig("testnet");
 
   it("builds the SDK's EIP-712 payload", () => {
     const typed = withdraw3TypedData(testnet, "0x5E9EE1089755c3435139848e47e6635505d5a13a", "1", 1687816341423);

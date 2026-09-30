@@ -14,8 +14,10 @@ import type {
  * `/performance`; its bundle for labels). Details and the validation in
  * docs/trade-analytics.md.
  *
- * - Trade count: closed trades. Win: net PnL (gross − fees) > 0; win rate =
- *   wins ÷ closed trades. Windows count trades by exit time. Average and
+ * - Trade count: closed trades. Win: net PnL (gross − fees, funding aside)
+ *   > 0; win rate = wins ÷ closed trades, liquidations included. Checked
+ *   against CopyDog's snapshot (`metricsUpdatedAt`) on 19 traders; its
+ *   tile can lag ours by a day. Windows count trades by exit time. Average and
  *   median hold over closed trades (partial ones from their first held fill).
  * - Best / worst: the 10 closed trades with the highest / lowest net PnL,
  *   whatever the sign (CopyDog's 表現 tab lists them so); the rail keeps

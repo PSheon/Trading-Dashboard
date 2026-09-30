@@ -12,7 +12,6 @@ import { isBusy } from "@/lib/api";
 import {
   isComputing,
   usePortfolio,
-  useSiteSettings,
   useTraderActivity,
   useTraderAnalytics,
   useTraderProfile,
@@ -67,13 +66,12 @@ function TraderLoaded({ address }: { address: string }) {
   // CopyDog's 即時動態: the pulse in the tab bar swaps the copy panel for it.
   const [feedOpen, setFeedOpen] = useState(false);
 
-  // The profile is the cheap first paint; activity (sample size, last
-  // trade) costs the api fill lists and loads alongside it.
+  // The profile is the cheap first paint; activity (sample size, which
+  // mutes the KPI tiles) costs the api fill lists and loads alongside it.
   const profile = useTraderProfile(address);
   const activity = useTraderActivity(address);
   const portfolio = usePortfolio(address, window, market);
   const allTime = usePortfolio(address, "allTime", market);
-  const settings = useSiteSettings();
   // Round trips for any address, all-time (the rail, the tabs and the
   // win-rate tile). A cold address computes on the api for a while (503
   // busy, retried).
@@ -89,17 +87,17 @@ function TraderLoaded({ address }: { address: string }) {
   const lowSample = activity.data?.sample.lowSample ?? false;
   const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
-  const rail = live.profile ? (
-    <ProfileCard
-      profile={live.profile}
-      activity={activity.isError ? null : activity.data}
-      lowSampleThreshold={settings.data?.lowSampleThreshold ?? 20}
-      liveStatus={live.profile.dataQuality?.partial ? "polling" : live.status}
-      allTimeVolume={allTime.data?.volume ?? null}
-      trades={tradesAll.data}
-      tradesComputing={isComputing(tradesAll)}
-    />
-  ) : null;
+  const railFor = (identity: boolean) =>
+    live.profile ? (
+      <ProfileCard
+        profile={live.profile}
+        allTimeVolume={allTime.data?.volume ?? null}
+        trades={tradesAll.data}
+        tradesComputing={isComputing(tradesAll)}
+        identity={identity}
+      />
+    ) : null;
+  const rail = railFor(true);
 
   return (
     <>
@@ -111,7 +109,7 @@ function TraderLoaded({ address }: { address: string }) {
         <MobileTrader
           profile={live.profile}
           marks={live.mids}
-          insights={rail}
+          insights={railFor(false)}
           portfolio={portfolio.data}
           allTime={allTimePerp.data}
           window={window}

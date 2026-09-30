@@ -58,6 +58,52 @@ shows the top 3 winners / losers by net PnL. Coins (`byAsset`): trades, wins,
 losses, volume, net PnL, ordered by net PnL; the rail's 最常交易 sorts them by
 volume (top 3).
 
+## Win rate and trade count: checked against CopyDog (2026-09-30)
+
+**Definition (unchanged, now verified).** Win rate = closed trades with net
+PnL (gross `closedPnl` − fees, funding left out) > 0 ÷ all closed trades.
+There is no breakeven or size threshold, and trades closed by liquidation
+count like any other (CopyDog lists them, e.g. 0x41c6…'s ZEC and PONS and
+0xb69e…'s BNB, ETH and UNI). Windows count trades by exit time. The KPI
+tile's "N 筆交易" is the all-time closed-trade count; CopyDog's tile shows
+`stats.totalTrades`, which is the same count (`HLTraderDetail` renders
+`stats.winRate` and `stats.totalTrades`).
+
+**Why fc52 reads 61.5% on CopyDog and 60.0% on Orbie.** CopyDog's
+`stats.winRate` and `perfWindows` are a snapshot taken at
+`stats.metricsUpdatedAt` (up to ~26 h old), while `totalTrades` is refreshed
+separately. For 0xfc52…ee77 the snapshot was 2026-09-29 14:36 UTC; two
+trades closed after it (ETH +$1,303 at 19:46, SOL −$1,265 on the 30th). At
+the snapshot: 8 wins / 13 trades = 61.54 % (CopyDog's 0.615385 and
+`allTime.trades` 13), 30D 5/10, 7D 3/7, 24H 0/2, all exact. Live: 9/15 =
+60.0 % and 15 trades, which is what Orbie shows (CopyDog's tile mixes its
+stale 61.5 % with the fresh 15). Orbie does not copy the lag. The same lag
+explains fc52's 交易風格: CopyDog's median hold over the 13 snapshot trades is
+45 h (波段); over all 15 it is 4 h (日內).
+
+**How it was checked.** `/summary` and `/trades?limit=500` from CopyDog for
+the 19 traders of the earlier metric table that have trades, and Orbie's
+`/traders/:a/analytics` + `/trades` for 14 of them (local api, cold reads):
+
+| Check | Result |
+| --- | --- |
+| CopyDog's own ledger, recomputed at `metricsUpdatedAt`, vs its `perfWindows` (all / 30D / 7D / 24H), 14 traders with complete ledgers | 13 of 14 exact in every window; 0xb7e0… counts 216 vs 218 in its own ledger (65.74 % vs 65.60 %) |
+| Same, 5 traders whose ledger is capped at 500 | every window the ledger covers is exact |
+| Alternative rules on the same data | gross PnL > 0 fails (0x41c6… 80.5 % vs 76.3 %); net + funding > 0 fails (0x5b5d… 57.4 % vs 59.3 %, 0xd70c… 74.3 % vs 75.7 %) |
+| Orbie's trades vs CopyDog's, trade by trade (coin, side, exit ±2 s), 14 traders | 476 trades matched; win / loss agrees on 474; the 2 others are partial trades where Orbie's history starts mid-position (0xeadc… SOL, XMR) |
+| Traders whose whole history Orbie holds (0xfc52…, 0xe98c…) | Orbie's trades at CopyDog's snapshot give CopyDog's rate exactly: 8/13 = 61.54 %, 33/46 = 71.74 % (live: 9/15, 35/49) |
+
+**Remaining differences are history, not definition.** For a cold address
+Orbie reads Hyperliquid newest-first until 10,000 fills and 30 closed trades
+(see Data and cost), so a busy trader's count is smaller than CopyDog's:
+0xb7e0… 23 vs 216, 0x739c… 117 vs 125, and 0x30af…, 0x5b5d…, 0xb83d… 0 vs
+24 / 54 / 84 (the recent fills Orbie reads, from 2026-09-26 on, close no
+position). CopyDog's ledger
+also has gaps Orbie fills: 0xb48c… 18 trades from 2025-03 to 2025-08,
+0xb69e…'s xyz:DRAM / SPCX trades closed by the 2026-07-27 liquidation, and
+0xd70c…'s hyna trades are missing from CopyDog. Matching the count for busy
+traders needs the resumable backfill (E12).
+
 ## ROI, Sharpe and max drawdown (CopyDog's, `copydog-v1`)
 
 `GET /traders/:address/portfolio` computes these from Hyperliquid's

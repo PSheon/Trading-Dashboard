@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TAB_GROUPS } from "../src/components/trader/activity-tabs";
 import { groupFills } from "../src/components/trader/trader-tabs";
 import type { TraderFill } from "../src/lib/contracts";
-import { feedTime, liqDistance, qty } from "../src/lib/trade-format";
+import { feedTime, liqDistance, qty, usd0, usd2 } from "../src/lib/trade-format";
 
 const fill = (tid: number, ts: number, extra: Partial<TraderFill> = {}): TraderFill => ({
   tid: String(tid), coin: "HYPE", side: "sell", dir: "Close Long", px: 40, sz: 10, notionalUsd: 400, closedPnl: 5, fee: 0.1,
@@ -53,6 +53,12 @@ describe("CopyDog's number formats", () => {
     expect(liqDistance(96, 100)?.tone).toBe("danger");
     expect(liqDistance(99, 100)?.tone).toBe("critical");
     expect(liqDistance(null, 100)).toBeNull();
+  });
+
+  it("the rail's volume, notional and long / short values", () => {
+    // CopyDog shows $13.43M in every locale, never 1343萬.
+    expect([usd2(13_432_038.45), usd2(977_700), usd2(469.97), usd2(0)]).toEqual(["$13.43M", "$977.70K", "$469.97", "$0.00"]);
+    expect([usd0(0), usd0(469.6), usd0(183_400), usd0(13_600_000), usd0(1_234_000_000)]).toEqual(["$0", "$470", "$183K", "$14M", "$1.2B"]);
   });
 
   it("the live feed's time stamp", () => {

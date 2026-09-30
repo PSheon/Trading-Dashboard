@@ -255,6 +255,45 @@ describe("trade metrics and classification", () => {
     expect(summarize([trip(5, 1, DAY)], "all", T0).profitFactor).toBeNull();
   });
 
+  // CopyDog's ledger for 0xfc52…ee77 (/trades, 2026-09-30): exit, net PnL
+  // (after fees), funding. Its summary was computed at metricsUpdatedAt
+  // 2026-09-29T14:36:30Z: winRate 0.615385 = 8/13 all-time, 10 / 0.5 over
+  // 30 days, 7 / 0.428571 over 7, 2 / 0 over 1; totalTrades 15. The two
+  // trades closed after the snapshot explain all of it (docs/trade-analytics.md).
+  it("reproduces CopyDog's win rate: wins (net > 0, funding aside) ÷ closed trades, at its snapshot time", () => {
+    const fc52: Array<[string, number, number]> = [
+      ["2026-09-30T00:21:44Z", -1264.63, 0],
+      ["2026-09-29T19:46:44Z", 1303.36, -15.01],
+      ["2026-09-29T01:46:04Z", -132.69, 0],
+      ["2026-09-29T01:12:40Z", -2322.7, 0],
+      ["2026-09-28T03:34:11Z", -1159.3, 0],
+      ["2026-09-27T21:13:43Z", 5626.41, 0],
+      ["2026-09-25T23:57:22Z", 619.15, 0],
+      ["2026-09-25T23:53:46Z", -17.33, 0],
+      ["2026-09-25T19:54:33Z", 4907.89, 0],
+      ["2026-09-18T17:27:43Z", 31619.34, -3455.39],
+      ["2026-09-01T20:03:23Z", -11074.52, -1374.6],
+      ["2026-09-01T20:01:25Z", 74791.62, -2002.42],
+      ["2026-06-04T04:38:32Z", 0.92, 0],
+      ["2026-06-04T04:34:19Z", 215400.7, -2618.1],
+      ["2026-05-15T15:49:49Z", 24490.54, 0],
+    ];
+    const live = Date.parse("2026-09-30T04:47:52Z");
+    const snapshot = Date.parse("2026-09-29T14:36:30Z");
+    const ledger = fc52.map(([exit, net, funding]) => ({ ...trip(net, 3600, T0 - Date.parse(exit)), funding }));
+    const asOf = (at: number) => ledger.filter((t) => t.exitTime!.getTime() <= at);
+    expect(summarize(asOf(snapshot), "all", snapshot)).toMatchObject({ trades: 13, wins: 8 });
+    expect(summarize(asOf(snapshot), "all", snapshot).winRate).toBeCloseTo(0.615385, 6);
+    expect(summarize(asOf(snapshot), "30d", snapshot)).toMatchObject({ trades: 10, winRate: 0.5 });
+    expect(summarize(asOf(snapshot), "7d", snapshot).winRate).toBeCloseTo(0.428571, 6);
+    expect(summarize(asOf(snapshot), "1d", snapshot)).toMatchObject({ trades: 2, winRate: 0 });
+    // Live, the tile's count is CopyDog's totalTrades (15) and the rate 9/15.
+    expect(summarize(ledger, "all", live)).toMatchObject({ trades: 15, wins: 9, winRate: 0.6 });
+    // Liquidations are ordinary trades in both the count and the rate.
+    const liquidated = { ...trip(-500, 60, T0 - live + 1000), liquidated: true };
+    expect(summarize([...ledger, liquidated], "all", live)).toMatchObject({ trades: 16, wins: 9 });
+  });
+
   it("trading style: < 15 min scalp, < 24 h intraday, < 14 d swing, else position", () => {
     expect(tradingStyle(null)).toBeNull();
     expect(tradingStyle(14 * 60 + 59)).toBe("scalp");

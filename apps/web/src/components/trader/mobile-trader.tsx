@@ -11,6 +11,7 @@ import { OrbieMark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
 import { Skeleton } from "@/components/page";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
+import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
 import { CopyScoreBar, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
@@ -188,11 +189,11 @@ export function MobileTrader({
             {loading && !portfolio ? (
               <Skeleton className="h-9 w-44" />
             ) : (
-              <div className={cn("num text-[2rem] leading-none font-bold tracking-tight", headline === null ? "" : headline >= 0 ? "text-positive" : "text-negative")}>
+              <div className="num text-[2rem] leading-none font-bold tracking-tight">
                 {headline === null ? "—" : mode === "pnl" ? signedUsdShort(headline) : signedPctCd(headline)}
               </div>
             )}
-            {mode === "pnl" && roi !== null ? <RoiPill value={roi} /> : null}
+            {mode === "pnl" && roi !== null ? <RoiPill value={roi} label={roiPillShort(roi)} /> : null}
           </div>
           <span className="flex flex-col items-end gap-2">
             {profile.kol?.avatarUrl ? (
@@ -205,9 +206,10 @@ export function MobileTrader({
             )}
             {copyScore != null ? (
               // CopyDog leaves the score out of the hero while there is none.
-              <span className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground" data-testid="hero-copy-score">
+              // CopyDog: the dotted 複製評分 label over the bar and the score.
+              <span className="flex flex-col items-end gap-1.5 text-[0.6875rem] text-muted-foreground" data-testid="hero-copy-score">
                 <span className="underline decoration-dotted underline-offset-2">{t("discover.copyScore")}</span>
-                <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-10" />
+                <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-[60px]" className="text-foreground" />
               </span>
             ) : null}
           </span>
@@ -315,7 +317,7 @@ export function MobileTrader({
           onClick={() => (authStatus === "signedOut" ? login() : setSheet(true))}
           className="h-13 w-full rounded-full bg-primary py-3.5 text-base font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {authStatus === "signedOut" ? t("trader.copy.signInToCopy") : copying ? t("trader.copy.manage") : t("trader.copyTrade")}
+          {copying ? t("trader.copy.manage") : t("trader.copyTrade")}
         </button>
       </div>
 

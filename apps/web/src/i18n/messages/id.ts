@@ -604,7 +604,6 @@ export const id: Messages = {
       started: "Dimulai!",
       copying: "Menyalin",
       manage: "Menyalin · Kelola",
-      signInToCopy: "Masuk untuk Menyalin",
       paper: "Simulasi",
       paperHint: "Salinan simulasi: USDC virtual, order disimulasikan dari eksekusi nyata trader. Tidak ada order nyata yang dikirim.",
       paused: "Dijeda",

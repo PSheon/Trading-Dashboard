@@ -888,7 +888,6 @@ export const en: Messages = {
       started: "Started!",
       copying: "Copying",
       manage: "Copying · Manage",
-      signInToCopy: "Sign in to Copy",
       paper: "Paper",
       paperHint: "Paper copy: virtual USDC, orders simulated from the trader's real fills. No real order is ever sent.",
       paused: "Paused",

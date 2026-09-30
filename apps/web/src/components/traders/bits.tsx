@@ -42,10 +42,16 @@ export function RoiPill({
   value,
   className,
   muted = false,
+  digits,
+  label,
 }: {
   value: number | null | undefined;
   className?: string;
   muted?: boolean;
+  /** CopyDog's desktop chart pill keeps two decimals ("539.50%"). */
+  digits?: number;
+  /** Preformatted text (CopyDog's phone pill: "1488%"). */
+  label?: string;
 }) {
   const { format } = useI18n();
   const n = toNumber(value);
@@ -64,7 +70,7 @@ export function RoiPill({
       )}
     >
       <Arrow className="size-3" strokeWidth={2.5} />
-      {format.pct(n === null ? null : Math.abs(n))}
+      {label ?? format.pct(n === null ? null : Math.abs(n), digits === undefined ? undefined : { digits })}
     </span>
   );
 }

@@ -40,6 +40,9 @@ export interface Formatter {
   /** Price with sensible precision for its magnitude. */
   price(value: Numeric): string;
   dateTime(value: DateLike): string;
+  /** CopyDog's chart stamp: long date, comma, 2-digit time
+   * ("2026年10月1日, 上午02:29"). */
+  stamp(value: DateLike): string;
   date(value: DateLike): string;
   time(value: DateLike): string;
   /** Short date for chart axes ("26年9月" / "Sep 26"). */
@@ -178,6 +181,12 @@ export function createFormatter(locale: Locale): Formatter {
         minute: "2-digit",
         hour12: false,
       }).format(d);
+    },
+
+    stamp(value) {
+      const d = toDate(value);
+      if (!d) return DASH;
+      return `${df("sd", { year: "numeric", month: "long", day: "numeric" }).format(d)}, ${df("st", { hour: "2-digit", minute: "2-digit" }).format(d)}`;
     },
 
     date(value) {

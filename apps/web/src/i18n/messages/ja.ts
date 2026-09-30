@@ -604,7 +604,6 @@ export const ja: Messages = {
       started: "開始しました！",
       copying: "コピー中",
       manage: "コピー中 · 管理",
-      signInToCopy: "ログインしてコピー",
       paper: "模擬",
       paperHint: "模擬コピー：仮想USDCで、トレーダーの実際の約定をもとに注文をシミュレーションします。実際の注文は一切送信されません。",
       paused: "一時停止中",

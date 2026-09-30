@@ -257,7 +257,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
               {t("trader.copy.balance")}
               <PaperBadge />
             </span>
-            <span className="num font-semibold">{format.num(balance, 2)} USDC</span>
+            <span className="num font-semibold">{balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
           </div>
           <div className="flex items-center gap-3">
             <input

@@ -604,7 +604,6 @@ export const vi: Messages = {
       started: "Đã bắt đầu!",
       copying: "Đang sao chép",
       manage: "Đang sao chép · Quản lý",
-      signInToCopy: "Đăng nhập để sao chép",
       paper: "Mô phỏng",
       paperHint: "Sao chép mô phỏng: USDC ảo, lệnh được mô phỏng từ các lệnh khớp thật của trader. Không có lệnh thật nào được gửi đi.",
       paused: "Đã tạm dừng",

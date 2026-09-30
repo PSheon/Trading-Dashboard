@@ -417,9 +417,9 @@ export function PerformanceChart({
                 >
                   {loading && !portfolio ? <Skeleton className="h-8 w-48" /> : headline}
                 </div>
-                {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} className="mt-2.5" muted={muted} /> : null}
+                {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} digits={2} className="mt-2.5" muted={muted} /> : null}
               </div>
-              {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.dateTime(last[0])}</p> : null}
+              {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.stamp(last[0])}</p> : null}
             </div>
           </div>
 

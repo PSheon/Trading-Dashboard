@@ -604,7 +604,6 @@ export const ko: Messages = {
       started: "시작됨!",
       copying: "카피 중",
       manage: "카피 중 · 관리",
-      signInToCopy: "로그인하고 카피하기",
       paper: "모의",
       paperHint: "모의 카피: 가상 USDC로 트레이더의 실제 체결을 따라 주문을 시뮬레이션합니다. 실제 주문은 전송되지 않습니다.",
       paused: "일시중지됨",

@@ -604,7 +604,6 @@ export const zhCN: Messages = {
       started: "已启动！",
       copying: "跟单中",
       manage: "跟单中 · 管理",
-      signInToCopy: "登录以跟单",
       paper: "模拟",
       paperHint: "模拟跟单：使用虚拟 USDC，依交易员的真实成交模拟下单，不会发送任何真实订单。",
       paused: "已暂停",

@@ -892,7 +892,6 @@ export const zhTW = {
       started: "已啟動！",
       copying: "跟單中",
       manage: "跟單中 · 管理",
-      signInToCopy: "登入以跟單",
       paper: "模擬",
       paperHint: "模擬跟單：使用虛擬 USDC，依交易員的真實成交模擬下單，不會送出任何真實訂單。",
       paused: "已暫停",

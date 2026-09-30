@@ -604,7 +604,6 @@ export const tr: Messages = {
       started: "Başladı!",
       copying: "Kopyalanıyor",
       manage: "Kopyalanıyor · Yönet",
-      signInToCopy: "Kopyalamak için Giriş Yap",
       paper: "Simülasyon",
       paperHint: "Simülasyon kopya: sanal USDC, emirler trader'ın gerçek işlemlerinden simüle edilir. Hiçbir gerçek emir gönderilmez.",
       paused: "Duraklatıldı",

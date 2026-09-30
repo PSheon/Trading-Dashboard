@@ -604,7 +604,6 @@ export const es: Messages = {
       started: "¡Iniciado!",
       copying: "Copiando",
       manage: "Copiando · Gestionar",
-      signInToCopy: "Inicia sesión para copiar",
       paper: "Simulado",
       paperHint: "Copia simulada: USDC virtuales, órdenes simuladas a partir de las ejecuciones reales del trader. Nunca se envía una orden real.",
       paused: "En pausa",

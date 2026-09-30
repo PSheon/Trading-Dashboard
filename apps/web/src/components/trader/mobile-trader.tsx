@@ -1,7 +1,7 @@
 "use client";
 
 import type { PortfolioResponse, TraderAnalyticsResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
-import { ArrowLeft, Check, Share2, X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
@@ -16,7 +16,9 @@ import { isComputing, useTraderAnalytics } from "@/lib/queries";
 import { CopyScoreBar, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
+import { shareName } from "@/lib/share-card";
 import { CopyPanel } from "./copy-panel";
+import { ShareButton } from "./share-dialog";
 import { MobileInsights } from "./mobile-insights";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf } from "@/lib/copy";
@@ -67,7 +69,6 @@ function Pills<T extends string>({
  * (a KOL's name and badge instead), favourite, alert and share. Replaces the app's header there. */
 function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
   return (
     <div className="sticky top-[env(safe-area-inset-top,0px)] z-30 -mx-4 -mt-5 flex h-14 items-center gap-1 bg-background/90 px-2 backdrop-blur-xl">
       <Link
@@ -87,14 +88,12 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
       )}
       <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
       <AlertBell address={profile.address} history />
-      <button
-        type="button"
-        onClick={() => void navigator.clipboard?.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); })}
-        aria-label={copied ? t("common.linkCopied") : t("common.share")}
-        className="inline-flex size-10 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {copied ? <Check className="size-5 text-positive" /> : <Share2 className="size-5" />}
-      </button>
+      <ShareButton
+        address={profile.address}
+        name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
+        className="size-10"
+        iconClassName="size-5"
+      />
     </div>
   );
 }

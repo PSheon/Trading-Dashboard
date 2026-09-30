@@ -16,7 +16,6 @@ import {
   Ghost,
   Orbit,
   Sailboat,
-  Share2,
   Ship,
   Skull,
   type LucideIcon,
@@ -38,7 +37,9 @@ import {
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
 import { CopyScoreBar, TraderAvatar, VerifiedTick, XProfileLink } from "@/components/discover/board-bits";
+import { shareName } from "@/lib/share-card";
 import { pnlTone, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/trade-format";
+import { ShareButton } from "./share-dialog";
 
 function useCopied() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -218,15 +219,12 @@ export function ProfileCard({
           </div>
           <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
           <AlertBell address={profile.address} className="-ml-2" history />
-          <button
-            type="button"
-            onClick={() => copy("link", window.location.href)}
-            aria-label={copied === "link" ? t("common.linkCopied") : t("common.share")}
-            title={copied === "link" ? t("common.linkCopied") : t("common.share")}
-            className="-ml-2 inline-flex size-7 items-center justify-center rounded-full text-subtle-foreground outline-none hover:bg-raised-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {copied === "link" ? <Check className="size-4 text-positive" /> : <Share2 className="size-4" />}
-          </button>
+          <ShareButton
+            address={profile.address}
+            name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
+            className="-ml-2 size-7 text-subtle-foreground hover:bg-raised-hover hover:text-foreground"
+            iconClassName="size-4"
+          />
         </div>
       ) : null}
 

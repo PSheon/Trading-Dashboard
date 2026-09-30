@@ -107,7 +107,11 @@ Inter for UI with tabular figures, Fredoka 600 for the wordmark. The logo
 mark is `src/components/brand/logo.tsx`; `app/icon.svg`, `apple-icon.tsx`
 and the Open Graph / Twitter card are generated from it. The OG card uses
 a Fredoka subset (`src/assets/fredoka-600-subset.ttf`) that only covers
-"orbie" and the tagline; regenerate it if the name changes.
+"orbie" and the tagline; regenerate it if the name changes. The trader
+share card (`/trader/<address>/share-image`, also the trader page's Open
+Graph image) adds Inter 600 / 800 subsets (`src/assets/inter-*-subset.ttf`,
+printable ASCII plus — · … − ×, from Google Fonts' `text=` subsetting,
+OFL); names outside Latin fall back to the renderer's default font.
 
 ## Running
 

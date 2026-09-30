@@ -103,7 +103,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   /** Starts on app boot; not under `NODE_ENV=test`, where tests drive the
    * pieces directly. */
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === "test") return;
+    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api") return;
     void this.start();
   }
 

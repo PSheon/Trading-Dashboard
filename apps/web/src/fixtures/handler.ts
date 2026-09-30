@@ -1,3 +1,5 @@
+import { adminSystemSchema } from "@trading-dashboard/shared/contracts";
+import { systemOverview } from "./admin";
 /**
  * In-browser stand-in for apps/api, used only when the build sets
  * NEXT_PUBLIC_API_FIXTURES=1 (see lib/api.ts). It answers the Stage 2
@@ -11,6 +13,9 @@
  * wire (dates as ISO strings).
  */
 import {
+  boardQuerySchema,
+  boardResponseSchema,
+  homeBoardsResponseSchema,
   adminOverviewSchema,
   adminRevenueQuerySchema,
   adminRevenueResponseSchema,
@@ -96,6 +101,7 @@ import {
   setAdminUsers,
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
+import { fixtureBoard, fixtureHome } from "./discovery";
 
 // Mutable demo state (per browser tab).
 const NO_ALERT: FavoriteAlert = { enabled: false, sides: "both", minUsd: null };
@@ -202,6 +208,10 @@ export async function fixtureRequest<T>(
   const route = `${method} /${parts.map((p, i) => (i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
 
   switch (route) {
+    case "GET /discover/home":
+      return wire(homeBoardsResponseSchema, fixtureHome());
+    case "GET /discover/boards":
+      return wire(boardResponseSchema, fixtureBoard(query(boardQuerySchema, search)));
     // --- discovery -----------------------------------------------------------
     case "GET /traders": {
       const q = query(tradersQuerySchema, search) as z.infer<typeof tradersQuerySchema>;
@@ -388,6 +398,9 @@ export async function fixtureRequest<T>(
       return wire(crowdResponseSchema, crowd());
 
     // --- admin ---------------------------------------------------------------------
+    case "GET /admin/system/overview":
+      requireAdmin(token);
+      return wire(adminSystemSchema, systemOverview());
     case "GET /admin/overview":
       requireAdmin(token);
       return wire(adminOverviewSchema, overview(favorites.size));

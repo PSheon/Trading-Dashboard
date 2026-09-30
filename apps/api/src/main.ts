@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 
 import { NestFactory } from "@nestjs/core";
 
-import { AppModule } from "./app.module.js";
 import { setupHttp } from "./bootstrap/http.setup.js";
 import { setupShutdown } from "./bootstrap/shutdown.setup.js";
 import { swaggerEnabled } from "./bootstrap/swagger-policy.js";
@@ -19,6 +18,8 @@ if (process.env.NODE_ENV !== "test" && existsSync(envFile)) process.loadEnvFile(
 /** Validate configuration, construct Nest, configure process/HTTP concerns, then listen. */
 async function bootstrap(): Promise<void> {
   const config = validateEnvironment();
+  if (config.app.role === "worker") throw new Error("Use dist/worker.js for APP_ROLE=worker");
+  const { AppModule } = await import("./app.module.js");
   const redactions = [
     config.auth.serviceToken,
     config.auth.appSecret,

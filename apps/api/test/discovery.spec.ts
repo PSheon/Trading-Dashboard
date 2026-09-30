@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { copyScore } from "../src/analytics/copy-score.js";
 import { AuthService } from "../src/common/auth/auth.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
-import { boardKind, effectiveSort, effectiveWindow } from "../src/discovery/boards.js";
+import { buildBoard, toCandidate, boardKind, effectiveSort, effectiveWindow } from "../src/discovery/boards.js";
 import { isStockCoin, portfolioNumbers } from "../src/discovery/discovery-figures.js";
 import { AdminKolController, CopyScoreController, DiscoveryController } from "../src/discovery/discovery.controller.js";
 import { DiscoveryPoolService } from "../src/discovery/discovery-pool.service.js";
@@ -283,7 +283,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       };
       const top = await get("");
       expect(top.items.map((t) => t.address)).toEqual([addr(1), addr(2)]); // no figures / no account value left out
-      expect(top).toMatchObject({ sort: "copyScore", window: "all", pool: { total: 4, ready: 3 } });
+      expect(top).toMatchObject({ sort: "copyScore", window: "all", pool: { total: 4, ready: 3, tradesReady: 0 } });
       expect(top.items[1]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, avatarUrl: "https://unavatar.io/x/two", pnl: 900 });
       const month = await get("sort=roi&window=30d");
       expect(month.items.map((t) => t.roi)).toEqual([0.5, -0.1]);
@@ -315,6 +315,31 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
         .toEqual([["BTC", "crypto", [300, 70]], ["xyz:TSLA", "stocks", [40]]]);
       // Calculator: named traders (KOLs first) with ROI > 5%; addr(1) has no name.
       expect(home.calculator.map((t) => t.address)).toEqual([addr(2)]);
+    });
+
+    it("reports freshness from displayed performance, using trade analysis for coin boards", async () => {
+      await seedPool();
+      const old = new Date("2026-09-01T00:00:00Z");
+      const recent = new Date("2026-09-29T00:00:00Z");
+      await db.update(discoveryTraders).set({ portfolioAt: recent, tradesAt: old }).where(eq(discoveryTraders.address, addr(1)));
+      const candidates = (await repository.boardRows()).map(toCandidate);
+      const query = { market: "crypto" as const, board: "BTC", sort: "pnl" as const, window: "all" as const };
+      const coin = buildBoard(candidates, query, { total: 4, ready: 3 });
+      expect(coin.freshness).toEqual({ oldestUpdatedAt: old, newestUpdatedAt: old, missingTimestamps: 1 });
+      expect(coin.items.find(t => t.address === addr(1))?.metricsUpdatedAt).toEqual(old);
+      const top = buildBoard(candidates, { ...query, board: "top100", sort: "copyScore" }, { total: 4, ready: 3 }, 1);
+      expect(top.items.map(t => t.address)).toEqual([addr(1)]);
+      expect(top.freshness).toEqual({ oldestUpdatedAt: recent, newestUpdatedAt: recent, missingTimestamps: 0 });
+      expect(top.eligibleCount).toBe(2);
+      expect(top.rankingScope).toBe("candidate_pool");
+    });
+
+    it("returns null freshness for empty results rather than borrowing the pool timestamp", async () => {
+      await seedPool();
+      const candidates = (await repository.boardRows()).map(toCandidate);
+      const empty = buildBoard(candidates, { market: "crypto", board: "ETH", sort: "pnl", window: "all" }, { total: 4, ready: 3 });
+      expect(empty.freshness).toEqual({ oldestUpdatedAt: null, newestUpdatedAt: null, missingTimestamps: 0 });
+      expect(empty.eligibleCount).toBe(0);
     });
 
     it("computes any trader's copy score from the portfolio", async () => {

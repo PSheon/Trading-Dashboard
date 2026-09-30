@@ -29,6 +29,8 @@ import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { BusyException } from "./busy.js";
+import { AnalysisHistoryService } from "./analysis-history.service.js";
+import type { HistorySnapshot } from "./analysis-history.repository.js";
 import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow, type TradeAnalyticsTx } from "./trade-analytics.repository.js";
 import { portfolioSeries } from "./traders.mappers.js";
 import { FILLS_TTL_MS, TradersService } from "./traders.service.js";
@@ -94,7 +96,7 @@ export interface ComputeLog {
   trades: number;
 }
 
-type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "coverageFrom" | "truncated" | "fundingFrom" | "fundingCursor" | "fillsRead" | "computedAt">;
+type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "coverageFrom" | "truncated" | "fundingFrom" | "fundingCursor" | "fillsRead" | "computedAt" | "historyThrough">;
 
 /**
  * Round-trip analytics for any address (the trader page's win rate, 表現 and
@@ -126,6 +128,7 @@ export class TradeAnalyticsService {
     private readonly traders: TradersService,
     private readonly info: HyperliquidInfoClient,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
+    @Optional() private readonly history?: AnalysisHistoryService,
   ) {}
 
   // --- reading --------------------------------------------------------------
@@ -140,7 +143,7 @@ export class TradeAnalyticsService {
       window,
       summary: tradeSummarySchema.parse(summaries[window]),
       classification: traderClassificationSchema.parse(row.classification),
-      coverage: coverageOf(row),
+      coverage: { ...coverageOf(row), backfill: await this.history?.status(address) },
       computedAt: row.computedAt,
       refreshing: this.inflight.has(address),
     };
@@ -154,7 +157,7 @@ export class TradeAnalyticsService {
       this.repository.page(address, query.status, query.limit + 1, cursor),
       this.repository.count(address, query.status),
     ]);
-    const now = Date.now();
+    const now = row.historyThrough?.getTime() ?? Date.now();
     const page = rows.slice(0, query.limit);
     const last = page.at(-1);
     return {
@@ -162,7 +165,7 @@ export class TradeAnalyticsService {
       items: page.map((t) => toRoundTrip(t, now)),
       nextCursor: rows.length > query.limit && last ? `${last.exitTime ?? last.entryTime}_${last.openTid}` : null,
       total,
-      coverage: coverageOf(row),
+      coverage: { ...coverageOf(row), backfill: await this.history?.status(address) },
       computedAt: row.computedAt,
     };
   }
@@ -239,6 +242,12 @@ export class TradeAnalyticsService {
     const started = Date.now();
     const cost: Cost = { calls: 0, weight: 0, rank };
     const [state, tracked] = await Promise.all([this.repository.state(address), this.traders.isTracked(address)]);
+    if (!tracked) await this.history?.ensure(address);
+    const snapshot = !tracked ? await this.history?.snapshot(address) : null;
+    // Never replace a newer legacy ledger with an older archive snapshot.
+    const historyStartsAt = snapshot?.fills.reduce((min, f) => Math.min(min, f.time), Infinity) ?? Infinity;
+    const useHistory = snapshot && snapshot.through.getTime() >= (state?.fillCursor?.getTime() ?? 0)
+      && (!state?.coverageFrom || historyStartsAt <= state.coverageFrom.getTime());
     const live = await this.liveAccount(address, cost);
     let kind: ComputeLog["kind"];
     let next: Omit<AnalyticsInsert, "summary" | "classification" | "computedAt">;
@@ -247,6 +256,9 @@ export class TradeAnalyticsService {
     if (tracked) {
       kind = "tracked";
       ({ next, fillCount, persist } = await this.rebuildTracked(address, state));
+    } else if (useHistory) {
+      kind = "refresh";
+      ({ next, fillCount, persist } = await this.rebuildHistory(address, snapshot, state));
     } else if (!state || state.source !== "hyperliquid" || state.fillCursor === null) {
       kind = "cold";
       ({ next, fillCount, persist } = await this.coldHyperliquid(address, cost));
@@ -256,8 +268,9 @@ export class TradeAnalyticsService {
     }
     const classification = await this.classify(address, live, cost);
     const { row, trades } = await this.repository.transaction(async (tx) => {
+      await this.repository.assertState(tx, address, state);
       await persist(tx);
-      const dropped = tracked ? 0 : await this.dropClosedElsewhere(address, live, tx);
+      const dropped = tracked || useHistory ? 0 : await this.dropClosedElsewhere(address, live, tx);
       return this.store(address, { ...next, truncated: next.truncated || dropped > 0 }, classification, tx);
     });
     this.record(address, { kind, ms: Date.now() - started, ...cost, fills: fillCount, trades });
@@ -272,7 +285,7 @@ export class TradeAnalyticsService {
     tx?: TradeAnalyticsTx,
     computedAt = new Date(),
   ): Promise<{ row: AnalyticsRow; trades: number }> {
-    const now = Date.now();
+    const now = next.historyThrough?.getTime() ?? Date.now();
     const trades = (await this.repository.allTrades(address, tx)).map((t) => toRoundTrip(t, now));
     const summary = Object.fromEntries(WINDOWS.map((w) => [w, summarize(trades, w, now)])) as Record<TradeWindow, TradeSummary>;
     const full: TraderClassification = { ...classification, style: tradingStyle(summary.all.medianHoldSeconds) };
@@ -298,6 +311,39 @@ export class TradeAnalyticsService {
     );
   }
 
+  /** Rebuild only a jointly completed, immutable cutoff. Older data can
+   * repair partial entries, so a historical extension resets funding. */
+  private async rebuildHistory(address: string, snapshot: HistorySnapshot, state: AnalyticsRow | undefined) {
+    const earliest = snapshot.fills.reduce((min, f) => Math.min(min, f.time), Infinity);
+    const extended = !state?.historyThrough || earliest < (state.coverageFrom?.getTime() ?? Infinity);
+    const fundingFrom = extended ? null : state?.fundingFrom?.getTime() ?? null;
+    const result = applyFills(address, new Map<string, Trade>(), snapshot.fills, fundingFrom);
+    const persist = async (tx: TradeAnalyticsTx) => {
+      if (!extended) {
+        const kept = await this.repository.fundingByTid(address, tx);
+        for (const trade of result.touched) {
+          const funding = kept.get(trade.openTid);
+          if (funding !== undefined && trade.funding !== null) trade.funding = funding;
+        }
+      }
+      await this.repository.replaceTrades(tx, address, result.touched);
+    };
+    return {
+      persist,
+      fillCount: snapshot.fills.length,
+      next: {
+        chain: CHAIN_DEFAULT, address, source: "hyperliquid" as const,
+        coverageFrom: Number.isFinite(earliest) ? new Date(earliest) : null,
+        historyThrough: snapshot.through,
+        // A completed upstream scan cannot certify the account's lifetime.
+        truncated: true,
+        fillsRead: snapshot.fills.length, fillCursor: snapshot.through, cursorTids: [],
+        fundingFrom: extended ? null : state?.fundingFrom ?? null,
+        fundingCursor: extended ? null : state?.fundingCursor ?? null,
+      },
+    };
+  }
+
   private async rebuildTracked(address: string, state: AnalyticsRow | undefined) {
     const fillsRead = await this.repository.trackedFills(address, new Date(Date.now() - LOOKBACK_MS));
     const fundingFrom = state?.fundingFrom?.getTime() ?? null;
@@ -321,6 +367,7 @@ export class TradeAnalyticsService {
         chain: CHAIN_DEFAULT,
         address,
         source: "tracked" as const,
+        historyThrough: null,
         coverageFrom: fillsRead.length > 0 ? new Date(Math.min(...fillsRead.map((f) => f.time))) : null,
         truncated: trades.some(isPartial),
         fillsRead: fillsRead.length,
@@ -392,6 +439,7 @@ export class TradeAnalyticsService {
     };
     const [regularTail, twapTail] = await Promise.all([tail(false, latest), tail(true, latestTwap)]);
     all = dedupe([...all, ...regularTail, ...twapTail]).filter(f => f.time <= now && (from === null || f.time >= from));
+    await this.history?.preserve(address, all);
     const open = new Map<string, Trade>();
     const result = applyFills(address, open, all, null);
     const persist = (tx: TradeAnalyticsTx) => this.repository.replaceTrades(tx, address, result.touched);
@@ -403,6 +451,7 @@ export class TradeAnalyticsService {
         chain: CHAIN_DEFAULT,
         address,
         source: "hyperliquid" as const,
+        historyThrough: null,
         coverageFrom: all.length > 0 ? new Date(Math.min(...all.map((f) => f.time))) : null,
         truncated: history.truncated || twap.truncated || result.touched.some(isPartial),
         fillsRead: all.length,
@@ -434,6 +483,7 @@ export class TradeAnalyticsService {
     const fresh = dedupe([...regular.fills, ...twap.fills]).filter(
       (f) => f.time > since || (f.time === since && !seen.has(String(f.tid))),
     );
+    await this.history?.preserve(address, fresh);
     const fundingFrom = state.fundingFrom?.getTime() ?? null;
     const open = new Map((await this.repository.openTrades(address)).map((t) => [t.coin, t]));
     const result = applyFills(address, open, fresh, fundingFrom);
@@ -451,6 +501,7 @@ export class TradeAnalyticsService {
         chain: CHAIN_DEFAULT,
         address,
         source: "hyperliquid" as const,
+        historyThrough: null,
         coverageFrom: state.coverageFrom,
         truncated: state.truncated || partial,
         fillsRead: state.fillsRead + fresh.length,
@@ -552,12 +603,13 @@ export class TradeAnalyticsService {
     if (!state) return;
     const started = Date.now();
     const cost: Cost = { calls: 0, weight: 0 };
-    const now = Date.now();
+    const now = state.historyThrough?.getTime() ?? Date.now();
     const first = state.fundingCursor === null;
     const fundingFrom = first
       ? Math.max(state.coverageFrom?.getTime() ?? now, now - FUNDING_LOOKBACK_MS)
       : state.fundingFrom!.getTime();
     const start = first ? fundingFrom : state.fundingCursor!.getTime() + 1;
+    if (start > now) return;
 
     const events: FundingEvent[] = [];
     const seen = new Set<string>();
@@ -588,6 +640,7 @@ export class TradeAnalyticsService {
 
     let trades = 0;
     await this.repository.transaction(async (tx) => {
+      await this.repository.assertState(tx, address, state);
       const rows = first
         ? (await this.repository.allTrades(address, tx)).map((t) => ({ ...t, funding: t.entryTime >= fundingFrom ? 0 : null }))
         : await this.repository.fundableSince(address, new Date(start), tx);
@@ -612,6 +665,7 @@ function coverageOf(row: Stored): TradeCoverage {
     fundingFrom: row.fundingFrom,
     fundingThrough: row.fundingCursor,
     fills: row.fillsRead,
+    through: row.historyThrough ?? null,
   };
 }
 

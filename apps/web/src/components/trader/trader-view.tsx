@@ -104,6 +104,10 @@ function TraderLoaded({ address }: { address: string }) {
 
   return (
     <>
+    <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+      {t("discover.dataCoverage.score")} {" "}
+      <Link href="/methodology" className="rounded-sm underline underline-offset-2 focus-visible:outline-2">{t("methodology.title")}</Link>
+    </p>
     {/* Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs). */}
     <div className="md:hidden">
       {profile.isError && !live.profile ? (

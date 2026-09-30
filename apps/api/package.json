@@ -25,7 +25,8 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:migrate:release": "node scripts/migrate.mjs",
-    "kols:seed": "node dist/discovery/seed-kols.js"
+    "kols:seed": "node dist/discovery/seed-kols.js",
+    "start:worker": "node dist/worker.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

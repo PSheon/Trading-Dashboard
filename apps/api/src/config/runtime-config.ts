@@ -36,7 +36,11 @@ export function validateEnvironment(source: Environment = process.env) {
       throw new Error("API_TRUSTED_PROXY_CIDRS must contain explicit IP addresses or non-universal CIDRs");
     }
   }
-  const app = { nodeEnv, trustedProxyCidrs, port: integerValue("PORT", source.PORT, 3000, 1, 65535) };
+  const role = source.APP_ROLE ?? "combined";
+  if (!["api", "worker", "combined"].includes(role)) throw new Error("APP_ROLE must be api, worker or combined");
+  if (role === "api" && !source.WORKER_URL) throw new Error("WORKER_URL is required for APP_ROLE=api");
+  const workerUrl = source.WORKER_URL ? urlValue("WORKER_URL", source.WORKER_URL, "", ["http:", "https:"]) : undefined;
+  const app = { role, workerUrl, nodeEnv, trustedProxyCidrs, port: integerValue("PORT", source.PORT, 3000, 1, 65535) };
   const database = { url: databaseUrl(source.DATABASE_URL) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
   const permissions = servicePermissions(source.AUTH_SERVICE_PERMISSIONS);

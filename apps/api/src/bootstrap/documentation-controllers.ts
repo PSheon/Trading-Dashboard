@@ -1,3 +1,4 @@
+import { AdminSystemController } from "../admin/admin-system.controller.js";
 import { AdminController, PublicSettingsController } from "../admin/admin.controller.js";
 import { ActionsController } from "../api/actions/actions.controller.js";
 import { AlertRulesController } from "../api/alert-rules/alert-rules.controller.js";
@@ -16,4 +17,5 @@ import { TradersController } from "../traders/traders.controller.js";
 import { MeController } from "../users/me.controller.js";
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
-export const documentationControllers = [AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController];
+export const documentationControllers = [
+  AdminSystemController,AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController];

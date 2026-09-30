@@ -139,6 +139,9 @@ since the first point of the history ("<1d", "12d", "1mo", "2.8y").
 
 ## Copy score (CopyDog's `score_version` 5, fitted: `copydog-v5-fit`)
 
+2026-09-30 reproducibility note: the [new numerical audit](copydog-numerical-parity.md) reruns all 549 saved rows (548 scored): median error 7, max 41, 424/548 within ±10, 88.87% agreement at 80. The saved fixture has no address/timestamp/split labels; the historical holdout claims below cannot be independently reconstructed from it.
+
+
 CopyDog's score is 0–98 and, per its tooltip, "ranked against all active
 Hyperliquid traders on ROI, Sharpe, PnL & track record; 80 = top 20%": a
 percentile over its whole indexed population (≈16k wallets: 2,250 traders

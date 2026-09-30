@@ -3,6 +3,18 @@
 2026-09-30；Orbie 基準 `85d02b7`。取代舊差距報告中的**目前資料狀態**，歷史證據仍保留。
 目標是逐項達成可驗證的資料功能一致；目前沒有足夠證據宣稱 100%。不再以 DonutMe 架構相似度作為驗收條件。
 
+## 後續實作更新：持久成交歷史
+
+本地已新增 [可續跑的成交歷史](persistent-analysis-history.md)：未追蹤地址的 regular / TWAP 原始成交、分來源 checkpoint、固定截止時間、原子頁面提交與背景續跑，並接入交易重建與 coverage 顯示。D01/D02 下表描述的是本批之前的基準；舊冷讀取仍作為回補完成前的快速路徑，不能再將它的限制當作新背景回補的總上限。tracked watcher、上游保留缺口及外部 CopyDog 對帳仍未完成。實作不代表已部署。
+
+## 探索資料透明度更新
+
+已新增[候選池覆蓋與績效計算時間](discovery-data-coverage.md)：同一快照的 portfolio／交易分析覆蓋計數、實際顯示卡片的計算時間範圍、缺值語意，以及首頁／探索頁的範圍說明。候選池規模與 Copy Score 公式未變，尚不代表 D09／D10 外部對帳完成。
+
+## 最新數值對帳
+
+已完成[單地址公開對帳與保存樣本重算](copydog-numerical-parity.md)。本輪公開榜單、單地址 summary 和 Hyperliquid portfolio 取得成功；下節的 403／429 是先前觀測紀錄。新樣本時間仍不齊，不算完整同期驗收。Copy Score 用對方同一組輸入算得 95 vs 98；549 筆保存樣本的完整限制與差異見新報告。
+
 ## 本輪實際取得的證據
 
 - 成功讀取 [CopyDog 首頁](https://copydog.xyz/hyperliquid)、其公開前端 bundle，以及 [allTime / Copy Score 榜單的 5 筆資料](https://api.copydog.xyz/api/hyperliquid/leaderboard?period=allTime&orderBy=COPY_SCORE&sortDir=desc&limit=5&offset=0&focus=top100)。[欄位清單、觀測時間及原始回應 SHA-256](evidence/copydog-data-baseline-2026-09-30.json) 已保存；這是欄位證據，不是已同步對帳的 fixture。

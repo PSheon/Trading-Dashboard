@@ -15,7 +15,7 @@ export class OutboxService implements OnApplicationBootstrap {
     private readonly rules: RulesService, private readonly notify: NotifyService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
-  onApplicationBootstrap() { if (this.config.value.app.nodeEnv !== "test") void this.drain(); }
+  onApplicationBootstrap() { if (this.config.value.app.nodeEnv !== "test" && this.config.value.app.role !== "api") void this.drain(); }
 
   /** Coalesce local drains; repository claims coordinate competing processes. */
   @Interval(5000)

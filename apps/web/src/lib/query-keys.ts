@@ -3,6 +3,7 @@ export const queryKeys = {
   siteSettings: ["site-settings"] as const,
   crowd: ["crowd"] as const,
   me: ["me"] as const,
+  adminSystem: ["admin", "system"] as const,
   health: ["health"] as const,
   favorites: ["favorites"] as const,
   telegram: ["telegram"] as const,

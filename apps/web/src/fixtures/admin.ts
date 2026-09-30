@@ -222,3 +222,16 @@ export function overview(favoritedTraders: number): AdminOverview {
     generatedAt: new Date(),
   };
 }
+
+/** Synthetic monitoring; never represents a live service probe. */
+export function systemOverview() {
+  const now = new Date().toISOString();
+  const budget = { requestsLastMinute: 12, weightLastMinute: 180, effectiveBudgetPerMin: 240,
+    configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 60, lastRateLimitedAt: null, queued: { live: 0, background: 2 } };
+  return { sampledAt: now, api: { state: "active", role: "api", uptimeSeconds: 7200, budget },
+    worker: { state: "standby", sample: { state: "standby", instanceId: "fixture-worker", sampledAt: now, uptimeSeconds: 15, budget: null, heartbeat: null } },
+    database: { state: "available", latencyMs: 7 },
+    data: { leaderboardCount: 25000, leaderboardUpdatedAt: now, watched: 12, candidates: 1000, portfolios: 824, trades: 618, errors: 3,
+      oldestPortfolioAt: new Date(Date.now() - 7200_000).toISOString(), newestPortfolioAt: now },
+    outbox: ["evaluations", "deliveries"].map(kind => ({ kind, pending: 2, processing: 1, failed: 0, due: 1, expiredLeases: 0, oldestDueAt: now })) };
+}

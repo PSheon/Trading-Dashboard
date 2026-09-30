@@ -1,5 +1,5 @@
 import { AppConfig } from "../../config/app-config.js";
-import { Injectable } from "@nestjs/common";
+import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
 import { RequestBudgeterService } from "../../hyperliquid/request-budgeter.service.js";
@@ -17,6 +17,13 @@ export class HealthService {
   ) {}
 
   async heartbeat(): Promise<HeartbeatResponse> {
+    if (this.config.value.app.role === "api") {
+      try {
+        const response = await fetch(new URL("/health", this.config.value.app.workerUrl), { signal: AbortSignal.timeout(3000) });
+        if (!response.ok) throw new Error("Worker unavailable");
+        return await response.json() as HeartbeatResponse;
+      } catch { throw new ServiceUnavailableException("Worker unavailable"); }
+    }
     const { feed, lastFillAt, lastSweepAt, fillsUnavailable } = this.watcher.getHeartbeat();
     const budget = this.budgeter.introspect();
     return {

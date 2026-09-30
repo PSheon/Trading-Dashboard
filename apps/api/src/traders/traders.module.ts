@@ -12,11 +12,14 @@ import { TradeAnalyticsController } from "./trade-analytics.controller.js";
 import { TradeAnalyticsRepository } from "./trade-analytics.repository.js";
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
 
+import { AnalysisHistoryRepository } from "./analysis-history.repository.js";
+import { AnalysisHistoryService } from "./analysis-history.service.js";
+
 /** Discovery capabilities and HTTP routes; startup/cron belongs to TradersWorkerModule. */
 @Module({
   imports: [HyperliquidModule, AnalyticsModule],
   controllers: [TradersController, TradeAnalyticsController],
-  providers: [LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService],
-  exports: [TradersService, LeaderboardIngestService, TradeAnalyticsService],
+  providers: [AnalysisHistoryRepository, AnalysisHistoryService, LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService],
+  exports: [AnalysisHistoryService, TradersService, LeaderboardIngestService, TradeAnalyticsService],
 })
 export class TradersModule {}

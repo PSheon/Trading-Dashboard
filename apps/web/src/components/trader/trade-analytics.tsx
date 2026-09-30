@@ -3,6 +3,7 @@
 import type { RoundTrip, TradeCoin, TraderAnalyticsResponse, TraderTradesResponse } from "@/lib/contracts";
 import { ArrowDown, ArrowRight, ArrowUpRight, Check, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
@@ -90,7 +91,11 @@ export function CoverageNote({ analytics, className }: { analytics: Pick<TraderA
   return (
     <p className={cn("text-[11px] leading-relaxed text-subtle-foreground", className)} title={t("trader.coverageHint")}>
       {coverage.truncated && coverage.from !== null ? t("trader.coverageSince", { date: format.date(coverage.from) }) : null}{" "}
+      <span className="block">{coverage.through ? t("trader.historyThrough", { date: format.dateTime(coverage.through) }) : t("trader.historyThroughUnknown")}</span>
+      {coverage.backfill ? <span className="block">{t(`trader.historyStatus.${coverage.backfill.status}`)}</span> : null}
+      {coverage.truncated || coverage.backfill ? <span className="block">{t("trader.historyRetention")}</span> : null}
       {coverage.fundingThrough ? t("trader.fundingThrough", { date: format.date(coverage.fundingThrough) }) : t("trader.fundingPending")}
+      <Link href="/methodology" className="ml-1 rounded-sm underline underline-offset-2 focus-visible:outline-2">{t("methodology.title")}</Link>
     </p>
   );
 }

@@ -1,3 +1,4 @@
+import type { RemoteActions } from "../../runtime/action-relay.js";
 import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional, type OnModuleDestroy } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { actionStreamEventSchemas, type ActionFeedItem, type ActionStreamEventName } from "@trading-dashboard/shared/contracts";
@@ -252,6 +253,17 @@ export class ActionStreamService implements OnModuleDestroy {
     for (const row of event.inserted) this.pendingCreated.add(row.id);
     this.scheduleFlush();
   }
+
+  @OnEvent("action.remote")
+  onRemoteActions(event: RemoteActions): void {
+    if (this.subscribers.size === 0) return;
+    for (const id of event.created) this.pendingCreated.add(BigInt(id));
+    for (const id of event.updated) this.pendingUpdated.add(BigInt(id));
+    this.scheduleFlush();
+  }
+
+  @OnEvent("action.relay-disconnected")
+  onRelayDisconnected(): void { this.closeAll(); }
 
   @OnEvent(FAVORITES_CHANGED_EVENT)
   async onFavoritesChanged(event: FavoritesChangedEvent): Promise<void> {

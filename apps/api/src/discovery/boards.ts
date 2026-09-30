@@ -35,6 +35,7 @@ export function toCandidate(row: BoardSourceRow): Candidate {
     row,
     card: {
       address: row.address,
+      metricsUpdatedAt: row.portfolioAt,
       displayName: (kol ? row.kolName : null) ?? row.leaderboardName ?? null,
       avatarUrl: kol ? kolAvatarUrl({ avatarUrl: row.kolAvatarUrl, xHandle: row.kolXHandle }) : null,
       xHandle: kol ? row.kolXHandle : null,
@@ -81,12 +82,12 @@ function figures(c: Candidate, market: BoardMarket, kind: "top100" | "kol" | "co
   if (kind === "coin") {
     const stat = row.coinStats[coin!];
     if (!stat || (stat.trades === 0 && stat.volume === 0)) return null;
-    return { ...c.card, pnl: stat.pnl, roi: stat.volume > 0 ? stat.pnl / stat.volume : null, sparkline };
+    return { ...c.card, metricsUpdatedAt: row.tradesAt, pnl: stat.pnl, roi: stat.volume > 0 ? stat.pnl / stat.volume : null, sparkline };
   }
   if (market === "stocks" && kind === "top100") {
     const r = realized(row.coinStats, isStockCoin);
     if (!r) return null;
-    return { ...c.card, pnl: r.pnl, roi: r.roi, sparkline };
+    return { ...c.card, metricsUpdatedAt: row.tradesAt, pnl: r.pnl, roi: r.roi, sparkline };
   }
   const pnl = window === "30d" ? num(row.pnl30d) : num(row.pnlAll);
   const roi = window === "30d" ? num(row.roi30d) : num(row.roiAll);
@@ -116,7 +117,7 @@ function compare(sort: BoardSort) {
 export function buildBoard(
   candidates: Candidate[],
   query: BoardQuery,
-  pool: { ready: number; total: number },
+  pool: { ready: number; total: number; tradesReady?: number },
   limit = BOARD_SIZE,
 ): BoardResponse {
   const kind = boardKind(query.board);
@@ -137,5 +138,16 @@ export function buildBoard(
     if (at && (!updatedAt || at > updatedAt)) updatedAt = at;
   }
   items.sort(compare(sort));
-  return { market: query.market, board: query.board, coin, sort, window, style, items: items.slice(0, limit), pool, updatedAt };
+  const displayed = items.slice(0, limit);
+  return { market: query.market, board: query.board, coin, sort, window, style, items: displayed, pool, updatedAt,
+    rankingScope: "candidate_pool", eligibleCount: items.length, freshness: boardFreshness(displayed) };
+}
+
+export function boardFreshness(items: BoardTrader[]) {
+  const times = items.map(t => t.metricsUpdatedAt?.getTime()).filter((t): t is number => t !== undefined && Number.isFinite(t));
+  return {
+    oldestUpdatedAt: times.length ? new Date(Math.min(...times)) : null,
+    newestUpdatedAt: times.length ? new Date(Math.max(...times)) : null,
+    missingTimestamps: items.length - times.length,
+  };
 }

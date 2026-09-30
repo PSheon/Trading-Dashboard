@@ -138,7 +138,7 @@ export function HScroll({ children, className, label }: { children: React.ReactN
       observer.disconnect();
     };
   }, [measure]);
-  const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.85, behavior: "smooth" });
+  const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.85, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
   const arrow = "absolute top-1/2 z-10 hidden size-9 -translate-y-1/2 items-center justify-center rounded-full border border-border-strong bg-popover text-foreground shadow-lg shadow-black/40 outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring md:flex";
   return (
     <div className="relative">
@@ -147,7 +147,7 @@ export function HScroll({ children, className, label }: { children: React.ReactN
           <ChevronLeft className="size-4" />
         </button>
       ) : null}
-      <div ref={ref} role="group" aria-label={label} className={cn("-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 no-scrollbar md:mx-0 md:px-0", className)}>
+      <div ref={ref} role="group" aria-label={label} className={cn("-mx-4 flex snap-x gap-3 overflow-x-auto px-4 py-1 no-scrollbar md:mx-0 md:px-0", className)}>
         {children}
       </div>
       {!atEnd ? (

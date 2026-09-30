@@ -540,6 +540,8 @@ export const traderAnalytics = pgTable(
     source: text("source").$type<"tracked" | "hyperliquid">().notNull(),
     /** Earliest fill read. */
     coverageFrom: timestamp("coverage_from", { withTimezone: true }),
+    /** Fixed cutoff of the persistent raw-history snapshot; null for legacy analytics. */
+    historyThrough: timestamp("history_through", { withTimezone: true }),
     truncated: boolean("truncated").notNull().default(false),
     fillsRead: integer("fills_read").notNull().default(0),
     /** Time of the newest fill processed, and the tids at that millisecond
@@ -645,3 +647,37 @@ export const discoveryTraders = pgTable(
     index("discovery_traders_score_idx").on(table.copyScore.desc()),
   ],
 );
+
+
+/** Durable analysis history, separate from watcher fills so historical
+ * ingestion never creates trading alerts. Both streams retain raw payloads. */
+export const analysisHistoryFills = pgTable("analysis_history_fills", {
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  address: text("address").notNull(),
+  source: text("source").$type<"regular" | "twap">().notNull(),
+  tid: bigint("tid", { mode: "bigint" }).notNull(),
+  time: timestamp("time", { withTimezone: true }).notNull(),
+  raw: jsonb("raw").$type<Record<string, unknown>>().notNull(),
+}, table => [
+  primaryKey({ columns: [table.chain, table.address, table.source, table.tid] }),
+  index("analysis_history_fills_address_time_idx").on(table.chain, table.address, table.time),
+]);
+
+export const analysisHistoryJobs = pgTable("analysis_history_jobs", {
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  address: text("address").notNull(),
+  checkpoint: jsonb("checkpoint").$type<{
+    until: number;
+    sources: Record<"regular" | "twap", { cursor: number; through: number | null; status: "pending" | "complete" | "blocked" }>;
+    reason: "timestamp_saturated" | null;
+  }>().notNull(),
+  version: integer("version").notNull().default(0),
+  status: text("status").$type<"pending" | "caught_up" | "blocked">().notNull().default("pending"),
+  /** Only advances when BOTH sources have completed the fixed interval. */
+  publishedThrough: timestamp("published_through", { withTimezone: true }),
+  attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+  lastError: text("last_error"),
+}, table => [
+  primaryKey({ columns: [table.chain, table.address] }),
+  index("analysis_history_jobs_attempted_idx").on(table.status, table.attemptedAt),
+]);

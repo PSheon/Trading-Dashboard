@@ -51,7 +51,7 @@ export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy
   constructor(private readonly config: AppConfig, private readonly repository: RulesSeedRepository, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === "test") return;
+    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api") return;
     void this.seedWithRetry();
   }
 

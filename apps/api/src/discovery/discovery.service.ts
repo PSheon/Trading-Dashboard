@@ -4,7 +4,7 @@ import type { BoardQuery, BoardResponse, BoardTrader, CopyScoreResponse, HomeBoa
 import { SettingsService } from "../settings/settings.service.js";
 import { TradersService } from "../traders/traders.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
-import { buildBoard, toCandidate, type Candidate } from "./boards.js";
+import { boardFreshness, buildBoard, toCandidate, type Candidate } from "./boards.js";
 import { isStockCoin, portfolioNumbers, scoreOf } from "./discovery-figures.js";
 import { DiscoveryRepository } from "./discovery.repository.js";
 
@@ -16,7 +16,7 @@ export const HOME_ROW_SIZE = 12;
 
 interface Snapshot {
   candidates: Candidate[];
-  pool: { ready: number; total: number };
+  pool: { ready: number; total: number; tradesReady: number };
 }
 
 /**
@@ -37,7 +37,11 @@ export class DiscoveryService {
 
   private snapshot(): Promise<Snapshot> {
     return this.cache.get("pool", async () => {
-      const [rows, pool] = await Promise.all([this.repository.boardRows(), this.repository.coverage()]);
+      const rows = await this.repository.boardRows();
+      // Derive counts from the same read as the cards, avoiding a pool rebuild
+      // between separate coverage and data queries.
+      const pool = { total: rows.length, ready: rows.filter(r => r.portfolioAt !== null).length,
+        tradesReady: rows.filter(r => r.tradesAt !== null).length };
       return { candidates: rows.map(toCandidate), pool };
     });
   }
@@ -77,7 +81,8 @@ export class DiscoveryService {
     const calculator = (large.length > 0 ? large : eligible).sort((a, b) => (b.roi ?? 0) - (a.roi ?? 0)).slice(0, 6);
     const dates = candidates.map((c) => c.row.portfolioAt).filter((d): d is Date => d !== null);
     const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
-    return { featured, crypto, stocks, markets, calculator, updatedAt };
+    return { featured, crypto, stocks, markets, calculator, updatedAt, pool, rankingScope: "candidate_pool",
+      freshness: boardFreshness([...featured, ...crypto, ...stocks, ...markets.flatMap(m => m.items), ...calculator]) };
   }
 
   /**

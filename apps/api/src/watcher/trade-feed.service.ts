@@ -94,10 +94,12 @@ export class TradeFeedService {
 
   /** Every listed perp market on every dex. */
   async listMarkets(): Promise<string[]> {
-    const dexes = (await this.info.perpDexs()).map((d) => d?.name ?? "");
+    // The live feed cannot start until this catalog is loaded. Keep its
+    // bounded metadata calls ahead of historical fills and cache warming.
+    const dexes = (await this.info.perpDexs("live")).map((d) => d?.name ?? "");
     const coins: string[] = [];
     for (const dex of dexes) {
-      const meta = await this.info.meta(dex || undefined);
+      const meta = await this.info.meta(dex || undefined, "live");
       for (const asset of meta.universe) if (!asset.isDelisted) coins.push(asset.name);
     }
     return coins;

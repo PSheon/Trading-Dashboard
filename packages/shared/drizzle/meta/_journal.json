@@ -92,6 +92,13 @@
       "when": 1790749575213,
       "tag": "0012_discovery_pool_and_kols",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790765889513,
+      "tag": "0013_persistent_analysis_history",
+      "breakpoints": true
     }
   ]
 }

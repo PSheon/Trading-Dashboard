@@ -1,7 +1,8 @@
 "use client";
 
-import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
+import styles from "./area-chart.module.css";
 
 /**
  * Hand-rolled SVG area chart (no chart library: one series, a few hundred
@@ -85,7 +86,24 @@ export function AreaChart({
 }: AreaChartProps) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
+  const [revealed, setRevealed] = useState(false);
   const uid = useId().replace(/:/g, "");
+  const hasData = data.length > 0;
+
+  // Start once the chart is visible, including charts below the fold or
+  // inside a horizontal carousel. Hover and data refreshes never replay it.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !hasData || revealed) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting && entry.intersectionRect.width > 0 && entry.intersectionRect.height > 0)) {
+        setRevealed(true);
+        observer.disconnect();
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, hasData, revealed]);
 
   const pad = axes
     ? { top: 16, right: 64, bottom: 28, left: 4 }
@@ -154,10 +172,11 @@ export function AreaChart({
     gradDown: `grad-down-${uid}`,
     hatchUp: `hatch-up-${uid}`,
     hatchDown: `hatch-down-${uid}`,
+    reveal: `reveal-${uid}`,
   };
 
   return (
-    <div ref={ref} className={cn("relative w-full select-none", className)} style={{ height }}>
+    <div ref={ref} data-revealed={revealed} className={cn(styles.chart, "relative w-full select-none", className)} style={{ height }}>
       {geo ? (
         <svg
           width={width}
@@ -170,6 +189,9 @@ export function AreaChart({
           onPointerLeave={() => setHover(null)}
         >
           <defs>
+            <clipPath id={ids.reveal}>
+              <rect className={styles.reveal} x={-20} y={-20} width={width + 40} height={height + 40} />
+            </clipPath>
             <clipPath id={ids.above}>
               <rect x={0} y={-20} width={width} height={Math.max(0, geo.zeroY + 20)} />
             </clipPath>
@@ -247,9 +269,10 @@ export function AreaChart({
             />
           ) : null}
 
+          <g clipPath={`url(#${ids.reveal})`}>
           <g clipPath={`url(#${ids.above})`}>
-            <path d={geo.area} fill={`url(#${ids.gradUp})`} />
-            <path d={geo.area} fill={`url(#${ids.hatchUp})`} />
+            <path className={styles.fill} d={geo.area} fill={`url(#${ids.gradUp})`} />
+            <path className={styles.fill} d={geo.area} fill={`url(#${ids.hatchUp})`} />
             <path
               d={geo.line}
               fill="none"
@@ -261,8 +284,8 @@ export function AreaChart({
           </g>
           {zeroBaseline ? (
             <g clipPath={`url(#${ids.below})`}>
-              <path d={geo.area} fill={`url(#${ids.gradDown})`} />
-              <path d={geo.area} fill={`url(#${ids.hatchDown})`} />
+              <path className={styles.fill} d={geo.area} fill={`url(#${ids.gradDown})`} />
+              <path className={styles.fill} d={geo.area} fill={`url(#${ids.hatchDown})`} />
               <path
                 d={geo.line}
                 fill="none"
@@ -291,6 +314,8 @@ export function AreaChart({
               />
             </g>
           ) : null}
+
+          </g>
 
           {hovered ? (
             <g>

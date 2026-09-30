@@ -1,0 +1,395 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-30T11:09:44.301Z",
+  "calculationSources": [
+    {
+      "path": "apps/api/src/traders/traders.mappers.ts",
+      "sha256": "71d9d73406deaf733fd1eb629dc5b85ec7e3b88f083f08f6db75cd680fcecc68"
+    },
+    {
+      "path": "apps/api/src/analytics/copy-score.ts",
+      "sha256": "62790a906f691a163d3b6f4e952ba0ee80f5f236cad8666888bdff86f2b94ae9"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "apps/api/test/fixtures/portfolio-copydog-d70c.json",
+      "sha256": "e413024225c751af5c8ad0e9cf1c2dcab53036b11cb88331492e9c0def4afd54"
+    },
+    {
+      "path": "apps/api/test/fixtures/copydog-copy-score-2026-09-30.json",
+      "sha256": "fd4e65b912dd8dedf5fe7d97d34bdbafdaea470186c6659be3fa534817c7269f"
+    },
+    {
+      "path": "docs/evidence/copydog-live-comparison-2026-09-30.json",
+      "sha256": "af7c509293b2d95e508219eee31f075f440580a0a0686a0b1608fdb40bb3fe40"
+    }
+  ],
+  "frozenPortfolio": {
+    "address": "0xd70c9e61ba506a8cf1c25b54d14b25abdc048fd4",
+    "source": "Hyperliquid info portfolio for 0xd70c9e61ba506a8cf1c25b54d14b25abdc048fd4, fetched 2026-09-30T01:57Z, 3 min after CopyDog computed the summary below",
+    "referenceComputedAt": "2026-09-30T01:54:07.432701+00:00",
+    "portfolioEnd": "2026-09-30T01:55:33.184Z",
+    "timeDifferenceSeconds": 85.752,
+    "verdict": "not_time_aligned",
+    "note": "Same address and named windows; source snapshots differ. Numeric differences are observations, not formula pass/fail.",
+    "rows": [
+      {
+        "window": "allTime",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 9.89205477109025,
+            "reference": 9.892055,
+            "absoluteDifference": 2.2890974982203716e-7,
+            "relativeDifference": 2.3140768002405687e-8,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          },
+          {
+            "metric": "sharpe",
+            "actual": 1.5306770718539184,
+            "reference": 1.5308,
+            "absoluteDifference": 0.00012292814608150238,
+            "relativeDifference": 0.00008030320491344551,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.10694466141307017,
+            "reference": 0.106945,
+            "absoluteDifference": 3.385869298266897e-7,
+            "relativeDifference": 0.000003165991208814715,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      },
+      {
+        "window": "month",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 0.2357938610129776,
+            "reference": 0.235794,
+            "absoluteDifference": 1.3898702239112382e-7,
+            "relativeDifference": 5.89442574412936e-7,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          },
+          {
+            "metric": "sharpe",
+            "actual": 1.950143406493574,
+            "reference": 1.9573,
+            "absoluteDifference": 0.007156593506425946,
+            "relativeDifference": 0.003656360040068434,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.04014255461027726,
+            "reference": 0.040143,
+            "absoluteDifference": 4.453897227349457e-7,
+            "relativeDifference": 0.000011095078163937567,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      },
+      {
+        "window": "week",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 0,
+            "reference": 0,
+            "absoluteDifference": 0,
+            "relativeDifference": null,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          },
+          {
+            "metric": "sharpe",
+            "actual": -12.134328041244242,
+            "reference": -12.0929,
+            "absoluteDifference": 0.0414280412442416,
+            "relativeDifference": 0.0034258152506215713,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.04753303461686076,
+            "reference": 0.047533,
+            "absoluteDifference": 3.461686075983961e-8,
+            "relativeDifference": 7.282700599549704e-7,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      },
+      {
+        "window": "day",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 0,
+            "reference": 0,
+            "absoluteDifference": 0,
+            "relativeDifference": null,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          },
+          {
+            "metric": "sharpe",
+            "actual": -3.8633712422740354,
+            "reference": -3.6602,
+            "absoluteDifference": 0.20317124227403527,
+            "relativeDifference": 0.055508235143990836,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.014659301929633124,
+            "reference": 0.014659,
+            "absoluteDifference": 3.019296331233795e-7,
+            "relativeDifference": 0.00002059687789913224,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      }
+    ]
+  },
+  "livePortfolio": {
+    "address": "0x469e9a7f624b04c24f0e64edf8d8a277e6bf58a5",
+    "source": "Fresh public requests; see captured evidence and timestamps",
+    "referenceComputedAt": "2026-09-30T11:06:11.277204+00:00",
+    "portfolioEnd": "2026-09-30T11:08:58.056Z",
+    "timeDifferenceSeconds": 166.779,
+    "verdict": "not_time_aligned",
+    "note": "Same address and named windows; source snapshots differ. Numeric differences are observations, not formula pass/fail.",
+    "rows": [
+      {
+        "window": "allTime",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 8.217930885851565,
+            "reference": 8.217635,
+            "absoluteDifference": 0.0002958858515658136,
+            "relativeDifference": 0.00003600620513880376,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "sharpe",
+            "actual": 1.7258404758710562,
+            "reference": 1.7261,
+            "absoluteDifference": 0.00025952412894381105,
+            "relativeDifference": 0.00015035289319495455,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.14504465913296707,
+            "reference": 0.145045,
+            "absoluteDifference": 3.408670329330121e-7,
+            "relativeDifference": 0.0000023500777891896456,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      },
+      {
+        "window": "month",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 0.6600037622178289,
+            "reference": 0.65994,
+            "absoluteDifference": 0.0000637622178288888,
+            "relativeDifference": 0.00009661820442599146,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "sharpe",
+            "actual": 5.036120123068895,
+            "reference": 5.0384,
+            "absoluteDifference": 0.002279876931105207,
+            "relativeDifference": 0.00045250018480176384,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.07533782026296039,
+            "reference": 0.075338,
+            "absoluteDifference": 1.7973703961282617e-7,
+            "relativeDifference": 0.000002385742117030266,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      },
+      {
+        "window": "week",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 0.05894844505308429,
+            "reference": 0.05889,
+            "absoluteDifference": 0.000058445053084291154,
+            "relativeDifference": 0.000992444440215506,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "sharpe",
+            "actual": -1.2681497897404004,
+            "reference": -1.2584,
+            "absoluteDifference": 0.009749789740400416,
+            "relativeDifference": 0.007747766799428176,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.0994637494960414,
+            "reference": 0.099464,
+            "absoluteDifference": 2.5050395859038677e-7,
+            "relativeDifference": 0.0000025185389547010656,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      },
+      {
+        "window": "day",
+        "metrics": [
+          {
+            "metric": "roi",
+            "actual": 0.023146038818084896,
+            "reference": 0.02309,
+            "absoluteDifference": 0.000056038818084896275,
+            "relativeDifference": 0.0024269734986962443,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "sharpe",
+            "actual": 10.18798619075087,
+            "reference": 10.2943,
+            "absoluteDifference": 0.10631380924913003,
+            "relativeDifference": 0.01032744424090322,
+            "referenceResolution": 0.0001,
+            "withinReferenceResolution": false
+          },
+          {
+            "metric": "maxDrawdown",
+            "actual": 0.014018484323211464,
+            "reference": 0.014018,
+            "absoluteDifference": 4.84323211464785e-7,
+            "relativeDifference": 0.00003455009355577008,
+            "referenceResolution": 0.000001,
+            "withinReferenceResolution": true
+          }
+        ]
+      }
+    ]
+  },
+  "liveScore": {
+    "metric": "copyScore",
+    "actual": 95,
+    "reference": 98,
+    "absoluteDifference": 3,
+    "relativeDifference": 0.030612244897959183,
+    "referenceResolution": 0,
+    "withinReferenceResolution": false,
+    "inputBasis": "CopyDog published components and account value; isolates fitted-formula error, not end-to-end data parity"
+  },
+  "scoreCalibrationSample": {
+    "total": 549,
+    "scored": 548,
+    "unscored": [
+      {
+        "rowIndex": 485,
+        "reference": 30,
+        "actual": null,
+        "error": null
+      }
+    ],
+    "medianAbsoluteError": 7,
+    "maxAbsoluteError": 41,
+    "withinTen": 424,
+    "threshold80Agreement": 0.8886861313868614,
+    "largestDifferences": [
+      {
+        "rowIndex": 413,
+        "reference": 47,
+        "actual": 88,
+        "error": 41
+      },
+      {
+        "rowIndex": 359,
+        "reference": 57,
+        "actual": 93,
+        "error": 36
+      },
+      {
+        "rowIndex": 375,
+        "reference": 54,
+        "actual": 88,
+        "error": 34
+      },
+      {
+        "rowIndex": 389,
+        "reference": 51,
+        "actual": 82,
+        "error": 31
+      },
+      {
+        "rowIndex": 384,
+        "reference": 52,
+        "actual": 82,
+        "error": 30
+      },
+      {
+        "rowIndex": 393,
+        "reference": 51,
+        "actual": 81,
+        "error": 30
+      },
+      {
+        "rowIndex": 411,
+        "reference": 47,
+        "actual": 76,
+        "error": 29
+      },
+      {
+        "rowIndex": 386,
+        "reference": 52,
+        "actual": 80,
+        "error": 28
+      },
+      {
+        "rowIndex": 392,
+        "reference": 51,
+        "actual": 79,
+        "error": 28
+      },
+      {
+        "rowIndex": 369,
+        "reference": 55,
+        "actual": 82,
+        "error": 27
+      }
+    ],
+    "limitation": "Saved calibration sample, not an independent holdout. No row addresses, split labels or per-row timestamps are stored; rowIndex is not a wallet identity."
+  }
+}

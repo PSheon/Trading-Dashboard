@@ -62,7 +62,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
 
   onApplicationBootstrap(): void {
     // Tests start the loop themselves, against a stubbed Telegram.
-    if (this.config.value.app.nodeEnv === "test") return;
+    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api") return;
     this.start();
   }
 

@@ -26,6 +26,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // place of the header and the tab bar, as on CopyDog's app.
   const traderPage = pathname.startsWith("/trader/");
 
+  // The design lab owns its frame; the production shell stays unchanged.
+  if (pathname === "/dev" || pathname.startsWith("/dev/")) return <>{children}</>;
+
   return (
     <div className="min-h-dvh">
       <a

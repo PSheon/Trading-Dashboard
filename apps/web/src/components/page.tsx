@@ -132,5 +132,5 @@ export function Panel({ className, ...props }: React.ComponentProps<"section">) 
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded-xl bg-raised", className)} />;
+  return <div aria-hidden="true" className={cn("ui-skeleton rounded-xl bg-raised", className)} />;
 }

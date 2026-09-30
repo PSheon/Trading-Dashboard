@@ -197,8 +197,8 @@ export class HyperliquidInfoClient {
 
   /** Coin universe metadata: szDecimals, max leverage (§5). `dex` selects a
    * HIP-3 dex; omitted means the main dex. */
-  meta(dex?: string): Promise<HlMetaResponse> {
-    return this.post<HlMetaResponse>(dex ? { type: "meta", dex } : { type: "meta" }, WEIGHT_META);
+  meta(dex?: string, priority: RequestPriority = "background"): Promise<HlMetaResponse> {
+    return this.post<HlMetaResponse>(dex ? { type: "meta", dex } : { type: "meta" }, WEIGHT_META, priority);
   }
 
   /** All perp dexes: `[null, {name: "xyz"}, …]`, main dex first. */

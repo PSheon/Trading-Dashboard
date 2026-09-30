@@ -1,3 +1,6 @@
+import { AdminSystemController } from "./admin-system.controller.js";
+import { AdminSystemRepository } from "./admin-system.repository.js";
+import { AdminSystemService } from "./admin-system.service.js";
 import { Module } from "@nestjs/common";
 
 import { AdminUsersRepository } from "./admin-users.repository.js";
@@ -20,8 +23,8 @@ import { RevenueService } from "./revenue.service.js";
  */
 @Module({
   imports: [AuthModule, HyperliquidModule],
-  controllers: [AdminController, PublicSettingsController],
-  providers: [AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
+  controllers: [AdminSystemController, AdminController, PublicSettingsController],
+  providers: [AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
   exports: [RevenueService],
 })
 export class AdminModule {}

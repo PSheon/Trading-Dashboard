@@ -1,0 +1,25 @@
+/* Reveal geometry rather than interpolating financial values. Axes and
+   crosshairs remain stationary and usable throughout the entrance. */
+.reveal {
+  transform-box: fill-box;
+  transform-origin: left center;
+}
+
+@keyframes chart-reveal {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes area-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chart[data-revealed="true"] .reveal {
+    animation: chart-reveal 650ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+  .chart[data-revealed="true"] .fill {
+    animation: area-appear 500ms 100ms ease-out backwards;
+  }
+}

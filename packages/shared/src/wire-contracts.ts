@@ -17,7 +17,7 @@ export const wireTradersSchema = s.tradersResponseSchema.extend({ updatedAt: iso
 export const wireTraderProfileSchema = s.traderProfileResponseSchema.extend({ stats: wireTraderStatsSchema.nullable(), lastTradeAt: iso.nullable().optional(), fetchedAt: iso });
 export const wireTraderActivitySchema = s.traderActivityResponseSchema.extend({ lastTradeAt: iso.nullable(), fetchedAt: iso });
 export const wireRoundTripSchema = s.roundTripSchema.extend({ id: z.string().regex(/^-?\d+$/), entryTime: iso, exitTime: iso.nullable() });
-export const wireTradeCoverageSchema = s.tradeCoverageSchema.extend({ from: iso.nullable(), fundingFrom: iso.nullable(), fundingThrough: iso.nullable() });
+export const wireTradeCoverageSchema = s.tradeCoverageSchema.extend({ through: iso.nullable().optional(), from: iso.nullable(), fundingFrom: iso.nullable(), fundingThrough: iso.nullable() });
 export const wireTraderAnalyticsSchema = s.traderAnalyticsResponseSchema.extend({
   summary: s.tradeSummarySchema.extend({ best: z.array(wireRoundTripSchema), worst: z.array(wireRoundTripSchema) }),
   coverage: wireTradeCoverageSchema, computedAt: iso,
@@ -34,9 +34,33 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
 });
-export const wireBoardTraderSchema = s.boardTraderSchema.extend({ lastTradeAt: iso.nullable() });
-export const wireBoardSchema = s.boardResponseSchema.extend({ items: z.array(wireBoardTraderSchema), updatedAt: iso.nullable() });
+/** Private worker probe and admin monitoring share an explicit JSON contract. */
+export const runtimeBudgetSchema = z.object({
+  requestsLastMinute: z.number(), weightLastMinute: z.number(), effectiveBudgetPerMin: z.number(),
+  configuredBudgetPerMin: z.number(), burstCapacity: z.number(), tokensAvailable: z.number(),
+  lastRateLimitedAt: iso.nullable(), queued: z.object({ live: z.number(), background: z.number() }),
+});
+export const workerMonitorSchema = z.object({
+  state: z.enum(["active", "standby", "stopping"]), instanceId: z.string().min(1), sampledAt: iso,
+  uptimeSeconds: z.number().nonnegative(), budget: runtimeBudgetSchema.nullable(), heartbeat: wireHeartbeatSchema.nullable(),
+}).refine(v => v.state !== "active" || (v.budget !== null && v.heartbeat !== null), "Active worker requires telemetry");
+export const adminSystemSchema = z.object({
+  sampledAt: iso,
+  api: z.object({ state: z.literal("active"), role: z.enum(["api", "worker", "combined"]), uptimeSeconds: z.number(), budget: runtimeBudgetSchema }),
+  worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),
+  database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
+  data: z.object({
+    leaderboardCount: z.number(), leaderboardUpdatedAt: iso.nullable(), watched: z.number(), candidates: z.number(),
+    portfolios: z.number(), trades: z.number(), errors: z.number(), oldestPortfolioAt: iso.nullable(), newestPortfolioAt: iso.nullable(),
+  }).nullable(),
+  outbox: z.array(z.object({ kind: z.enum(["evaluations", "deliveries"]), pending: z.number(), processing: z.number(), failed: z.number(), due: z.number(), expiredLeases: z.number(), oldestDueAt: iso.nullable() })).nullable(),
+});
+export type AdminSystemOverview = z.infer<typeof adminSystemSchema>;
+export const wireBoardFreshnessSchema = s.boardFreshnessSchema.extend({ oldestUpdatedAt: iso.nullable(), newestUpdatedAt: iso.nullable() });
+export const wireBoardTraderSchema = s.boardTraderSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable() });
+export const wireBoardSchema = s.boardResponseSchema.extend({ freshness: wireBoardFreshnessSchema.optional(), items: z.array(wireBoardTraderSchema), updatedAt: iso.nullable() });
 export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
+  freshness: wireBoardFreshnessSchema.optional(),
   featured: z.array(wireBoardTraderSchema), crypto: z.array(wireBoardTraderSchema), stocks: z.array(wireBoardTraderSchema),
   markets: z.array(z.object({ coin: z.string(), market: s.boardMarketSchema, items: z.array(wireBoardTraderSchema) })),
   calculator: z.array(wireBoardTraderSchema), updatedAt: iso.nullable(),
@@ -109,6 +133,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "PATCH", path: "/admin/settings", status: 200, auth: "settings.write", response: s.adminSettingsSnapshotSchema },
   { method: "GET", path: "/admin/users", pagination: { type: "offset", query: s.adminUsersQuerySchema }, status: 200, auth: "users.read", response: s.adminUsersResponseSchema.extend({ items: z.array(wireAdminUserSchema) }) },
   { method: "PATCH", path: "/admin/users/:id", status: 200, auth: "users.manage", response: wireAdminUserSchema },
+  { method: "GET", path: "/admin/system/overview", status: 200, auth: "admin.access", response: adminSystemSchema },
   { method: "GET", path: "/admin/overview", status: 200, auth: "overview.read", response: s.adminOverviewSchema.extend({ generatedAt: iso }) },
   { method: "GET", path: "/admin/revenue", status: 200, auth: "revenue.read", response: s.adminRevenueResponseSchema.extend({ lastSnapshotAt: iso.nullable() }) },
   { method: "GET", path: "/admin/outbox", status: 200, auth: "admin.access", response: z.object({ evaluations: outboxCounts, deliveries: outboxCounts }) },

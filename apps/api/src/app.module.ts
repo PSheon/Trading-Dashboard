@@ -1,3 +1,4 @@
+import { ActionRelay } from "./runtime/action-relay.js";
 import { RuntimeConfigModule } from "./config/runtime-config.module.js";
 import { TradersWorkerModule } from "./traders/traders-worker.module.js";
 import { HttpModule } from "./common/http/http.module.js";
@@ -47,6 +48,6 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     InsightsModule,
     OutboxModule,
   ],
-  providers: AUTH_GUARD_PROVIDERS,
+  providers: [...AUTH_GUARD_PROVIDERS, ActionRelay],
 })
 export class AppModule {}

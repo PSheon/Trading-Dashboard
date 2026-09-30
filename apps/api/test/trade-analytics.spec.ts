@@ -8,6 +8,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlUserFill, HlUserFundingEntry } from "../src/hyperliquid/types.js";
 import { TradeAnalyticsController } from "../src/traders/trade-analytics.controller.js";
+import { AnalysisHistoryRepository } from "../src/traders/analysis-history.repository.js";
+import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { TradeAnalyticsRepository } from "../src/traders/trade-analytics.repository.js";
 import { STALE_MS, MAX_CONCURRENT, MAX_WAITING, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
 import { PAGE_DEADLINE_MS } from "../src/traders/traders.controller.js";
@@ -86,8 +88,8 @@ describe("trade analytics for any address", () => {
       marginSummary: { accountValue: "1250000" },
       assetPositions: dex ? [] : livePositions.map(([coin, szi]) => ({ position: { coin, szi } })),
     })),
-    userFunding: vi.fn(async (_address: string, start: number) =>
-      fundingEvents.filter((e) => e.time >= start).sort((a, b) => a.time - b.time),
+    userFunding: vi.fn(async (_address: string, start: number, end?: number) =>
+      fundingEvents.filter((e) => e.time >= start && (end === undefined || e.time <= end)).sort((a, b) => a.time - b.time),
     ),
   };
   const traders = {
@@ -403,4 +405,63 @@ describe("trade analytics for any address", () => {
     await service.compute(TRACKED, false);
     expect(await db.select().from(traderTrades).where(eq(traderTrades.address, TRACKED))).toHaveLength(3);
   });
+  it("replaces a partial legacy entry with the archived opening and resets funding", async () => {
+    const closing = fill("BTC", 1, -1, 110, T(2), { closedPnl: "10" });
+    history = [closing];
+    const archiveRepository = new AnalysisHistoryRepository(db);
+    const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await production.compute(X, true, { funding: false });
+    await production.settled();
+    const prior = await new TradeAnalyticsRepository(db).allTrades(X);
+    expect(prior[0].openTid).toBeLessThan(0n);
+    history.unshift(fill("BTC", 0, 1, 100, T(20)));
+    await archive.advance((await archiveRepository.state(X))!);
+    await production.compute(X, false, { funding: false });
+    await production.settled();
+    const result = await production.analytics(X, "all");
+    expect(result.coverage).toMatchObject({ truncated: true, backfill: { status: "caught_up", retentionLimited: true } });
+    expect(result.coverage.through).toBeInstanceOf(Date);
+    expect(result.coverage.fundingFrom).toBeNull();
+    const trades = await new TradeAnalyticsRepository(db).allTrades(X);
+    expect(trades).toHaveLength(1);
+    expect(trades[0].openTid).toBe(BigInt(history[0].tid));
+    expect(trades[0].entryTime).toBe(T(20));
+    expect(trades[0].fees).toBe(2);
+  });
+
+  it("keeps an archived open position at its cutoff even if it closed afterwards", async () => {
+    history = [fill("BTC", 0, 1, 100, T(20))];
+    const archiveRepository = new AnalysisHistoryRepository(db);
+    await archiveRepository.ensure(X, T(10));
+    const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
+    await archive.advance((await archiveRepository.state(X))!);
+    history.push(fill("BTC", 1, -1, 110, T(2), { closedPnl: "10" }));
+    livePositions = [];
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await production.compute(X, true, { funding: false });
+    await production.settled();
+    const trades = await production.trades(X, { status: "all", limit: 20 });
+    expect(trades.coverage.through?.getTime()).toBe(T(10));
+    expect(trades.items).toHaveLength(1);
+    expect(trades.items[0].exitTime).toBeNull();
+    await production.fundingStep(X);
+    expect(info.userFunding.mock.calls.at(-1)?.[2]).toBe(T(10));
+  });
+
+  it("does not replace a longer existing ledger with shorter retained upstream history", async () => {
+    await service.refresh(X);
+    const before = await new TradeAnalyticsRepository(db).allTrades(X);
+    const archiveRepository = new AnalysisHistoryRepository(db);
+    await archiveRepository.ensure(X);
+    const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
+    history = history.filter(f => f.time >= T(10));
+    await archive.advance((await archiveRepository.state(X))!);
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await production.refresh(X);
+    const after = await new TradeAnalyticsRepository(db).allTrades(X);
+    expect(after.map(t => t.openTid)).toEqual(before.map(t => t.openTid));
+    expect((await new TradeAnalyticsRepository(db).state(X))!.historyThrough).toBeNull();
+  });
+
 });

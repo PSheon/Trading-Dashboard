@@ -7,7 +7,7 @@ import { SchedulerRepository } from "./scheduler.repository.js";
 import { SchedulerService } from "./scheduler.service.js";
 
 @Module({
-  imports: [ScheduleModule.forRoot(), WatcherModule, NotifyModule],
+  imports: [ScheduleModule.forRoot({ cronJobs: process.env.APP_ROLE !== "api", intervals: process.env.APP_ROLE !== "api", timeouts: process.env.APP_ROLE !== "api" }), WatcherModule, NotifyModule],
   providers: [SchedulerRepository, SchedulerService],
   exports: [SchedulerService],
 })

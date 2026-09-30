@@ -932,6 +932,15 @@ export type RoundTrip = z.infer<typeof roundTripSchema>;
 
 /** What history the analytics are based on. */
 export const tradeCoverageSchema = z.object({
+  /** Jointly completed raw-history snapshot. Null on the legacy path. */
+  through: z.coerce.date().nullable().optional(),
+  backfill: z.object({
+    status: z.enum(["pending", "caught_up", "blocked"]),
+    reason: z.enum(["timestamp_saturated", "upstream_unavailable"]).nullable(),
+    regular: z.enum(["pending", "complete", "blocked"]),
+    twap: z.enum(["pending", "complete", "blocked"]),
+    retentionLimited: z.literal(true),
+  }).optional(),
   /** "tracked": our own fills table; "hyperliquid": Hyperliquid's fill
    * history, read for this page. */
   source: z.enum(["tracked", "hyperliquid"]),
@@ -1401,7 +1410,20 @@ export type BoardQuery = z.infer<typeof boardQuerySchema>;
 /** A trader card / row. `pnl` and `roi` are the board's: the window's perp
  * figures, the market's realized figures (stocks), or the coin's realized
  * PnL and PnL ÷ volume traded (coin boards). */
+/** Computation timestamps for the performance figures actually displayed,
+ * not a guarantee that the underlying fills are equally recent. */
+export const boardFreshnessSchema = z.object({
+  oldestUpdatedAt: z.coerce.date().nullable(),
+  newestUpdatedAt: z.coerce.date().nullable(),
+  missingTimestamps: z.number().int().nonnegative(),
+});
+export const discoveryPoolSchema = z.object({
+  ready: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  tradesReady: z.number().int().nonnegative().optional(),
+});
 export const boardTraderSchema = z.object({
+  metricsUpdatedAt: z.coerce.date().nullable().optional(),
   address: z.string(),
   /** KOL name, else the leaderboard's display name; null → short address. */
   displayName: z.string().nullable(),
@@ -1433,7 +1455,10 @@ export const boardResponseSchema = z.object({
   style: tradingStyleSchema.nullable(),
   items: z.array(boardTraderSchema),
   /** Pool rows with figures / all pool rows: coverage while the job warms up. */
-  pool: z.object({ ready: z.number().int(), total: z.number().int() }),
+  pool: discoveryPoolSchema,
+  rankingScope: z.literal("candidate_pool").optional(),
+  eligibleCount: z.number().int().nonnegative().optional(),
+  freshness: boardFreshnessSchema.optional(),
   /** Newest refresh among the board's rows; null when none is computed. */
   updatedAt: z.coerce.date().nullable(),
 });
@@ -1441,6 +1466,9 @@ export type BoardResponse = z.infer<typeof boardResponseSchema>;
 
 /** GET /discover/home — every home row in one read (7 cards each). */
 export const homeBoardsResponseSchema = z.object({
+  pool: discoveryPoolSchema.optional(),
+  rankingScope: z.literal("candidate_pool").optional(),
+  freshness: boardFreshnessSchema.optional(),
   /** 精選: the KOLs with figures, by copy score. */
   featured: z.array(boardTraderSchema),
   crypto: z.array(boardTraderSchema),

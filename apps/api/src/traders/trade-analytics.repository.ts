@@ -1,3 +1,5 @@
+import { BusyException } from "./busy.js";
+import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, notLike, or, sql, type SQL } from "drizzle-orm";
 import { fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
@@ -81,8 +83,16 @@ export class TradeAnalyticsRepository {
     return this.db.transaction(work);
   }
 
-  async state(address: string): Promise<AnalyticsRow | undefined> {
-    const [row] = await this.db
+  /** Optimistic commit guard across API/worker processes. Upstream I/O happens
+   * outside the transaction; reject stale work before changing trades/funding. */
+  async assertState(tx: TradeAnalyticsTx, address: string, expected: AnalyticsRow | undefined): Promise<void> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73107, hashtext(${address}))`);
+    const current = await this.state(address, tx);
+    if (!isDeepStrictEqual(current, expected)) throw new BusyException(5000);
+  }
+
+  async state(address: string, executor: DbOrTx = this.db): Promise<AnalyticsRow | undefined> {
+    const [row] = await executor
       .select()
       .from(traderAnalytics)
       .where(and(eq(traderAnalytics.chain, CHAIN_DEFAULT), eq(traderAnalytics.address, address)))

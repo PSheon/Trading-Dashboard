@@ -1,3 +1,4 @@
+import { AppConfig } from "../config/app-config.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
@@ -39,10 +40,11 @@ export class RevenueService implements OnApplicationBootstrap {
     private readonly settings: SettingsService,
     private readonly info: HyperliquidInfoClient,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
+    @Optional() private readonly config?: AppConfig,
   ) {}
 
   onApplicationBootstrap(): void {
-    this.triggerSnapshot("startup");
+    if (this.config?.value.app.role !== "api") this.triggerSnapshot("startup");
   }
 
   /** Minute 7 of every hour, off the top of the hour where the watcher's

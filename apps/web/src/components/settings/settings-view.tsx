@@ -64,14 +64,13 @@ function useAccountName(): { name: string; initial: string; email: string | null
 export function SettingsView() {
   const { status } = useAuth();
   if (status === "loading") return <SettingsSkeleton />;
-  if (status !== "signedIn") return <SignedOut />;
+  const signedIn = status === "signedIn";
   return (
     <>
-      <div className="hidden md:block">
-        <DesktopSettings />
-      </div>
+      <div className="hidden md:block">{signedIn ? <DesktopSettings /> : <SignedOut />}</div>
+      {/* The phone sheet exists signed out too (登入 on top, only 語言). */}
       <div className="md:hidden">
-        <PhoneSettings />
+        <PhoneSettings signedIn={signedIn} />
       </div>
     </>
   );
@@ -271,8 +270,9 @@ function DesktopSettings() {
   const { name, initial } = useAccountName();
 
   return (
-    <div className="-mt-2">
-      <h1 className="pb-6 text-xl font-bold tracking-tight">{t("settings.title")}</h1>
+    // Flush against the icon rail, as on CopyDog (the menu starts at the rail).
+    <div className="-mt-2 -ml-8">
+      <h1 className="pb-6 pl-4 text-xl font-bold tracking-tight">{t("settings.title")}</h1>
       <div className="grid min-h-[calc(100dvh-200px)] grid-cols-[300px_1fr] border-t border-border lg:grid-cols-[360px_1fr]">
         <nav aria-label={t("settings.title")} className="border-r border-border">
           <MenuItem icon={User} label={t("settings.menu.account")} active={tab === "account"} onClick={() => setTab("account")} />
@@ -324,12 +324,16 @@ function PhoneRow({ icon: Icon, label, value, onClick }: { icon: LucideIcon; lab
   );
 }
 
-function PhoneSettings() {
+function PhoneSettings({ signedIn }: { signedIn: boolean }) {
   const { t, locale } = useI18n();
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, login, status } = useAuth();
   const { initial, email, name } = useAccountName();
-  const [view, setView] = useQueryParam<PhoneView>("view", ["root", "account", "notifications", "language", "history"], "root");
+  const [view, setView] = useQueryParam<PhoneView>(
+    "view",
+    signedIn ? ["root", "account", "notifications", "language", "history"] : ["root", "language"],
+    "root",
+  );
 
   const close = () => {
     if (typeof window !== "undefined" && window.history.length > 1) router.back();
@@ -348,21 +352,38 @@ function PhoneSettings() {
           >
             <X className="size-5" />
           </button>
-          <button
-            type="button"
-            onClick={() => setView("account")}
-            className="mt-6 flex w-full items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Avatar initial={initial} size={52} />
-            <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold">{email ?? name}</span>
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </button>
+          {signedIn ? (
+            <button
+              type="button"
+              onClick={() => setView("account")}
+              className="mt-6 flex w-full items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Avatar initial={initial} size={52} />
+              <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold">{email ?? name}</span>
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </button>
+          ) : (
+            <>
+              <div className="mt-6 flex items-center gap-3">
+                <span className="flex size-[52px] shrink-0 items-center justify-center rounded-full bg-raised" aria-hidden>
+                  <User className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[0.9375rem] font-bold">{t("settings.signInTitle")}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t("settings.signInBody")}</p>
+                </div>
+              </div>
+              <Button size="xl" className="mt-6 w-full" onClick={login} disabled={status === "disabled"}>
+                {t("common.signIn")}
+              </Button>
+            </>
+          )}
 
           <p className="mt-7 text-xs text-muted-foreground">{t("settings.general")}</p>
           <div className="mt-1">
-            <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => setView("notifications")} />
+            {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => setView("notifications")} /> : null}
             <PhoneRow icon={Globe} label={t("settings.language")} value={t(`locales.${locale}`)} onClick={() => setView("language")} />
-            <PhoneRow icon={History} label={t("settings.history")} onClick={() => setView("history")} />
+            {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => setView("history")} /> : null}
           </div>
 
           <div className="mt-8 flex items-center gap-4 rounded-2xl bg-card p-5">
@@ -378,6 +399,7 @@ function PhoneSettings() {
             <MessageCircle className="size-9 shrink-0 fill-primary text-primary" aria-hidden />
           </div>
 
+          {signedIn ? (
           <button
             type="button"
             onClick={() => void logout()}
@@ -385,6 +407,7 @@ function PhoneSettings() {
           >
             {t("settings.logout")}
           </button>
+          ) : null}
 
           <div className="mt-12 flex flex-col items-center gap-3 text-xs text-subtle-foreground">
             <Wordmark className="text-[1.75rem] text-subtle-foreground" />

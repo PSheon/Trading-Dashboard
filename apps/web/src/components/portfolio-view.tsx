@@ -34,7 +34,18 @@ export function PortfolioView() {
       </div>
     );
   }
-  if (status !== "signedIn") return <SignedOut />;
+  if (status !== "signedIn") {
+    return (
+      <>
+        <div className="hidden md:block">
+          <SignedOut />
+        </div>
+        <div className="md:hidden">
+          <PhoneSignedOut />
+        </div>
+      </>
+    );
+  }
   return (
     <>
       <div className="hidden md:block">
@@ -184,6 +195,17 @@ function PhonePortfolio() {
 
   return (
     <div className="-mx-4 -mt-5">
+      <PhoneHeader />
+      <PhoneBody tab={tab} setTab={setTab} tabs={tabs} wallet={wallet} open={open} setOpen={setOpen} />
+    </div>
+  );
+}
+
+/** 投資組合 with the bell (notification settings) and the gear: on phones
+ * the gear is how settings are reached, as on CopyDog. */
+function PhoneHeader() {
+  const { t } = useI18n();
+  return (
       <header className="flex items-center justify-between px-5 pt-4">
         <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("portfolio.title")}</h1>
         <div className="flex items-center gap-1">
@@ -203,7 +225,45 @@ function PhonePortfolio() {
           </Link>
         </div>
       </header>
+  );
+}
 
+function PhoneSignedOut() {
+  const { t } = useI18n();
+  const { status, login } = useAuth();
+  return (
+    <div className="-mx-4 -mt-5">
+      <PhoneHeader />
+      <div className="flex flex-col items-center px-6 pt-14 text-center">
+        <ChartPie className="size-10 text-muted-foreground" strokeWidth={1.5} aria-hidden />
+        <p className="mt-4 text-base font-bold">{t("portfolio.signInTitlePhone")}</p>
+        <p className="mt-3 text-sm text-muted-foreground">{t("portfolio.signInBodyPhone")}</p>
+        <Button size="lg" className="mt-6 px-6" onClick={login} disabled={status === "disabled"}>
+          {t("common.signIn")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PhoneBody({
+  tab,
+  setTab,
+  tabs,
+  wallet,
+  open,
+  setOpen,
+}: {
+  tab: Tab;
+  setTab: (tab: Tab) => void;
+  tabs: { value: Tab; label: string }[];
+  wallet: ReturnType<typeof useWallet>;
+  open: boolean;
+  setOpen: (update: (value: boolean) => boolean) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
       <div className="px-5 pt-3">
         <div className="flex items-center gap-2">
           <p className="text-sm text-muted-foreground">{t("portfolio.totalValue")}</p>
@@ -252,6 +312,6 @@ function PhonePortfolio() {
           )}
         </div>
       </div>
-    </div>
+    </>
   );
 }

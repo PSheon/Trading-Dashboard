@@ -19,6 +19,7 @@ export function Modal({
   children,
   className,
   bodyClassName,
+  bare = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -28,6 +29,9 @@ export function Modal({
   children: React.ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** No title row: the body brings its own heading (the title stays for
+   * screen readers) and × floats in the corner. CopyDog's export card. */
+  bare?: boolean;
 }) {
   const t = useT();
   return (
@@ -36,13 +40,20 @@ export function Modal({
         <Primitive.Overlay className="fixed inset-0 z-50 bg-black/70 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Primitive.Content
           aria-describedby={undefined}
+          tabIndex={-1}
+          // Focus the panel, not its first control: that may be a badge whose
+          // tooltip would pop open on every opening.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)?.focus();
+          }}
           className={cn(
             "fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[464px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border-strong bg-popover text-popover-foreground shadow-2xl shadow-black/60 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
             className,
           )}
         >
-          <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
-            <Primitive.Title className="flex items-center gap-2 text-base font-bold">
+          <div className={bare ? "absolute top-3 right-3" : "flex items-center justify-between gap-3 border-b border-border px-5 py-4"}>
+            <Primitive.Title className={bare ? "sr-only" : "flex items-center gap-2 text-base font-bold"}>
               {title}
               {badge}
             </Primitive.Title>

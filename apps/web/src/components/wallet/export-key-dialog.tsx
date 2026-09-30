@@ -39,9 +39,9 @@ export function ExportKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
   }
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={t("wallet.exportTitle")} className="max-w-[440px]" bodyClassName="p-7">
+    <Modal open={open} onOpenChange={onOpenChange} title={t("wallet.exportTitle")} className="max-w-[440px]" bodyClassName="p-7" bare>
       <Lockup markSize={28} />
-      <h3 className="mt-5 text-2xl font-extrabold tracking-tight">{t("wallet.exportTitle")}</h3>
+      <h2 className="mt-5 text-2xl font-extrabold tracking-tight" aria-hidden>{t("wallet.exportTitle")}</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{t("wallet.exportBody")}</p>
       <p className="mt-4 flex gap-2 rounded-xl bg-warning/10 p-3 text-xs leading-relaxed text-warning">
         <ShieldAlert className="mt-px size-4 shrink-0" />

@@ -597,6 +597,8 @@ export const en: Messages = {
     exposureEmptyBody: "Once you copy traders, your long and short positions across all copies are summed by coin here.",
     signInTitle: "Log in to view your portfolio",
     signInBody: "Track your copy trades, manage positions and monitor performance",
+    signInTitlePhone: "Log in to see your portfolio",
+    signInBodyPhone: "The traders you copy, your positions and your balance live here.",
     notifications: "Notifications",
     settings: "Settings",
   },

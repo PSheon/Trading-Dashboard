@@ -601,6 +601,8 @@ export const zhTW = {
     exposureEmptyBody: "開始跟單後，這裡會依幣種彙總你所有跟單的多空部位。",
     signInTitle: "登入以查看您的投資組合",
     signInBody: "追蹤您的跟單交易、管理持倉和監控績效",
+    signInTitlePhone: "登入以查看你的投資組合",
+    signInBodyPhone: "你跟單的交易者、持倉與餘額都在這裡。",
     notifications: "通知",
     settings: "設定",
   },

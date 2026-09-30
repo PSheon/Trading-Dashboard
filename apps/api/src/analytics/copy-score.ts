@@ -68,7 +68,9 @@ function features(x: CopyScoreInputs): number[] {
  * those on other data Orbie doesn't have; an unscored trader sorts last).
  */
 export function copyScore(x: CopyScoreInputs): number | null {
-  if (!(x.returnSamples > 0) || x.sharpe === null) return null;
+  // No perp PnL at all: a holder, not a trader (CopyDog scores these ~20–32
+  // from data it does not publish; Orbie leaves them unscored).
+  if (!(x.returnSamples > 0) || x.sharpe === null || !x.pnl) return null;
   const f = features(x);
   const z = COPY_SCORE_WEIGHTS[0] + f.reduce((sum, v, i) => sum + v * COPY_SCORE_WEIGHTS[i + 1], 0);
   return Math.round(COPY_SCORE_MAX / (1 + Math.exp(-z)));

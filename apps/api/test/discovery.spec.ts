@@ -56,6 +56,8 @@ describe("copy score (CopyDog v5, fitted)", () => {
     expect(young).toBeLessThan(75);
     expect(loser).toBeLessThan(20);
     expect(copyScore({ roi: 1, pnl: 1, sharpe: null, maxDrawdown: null, returnSamples: 0, spanDays: 0, accountValue: 1 })).toBeNull();
+    // A holder with no perp PnL is not scored, however large.
+    expect(copyScore({ roi: 0, pnl: 0, sharpe: 0.4, maxDrawdown: 0.1, returnSamples: 60, spanDays: 600, accountValue: 4e7 })).toBeNull();
     expect(copyScore({ roi: 1e6, pnl: 1e12, sharpe: 99, maxDrawdown: 0, returnSamples: 1e4, spanDays: 1e4, accountValue: 1e12 })).toBe(98);
   });
 

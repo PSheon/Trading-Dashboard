@@ -62,8 +62,14 @@ export function HomeView() {
       {/* Phones: CopyDog's compact title with the sign-in button. */}
       <section className="flex items-start justify-between gap-4 md:hidden">
         <h1 className="max-w-[9ch] text-[2rem] leading-[1.15] font-black tracking-tight">{t("home.heroTitleMobile")}</h1>
-        {status === "signedOut" ? (
-          <button type="button" onClick={login} className="mt-1 h-11 shrink-0 rounded-full bg-primary px-5 font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {status === "signedOut" || status === "disabled" ? (
+          <button
+            type="button"
+            onClick={login}
+            disabled={status === "disabled"}
+            title={status === "disabled" ? t("topbar.loginUnavailable") : undefined}
+            className="mt-1 h-11 shrink-0 rounded-full bg-primary px-5 font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          >
             {t("topbar.login")}
           </button>
         ) : null}

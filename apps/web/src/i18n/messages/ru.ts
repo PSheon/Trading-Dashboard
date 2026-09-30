@@ -424,6 +424,9 @@ export const ru: Messages = {
       noData: "Нет данных за этот период",
       pnlLabel: "PnL",
       valueLabel: "Размер счёта",
+      calendar: "Календарь",
+      calendarLabel: "Календарь PnL по месяцам",
+      calendarOverall: "Итого",
     },
     tabsLabel: "Торговая активность",
     tabs: {

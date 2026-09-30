@@ -424,6 +424,9 @@ export const pt: Messages = {
       noData: "Sem dados para este período",
       pnlLabel: "PnL",
       valueLabel: "Valor da conta",
+      calendar: "Calendário",
+      calendarLabel: "Calendário mensal de PnL",
+      calendarOverall: "Total",
     },
     tabsLabel: "Atividade de trading",
     tabs: {

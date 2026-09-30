@@ -424,6 +424,9 @@ export const ja: Messages = {
       noData: "この期間のデータはありません",
       pnlLabel: "損益",
       valueLabel: "口座資産",
+      calendar: "カレンダー",
+      calendarLabel: "月別損益カレンダー",
+      calendarOverall: "年間",
     },
     tabsLabel: "取引アクティビティ",
     tabs: {

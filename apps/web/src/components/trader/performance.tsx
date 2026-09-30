@@ -2,7 +2,7 @@
 
 import type { PortfolioResponse, TradeWindow, TraderAnalyticsResponse, TraderWindow } from "@/lib/contracts";
 import { ChevronDown } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { OrbieMark, Wordmark } from "@/components/brand/logo";
@@ -21,6 +21,7 @@ import { useI18n } from "@/i18n/provider";
 import { usdCompact } from "@/lib/format";
 import { pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
 import { useNow } from "@/lib/use-now";
+import { PnlCalendarView, type CalendarUnit } from "./pnl-calendar";
 
 export type ChartMode = "pnl" | "value";
 export type ChartUnit = "usd" | "pct";
@@ -265,8 +266,11 @@ export function KpiTiles({
   );
 }
 
-/** PnL / value chart with market, mode, window and unit toggles. */
+/** PnL / value chart with market, mode, window and unit toggles, and
+ * CopyDog's third tab, 日曆 (monthly PnL calendar, its own $ / % toggle,
+ * % first). */
 export function PerformanceChart({
+  address,
   portfolio,
   loading,
   window,
@@ -281,6 +285,8 @@ export function PerformanceChart({
   roi,
 }: {
   roi: number | null;
+  /** The trader, for the calendar's all-time perp + spot series. */
+  address: string;
   portfolio: PortfolioResponse | undefined;
   loading: boolean;
   window: TraderWindow;
@@ -294,6 +300,8 @@ export function PerformanceChart({
   muted: boolean;
 }) {
   const { t, format } = useI18n();
+  const [calendar, setCalendar] = useState(false);
+  const [calendarUnit, setCalendarUnit] = useState<CalendarUnit>("pct");
 
   const series = useMemo(() => {
     if (!portfolio) return [];
@@ -324,102 +332,126 @@ export function PerformanceChart({
     <section className="rounded-2xl border border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-3 py-2">
         <div className="flex items-center">
-          {(["perp", "all"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onMarket(m)}
-              aria-pressed={market === m}
-              className={cn(
-                "relative px-2.5 py-2 text-[0.8125rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                market === m ? "text-foreground" : "text-subtle-foreground hover:text-muted-foreground",
-              )}
-            >
-              {t(m === "perp" ? "trader.chart.perp" : "trader.chart.all")}
-              {market === m ? (
-                <span className="absolute inset-x-2.5 -bottom-2 h-0.5 rounded-full bg-primary" />
-              ) : null}
-            </button>
-          ))}
+          {(["perp", "all", "calendar"] as const).map((m) => {
+            const active = m === "calendar" ? calendar : !calendar && market === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  if (m === "calendar") return setCalendar(true);
+                  setCalendar(false);
+                  onMarket(m);
+                }}
+                aria-pressed={active}
+                className={cn(
+                  "relative px-2.5 py-2 text-[0.8125rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  active ? "text-foreground" : "text-subtle-foreground hover:text-muted-foreground",
+                )}
+              >
+                {t(m === "perp" ? "trader.chart.perp" : m === "all" ? "trader.chart.all" : "trader.chart.calendar")}
+                {active ? <span className="absolute inset-x-2.5 -bottom-2 h-0.5 rounded-full bg-primary" /> : null}
+              </button>
+            );
+          })}
         </div>
-        <div className="flex flex-wrap items-center gap-1">
+        {calendar ? (
           <Segmented
-            value={mode}
-            onChange={onMode}
-            options={[
-              { value: "pnl", label: t("trader.chart.pnl") },
-              { value: "value", label: t("trader.chart.value") },
-            ]}
-          />
-          <span className="mx-1 h-4 w-px bg-border" aria-hidden />
-          <Segmented
-            value={window}
-            onChange={onWindow}
-            options={WINDOWS.map((w) => ({ value: w, label: t(`windows.${w}`) }))}
-          />
-          <span className="mx-1 h-4 w-px bg-border" aria-hidden />
-          <Segmented
-            value={unit}
-            onChange={onUnit}
+            value={calendarUnit}
+            onChange={setCalendarUnit}
             options={[
               { value: "usd", label: t("trader.chart.usd") },
               { value: "pct", label: t("trader.chart.pct") },
             ]}
           />
-        </div>
-      </div>
-
-      <div className="px-4 pt-4 md:px-5">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <div
-              className={cn(
-                "num text-[1.75rem] leading-none font-bold tracking-tight md:text-[2rem]",
-                muted
-                  ? "text-subtle-foreground"
-                  : mode === "pnl" && last
-                    ? last[1] >= 0
-                      ? "text-positive"
-                      : "text-negative"
-                    : "text-foreground",
-              )}
-            >
-              {loading && !portfolio ? <Skeleton className="h-8 w-48" /> : headline}
-            </div>
-            {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} className="mt-2.5" muted={muted} /> : null}
-          </div>
-          {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.dateTime(last[0])}</p> : null}
-        </div>
-      </div>
-
-      <div className="px-2 pt-2 pb-2 md:px-3">
-        {portfolio && series.length > 1 ? (
-          <AreaChart
-            data={series}
-            height={320}
-            axes
-            interactive
-            zeroBaseline={mode === "pnl"}
-            formatValue={fmt}
-            formatTick={(v) => (unit === "pct" ? format.pct(v) : usdCompact(v))}
-            formatTime={(ts) => format.dateTime(ts)}
-            formatAxisTime={(ts) => format.axisDate(ts, span)}
-            ariaLabel={t(mode === "pnl" ? "trader.chart.pnlLabel" : "trader.chart.valueLabel")}
-            watermark={
-              <span className="flex items-center gap-3 text-foreground">
-                <OrbieMark size={56} />
-                <Wordmark className="text-6xl" />
-              </span>
-            }
-          />
-        ) : loading ? (
-          <Skeleton className="m-2 h-[304px]" />
         ) : (
-          <div className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
-            {t("trader.chart.noData")}
+          <div className="flex flex-wrap items-center gap-1">
+            <Segmented
+              value={mode}
+              onChange={onMode}
+              options={[
+                { value: "pnl", label: t("trader.chart.pnl") },
+                { value: "value", label: t("trader.chart.value") },
+              ]}
+            />
+            <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+            <Segmented
+              value={window}
+              onChange={onWindow}
+              options={WINDOWS.map((w) => ({ value: w, label: t(`windows.${w}`) }))}
+            />
+            <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+            <Segmented
+              value={unit}
+              onChange={onUnit}
+              options={[
+                { value: "usd", label: t("trader.chart.usd") },
+                { value: "pct", label: t("trader.chart.pct") },
+              ]}
+            />
           </div>
         )}
       </div>
+
+      {calendar ? (
+        <div className="px-2 pb-2 md:px-3">
+          <PnlCalendarView address={address} unit={calendarUnit} />
+        </div>
+      ) : (
+        <>
+          <div className="px-4 pt-4 md:px-5">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div
+                  className={cn(
+                    "num text-[1.75rem] leading-none font-bold tracking-tight md:text-[2rem]",
+                    muted
+                      ? "text-subtle-foreground"
+                      : mode === "pnl" && last
+                        ? last[1] >= 0
+                          ? "text-positive"
+                          : "text-negative"
+                        : "text-foreground",
+                  )}
+                >
+                  {loading && !portfolio ? <Skeleton className="h-8 w-48" /> : headline}
+                </div>
+                {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} className="mt-2.5" muted={muted} /> : null}
+              </div>
+              {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.dateTime(last[0])}</p> : null}
+            </div>
+          </div>
+
+          <div className="px-2 pt-2 pb-2 md:px-3">
+            {portfolio && series.length > 1 ? (
+              <AreaChart
+                data={series}
+                height={320}
+                axes
+                interactive
+                zeroBaseline={mode === "pnl"}
+                formatValue={fmt}
+                formatTick={(v) => (unit === "pct" ? format.pct(v) : usdCompact(v))}
+                formatTime={(ts) => format.dateTime(ts)}
+                formatAxisTime={(ts) => format.axisDate(ts, span)}
+                ariaLabel={t(mode === "pnl" ? "trader.chart.pnlLabel" : "trader.chart.valueLabel")}
+                watermark={
+                  <span className="flex items-center gap-3 text-foreground">
+                    <OrbieMark size={56} />
+                    <Wordmark className="text-6xl" />
+                  </span>
+                }
+              />
+            ) : loading ? (
+              <Skeleton className="m-2 h-[304px]" />
+            ) : (
+              <div className="flex h-[320px] items-center justify-center text-sm text-muted-foreground">
+                {t("trader.chart.noData")}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </section>
   );
 }

@@ -470,6 +470,9 @@ export const en: Messages = {
       noData: "No data for this period",
       pnlLabel: "PnL",
       valueLabel: "Account value",
+      calendar: "Calendar",
+      calendarLabel: "Monthly PnL calendar",
+      calendarOverall: "Overall",
     },
     tabsLabel: "Trading activity",
     tabs: {

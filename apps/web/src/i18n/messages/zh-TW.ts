@@ -474,6 +474,9 @@ export const zhTW = {
       noData: "這段期間沒有資料",
       pnlLabel: "盈虧",
       valueLabel: "帳戶價值",
+      calendar: "日曆",
+      calendarLabel: "每月盈虧日曆",
+      calendarOverall: "全年",
     },
     tabsLabel: "交易活動",
     tabs: {

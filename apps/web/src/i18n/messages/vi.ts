@@ -424,6 +424,9 @@ export const vi: Messages = {
       noData: "Không có dữ liệu cho giai đoạn này",
       pnlLabel: "PnL",
       valueLabel: "Giá trị tài khoản",
+      calendar: "Lịch",
+      calendarLabel: "Lịch PnL theo tháng",
+      calendarOverall: "Cả năm",
     },
     tabsLabel: "Hoạt động giao dịch",
     tabs: {

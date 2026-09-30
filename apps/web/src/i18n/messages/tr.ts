@@ -424,6 +424,9 @@ export const tr: Messages = {
       noData: "Bu dönem için veri yok",
       pnlLabel: "K/Z",
       valueLabel: "Hesap Değeri",
+      calendar: "Takvim",
+      calendarLabel: "Aylık PnL takvimi",
+      calendarOverall: "Yıllık",
     },
     tabsLabel: "İşlem etkinliği",
     tabs: {

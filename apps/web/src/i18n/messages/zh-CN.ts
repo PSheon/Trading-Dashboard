@@ -424,6 +424,9 @@ export const zhCN: Messages = {
       noData: "此期间暂无数据",
       pnlLabel: "盈亏",
       valueLabel: "账户价值",
+      calendar: "日历",
+      calendarLabel: "每月盈亏日历",
+      calendarOverall: "全年",
     },
     tabsLabel: "交易活动",
     tabs: {

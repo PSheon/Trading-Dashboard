@@ -167,6 +167,7 @@ function TraderLoaded({ address }: { address: string }) {
           </div>
         )}
         <PerformanceChart
+          address={address}
           portfolio={portfolio.data}
           loading={portfolio.isPending}
           window={window}

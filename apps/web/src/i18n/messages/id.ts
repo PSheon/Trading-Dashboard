@@ -424,6 +424,9 @@ export const id: Messages = {
       noData: "Tidak ada data untuk periode ini",
       pnlLabel: "PnL",
       valueLabel: "Nilai Akun",
+      calendar: "Kalender",
+      calendarLabel: "Kalender PnL bulanan",
+      calendarOverall: "Setahun",
     },
     tabsLabel: "Aktivitas trading",
     tabs: {

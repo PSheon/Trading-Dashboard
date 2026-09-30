@@ -424,6 +424,9 @@ export const ko: Messages = {
       noData: "이 기간의 데이터가 없습니다",
       pnlLabel: "손익",
       valueLabel: "계정 자산",
+      calendar: "캘린더",
+      calendarLabel: "월별 손익 캘린더",
+      calendarOverall: "연간",
     },
     tabsLabel: "거래 활동",
     tabs: {

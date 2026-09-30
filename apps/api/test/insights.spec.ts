@@ -162,7 +162,7 @@ describe("InsightsService.crowd — real Postgres", () => {
 
   it("GET /insights/crowd is cached for 60 s", async () => {
     const spy = vi.spyOn(service, "computeCrowd");
-    const controller = new InsightsController(service);
+    const controller = new InsightsController(service, {} as never);
     const [a, b] = await Promise.all([controller.crowd(), controller.crowd()]);
     await controller.crowd();
     expect(a).toBe(b);

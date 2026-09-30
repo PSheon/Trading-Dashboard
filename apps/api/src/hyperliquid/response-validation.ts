@@ -80,6 +80,7 @@ const schemas = {
     referrerState,
     rewardHistory: list(z.unknown()), tokenToState: tokenRewards,
   }),
+  candleSnapshot: list(z.object({ t: integer, T: integer, s: name, i: z.string().max(8), o: decimal, c: decimal, h: decimal, l: decimal, v: decimal, n: integer }).passthrough(), 5000),
 } satisfies Record<HlInfoRequestBody["type"], z.ZodTypeAny>;
 
 export function validateInfoResponse(type: HlInfoRequestBody["type"], value: unknown): unknown {

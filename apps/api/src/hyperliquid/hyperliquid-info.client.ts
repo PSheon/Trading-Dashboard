@@ -25,6 +25,7 @@ import type {
   HlReferralResponse,
   HlUserFillsByTimeResponse,
   HlUserFundingEntry,
+  HlCandle,
 } from "./types.js";
 
 /** Hyperliquid `info` request weights (verified live against the docs —
@@ -51,6 +52,11 @@ const WEIGHT_TWAP_SLICE_FILLS_BASE = 20;
 /** Not in the weight-2 list, so "all other documented info requests" = 20
  * (rate-limits-and-user-limits, checked 2026-09-29). */
 const WEIGHT_REFERRAL = 20;
+/** `candleSnapshot`: base 20 plus 1 per 60 candles returned (rate-limits
+ * docs, "additional weight per 60 items"). At most 5,000 candles a call. */
+const WEIGHT_CANDLE_SNAPSHOT_BASE = 20;
+const CANDLES_PER_EXTRA_WEIGHT = 60;
+export const MAX_CANDLES = 5000;
 /** `frontendOpenOrders`: not in the weight-2 list, so 20, per dex (the
  * request names one dex; spot orders come with the main one). */
 const WEIGHT_FRONTEND_OPEN_ORDERS = 20;
@@ -199,6 +205,33 @@ export class HyperliquidInfoClient {
    * HIP-3 dex; omitted means the main dex. */
   meta(dex?: string): Promise<HlMetaResponse> {
     return this.post<HlMetaResponse>(dex ? { type: "meta", dex } : { type: "meta" }, WEIGHT_META);
+  }
+
+  /**
+   * Candles of one coin, oldest first (`interval`: "1h", "4h", "12h", "1d",
+   * …). Acquires the base plus the surcharge of `expected` candles up front
+   * and settles the difference to the real count afterwards.
+   */
+  async candleSnapshot(
+    coin: string,
+    interval: string,
+    startTime: number,
+    endTime: number,
+    expected: number,
+    priority: RequestPriority = "background",
+    rank?: number,
+  ): Promise<HlCandle[]> {
+    const extra = (n: number) => Math.ceil(Math.min(n, MAX_CANDLES) / CANDLES_PER_EXTRA_WEIGHT);
+    const guess = extra(expected);
+    const candles = await this.post<HlCandle[]>(
+      { type: "candleSnapshot", req: { coin, interval, startTime, endTime } },
+      WEIGHT_CANDLE_SNAPSHOT_BASE + guess,
+      priority,
+      rank,
+      WEIGHT_CANDLE_SNAPSHOT_BASE,
+    );
+    this.budgeter.adjust(extra(candles.length) - guess);
+    return candles;
   }
 
   /** All perp dexes: `[null, {name: "xyz"}, …]`, main dex first. */

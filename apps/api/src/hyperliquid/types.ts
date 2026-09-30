@@ -211,7 +211,22 @@ export type HlInfoRequestBody =
   | { type: "frontendOpenOrders"; user: string; dex?: string }
   | { type: "twapHistory"; user: string }
   | { type: "userNonFundingLedgerUpdates"; user: string; startTime: number; endTime?: number }
-  | { type: "userFunding"; user: string; startTime: number; endTime?: number };
+  | { type: "userFunding"; user: string; startTime: number; endTime?: number }
+  | { type: "candleSnapshot"; req: { coin: string; interval: string; startTime: number; endTime: number } };
+
+/** One `candleSnapshot` candle (open time, close time, OHLC as strings). */
+export interface HlCandle {
+  t: number;
+  T: number;
+  s: string;
+  i: string;
+  o: string;
+  c: string;
+  h: string;
+  l: string;
+  v: string;
+  n: number;
+}
 
 /** One `userFunding` entry: a funding payment on one position. Recent ones
  * are hourly; older ones are daily sums (`nSamples` hours, stamped 00:00

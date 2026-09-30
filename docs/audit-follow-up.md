@@ -24,7 +24,7 @@
 | 10 | Scheduler | 限制並行、coalescing、attempt/success 分離；仍單副本 watcher |
 | 11 | Durable outbox | 交易內持久化 intent／情境、lease、有限重試；at-least-once |
 | 12 | Cooldown | DB 原子 reservation；不保證外部訊息 exactly-once |
-| 13 | Success transform | X-API-Contract:1 協商 envelope；舊 client 保留 raw |
+| 13 | Success transform | 一般 JSON 預設 envelope；含 timestamp 與分頁 metadata（舊 raw 格式已移除） |
 | 14 | Error format | 全域 filter、穩定 code／request ID／field paths |
 | 15 | Validation | 共用輸入 schema，拒絕未知／錯誤欄位 |
 | 16 | Wire contract | Date／BigInt JSON 契約與瀏覽器／fixture runtime validation |

@@ -1,3 +1,4 @@
+import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import {
   BadRequestException,
   ConflictException,
@@ -25,14 +26,14 @@ class ProbeController {
   @Get("conflict") conflict() { throw new ConflictException({ code: "alert_limit", limit: 3, message: "Limit reached" }); }
   @Get("bug") bug() { throw new Error("secret SQL token value"); }
   @Get("invalid") invalid() { throw new BadRequestException({ message: "Bad fields", issues: [{ path: ["rows", 0, "address"], message: "Invalid address" }] }); }
-  @Get("health") health() { return { ok: true }; }
+  @SkipTransform() @Get("health") health() { return { ok: true }; }
   @Get("file") file() { return new StreamableFile(Buffer.from("hello")); }
   @Post("empty") @HttpCode(204) empty() {}
   @Get("settings") brokenOutput() { return { secret: "should not pass schema" }; }
 }
 @Module({ imports: [HttpModule], controllers: [ProbeController] }) class ProbeModule {}
 
-describe("negotiated HTTP contract", () => {
+describe("default HTTP contract", () => {
   let app: INestApplication;
   beforeAll(async () => {
     const module = await Test.createTestingModule({ imports: [ProbeModule] }).compile();
@@ -49,15 +50,24 @@ describe("negotiated HTTP contract", () => {
     expect(res.body.data[0]).toMatchObject({ id: "9007199254740993", fillIds: ["9007199254740994"], ts: "2026-01-01T00:00:00.000Z", notionalUsd: "1.01" });
     expect(res.body.data[0]).not.toHaveProperty("privateColumn");
   });
-  it("keeps clients without negotiation on the legacy body", async () => {
+  it("returns the canonical envelope without a negotiation header", async () => {
     const res = await request(app.getHttpServer()).get("/actions").expect(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body[0]).not.toHaveProperty("privateColumn");
-    expect(res.headers["x-api-contract"]).toBeUndefined();
+    expect(res.body.success).toBe(true);
+    expect(new Date(res.body.meta.timestamp).toISOString()).toBe(res.body.meta.timestamp);
+    expect(res.body.data[0]).not.toHaveProperty("privateColumn");
+    expect(res.headers["x-api-contract"]).toBe("1");
+  });
+  it("cannot opt out with an unknown header and wraps unknown-route errors", async () => {
+    const res = await request(app.getHttpServer()).get("/actions").set("x-api-contract", "legacy").expect(200);
+    expect(res.body.success).toBe(true);
+    expect(res.headers.vary ?? "").not.toContain("x-api-contract");
+    const missing = await request(app.getHttpServer()).get("/health/not-a-probe").expect(404);
+    expect(missing.body).toMatchObject({ success: false, error: { code: "not_found" } });
+    expect(new Date(missing.body.meta.timestamp).toISOString()).toBe(missing.body.meta.timestamp);
   });
   it("rejects invalid DTOs without envelope negotiation", async () => {
     const res = await request(app.getHttpServer()).get("/settings").expect(500);
-    expect(res.body.code).toBe("internal_error");
+    expect(res.body.error.code).toBe("internal_error");
     expect(JSON.stringify(res.body)).not.toContain("secret");
   });
   it("normalizes field paths and preserves business codes/details", async () => {

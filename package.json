@@ -19,6 +19,7 @@
     "test:bootstrap": "pnpm --filter @trading-dashboard/shared build && pnpm --filter @trading-dashboard/api build && node scripts/bootstrap-smoke.mjs"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "13.1.0",
     "@eslint/js": "^9.15.0",
     "eslint": "^9.15.0",
     "turbo": "^2.1.3",

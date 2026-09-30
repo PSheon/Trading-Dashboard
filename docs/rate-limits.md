@@ -10,7 +10,7 @@ Defaults per minute: ingress 3000, reads 300, writes 60, imports and Telegram te
 sends 10. Configure positive integers with API_INGRESS_PER_MINUTE,
 API_READ_PER_MINUTE, API_WRITE_PER_MINUTE and API_EXPENSIVE_PER_MINUTE. Health
 probes bypass these windows. Rejected requests return 429, rate_limited and
-Retry-After through the normal negotiated error envelope. Counters have at most
+Retry-After through the normal error envelope. Counters have at most
 10000 active buckets and refuse new buckets when full instead of evicting active
 limits. A restart resets counters; multiple replicas require a shared limiter
 or an edge policy before scaling.

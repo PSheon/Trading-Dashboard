@@ -1,20 +1,9 @@
-import { parseOr400 as parse } from "../common/http/validation.js";
+import { ApiDoc } from "../common/decorators/http.decorator.js";
+import { AddressParamsDto } from "../common/dto/params.dto.js";
+import { TradersQueryDto, SparklinesQueryDto, PortfolioQueryDto, FillsQueryDto } from "./dto/trader-query.dto.js";
+
+import { BadGatewayException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
 import {
-  BadGatewayException,
-  BadRequestException,
-  Controller,
-  Get,
-  HttpException,
-  Logger,
-  Param,
-  Query,
-  UseFilters,
-} from "@nestjs/common";
-import {
-  addressSchema,
-  portfolioQuerySchema,
-  sparklinesQuerySchema,
-  tradersQuerySchema,
   type PortfolioResponse,
   type SparklinesResponse,
   type TraderActivityResponse,
@@ -41,20 +30,6 @@ export const PAGE_DEADLINE_MS = 12_000;
  * a retry this much later usually finds it cached. */
 export const BUSY_RETRY_AFTER_MS = 5_000;
 
-function parseAddress(raw: string): string {
-  if (!addressSchema.safeParse(raw).success) throw new BadRequestException("Invalid address");
-  return raw.toLowerCase();
-}
-
-function parseFillsLimit(raw: string | undefined): number {
-  if (raw === undefined || raw === "") return DEFAULT_FILLS_LIMIT;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1 || n > MAX_FILLS_LIMIT) {
-    throw new BadRequestException(`limit must be an integer from 1 to ${MAX_FILLS_LIMIT}`);
-  }
-  return n;
-}
-
 /**
  * Discovery (Stage 2 §4). Public: anyone can browse the leaderboard and any
  * trader's page; `favorite` flags are filled in for a signed-in caller.
@@ -73,66 +48,75 @@ export class TradersController {
 
   constructor(private readonly traders: TradersService) {}
 
+  @ApiDoc("List")
   @Get()
-  list(@Query() query: Record<string, unknown>, @CurrentUser() user: RequestUser | null): Promise<TradersResponse> {
-    return this.traders.list(parse(tradersQuerySchema, query), userIdOf(user));
+  list(@Query() query: TradersQueryDto, @CurrentUser() user: RequestUser | null): Promise<TradersResponse> {
+    return this.traders.list(query, userIdOf(user));
   }
 
   /** Declared before `:address` so "sparklines" isn't taken for an address. */
+  @ApiDoc("Sparklines")
   @Get("sparklines")
-  sparklines(@Query() query: Record<string, unknown>): Promise<SparklinesResponse> {
-    const { addresses, window } = parse(sparklinesQuerySchema, query);
-    const unique = [...new Set(addresses.map(parseAddress))];
+  sparklines(@Query() query: SparklinesQueryDto): Promise<SparklinesResponse> {
+    const { addresses, window } = query;
+    const unique = [...new Set(addresses)];
     return this.traders.sparklines(unique, window);
   }
 
+  @ApiDoc("Profile")
   @Get(":address")
   profile(
-    @Param("address") address: string,
+    @Param() params: AddressParamsDto,
     @CurrentUser() user: RequestUser | null,
   ): Promise<TraderProfileResponse> {
-    const addr = parseAddress(address);
+    const addr = params.address;
     return this.upstream(this.traders.profile(addr, userIdOf(user)), addr);
   }
 
+  @ApiDoc("Portfolio")
   @Get(":address/portfolio")
-  portfolio(@Param("address") address: string, @Query() query: Record<string, unknown>): Promise<PortfolioResponse> {
-    const addr = parseAddress(address);
-    return this.upstream(this.traders.portfolio(addr, parse(portfolioQuerySchema, query)), addr);
+  portfolio(@Param() params: AddressParamsDto, @Query() query: PortfolioQueryDto): Promise<PortfolioResponse> {
+    const addr = params.address;
+    return this.upstream(this.traders.portfolio(addr, query), addr);
   }
 
+  @ApiDoc("Fills")
   @Get(":address/fills")
-  fills(@Param("address") address: string, @Query("limit") limit?: string): Promise<TraderFill[]> {
-    const addr = parseAddress(address);
-    return this.upstream(this.traders.fills(addr, parseFillsLimit(limit)), addr);
+  fills(@Param() params: AddressParamsDto, @Query() query: FillsQueryDto): Promise<TraderFill[]> {
+    const addr = params.address;
+    return this.upstream(this.traders.fills(addr, query.limit), addr);
   }
 
   /** Sample size and last trade (fills-derived; loads after the profile). */
+  @ApiDoc("Activity")
   @Get(":address/activity")
-  activity(@Param("address") address: string): Promise<TraderActivityResponse> {
-    const addr = parseAddress(address);
+  activity(@Param() params: AddressParamsDto): Promise<TraderActivityResponse> {
+    const addr = params.address;
     return this.upstream(this.traders.activity(addr), addr);
   }
 
   /** Resting orders across dexes (the 訂單 tab; loaded when it opens). */
+  @ApiDoc("Open orders")
   @Get(":address/orders")
-  orders(@Param("address") address: string): Promise<TraderOrdersResponse> {
-    const addr = parseAddress(address);
+  orders(@Param() params: AddressParamsDto): Promise<TraderOrdersResponse> {
+    const addr = params.address;
     return this.upstream(this.traders.orders(addr), addr);
   }
 
   /** Running TWAP orders (the TWAP tab). */
+  @ApiDoc("Running TWAP orders")
   @Get(":address/twap")
-  twap(@Param("address") address: string): Promise<TraderTwapsResponse> {
-    const addr = parseAddress(address);
+  twap(@Param() params: AddressParamsDto): Promise<TraderTwapsResponse> {
+    const addr = params.address;
     return this.upstream(this.traders.twaps(addr), addr);
   }
 
   /** Deposits, withdrawals and transfers of the last 90 days (the 轉帳 tab
    * and the live feed). */
+  @ApiDoc("Transfers")
   @Get(":address/transfers")
-  transfers(@Param("address") address: string): Promise<TraderTransfersResponse> {
-    const addr = parseAddress(address);
+  transfers(@Param() params: AddressParamsDto): Promise<TraderTransfersResponse> {
+    const addr = params.address;
     return this.upstream(this.traders.transfers(addr), addr);
   }
 

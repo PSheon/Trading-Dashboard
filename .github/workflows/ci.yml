@@ -54,7 +54,11 @@ jobs:
       - name: Lint
         run: pnpm lint
       - name: HTTP contract documentation
-        run: node scripts/http-contract-docs.mjs --check
+        run: |
+          pnpm --filter @trading-dashboard/api build
+          node scripts/http-contract-docs.mjs --check
+          node scripts/openapi.mjs --check
+          node --test scripts/openapi.test.mjs
       - name: Test database URL guards
         run: node --test scripts/test-database.test.mjs
       - name: API tests with disposable migrated database

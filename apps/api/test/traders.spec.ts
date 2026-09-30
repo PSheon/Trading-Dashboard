@@ -1,3 +1,25 @@
+import { createValidationPipe } from "../src/config/validation/validation-pipe.factory.js";
+import { AddressParamsDto } from "../src/common/dto/params.dto.js";
+import { TradersQueryDto, PortfolioQueryDto, SparklinesQueryDto, FillsQueryDto } from "../src/traders/dto/trader-query.dto.js";
+import type { Type } from "@nestjs/common";
+
+// These integration tests call the controller directly. Execute the same global
+// pipe explicitly so raw HTTP-shaped test inputs still exercise the real boundary.
+function controllerWithPipeline(target: TradersController) {
+  const pipe = createValidationPipe();
+  const query = <T>(metatype: Type<T>, value: unknown): Promise<T> => pipe.transform(value, { type: "query", metatype });
+  const address = (value: string): Promise<AddressParamsDto> => pipe.transform({ address: value }, { type: "param", metatype: AddressParamsDto });
+  return {
+    get pageDeadlineMs() { return target.pageDeadlineMs; },
+    set pageDeadlineMs(value: number) { target.pageDeadlineMs = value; },
+    async list(raw: unknown, user: RequestUser | null) { return target.list(await query(TradersQueryDto, raw), user); },
+    async profile(raw: string, user: RequestUser | null) { return target.profile(await address(raw), user); },
+    async portfolio(raw: string, input: unknown) { return target.portfolio(await address(raw), await query(PortfolioQueryDto, input)); },
+    async sparklines(raw: unknown) { return target.sparklines(await query(SparklinesQueryDto, raw)); },
+    async fills(raw: string, limit?: string) { return target.fills(await address(raw), await query(FillsQueryDto, limit === undefined ? {} : { limit })); },
+    async activity(raw: string) { return target.activity(await address(raw)); },
+  };
+}
 import { testConfig } from "./config-test-utils.js";
 import { TradersRepository } from "../src/traders/traders.repository.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
@@ -200,7 +222,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   const ingest = new LeaderboardIngestService(testConfig(), db, settings);
   let info: ReturnType<typeof fakeInfo>;
   let service: TradersService;
-  let controller: TradersController;
+  let controller: ReturnType<typeof controllerWithPipeline>;
   let user: RequestUser;
 
   beforeEach(async () => {
@@ -216,7 +238,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       ingest,
       settings,
     );
-    controller = new TradersController(service);
+    controller = controllerWithPipeline(new TradersController(service));
 
     await ingest.replaceAll(
       parseLeaderboard(

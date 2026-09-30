@@ -49,7 +49,18 @@ let sessionController = new AbortController();
 
 /** Registered by the auth provider (Privy's `getAccessToken`, or the
  * fixture login). The getter itself returns null when signed out. */
+/** "loading" and "anonymous" are the same identity: no token, public data. */
+export function stableScope(scope: string | null): string | null {
+  return scope === "loading" ? "anonymous" : scope;
+}
+
 export function setAccessTokenGetter(getter: AccessTokenGetter | null, scope: string | null = null) {
+  // While the identity provider is still starting ("loading"), requests go
+  // out without a token, exactly like an anonymous visitor's. Treating it as
+  // its own identity would cancel them and refetch everything the moment the
+  // visitor turns out to be anonymous. Only a real change (sign-in, sign-out,
+  // account switch) cancels in-flight requests.
+  scope = stableScope(scope);
   if (identityScope !== scope) {
     sessionController.abort();
     sessionController = new AbortController();
@@ -105,11 +116,12 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   let parsed: unknown;
   try { parsed = text ? JSON.parse(text) : undefined; }
   catch { throw new ApiError(502, "Invalid API response", { code: "invalid_response" }); }
+  if (findHttpContract(method, path)?.raw) return validateData<T>(method, path, parsed);
   const envelope = successEnvelopeSchema.safeParse(parsed);
-  if (res.headers.get(API_CONTRACT_HEADER) === API_CONTRACT_VERSION && !envelope.success) {
+  if (!envelope.success || envelope.data.statusCode !== res.status) {
     throw new ApiError(502, "Invalid API response", { code: "invalid_response" });
   }
-  return validateData<T>(method, path, envelope.success ? envelope.data.data : parsed);
+  return validateData<T>(method, path, envelope.data.data);
 }
 
 /** A non-2xx answer as an ApiError, from either error body shape. */

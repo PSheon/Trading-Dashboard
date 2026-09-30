@@ -27,3 +27,14 @@ it("returns a v1 gateway error when an upstream response body breaks", async () 
   expect(result.status).toBe(502);
   expect(await result.json()).toMatchObject({ success: false, error: { code: "bad_gateway" }, meta: { requestId: "browser_1" } });
 });
+
+it("normalizes gateway errors without a negotiation header", async () => {
+  vi.stubEnv("NEXT_API_URL", "http://api.test");
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("unreachable"); }));
+  const result = await GET(new NextRequest("http://web.test/api/hl/actions"), context);
+  const body = await result.json();
+  expect(body).toMatchObject({ success: false, statusCode: 502, error: { code: "bad_gateway" } });
+  expect(new Date(body.meta.timestamp).toISOString()).toBe(body.meta.timestamp);
+  expect(result.headers.get("x-api-contract")).toBe("1");
+  expect(result.headers.get("vary")).toBeNull();
+});

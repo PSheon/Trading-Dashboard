@@ -3,6 +3,7 @@
 import { Globe, LogOut, Settings, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
+import { Skeleton } from "@/components/page";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -85,13 +86,16 @@ function AuthButton() {
     );
   }
 
+  if (status === "loading") {
+    return <Skeleton className="h-10 w-28 rounded-full md:h-11 md:w-36" />;
+  }
+
   if (status !== "signedIn") {
     return (
       <Button
         size="lg"
         className="h-10 px-5 md:h-11 md:px-6"
         onClick={login}
-        disabled={status === "loading"}
       >
         {mode === "fixture" ? t("topbar.fixtureLogin") : t("topbar.login")}
       </Button>

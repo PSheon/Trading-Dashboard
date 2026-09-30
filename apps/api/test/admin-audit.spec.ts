@@ -1,3 +1,4 @@
+import { AdminUsersRepository } from "../src/admin/admin-users.repository.js";
 import { afterAll, beforeEach, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { adminAuditLogs, users } from "@trading-dashboard/shared/database";
@@ -9,8 +10,8 @@ import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { getTestDb, truncateAll, closeTestDb } from "./db-test-utils.js";
 const db = getTestDb();
 const auth = { invalidateUser: vi.fn() } as unknown as AuthService;
-const service = new AdminUsersService(db, auth);
-beforeEach(() => truncateAll(db));
+const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), auth);
+beforeEach(async () => { vi.clearAllMocks(); await truncateAll(db); });
 afterAll(closeTestDb);
 
 it("records role/disable before and after with the real actor, retaining history after deletion", async () => {
@@ -34,6 +35,7 @@ it("rolls back the role edit if audit insertion fails", async () => {
     await expect(service.patch(target.id, { role: "admin" }, { kind: "service", permissions: ["users.manage"] })).rejects.toThrow();
     expect((await db.select().from(users).where(eq(users.id, target.id)))[0].role).toBe("user");
     expect(await db.select().from(adminAuditLogs)).toHaveLength(0);
+    expect(auth.invalidateUser).not.toHaveBeenCalled();
   } finally { await db.execute(sql`alter table admin_audit_logs drop constraint audit_test_reject`); }
 });
 

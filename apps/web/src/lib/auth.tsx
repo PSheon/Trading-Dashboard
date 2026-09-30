@@ -9,7 +9,7 @@ import { createContext, use, useCallback, useEffect, useMemo, useRef } from "rea
 
 import { SessionQueries } from "@/lib/session-queries";
 import { APP_NAME, PRIVY_APP_ID } from "@/lib/config";
-import { api, setAccessTokenGetter } from "@/lib/api";
+import { api, setAccessTokenGetter, stableScope } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
 
@@ -90,7 +90,7 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
     [ready, authenticated, login, logout, user],
   );
 
-  return <AuthContext value={value}><SessionQueries key={scope}>{children}</SessionQueries></AuthContext>;
+  return <AuthContext value={value}><SessionQueries key={stableScope(scope) ?? undefined}>{children}</SessionQueries></AuthContext>;
 }
 
 // --- fixture login ------------------------------------------------------------
@@ -121,7 +121,7 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
     [signedIn, persist],
   );
 
-  return <AuthContext value={value}><SessionQueries key={scope}>{children}</SessionQueries></AuthContext>;
+  return <AuthContext value={value}><SessionQueries key={stableScope(scope) ?? undefined}>{children}</SessionQueries></AuthContext>;
 }
 
 // --- side effects shared by every mode ------------------------------------------

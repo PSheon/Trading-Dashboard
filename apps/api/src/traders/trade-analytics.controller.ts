@@ -1,22 +1,14 @@
-import { parseOr400 as parse } from "../common/http/validation.js";
-import { BadGatewayException, BadRequestException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
-import {
-  addressSchema,
-  traderAnalyticsQuerySchema,
-  traderTradesQuerySchema,
-  type TraderAnalyticsResponse,
-  type TraderTradesResponse,
-} from "@trading-dashboard/shared/contracts";
+import { ApiDoc } from "../common/decorators/http.decorator.js";
+import { AddressParamsDto } from "../common/dto/params.dto.js";
+import { AnalyticsQueryDto, TradesQueryDto } from "./dto/trader-query.dto.js";
+
+import { BadGatewayException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
+import { type TraderAnalyticsResponse, type TraderTradesResponse } from "@trading-dashboard/shared/contracts";
 
 import { Public } from "../common/auth/public.decorator.js";
 import { BusyException, BusyFilter } from "./busy.js";
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from "./traders.controller.js";
-
-function parseAddress(raw: string): string {
-  if (!addressSchema.safeParse(raw).success) throw new BadRequestException("Invalid address");
-  return raw.toLowerCase();
-}
 
 /**
  * Round-trip analytics for any address: GET /traders/:address/analytics
@@ -35,17 +27,19 @@ export class TradeAnalyticsController {
 
   constructor(private readonly analytics: TradeAnalyticsService) {}
 
+  @ApiDoc("Summary")
   @Get(":address/analytics")
-  summary(@Param("address") address: string, @Query() query: Record<string, unknown>): Promise<TraderAnalyticsResponse> {
-    const addr = parseAddress(address);
-    const { window } = parse(traderAnalyticsQuerySchema, query);
+  summary(@Param() params: AddressParamsDto, @Query() query: AnalyticsQueryDto): Promise<TraderAnalyticsResponse> {
+    const addr = params.address;
+    const { window } = query;
     return this.within(this.analytics.analytics(addr, window), addr);
   }
 
+  @ApiDoc("Trades")
   @Get(":address/trades")
-  trades(@Param("address") address: string, @Query() query: Record<string, unknown>): Promise<TraderTradesResponse> {
-    const addr = parseAddress(address);
-    return this.within(this.analytics.trades(addr, parse(traderTradesQuerySchema, query)), addr);
+  trades(@Param() params: AddressParamsDto, @Query() query: TradesQueryDto): Promise<TraderTradesResponse> {
+    const addr = params.address;
+    return this.within(this.analytics.trades(addr, query), addr);
   }
 
   private async within<T>(promise: Promise<T>, address: string): Promise<T> {

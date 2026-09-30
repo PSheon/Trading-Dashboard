@@ -38,7 +38,14 @@ for (const width of [1440, 390]) {
     await page.getByRole("tab", { name: "Performance", exact: true }).click();
     await expect(page.getByRole("tabpanel").getByText(/Funding read through/)).toBeVisible();
     await page.getByRole("tab", { name: "Trades", exact: true }).click();
-    await expect(page.getByRole("tabpanel").getByRole("table")).toBeVisible();
+    const trades = page.getByRole("tabpanel", { name: "Trades" });
+    if (width < 640) {
+      const card = trades.getByRole("list").getByRole("listitem").first();
+      await expect(card).toContainText(/Long|Short/);
+      await expect(card.getByRole("button", { name: "Share trade", exact: true })).toBeVisible();
+    } else {
+      await expect(trades.getByRole("table")).toBeVisible();
+    }
     await expect(page.getByRole("tabpanel").getByText(/Funding read through/)).toBeVisible();
     expect(errors).toEqual([]);
   });

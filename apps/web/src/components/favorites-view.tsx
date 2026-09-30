@@ -32,6 +32,17 @@ export function FavoritesView() {
   const { query: actions, status: streamStatus, highlight } = useLiveActions({ scope: "favorites", limit: 50 }, { enabled: signedIn });
   const sparklines = useSparklines(favorites.data?.map((f) => f.address).slice(0, 30) ?? [], "month");
 
+  if (status === "loading") {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader title={t("favorites.title")} subtitle={t("favorites.subtitle")} />
+        <Panel className="flex flex-col gap-3 p-5">
+          {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </Panel>
+      </div>
+    );
+  }
+
   if (!signedIn) {
     return (
       <div className="flex flex-col gap-6">

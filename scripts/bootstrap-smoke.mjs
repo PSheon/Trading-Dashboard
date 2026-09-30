@@ -34,6 +34,24 @@ async function probe(databaseUrl, expected) {
     assert.equal(response.headers.get("x-request-id"), "bootstrap-smoke");
     assert.equal(response.headers.get("x-content-type-options"), "nosniff");
     console.log(`Compiled API readiness returned ${expected}`);
+    if (expected === 200) {
+      for (const path of ["/traders?hideVaults=typo", "/traders?limit=", "/traders/not-an-address", "/actions?beforeId=1", "/actions/stream?unknown=1"]) {
+        const invalid = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { "x-api-contract": "1" }, signal: AbortSignal.timeout(5000) });
+        assert.equal(invalid.status, 400, `Compiled DTO boundary: ${path}`);
+        const error = await invalid.json();
+        assert.equal(error.error.code, "validation_error");
+        assert.ok(error.error.fields.length > 0);
+      }
+      console.log("Compiled global DTO pipeline rejected invalid query/path/SSE inputs");
+      const swagger = await fetch(`http://127.0.0.1:${port}/docs-json`, { signal: AbortSignal.timeout(5000) });
+      assert.equal(swagger.status, 200);
+      const { buildOpenApi } = await import("./openapi.mjs");
+      assert.deepEqual(await swagger.json(), await buildOpenApi(), "Live and exported Swagger must match");
+      const ui = await fetch(`http://127.0.0.1:${port}/docs/`, { signal: AbortSignal.timeout(5000) });
+      assert.equal(ui.status, 200);
+      assert.ok(ui.headers.get("content-security-policy").includes("script-src 'self'"));
+      console.log("Compiled Swagger matches the offline native DTO document");
+    }
   } finally {
     terminate();
     const force = setTimeout(() => child.kill("SIGKILL"), 32000);

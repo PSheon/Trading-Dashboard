@@ -2,7 +2,7 @@
 
 import { Bell } from "lucide-react";
 
-import { PageHeader, Panel, SignInPrompt } from "@/components/page";
+import { PageHeader, Panel, SignInPrompt, Skeleton } from "@/components/page";
 import { TelegramCard } from "@/components/settings/telegram-card";
 import { Segmented } from "@/components/ui/segmented";
 import { LOCALES, type Locale } from "@/i18n/config";
@@ -45,6 +45,11 @@ export function SettingsView() {
       {status === "signedIn" ? (
         <Panel className="p-5 md:p-6">
           <TelegramCard />
+        </Panel>
+      ) : status === "loading" ? (
+        <Panel className="flex flex-col gap-3 p-5 md:p-6">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-16 w-full" />
         </Panel>
       ) : (
         <Panel>

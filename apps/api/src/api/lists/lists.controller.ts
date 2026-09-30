@@ -1,8 +1,10 @@
+import { ApiDoc } from "../../common/decorators/http.decorator.js";
+import { ListDiffQueryDto } from "./dto/list-query.dto.js";
 import { Controller, Get, Query } from "@nestjs/common";
 import type { LeaderList, ListDiffResponse } from "@trading-dashboard/shared/contracts";
 
-import { listDiffRequestSchema } from "@trading-dashboard/shared/contracts";
-import { parseOr400 } from "../../common/http/validation.js";
+
+
 import { RequirePermissions } from "../../common/auth/permissions.js";
 import { ListsService } from "./lists.service.js";
 
@@ -11,13 +13,15 @@ import { ListsService } from "./lists.service.js";
 export class ListsController {
   constructor(private readonly listsService: ListsService) {}
 
+  @ApiDoc("Find all")
   @Get()
   findAll(): Promise<LeaderList[]> {
     return this.listsService.findAll();
   }
 
+  @ApiDoc("Diff")
   @Get("diff")
-  diff(@Query() query: Record<string, unknown>): Promise<ListDiffResponse> {
-    return this.listsService.diff(parseOr400(listDiffRequestSchema, query));
+  diff(@Query() query: ListDiffQueryDto): Promise<ListDiffResponse> {
+    return this.listsService.diff(query);
   }
 }

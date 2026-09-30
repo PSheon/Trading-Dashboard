@@ -1,9 +1,11 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
+import { ImportListDto } from "./dto/import-list.dto.js";
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Body, Controller, Post } from "@nestjs/common";
 import type { ImportLeaderListResponse } from "@trading-dashboard/shared/contracts";
 
-import { importLeaderListRequestSchema } from "@trading-dashboard/shared/contracts";
-import { parseOr400 } from "../common/http/validation.js";
+
+
 import { RequirePermissions } from "../common/auth/permissions.js";
 import { ImportService } from "./import.service.js";
 
@@ -13,11 +15,12 @@ export class ImportController {
   constructor(private readonly importService: ImportService) {}
 
   /** A1: upload a CopyDog CSV/JSON export (parsed to rows client-side). */
+  @ApiDoc("Import list")
   @Post("lists")
   importList(
-    @Body() body: unknown,
+    @Body() body: ImportListDto,
     @CurrentUser() actor: RequestUser | null,
   ): Promise<ImportLeaderListResponse> {
-    return this.importService.importLeaderList(parseOr400(importLeaderListRequestSchema, body), actor);
+    return this.importService.importLeaderList(body, actor);
   }
 }

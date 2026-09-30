@@ -1,3 +1,4 @@
+import { TelegramLinkRepository } from "../src/telegram/telegram-link.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { createHash } from "node:crypto";
 
@@ -79,7 +80,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
       db,
       privy,
       controllers: [TelegramController],
-      providers: [TelegramLinkService, NotifyService, TelegramHttpClient],
+      providers: [TelegramLinkRepository, TelegramLinkService, NotifyService, TelegramHttpClient],
     }));
     link = app.get(TelegramLinkService);
   });
@@ -132,7 +133,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
   /** POST /me/telegram/link → the raw token from the t.me URL. */
   async function newToken(who = alice): Promise<string> {
     const res = await who.post("/me/telegram/link").expect(200);
-    const match = /^https:\/\/t\.me\/orbie_test_bot\?start=([A-Za-z0-9_-]+)$/.exec(res.body.url as string);
+    const match = /^https:\/\/t\.me\/orbie_test_bot\?start=([A-Za-z0-9_-]+)$/.exec(res.body.data.url as string);
     expect(match).not.toBeNull();
     return match![1];
   }
@@ -143,7 +144,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
 
   describe("link tokens", () => {
     it("GET /me/telegram before linking; POST link issues a 43-char base64url token, stored only as its sha256", async () => {
-      expect((await alice.get("/me/telegram").expect(200)).body).toEqual({
+      expect((await alice.get("/me/telegram").expect(200)).body.data).toEqual({
         bot: BOT,
         linked: false,
         username: null,
@@ -153,11 +154,11 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
 
       const before = Date.now();
       const res = await alice.post("/me/telegram/link").expect(200);
-      const token = new URL(res.body.url as string).searchParams.get("start")!;
+      const token = new URL(res.body.data.url as string).searchParams.get("start")!;
       expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(Buffer.from(token, "base64url")).toHaveLength(32);
 
-      const expiresAt = new Date(res.body.expiresAt as string).getTime();
+      const expiresAt = new Date(res.body.data.expiresAt as string).getTime();
       expect(expiresAt - before).toBeGreaterThan(9.9 * 60_000);
       expect(expiresAt - before).toBeLessThanOrEqual(10 * 60_000 + 1000);
 
@@ -193,7 +194,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
 
     it("rate limit: 5 links per user per 10 minutes, then 429; other users unaffected", async () => {
       for (let i = 0; i < 5; i++) await alice.post("/me/telegram/link").expect(200);
-      expect((await alice.post("/me/telegram/link").expect(429)).body).toMatchObject({ code: "rate_limited" });
+      expect((await alice.post("/me/telegram/link").expect(429)).body.error).toMatchObject({ code: "rate_limited" });
       await bob.post("/me/telegram/link").expect(200);
 
       // Once the window has passed, links work again.
@@ -216,8 +217,8 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
 
     it("no bot configured → 503 telegram_not_configured, and status.bot is null", async () => {
       delete process.env.TELEGRAM_BOT_TOKEN;
-      expect((await alice.post("/me/telegram/link").expect(503)).body).toMatchObject({ code: "telegram_not_configured" });
-      expect((await alice.get("/me/telegram").expect(200)).body.bot).toBeNull();
+      expect((await alice.post("/me/telegram/link").expect(503)).body.error).toMatchObject({ code: "telegram_not_configured" });
+      expect((await alice.get("/me/telegram").expect(200)).body.data.bot).toBeNull();
       process.env.TELEGRAM_BOT_TOKEN = "123456:test-token";
       delete process.env.TELEGRAM_BOT_USERNAME;
       await alice.post("/me/telegram/link").expect(503);
@@ -243,7 +244,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
       expect(reply.text).toContain("Linked to Orbie");
       expect(reply.text).toContain(`${SITE}/favorites`);
 
-      const status = (await alice.get("/me/telegram").expect(200)).body;
+      const status = (await alice.get("/me/telegram").expect(200)).body.data;
       expect(status).toMatchObject({ bot: BOT, linked: true, username: "alice_tg", enabled: true });
       expect(status.linkedAt).not.toBeNull();
     });
@@ -276,7 +277,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
       await bot.handleUpdate(message(4242, `/start ${await newToken(bob)}`));
 
       expect(await channels()).toMatchObject([{ userId: await userId("did:privy:bob"), target: "4242" }]);
-      expect((await alice.get("/me/telegram").expect(200)).body.linked).toBe(false);
+      expect((await alice.get("/me/telegram").expect(200)).body.data.linked).toBe(false);
       expect(tg.sent()[1].text).toContain("原本連結在另一個 Orbie 帳號");
       expect(tg.sent()[1].text).toContain("another Orbie account");
       expect(tg.sent()[0].text).not.toContain("another Orbie account");
@@ -293,7 +294,7 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
       await bot.handleUpdate(message(4242, "/stop"));
       expect((await channels())[0].enabled).toBe(false);
       expect(tg.sent()[1].text).toContain("已暫停通知");
-      expect((await alice.get("/me/telegram").expect(200)).body).toMatchObject({ linked: true, enabled: false });
+      expect((await alice.get("/me/telegram").expect(200)).body.data).toMatchObject({ linked: true, enabled: false });
 
       await bot.handleUpdate(message(4242, "/start"));
       expect((await channels())[0].enabled).toBe(true);
@@ -334,26 +335,26 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
 
   describe("/me/telegram test and unlink", () => {
     it("test: 409 telegram_not_linked without a chat; dry run → not sent; otherwise sent to the chat", async () => {
-      expect((await alice.post("/me/telegram/test").expect(409)).body).toMatchObject({ code: "telegram_not_linked" });
+      expect((await alice.post("/me/telegram/test").expect(409)).body.error).toMatchObject({ code: "telegram_not_linked" });
 
       await bot.handleUpdate(message(4242, `/start ${await newToken()}`));
       const before = tg.sent().length;
-      expect((await alice.post("/me/telegram/test").expect(200)).body).toEqual({ sent: false, dryRun: true });
+      expect((await alice.post("/me/telegram/test").expect(200)).body.data).toEqual({ sent: false, dryRun: true });
       expect(tg.sent()).toHaveLength(before);
 
       process.env.TELEGRAM_DRY_RUN = "false";
-      expect((await alice.post("/me/telegram/test").expect(200)).body).toEqual({ sent: true, dryRun: false });
+      expect((await alice.post("/me/telegram/test").expect(200)).body.data).toEqual({ sent: true, dryRun: false });
       expect(tg.sent().at(-1)).toMatchObject({ chatId: "4242", text: expect.stringContaining("Orbie 測試訊息") });
 
       await bot.handleUpdate(message(4242, "/stop"));
-      expect((await alice.post("/me/telegram/test").expect(409)).body.code).toBe("telegram_not_linked");
+      expect((await alice.post("/me/telegram/test").expect(409)).body.error.code).toBe("telegram_not_linked");
     });
 
     it("DELETE removes the channel (204)", async () => {
       await bot.handleUpdate(message(4242, `/start ${await newToken()}`));
       await alice.delete("/me/telegram").expect(204);
       expect(await channels()).toHaveLength(0);
-      expect((await alice.get("/me/telegram").expect(200)).body).toMatchObject({ linked: false, enabled: false });
+      expect((await alice.get("/me/telegram").expect(200)).body.data).toMatchObject({ linked: false, enabled: false });
       await alice.delete("/me/telegram").expect(204);
     });
   });

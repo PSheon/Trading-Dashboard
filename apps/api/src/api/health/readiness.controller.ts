@@ -1,14 +1,18 @@
+import { ApiDoc } from "../../common/decorators/http.decorator.js";
+import { SkipTransform } from "../../common/decorators/http.decorator.js";
 import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
 import { Pool } from "pg";
 import { DATABASE_POOL } from "../../db/drizzle.provider.js";
 import { BackgroundJobs } from "../../runtime/background-jobs.service.js";
 import { Public } from "../../common/auth/public.decorator.js";
 
+@SkipTransform()
 @Controller("health")
 export class ReadinessController {
   constructor(@Inject(DATABASE_POOL) private readonly pool: Pool, private readonly jobs: BackgroundJobs) {}
 
   @Public()
+  @ApiDoc("Ready")
   @Get("ready")
   async ready(): Promise<{ ready: true }> {
     try {

@@ -1,10 +1,12 @@
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { AdminUsersRepository, escapeLike } from "../src/admin/admin-users.repository.js";
 import { BadRequestException, ConflictException, NotFoundException, type HttpException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import { notificationChannels, userFavorites, users } from "@trading-dashboard/shared/database";
 import { adminUsersResponseSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AdminUsersService, escapeLike } from "../src/admin/admin-users.service.js";
+import { AdminUsersService } from "../src/admin/admin-users.service.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { RequestUser } from "../src/common/auth/current-user.js";
 import { insertUser, truncateAdminTables } from "./admin-test-utils.js";
@@ -30,7 +32,7 @@ async function httpError(promise: Promise<unknown>): Promise<HttpException> {
 describe("admin users — real Postgres", () => {
   const db = getTestDb();
   const invalidateUser = vi.fn();
-  const service = new AdminUsersService(db, { invalidateUser } as unknown as AuthService);
+  const service = new AdminUsersService(new AdminUsersRepository(db), new UnitOfWork(db), { invalidateUser } as unknown as AuthService);
 
   beforeEach(async () => {
     await truncateAdminTables(db);

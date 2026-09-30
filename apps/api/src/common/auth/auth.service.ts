@@ -2,11 +2,8 @@ import { AppConfig } from "../../config/app-config.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq, isNull } from "drizzle-orm";
-import { users } from "@trading-dashboard/shared/database";
 
-import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
-import type { DrizzleDb } from "../../db/drizzle.provider.js";
+import { AuthRepository, type AuthUserRow as UserRow } from "./auth.repository.js";
 import { SettingsService } from "../../settings/settings.service.js";
 import type { RequestUser } from "./current-user.js";
 import { PRIVY_VERIFIER, type PrivyVerifier } from "./privy-verifier.js";
@@ -58,7 +55,6 @@ interface CacheEntry {
   tokenExpiresAt: number;
 }
 
-type UserRow = typeof users.$inferSelect;
 
 export type SignInResult =
   | { status: "ok"; user: UserRow }
@@ -84,7 +80,7 @@ export class AuthService {
 
   constructor(
     private readonly config: AppConfig,
-    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb,
+    private readonly repository: AuthRepository,
     @Inject(PRIVY_VERIFIER) private readonly privy: PrivyVerifier,
     private readonly settings: SettingsService,
   ) {}
@@ -137,8 +133,7 @@ export class AuthService {
     const id = outcome.status === "disabled" ? outcome.userId
       : outcome.status === "user" && outcome.user.kind === "user" ? outcome.user.id : undefined;
     if (id === undefined) return outcome;
-    const [row] = await this.db.select({ id: users.id, privyUserId: users.privyUserId, role: users.role, disabledAt: users.disabledAt })
-      .from(users).where(eq(users.id, id));
+    const row = await this.repository.currentAuthorization(id);
     if (!row) return { status: "invalid" };
     if (row.disabledAt) return { status: "disabled", userId: row.id };
     return { status: "user", user: { kind: "user", id: row.id, privyUserId: row.privyUserId, role: row.role } };
@@ -188,14 +183,10 @@ export class AuthService {
    * per favorite, and admins are alerted on the default rules themselves.
    */
   async signIn(privyUserId: string): Promise<SignInResult> {
-    const [existing] = await this.db
-      .update(users)
-      .set({ lastLoginAt: new Date() })
-      .where(and(eq(users.privyUserId, privyUserId), isNull(users.disabledAt)))
-      .returning();
+    const existing = await this.repository.touchEnabledUser(privyUserId);
     if (existing) return { status: "ok", user: await this.refreshMissingProfile(existing) };
 
-    const known = await this.findByPrivyId(privyUserId);
+    const known = await this.repository.findByPrivyId(privyUserId);
     if (known) return this.asResult(known);
 
     const profile = await this.privy.fetchProfile(privyUserId);
@@ -205,23 +196,18 @@ export class AuthService {
       return { status: "signups_closed" };
     }
 
-    const [created] = await this.db
-      .insert(users)
-      .values({
-        privyUserId,
-        email,
-        walletAddress: profile?.walletAddress ?? null,
-        role: bootstrapAdmin ? "admin" : "user",
-      })
-      // Two first requests racing: the loser reads the winner's row below.
-      .onConflictDoNothing({ target: users.privyUserId })
-      .returning();
+    const created = await this.repository.createIfAbsent({
+      privyUserId,
+      email,
+      walletAddress: profile?.walletAddress ?? null,
+      role: bootstrapAdmin ? "admin" : "user",
+    });
     if (created) {
       this.logger.log(`New user ${created.id}${bootstrapAdmin ? " — bootstrap admin" : ""}`);
       return { status: "ok", user: created };
     }
 
-    const raced = await this.findByPrivyId(privyUserId);
+    const raced = await this.repository.findByPrivyId(privyUserId);
     if (!raced) throw new Error(`User ${privyUserId} vanished during sign-in`);
     return this.asResult(raced);
   }
@@ -243,17 +229,7 @@ export class AuthService {
     }
 
     if (email === user.email) return user;
-    const [updated] = await this.db
-      .update(users)
-      .set({ email })
-      .where(eq(users.id, user.id))
-      .returning();
-    return updated ?? user;
-  }
-
-  private async findByPrivyId(privyUserId: string): Promise<UserRow | undefined> {
-    const [row] = await this.db.select().from(users).where(eq(users.privyUserId, privyUserId));
-    return row;
+    return await this.repository.updateEmail(user.id, email) ?? user;
   }
 
   private asResult(row: UserRow): SignInResult {

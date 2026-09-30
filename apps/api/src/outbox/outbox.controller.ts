@@ -1,3 +1,4 @@
+import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { Controller, Get, Inject } from "@nestjs/common";
 import { actionOutbox, notificationOutbox } from "@trading-dashboard/shared/database";
 import { count } from "drizzle-orm";
@@ -9,6 +10,7 @@ import { RequirePermissions } from "../common/auth/permissions.js";
 @RequirePermissions("admin.access")
 export class OutboxController {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  @ApiDoc("Status")
   @Get()
   async status() {
     const [evaluations, deliveries] = await Promise.all([

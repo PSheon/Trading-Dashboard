@@ -2,6 +2,10 @@
 
 日期：2026-09-29。Trading-Dashboard 基準：`3028e47`；DonutMe Backend 基準：`724966a`。以下問題描述保留該基準的稽核快照；後續實作狀態見下一節。
 
+## Nest pipeline 補齊（2026-09-30）
+
+先前已有 response transform 與 Zod adapter，但沒有 class DTO／全域 ValidationPipe；不能視為完整採用 DonutMe request pipeline。本次補上 class-validator／class-transformer、feature class DTO、APP_PIPE、input decorators、SkipTransform 與 ResponseMessage metadata，controller 不再手動 parse。保留 shared wire schema 與 400 契約，現已補上原生 Swagger request metadata、ApiDoc、完整 OpenAPI 匯出與本機文件頁；仍未引入另一套 response class DTO。完整範圍、測試與相容性見 [Nest HTTP pipeline](nest-http-pipeline.md)。
+
 ## 後續實作狀態（2026-09-29）
 
 後續 40 項實作已推進至文件整併；完整逐項狀態見 [目前稽核清單](audit-follow-up.md)，測試與限制見 [執行紀錄](superpowers/plans/2026-09-29-remaining-work.md)。目前已有 immutable typed config DI、可協商 response transform／wire DTO、feature repositories 與 UnitOfWork、無啟動副作用的 module 邊界、Privy 真實 SDK 驗簽、DB 即時角色／停權檢查、前端 effective permissions 與管理稽核。
@@ -178,9 +182,41 @@ Privy token 的 authentication 與應用業務 permissions 是不同責任。若
 | DonutMe 實作原則 | Trading-Dashboard 對應 | 狀態 |
 | --- | --- | --- |
 | config factory 驗證 env 再提供型別化設定 | `config/env.ts`、`parse-env.ts` | 已有；保留本專案驗證工具，並非照搬 class-validator |
-| 全域 transform + 明確略過特殊回應 | `common/http/transform.interceptor.ts` 與 wire contract registry | 已有；legacy raw DTO 也驗證白名單，保留既有客戶端格式 |
+| 全域 transform + 明確略過特殊回應 | `common/http/transform.interceptor.ts` 與 wire contract registry | 已有；一般 JSON 預設 envelope，含 timestamp／分頁 metadata；特殊回應明確略過 |
 | feature module 註冊 service/repository | `InsightsModule`、`UsersModule`、`AdminModule` | 本批新增 InsightsRepository、ProfileRepository、RevenueRepository |
 | service 負責業務規則，repository 負責查詢 | crowd 聚合/快取、個人資料正規化/404、台北日收入計算留在 service | 本批移出 SQL，維持原查詢與回傳契約 |
-| 同一交易內共享 persistence context | 既有 `db/unit-of-work.ts` | 本批未改跨模組交易；auth/admin users/Telegram/outbox 等仍待 E11 後續處理 |
+| 同一交易內共享 persistence context | 既有 `db/unit-of-work.ts` | AdminUsers 已採 UnitOfWork + 同交易 repository/audit；Auth、Actions 已抽 repository；TelegramLink 已採同交易 repository；Outbox 已抽 repository，其他 worker 仍待 E11 後續處理 |
 
 保留 Drizzle，不為模仿 DonutMe 而改成 TypeORM；移植的是責任邊界。repository 僅在所屬 module 內提供，沒有消費者時不額外 export。Copydog 功能驗收另見 [驗收矩陣](copydog-parity-acceptance.md)。本批沒有改 DonutMe 程式或 Claude 的未合併分支。
+
+## 2026-09-30：原生 Swagger 與 request 契約更新
+
+- 已完成第 15 項的 route/request/response/auth/status OpenAPI 文件、freshness gate、規格驗證與 DTO property coverage。輸出見 [openapi.json](openapi.json)。前端 generated client 尚未導入。
+- 比照 DonutMe 共用 buildOpenApiDocument，直接讀取 runtime class DTO 與 auth metadata；ApiDoc 不包含授權。
+- staging/production 不掛載 Swagger；development/test 的 /docs/ 與 /docs-json 共用匯出來源。DonutMe staging 的 BasicAuth 文件頁不直接移植。
+- 回應仍由 shared wire schemas 產生；Zod 3 adapter 的汰換需連同 Zod 4 migration 處理。Repository 全面收斂、跨實例設定一致性與跟單執行架構仍是獨立待辦。
+
+
+## 2026-09-30：Admin users、Privy auth 與 Actions repository
+
+- 新增 `AdminUsersRepository`、`AuthRepository`、`ActionsRepository`，僅由所屬 module 註冊，不額外 export。Service 不再注入 Drizzle 或直接組查詢；保留 Drizzle 與現有 API 契約。
+- AdminUsersService 持有 UnitOfWork，repository 共用同一 transaction。依 id 鎖定 enabled admins，再鎖 target；自我降權、最後管理員政策留在 service。使用者異動與稽核紀錄一同提交，提交成功後才 invalidate auth cache。
+- AuthRepository 每次查最新角色與停權狀態；Privy 驗證快取、signup 與 bootstrap admin 政策仍在 AuthService。並行首次登入保留唯一 DID 衝突處理，profile refresh 只更新 email。
+- ActionsRepository 保留 `(ts,id)` 游標、SSE replay 順序、favorites 的 user/chain 範圍與成交明細 address/chain 限制。未知 action 的 404 仍由 service 決定。
+- 後續 repository 範圍仍含 Notify、Rules、alert rules、admin overview、import、round-trip、rules seed 與 watcher 系列；此批不代表後端已全面完成分層，也不代表 Copydog 跟單執行已實作。
+
+
+## 2026-09-30：Telegram 與 outbox persistence 分層
+
+- TelegramLinkService 保留 token 生成／雜湊、限流與過期政策、HTTP 錯誤及通知協調；TelegramLinkRepository 處理持久化。建立 token 與消耗 token 都由 UnitOfWork 維持原交易邊界，所有交易內操作使用傳入的 tx。
+- OutboxRepository 負責到期查詢、條件式領取、action 讀取與失敗回寫；重試次數、等待時間、排程與停止流程留在 service。
+- 修正既有租約競態：失敗回寫須匹配領取時的 attempts，逾時 worker 無法覆蓋接手 worker 的狀態。每次領取原子增加 attempts，無須 schema migration；不宣稱提供外部通知 exactly-once 保證。
+- NotifyService 與 RulesService 仍有直接 SQL，後續須一起檢查通知投遞與規則評估的交易邊界。Telegram 跨 token 同 chat 競爭仍依現有唯一約束處理，這批未重新設計其併發政策。
+
+
+## 2026-09-30：JSDoc 與 bootstrap 風格
+
+- 實際對照 DonutMe `src/main.ts` 的命名 setup 函式與責任說明；Trading-Dashboard 保留 Express／Drizzle。
+- main 僅協調啟動順序；HTTP 與 process shutdown 分別抽到 bootstrap setup。維持驗證 env 在 Nest 建立前、stop listener 在 Nest hooks 前、security/request context 在 listen 前與 Swagger 環境限制。
+- 最近新增的 AdminUsers、Auth、TelegramLink、Outbox repositories 補上交易／鎖定前提、缺值語意與 claim generation 的 JSDoc；不是用註解數量作為品質門檻。
+- [Backend conventions](backend-conventions.md) 定義後續修改的風格與驗證要求；未宣稱全專案格式已統一或已由 formatter 強制。

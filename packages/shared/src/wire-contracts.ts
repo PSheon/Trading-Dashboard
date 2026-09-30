@@ -53,11 +53,13 @@ export interface HttpRouteContract {
   response: z.ZodTypeAny;
   /** Set for server-sent-event routes. */
   stream?: HttpStreamContract;
+  raw?: boolean;
+  pagination?: { type: "offset" | "cursor"; query: z.ZodTypeAny };
 }
 /** One registry drives server output validation, browser validation and route docs. */
 export const httpRouteContracts: HttpRouteContract[] = [
-  { method: "GET", path: "/health", status: 200, auth: "public; raw", response: wireHeartbeatSchema },
-  { method: "GET", path: "/health/ready", status: 200, auth: "public; raw", response: z.object({ ready: z.literal(true) }) },
+  { method: "GET", path: "/health", status: 200, auth: "public; raw", raw: true, response: wireHeartbeatSchema },
+  { method: "GET", path: "/health/ready", status: 200, auth: "public; raw", raw: true, response: z.object({ ready: z.literal(true) }) },
   { method: "GET", path: "/actions", status: 200, auth: "public; favorites requires user", response: z.array(wireActionSchema) },
   { method: "GET", path: "/actions/stream", status: 200, auth: "public; favorites requires user; SSE", response: z.never(),
     stream: { contentType: "text/event-stream", events: actionStreamEventSchemas } },
@@ -71,14 +73,14 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/import/lists", status: 201, auth: "leaders.import", response: s.importLeaderListResponseSchema },
   { method: "GET", path: "/alert-rules", status: 200, auth: "rules.read", response: z.array(s.alertRuleSchema) },
   { method: "POST", path: "/alert-rules", status: 201, auth: "rules.manage", response: s.alertRuleSchema },
-  { method: "GET", path: "/traders", status: 200, auth: "public", response: wireTradersSchema },
+  { method: "GET", path: "/traders", pagination: { type: "offset", query: s.tradersQuerySchema }, status: 200, auth: "public", response: wireTradersSchema },
   { method: "GET", path: "/traders/sparklines", status: 200, auth: "public", response: s.sparklinesResponseSchema },
   { method: "GET", path: "/traders/:address", status: 200, auth: "public", response: wireTraderProfileSchema },
   { method: "GET", path: "/traders/:address/portfolio", status: 200, auth: "public", response: s.portfolioResponseSchema },
   { method: "GET", path: "/traders/:address/activity", status: 200, auth: "public", response: wireTraderActivitySchema },
   { method: "GET", path: "/traders/:address/fills", status: 200, auth: "public", response: z.array(s.traderFillSchema.extend({ ts: iso })) },
   { method: "GET", path: "/traders/:address/analytics", status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderAnalyticsSchema },
-  { method: "GET", path: "/traders/:address/trades", status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderTradesSchema },
+  { method: "GET", path: "/traders/:address/trades", pagination: { type: "cursor", query: s.traderTradesQuerySchema }, status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderTradesSchema },
   { method: "GET", path: "/traders/:address/orders", status: 200, auth: "public; 503 busy", response: wireTraderOrdersSchema },
   { method: "GET", path: "/traders/:address/twap", status: 200, auth: "public; 503 busy", response: wireTraderTwapsSchema },
   { method: "GET", path: "/traders/:address/transfers", status: 200, auth: "public; 503 busy", response: wireTraderTransfersSchema },
@@ -96,7 +98,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/settings", status: 200, auth: "public", response: s.publicSettingsSchema },
   { method: "GET", path: "/admin/settings", status: 200, auth: "settings.read", response: s.adminSettingsSnapshotSchema },
   { method: "PATCH", path: "/admin/settings", status: 200, auth: "settings.write", response: s.adminSettingsSnapshotSchema },
-  { method: "GET", path: "/admin/users", status: 200, auth: "users.read", response: s.adminUsersResponseSchema.extend({ items: z.array(wireAdminUserSchema) }) },
+  { method: "GET", path: "/admin/users", pagination: { type: "offset", query: s.adminUsersQuerySchema }, status: 200, auth: "users.read", response: s.adminUsersResponseSchema.extend({ items: z.array(wireAdminUserSchema) }) },
   { method: "PATCH", path: "/admin/users/:id", status: 200, auth: "users.manage", response: wireAdminUserSchema },
   { method: "GET", path: "/admin/overview", status: 200, auth: "overview.read", response: s.adminOverviewSchema.extend({ generatedAt: iso }) },
   { method: "GET", path: "/admin/revenue", status: 200, auth: "revenue.read", response: s.adminRevenueResponseSchema.extend({ lastSnapshotAt: iso.nullable() }) },

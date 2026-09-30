@@ -1,3 +1,4 @@
+import { ActionsRepository } from "../src/api/actions/actions.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import type { INestApplication } from "@nestjs/common";
 import { actions, alertRules, alerts, leaders, userFavorites, users } from "@trading-dashboard/shared/database";
@@ -58,7 +59,7 @@ describe("route access on the existing controllers", () => {
         ListsController,
         ImportController,
       ],
-      providers: [
+      providers: [ActionsRepository,
         ActionsService,
         ActionStreamService,
         AlertsService,
@@ -133,7 +134,7 @@ describe("route access on the existing controllers", () => {
       .values({ userId: alice.id, scope: "address", kind: "R1", paramsJson: { flatThresholdUsd: 1, pctThreshold: 0.1 }, cooldownS: 900, tiers: ["A"] })
       .returning();
 
-    const listed = (await call("get", "/alert-rules", "boss-token").expect(200)).body as { userId: number | null; id: number }[];
+    const listed = (await call("get", "/alert-rules", "boss-token").expect(200)).body.data as { userId: number | null; id: number }[];
     expect(listed).toHaveLength(3);
     expect(listed.every((r) => r.userId === null)).toBe(true);
 
@@ -158,10 +159,10 @@ describe("route access on the existing controllers", () => {
       { ruleId: defaultRule.id, userId: bob.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "b" }, sendStatus: "sent", sentAt: new Date() },
     ]);
 
-    const mine = (await call("get", "/alerts", "alice-token").expect(200)).body as { userId: number }[];
+    const mine = (await call("get", "/alerts", "alice-token").expect(200)).body.data as { userId: number }[];
     expect(mine.map((a) => a.userId)).toEqual([alice.id]);
-    expect((await call("get", "/alerts", "boss-token").expect(200)).body).toHaveLength(2);
-    expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body).toHaveLength(2);
+    expect((await call("get", "/alerts", "boss-token").expect(200)).body.data).toHaveLength(2);
+    expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body.data).toHaveLength(2);
   });
 
   it("leader detail: alert history is the caller's own (none when anonymous, all for admins)", async () => {
@@ -169,11 +170,11 @@ describe("route access on the existing controllers", () => {
     for (const token of ["alice-token", "bob-token"]) await call("get", "/actions", token).expect(200);
     const recipients = await db.select().from(users);
     await db.insert(alerts).values(recipients.map(user => ({ userId: user.id, address: WHALE, coin: "BTC", payloadJson: { privateRecipient: user.privyUserId }, sendStatus: "sent" as const })));
-    expect((await call("get", `/leaders/hyperliquid/${WHALE}`).expect(200)).body.alerts).toEqual([]);
-    const mine = (await call("get", `/leaders/hyperliquid/${WHALE}`, "alice-token").expect(200)).body.alerts;
+    expect((await call("get", `/leaders/hyperliquid/${WHALE}`).expect(200)).body.data.alerts).toEqual([]);
+    const mine = (await call("get", `/leaders/hyperliquid/${WHALE}`, "alice-token").expect(200)).body.data.alerts;
     expect(mine).toHaveLength(1);
     expect(mine[0].payloadJson.privateRecipient).toBe("did:privy:alice");
-    expect((await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.alerts).toHaveLength(2);
+    expect((await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.data.alerts).toHaveLength(2);
   });
 
   it("an unscoped service cannot read another user's alert payload", async () => {
@@ -183,9 +184,9 @@ describe("route access on the existing controllers", () => {
     const previous = process.env.AUTH_SERVICE_PERMISSIONS;
     try {
       process.env.AUTH_SERVICE_PERMISSIONS = "users.read";
-      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body).toEqual([]);
+      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body.data).toEqual([]);
       process.env.AUTH_SERVICE_PERMISSIONS = "alerts.readAll";
-      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body).toHaveLength(1);
+      expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body.data).toHaveLength(1);
     } finally { process.env.AUTH_SERVICE_PERMISSIONS = previous; }
   });
 
@@ -204,17 +205,17 @@ describe("route access on the existing controllers", () => {
     const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
     await db.insert(userFavorites).values({ userId: alice.id, address: WHALE });
 
-    const favs = (await call("get", "/actions?scope=favorites", "alice-token").expect(200)).body as { address: string }[];
+    const favs = (await call("get", "/actions?scope=favorites", "alice-token").expect(200)).body.data as { address: string }[];
     expect(favs.map((a) => a.address)).toEqual([WHALE]);
-    expect((await call("get", "/actions", "alice-token").expect(200)).body).toHaveLength(2);
-    expect((await call("get", "/actions?scope=favorites", "bob-token").expect(200)).body).toEqual([]);
+    expect((await call("get", "/actions", "alice-token").expect(200)).body.data).toHaveLength(2);
+    expect((await call("get", "/actions?scope=favorites", "bob-token").expect(200)).body.data).toEqual([]);
   });
   it("filters a trader's actions by normalized address", async () => {
     const address = "0x" + "ab".repeat(20);
     const base = { coin: "BTC", kind: "open" as const, side: "long", notionalUsd: "1", avgPx: "1", fillIds: [], ts: new Date() };
     await db.insert(actions).values([{ ...base, address }, { ...base, address: OTHER }]);
     const result = await call("get", `/actions?address=0x${"AB".repeat(20)}`).expect(200);
-    expect(result.body.map((a: { address: string }) => a.address)).toEqual([address]);
+    expect(result.body.data.map((a: { address: string }) => a.address)).toEqual([address]);
   });
 
   it.each(["limit=0", "limit=-1", "limit=501", "limit=abc", "before=invalid", "beforeId=1", "before=2026-01-01&beforeId=9223372036854775808", "kind=bogus", "scope=bogus", "address=invalid"])(

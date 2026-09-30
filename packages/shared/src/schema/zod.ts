@@ -175,7 +175,7 @@ export const importLeaderListRequestSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   /** Raw parsed rows; column mapping happens server-side per A1. */
   rows: z.array(z.record(z.string(), z.unknown())).min(1).max(1000),
-});
+}).strict();
 export type ImportLeaderListRequest = z.infer<
   typeof importLeaderListRequestSchema
 >;
@@ -193,7 +193,7 @@ export type ImportLeaderListResponse = z.infer<
 export const listDiffRequestSchema = z.object({
   fromListId: z.coerce.number().int().positive(),
   toListId: z.coerce.number().int().positive(),
-});
+}).strict();
 export type ListDiffRequest = z.infer<typeof listDiffRequestSchema>;
 
 export const listDiffEntrySchema = z.object({
@@ -213,7 +213,7 @@ export type ListDiffResponse = z.infer<typeof listDiffResponseSchema>;
 export const leadersQuerySchema = z.object({
   tier: tierSchema.optional(),
   active: z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional(),
-});
+}).strict();
 export type LeadersQuery = z.infer<typeof leadersQuerySchema>;
 
 /** PATCH /leaders/:chain/:address — A3 manual leader management. All
@@ -249,14 +249,14 @@ export const actionsFeedQuerySchema = z.object({
   before: z.coerce.date().optional(),
   /** Pair with before using the last row's timestamp and id for lossless pagination. */
   beforeId: actionIdCursorSchema.optional(),
-}).refine((value) => value.beforeId === undefined || value.before !== undefined, {
+}).strict().refine((value) => value.beforeId === undefined || value.before !== undefined, {
   message: "before is required with beforeId", path: ["before"],
 });
 export type ActionsFeedQuery = z.infer<typeof actionsFeedQuerySchema>;
 
 /** GET /actions/stream — the live feed's filters (no paging). Resuming uses
  * the SSE `Last-Event-ID` header: an action id (`actionIdCursorSchema`). */
-export const actionsStreamQuerySchema = z.object(actionsFeedFilterShape);
+export const actionsStreamQuerySchema = z.object(actionsFeedFilterShape).strict();
 export type ActionsStreamQuery = z.infer<typeof actionsStreamQuerySchema>;
 
 /** GET /alerts — D5 log (filterable by rule/address/coin) */
@@ -265,7 +265,7 @@ export const alertsQuerySchema = z.object({
   address: addressSchema.transform((v) => v.toLowerCase()).optional(),
   coin: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
-});
+}).strict();
 export type AlertsQuery = z.infer<typeof alertsQuerySchema>;
 
 /** POST/PATCH /alert-rules — D5 rule editor */
@@ -278,7 +278,7 @@ export const upsertAlertRuleRequestSchema = z.object({
   quietHours: z.record(z.string(), z.unknown()).nullable().optional(),
   tiers: z.array(tierSchema),
   enabled: z.boolean().default(true),
-});
+}).strict();
 export type UpsertAlertRuleRequest = z.infer<
   typeof upsertAlertRuleRequestSchema
 >;
@@ -348,7 +348,7 @@ export type EquityInterval = z.infer<typeof equityIntervalSchema>;
 
 export const leaderDetailQuerySchema = z.object({
   equityInterval: equityIntervalSchema.default("hour").optional(),
-});
+}).strict();
 export type LeaderDetailQuery = z.infer<typeof leaderDetailQuerySchema>;
 
 export const leaderDetailResponseSchema = z.object({
@@ -420,7 +420,7 @@ export type MeResponse = z.infer<typeof meResponseSchema>;
 export const patchMeRequestSchema = z.object({
   locale: localeSchema.optional(),
   displayName: z.string().max(64).nullable().optional(),
-});
+}).strict();
 export type PatchMeRequest = z.infer<typeof patchMeRequestSchema>;
 
 /** Query-string boolean: only the literals "true" and "false" (z.coerce.boolean
@@ -472,7 +472,7 @@ export const tradersQuerySchema = z.object({
   active: activeWithinSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-});
+}).strict();
 export type TradersQuery = z.infer<typeof tradersQuerySchema>;
 
 export const tradersResponseSchema = z.object({
@@ -646,7 +646,7 @@ export type BusyError = z.infer<typeof busyErrorSchema>;
 export const portfolioQuerySchema = z.object({
   window: traderWindowSchema.default("month"),
   market: z.enum(["all", "perp"]).default("perp"),
-});
+}).strict();
 export type PortfolioQuery = z.infer<typeof portfolioQuerySchema>;
 
 export const seriesPointSchema = z.tuple([z.number(), z.number()]);
@@ -728,7 +728,7 @@ export const sparklinesQuerySchema = z.object({
     .transform((v) => v.split(",").filter(Boolean))
     .pipe(z.array(z.string()).max(30)),
   window: traderWindowSchema.default("month"),
-});
+}).strict();
 /** Address → PnL series; [] when its fetch failed. Addresses whose
  * portfolio isn't ready within the api's deadline (8 s) are left out and
  * keep loading into the cache: ask again for them. */
@@ -1012,7 +1012,7 @@ export type TraderClassification = z.infer<typeof traderClassificationSchema>;
 /** GET /traders/:address/analytics?window= — round-trip statistics for any
  * address. Served from the store; a cold address answers 503 busy while its
  * history is read, then the retry finds it. */
-export const traderAnalyticsQuerySchema = z.object({ window: tradeWindowSchema.default("all") });
+export const traderAnalyticsQuerySchema = z.object({ window: tradeWindowSchema.default("all") }).strict();
 export type TraderAnalyticsQuery = z.infer<typeof traderAnalyticsQuerySchema>;
 
 export const traderAnalyticsResponseSchema = z.object({
@@ -1043,7 +1043,7 @@ export const traderTradesQuerySchema = z.object({
         && id >= -(2n ** 63n) && id <= 2n ** 63n - 1n;
     } catch { return false; }
   }, "Invalid trade cursor").optional(),
-});
+}).strict();
 export type TraderTradesQuery = z.infer<typeof traderTradesQuerySchema>;
 
 export const traderTradesResponseSchema = z.object({
@@ -1089,7 +1089,7 @@ export const patchFavoriteAlertRequestSchema = z.object({
   enabled: z.boolean().optional(),
   sides: alertSidesSchema.optional(),
   minUsd: z.number().min(0).max(1e12).nullable().optional(),
-});
+}).strict();
 export type PatchFavoriteAlertRequest = z.infer<typeof patchFavoriteAlertRequestSchema>;
 
 // --- notifications (signed in) ----------------------------------------------
@@ -1279,7 +1279,7 @@ export const adminUsersQuerySchema = z.object({
   role: userRoleSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-});
+}).strict();
 export type AdminUsersQuery = z.infer<typeof adminUsersQuerySchema>;
 
 export const adminUserSchema = z.object({
@@ -1307,7 +1307,7 @@ export type AdminUsersResponse = z.infer<typeof adminUsersResponseSchema>;
 export const patchAdminUserRequestSchema = z.object({
   role: userRoleSchema.optional(),
   disabled: z.boolean().optional(),
-});
+}).strict();
 export type PatchAdminUserRequest = z.infer<typeof patchAdminUserRequestSchema>;
 
 // --- overview + revenue (admin) ------------------------------------------------
@@ -1329,7 +1329,7 @@ export type AdminOverview = z.infer<typeof adminOverviewSchema>;
 export const revenueRangeSchema = z.enum(["7d", "30d", "90d", "all"]);
 
 /** GET /admin/revenue?range= — from `revenue_snapshots`. */
-export const adminRevenueQuerySchema = z.object({ range: revenueRangeSchema.default("30d") });
+export const adminRevenueQuerySchema = z.object({ range: revenueRangeSchema.default("30d") }).strict();
 export type AdminRevenueQuery = z.infer<typeof adminRevenueQuerySchema>;
 
 export const adminRevenueResponseSchema = z.object({

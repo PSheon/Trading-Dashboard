@@ -1,14 +1,10 @@
+import { ResponseMessage } from "../common/decorators/http.decorator.js";
+import { PatchAdminSettingsDto } from "./dto/settings.dto.js";
+import { AdminUsersQueryDto, PatchAdminUserDto, AdminRevenueQueryDto } from "./dto/admin-query.dto.js";
+import { UserIdParamsDto } from "../common/dto/params.dto.js";
 import { RequirePermissions } from "../common/auth/permissions.js";
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Query } from "@nestjs/common";
-import {
-  adminRevenueQuerySchema,
-  type AdminOverview,
-  type AdminRevenueResponse,
-  type AdminSettingsSnapshot,
-  type AdminUser,
-  type AdminUsersResponse,
-  type PublicSettings,
-} from "@trading-dashboard/shared/contracts";
+import { Body, Controller, Get, Param, Patch, Query } from "@nestjs/common";
+import { type AdminOverview, type AdminRevenueResponse, type AdminSettingsSnapshot, type AdminUser, type AdminUsersResponse, type PublicSettings } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Public } from "../common/auth/public.decorator.js";
@@ -17,7 +13,7 @@ import { AdminOverviewService } from "./admin-overview.service.js";
 import { AdminSettingsService } from "./admin-settings.service.js";
 import { AdminUsersService } from "./admin-users.service.js";
 import { RevenueService } from "./revenue.service.js";
-import { parseOr400 } from "../common/http/validation.js";
+
 
 /** Administrative actions require explicit permissions. Human admins receive
  * the role's catalog; service callers receive only configured scopes. */
@@ -38,25 +34,27 @@ export class AdminController {
   }
 
   @RequirePermissions("settings.write")
+  @ResponseMessage("Settings updated")
   @Patch("settings")
-  patchSettings(@Body() body: unknown, @CurrentUser() user: RequestUser | null): Promise<AdminSettingsSnapshot> {
+  patchSettings(@Body() body: PatchAdminSettingsDto, @CurrentUser() user: RequestUser | null): Promise<AdminSettingsSnapshot> {
     return this.settings.patch(body, user);
   }
 
   @RequirePermissions("users.read")
   @Get("users")
-  listUsers(@Query() query: unknown): Promise<AdminUsersResponse> {
+  listUsers(@Query() query: AdminUsersQueryDto): Promise<AdminUsersResponse> {
     return this.users.list(query);
   }
 
   @RequirePermissions("users.manage")
+  @ResponseMessage("User updated")
   @Patch("users/:id")
   patchUser(
-    @Param("id", ParseIntPipe) id: number,
-    @Body() body: unknown,
+    @Param() params: UserIdParamsDto,
+    @Body() body: PatchAdminUserDto,
     @CurrentUser() user: RequestUser | null,
   ): Promise<AdminUser> {
-    return this.users.patch(id, body, user);
+    return this.users.patch(params.id, body, user);
   }
 
   @RequirePermissions("overview.read")
@@ -67,8 +65,8 @@ export class AdminController {
 
   @RequirePermissions("revenue.read")
   @Get("revenue")
-  revenueReport(@Query() query: unknown): Promise<AdminRevenueResponse> {
-    const { range } = parseOr400(adminRevenueQuerySchema, query);
+  revenueReport(@Query() query: AdminRevenueQueryDto): Promise<AdminRevenueResponse> {
+    const { range } = query;
     return this.revenue.report(range);
   }
 }

@@ -2,6 +2,10 @@
 
 日期：2026-09-29。Trading-Dashboard 基準：`3028e47`；DonutMe Backend 基準：`724966a`。以下問題描述保留該基準的稽核快照；後續實作狀態見下一節。
 
+## Nest pipeline 補齊（2026-09-30）
+
+先前已有 response transform 與 Zod adapter，但沒有 class DTO／全域 ValidationPipe；不能視為完整採用 DonutMe request pipeline。本次補上 class-validator／class-transformer、feature class DTO、APP_PIPE、input decorators、SkipTransform 與 ResponseMessage metadata，controller 不再手動 parse。保留 shared wire schema 與 400 契約，未新增 Swagger 或 response class DTO。完整範圍、測試與相容性見 [Nest HTTP pipeline](nest-http-pipeline.md)。
+
 ## 後續實作狀態（2026-09-29）
 
 後續 40 項實作已推進至文件整併；完整逐項狀態見 [目前稽核清單](audit-follow-up.md)，測試與限制見 [執行紀錄](superpowers/plans/2026-09-29-remaining-work.md)。目前已有 immutable typed config DI、可協商 response transform／wire DTO、feature repositories 與 UnitOfWork、無啟動副作用的 module 邊界、Privy 真實 SDK 驗簽、DB 即時角色／停權檢查、前端 effective permissions 與管理稽核。

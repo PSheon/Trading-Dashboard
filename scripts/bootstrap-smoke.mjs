@@ -34,6 +34,16 @@ async function probe(databaseUrl, expected) {
     assert.equal(response.headers.get("x-request-id"), "bootstrap-smoke");
     assert.equal(response.headers.get("x-content-type-options"), "nosniff");
     console.log(`Compiled API readiness returned ${expected}`);
+    if (expected === 200) {
+      for (const path of ["/traders?hideVaults=typo", "/traders?limit=", "/traders/not-an-address", "/actions?beforeId=1", "/actions/stream?unknown=1"]) {
+        const invalid = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { "x-api-contract": "1" }, signal: AbortSignal.timeout(5000) });
+        assert.equal(invalid.status, 400, `Compiled DTO boundary: ${path}`);
+        const error = await invalid.json();
+        assert.equal(error.error.code, "validation_error");
+        assert.ok(error.error.fields.length > 0);
+      }
+      console.log("Compiled global DTO pipeline rejected invalid query/path/SSE inputs");
+    }
   } finally {
     terminate();
     const force = setTimeout(() => child.kill("SIGKILL"), 32000);

@@ -113,3 +113,6 @@ See [definitions and release order](trade-analytics.md).
 
 Admin settings mutations additionally require per-section revision preconditions;
 see [admin-settings.md](admin-settings.md) for 428/409 handling and rollout limits.
+
+Request validation now runs through class DTOs and a global Nest ValidationPipe;
+unknown input fields fail with 400. See [nest-http-pipeline.md](nest-http-pipeline.md).

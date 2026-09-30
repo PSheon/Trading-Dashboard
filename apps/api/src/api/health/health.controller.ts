@@ -1,9 +1,11 @@
+import { SkipTransform } from "../../common/decorators/http.decorator.js";
 import { Controller, Get } from "@nestjs/common";
 import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
 import { Public } from "../../common/auth/public.decorator.js";
 import { HealthService } from "./health.service.js";
 
+@SkipTransform()
 @Controller("health")
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}

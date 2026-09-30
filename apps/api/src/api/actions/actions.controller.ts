@@ -1,28 +1,15 @@
-import {
-  BadRequestException,
-  Controller,
-  ForbiddenException,
-  Get,
-  Headers,
-  Param,
-  Query,
-  Req,
-  Res,
-  UnauthorizedException,
-} from "@nestjs/common";
-import {
-  actionIdCursorSchema,
-  actionsFeedQuerySchema,
-  actionsStreamQuerySchema,
-  type ActionFeedItem,
-  type Fill,
-} from "@trading-dashboard/shared/contracts";
+import { ActionsFeedQueryDto, ActionsStreamQueryDto } from "./dto/action-query.dto.js";
+import { ActionIdParamsDto } from "../../common/dto/params.dto.js";
+import { SkipTransform } from "../../common/decorators/http.decorator.js";
+import { ResumeHeader, ResumeHeaderDto } from "./dto/resume-header.dto.js";
+import { Controller, ForbiddenException, Get, Param, Query, Req, Res, UnauthorizedException } from "@nestjs/common";
+import { type ActionFeedItem, type Fill } from "@trading-dashboard/shared/contracts";
 import type { Request, Response } from "express";
 
 import { AuthService } from "../../common/auth/auth.service.js";
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
-import { parseOr400 } from "../../common/http/validation.js";
+
 import { ActionStreamService } from "./action-stream.service.js";
 import { ActionsService } from "./actions.service.js";
 
@@ -45,8 +32,7 @@ export class ActionsController {
   ) {}
 
   @Get()
-  findFeed(@CurrentUser() user: RequestUser | null, @Query() raw: Record<string, unknown>): Promise<ActionFeedItem[]> {
-    const query = parseOr400(actionsFeedQuerySchema, raw);
+  findFeed(@CurrentUser() user: RequestUser | null, @Query() query: ActionsFeedQueryDto): Promise<ActionFeedItem[]> {
     if (query.scope === "favorites") return this.actionsService.findFeed(query, favoritesOwner(user));
     return this.actionsService.findFeed(query);
   }
@@ -58,18 +44,18 @@ export class ActionsController {
    * rows). Browsers call it with fetch streaming, so the Authorization
    * header works as on GET /actions. 429 beyond the per-IP/global limits.
    */
+  @SkipTransform()
   @Get("stream")
   async stream(
     @CurrentUser() user: RequestUser | null,
-    @Query() raw: Record<string, unknown>,
-    @Headers("last-event-id") lastEventIdHeader: string | undefined,
+    @Query() query: ActionsStreamQueryDto,
+    @ResumeHeader() resume: ResumeHeaderDto,
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    const query = parseOr400(actionsStreamQuerySchema, raw);
     const favoritesOf = query.scope === "favorites" ? favoritesOwner(user) : undefined;
-    const lastEventId = lastEventIdHeader?.trim()
-      ? BigInt(parseOr400(actionIdCursorSchema, lastEventIdHeader.trim()))
+    const lastEventId = resume.lastEventId
+      ? BigInt(resume.lastEventId)
       : undefined;
     const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7).trim() : undefined;
     const authorize = favoritesOf === undefined ? undefined : async () => {
@@ -82,8 +68,7 @@ export class ActionsController {
 
   /** D1: expand a feed row to see its constituent fills. */
   @Get(":id/fills")
-  getFills(@Param("id") id: string): Promise<Fill[]> {
-    if (!/^\d+$/.test(id)) throw new BadRequestException("id must be an integer");
-    return this.actionsService.getFillsForAction(BigInt(id));
+  getFills(@Param() params: ActionIdParamsDto): Promise<Fill[]> {
+    return this.actionsService.getFillsForAction(BigInt(params.id));
   }
 }

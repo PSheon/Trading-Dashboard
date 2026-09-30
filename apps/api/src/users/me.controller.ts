@@ -1,16 +1,12 @@
+import { PatchMeDto, PatchFavoriteAlertDto } from "./dto/profile.dto.js";
+import { AddressParamsDto } from "../common/dto/params.dto.js";
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Put } from "@nestjs/common";
-import {
-  addressSchema,
-  patchFavoriteAlertRequestSchema,
-  patchMeRequestSchema,
-  type Favorite,
-  type MeResponse,
-} from "@trading-dashboard/shared/contracts";
+import { type Favorite, type MeResponse } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
 import { FavoritesService } from "./favorites.service.js";
 import { ProfileService } from "./profile.service.js";
-import { parseOr400 } from "../common/http/validation.js";
+
 
 /** The signed-in user's own data. Not @Public: the guard returns 401
  * without a valid token; the service token gets 403 (it has no profile).
@@ -28,9 +24,9 @@ export class MeController {
   }
 
   @Patch()
-  patchMe(@CurrentUser() user: RequestUser | null, @Body() body: unknown): Promise<MeResponse> {
+  patchMe(@CurrentUser() user: RequestUser | null, @Body() body: PatchMeDto): Promise<MeResponse> {
     const userId = requireUserId(user);
-    return this.profile.patch(userId, parseOr400(patchMeRequestSchema, body ?? {}));
+    return this.profile.patch(userId, body);
   }
 
   @Get("favorites")
@@ -39,30 +35,30 @@ export class MeController {
   }
 
   @Put("favorites/:address")
-  addFavorite(@CurrentUser() user: RequestUser | null, @Param("address") address: string): Promise<Favorite> {
+  addFavorite(@CurrentUser() user: RequestUser | null, @Param() params: AddressParamsDto): Promise<Favorite> {
     const userId = requireUserId(user);
-    return this.favorites.add(userId, parseOr400(addressSchema, address).toLowerCase());
+    return this.favorites.add(userId, params.address);
   }
 
   /** Unfavoriting deletes the row, and its alert with it. */
   @Delete("favorites/:address")
   @HttpCode(204)
-  async removeFavorite(@CurrentUser() user: RequestUser | null, @Param("address") address: string): Promise<void> {
+  async removeFavorite(@CurrentUser() user: RequestUser | null, @Param() params: AddressParamsDto): Promise<void> {
     const userId = requireUserId(user);
-    await this.favorites.remove(userId, parseOr400(addressSchema, address).toLowerCase());
+    await this.favorites.remove(userId, params.address);
   }
 
   @Patch("favorites/:address/alert")
   patchFavoriteAlert(
     @CurrentUser() user: RequestUser | null,
-    @Param("address") address: string,
-    @Body() body: unknown,
+    @Param() params: AddressParamsDto,
+    @Body() body: PatchFavoriteAlertDto,
   ): Promise<Favorite> {
     const userId = requireUserId(user);
     return this.favorites.setAlert(
       userId,
-      parseOr400(addressSchema, address).toLowerCase(),
-      parseOr400(patchFavoriteAlertRequestSchema, body ?? {}),
+      params.address,
+      body,
     );
   }
 }

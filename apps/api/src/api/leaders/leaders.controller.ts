@@ -1,15 +1,11 @@
+import { LeadersQueryDto, LeaderDetailQueryDto, PatchLeaderDto } from "./dto/leader.dto.js";
+import { LeaderParamsDto } from "../../common/dto/params.dto.js";
 import { RequirePermissions } from "../../common/auth/permissions.js";
 import { Body, Controller, Get, Param, Patch, Query } from "@nestjs/common";
 import type { Leader, LeaderDetailResponse, LeaderSummary } from "@trading-dashboard/shared/contracts";
 
-import {
-  addressSchema,
-  chainSchema,
-  leaderDetailQuerySchema,
-  leadersQuerySchema,
-  patchLeaderRequestSchema,
-} from "@trading-dashboard/shared/contracts";
-import { parseOr400 } from "../../common/http/validation.js";
+
+
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
 import { alertsVisibleTo } from "../../common/auth/alerts-scope.js";
@@ -22,8 +18,8 @@ export class LeadersController {
   /** Market data: public. */
   @Public()
   @Get()
-  findAll(@Query() query: Record<string, unknown>): Promise<LeaderSummary[]> {
-    return this.leadersService.findAll(parseOr400(leadersQuerySchema, query));
+  findAll(@Query() query: LeadersQueryDto): Promise<LeaderSummary[]> {
+    return this.leadersService.findAll(query);
   }
 
   /** D3: current positions, fill history, equity curve, coin distribution,
@@ -34,14 +30,13 @@ export class LeadersController {
   @Get(":chain/:address")
   findDetail(
     @CurrentUser() user: RequestUser | null,
-    @Param("chain") chain: string,
-    @Param("address") address: string,
-    @Query("equityInterval") equityInterval?: "hour" | "5m",
+    @Param() params: LeaderParamsDto,
+    @Query() query: LeaderDetailQueryDto,
   ): Promise<LeaderDetailResponse> {
     return this.leadersService.findDetail(
-      parseOr400(chainSchema, chain),
-      parseOr400(addressSchema, address).toLowerCase(),
-      parseOr400(leaderDetailQuerySchema, { equityInterval }).equityInterval ?? "hour",
+      params.chain,
+      params.address,
+      query.equityInterval ?? "hour",
       alertsVisibleTo(user),
     );
   }
@@ -50,11 +45,10 @@ export class LeadersController {
   @RequirePermissions("leaders.manage")
   @Patch(":chain/:address")
   update(
-    @Param("chain") chain: string,
-    @Param("address") address: string,
-    @Body() body: unknown,
+    @Param() params: LeaderParamsDto,
+    @Body() body: PatchLeaderDto,
     @CurrentUser() actor: RequestUser | null,
   ): Promise<Leader> {
-    return this.leadersService.update(parseOr400(chainSchema, chain), parseOr400(addressSchema, address).toLowerCase(), parseOr400(patchLeaderRequestSchema, body), actor);
+    return this.leadersService.update(params.chain, params.address, body, actor);
   }
 }

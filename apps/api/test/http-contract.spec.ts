@@ -1,3 +1,4 @@
+import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import {
   BadRequestException,
   ConflictException,
@@ -25,7 +26,7 @@ class ProbeController {
   @Get("conflict") conflict() { throw new ConflictException({ code: "alert_limit", limit: 3, message: "Limit reached" }); }
   @Get("bug") bug() { throw new Error("secret SQL token value"); }
   @Get("invalid") invalid() { throw new BadRequestException({ message: "Bad fields", issues: [{ path: ["rows", 0, "address"], message: "Invalid address" }] }); }
-  @Get("health") health() { return { ok: true }; }
+  @SkipTransform() @Get("health") health() { return { ok: true }; }
   @Get("file") file() { return new StreamableFile(Buffer.from("hello")); }
   @Post("empty") @HttpCode(204) empty() {}
   @Get("settings") brokenOutput() { return { secret: "should not pass schema" }; }

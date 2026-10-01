@@ -1,5 +1,5 @@
+import { signIn, wcag } from "./helpers";
 import { expect, test } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
 for (const width of [1440, 375]) {
   test(`jobs paginate, filter and requeue without claiming completion at ${width}px`, async ({
     page,
@@ -9,7 +9,7 @@ for (const width of [1440, 375]) {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/jobs");
-    await page.getByRole("button", { name: "Demo login", exact: true }).click();
+    await signIn(page);
     await expect(
       page.getByRole("heading", { name: "Backfill jobs", exact: true }),
     ).toBeVisible();
@@ -45,8 +45,7 @@ for (const width of [1440, 375]) {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    const audit = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    const audit = await (await wcag(page))
       .analyze();
     expect(
       audit.violations.map((v) => ({

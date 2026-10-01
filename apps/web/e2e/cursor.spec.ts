@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openFirstTrader } from "./helpers";
 
 /** Computed cursor per element type, as copydog.xyz shows it: the hand on
  * every control that acts on click, not-allowed on disabled ones, the
@@ -54,8 +55,8 @@ for (const path of ["/", "/explore", "/favorites", "/settings"]) {
 test("cursor per element type on a trader page", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
   await page.goto("/explore");
-  await page.locator('a[href^="/trader/"]').first().click();
-  await expect(page.getByRole("tablist")).toBeVisible();
+  await openFirstTrader(page);
+  await expect(page.getByRole("tablist", { name: "Trading activity" })).toBeVisible();
   const found = await sample(page);
   for (const [kind, { cursors }] of Object.entries(found)) expect(cursors, kind).toEqual(expected[kind]);
 });

@@ -1,5 +1,5 @@
+import { signIn, wcag } from "./helpers";
 import { expect, test } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
 for (const width of [1440, 375])
   test(`admin trader evidence at ${width}px`, async ({
     page,
@@ -9,7 +9,7 @@ for (const width of [1440, 375])
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/traders");
-    await page.getByRole("button", { name: "Demo login", exact: true }).click();
+    await signIn(page);
     await page
       .getByLabel("Hyperliquid address", { exact: true })
       .fill("0x" + "ab".repeat(20));
@@ -39,8 +39,7 @@ for (const width of [1440, 375])
     ).toBe(true);
     expect(
       (
-        await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        await (await wcag(page))
           .analyze()
       ).violations,
     ).toEqual([]);

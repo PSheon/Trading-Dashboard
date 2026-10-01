@@ -13,7 +13,7 @@ export default defineConfig({
   webServer: {
     command: `pnpm exec next dev --webpack --hostname 127.0.0.1 --port ${port}`,
     url: baseURL,
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
     timeout: 120000,
     env: { NEXT_TEST_MODE: "1", NEXT_PUBLIC_API_FIXTURES: "1", NEXT_PUBLIC_PRIVY_APP_ID: "", NEXT_API_URL: "" },
   },

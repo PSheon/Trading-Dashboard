@@ -1,5 +1,5 @@
+import { wcag } from "./helpers";
 import { expect, test } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
 
 for (const width of [1440, 375]) {
   test(`design versions keep working discovery and fit at ${width}px`, async ({ page, context, baseURL }) => {
@@ -28,7 +28,7 @@ for (const width of [1440, 375]) {
       await page.getByRole("button", { name: "Featured KOLs", exact: true }).click();
       await expect(page.getByRole("button", { name: "Featured KOLs", exact: true })).toHaveAttribute("aria-pressed", "true");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+      const accessibility = await (await wcag(page)).analyze();
       expect.soft(accessibility.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })), `${concept} accessibility`).toEqual([]);
     }
     await page.getByRole("link", { name: "BTC", exact: true }).click();

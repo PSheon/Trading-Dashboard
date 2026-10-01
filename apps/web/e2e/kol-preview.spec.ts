@@ -1,5 +1,5 @@
+import { signIn, wcag } from "./helpers";
 import { test, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
 for (const width of [1440, 375])
   test(`KOL overwrite and removal review at ${width}px`, async ({
     page,
@@ -9,7 +9,7 @@ for (const width of [1440, 375])
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/kols");
-    await page.getByRole("button", { name: "Demo login", exact: true }).click();
+    await signIn(page);
     await expect(
       page.getByRole("button", { name: "Preview KOL changes", exact: true }),
     ).toBeVisible();
@@ -55,8 +55,7 @@ for (const width of [1440, 375])
     ).toBe(true);
     expect(
       (
-        await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        await (await wcag(page))
           .analyze()
       ).violations,
     ).toEqual([]);

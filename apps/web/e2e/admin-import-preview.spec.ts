@@ -1,5 +1,5 @@
+import { signIn, wcag } from "./helpers";
 import { test, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
 for (const width of [1440, 375])
   test(`source evidence and import preview at ${width}px`, async ({
     page,
@@ -9,7 +9,7 @@ for (const width of [1440, 375])
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/lists");
-    await page.getByRole("button", { name: "Demo login", exact: true }).click();
+    await signIn(page);
     await expect(
       page.getByRole("button", { name: "Preview impact", exact: true }),
     ).toBeVisible();
@@ -61,8 +61,7 @@ for (const width of [1440, 375])
     await page.screenshot({path:`/tmp/orbie-import-preview-${width}.png`,fullPage:true});
     expect(
       (
-        await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        await (await wcag(page))
           .analyze()
       ).violations,
     ).toEqual([]);
@@ -91,8 +90,7 @@ for (const width of [1440, 375])
     ).toBe(true);
     expect(
       (
-        await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        await (await wcag(page))
           .analyze()
       ).violations,
     ).toEqual([]);
@@ -103,7 +101,7 @@ for (const width of [1440, 375])
   });
 test('malformed JSON rows are rejected before rendering the raw table',async({page,context,baseURL})=>{
  await context.addCookies([{name:'locale',value:'en',url:baseURL!}]);
- await page.goto('/admin/lists');await page.getByRole('button',{name:'Demo login',exact:true}).click();
+ await page.goto('/admin/lists');await signIn(page);
  await page.locator('input[type=file]').setInputFiles({name:'invalid.json',mimeType:'application/json',buffer:Buffer.from('[null]')});
  await expect(page.getByText("Couldn't parse the file",{exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Preview impact',exact:true})).toBeDisabled();

@@ -255,7 +255,7 @@ export class FillSyncService {
    * window is sized from the density just read; one too dense for a step
    * is retried shorter and stores nothing, so the span never has a hole.
    */
-  async backfillStep(address: string, rank?: number): Promise<{ status: string; inserted: number }> {
+  async backfillStep(address: string, rank?: number, maxFills = BACKFILL_MAX_FILLS): Promise<{ status: string; inserted: number }> {
     let state = await this.repository.coverage(address);
     if (!state?.verifiedFrom) {
       await this.catchUp(address, rank);
@@ -288,7 +288,7 @@ export class FillSyncService {
       return { status: reached, inserted: 0 };
     };
     if (end <= floor) return finish("complete");
-    if ((await this.repository.countFillsSince(address, state.verifiedFrom)) >= BACKFILL_MAX_FILLS) return finish("capped");
+    if ((await this.repository.countFillsSince(address, state.verifiedFrom)) >= maxFills) return finish("capped");
 
     const span = state.backfillSpanMs;
     const start = Math.max(floor, end - span);

@@ -26,6 +26,7 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:migrate:release": "node scripts/migrate.mjs",
     "kols:seed": "node dist/discovery/seed-kols.js",
+    "fills:repair": "node dist/watcher/repair-fills.js",
     "start:worker": "node dist/worker.js"
   },
   "dependencies": {

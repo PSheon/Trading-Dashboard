@@ -489,6 +489,18 @@ export class CopyRepository {
     }).where(and(inArray(copySignalOutbox.id, ids), eq(copySignalOutbox.status, "pending")));
   }
 
+  /** Rows that wait for market data: still pending, retried after a short
+   * backoff (2 s doubling to 30 s). Never parked as `failed` by this path:
+   * the wait ends when the data returns or the open goes stale. */
+  async deferOutbox(tx: DbTransaction, ids: bigint[], reason: string): Promise<void> {
+    if (ids.length === 0) return;
+    await tx.update(copySignalOutbox).set({
+      attempts: sql`${copySignalOutbox.attempts} + 1`,
+      lastError: reason.slice(0, 500),
+      availableAt: sql`now() + make_interval(secs => least(30, 2 ^ least(10, ${copySignalOutbox.attempts} + 1)))`,
+    }).where(and(inArray(copySignalOutbox.id, ids), eq(copySignalOutbox.status, "pending")));
+  }
+
   /** Advances the consumer checkpoint to the highest id with nothing pending below it. */
   async advanceCheckpoint(tx: DbTransaction, processed: number): Promise<void> {
     await tx.insert(copyConsumerCheckpoints).values({ consumer: CONSUMER }).onConflictDoNothing();
@@ -533,6 +545,15 @@ export class CopyRepository {
     }
   }
 
+  /** Un-claims legs that could not be decided this pass (market data
+   * missing), so the retry claims them again. Only ever called for legs
+   * claimed in the same transaction, which have no order. */
+  async releaseLegs(tx: DbTransaction, strategyId: number, legs: { tid: bigint; leg: CopyLeg }[]): Promise<void> {
+    for (const l of legs) {
+      await tx.delete(copySignalLegs).where(and(eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg), eq(copySignalLegs.outcome, "pending")));
+    }
+  }
+
   /** Whether this strategy already acted on a newer fill of `coin`
    * (an older open arriving now is superseded). */
   async hasNewerLeg(tx: DbTransaction, strategyId: number, coin: string, fillTime: Date, excludeTids: bigint[]): Promise<boolean> {
@@ -540,6 +561,31 @@ export class CopyRepository {
       .where(and(eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.coin, coin), gt(copySignalLegs.fillTime, fillTime),
         excludeTids.length ? notInArray(copySignalLegs.tid, excludeTids) : undefined)).limit(1);
     return row !== undefined;
+  }
+
+  // --- adoption repair ----------------------------------------------------------------------
+
+  /** Adoption orders of active strategies that were rejected with one of
+   * `reasons`, oldest first. */
+  rejectedAdoptions(reasons: string[], strategyId?: number) {
+    return this.db.select({ order: copyOrders }).from(copyOrders)
+      .innerJoin(copyStrategies, eq(copyStrategies.id, copyOrders.strategyId))
+      .where(and(eq(copyOrders.leg, "adopt"), eq(copyOrders.status, "rejected"), inArray(copyOrders.reason, reasons), eq(copyStrategies.status, "active"),
+        strategyId === undefined ? undefined : eq(copyOrders.strategyId, strategyId)))
+      .orderBy(asc(copyOrders.id));
+  }
+
+  /** How many adoption orders (any status) a strategy has for `coin`. */
+  async adoptOrderCount(ex: DbExecutor, strategyId: number, coin: string): Promise<number> {
+    const [row] = await ex.select({ n: count() }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId), eq(copyOrders.coin, coin), eq(copyOrders.leg, "adopt")));
+    return Number(row?.n ?? 0);
+  }
+
+  /** Fills of `address` the consumer has not finished yet. */
+  async unfinishedOutboxCount(ex: DbExecutor, address: string): Promise<number> {
+    const [row] = await ex.select({ n: count() }).from(copySignalOutbox)
+      .where(and(eq(copySignalOutbox.chain, CHAIN_DEFAULT), eq(copySignalOutbox.address, address), eq(copySignalOutbox.status, "pending")));
+    return Number(row?.n ?? 0);
   }
 
   /** Per-user exposure inputs (admin): live strategies with positions. */

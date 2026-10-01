@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "../common/auth/auth.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
 import { CopyAdminReadService } from "./copy-admin-read.service.js";
+import { CopyAdoptionRepairService } from "./copy-adoption-repair.service.js";
 import { CopyControlService } from "./copy-control.service.js";
 import { CopyExecutionService } from "./copy-execution.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
@@ -25,7 +26,7 @@ import { CopyRepository } from "./copy.repository.js";
   controllers: [CopyController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService,
+    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService, CopyAdoptionRepairService,
   ],
   exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService],
 })

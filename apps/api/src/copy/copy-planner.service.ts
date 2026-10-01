@@ -43,6 +43,28 @@ export interface PlaceOrder {
   rejectReason?: string;
 }
 
+/** Which upstream read a risk-increasing order of `coin` is missing, if any.
+ * `null` maps mean the read failed (Hyperliquid timeout, budget starvation):
+ * a transient gap, not a fact about the coin. HIP-3 markets are not in the
+ * main-dex universe, so they never wait for it. */
+export function marketDataGap(mids: Mids | null, assets: Map<string, AssetInfo> | null, coin: string): "mids" | "asset_info" | null {
+  if (mids === null) return "mids";
+  if (assets === null && !isHip3(coin)) return "asset_info";
+  return null;
+}
+
+/** Thrown instead of recording a rejection when a risk-increasing order
+ * can't be decided because market data is missing right now. Callers check
+ * {@link marketDataGap} first and retry (signals) or fail the request
+ * (starting a copy); this is the backstop that keeps a transient gap from
+ * ever becoming a terminal `rejected` row. */
+export class CopyMarketDataUnavailableError extends Error {
+  constructor(readonly gap: "mids" | "asset_info", coin: string) {
+    super(`market_data_unavailable:${gap} (${coin})`);
+    this.name = "CopyMarketDataUnavailableError";
+  }
+}
+
 /** A strategy's value at current mids: equity is null when an open position has no price. */
 export function strategyValue(strategy: StrategyRow, positions: PositionRow[], mids: Mids | null) {
   let unrealized = 0;
@@ -68,6 +90,11 @@ export function strategyValue(strategy: StrategyRow, positions: PositionRow[], m
  * margin reservation in the caller's transaction (review §6). The caller
  * holds, in this order: the platform and user control rows FOR SHARE, then
  * the strategy row FOR UPDATE.
+ *
+ * A risk-increasing order whose market data failed to load throws
+ * {@link CopyMarketDataUnavailableError} (nothing is written). Reductions
+ * need no price to be approved and are always placed.
+ * @throws CopyMarketDataUnavailableError
  */
 @Injectable()
 export class CopyOrderPlanner {
@@ -105,6 +132,11 @@ export class CopyOrderPlanner {
     if (o.rejectReason) return reject(o.rejectReason);
     if (o.policy.invalid) return reject("risk_policy_invalid");
     if (o.strategy.status !== "active") return reject(`strategy_${o.strategy.status}`);
+    // Data that failed to load is retried by the caller, never rejected.
+    // Below this line `no_asset_info` and `no_price` are facts: the universe
+    // and the mids were read and do not have this coin.
+    const gap = marketDataGap(o.mids, o.assets, o.coin);
+    if (gap) throw new CopyMarketDataUnavailableError(gap, o.coin);
     if (!asset && !isHip3(o.coin)) return reject("no_asset_info");
 
     // One connection per transaction: these reads run one after another.

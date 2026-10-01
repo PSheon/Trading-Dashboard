@@ -19,7 +19,7 @@ import { CopyControlService } from "./copy-control.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
 import { dec, openNotional } from "./copy-math.js";
 import { toCopyOrder, toCopyStrategy } from "./copy.mappers.js";
-import { CopyOrderPlanner } from "./copy-planner.service.js";
+import { CopyOrderPlanner, marketDataGap } from "./copy-planner.service.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 
@@ -89,7 +89,9 @@ export class CopyStrategyService {
    * that snapshot's time: the positions it shows are adopted, and only fills
    * after it are copied, so nothing is counted twice. With `delta` the
    * cursor is now. 409: already_copying, insufficient_balance,
-   * copy_paused (platform or user stop), strategy_limit.
+   * copy_paused (platform or user stop), strategy_limit. 503
+   * leader_unavailable when the leader, the mids or the universe can't be
+   * read while there are positions to adopt: nothing is created.
    */
   async create(userId: number, input: unknown): Promise<CopyStrategy> {
     this.requireEnabled();
@@ -109,8 +111,19 @@ export class CopyStrategyService {
         throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Couldn't read the trader's positions; try again" });
       }
     }
-    const mids = snapshot && snapshot.assetPositions.length ? await this.market.midPrices(PAGE_RANK.profile) : null;
-    const assets = snapshot && snapshot.assetPositions.length ? await this.market.assetInfo(PAGE_RANK.profile) : null;
+    const held = (snapshot?.assetPositions ?? []).filter((ap) => { const szi = Number(ap.position.szi); return Number.isFinite(szi) && szi !== 0; });
+    const mids = held.length ? await this.market.midPrices(PAGE_RANK.profile) : null;
+    const assets = held.length ? await this.market.assetInfo(PAGE_RANK.profile) : null;
+    // Adoption is all-or-nothing on market data: without mids or the
+    // universe no adoption order can be sized, and a copy that started
+    // without the leader's positions would stay wrong until the leader
+    // trades again. Nothing is created; the person retries (the web shows
+    // this code as a toast).
+    const gap = held.map((ap) => marketDataGap(mids, assets, ap.position.coin)).find((g) => g !== null);
+    if (gap) {
+      this.logger.warn(`Copy of ${req.leader} not started: ${gap} unavailable for adoption`);
+      throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Market data is unavailable, so the trader's positions can't be copied right now; try again" });
+    }
 
     const { id } = await this.uow.run(async (tx) => {
       const policy = await this.policies.current(tx);
@@ -139,9 +152,8 @@ export class CopyStrategyService {
 
       if (snapshot) {
         const leaderEquity = Number(snapshot.marginSummary.accountValue);
-        for (const ap of snapshot.assetPositions) {
+        for (const ap of held) {
           const szi = Number(ap.position.szi);
-          if (!Number.isFinite(szi) || szi === 0) continue;
           const coin = ap.position.coin;
           const leaderPx = Number(ap.position.positionValue ?? 0) / Math.abs(szi) || Number(ap.position.entryPx ?? 0);
           const leaderSign: 1 | -1 = szi > 0 ? 1 : -1;

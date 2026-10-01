@@ -27,6 +27,7 @@
     "db:migrate:release": "node scripts/migrate.mjs",
     "kols:seed": "node dist/discovery/seed-kols.js",
     "fills:repair": "node dist/watcher/repair-fills.js",
+    "copy:repair-adoptions": "node dist/copy/repair-adoptions.js",
     "start:worker": "node dist/worker.js"
   },
   "dependencies": {

@@ -21,9 +21,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import type { RequestUser } from "../src/common/auth/current-user.js";
 import { CopyAdminReadService } from "../src/copy/copy-admin-read.service.js";
+import { CopyAdoptionRepairService, adoptionRepairKey } from "../src/copy/copy-adoption-repair.service.js";
 import { CopyControlService } from "../src/copy/copy-control.service.js";
 import { CopyExecutionService } from "../src/copy/copy-execution.service.js";
-import { CopyMarketService } from "../src/copy/copy-market.service.js";
+import { CopyMarketService, type AssetInfo } from "../src/copy/copy-market.service.js";
+import { cloidOf } from "../src/copy/copy-math.js";
 import { CopyOrderPlanner } from "../src/copy/copy-planner.service.js";
 import { CopyRiskPolicyService } from "../src/copy/copy-risk-policy.service.js";
 import { CopySignalService } from "../src/copy/copy-signal.service.js";
@@ -104,7 +106,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       controllers: [CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyAdminReadService, FillSyncRepository, AccountRepository, AccountDeletionService,
+        CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
         { provide: HyperliquidInfoClient, useValue: info },
       ],
     }));
@@ -562,6 +564,245 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await execution.settleStopping();
       await app.get(AccountDeletionService).delete(u!.id);
       expect(await db.select().from(copyStrategies)).toHaveLength(0);
+    });
+  });
+
+  describe("market data that fails to load is retried, never a rejection", () => {
+    const down = () => new Error("Request deadline exceeded");
+
+    it("starting with 跟單目前持倉 while the universe can't be read creates nothing (503), and the retry adopts once", async () => {
+      market.leaderPositions = [{ coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" }];
+      await alice.get("/me/copy").expect(200);
+      info.metaAndAssetCtxs.mockRejectedValueOnce(down());
+      const refused = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(503);
+      expect(refused.body.error.code).toBe("leader_unavailable");
+      expect(await db.select().from(copyStrategies)).toHaveLength(0);
+      expect(await db.select().from(copyOrders)).toHaveLength(0);
+      expect(await db.select().from(copyLedger)).toHaveLength(0);
+      expect(Number((await db.select().from(paperAccounts))[0]!.balance)).toBe(10_000);
+
+      const res = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      const id = res.body.data.id as number;
+      expect(res.body.data).toMatchObject({ status: "active", pendingOrders: 1 });
+      expect(await orders(id)).toEqual([expect.objectContaining({ leg: "adopt", side: "B", status: "risk_approved", size: "0.5" })]);
+      await run();
+      expect(await position(id, "ETH")).toBeCloseTo(0.5);
+      expect(await orders(id)).toHaveLength(1);
+    });
+
+    it("starting while the mids can't be read creates nothing either; a leader with no position needs no market data", async () => {
+      market.leaderPositions = [{ coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" }];
+      info.allMids.mockRejectedValueOnce(down());
+      expect((await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(503)).body.error.code).toBe("leader_unavailable");
+      expect(await db.select().from(copyStrategies)).toHaveLength(0);
+
+      market.leaderPositions = [];
+      marketService.resetCaches();
+      info.allMids.mockRejectedValue(down());
+      info.metaAndAssetCtxs.mockRejectedValue(down());
+      await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      info.allMids.mockReset();
+      info.metaAndAssetCtxs.mockReset();
+    });
+
+    it("the planner itself never writes a rejection for missing data", async () => {
+      const { id } = await startCopy();
+      const repo = app.get(CopyRepository);
+      const [strategy] = await db.select().from(copyStrategies);
+      const place = (assets: null | Map<string, AssetInfo>, mids: null | { at: Date; px: Map<string, number> }) => app.get(UnitOfWork).run(async (tx) => app.get(CopyOrderPlanner).place(tx, {
+        strategy: strategy!, settings: await repo.settingsOf(tx, id, 1) as never, policy: await policies.current(tx), controls: { platform: undefined, user: undefined }, mids, assets,
+        coin: "ETH", leg: "adopt", side: "B", notional: 500, signalPx: 4_000, signalTime: new Date(), signalTids: [], dedupeKey: `${id}:adopt:ETH:v1`,
+      }));
+      await expect(place(null, { at: new Date(), px: new Map([["ETH", 4_000]]) })).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "asset_info" });
+      await expect(place(new Map(), null)).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "mids" });
+      expect(await orders(id)).toHaveLength(0);
+    });
+
+    it("what the loaded data says stays a rejection: a coin outside the universe, a coin without a mid", async () => {
+      market.mids.DOGE = 0.2; // has a mid, not in the stubbed universe
+      delete market.mids.kPEPE; // in the universe, no mid
+      market.leaderPositions = [
+        { coin: "DOGE", szi: "1000", positionValue: "200", entryPx: "0.2" },
+        { coin: "kPEPE", szi: "100000", positionValue: "1000", entryPx: "0.01" },
+        { coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" },
+      ];
+      const res = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      const id = res.body.data.id as number;
+      expect((await orders(id)).map((o) => [o.coin, o.status, o.reason])).toEqual([
+        ["DOGE", "rejected", "no_asset_info"],
+        ["kPEPE", "rejected", "no_price"],
+        ["ETH", "risk_approved", null],
+      ]);
+      // The partial adoption is visible where the web already reads it: the copy's orders.
+      const listed = (await alice.get(`/me/copy/strategies/${id}/orders`).expect(200)).body.data.items;
+      expect(listed.filter((o: { status: string }) => o.status === "rejected").map((o: { coin: string; leg: string; reason: string }) => [o.coin, o.leg, o.reason]).sort())
+        .toEqual([["DOGE", "adopt", "no_asset_info"], ["kPEPE", "adopt", "no_price"]]);
+
+      await store([fill({ coin: "DOGE", side: "B", sz: 1_000, px: 0.2, start: 1_000, time: Date.now() + 1_000 })]);
+      await run();
+      expect((await orders(id)).at(-1)).toMatchObject({ coin: "DOGE", leg: "open", status: "rejected", reason: "no_asset_info" });
+    });
+
+    it("an open whose mids can't be read waits in the outbox and is copied once they can", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      marketService.resetCaches();
+      info.allMids.mockRejectedValueOnce(down());
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0, deferred: 1 });
+      expect(await orders(id)).toHaveLength(0);
+      expect(await db.select().from(copySignalLegs)).toHaveLength(0);
+      const [waiting] = await db.select().from(copySignalOutbox);
+      expect(waiting).toMatchObject({ status: "pending", attempts: 1, lastError: "market_data_unavailable:mids" });
+      expect(waiting!.availableAt.getTime()).toBeGreaterThan(Date.now());
+      // Backoff: not picked up again before it is due.
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0 });
+
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      expect(await run()).toMatchObject({ processed: 1, orders: 1, filled: 1 });
+      expect(await orders(id)).toEqual([expect.objectContaining({ leg: "open", status: "filled", size: "0.05" })]);
+      // Replayed after it was done: still one order.
+      await db.update(copySignalOutbox).set({ status: "pending" });
+      await run();
+      expect(await orders(id)).toHaveLength(1);
+      expect(await position(id)).toBeCloseTo(0.05);
+    });
+
+    it("the same when the universe can't be read (metaAndAssetCtxs timed out): no `no_asset_info`", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      marketService.resetCaches();
+      info.metaAndAssetCtxs.mockRejectedValueOnce(down());
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0, deferred: 1 });
+      expect(await orders(id)).toHaveLength(0);
+      expect((await db.select().from(copySignalOutbox))[0]).toMatchObject({ status: "pending", lastError: "market_data_unavailable:asset_info" });
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      await run();
+      expect(await orders(id)).toEqual([expect.objectContaining({ leg: "open", status: "filled" })]);
+    });
+
+    it("reductions are placed without prices; only the open in the same batch waits", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      await store([
+        fill({ side: "A", sz: 0.25, px: 100_000, start: 0.5, time: activatedAt + 2_000 }),
+        fill({ coin: "ETH", side: "B", sz: 5, px: 4_000, start: 0, time: activatedAt + 3_000 }),
+      ]);
+      marketService.resetCaches();
+      info.allMids.mockRejectedValue(down());
+      expect(await signals.drain()).toEqual({ processed: 1, orders: 1, deferred: 1 });
+      await execution.drain();
+      info.allMids.mockReset();
+      info.allMids.mockImplementation(async () => Object.fromEntries(Object.entries(market.mids).map(([k, v]) => [k, String(v)])));
+      expect(await position(id)).toBeCloseTo(0.025);
+      expect((await orders(id)).map((o) => [o.coin, o.leg, o.status])).toEqual([["BTC", "open", "filled"], ["BTC", "close", "filled"]]);
+
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      await run();
+      expect((await orders(id)).at(-1)).toMatchObject({ coin: "ETH", leg: "open", status: "filled" });
+      expect(await orders(id)).toHaveLength(3);
+    });
+
+    it("the wait is bounded by the signal-age rule: an open still unpriced past maxSignalAgeSeconds is rejected as stale", async () => {
+      const { id, activatedAt } = await startCopy();
+      await db.update(copyStrategies).set({ activatedAt: new Date(activatedAt - 3_600_000) });
+      await store([fill({ coin: "ETH", side: "B", sz: 1, px: 4_000, start: 0, time: Date.now() - 90_000 })]);
+      marketService.resetCaches();
+      info.allMids.mockRejectedValue(down());
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0, deferred: 1 }); // 90 s old, limit 120 s
+      await policies.put({ limits: { maxSignalAgeSeconds: 60 }, reason: "tighter", expectedVersion: 0 }, admin);
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      expect(await signals.drain()).toEqual({ processed: 1, orders: 1 });
+      info.allMids.mockReset();
+      info.allMids.mockImplementation(async () => Object.fromEntries(Object.entries(market.mids).map(([k, v]) => [k, String(v)])));
+      expect(await orders(id)).toEqual([expect.objectContaining({ coin: "ETH", status: "rejected", reason: "stale_signal" })]);
+      expect((await db.select().from(copySignalOutbox))[0]).toMatchObject({ status: "done" });
+    });
+  });
+
+  describe("adoption repair", () => {
+    /** The state the old code left: an active copy whose adopt leg was rejected when the universe read timed out. */
+    async function broken(coin = "ETH", reason = "no_asset_info") {
+      const { id } = await startCopy();
+      const [s] = await db.select().from(copyStrategies).where(eq(copyStrategies.id, id));
+      await db.insert(copyOrders).values({
+        cloid: cloidOf(`${id}:adopt:${coin}:v1`), strategyId: id, userId: s!.userId, strategyVersion: 1, riskPolicyVersion: 0, leaderAddress: LEADER,
+        coin, leg: "adopt", side: "B", reduceOnly: false, size: "0", signalPx: "4000", signalTime: s!.activatedAt, signalTids: [], status: "rejected", reason,
+        controlRevisions: { platform: 0, user: 0, strategy: 0 },
+      });
+      return id;
+    }
+    const repair = (options?: { dryRun?: boolean; strategyId?: number }) => { marketService.resetCaches(); return app.get(CopyAdoptionRepairService).repair(options); };
+
+    it("adopts the leader's position now, at the mid now, as a new adopt leg with its own key, exactly once", async () => {
+      const id = await broken();
+      market.leaderPositions = [{ coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" }];
+
+      expect(await repair({ dryRun: true })).toEqual([expect.objectContaining({ strategyId: id, coin: "ETH", outcome: "would_order", side: "B", notional: 2_000 })]);
+      expect(await orders(id)).toHaveLength(1);
+
+      const [done] = await repair();
+      expect(done).toMatchObject({ outcome: "ordered", orderStatus: "risk_approved", size: 0.5 });
+      const [, adopt] = await orders(id);
+      expect(adopt).toMatchObject({ leg: "adopt", side: "B", status: "risk_approved", size: "0.5", signalPx: "4000", cloid: cloidOf(adoptionRepairKey(id, "ETH")) });
+
+      // Again, before and after the fill, and twice at once: nothing more.
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "already_repaired" })]);
+      await execution.drain();
+      await Promise.all([repair(), repair()]);
+      expect(await orders(id)).toHaveLength(2);
+      expect(await position(id, "ETH")).toBeCloseTo(0.5);
+      const overview = (await alice.get("/me/copy").expect(200)).body.data;
+      expect(overview.strategies[0]).toMatchObject({ tradesCopied: 1, pendingOrders: 0, positions: [expect.objectContaining({ coin: "ETH", size: 0.5 })] });
+    });
+
+    it("two runs at once write one order", async () => {
+      const id = await broken();
+      market.leaderPositions = [{ coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" }];
+      const service = app.get(CopyAdoptionRepairService);
+      marketService.resetCaches();
+      const [a, b] = await Promise.all([service.repair(), service.repair()]);
+      expect([a[0]!.outcome, b[0]!.outcome].sort()).toEqual(["already_repaired", "ordered"]);
+      expect(await orders(id)).toHaveLength(2);
+    });
+
+    it("writes nothing while data is missing, and repairs on the next run", async () => {
+      const id = await broken();
+      market.leaderPositions = [{ coin: "ETH", szi: "-5", positionValue: "20000", entryPx: "4100" }];
+      marketService.resetCaches();
+      info.metaAndAssetCtxs.mockRejectedValueOnce(new Error("Request deadline exceeded"));
+      expect(await app.get(CopyAdoptionRepairService).repair()).toEqual([expect.objectContaining({ outcome: "market_data_unavailable" })]);
+      info.clearinghouseState.mockRejectedValueOnce(new Error("down"));
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "leader_unavailable" })]);
+      expect(await orders(id)).toHaveLength(1);
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "ordered", side: "A", orderStatus: "risk_approved" })]);
+    });
+
+    it("leaves alone: a leader who closed the position, a copy that already holds the coin, a stopped or paused copy, other rejections", async () => {
+      const id = await broken();
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "leader_flat" })]);
+
+      market.leaderPositions = [{ coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" }];
+      await store([fill({ coin: "ETH", side: "B", sz: 1, px: 4_000, start: 5, time: Date.now() + 1_000 })]);
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "leader_trading" })]);
+      await run();
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "already_positioned" })]);
+      expect((await orders(id)).filter((o) => o.leg === "adopt")).toHaveLength(1);
+
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "pause" }).expect(200);
+      expect(await repair()).toEqual([]);
+      await db.update(copyOrders).set({ reason: "symbol_blocked" }).where(eq(copyOrders.leg, "adopt"));
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(200);
+      expect(await repair()).toEqual([]);
+    });
+
+    it("a repair the risk policy refuses is recorded with that reason and not tried again", async () => {
+      await policies.put({ limits: { blockedCoins: ["ETH"] }, reason: "test blocklist", expectedVersion: 0 }, admin);
+      const id = await broken();
+      market.leaderPositions = [{ coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" }];
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "ordered", orderStatus: "rejected", orderReason: "symbol_blocked" })]);
+      expect(await repair()).toEqual([expect.objectContaining({ outcome: "already_repaired" })]);
+      expect(await orders(id)).toHaveLength(2);
     });
   });
 

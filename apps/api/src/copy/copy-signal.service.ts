@@ -5,7 +5,7 @@ import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { CopyMarketService, type AssetInfo, type Mids } from "./copy-market.service.js";
 import { followerSign, legsOf, openNotional, reduceSize, type LeaderFill, type SignalLeg } from "./copy-math.js";
-import { CopyOrderPlanner, strategyValue } from "./copy-planner.service.js";
+import { CopyOrderPlanner, marketDataGap, strategyValue } from "./copy-planner.service.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OutboxRow } from "./copy.repository.js";
 
@@ -15,8 +15,11 @@ export const SIGNAL_BATCH = 200;
 export const MAX_SIGNAL_ATTEMPTS = 8;
 
 export interface DrainResult {
+  /** Outbox rows finished this pass. */
   processed: number;
   orders: number;
+  /** Rows kept pending because an open couldn't be priced yet. */
+  deferred?: number;
 }
 
 function toLeaderFill(f: HlUserFill): LeaderFill {
@@ -52,6 +55,14 @@ function groupLegs(legs: SignalLeg[]): Group[] {
  * arrival order does not change what a leg means. A late open that a newer
  * processed fill of the same coin supersedes is skipped; late reductions
  * still apply. Only fills after a strategy's activation cursor count.
+ *
+ * Market data that failed to load (mids or the universe: a Hyperliquid
+ * timeout, a starved budget) is not a reason to reject. In such a pass
+ * reductions are still placed (they need no price to be approved); an open
+ * is left unclaimed and its outbox row stays pending with a short backoff,
+ * so the next pass decides it with real prices. The wait is bounded by the
+ * policy's maxSignalAgeSeconds: an open older than that is rejected as
+ * `stale_signal`, with or without data.
  */
 @Injectable()
 export class CopySignalService {
@@ -83,14 +94,23 @@ export class CopySignalService {
         if (claimed.length === 0) return { processed: 0, orders: 0 };
         const policy = await this.policies.current(tx);
         let orders = 0;
+        /** Outbox rows that stay pending, with the read they wait for. */
+        const waiting = new Map<bigint, string>();
         const byAddress = new Map<string, OutboxRow[]>();
         for (const row of claimed) byAddress.set(row.address, [...(byAddress.get(row.address) ?? []), row]);
         for (const [address, rows] of byAddress) {
-          orders += await this.processLeader(tx, address, rows, { mids, assets, policy, leaderEquity: leaderEquity.get(address) ?? null });
+          const r = await this.processLeader(tx, address, rows, { mids, assets, policy, leaderEquity: leaderEquity.get(address) ?? null });
+          orders += r.orders;
+          for (const row of rows) if (r.deferred.has(row.tid)) waiting.set(row.id, r.deferred.get(row.tid)!);
         }
-        await this.repository.markOutboxDone(tx, claimed.map((r) => r.id));
-        await this.repository.advanceCheckpoint(tx, claimed.length);
-        return { processed: claimed.length, orders };
+        const done = claimed.filter((r) => !waiting.has(r.id)).map((r) => r.id);
+        await this.repository.markOutboxDone(tx, done);
+        for (const gap of new Set(waiting.values())) {
+          await this.repository.deferOutbox(tx, [...waiting].filter(([, g]) => g === gap).map(([id]) => id), `market_data_unavailable:${gap}`);
+        }
+        await this.repository.advanceCheckpoint(tx, done.length);
+        if (waiting.size) this.logger.warn(`${waiting.size} copy signals wait for market data (${[...new Set(waiting.values())].join(", ")})`);
+        return waiting.size ? { processed: done.length, orders, deferred: waiting.size } : { processed: done.length, orders };
       });
     } catch (error) {
       const message = (error as Error).message;
@@ -105,7 +125,9 @@ export class CopySignalService {
     address: string,
     rows: OutboxRow[],
     ctx: { mids: Mids | null; assets: Map<string, AssetInfo> | null; policy: PolicyRead; leaderEquity: number | null },
-  ): Promise<number> {
+  ): Promise<{ orders: number; deferred: Map<bigint, string> }> {
+    /** Fill tids with an open that waits for market data, and for which read. */
+    const deferred = new Map<bigint, string>();
     const raw = await this.repository.leaderFills(tx, address, rows.map((r) => r.tid));
     if (raw.length < rows.length) this.logger.warn(`${rows.length - raw.length} outbox fills of ${address} are not stored; skipped`);
     const fills = raw.map(toLeaderFill).sort((a, b) => a.time - b.time || (a.tid < b.tid ? -1 : a.tid > b.tid ? 1 : 0));
@@ -159,6 +181,14 @@ export class CopySignalService {
             await this.repository.resolveLegs(tx, strategy.id, refs, "opposite_position", null);
             continue;
           }
+          const age = (Date.now() - last.time) / 1000;
+          const gap = strategy.status === "active" && !ctx.policy.invalid ? marketDataGap(ctx.mids, ctx.assets, g.coin) : null;
+          if (gap && age <= ctx.policy.limits.maxSignalAgeSeconds) {
+            // Not decidable yet: give the legs back so the retry sees them as new.
+            await this.repository.releaseLegs(tx, strategy.id, refs);
+            for (const tid of tids) deferred.set(tid, gap);
+            continue;
+          }
           const positions = await this.repository.positionsOf([strategy.id], tx);
           const value = strategyValue(strategy, positions, ctx.mids);
           const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: sizeSum * signalPx, strategyEquity: value.equity ?? 0, leaderEquity: ctx.leaderEquity });
@@ -166,7 +196,16 @@ export class CopySignalService {
             strategy, settings, policy: ctx.policy, controls: { platform: controls.platform, user: controls.user }, mids: ctx.mids, assets: ctx.assets,
             coin: g.coin, leg: "open", side: fSign > 0 ? "B" : "A", notional: notional ?? 0,
             signalPx, signalTime: new Date(last.time), signalTids: tids, dedupeKey,
-            rejectReason: ctx.policy.invalid ? "risk_policy_invalid" : notional === null ? (settings.sizingMode === "ratio" ? "leader_equity_unknown" : "no_per_trade_amount") : undefined,
+            rejectReason:
+              ctx.policy.invalid ? "risk_policy_invalid" :
+              // The planner refuses a copy that isn't active, with that reason.
+              strategy.status !== "active" ? undefined :
+              // Waited for data past the signal-age limit: the same refusal as any late open.
+              gap ? "stale_signal" :
+              notional !== null ? undefined :
+              settings.sizingMode !== "ratio" ? "no_per_trade_amount" :
+              // The mids were read and an open position has none: not the leader's equity.
+              value.equity === null ? "no_price" : "leader_equity_unknown",
           });
           await this.repository.resolveLegs(tx, strategy.id, refs, order ? (order.status === "rejected" ? `rejected:${order.reason}` : "ordered") : "none", order?.id ?? null);
           if (order) orders += 1;
@@ -189,6 +228,6 @@ export class CopySignalService {
         if (order) orders += 1;
       }
     }
-    return orders;
+    return { orders, deferred };
   }
 }

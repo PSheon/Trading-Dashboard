@@ -276,7 +276,7 @@ dev 可以合併後執行 `pnpm db:generate`，會產生下列建表（測試資
 | 路由 | 內容 | Hyperliquid 權重 | 快取 |
 | --- | --- | --- | --- |
 | `GET /me/copy` | 模擬帳戶（可用、已投入、總值、總損益）、限額、平台／個人停止狀態、每筆跟單（設定、部位、損益、ROI、曝險） | 有部位時 `allMids` 2 | mids 全站共用 3 秒；其餘直接讀 DB |
-| `POST /me/copy/strategies` | 開始跟單（201）；409 `already_copying`／`insufficient_balance`／`below_min_allocation`／`above_max_allocation`／`strategy_limit`／`copy_paused`；503 `leader_unavailable`／`copy_disabled` | 跟單目前持倉開啟時 `clearinghouseState` 2（＋`allMids` 2、`metaAndAssetCtxs` 20 若未快取） | 交易者權益 60 秒；universe 1 小時 |
+| `POST /me/copy/strategies` | 開始跟單（201）；409 `already_copying`／`insufficient_balance`／`below_min_allocation`／`above_max_allocation`／`strategy_limit`／`copy_paused`；503 `leader_unavailable`（交易者持倉，或有持倉要跟時的 mids／universe 讀不到：不建立任何東西，請重試）／`copy_disabled` | 跟單目前持倉開啟時 `clearinghouseState` 2（＋`allMids` 2、`metaAndAssetCtxs` 20 若未快取） | 交易者權益 60 秒；universe 1 小時 |
 | `PATCH /me/copy/strategies/:id` | 編輯設定＝新版本 | 0（有部位時 mids 2） | — |
 | `POST /me/copy/strategies/:id/funds` | 加碼 | 同上 | — |
 | `POST /me/copy/strategies/:id/commands` | `pause`／`resume`／`reduce_only`／`cancel_pending`／`close_positions`／`stop` | 平倉時 mids 2 | — |

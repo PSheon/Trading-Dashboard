@@ -228,6 +228,25 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
     expect(await repository.nextBackfill()).toBeUndefined();
   });
 
+  it("does not claim a range upstream pruned while the backfill was running", async () => {
+    const now = Date.now();
+    const retained = now - 20 * DAY;
+    upstream = roundTrips("BTC", 400, retained, now - 2 * HOUR);
+    const sync = service();
+    await sync.catchUp(A);
+    await sync.backfillStep(A);
+    expect((await coverage()).backfillFloor.getTime()).toBe(retained);
+    // The retention window moves on: the oldest five days are gone before the backfill reaches them.
+    upstream = upstream.filter((f) => f.time >= retained + 5 * DAY);
+    const moved = upstream[0].time;
+    let status = "pending";
+    for (let step = 0; step < 40 && status === "pending"; step++) ({ status } = await sync.backfillStep(A));
+    expect(status).toBe("retention");
+    // The span starts where upstream starts now, not at the start read earlier.
+    expect((await coverage()).verifiedFrom!.getTime()).toBe(moved);
+    expect(new Set(await storedTids())).toEqual(new Set(upstream.map((f) => f.tid)));
+  });
+
   it("retries a window that is too dense with a shorter one and stores nothing from the failed attempt", async () => {
     const now = Date.now();
     await span(now - HOUR, now - 2 * 60_000, { backfillStatus: "pending", backfillFloor: new Date(now - 30 * DAY), backfillSpanMs: 6 * HOUR });

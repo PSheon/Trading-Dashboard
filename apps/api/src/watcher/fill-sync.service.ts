@@ -133,8 +133,8 @@ export class FillSyncService {
   /** When a sync last found TWAP slice fills for each address. */
   private readonly twapSeenAt = new Map<string, number>();
   private backfilling = false;
-  /** Addresses whose REST retention start this process has read for the running backfill. */
-  private readonly retentionProbed = new Set<string>();
+  /** Each endpoint's retention start, read when this process began an address's backfill. */
+  private readonly retention = new Map<string, { regular: number | null; twap: number | null }>();
 
   constructor(
     private readonly config: AppConfig,
@@ -269,20 +269,29 @@ export class FillSyncService {
     let floor = state.backfillFloor.getTime();
     // REST keeps a moving window of history, per endpoint. Nothing before
     // its start can be verified, so the span never claims it.
-    if (!this.retentionProbed.has(address)) {
-      const retained = await this.retentionStart(address, rank);
+    let probe = this.retention.get(address);
+    if (!probe) {
+      probe = await this.retentionStart(address, rank);
+      const retained = Math.max(probe.regular ?? 0, probe.twap ?? 0);
       if (retained > floor) {
         floor = Math.min(retained, end);
         await this.repository.patchCoverage(address, { backfillFloor: new Date(floor) });
       }
-      this.retentionProbed.add(address);
+      this.retention.set(address, probe);
     }
     const finish = async (status: "complete" | "capped" | "blocked") => {
       // Retention only moves forward: a window read earlier is certain
-      // only if the API still starts at or before it now.
-      this.retentionProbed.delete(address);
-      const retained = status === "blocked" ? 0 : await this.retentionStart(address, rank);
+      // only if each endpoint's history still reaches the span's start now.
+      // One narrow read per endpoint answers that; the full probe is
+      // repeated only when one no longer does.
+      this.retention.delete(address);
       const spanFrom = (await this.repository.coverage(address))?.verifiedFrom?.getTime() ?? end;
+      const reaches = async (twap: boolean, first: number | null) => first === null || (await this.earliestFill(address, twap, spanFrom, rank)) !== null;
+      let retained = 0;
+      if (status !== "blocked" && !((await reaches(false, probe.regular)) && (await reaches(true, probe.twap)))) {
+        const now = await this.retentionStart(address, rank);
+        retained = Math.max(now.regular ?? 0, now.twap ?? 0);
+      }
       const from = Math.max(retained, spanFrom);
       // Stopped short of the one-year floor because REST holds nothing older.
       const reached = retained > spanFrom || (status === "complete" && from > Date.now() - BACKFILL_LOOKBACK_MS + 86_400_000) ? "retention" : status;
@@ -325,13 +334,19 @@ export class FillSyncService {
     return { status: "pending", inserted: stored.inserted };
   }
 
-  /** Where the REST API's retained history starts for the address: the
-   * later of the two endpoints' earliest fill (0 when neither has any). */
-  private async retentionStart(address: string, rank?: number): Promise<number> {
-    const earliest = (batch: HlUserFill[]) => batch.reduce((min, fill) => Math.min(min, fill.time), Infinity);
-    const regular = earliest(await this.info.userFillsByTime(address, 0, undefined, "background", rank));
-    const twap = earliest((await this.info.userTwapSliceFillsByTime(address, 0, undefined, "background", rank)).map(twapSliceToFill));
-    return Math.max(Number.isFinite(regular) ? regular : 0, Number.isFinite(twap) ? twap : 0);
+  /** Time of the earliest fill an endpoint still returns up to `end`; null when it returns none. */
+  private async earliestFill(address: string, twap: boolean, end: number | undefined, rank?: number): Promise<number | null> {
+    const batch = twap
+      ? (await this.info.userTwapSliceFillsByTime(address, 0, end, "background", rank)).map(twapSliceToFill)
+      : await this.info.userFillsByTime(address, 0, end, "background", rank);
+    return batch.length === 0 ? null : batch.reduce((min, fill) => Math.min(min, fill.time), Infinity);
+  }
+
+  /** Where each endpoint's retained history starts for the address. REST
+   * keeps a moving window per endpoint, so the later of the two bounds
+   * what can be verified. */
+  private async retentionStart(address: string, rank?: number): Promise<{ regular: number | null; twap: number | null }> {
+    return { regular: await this.earliestFill(address, false, undefined, rank), twap: await this.earliestFill(address, true, undefined, rank) };
   }
 
   /** The scheduler's backfill turn: one window for the address that has waited longest. */

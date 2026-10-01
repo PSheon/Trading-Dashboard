@@ -124,7 +124,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
         />
       </div>
 
-      <div className="flex min-h-[596px] items-center justify-center bg-background bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-5">
+      <div className="flex min-h-[499px] items-center justify-center bg-background md:min-h-[596px] bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-5">
         <div className="relative w-full" style={{ maxWidth: format === "landscape" ? 640 : Math.min(480, (size.w / size.h) * 440) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img

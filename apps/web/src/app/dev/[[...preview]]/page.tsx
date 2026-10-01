@@ -11,7 +11,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/** The lab (design concepts and the Orbie-only extras) is a development
+ * tool: a production server answers 404 unless NEXT_DEV_LAB=1 is set on it. */
+function labEnabled(): boolean {
+  return process.env.NODE_ENV !== "production" || process.env.NEXT_DEV_LAB === "1";
+}
+
 export default async function DevPage({ params }: { params: Promise<{ preview?: string[] }> }) {
+  if (!labEnabled()) notFound();
   const { preview = [] } = await params;
   const [concept = "wealth", screen = "home"] = preview;
   if (preview.length > 2 || ![...concepts, ...previousConcepts].some((item) => item.id === concept) || !screenIds.includes(screen)) notFound();

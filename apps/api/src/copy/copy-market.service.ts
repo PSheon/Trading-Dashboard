@@ -26,14 +26,18 @@ export interface Mids {
 }
 
 /**
- * Hyperliquid reads for copy trading, through the shared budgeter at
- * background priority, each behind a TTL cache with in-flight dedupe.
- * Failures return null (the caller decides; nothing is priced at 0).
- *
- * `rank`: a user-facing read (starting or viewing a copy) passes a page rank
- * (`PAGE_RANK.profile`) so it queues as interactive page work. Without one,
- * the call is a plain background job behind the pool and cohort refreshes,
- * which at a full budget means a 20 s deadline and a 504 for the user.
+ * Copy trading mirrors a leader's fills, so its reads are time-critical:
+ * they use the budgeter's `live` lane, ahead of every background job (pool,
+ * cohort and fill backfills). As plain background calls they starved behind
+ * those jobs: the worker's tick hung on `allMids` and approved orders were
+ * never filled. The volume is small and bounded by the caches below.
+ */
+const LANE = "live" as const;
+
+/**
+ * Hyperliquid reads for copy trading, through the shared budgeter, each
+ * behind a TTL cache with in-flight dedupe. Failures return null (the caller
+ * decides; nothing is priced at 0).
  */
 @Injectable()
 export class CopyMarketService {
@@ -47,11 +51,11 @@ export class CopyMarketService {
   constructor(private readonly info: HyperliquidInfoClient) {}
 
   /** allMids, at most one request per {@link MIDS_TTL_MS}. */
-  async midPrices(rank?: number): Promise<Mids | null> {
+  async midPrices(): Promise<Mids | null> {
     if (this.mids && Date.now() - this.mids.at.getTime() < MIDS_TTL_MS) return this.mids;
     this.midsInflight ??= (async () => {
       try {
-        const raw = await this.info.allMids("background", rank);
+        const raw = await this.info.allMids(LANE);
         const px = new Map<string, number>();
         for (const [coin, v] of Object.entries(raw)) {
           const n = Number(v);
@@ -70,11 +74,11 @@ export class CopyMarketService {
   }
 
   /** Main-dex universe with funding, at most hourly. */
-  async assetInfo(rank?: number): Promise<Map<string, AssetInfo> | null> {
+  async assetInfo(): Promise<Map<string, AssetInfo> | null> {
     if (this.assets && Date.now() - this.assets.at < ASSETS_TTL_MS) return this.assets.byCoin;
     this.assetsInflight ??= (async () => {
       try {
-        const [meta, ctxs] = await this.info.metaAndAssetCtxs("background", rank);
+        const [meta, ctxs] = await this.info.metaAndAssetCtxs(LANE);
         const byCoin = new Map<string, AssetInfo>();
         meta.universe.forEach((a, i) => {
           const ctx = ctxs[i];
@@ -100,11 +104,11 @@ export class CopyMarketService {
   }
 
   /** The leader's perp account value, cached {@link LEADER_EQUITY_TTL_MS}. */
-  async leaderEquity(address: string, rank?: number): Promise<number | null> {
+  async leaderEquity(address: string): Promise<number | null> {
     const hit = this.equityCache.get(address);
     if (hit && Date.now() - hit.at < LEADER_EQUITY_TTL_MS) return hit.value;
     try {
-      const state = await this.info.clearinghouseState(address, undefined, "background", rank);
+      const state = await this.info.clearinghouseState(address, undefined, LANE);
       const value = Number(state.marginSummary.accountValue);
       const ok = Number.isFinite(value) && value > 0 ? value : null;
       this.equityCache.set(address, { at: Date.now(), value: ok });
@@ -116,8 +120,8 @@ export class CopyMarketService {
   }
 
   /** A fresh snapshot of the leader (adoption at activation). Throws on failure. */
-  async leaderSnapshot(address: string, rank?: number): Promise<HlClearinghouseStateResponse> {
-    const state = await this.info.clearinghouseState(address, undefined, "background", rank);
+  async leaderSnapshot(address: string): Promise<HlClearinghouseStateResponse> {
+    const state = await this.info.clearinghouseState(address, undefined, LANE);
     const value = Number(state.marginSummary.accountValue);
     if (Number.isFinite(value) && value > 0) this.equityCache.set(address, { at: Date.now(), value });
     return state;

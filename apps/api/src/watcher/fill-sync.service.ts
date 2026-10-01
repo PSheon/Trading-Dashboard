@@ -33,8 +33,10 @@ export const INDEX_LAG_MS = 60_000;
  * fills (analytics read a year; the cap bounds a market maker's cost). */
 export const BACKFILL_LOOKBACK_MS = 365 * 86_400_000;
 export const BACKFILL_MAX_FILLS = 50_000;
-/** Pages per endpoint in one backward window or targeted re-read. */
-export const BACKFILL_STEP_PAGES = 4;
+/** Most pages per endpoint in one backward window or targeted re-read.
+ * Windows aim at a page and a half; the headroom lets a busier one finish
+ * instead of being read for nothing. */
+export const BACKFILL_STEP_PAGES = 12;
 const MIN_SPAN_MS = 60_000;
 const MAX_SPAN_MS = 30 * 86_400_000;
 /** Position breaks re-read per continuity check. */
@@ -311,7 +313,9 @@ export class FillSyncService {
     }
     const fetched = [...regular.fills, ...twap.fills];
     const stored = await this.ingest(address, "backfill", fetched, rank);
-    const next = fetched.length === 0 ? span * 8 : Math.min(span * 8, (span * 1.5 * PAGE_SIZE) / fetched.length);
+    // An empty stretch is cheap to cross (two calls per window); a busy one
+    // grows gently, since a window that overshoots the step is read for nothing.
+    const next = fetched.length === 0 ? span * 8 : Math.min(span * 2, (span * 1.5 * PAGE_SIZE) / fetched.length);
     const done = start <= floor;
     await this.repository.extend(address, false, end, start, floor, {
       backfillSpanMs: Math.round(Math.max(MIN_SPAN_MS, Math.min(MAX_SPAN_MS, next))),
@@ -366,8 +370,8 @@ export class FillSyncService {
     let inserted = 0;
     const reread = new Set<number>();
     for (const hole of found.slice(0, MAX_REPAIRS_PER_CHECK)) {
-      const regular = await this.readRange(address, false, hole.after, hole.time, BACKFILL_STEP_PAGES * 3, rank);
-      const twap = await this.readRange(address, true, hole.after, hole.time, BACKFILL_STEP_PAGES * 3, rank);
+      const regular = await this.readRange(address, false, hole.after, hole.time, BACKFILL_STEP_PAGES, rank);
+      const twap = await this.readRange(address, true, hole.after, hole.time, BACKFILL_STEP_PAGES, rank);
       inserted += (await this.ingest(address, "backfill", [...regular.fills, ...twap.fills], rank)).inserted;
       reread.add(hole.tid);
     }

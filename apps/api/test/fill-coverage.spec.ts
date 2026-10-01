@@ -231,7 +231,8 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
   it("retries a window that is too dense with a shorter one and stores nothing from the failed attempt", async () => {
     const now = Date.now();
     await span(now - HOUR, now - 2 * 60_000, { backfillStatus: "pending", backfillFloor: new Date(now - 30 * DAY), backfillSpanMs: 6 * HOUR });
-    upstream = roundTrips("BTC", PAGE_SIZE * 3, now - 7 * HOUR, now - HOUR - 1000);
+    // More than a step may read (12 pages) inside the planned six hours.
+    upstream = roundTrips("BTC", PAGE_SIZE * 7, now - 7 * HOUR, now - HOUR - 1000);
     const sync = service();
     expect(await sync.backfillStep(A)).toEqual({ status: "pending", inserted: 0 });
     const row = await coverage();

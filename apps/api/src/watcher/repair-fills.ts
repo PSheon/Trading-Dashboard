@@ -158,6 +158,8 @@ export async function repairFills(options: RepairOptions) {
         entry.error = (error as Error).message;
         entry.after = await span(address);
       }
+      // The budgeter halves its rate on a real 429 and recovers slowly: visible here.
+      entry.budget = { effectivePerMin: budgeter.introspect().effectiveBudgetPerMin, minutes: Math.round((Date.now() - started) / 6_000) / 10 };
       report.watched.push(entry);
       log(`${address} ${JSON.stringify({ ...entry, address: undefined })}`);
     }

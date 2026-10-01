@@ -43,14 +43,14 @@ it("revisits already-processed addresses when a new catch-up arrives during a sw
   const barrier = new Promise<void>((resolve) => { release = resolve; });
   const sync = vi.fn(async (address: string) => {
     if (address === "b" && sync.mock.calls.length <= 2) await barrier;
-    return { inserted: 0 };
+    return { inserted: 0, complete: true };
   });
-  const watcher = new WatcherService(testConfig(), {} as TradeFeedService, { sync } as unknown as FillSyncService,
+  const watcher = new WatcherService(testConfig(), {} as TradeFeedService, { catchUp: sync } as unknown as FillSyncService,
     {} as AccountStateService, {} as import("../src/watcher/feed-actions.service.js").FeedActionsService, {} as WatcherRepository);
   vi.spyOn(watcher, "activeAddresses").mockResolvedValue(["a", "b"]);
-  const first = watcher.sweep(100);
+  const first = watcher.sweep();
   await new Promise((resolve) => setTimeout(resolve, 10));
-  const second = watcher.sweep(200);
+  const second = watcher.sweep();
   release(); await Promise.all([first, second]);
   expect(sync.mock.calls.filter(([address]) => address === "a")).toHaveLength(2);
 });

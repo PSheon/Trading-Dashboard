@@ -24,11 +24,9 @@ export const CONFIRM_RETRY_DELAYS_MS = [5_000, 15_000, 60_000];
  * times share the exchange clock, so this only needs to catch fills of the
  * same order that landed just before. */
 const CONFIRM_LOOKBACK_MS = 10_000;
-/** The hourly sweep re-reads this much history for every address, so any
- * fill the feed missed is stored within about an hour. */
-export const SWEEP_WINDOW_MS = 75 * 60_000;
-/** Gap catch-up starts this long before the socket went down. */
-const GAP_OVERLAP_MS = 60_000;
+/** Catch-up rounds per address in one sweep (each reads up to six pages
+ * per endpoint); a longer backlog continues in the next sweep. */
+const SWEEP_MAX_ROUNDS = 10;
 const WATCHED_REFRESH_MS = 15_000;
 const FEED_START_RETRY_MS = 30_000;
 
@@ -51,11 +49,13 @@ interface Expected {
  * real fills, corrects any action the fast path got wrong, and turns fills
  * the feed missed into actions.
  *
- * Nothing is lost if the feed is: a socket outage drops the position books
- * and triggers a catch-up sweep from when it went down, the process start
- * sweeps the last 75 minutes (covering a deploy), and `SchedulerService`
- * sweeps every address hourly. Storage dedupes fills, and an action covers
- * each fill once, so these overlaps cost weight, never duplicates.
+ * Nothing is lost if the feed is, or the process: a sweep reads each
+ * address from its verified cursor in `fill_coverage`, which only a
+ * completed read moves. A socket outage drops the position books and
+ * sweeps, the process start sweeps (covering any length of downtime), and
+ * `SchedulerService` sweeps every address hourly. Storage dedupes fills,
+ * and an action covers each fill once, so overlaps cost weight, never
+ * duplicates.
  *
  * The watch list is re-read from `leaders` every 15 s (A2: a new address is
  * watched within a minute; A3: a deactivated one is dropped).
@@ -88,7 +88,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   private running = false;
   private lastSweepAt: Date | null = null;
   private sweepFlight: Promise<{ addresses: number; inserted: number; failed: number }> | undefined;
-  private pendingSweepStart: number | undefined;
+  private sweepPending = false;
 
   constructor(
     private readonly config: AppConfig,
@@ -120,8 +120,8 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     this.watchedTimer = setInterval(() => void this.refreshWatched(), WATCHED_REFRESH_MS);
     await this.startFeed();
     if (!this.running || this.jobs.stopping) { this.feed.stop(); return; }
-    // Covers whatever happened while the process was down (e.g. a deploy).
-    void this.sweep(Date.now() - SWEEP_WINDOW_MS);
+    // Covers whatever happened while the process was down, however long.
+    void this.sweep();
   }
 
   stop(): void {
@@ -183,10 +183,10 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
   /** A socket was down: any address may have traded unseen, so every
    * position book is dropped (the next burst reads state afresh) and the
    * outage is swept. */
-  onGap(since: number): void {
+  onGap(_since: number): void {
     if (this.jobs.stopping) return;
     this.accounts.dropBooks();
-    void this.sweep(since - GAP_OVERLAP_MS);
+    void this.sweep();
   }
 
   /**
@@ -299,18 +299,17 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  /** Re-reads fills since `startTime` for every active address. */
-  async sweep(startTime: number): Promise<{ addresses: number; inserted: number; failed: number }> {
+  /** Catches every active address up from its verified cursor. */
+  async sweep(): Promise<{ addresses: number; inserted: number; failed: number }> {
     if (this.jobs.stopping) return { addresses: 0, inserted: 0, failed: 0 };
-    // Even a newer window may contain fills that arrived after an address
-    // was processed earlier in the active sweep. Retain a follow-up pass.
-    this.pendingSweepStart = Math.min(this.pendingSweepStart ?? Infinity, startTime);
+    // Fills may arrive after an address was processed earlier in the
+    // active sweep. Retain a follow-up pass.
+    this.sweepPending = true;
     this.sweepFlight ??= this.jobs.run(async () => {
       const total = { addresses: 0, inserted: 0, failed: 0 };
-      while (this.pendingSweepStart !== undefined && !this.jobs.stopping) {
-        const start = this.pendingSweepStart;
-        this.pendingSweepStart = undefined;
-        const result = await this.runSweep(start);
+      while (this.sweepPending && !this.jobs.stopping) {
+        this.sweepPending = false;
+        const result = await this.runSweep();
         total.addresses += result.addresses; total.inserted += result.inserted; total.failed += result.failed;
       }
       return total;
@@ -318,7 +317,7 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     return this.sweepFlight;
   }
 
-  private async runSweep(startTime: number): Promise<{ addresses: number; inserted: number; failed: number }> {
+  private async runSweep(): Promise<{ addresses: number; inserted: number; failed: number }> {
     let addresses: string[];
     try {
       addresses = await this.activeAddresses();
@@ -331,11 +330,15 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     let failed = 0;
     await forEachConcurrent(addresses, 4, async (address) => {
         try {
-          // Await first: `x += await f()` reads x before awaiting, so
-          // concurrent sweeps would overwrite each other's counts.
-          const result = await this.fillSync.sync(address, "sweep", startTime);
-          inserted += result.inserted;
+          for (let round = 0; round < SWEEP_MAX_ROUNDS && !this.jobs.stopping; round++) {
+            // Await first: `x += await f()` reads x before awaiting, so
+            // concurrent sweeps would overwrite each other's counts.
+            const result = await this.fillSync.catchUp(address);
+            inserted += result.inserted;
+            if (result.complete) break;
+          }
         } catch (error) {
+          // The cursor did not move: the next sweep reads from the same place.
           failed += 1;
           this.logger.warn(`Sweep failed for ${address}: ${(error as Error).message}`);
         }

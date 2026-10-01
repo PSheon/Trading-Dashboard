@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gte, sql } from "drizzle-orm";
-import { actions, fills } from "@trading-dashboard/shared/database";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { actions, fillCoverage, fills, leaders, type FillCoverageBreak } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -13,6 +13,8 @@ import { toFillRow } from "./fill-row.js";
 import { enqueueCopySignals, lockCopyLeader } from "../copy/copy-outbox.js";
 
 export type { ActionRow } from "./action-store.js";
+export type FillCoverageRow = typeof fillCoverage.$inferSelect;
+const covered = (address: string) => and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.address, address));
 
 /** Raw fills may commit before derivation; replay under the shared action lock repairs gaps. */
 @Injectable()
@@ -80,4 +82,78 @@ export class FillSyncRepository {
     const { leverage: _leverage, ...shape } = draftToRow(address, draft);
     return tx.update(actions).set(shape).where(eq(actions.id, id)).returning();
   }
+
+  // --- coverage: the span of `fills` proven complete ------------------------
+
+  async coverage(address: string): Promise<FillCoverageRow | undefined> {
+    return (await this.db.select().from(fillCoverage).where(covered(address)))[0];
+  }
+
+  /**
+   * Grows the verified span after a completed read. Compare-and-set on the
+   * edge being moved: a concurrent writer (a second process, the repair
+   * command) that already moved it makes this a no-op, never a regression.
+   * `forward` moves `verified_through` from `expected` to `to` (creating
+   * the row, with the span starting at `expected`, when there is none);
+   * otherwise `verified_from` moves back from `expected` to `to`.
+   */
+  async extend(address: string, forward: boolean, expected: number, to: number, floor: number, patch: Partial<Pick<FillCoverageRow, "backfillStatus" | "backfillSpanMs" | "revisedAt">> = {}): Promise<boolean> {
+    const now = new Date();
+    if (forward) {
+      const rows = await this.db.insert(fillCoverage)
+        .values({ address, verifiedFrom: new Date(expected), verifiedThrough: new Date(to), backfillFloor: new Date(floor), ...patch })
+        .onConflictDoUpdate({
+          target: [fillCoverage.chain, fillCoverage.address],
+          set: { verifiedThrough: new Date(to), lastError: null, updatedAt: now, ...patch },
+          setWhere: eq(fillCoverage.verifiedThrough, new Date(expected)),
+        }).returning({ address: fillCoverage.address });
+      return rows.length > 0;
+    }
+    const rows = await this.db.update(fillCoverage)
+      .set({ verifiedFrom: new Date(to), lastError: null, updatedAt: now, ...patch })
+      .where(and(covered(address), eq(fillCoverage.verifiedFrom, new Date(expected))))
+      .returning({ address: fillCoverage.address });
+    return rows.length > 0;
+  }
+
+  async patchCoverage(address: string, patch: Partial<Pick<FillCoverageRow, "verifiedFrom" | "backfillFloor" | "backfillStatus" | "backfillSpanMs" | "revisedAt" | "checkedThrough" | "breaks" | "lastError" | "failedAt">>): Promise<void> {
+    await this.db.update(fillCoverage).set({ ...patch, updatedAt: new Date() }).where(covered(address));
+  }
+
+  /** The least recently touched active address whose backward backfill is unfinished. */
+  async nextBackfill(): Promise<string | undefined> {
+    const [row] = await this.db.select({ address: fillCoverage.address }).from(fillCoverage)
+      .innerJoin(leaders, and(eq(leaders.chain, fillCoverage.chain), eq(leaders.address, fillCoverage.address), eq(leaders.active, true)))
+      .where(and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.backfillStatus, "pending")))
+      .orderBy(asc(fillCoverage.updatedAt)).limit(1);
+    return row?.address;
+  }
+
+  async countFillsSince(address: string, since: Date): Promise<number> {
+    const [row] = await this.db.select({ n: sql<number>`count(*)::int` }).from(fills)
+      .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), gte(fills.ts, since)));
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Stored fills in `[from, through]` as Hyperliquid sent them, preceded
+   * (when `from` is after `spanFrom`) by each coin's last stored
+   * millisecond of fills inside `[spanFrom, from)`, so a continuity check
+   * of the window starts every coin from its known position.
+   */
+  async fillsForCheck(address: string, spanFrom: Date, from: Date, through: Date): Promise<HlUserFill[]> {
+    const mine = and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address));
+    const window = await this.db.select({ raw: fills.raw }).from(fills).where(and(mine, gte(fills.ts, from), lte(fills.ts, through)));
+    const seeds = from > spanFrom
+      ? await this.db.execute<{ raw: HlUserFill }>(sql`
+          SELECT f.raw FROM ${fills} f JOIN (
+            SELECT coin, max(ts) AS ts FROM ${fills}
+            WHERE chain = ${CHAIN_DEFAULT} AND address = ${address} AND ts >= ${spanFrom.toISOString()}::timestamptz AND ts < ${from.toISOString()}::timestamptz GROUP BY coin
+          ) last ON last.coin = f.coin AND last.ts = f.ts
+          WHERE f.chain = ${CHAIN_DEFAULT} AND f.address = ${address}`)
+      : { rows: [] as Array<{ raw: HlUserFill }> };
+    return [...seeds.rows.map((r) => r.raw), ...window.map((r) => r.raw as unknown as HlUserFill)];
+  }
 }
+
+export type { FillCoverageBreak };

@@ -10,7 +10,7 @@ import { NotifyService } from "../notify/notify.service.js";
 import { AccountStateService, MAIN_DEX, type AccountState } from "../watcher/account-state.service.js";
 import { FillSyncService } from "../watcher/fill-sync.service.js";
 import { TradeFeedService } from "../watcher/trade-feed.service.js";
-import { SWEEP_WINDOW_MS, WatcherService } from "../watcher/watcher.service.js";
+import { WatcherService } from "../watcher/watcher.service.js";
 
 /** §8: feed down this long → Telegram self-alert. */
 const FEED_DOWN_ALERT_MS = 10 * 60_000;
@@ -22,8 +22,10 @@ const RECONCILE_OVERLAP_MS = 60_000;
  *   dex it uses → `position_snapshots` / `equity_snapshots`, and
  *   reconciliation: a position that changed with no stored fill since the
  *   previous snapshot triggers a fill sync;
- * - hourly: sweep every address's last 75 minutes of fills, and subscribe to
+ * - hourly: sweep every address from its verified cursor, and subscribe to
  *   newly listed markets;
+ * - every minute: one backward backfill window for an address whose stored
+ *   history has not reached its floor yet;
  * - every minute: §8 self-alert when the trade feed has been down 10 min.
  */
 @Injectable()
@@ -92,8 +94,27 @@ export class SchedulerService {
     } catch (error) {
       this.logger.error(`Market refresh failed: ${(error as Error).message}`);
     }
-    const result = await this.watcher.sweep(Date.now() - SWEEP_WINDOW_MS);
+    const result = await this.watcher.sweep();
     this.logger.log(`Hourly sweep: ${result.addresses} addresses, ${result.inserted} new fills, ${result.failed} failed`);
+  }
+
+  /** Between the hourly sweeps: keeps every verified cursor, and with it
+   * the figures of watched traders, at most a quarter of an hour behind. */
+  @Cron("0 15,30,45 * * * *")
+  async catchUp(): Promise<void> {
+    if (this.jobs.stopping) return;
+    await this.watcher.sweep();
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async backfillTick(): Promise<void> {
+    if (this.jobs.stopping) return;
+    try {
+      await this.fillSync.backfillTick();
+    } catch (error) {
+      // Progress is in fill_coverage; the next minute retries the same window.
+      this.logger.warn(`Backfill window failed: ${(error as Error).message}`);
+    }
   }
 
   @Cron(CronExpression.EVERY_MINUTE)

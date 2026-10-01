@@ -52,9 +52,18 @@ it('coalesces overlapping ticks and uses historical mode without live alert admi
     expect.objectContaining({ id: 1 }),
     12,
   );
-  const sync = { sync: vi.fn().mockResolvedValue({ fetched: 12 }) };
-  await new BackfillService(config('worker'), sync as never).run('0xabc');
-  expect(sync.sync).toHaveBeenCalledWith('0xabc', 'backfill', 0);
+  const sync = {
+    backfillStep: vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'pending', inserted: 7 })
+      .mockResolvedValue({ status: 'complete', inserted: 5 }),
+  };
+  // Newest first, window by window, until the history's floor is reached.
+  expect(
+    await new BackfillService(config('worker'), sync as never).run('0xabc'),
+  ).toBe(12);
+  expect(sync.backfillStep).toHaveBeenCalledTimes(2);
+  expect(sync.backfillStep).toHaveBeenCalledWith('0xabc');
 });
 it('does not warm a worker-local cache that API requests cannot use', () => {
   const ingest = { start: vi.fn() },

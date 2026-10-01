@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { wireTraderAnalyticsSchema, wireTraderTradesSchema } from "@trading-dashboard/shared/contracts";
-import { analysisHistoryFills, archiveCoverage, fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
+import { analysisHistoryFills, archiveCoverage, fillCoverage, fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -391,6 +391,8 @@ describe("trade analytics for any address", () => {
   it("rebuilds a tracked address from our fills table without reading Hyperliquid's fills", async () => {
     tracked.add(TRACKED);
     await db.insert(fills).values(history.map((f) => toFillRow(TRACKED, f)));
+    // The watcher has verified the whole stored range and finished its backfill.
+    await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(60)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(60)), backfillStatus: "complete" });
     await service.compute(TRACKED, true);
     expect(info.userFillsByTime).not.toHaveBeenCalled();
     expect(traders.latestFills).not.toHaveBeenCalled();
@@ -447,6 +449,8 @@ describe("trade analytics for any address", () => {
     const opening = fill("BTC", 0, 2, 100, T(50));
     const ours = fill("BTC", 2, -2, 120, T(5), { closedPnl: "40" });
     await db.insert(fills).values(toFillRow(TRACKED, ours));
+    // REST no longer retains anything before T(10); the archive does.
+    await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(10)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(10)), backfillStatus: "retention" });
     await db.insert(archiveCoverage).values({ address: TRACKED, coveredFrom: new Date(hour(100)), coveredThrough: new Date(hour(8)) });
     await db.insert(analysisHistoryFills).values({ address: TRACKED, source: "regular", tid: BigInt(opening.tid), time: new Date(opening.time), raw: opening as unknown as Record<string, unknown>, origin: "s3" });
     const archive = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient);

@@ -28,6 +28,7 @@ const ok = (missing: bigint[] = [], latestFillTime: number | null = null): SyncR
 describe("WatcherService", () => {
   const db = getTestDb();
   let sync: ReturnType<typeof vi.fn>;
+  let catchUp: ReturnType<typeof vi.fn>;
   let fastPath: ReturnType<typeof vi.fn>;
   let dropBooks: ReturnType<typeof vi.fn>;
   let feed: { setWatched: ReturnType<typeof vi.fn>; status: () => unknown; stop: () => void };
@@ -38,12 +39,13 @@ describe("WatcherService", () => {
   beforeEach(async () => {
     await truncateAll(db);
     sync = vi.fn(async () => ok());
+    catchUp = vi.fn(async () => ({ inserted: 1, actions: 0, complete: true, through: 0 }));
     fastPath = vi.fn(async () => 1);
     dropBooks = vi.fn();
     feed = { setWatched: vi.fn(), status: () => ({}), stop: () => {} };
     watcher = new WatcherService(testConfig(),
       feed as unknown as TradeFeedService,
-      { sync, getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
+      { sync, catchUp, getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
       { getEquityUsd: () => null, dropBooks } as unknown as AccountStateService,
       { process: fastPath } as unknown as FeedActionsService,
       new WatcherRepository(db),
@@ -185,7 +187,7 @@ describe("WatcherService", () => {
   it("drops the position books and sweeps after a feed gap", async () => {
     await db.insert(leaders).values([{ chain: "hyperliquid", address: "0xa", active: true, tier: "B" }]);
     watcher.onGap(T0);
-    await vi.waitFor(() => expect(sync).toHaveBeenCalledWith("0xa", "sweep", T0 - 60_000));
+    await vi.waitFor(() => expect(catchUp).toHaveBeenCalledWith("0xa"));
     expect(dropBooks).toHaveBeenCalledTimes(1);
   });
 
@@ -198,9 +200,10 @@ describe("WatcherService", () => {
     await watcher.refreshWatched();
     expect([...feed.setWatched.mock.calls[0][0]].sort()).toEqual(["0xa", "0xc"]);
 
-    const result = await watcher.sweep(T0);
+    const result = await watcher.sweep();
     expect(result).toEqual({ addresses: 2, inserted: 2, failed: 0 });
-    expect(sync.mock.calls.map((c) => `${c[0]}:${c[1]}:${c[2]}`).sort()).toEqual([`0xa:sweep:${T0}`, `0xc:sweep:${T0}`]);
+    // From each address's own verified cursor, not a fixed window.
+    expect(catchUp.mock.calls.map((c) => c[0]).sort()).toEqual(["0xa", "0xc"]);
     expect(watcher.getHeartbeat().lastSweepAt).not.toBeNull();
   });
 });

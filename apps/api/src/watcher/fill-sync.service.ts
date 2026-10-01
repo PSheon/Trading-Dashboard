@@ -9,9 +9,10 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { AccountStateService, dexOf } from "./account-state.service.js";
 import { classifyFills, isOutOfScopeSpotFill } from "./action-classifier.js";
+import { positionBreaks } from "../analytics/fill-integrity.js";
 import { ACTION_CORRECTED_EVENT, type ActionCorrectedEvent } from "./action-created.event.js";
 import { emitRecent } from "./action-store.js";
-import { FillSyncRepository, type ActionRow } from "./fill-sync.repository.js";
+import { FillSyncRepository, type ActionRow, type FillCoverageBreak } from "./fill-sync.repository.js";
 
 /** Hyperliquid's per-call cap on `userFillsByTime` (and TWAP slice) rows. */
 export const PAGE_SIZE = 2000;
@@ -21,6 +22,33 @@ const MAX_PAGES = 6;
 /** An address that used a TWAP this recently gets its slices read by the
  * hourly sweep too. */
 export const TWAP_ACTIVE_MS = 48 * 3_600_000;
+
+/** An address with no verified span yet starts this far back (what the
+ * start-up sweep used to re-read for everyone). */
+export const INITIAL_LOOKBACK_MS = 75 * 60_000;
+/** A completed read certifies fills only up to this long before it was
+ * sent: the fill index trails the exchange by seconds (p90 1.5 s). */
+export const INDEX_LAG_MS = 60_000;
+/** Backward backfill stops at this age, or once the span holds this many
+ * fills (analytics read a year; the cap bounds a market maker's cost). */
+export const BACKFILL_LOOKBACK_MS = 365 * 86_400_000;
+export const BACKFILL_MAX_FILLS = 50_000;
+/** Pages per endpoint in one backward window or targeted re-read. */
+export const BACKFILL_STEP_PAGES = 4;
+const MIN_SPAN_MS = 60_000;
+const MAX_SPAN_MS = 30 * 86_400_000;
+/** Position breaks re-read per continuity check. */
+const MAX_REPAIRS_PER_CHECK = 25;
+/** Emitted when history inside an address's verified span changed. */
+export const FILLS_REVISED_EVENT = "fills.revised";
+
+interface RangeRead {
+  fills: HlUserFill[];
+  /** A short page ended the read: everything in the range was returned. */
+  complete: boolean;
+  /** When not complete, the last millisecond the pages hold in full. */
+  through: number;
+}
 
 /** Reads time-ascending pages from `startTime` until a short page. */
 async function readPages(
@@ -62,6 +90,15 @@ export interface FastPathStats {
   corrected: number;
 }
 
+export interface CatchUpResult {
+  inserted: number;
+  actions: number;
+  /** False when the read stopped at the page cap: call again. */
+  complete: boolean;
+  /** The verified span's end after this read. */
+  through: number;
+}
+
 export interface SyncResult {
   fetched: number;
   inserted: number;
@@ -93,6 +130,9 @@ export class FillSyncService {
   private readonly fastPath: FastPathStats = { verified: 0, corrected: 0 };
   /** When a sync last found TWAP slice fills for each address. */
   private readonly twapSeenAt = new Map<string, number>();
+  private backfilling = false;
+  /** Addresses whose REST retention start this process has read for the running backfill. */
+  private readonly retentionProbed = new Set<string>();
 
   constructor(
     private readonly config: AppConfig,
@@ -123,8 +163,12 @@ export class FillSyncService {
   ): Promise<SyncResult> {
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     if (reason === "backfill") return this.jobs.run(() => this.run(address, reason, startTime, expectTids, rank));
+    return this.chained(address, () => this.run(address, reason, startTime, expectTids, rank));
+  }
+
+  private chained<T>(address: string, work: () => Promise<T>): Promise<T> {
     const previous = this.chains.get(address) ?? Promise.resolve();
-    const next = this.jobs.run(() => previous.catch(() => undefined).then(() => this.run(address, reason, startTime, expectTids, rank)));
+    const next = this.jobs.run(() => previous.catch(() => undefined).then(work));
     this.chains.set(address, next);
     // `.finally()` returns a promise that rejects when `next` does; the
     // caller handles `next`, so swallow this copy or Node exits on an
@@ -135,6 +179,207 @@ export class FillSyncService {
       })
       .catch(() => undefined);
     return next;
+  }
+
+  // --- verified coverage -------------------------------------------------------
+
+  coverage(address: string) {
+    return this.repository.coverage(address);
+  }
+
+  private async readRange(address: string, twap: boolean, start: number, end: number | undefined, maxPages: number, rank?: number): Promise<RangeRead> {
+    const byTid = new Map<number, HlUserFill>();
+    let cursor = Math.max(0, Math.floor(start));
+    for (let page = 0; page < maxPages; page++) {
+      const batch = twap
+        ? (await this.info.userTwapSliceFillsByTime(address, cursor, end, "background", rank)).map(twapSliceToFill)
+        : await this.info.userFillsByTime(address, cursor, end, "background", rank);
+      for (const fill of batch) byTid.set(fill.tid, fill);
+      if (batch.length < PAGE_SIZE) return { fills: [...byTid.values()], complete: true, through: end ?? Infinity };
+      const last = batch.reduce((max, fill) => Math.max(max, fill.time), cursor);
+      // A millisecond holding a whole page cannot be paged through.
+      if (last <= cursor) break;
+      cursor = last;
+    }
+    return { fills: [...byTid.values()], complete: false, through: cursor - 1 };
+  }
+
+  private async ingest(address: string, reason: SyncReason, batch: HlUserFill[], rank?: number): Promise<{ inserted: number; actions: number }> {
+    const fresh = await this.store(address, batch);
+    const candidates = [...new Map(batch.filter((f) => !isOutOfScopeSpotFill(f)).map((f) => [BigInt(f.tid), f])).values()];
+    const actions = candidates.length > 0 ? await this.createActions(address, reason, candidates, new Set(fresh.map((f) => BigInt(f.tid))), rank) : 0;
+    return { inserted: fresh.length, actions };
+  }
+
+  private async failed(address: string): Promise<void> {
+    await this.repository.patchCoverage(address, { lastError: "upstream_unavailable", failedAt: new Date() }).catch(() => undefined);
+  }
+
+  /**
+   * Reads both fill endpoints from the address's verified cursor (not from
+   * a fixed window) and moves the cursor only over what a completed read
+   * returned. A failure, a restart or any length of downtime leaves the
+   * cursor where it was, so the next call resumes there and no fill is
+   * skipped. Runs in the address's sync chain.
+   */
+  catchUp(address: string, rank?: number): Promise<CatchUpResult> {
+    if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
+    return this.chained(address, async () => {
+      const state = await this.repository.coverage(address);
+      const requestedAt = Date.now();
+      const start = state?.verifiedThrough?.getTime() ?? requestedAt - INITIAL_LOOKBACK_MS;
+      let regular: RangeRead;
+      let twap: RangeRead;
+      try {
+        regular = await this.readRange(address, false, start, undefined, MAX_PAGES, rank);
+        twap = await this.readRange(address, true, start, undefined, MAX_PAGES, rank);
+      } catch (error) {
+        await this.failed(address);
+        throw error;
+      }
+      if (twap.fills.length > 0) this.twapSeenAt.set(address, Date.now());
+      const stored = await this.ingest(address, "sweep", [...regular.fills, ...twap.fills], rank);
+      const horizon = requestedAt - INDEX_LAG_MS;
+      const through = Math.min(regular.complete ? horizon : regular.through, twap.complete ? horizon : twap.through);
+      if (through > start) {
+        await this.repository.extend(address, true, start, through, requestedAt - BACKFILL_LOOKBACK_MS);
+        await this.checkContinuity(address, false, rank).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
+      }
+      return { ...stored, complete: regular.complete && twap.complete, through: Math.max(through, start) };
+    });
+  }
+
+  /**
+   * One backward window: every fill of both endpoints in `[verified_from −
+   * span, verified_from]`, stored, then the span's start moves back. The
+   * window is sized from the density just read; one too dense for a step
+   * is retried shorter and stores nothing, so the span never has a hole.
+   */
+  async backfillStep(address: string, rank?: number): Promise<{ status: string; inserted: number }> {
+    let state = await this.repository.coverage(address);
+    if (!state?.verifiedFrom) {
+      await this.catchUp(address, rank);
+      state = await this.repository.coverage(address);
+    }
+    if (!state?.verifiedFrom) throw new Error("No verified span");
+    if (state.backfillStatus !== "pending") return { status: state.backfillStatus, inserted: 0 };
+    const end = state.verifiedFrom.getTime();
+    let floor = state.backfillFloor.getTime();
+    // REST keeps a moving window of history, per endpoint. Nothing before
+    // its start can be verified, so the span never claims it.
+    if (!this.retentionProbed.has(address)) {
+      const retained = await this.retentionStart(address, rank);
+      if (retained > floor) {
+        floor = Math.min(retained, end);
+        await this.repository.patchCoverage(address, { backfillFloor: new Date(floor) });
+      }
+      this.retentionProbed.add(address);
+    }
+    const finish = async (status: "complete" | "capped" | "blocked") => {
+      // Retention only moves forward: a window read earlier is certain
+      // only if the API still starts at or before it now.
+      this.retentionProbed.delete(address);
+      const retained = status === "complete" ? await this.retentionStart(address, rank) : 0;
+      const from = Math.max(retained, (await this.repository.coverage(address))?.verifiedFrom?.getTime() ?? end);
+      const reached = status === "complete" && from > Date.now() - BACKFILL_LOOKBACK_MS + 86_400_000 ? "retention" : status;
+      await this.repository.patchCoverage(address, { verifiedFrom: new Date(from), backfillStatus: reached, revisedAt: new Date() });
+      await this.checkContinuity(address, true, rank).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
+      this.events?.emit(FILLS_REVISED_EVENT, { address });
+      return { status: reached, inserted: 0 };
+    };
+    if (end <= floor) return finish("complete");
+    if ((await this.repository.countFillsSince(address, state.verifiedFrom)) >= BACKFILL_MAX_FILLS) return finish("capped");
+
+    const span = state.backfillSpanMs;
+    const start = Math.max(floor, end - span);
+    let regular: RangeRead;
+    let twap: RangeRead;
+    try {
+      regular = await this.readRange(address, false, start, end, BACKFILL_STEP_PAGES, rank);
+      twap = await this.readRange(address, true, start, end, BACKFILL_STEP_PAGES, rank);
+    } catch (error) {
+      await this.failed(address);
+      throw error;
+    }
+    if (!regular.complete || !twap.complete) {
+      if (span <= MIN_SPAN_MS) return finish("blocked");
+      const held = Math.min(regular.complete ? end : regular.through, twap.complete ? end : twap.through) - start;
+      await this.repository.patchCoverage(address, { backfillSpanMs: Math.max(MIN_SPAN_MS, Math.min(Math.floor(span / 2), Math.floor(held * 0.75))) });
+      return { status: "pending", inserted: 0 };
+    }
+    const fetched = [...regular.fills, ...twap.fills];
+    const stored = await this.ingest(address, "backfill", fetched, rank);
+    const next = fetched.length === 0 ? span * 8 : Math.min(span * 8, (span * 1.5 * PAGE_SIZE) / fetched.length);
+    const done = start <= floor;
+    await this.repository.extend(address, false, end, start, floor, {
+      backfillSpanMs: Math.round(Math.max(MIN_SPAN_MS, Math.min(MAX_SPAN_MS, next))),
+      revisedAt: new Date(),
+    });
+    if (done) return { ...(await finish("complete")), inserted: stored.inserted };
+    return { status: "pending", inserted: stored.inserted };
+  }
+
+  /** Where the REST API's retained history starts for the address: the
+   * later of the two endpoints' earliest fill (0 when neither has any). */
+  private async retentionStart(address: string, rank?: number): Promise<number> {
+    const earliest = (batch: HlUserFill[]) => batch.reduce((min, fill) => Math.min(min, fill.time), Infinity);
+    const regular = earliest(await this.info.userFillsByTime(address, 0, undefined, "background", rank));
+    const twap = earliest((await this.info.userTwapSliceFillsByTime(address, 0, undefined, "background", rank)).map(twapSliceToFill));
+    return Math.max(Number.isFinite(regular) ? regular : 0, Number.isFinite(twap) ? twap : 0);
+  }
+
+  /** The scheduler's backfill turn: one window for the address that has waited longest. */
+  async backfillTick(): Promise<string | undefined> {
+    if (this.jobs.stopping || this.backfilling) return undefined;
+    const address = await this.repository.nextBackfill();
+    if (!address) return undefined;
+    this.backfilling = true;
+    try {
+      await this.jobs.run(() => this.backfillStep(address));
+    } finally {
+      this.backfilling = false;
+    }
+    return address;
+  }
+
+  /**
+   * The gap detector. Checks per-coin position continuity of the stored
+   * fills in the verified span (new fills only, or the whole span when
+   * `full`). Each break is a hole between two stored fills of a coin: both
+   * endpoints are re-read for exactly that interval and what was missing
+   * is stored. A break that a completed re-read does not close is recorded
+   * as unexplained (upstream has no fill there) and not retried.
+   */
+  async checkContinuity(address: string, full = false, rank?: number): Promise<{ breaks: number; repaired: number; unexplained: number }> {
+    const state = await this.repository.coverage(address);
+    if (!state?.verifiedFrom || !state.verifiedThrough) return { breaks: 0, repaired: 0, unexplained: 0 };
+    const from = full || !state.checkedThrough || state.checkedThrough < state.verifiedFrom ? state.verifiedFrom : state.checkedThrough;
+    const known = new Set(state.breaks.map((b) => b.tid));
+    const load = async () => positionBreaks(await this.repository.fillsForCheck(address, state.verifiedFrom!, from, state.verifiedThrough!)).filter((b) => !known.has(b.tid));
+    const found = await load();
+    if (found.length === 0) {
+      await this.repository.patchCoverage(address, { checkedThrough: state.verifiedThrough });
+      return { breaks: 0, repaired: 0, unexplained: 0 };
+    }
+    let inserted = 0;
+    const reread = new Set<number>();
+    for (const hole of found.slice(0, MAX_REPAIRS_PER_CHECK)) {
+      const regular = await this.readRange(address, false, hole.after, hole.time, BACKFILL_STEP_PAGES * 3, rank);
+      const twap = await this.readRange(address, true, hole.after, hole.time, BACKFILL_STEP_PAGES * 3, rank);
+      inserted += (await this.ingest(address, "backfill", [...regular.fills, ...twap.fills], rank)).inserted;
+      reread.add(hole.tid);
+    }
+    const left = inserted > 0 ? await load() : found;
+    const unexplained: FillCoverageBreak[] = left.filter((b) => reread.has(b.tid));
+    const settled = left.length === unexplained.length;
+    await this.repository.patchCoverage(address, {
+      breaks: [...state.breaks, ...unexplained],
+      ...(settled ? { checkedThrough: state.verifiedThrough } : {}),
+      ...(inserted > 0 ? { revisedAt: new Date() } : {}),
+    });
+    this.logger.warn(`Continuity ${address}: ${found.length} break(s), ${inserted} missing fill(s) stored, ${unexplained.length} unexplained`);
+    if (inserted > 0) this.events?.emit(FILLS_REVISED_EVENT, { address });
+    return { breaks: found.length, repaired: found.length - left.length, unexplained: unexplained.length };
   }
 
   private async run(

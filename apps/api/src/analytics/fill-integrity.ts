@@ -30,6 +30,8 @@ export interface PositionBreak {
   /** The fill whose `startPosition` does not continue the previous fill. */
   tid: number;
   time: number;
+  /** Time of the coin's previous fill: the missing fills lie in `[after, time]`. */
+  after: number;
   /** Position after the previous fill, and this fill's `startPosition`. */
   expected: string;
   actual: string;
@@ -38,9 +40,13 @@ export interface PositionBreak {
 /**
  * Perp fills whose `startPosition` differs from where the previous fill of
  * the coin left the position: at least one fill between them is missing
- * (or, at a source seam, the two sources disagree). Fills are ordered as
- * the reconstruction orders them. Spot fills are out of scope: transfers
- * move spot balances without fills.
+ * (or, at a source seam, the two sources disagree). Spot fills are out of
+ * scope: transfers move spot balances without fills.
+ *
+ * Fills of one millisecond are judged together, since their order is not
+ * recoverable from storage: the group continues the chain when one of its
+ * fills starts at the running position, and it moves the position by its
+ * net size. A fill missing inside a group therefore shows at the next one.
  */
 export function positionBreaks(fills: HlUserFill[]): PositionBreak[] {
   const byCoin = new Map<string, HlUserFill[]>();
@@ -52,13 +58,25 @@ export function positionBreaks(fills: HlUserFill[]): PositionBreak[] {
   }
   const breaks: PositionBreak[] = [];
   for (const [coin, list] of byCoin) {
+    const ordered = executionOrder(list);
     let position: bigint | null = null;
-    for (const fill of executionOrder(list)) {
-      const start = toScaled(fill.startPosition!);
-      if (position !== null && position !== start) {
-        breaks.push({ coin, tid: fill.tid, time: fill.time, expected: position.toString(), actual: start.toString() });
+    let previous = 0;
+    for (let i = 0; i < ordered.length;) {
+      let j = i;
+      let net = 0n;
+      while (j < ordered.length && ordered[j].time === ordered[i].time) net += signedSize(ordered[j++]);
+      const group = ordered.slice(i, j);
+      const starts = group.map((fill) => toScaled(fill.startPosition!));
+      const at: bigint | null = position;
+      const head: bigint | undefined = at === null ? starts[0] : starts.find((start) => start === at);
+      if (head === undefined) {
+        breaks.push({ coin, tid: group[0].tid, time: group[0].time, after: previous, expected: position!.toString(), actual: starts[0].toString() });
+        position = starts[0] + net;
+      } else {
+        position = (position ?? head) + net;
       }
-      position = start + signedSize(fill);
+      previous = group[0].time;
+      i = j;
     }
   }
   return breaks.sort((a, b) => a.time - b.time);

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, gte, isNull, lt, lte, ne, or } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { analysisHistoryFills, analysisHistoryJobs, archiveCoverage } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -15,8 +15,10 @@ const mine = (address: string) => and(eq(analysisHistoryJobs.chain, CHAIN_DEFAUL
 export class AnalysisHistoryRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
-  async ensure(address: string, now = Date.now()): Promise<void> {
-    await this.db.insert(analysisHistoryJobs).values({ address, checkpoint: initialCheckpoint(now) }).onConflictDoNothing();
+  /** `from`: where a new job starts reading (default: the start of
+   * upstream's history). An existing job is left as it is. */
+  async ensure(address: string, now = Date.now(), from = 0): Promise<void> {
+    await this.db.insert(analysisHistoryJobs).values({ address, checkpoint: initialCheckpoint(now, Math.min(from, now)) }).onConflictDoNothing();
   }
   /** Keep fills already fetched by the live analysis path, including
    * records which may expire upstream before the background scan reaches them. */
@@ -60,7 +62,9 @@ export class AnalysisHistoryRepository {
       const [job] = await tx.select().from(analysisHistoryJobs).where(and(
         eq(analysisHistoryJobs.chain, CHAIN_DEFAULT), ne(analysisHistoryJobs.status, "blocked"),
         or(isNull(analysisHistoryJobs.attemptedAt), lt(analysisHistoryJobs.attemptedAt, new Date(now - 60_000))),
-      )).orderBy(asc(analysisHistoryJobs.attemptedAt)).limit(1).for("update", { skipLocked: true });
+      // Never-attempted jobs first: plain ASC sorts NULL last, which let the
+      // few caught-up jobs (re-eligible every minute) take every turn.
+      )).orderBy(sql`${analysisHistoryJobs.attemptedAt} ASC NULLS FIRST`).limit(1).for("update", { skipLocked: true });
       if (!job) return undefined;
       return (await tx.update(analysisHistoryJobs).set({ attemptedAt: new Date(now) }).where(mine(job.address)).returning())[0];
     });

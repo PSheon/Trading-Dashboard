@@ -1,8 +1,8 @@
 import { BusyException } from "./busy.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, notLike, or, sql, type SQL } from "drizzle-orm";
-import { fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, notLike, or, sql, type SQL } from "drizzle-orm";
+import { fillCoverage, fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import type { Trade } from "../analytics/trade-reconstruction.js";
@@ -13,6 +13,7 @@ import { fromScaled, toScaled } from "../watcher/action-classifier.js";
 
 export type AnalyticsRow = typeof traderAnalytics.$inferSelect;
 export type AnalyticsInsert = typeof traderAnalytics.$inferInsert;
+export type FillCoverage = typeof fillCoverage.$inferSelect;
 type TradeRow = typeof traderTrades.$inferSelect;
 export type TradeAnalyticsTx = Parameters<Parameters<DrizzleDb["transaction"]>[0]>[0];
 type DbOrTx = DrizzleDb | TradeAnalyticsTx;
@@ -231,9 +232,16 @@ export class TradeAnalyticsRepository {
     return rows.map(fromRow);
   }
 
-  /** A tracked address's stored perp fills since `since`, as Hyperliquid
-   * sent them (`raw` keeps startPosition, liquidation and twapId). */
-  async trackedFills(address: string, since: Date): Promise<HlUserFill[]> {
+  /** What the watcher's `fills` table is proven to hold for the address. */
+  async fillCoverage(address: string): Promise<FillCoverage | undefined> {
+    const [row] = await this.db.select().from(fillCoverage)
+      .where(and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.address, address))).limit(1);
+    return row;
+  }
+
+  /** A tracked address's stored perp fills in `[since, through]`, as
+   * Hyperliquid sent them (`raw` keeps startPosition, liquidation and twapId). */
+  async trackedFills(address: string, since: Date, through: Date): Promise<HlUserFill[]> {
     const rows = await this.db
       .select({ raw: fills.raw })
       .from(fills)
@@ -242,6 +250,7 @@ export class TradeAnalyticsRepository {
           eq(fills.chain, CHAIN_DEFAULT),
           eq(fills.address, address),
           gte(fills.ts, since),
+          lte(fills.ts, through),
           notLike(fills.coin, "@%"),
           notLike(fills.coin, "%/%"),
         ),

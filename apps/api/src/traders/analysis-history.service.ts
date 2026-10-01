@@ -45,7 +45,7 @@ export class AnalysisHistoryService {
     const job = await this.repository.state(address);
     return job?.status === "caught_up" && Boolean(job.publishedThrough);
   }
-  ensure(address: string) { return this.repository.ensure(address); }
+  ensure(address: string, from?: number) { return this.repository.ensure(address, Date.now(), from); }
   preserve(address: string, fills: HlUserFill[]) { return this.repository.preserve(address, fills); }
   snapshot(address: string) { return this.repository.snapshot(address); }
   async status(address: string) {

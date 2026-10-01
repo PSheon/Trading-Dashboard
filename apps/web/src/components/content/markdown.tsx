@@ -35,11 +35,11 @@ function renderInline(nodes: Inline[]): React.ReactNode {
         );
       case "link":
         return node.href.startsWith("/") ? (
-          <Link key={i} href={node.href} className="text-primary underline-offset-2 hover:underline">
+          <Link key={i} href={node.href} className="text-primary underline underline-offset-2 decoration-primary/50 hover:decoration-primary">
             {renderInline(node.children)}
           </Link>
         ) : (
-          <a key={i} href={node.href} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+          <a key={i} href={node.href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 decoration-primary/50 hover:decoration-primary">
             {renderInline(node.children)}
           </a>
         );

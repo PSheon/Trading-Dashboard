@@ -99,7 +99,8 @@ function CoinGlyph({ coin, size, className }: { coin: string; size: number; clas
       style={{
         ...style,
         fontSize: size * (label.length > 3 ? 0.3 : 0.38),
-        background: dex ? `hsl(${h} 30% 24%)` : `hsl(${h} 55% 45%)`,
+        // Dark enough for the white initials to pass WCAG AA (4.5:1).
+        background: dex ? `hsl(${h} 30% 24%)` : `hsl(${h} 55% 32%)`,
         color: dex ? `hsl(${h} 70% 82%)` : "#fff",
       }}
     >

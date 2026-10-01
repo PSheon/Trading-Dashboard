@@ -65,7 +65,7 @@ export function XProfileLink({ handle, className }: { handle: string; className?
 export function CoinStack({ coins, size = 14, className, dash = false }: { coins: string[]; size?: number; className?: string; dash?: boolean }) {
   if (coins.length === 0) return dash ? <span className="text-subtle-foreground">—</span> : null;
   return (
-    <span className={cn("inline-flex items-center", className)} aria-label={coins.join(", ")}>
+    <span role="img" className={cn("inline-flex items-center", className)} aria-label={coins.join(", ")}>
       {coins.slice(0, 5).map((coin, i) => (
         <Tooltip key={coin} content={coinLabel(coin)} side="top" variant="chip">
           <span className="rounded-full ring-2 ring-card" style={{ marginLeft: i === 0 ? 0 : -size * 0.28, zIndex: 5 - i }}>

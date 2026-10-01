@@ -119,6 +119,8 @@ export function BoardsView() {
 
   return (
     <div className="flex flex-col gap-4 md:gap-5">
+      {/* CopyDog's desktop discover page has no visible title; one for assistive technology. */}
+      <h1 className="sr-only hidden md:block">{t("discover.title")}</h1>
       {/* Phones: title, filter sheet and layout toggle (CopyDog's mobile header). */}
       <div className="flex items-center justify-between md:hidden">
         <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("discover.title")}</h1>

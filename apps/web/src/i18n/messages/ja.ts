@@ -595,6 +595,7 @@ export const ja: Messages = {
     noAlerts: "このアドレスに関するアラートはまだありません",
     copy: {
       follow: "順張り",
+      panel: "コピートレード",
       reverse: "逆張り",
       max: "最大",
       balance: "取引可能額:",

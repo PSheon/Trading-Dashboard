@@ -595,6 +595,7 @@ export const id: Messages = {
     noAlerts: "Belum ada peringatan tentang alamat ini",
     copy: {
       follow: "Ikuti",
+      panel: "Copy trading",
       reverse: "Berlawanan",
       max: "Maks.",
       balance: "Tersedia untuk trading:",

@@ -595,6 +595,7 @@ export const tr: Messages = {
     noAlerts: "Bu adresle ilgili henüz uyarı yok",
     copy: {
       follow: "Takip",
+      panel: "Kopya işlem",
       reverse: "Ters",
       max: "Maks.",
       balance: "İşleme açık tutar:",

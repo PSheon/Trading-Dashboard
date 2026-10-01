@@ -883,6 +883,7 @@ export const zhTW = {
     noAlerts: "還沒有關於這個地址的警報",
     copy: {
       follow: "順向",
+      panel: "跟單",
       reverse: "反向",
       max: "最大",
       balance: "可交易餘額：",

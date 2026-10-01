@@ -595,6 +595,7 @@ export const vi: Messages = {
     noAlerts: "Chưa có cảnh báo nào về địa chỉ này",
     copy: {
       follow: "Thuận chiều",
+      panel: "Sao chép giao dịch",
       reverse: "Ngược chiều",
       max: "Tối đa",
       balance: "Khả dụng để giao dịch:",

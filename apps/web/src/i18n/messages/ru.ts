@@ -595,6 +595,7 @@ export const ru: Messages = {
     noAlerts: "Оповещений по этому адресу пока нет",
     copy: {
       follow: "Следовать",
+      panel: "Копитрейдинг",
       reverse: "Против",
       max: "Макс.",
       balance: "Доступно для торговли:",

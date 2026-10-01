@@ -18,7 +18,7 @@ import { LanguageMenu } from "./language-menu";
 export function SiteFooter({ className }: { className?: string }) {
   const { t, locale } = useI18n();
   const soon = (label: string) => (
-    <span className="cursor-default font-semibold text-subtle-foreground/70" title={t("home.footer.soon")}>
+    <span className="cursor-default font-semibold text-subtle-foreground" title={t("home.footer.soon")}>
       {label}
     </span>
   );

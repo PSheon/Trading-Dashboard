@@ -595,6 +595,7 @@ export const zhCN: Messages = {
     noAlerts: "还没有关于该地址的提醒",
     copy: {
       follow: "顺向",
+      panel: "跟单",
       reverse: "反向",
       max: "最大",
       balance: "可交易余额：",

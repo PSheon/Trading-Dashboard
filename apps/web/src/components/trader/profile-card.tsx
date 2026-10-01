@@ -57,7 +57,7 @@ function Section({ title, children, action }: { title: string; children: React.R
   return (
     <div className="mt-[18px] border-t border-border px-4 pt-[18px]">
       <div className="mb-3.5 flex min-h-[14px] items-center justify-between gap-2">
-        <h3 className="cd-label !font-semibold !tracking-[0.6px]">{title}</h3>
+        <h2 className="cd-label !font-semibold !tracking-[0.6px]">{title}</h2>
         {action}
       </div>
       {children}
@@ -182,7 +182,7 @@ export function ProfileCard({
   const marginUsage = profile.perpEquity === null || profile.marginUsed === null ? null : profile.perpEquity > 0 ? profile.marginUsed / profile.perpEquity : 0;
 
   return (
-    <aside className="overflow-hidden rounded-[12px] border border-border bg-card pb-3.5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
+    <aside aria-labelledby="trader-name" className="overflow-hidden rounded-[12px] border border-border bg-card pb-3.5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
       {identity ? (
         <div className="flex items-center gap-3 px-4 pt-4">
           {/* A verified KOL's badge sits on the avatar, so the name keeps the
@@ -193,7 +193,7 @@ export function ProfileCard({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1">
-              <h1 className="flex min-w-0 text-[13px] leading-5 font-medium tracking-[0.156px]">
+              <h1 id="trader-name" className="flex min-w-0 text-[13px] leading-5 font-medium tracking-[0.156px]">
                 <TraderName trader={profile} />
               </h1>
               {/* CopyDog puts the KOL's 𝕏 right after the name. */}

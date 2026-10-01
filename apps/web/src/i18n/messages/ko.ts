@@ -595,6 +595,7 @@ export const ko: Messages = {
     noAlerts: "이 주소에 대한 알림이 아직 없습니다",
     copy: {
       follow: "팔로우",
+      panel: "카피 트레이딩",
       reverse: "반대",
       max: "최대",
       balance: "거래 가능 금액:",

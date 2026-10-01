@@ -879,6 +879,7 @@ export const en: Messages = {
     noAlerts: "No alerts about this address yet",
     copy: {
       follow: "Follow",
+      panel: "Copy trade",
       reverse: "Counter",
       max: "Max",
       balance: "Available to trade:",

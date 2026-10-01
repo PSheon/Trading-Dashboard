@@ -595,6 +595,7 @@ export const pt: Messages = {
     noAlerts: "Ainda não há alertas sobre este endereço",
     copy: {
       follow: "Seguir",
+      panel: "Copy trading",
       reverse: "Inverso",
       max: "Máx.",
       balance: "Disponível para operar:",

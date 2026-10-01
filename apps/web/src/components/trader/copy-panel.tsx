@@ -388,9 +388,10 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
 }
 
 function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode }) {
+  const { t } = useI18n();
   return sheet ? (
     <div className="flex flex-col gap-4 px-1 pt-9">{children}</div>
   ) : (
-    <aside className="flex flex-col rounded-[12px] border border-border bg-card p-[22px] xl:sticky xl:top-[90px]">{children}</aside>
+    <aside aria-label={t("trader.copy.panel")} className="flex flex-col rounded-[12px] border border-border bg-card p-[22px] xl:sticky xl:top-[90px]">{children}</aside>
   );
 }

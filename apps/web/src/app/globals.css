@@ -438,6 +438,14 @@
   to { transform: translateX(100%); }
 }
 
+/* CopyDog's about-page marquee: each copy of the row slides one width in 80s. */
+.about-marquee {
+  animation: about-marquee 80s linear infinite;
+}
+@keyframes about-marquee {
+  to { transform: translateX(-100%); }
+}
+
 /* CopyDog's spark-pulse: a ring growing out of a sparkline's last point. */
 .spark-pulse {
   transform-box: fill-box;
@@ -452,6 +460,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ui-skeleton::after { animation: none; opacity: 0; }
   .spark-pulse { animation: none; opacity: 0; }
+  .about-marquee { animation: none; }
   .row-arrive {
     animation: none;
     background-color: var(--primary-soft);

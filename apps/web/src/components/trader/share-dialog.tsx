@@ -1,7 +1,7 @@
 "use client";
 
 import type { TraderWindow } from "@/lib/contracts";
-import { Copy, Download, Share2 } from "lucide-react";
+import { Copy, Download, Share2, SquareArrowOutUpRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 
@@ -177,7 +177,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
 }
 
 /** The share icon next to the trader's name: opens the share card. */
-export function ShareButton({ address, name, className, iconClassName }: { address: string; name: string; className?: string; iconClassName?: string }) {
+export function ShareButton({ address, name, className, iconClassName, icon = "share" }: { address: string; name: string; className?: string; iconClassName?: string; /** CopyDog's phone bar uses an out-arrow box. */ icon?: "share" | "external" }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
@@ -190,7 +190,7 @@ export function ShareButton({ address, name, className, iconClassName }: { addre
         aria-haspopup="dialog"
         className={cn("inline-flex shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
       >
-        <Share2 className={iconClassName} />
+        {icon === "external" ? <SquareArrowOutUpRight className={iconClassName} /> : <Share2 className={iconClassName} />}
       </button>
       {open ? <ShareDialog open={open} onOpenChange={setOpen} address={address} name={name} /> : null}
     </>

@@ -14,7 +14,7 @@ import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
-import { CopyScoreBar, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
+import { CopyScoreBar, TraderAvatar } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { shareName } from "@/lib/share-card";
@@ -45,7 +45,7 @@ function Pills<T extends string>({
   stretch?: boolean;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className={cn("flex items-center gap-1 rounded-full bg-raised p-1", className)}>
+    <div role="radiogroup" aria-label={label} className={cn("flex items-center gap-0.5 rounded-full bg-card p-[3px]", className)}>
       {options.map(([v, text]) => (
         <button
           key={v}
@@ -54,9 +54,9 @@ function Pills<T extends string>({
           aria-checked={value === v}
           onClick={() => onChange(v)}
           className={cn(
-            "h-9 rounded-full px-3.5 text-[0.8125rem] font-semibold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            stretch && "flex-1",
-            value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+            "min-h-8 rounded-full px-3 py-[7px] text-xs leading-[18px] font-semibold whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+            stretch && "min-w-0 flex-1",
+            value === v ? "bg-primary text-primary-foreground" : stretch ? "text-muted-foreground" : "text-foreground",
           )}
         >
           {text}
@@ -71,30 +71,27 @@ function Pills<T extends string>({
 function TopBar({ profile }: { profile: TraderProfileResponse }) {
   const { t } = useI18n();
   return (
-    <div className="sticky top-[env(safe-area-inset-top,0px)] z-30 -mx-5 -mt-5 flex h-14 items-center gap-1 bg-background/90 px-2 backdrop-blur-xl">
+    <div className="sticky top-[env(safe-area-inset-top,0px)] z-30 -mx-5 -mt-5 flex items-center gap-2 bg-background/95 px-5 pt-4 pb-2 backdrop-blur-[10px]">
       <Link
         href="/explore"
         aria-label={t("common.back")}
-        className="inline-flex size-10 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <ArrowLeft className="size-5" />
+        <ArrowLeft className="size-[19px]" />
       </Link>
-      {profile.kol ? (
-        <span className="flex min-w-0 flex-1 items-center justify-center gap-1">
-          <span className="min-w-0 truncate text-[0.9375rem] font-bold" title={profile.address}>{profile.displayName?.trim() || truncateAddress(profile.address)}</span>
-          {profile.kol.verified ? <VerifiedTick className="size-3.5" /> : null}
-        </span>
-      ) : (
-        <span className="num min-w-0 flex-1 truncate text-center text-[0.9375rem] font-bold">{truncateAddress(profile.address)}</span>
-      )}
-      <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
-      <AlertBell address={profile.address} history />
-      <ShareButton
-        address={profile.address}
-        name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
-        className="size-10"
-        iconClassName="size-5"
-      />
+      {/* CopyDog centres the title across the bar, between 116px gutters. */}
+      <h1 className="pointer-events-none absolute inset-x-0 truncate px-[116px] text-center text-base leading-6 font-semibold" title={profile.address}>
+        {profile.kol ? profile.displayName?.trim() || truncateAddress(profile.address) : truncateAddress(profile.address)}
+      </h1>
+      <span className="ml-auto flex shrink-0 items-center gap-1 [&_button]:size-8 [&_button]:rounded-lg [&_button]:text-foreground [&_svg]:size-[19px]">
+        <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
+        <AlertBell address={profile.address} history />
+        <ShareButton
+          address={profile.address}
+          name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
+          icon="external"
+        />
+      </span>
     </div>
   );
 }
@@ -174,12 +171,12 @@ export function MobileTrader({
   const fmt = (v: number) => (mode === "roi" ? format.pct(v, { sign: true }) : format.usd(v, { compact: true, sign: true }));
 
   return (
-    <div className="flex flex-col gap-4 pb-6">
+    <div className="flex flex-col gap-6 pb-6">
       <TopBar profile={profile} />
 
-      <section aria-label={t("trader.chart.pnlLabel")} className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col items-start gap-2.5">
+      <section aria-label={t("trader.chart.pnlLabel")} className="flex flex-col gap-6">
+        <div className="flex items-stretch justify-between gap-3">
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
             <Pills
               value={mode}
               onChange={setMode}
@@ -189,27 +186,27 @@ export function MobileTrader({
             {loading && !portfolio ? (
               <Skeleton className="h-9 w-44" />
             ) : (
-              <div className="num text-[2rem] leading-none font-bold tracking-tight">
+              <div className={cn("num text-[34px] leading-[1.05] font-bold tracking-[-1px]", headline === null ? "" : headline >= 0 ? "text-positive" : "text-negative")}>
                 {headline === null ? "—" : mode === "pnl" ? signedUsdShort(headline) : signedPctCd(headline)}
               </div>
             )}
-            {mode === "pnl" && roi !== null ? <RoiPill value={roi} label={roiPillShort(roi)} /> : null}
+            {mode === "pnl" && roi !== null ? <RoiPill value={roi} label={roiPillShort(roi)} className="h-auto gap-1 px-2.5 py-[5px] text-[15px] leading-[22px] [&>svg]:size-3.5" /> : null}
           </div>
-          <span className="flex flex-col items-end gap-2">
+          <span className="flex shrink-0 flex-col items-end justify-between gap-2">
             {profile.kol?.avatarUrl ? (
               // A KOL's picture takes the brand mark's place (CopyDog's).
-              <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol.avatarUrl }} size={48} />
+              <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol.avatarUrl }} size={52} />
             ) : (
-              <span className="inline-flex size-12 items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
-                <OrbieMark size={26} />
+              <span className="inline-flex size-[52px] items-center justify-center rounded-full bg-raised text-foreground" aria-hidden>
+                <OrbieMark size={28} />
               </span>
             )}
             {copyScore != null ? (
               // CopyDog leaves the score out of the hero while there is none.
               // CopyDog: the dotted 複製評分 label over the bar and the score.
-              <span className="flex flex-col items-end gap-1.5 text-[0.6875rem] text-muted-foreground" data-testid="hero-copy-score">
-                <span className="underline decoration-dotted underline-offset-2">{t("discover.copyScore")}</span>
-                <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-[60px]" className="text-foreground" />
+              <span className="flex flex-col items-end gap-1 text-xs text-muted-foreground" data-testid="hero-copy-score">
+                <span className="bg-[linear-gradient(90deg,currentColor_1.5px,transparent_1.5px)] bg-[length:3.5px_1px] bg-bottom bg-repeat-x pb-[3px]">{t("discover.copyScore")}</span>
+                <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-[54px] bg-white/10" className="text-foreground [&>span:last-child]:text-xs" />
               </span>
             ) : null}
           </span>
@@ -217,7 +214,8 @@ export function MobileTrader({
         {portfolio && series.length > 1 ? (
           <AreaChart
             data={series}
-            height={200}
+            height={180}
+            className="-mb-3 px-2"
             axes
             interactive
             zeroBaseline
@@ -229,11 +227,11 @@ export function MobileTrader({
             ariaLabel={t("trader.chart.pnlLabel")}
           />
         ) : loading ? (
-          <Skeleton className="h-[200px]" />
+          <Skeleton className="h-[180px]" />
         ) : (
-          <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">{t("trader.chart.noData")}</div>
+          <div className="flex h-[180px] items-center justify-center text-sm text-muted-foreground">{t("trader.chart.noData")}</div>
         )}
-        <div role="radiogroup" aria-label={t("trader.kpi.period")} className="flex items-center justify-between px-2">
+        <div role="radiogroup" aria-label={t("trader.kpi.period")} className="flex items-center">
           {WINDOWS.map((w) => (
             <button
               key={w}
@@ -241,38 +239,37 @@ export function MobileTrader({
               role="radio"
               aria-checked={window === w}
               onClick={() => onWindow(w)}
-              className={cn(
-                "h-9 rounded-full px-4 text-[0.8125rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                window === w ? "bg-primary-soft text-primary" : "text-muted-foreground",
-              )}
+              className="group inline-flex min-h-[34px] flex-1 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {t(`windows.${w}`)}
+              <span className={cn("inline-flex rounded-full px-3 py-[5px] text-xs leading-[18px] font-semibold transition-colors", window === w ? "bg-primary-soft text-primary" : "text-muted-foreground")}>
+                {t(`windows.${w}`)}
+              </span>
             </button>
           ))}
         </div>
       </section>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-5 rounded-2xl border border-border bg-card p-5">
-        <div className="flex flex-col gap-1.5">
-          <dt className="text-xs text-muted-foreground">{t("trader.accountValue")}</dt>
-          <dd className="num text-xl font-bold">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-5 rounded-2xl bg-card p-5">
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-[10px] leading-[15px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{t("trader.accountValue")}</dt>
+          <dd className="num text-xl leading-[30px] font-bold">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <dt className="text-xs text-muted-foreground">{t("trader.kpi.sharpe")}</dt>
-          <dd className={cn("num text-xl font-bold", sharpe === null ? "" : sharpe >= 1.5 ? "text-positive" : sharpe >= 0 ? "text-warning" : "text-negative")}>
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-[10px] leading-[15px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{t("trader.kpi.sharpe")}</dt>
+          <dd className={cn("num text-xl leading-[30px] font-bold", sharpe === null ? "" : sharpe >= 1.5 ? "text-positive" : sharpe >= 0 ? "text-warning" : "text-negative")}>
             {sharpe === null ? "—" : sharpe.toFixed(2)}
           </dd>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <dt className="text-xs text-muted-foreground">{t("trader.kpi.winRate")}</dt>
-          <dd className={cn("num flex items-center gap-2 text-xl font-bold", winTone ? TONE[winTone] : "")}>
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-[10px] leading-[15px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{t("trader.kpi.winRate")}</dt>
+          <dd className={cn("num flex items-center gap-2 text-xl leading-[30px] font-bold", winTone ? TONE[winTone] : "")}>
             {winRate === null ? (isComputing(trades) ? <Skeleton className="h-6 w-16" /> : "—") : pct1(winRate)}
             {winRate !== null ? <Ring value={winRate} /> : null}
           </dd>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <dt className="text-xs text-muted-foreground">{t("trader.mobile.drawdown")}</dt>
-          <dd className="num text-xl font-bold text-negative">{mdd === null ? "—" : pct1(mdd)}</dd>
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-[10px] leading-[15px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{t("trader.mobile.drawdown")}</dt>
+          <dd className="num text-xl leading-[30px] font-bold text-negative">{mdd === null ? "—" : pct1(mdd)}</dd>
         </div>
       </dl>
 
@@ -289,11 +286,11 @@ export function MobileTrader({
         ]}
       />
 
-      <div className="-mx-1">
+      <div className="-mt-2">
         {tab === "positions" ? <PositionsTab profile={profile} marks={marks} /> : null}
         {tab === "insights" ? <MobileInsights profile={profile} trades={trades.data} computing={isComputing(trades)} /> : null}
         {tab === "performance" ? (
-          <div className="rounded-2xl border border-border bg-card">
+          <div>
             <PerformanceTab
               analytics={trades.data}
               computing={isComputing(trades)}
@@ -305,17 +302,17 @@ export function MobileTrader({
           </div>
         ) : null}
         {tab === "trades" ? (
-          <div className="rounded-2xl border border-border bg-card">
+          <div>
             <TradesTab address={profile.address} />
           </div>
         ) : null}
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl md:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background px-5 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:hidden">
         <button
           type="button"
           onClick={() => (authStatus === "signedOut" ? login() : setSheet(true))}
-          className="h-13 w-full rounded-full bg-primary py-3.5 text-base font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-[52px] w-full rounded-full bg-primary px-6 text-[15px] font-semibold text-primary-foreground outline-none transition-transform focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97]"
         >
           {copying ? t("trader.copy.manage") : t("trader.copyTrade")}
         </button>

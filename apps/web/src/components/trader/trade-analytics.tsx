@@ -8,7 +8,6 @@ import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
-import { Segmented } from "@/components/ui/segmented";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel } from "@/lib/format";
@@ -218,7 +217,7 @@ function ShareButton({ trade }: { trade: RoundTrip }) {
 function TrailShare({ trade, enabled, children }: { trade: RoundTrip; enabled: boolean; children: React.ReactNode }) {
   const { t } = useI18n();
   const [done, setDone] = useState(false);
-  const className = "flex flex-col items-end gap-1";
+  const className = "flex shrink-0 flex-col items-end gap-1 pl-2";
   if (!enabled) return <div className={className}>{children}</div>;
   return (
     <button
@@ -244,25 +243,25 @@ export function TradeCard({ trade, share = false }: { trade: RoundTrip; share?: 
   const pnl = shownPnl(trade);
   const roi = tradeReturnPct(trade);
   return (
-    <li className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0">
-      <CoinIcon coin={trade.coin} size={26} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-center gap-1.5 text-sm font-semibold">
+    <li className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-0">
+      <span className="mt-px shrink-0"><CoinIcon coin={trade.coin} size={26} /></span>
+      <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+        <span className="flex min-w-0 items-center gap-1.5 text-[15px] leading-[23px] font-semibold">
           {coinLabel(trade.coin)}
           <SideBadge side={trade.side} mobile />
         </span>
-        <span className="num flex items-center gap-1 text-xs text-muted-foreground">
+        <span className="num flex min-w-0 items-center gap-1 text-xs leading-[18px] text-muted-foreground">
           <EntryPrice trade={trade} />
-          <ArrowRight className="size-3" aria-hidden />
+          <ArrowRight className="size-3 shrink-0" aria-hidden />
           {trade.exitPx === null ? "—" : price(trade.exitPx)}
         </span>
-        {trade.exitTime ? <span className="num text-xs text-subtle-foreground">{ago(trade.exitTime)}</span> : null}
+        {trade.exitTime ? <span className="num text-xs leading-[18px] text-muted-foreground">{ago(trade.exitTime)}</span> : null}
       </div>
       <TrailShare trade={trade} enabled={share}>
-        <span className={cn("num text-sm font-semibold", pnlTone(pnl))}>{signedUsdShort(pnl)}</span>
+        <span className={cn("num text-[15px] leading-[23px] font-semibold", pnlTone(pnl))}>{signedUsdShort(pnl)}</span>
         {roi !== null ? (
-          <span className={cn("num inline-flex items-center gap-0.5 rounded px-1 text-[11px]", roi >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
-            {roi >= 0 ? <ArrowUpRight className="size-3" /> : <ArrowDown className="size-3" />}
+          <span className={cn("num inline-flex items-center rounded-[6px] p-1 text-xs font-semibold", roi >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+            {roi >= 0 ? <ArrowUpRight className="size-[9px]" strokeWidth={2.5} /> : <ArrowDown className="size-[9px]" strokeWidth={2.5} />}
             {Math.abs(roi).toFixed(1)}%
           </span>
         ) : null}
@@ -322,7 +321,7 @@ function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
   const head = { sort, onSort };
   return (
     <>
-      <ul className="sm:hidden">
+      <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
         {sorted.filter((trade) => (dir === "desc" ? shownPnl(trade) > 0 : shownPnl(trade) < 0)).map((trade) => (
           <TradeCard key={trade.id} trade={trade} />
         ))}
@@ -407,7 +406,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
   const head = { sort, onSort };
   return (
     <>
-      <ul className="sm:hidden">
+      <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
         {sorted.map((c) => (
           <li key={c.coin} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0">
             <CoinIcon coin={c.coin} size={26} />
@@ -488,18 +487,26 @@ export function PerformanceTab({
   return (
     <div>
       {/* Below sm the switch sits here, full width, as on CopyDog's app. */}
-      <div className="px-4 pt-3 sm:hidden">
-        <Segmented
-          value={view}
-          onChange={onView}
-          variant="pill"
-          label={t("trader.tabs.performance")}
-          options={[
-            { value: "best", label: t("trader.perf.best") },
-            { value: "worst", label: t("trader.perf.worst") },
-            { value: "asset", label: t("trader.perf.byAsset") },
-          ]}
-        />
+      <div role="radiogroup" aria-label={t("trader.tabs.performance")} className="mb-4 flex gap-0.5 rounded-full bg-card p-[3px] sm:hidden">
+        {([
+          ["best", t("trader.perf.best")],
+          ["worst", t("trader.perf.worst")],
+          ["asset", t("trader.perf.byAsset")],
+        ] as Array<[PerfView, string]>).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={view === v}
+            onClick={() => onView(v)}
+            className={cn(
+              "min-w-0 flex-1 rounded-full px-3 py-[9px] text-xs leading-[18px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              view === v ? "bg-raised-hover text-foreground" : "text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {/* CopyDog insets these tables 12px inside the card. */}
       <div className="sm:px-3">
@@ -550,7 +557,7 @@ export function TradesTab({ address }: { address: string }) {
   } else {
     body = (
       <>
-        <ul className="sm:hidden">
+        <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
           {sorted.map((trade) => (
             <TradeCard key={trade.id} trade={trade} share />
           ))}

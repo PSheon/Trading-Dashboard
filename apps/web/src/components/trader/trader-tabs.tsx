@@ -28,6 +28,7 @@ import {
   shortTime,
   signedPct2,
   signedUsd2,
+  signedUsdShort,
   usd2,
   usdFull,
 } from "@/lib/trade-format";
@@ -146,41 +147,41 @@ function PositionCard({ p, mark }: { p: LivePosition; mark: number | null }) {
   const { t } = useI18n();
   const pct = pnlPct(p);
   return (
-    <li className="rounded-[12px] border border-border bg-card p-4">
-      <div className="flex items-start gap-3">
-        <CoinIcon coin={p.coin} size={32} />
+    <li className="flex flex-col gap-3 rounded-2xl bg-card p-4">
+      <div className="flex items-start gap-2">
+        <CoinIcon coin={p.coin} size={30} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex items-center gap-1.5 text-base font-semibold">
+          <span className="flex min-w-0 items-center gap-1.5 text-base leading-6 font-semibold">
             {coinLabel(p.coin)}
-            <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-semibold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
+            <span className={cn("rounded-[6px] px-[7px] py-0.5 text-xs font-semibold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
               {t(p.side === "long" ? "trader.sideLong" : "trader.sideShort")}
             </span>
             <LeverageChip p={p} />
           </span>
-          <span className="num text-xs text-muted-foreground">
+          <span className="num text-xs leading-[18px] text-muted-foreground">
             {qty(Math.abs(p.szi))} {coinLabel(p.coin)}
           </span>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <span className={cn("num text-base font-semibold", pnlTone(p.unrealizedPnl))}>{signedUsd2(p.unrealizedPnl)}</span>
+        <div className="flex flex-col items-end gap-[3px]">
+          <span className={cn("num text-base leading-[23px] font-semibold", pnlTone(p.unrealizedPnl))}>{signedUsdShort(p.unrealizedPnl)}</span>
           {pct !== null ? (
-            <span className={cn("num inline-flex items-center gap-0.5 rounded px-1 text-[11px]", pct >= 0 ? BUY_BADGE : SELL_BADGE)}>
-              {pct >= 0 ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
+            <span className={cn("num inline-flex items-center rounded-[6px] p-1 text-xs font-semibold", pct >= 0 ? BUY_BADGE : SELL_BADGE)}>
+              {pct >= 0 ? <ArrowUpRight className="size-[9px]" strokeWidth={2.5} /> : <ArrowDownRight className="size-[9px]" strokeWidth={2.5} />}
               {Math.abs(pct).toFixed(1)}%
             </span>
           ) : null}
         </div>
       </div>
-      <dl className="num mt-3 grid grid-cols-4 gap-2 border-t border-border pt-3 text-xs">
+      <dl className="num grid grid-cols-4 gap-2 border-t border-border pt-3">
         {[
-          [t("trader.cols.value"), usd2(p.positionValue)],
-          [t("trader.cols.entry"), price(p.entryPx)],
-          [t("trader.cols.mark"), price(mark)],
-          [t("trader.cols.liqFlag"), p.liqPx === null ? "—" : price(p.liqPx)],
-        ].map(([label, value]) => (
-          <div key={label} className="flex min-w-0 flex-col gap-1">
-            <dt className="text-subtle-foreground">{label}</dt>
-            <dd className="truncate font-semibold">{value}</dd>
+          [t("trader.cols.value"), usd2(p.positionValue), ""],
+          [t("trader.cols.entry"), price(p.entryPx), ""],
+          [t("trader.cols.mark"), price(mark), ""],
+          [t("trader.cols.liqFlag"), p.liqPx === null ? "—" : price(p.liqPx), p.liqPx === null ? "" : "text-negative"],
+        ].map(([label, value, tone]) => (
+          <div key={label} className="flex min-w-0 flex-col gap-0.5">
+            <dt className="text-[10px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{label}</dt>
+            <dd className={cn("truncate text-[13px] leading-5 font-semibold", tone)}>{value}</dd>
           </div>
         ))}
       </dl>
@@ -216,7 +217,7 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
   const head = { sort, onSort };
   return (
     <>
-      <ul className="flex flex-col gap-3 p-3 sm:hidden">
+      <ul className="flex flex-col gap-3 sm:hidden">
         {sorted.map((p) => (
           <PositionCard key={p.coin} p={p} mark={markOf(p, marks)} />
         ))}
@@ -666,7 +667,7 @@ const TRANSFER_KEYS: Record<TransferKey, (x: TraderTransfer) => number | string>
 /** 轉帳: 90 days of ledger updates, 時間 / 類型 / 資產 / 數量 / 來源 / 目標 /
  * 雜湊, newest first. */
 export function TransfersTab({ address }: { address: string }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const query = useTraderTransfers(address);
   const rows = query.data?.transfers ?? [];
   const { sorted, sort, onSort } = useSorted<TraderTransfer, TransferKey>(rows, TRANSFER_KEYS, { key: "time", dir: "desc" });

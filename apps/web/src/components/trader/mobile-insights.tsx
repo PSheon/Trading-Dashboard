@@ -98,16 +98,16 @@ function Donut({ segments, icons = false }: { segments: PieSegment[]; icons?: bo
           .join(", ")
       : "var(--raised) 0deg 360deg";
   return (
-    <div className="flex items-center gap-4">
+    <div className="mt-1.5 flex items-center gap-4">
       <div
         aria-hidden
-        className="relative size-[72px] shrink-0 rounded-full after:absolute after:inset-[18px] after:rounded-full after:bg-card"
+        className="relative size-[104px] shrink-0 rounded-full after:absolute after:inset-[24%] after:rounded-full after:bg-card"
         style={{ background: `conic-gradient(${gradient})` }}
       />
       <ul className="flex min-w-0 flex-1 flex-col gap-1.5">
         {segments.map((s, i) => (
-          <li key={s.label} className="flex items-center gap-1.5 text-xs">
-            <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: pieColor(i) }} />
+          <li key={s.label} className="flex items-baseline gap-2 text-[13px]">
+            <span aria-hidden className="size-2 shrink-0 self-center rounded-full" style={{ backgroundColor: pieColor(i) }} />
             {icons && !s.other ? <CoinIcon coin={s.label} size={16} /> : null}
             <span className="min-w-0 truncate text-muted-foreground">{icons && !s.other ? coinLabel(s.label) : s.label}</span>
             <span className="num ml-auto shrink-0 font-semibold">
@@ -123,9 +123,9 @@ function Donut({ segments, icons = false }: { segments: PieSegment[]; icons?: bo
 
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 border-t border-border pt-5 first:border-0 first:pt-0">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-bold">{title}</h2>
+    <section className="relative flex flex-col gap-4 border-t border-border pt-7 first:border-0 first:pt-0">
+      <div className="flex min-h-9 items-center justify-between gap-3">
+        <h2 className="text-lg leading-[27px] font-bold">{title}</h2>
         {action}
       </div>
       {children}
@@ -135,9 +135,9 @@ function Section({ title, action, children }: { title: string; action?: React.Re
 
 function StatCard({ label, value, valueClass, children }: { label: string; value: React.ReactNode; valueClass?: string; children?: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={cn("num text-xl font-bold", valueClass)}>{value}</span>
+    <div className="flex flex-col gap-1.5 rounded-xl bg-card p-4">
+      <span className="text-sm leading-[21px] font-medium text-muted-foreground">{label}</span>
+      <span className={cn("num text-xl leading-[30px] font-bold", valueClass)}>{value}</span>
       {children}
     </div>
   );
@@ -146,13 +146,13 @@ function StatCard({ label, value, valueClass, children }: { label: string; value
 const BAR = { primary: "bg-primary", warning: "bg-warning", danger: "bg-negative" } as const;
 function Bar({ pct, tone }: { pct: number; tone: keyof typeof BAR }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+    <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-border">
       <div className={cn("h-full rounded-full", BAR[tone])} style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
     </div>
   );
 }
 
-const Sub = ({ children }: { children: React.ReactNode }) => <p className="num text-[11px] text-subtle-foreground">{children}</p>;
+const Sub = ({ children }: { children: React.ReactNode }) => <p className="num text-[13px] leading-5 text-muted-foreground">{children}</p>;
 
 const PNL_TONE: Partial<Record<PnlTier, string>> = {
   extremely_profitable: "text-warning",
@@ -237,14 +237,14 @@ export function MobileInsights({
   const BiasIcon = bias.dir === "up" ? ArrowUpRight : bias.dir === "down" ? ArrowDownRight : ArrowRight;
 
   return (
-    <div className="flex flex-col gap-6 px-1" data-testid="mobile-insights">
+    <div className="flex flex-col gap-7 pt-6" data-testid="mobile-insights">
       {keystats.length > 0 ? (
         <Section title={t("trader.insightsTab.overview")}>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-[22px]">
             {keystats.map((k) => (
-              <div key={k.key} className="flex flex-col gap-1">
-                <dt className="text-xs text-muted-foreground">{k.label}</dt>
-                <dd className={cn("num text-base font-bold", k.cls)}>{k.value}</dd>
+              <div key={k.key} className="flex min-w-0 flex-col gap-[3px]">
+                <dt className="w-fit max-w-full truncate text-sm leading-[21px] font-medium text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-[3px]">{k.label}</dt>
+                <dd className={cn("num truncate text-base leading-[1.35] font-semibold", k.cls)}>{k.value}</dd>
               </div>
             ))}
           </dl>
@@ -256,7 +256,7 @@ export function MobileInsights({
       ) : null}
 
       <Section title={t("trader.insightsTab.positioning")}>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           <StatCard label={t("trader.leverage")} value={pos.exposed ? `${pos.leverage.toFixed(2)}×` : "—"}>
             {pos.exposed ? (
               <>
@@ -299,11 +299,11 @@ export function MobileInsights({
           >
             {pos.exposed ? (
               <>
-                <div className="flex h-1.5 overflow-hidden rounded-full bg-border">
+                <div className="mt-0.5 flex h-1.5 overflow-hidden rounded-full bg-border">
                   <div className="h-full bg-positive" style={{ width: `${pos.longPct}%` }} />
                   <div className="h-full bg-negative" style={{ width: `${pos.shortPct}%` }} />
                 </div>
-                <div className="num flex justify-between text-[11px] text-subtle-foreground">
+                <div className="num flex items-baseline justify-between gap-3 text-[13px] leading-5 text-muted-foreground">
                   <span>
                     <span className="text-positive">{`${pos.longPct.toFixed(2)}% ▪ ${t("common.long")}`}</span> {usd2(pos.long)}
                   </span>
@@ -316,13 +316,13 @@ export function MobileInsights({
               <Sub>{t("trader.insightsTab.noExposure")}</Sub>
             )}
           </StatCard>
-          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
-            <span className="text-xs text-muted-foreground">{t("trader.insightsTab.composition")}</span>
+          <div className="flex flex-col gap-1.5 rounded-xl bg-card p-4">
+            <span className="text-sm leading-[21px] font-medium text-muted-foreground">{t("trader.insightsTab.composition")}</span>
             <Donut segments={composition} />
           </div>
-          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">{t("trader.insightsTab.positionMix")}</span>
+          <div className="flex flex-col gap-1.5 rounded-xl bg-card p-4">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-sm leading-[21px] font-medium text-muted-foreground">{t("trader.insightsTab.positionMix")}</span>
               <Segmented
                 variant="pill"
                 value={mix}
@@ -357,7 +357,7 @@ export function MobileInsights({
         {pending ? (
           <Skeleton className="h-40 rounded-2xl" />
         ) : shown.length > 0 ? (
-          <ul className="overflow-hidden rounded-2xl border border-border bg-card">
+          <ul className="overflow-hidden rounded-2xl bg-card">
             {shown.map((trade) => (
               <TradeCard key={trade.id} trade={trade} />
             ))}
@@ -371,7 +371,7 @@ export function MobileInsights({
         {pending ? (
           <Skeleton className="h-40 rounded-2xl" />
         ) : mostTraded.length > 0 ? (
-          <ul className="overflow-hidden rounded-2xl border border-border bg-card">
+          <ul className="overflow-hidden rounded-2xl bg-card">
             {mostTraded.map((coin) => (
               <li key={coin.coin} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0">
                 <CoinIcon coin={coin.coin} size={26} />
@@ -393,12 +393,12 @@ export function MobileInsights({
 
       {profileCells.length > 0 ? (
         <Section title={t("trader.insightsTab.profile")}>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-[22px]">
             {profileCells.map((cell) => {
               const Icon = cell.icon;
               return (
                 <div key={cell.key} className="flex flex-col gap-1">
-                  <dt className="text-xs text-muted-foreground">{cell.label}</dt>
+                  <dt className="text-sm leading-[21px] font-medium text-muted-foreground">{cell.label}</dt>
                   <dd className={cn("inline-flex items-center gap-1.5 text-sm font-semibold", cell.cls)} title={cell.hint} data-testid={`profile-${cell.key}`}>
                     {Icon ? <Icon className="size-4" aria-hidden /> : null}
                     {cell.value}

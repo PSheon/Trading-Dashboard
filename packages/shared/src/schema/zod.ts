@@ -398,6 +398,28 @@ export const heartbeatResponseSchema = z.object({
     z.object({ address: z.string(), missedTrades: z.number().int(), since: z.coerce.date() }),
   ),
   dryRun: z.boolean(),
+  /** Hyperliquid S3 node-archive ingest (absent when it isn't configured). */
+  archive: z.object({
+    enabled: z.boolean(),
+    /** Start of the next hourly object the forward cursor waits for. */
+    liveNextHour: z.coerce.date().nullable(),
+    /** Next hour of the running backfill pass; null when none runs. */
+    backfillCursorHour: z.coerce.date().nullable(),
+    /** Seconds between now and the end of the newest ingested hour. */
+    lagSeconds: z.number().nullable(),
+    objects: z.number().int(),
+    bytes: z.number().int(),
+    fillsSeen: z.number().int(),
+    fillsKept: z.number().int(),
+    /** Today's (UTC) download volume and its cost at the configured rate. */
+    spendDayBytes: z.number().int(),
+    spendDayUsd: z.number(),
+    maxDailyUsd: z.number(),
+    addresses: z.object({ total: z.number().int(), backfilled: z.number().int(), pending: z.number().int(), excluded: z.number().int() }),
+    lastObjectKey: z.string().nullable(),
+    lastRunAt: z.coerce.date().nullable(),
+    lastError: z.string().nullable(),
+  }).optional(),
   now: z.coerce.date(),
 });
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
@@ -1020,6 +1042,13 @@ export const tradeCoverageSchema = z.object({
    * the lookback, or a position already open at `from`): the UI says
    * "based on trades since `from`". */
   truncated: z.boolean(),
+  /** "complete": every position was opened inside the history held and
+   * upstream retention cannot have cut it. "partial": figures cover only
+   * trades since `partialSince`; never present them as lifetime figures. */
+  completeness: z.enum(["complete", "partial"]).optional(),
+  partialSince: z.coerce.date().nullable().optional(),
+  /** Span certified by the public node archive (no REST retention limit). */
+  archive: z.object({ from: z.coerce.date(), through: z.coerce.date() }).nullable().optional(),
   /** Funding is included for trades opened on or after this; null until
    * it has been read. */
   fundingFrom: z.coerce.date().nullable(),

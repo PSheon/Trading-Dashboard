@@ -673,6 +673,9 @@ export const analysisHistoryFills = pgTable("analysis_history_fills", {
   tid: bigint("tid", { mode: "bigint" }).notNull(),
   time: timestamp("time", { withTimezone: true }).notNull(),
   raw: jsonb("raw").$type<Record<string, unknown>>().notNull(),
+  /** Where the row was first read: Hyperliquid's REST API or its public S3
+   * node archive. Not part of the key, so both origins deduplicate by tid. */
+  origin: text("origin").$type<"rest" | "s3">().notNull().default("rest"),
 }, table => [
   primaryKey({ columns: [table.chain, table.address, table.source, table.tid] }),
   index("analysis_history_fills_address_time_idx").on(table.chain, table.address, table.time),
@@ -1103,4 +1106,55 @@ export const favoriteGroupMembers = pgTable("favorite_group_members", {
   foreignKey({ columns: [table.userId, table.groupId], foreignColumns: [favoriteGroups.userId, favoriteGroups.id] }).onDelete("cascade"),
   foreignKey({ columns: [table.userId, table.chain, table.address], foreignColumns: [userFavorites.userId, userFavorites.chain, userFavorites.address] }).onDelete("cascade"),
   index("favorite_group_members_owner_idx").on(table.userId),
+]);
+
+
+// ---------------------------------------------------------------------------
+// Hyperliquid public node archive (S3 `hl-mainnet-node-data`) ingest.
+// Fills land in `analysis_history_fills` (origin = "s3"); these two tables
+// hold only the cursors, so they are small and must be backed up.
+// ---------------------------------------------------------------------------
+
+/** One row per chain: the forward (live) and backward (backfill) cursors
+ * over hourly archive objects, and the transfer accounting behind the
+ * daily spend cap. Every object commits its fills, the coverage it adds and
+ * this row in one transaction; `version` rejects a stale worker. */
+export const archiveIngestState = pgTable("archive_ingest_state", {
+  chain: text("chain").primaryKey().default(CHAIN_DEFAULT),
+  /** Start of the next hour to ingest going forward; null before the first run. */
+  liveNextHour: timestamp("live_next_hour", { withTimezone: true }),
+  /** Start of the next hour to ingest going backward; null when no pass runs. */
+  backfillCursorHour: timestamp("backfill_cursor_hour", { withTimezone: true }),
+  objects: bigint("objects", { mode: "number" }).notNull().default(0),
+  bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+  fillsSeen: bigint("fills_seen", { mode: "number" }).notNull().default(0),
+  fillsKept: bigint("fills_kept", { mode: "number" }).notNull().default(0),
+  /** UTC day the spend counter belongs to, and bytes downloaded that day. */
+  spendDay: text("spend_day"),
+  spendDayBytes: bigint("spend_day_bytes", { mode: "number" }).notNull().default(0),
+  lastObjectKey: text("last_object_key"),
+  lastObjectAt: timestamp("last_object_at", { withTimezone: true }),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  /** A fixed code (never provider text): e.g. "missing_object", "parse_error". */
+  lastError: text("last_error"),
+  version: integer("version").notNull().default(0),
+});
+
+/** Per address: the contiguous span of hourly archive objects already
+ * filtered for it, `[covered_from, covered_through)` on hour boundaries.
+ * An address enters as "queued" (no span); the live cursor starts its span
+ * and a backfill pass extends `covered_from` backward to the archive's
+ * first day. "excluded": too many fills per hour to keep (a market maker);
+ * it stays on the REST path and is never reported as archive-covered. */
+export const archiveCoverage = pgTable("archive_coverage", {
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  address: text("address").notNull(),
+  status: text("status").$type<"active" | "excluded">().notNull().default("active"),
+  coveredFrom: timestamp("covered_from", { withTimezone: true }),
+  coveredThrough: timestamp("covered_through", { withTimezone: true }),
+  queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.chain, table.address] }),
+  index("archive_coverage_from_idx").on(table.coveredFrom),
+  index("archive_coverage_through_idx").on(table.coveredThrough),
 ]);

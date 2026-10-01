@@ -119,7 +119,8 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         const audit = auditFills(address, ours);
         const duplicates = Number((await pool.query(`SELECT count(*) - count(DISTINCT (source, tid)) AS n FROM analysis_history_fills WHERE address = $1`, [address])).rows[0].n);
         const everything = (await pool.query<{ raw: HlUserFill }>(`SELECT raw FROM analysis_history_fills WHERE address = $1`, [address])).rows.map((entry) => entry.raw);
-        const provable = lifetimeComplete(everything, applyFills(address, new Map<string, Trade>(), everything, null));
+        // Nothing stored proves nothing: null, not a vacuous true.
+        const provable = everything.length > 0 ? lifetimeComplete(everything, applyFills(address, new Map<string, Trade>(), everything, null)) : null;
 
         const summary = await copydog(address, "summary");
         const performance = await copydog(address, "performance");
@@ -174,6 +175,49 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         copydogCauses: report.reduce<Record<string, number>>((count, entry) => ({ ...count, [entry.copydog?.cause ?? "unavailable"]: (count[entry.copydog?.cause ?? "unavailable"] ?? 0) + 1 }), {}),
         hyperliquidWeight: spent,
       };
+      console.log(JSON.stringify(totals, null, 2));
+      if (process.env.E2E_OUT) writeFileSync(process.env.E2E_OUT, JSON.stringify({ generatedAt: new Date().toISOString(), totals, report }, null, 2));
+    } finally {
+      await pool.end();
+    }
+  });
+});
+
+/**
+ * No network: the invariants over everything stored for each address the
+ * analytics claim to cover (watcher `fills` ∪ `analysis_history_fills`,
+ * inside `[coverage_from, fill_cursor]`). A break here is a hole in our own
+ * data: fills the figures were computed without.
+ *
+ *   E2E_RUN_STORED=1 RECONCILE_DATABASE_URL=… E2E_OUT=/tmp/stored.json pnpm … -t "stored history"
+ */
+describe.skipIf(!process.env.E2E_RUN_STORED)("stored history invariants (manual, database only)", () => {
+  it("audits every tracked address with analytics", { timeout: 3_600_000 }, async () => {
+    const url = process.env.RECONCILE_DATABASE_URL;
+    if (!url) throw new Error("RECONCILE_DATABASE_URL is required");
+    const pool = new Pool({ connectionString: url, max: 2, options: "-c default_transaction_read_only=on" });
+    try {
+      const rows = (await pool.query<{ address: string; source: string; coverage_from: Date | null; fill_cursor: Date }>(`
+        SELECT address, source, coverage_from, fill_cursor FROM trader_analytics WHERE fill_cursor IS NOT NULL ORDER BY address LIMIT $1`, [Number(process.env.E2E_SAMPLE ?? 500)])).rows;
+      const report = [];
+      for (const row of rows) {
+        const table = row.source === "tracked"
+          ? `SELECT tid, raw, false AS twap FROM fills WHERE address = $1 AND ts >= $2 AND ts <= $3`
+          : `SELECT tid, raw, (source = 'twap') AS twap FROM analysis_history_fills WHERE address = $1 AND time >= $2 AND time <= $3`;
+        const stored = (await pool.query<{ raw: HlUserFill }>(`SELECT DISTINCT ON (tid) raw FROM (${table}) merged ORDER BY tid, twap DESC`,
+          [row.address, row.coverage_from ?? new Date(0), row.fill_cursor])).rows.map((entry) => entry.raw);
+        const audit = auditFills(row.address, stored);
+        report.push({ address: row.address, source: row.source, fills: stored.length, breaks: audit.positionBreaks.length,
+          firstBreak: audit.positionBreaks[0] ? { coin: audit.positionBreaks[0].coin, at: new Date(audit.positionBreaks[0].time).toISOString() } : null,
+          pnlIdentityHolds: audit.pnl.holds });
+      }
+      const totals = { addresses: report.length, withStoredFills: report.filter((entry) => entry.fills > 0).length,
+        withBreaks: report.filter((entry) => entry.breaks > 0).length, breaks: report.reduce((sum, entry) => sum + entry.breaks, 0),
+        pnlIdentityFails: report.filter((entry) => !entry.pnlIdentityHolds).length,
+        bySource: Object.fromEntries(["tracked", "hyperliquid"].map((source) => [source, {
+          addresses: report.filter((entry) => entry.source === source).length,
+          withStoredFills: report.filter((entry) => entry.source === source && entry.fills > 0).length,
+          withBreaks: report.filter((entry) => entry.source === source && entry.breaks > 0).length }])) };
       console.log(JSON.stringify(totals, null, 2));
       if (process.env.E2E_OUT) writeFileSync(process.env.E2E_OUT, JSON.stringify({ generatedAt: new Date().toISOString(), totals, report }, null, 2));
     } finally {

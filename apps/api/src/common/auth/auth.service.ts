@@ -31,6 +31,10 @@ const CACHE_MAX_ENTRIES = 5_000;
 /** A returning user with no email on file is looked up at Privy again at
  * most this often (they may have linked one since). */
 const PROFILE_RETRY_MS = 10 * 60_000;
+/** A missing embedded wallet is looked up far more often: the browser
+ * creates it right after the first sign-in, seconds after the api first
+ * saw the Privy record without one. */
+export const EMBEDDED_WALLET_RETRY_MS = 15_000;
 
 /**
  * What a bearer token amounts to:
@@ -223,7 +227,7 @@ export class AuthService {
 
     const now = Date.now();
     if ((this.profileRetryAt.get(user.id) ?? 0) > now) return user;
-    this.profileRetryAt.set(user.id, now + PROFILE_RETRY_MS);
+    this.profileRetryAt.set(user.id, now + (user.embeddedWalletAddress === null ? EMBEDDED_WALLET_RETRY_MS : PROFILE_RETRY_MS));
     const profile = await this.privy.fetchProfile(user.privyUserId);
     const email = user.email ?? profile?.email ?? null;
     const embedded = user.embeddedWalletAddress ?? profile?.embeddedWalletAddress ?? null;

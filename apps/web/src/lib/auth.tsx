@@ -24,6 +24,7 @@ import { PRIVY_APP_ID } from "@/lib/config";
 import { api, sessionKey, setAccessTokenGetter } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
+import { useWalletBackfill } from "@/lib/use-wallet-backfill";
 
 /**
  * One auth surface for the whole app, whatever is behind it:
@@ -134,8 +135,9 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
     if (!signedIn || !ready || embedded || creating.current) return;
     creating.current = true;
     // No query invalidation here: this runs above the session QueryClient.
-    // The pages show the new address from Privy at once (useWalletAddress)
-    // and /me/wallet picks it up on its next poll.
+    // The pages show the new address from Privy at once (useWalletAddress);
+    // AuthEffects (useWalletBackfill) refetches /me and /me/wallet when the
+    // address appears so the api stores it.
     createWallet().catch(() => {
         // Already has one (created in another tab) or Privy refused: the
         // wallet panel shows "not ready" and a reload tries again.
@@ -199,11 +201,14 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
 
 // --- side effects shared by every mode ------------------------------------------
 
-/** The keyed session boundary resets state on identity changes. Adopt the saved locale. */
+/** The keyed session boundary resets state on identity changes. Adopt the
+ * saved locale; have the api store a freshly created embedded wallet. */
 function AuthEffects() {
   const { data: me } = useMe();
+  const { wallet } = useAuth();
   const { locale, setLocale } = useI18n();
   const adoptedFor = useRef<number | null>(null);
+  useWalletBackfill(wallet?.address ?? null);
 
   useEffect(() => {
     if (!me || adoptedFor.current === me.id) return;

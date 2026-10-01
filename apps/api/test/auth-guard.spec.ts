@@ -9,6 +9,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthService } from "../src/common/auth/auth.service.js";
+import { EMBEDDED_WALLET_RETRY_MS } from "../src/common/auth/auth.service.js";
 import type { SettingsService } from "../src/settings/settings.service.js";
 import { CurrentUser, Roles, type RequestUser } from "../src/common/auth/current-user.js";
 import { profileFromLinkedAccounts, SdkPrivyVerifier } from "../src/common/auth/privy-verifier.js";
@@ -317,6 +318,36 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       const [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
       expect(alice.embeddedWalletAddress).toBe("0xa11ce0000000000000000000000000000000e3b0");
       expect(privy.fetchProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it("looks a missing embedded wallet up again after 15 s, not 10 min: the browser creates it right after the first sign-in", async () => {
+      await get("/t/protected", "alice-token").expect(200);
+      await db.update(users).set({ embeddedWalletAddress: null }).where(eq(users.privyUserId, "did:privy:alice"));
+      auth.clearCache();
+      const retryAt = (auth as unknown as { profileRetryAt: Map<number, number> }).profileRetryAt;
+      retryAt.clear();
+      privy.fetchProfile.mockClear();
+      // Privy's record carries no wallet yet: nothing to store, a short window.
+      privy.fetchProfile.mockResolvedValueOnce({ email: "alice@example.com", walletAddress: "0xa11ce00000000000000000000000000000000000", embeddedWalletAddress: null });
+      const before = Date.now();
+      await get("/t/protected", "alice-token").expect(200);
+      let [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+      expect(alice.embeddedWalletAddress).toBeNull();
+      expect(retryAt.get(alice.id)).toBeGreaterThan(before);
+      expect(retryAt.get(alice.id)).toBeLessThanOrEqual(Date.now() + EMBEDDED_WALLET_RETRY_MS);
+      // Inside the window: no lookup.
+      auth.clearCache();
+      await get("/t/protected", "alice-token").expect(200);
+      expect(privy.fetchProfile).toHaveBeenCalledTimes(1);
+      // The window has passed (the wallet exists at Privy by now): stored.
+      retryAt.set(alice.id, Date.now() - 1);
+      auth.clearCache();
+      await get("/t/protected", "alice-token").expect(200);
+      [alice] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+      expect(alice.embeddedWalletAddress).toBe("0xa11ce0000000000000000000000000000000e3b0");
+      expect(privy.fetchProfile).toHaveBeenCalledTimes(2);
+      // Once complete, the usual ten-minute window applies.
+      expect(retryAt.get(alice.id)).toBeUndefined();
     });
   });
 

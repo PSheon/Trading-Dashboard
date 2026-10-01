@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ShareDialog } from "../src/components/trader/share-dialog";
+import { ToastProvider } from "../src/components/ui/toast";
 import { I18nProvider } from "../src/i18n/provider";
 import { zhTW } from "../src/i18n/messages/zh-TW";
 
@@ -16,7 +17,7 @@ async function mount() {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => root.render(<I18nProvider locale="zh-TW" messages={zhTW}><ShareDialog open onOpenChange={() => {}} address={A} name="solanadoomer" /></I18nProvider>));
+  await act(async () => root.render(<I18nProvider locale="zh-TW" messages={zhTW}><ToastProvider><ShareDialog open onOpenChange={() => {}} address={A} name="solanadoomer" /></ToastProvider></I18nProvider>));
   return { root, container };
 }
 const image = () => document.querySelector<HTMLImageElement>('[data-testid="share-image"]')!;
@@ -66,7 +67,37 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     await act(async () => button("下載").click());
     expect(fetchMock).toHaveBeenCalledWith(`/trader/${A}/share-image?period=allTime&format=landscape`);
     expect(clicks).toEqual(["orbie-solanadoomer-all-landscape.png"]);
+    // CopyDog says nothing after a download that worked.
+    expect(document.querySelector('[role="alert"]')).toBeNull();
     await act(async () => root.unmount());
   });
 
+  it("confirms a copy with CopyDog's toast, inline text nowhere", async () => {
+    const blob = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(blob));
+    const write = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { write }, configurable: true });
+    (globalThis as { ClipboardItem?: unknown }).ClipboardItem = class { constructor(public items: unknown) {} };
+    const { root } = await mount();
+    await act(async () => button("複製").click());
+    expect(write).toHaveBeenCalledTimes(1);
+    const alert = document.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain("圖片已複製到剪貼簿");
+    expect(alert.closest("section")?.getAttribute("aria-live")).toBe("polite");
+    expect(document.querySelector('[role="status"]')?.textContent ?? "").not.toContain("圖片已複製到剪貼簿");
+    await act(async () => root.unmount());
+  });
+
+  it("reports a failed copy with an error toast", async () => {
+    const blob = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(blob));
+    Object.defineProperty(navigator, "clipboard", { value: { write: vi.fn().mockRejectedValue(new Error("nope")) }, configurable: true });
+    (globalThis as { ClipboardItem?: unknown }).ClipboardItem = class { constructor(public items: unknown) {} };
+    const { root } = await mount();
+    await act(async () => button("複製").click());
+    const alert = document.querySelector<HTMLElement>('[role="alert"]')!;
+    expect(alert.dataset.type).toBe("error");
+    expect(alert.textContent).toContain("無法複製圖片");
+    await act(async () => root.unmount());
+  });
 });

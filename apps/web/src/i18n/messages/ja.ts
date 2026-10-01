@@ -844,6 +844,8 @@ export const ja: Messages = {
     },
   },
   favorites: {
+    addFailed: "お気に入りに追加できませんでした",
+    removeFailed: "お気に入りから削除できませんでした",
     phoneAlertsBody: "保存したトレーダーが動いた瞬間に通知します。",
     phoneAlertsTitle: "ログインしてアラートを設定",
     phoneSavedBody: "気になるトレーダーを追跡し、取引した瞬間に通知を受け取れます。",
@@ -1048,6 +1050,7 @@ export const ja: Messages = {
     unlink: "連携解除",
     unlinkConfirm: "すべてのアラートが届かなくなります。",
     unlinkYes: "連携解除",
+    unlinked: "Telegram の連携を解除しました",
     manageAlerts: "アラートを管理",
     unavailable: "アラートボットはまだ利用できません：サーバーにボットが設定されていません。",
     rateLimited: "リンクの作成回数が多すぎます。数分後にもう一度お試しください。",
@@ -1080,6 +1083,8 @@ export const ja: Messages = {
     withdrawNote: "USDCは{chain}にのみ出金可 · ネットワーク手数料 ${fee}",
     withdrawing: "署名中…",
     withdrawSent: "出金を送信しました。約 5 分で着金します",
+    addressCopied: "入金アドレスをコピーしました！",
+    withdrawSubmitting: "{amount} を出金中…",
     invalidAddress: "0x から始まる完全なアドレスを入力してください",
     belowMin: "金額は ${min} より大きくしてください（ネットワーク手数料 ${fee} を含む）",
     overAvailable: "利用可能残高を超えています",
@@ -1407,6 +1412,9 @@ export const ja: Messages = {
     cancel: "キャンセル",
     failed: "アカウントを削除できませんでした。しばらくしてからもう一度お試しください。",
     lastAdmin: "あなたは唯一の管理者です。アカウントを削除する前に、別のユーザーを管理者にしてください。",
+  },
+  toast: {
+    label: "通知",
   },
   auth: {
     loginToFavorite: "ログインして保存",

@@ -1,5 +1,7 @@
 "use client";
 
+import { useToast } from "@/components/ui/toast";
+import { useT } from "@/i18n/provider";
 import { busyRetry, computingRetry } from "@/lib/query-policy";
 import { traderProfileOptions } from "@/lib/trader-query-options";
 import { queryKeys } from "@/lib/query-keys";
@@ -443,11 +445,15 @@ export function useFavorites() {
 export function useToggleFavorite() {
   const queryClient = useQueryClient();
   const { status, login } = useAuth();
+  const toast = useToast();
+  const t = useT();
   const mutation = useMutation({
     mutationFn: async ({ address, favorite }: { address: string; favorite: boolean }) => {
       if (favorite) await api.put<Favorite>(`/me/favorites/${address}`);
       else await api.delete<void>(`/me/favorites/${address}`);
     },
+    // CopyDog: "Failed to add to watchlist" / "… remove from …" toasts.
+    onError: (_error, { favorite }) => toast.error(t(favorite ? "favorites.addFailed" : "favorites.removeFailed")),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.favorites });
       void queryClient.invalidateQueries({ queryKey: queryKeys.favoriteGroups });

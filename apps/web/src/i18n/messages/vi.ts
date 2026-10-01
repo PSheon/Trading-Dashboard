@@ -844,6 +844,8 @@ export const vi: Messages = {
     },
   },
   favorites: {
+    addFailed: "Không thể thêm vào danh sách yêu thích",
+    removeFailed: "Không thể xoá khỏi danh sách yêu thích",
     phoneAlertsBody: "Nhận thông báo ngay khi trader bạn lưu giao dịch.",
     phoneAlertsTitle: "Đăng nhập để đặt cảnh báo",
     phoneSavedBody: "Theo dõi nhà giao dịch và nhận cảnh báo ngay khi họ giao dịch.",
@@ -1048,6 +1050,7 @@ export const vi: Messages = {
     unlink: "Hủy liên kết",
     unlinkConfirm: "Bạn sẽ không còn nhận bất kỳ cảnh báo nào.",
     unlinkYes: "Hủy liên kết",
+    unlinked: "Đã ngắt kết nối Telegram",
     manageAlerts: "Quản lý cảnh báo",
     unavailable: "Bot cảnh báo chưa khả dụng: máy chủ chưa cấu hình bot.",
     rateLimited: "Yêu cầu tạo liên kết quá nhiều. Hãy thử lại sau vài phút.",
@@ -1080,6 +1083,8 @@ export const vi: Messages = {
     withdrawNote: "Chỉ rút USDC về {chain} · phí mạng ${fee}",
     withdrawing: "Đang ký…",
     withdrawSent: "Đã gửi lệnh rút. Tiền sẽ đến sau khoảng 5 phút",
+    addressCopied: "Đã sao chép địa chỉ nạp tiền!",
+    withdrawSubmitting: "Đang rút {amount}…",
     invalidAddress: "Nhập đầy đủ địa chỉ 0x",
     belowMin: "Số tiền phải lớn hơn ${min} (bao gồm phí mạng ${fee})",
     overAvailable: "Vượt quá số dư khả dụng",
@@ -1407,6 +1412,9 @@ export const vi: Messages = {
     cancel: "Hủy",
     failed: "Không xóa được tài khoản. Vui lòng thử lại sau.",
     lastAdmin: "Bạn là quản trị viên duy nhất. Hãy chỉ định người khác làm quản trị viên trước khi xóa tài khoản.",
+  },
+  toast: {
+    label: "Thông báo",
   },
   auth: {
     loginToFavorite: "Đăng nhập để lưu trader",

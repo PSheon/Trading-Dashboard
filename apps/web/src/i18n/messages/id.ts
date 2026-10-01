@@ -844,6 +844,8 @@ export const id: Messages = {
     },
   },
   favorites: {
+    addFailed: "Gagal menambahkan ke favorit",
+    removeFailed: "Gagal menghapus dari favorit",
     phoneAlertsBody: "Dapatkan notifikasi begitu trader tersimpan Anda bergerak.",
     phoneAlertsTitle: "Masuk untuk mengatur peringatan",
     phoneSavedBody: "Pantau trader dan dapatkan notifikasi begitu mereka bertransaksi.",
@@ -1048,6 +1050,7 @@ export const id: Messages = {
     unlink: "Putuskan",
     unlinkConfirm: "Kamu tidak akan menerima peringatan apa pun lagi.",
     unlinkYes: "Putuskan",
+    unlinked: "Telegram terputus",
     manageAlerts: "Kelola peringatan",
     unavailable: "Bot peringatan belum tersedia: server belum mengonfigurasi bot.",
     rateLimited: "Terlalu banyak permintaan tautan. Coba lagi dalam beberapa menit.",
@@ -1080,6 +1083,8 @@ export const id: Messages = {
     withdrawNote: "Hanya tarik USDC ke {chain} · biaya jaringan ${fee}",
     withdrawing: "Menandatangani…",
     withdrawSent: "Penarikan terkirim. Dana tiba dalam sekitar 5 menit",
+    addressCopied: "Alamat deposit disalin!",
+    withdrawSubmitting: "Menarik {amount}…",
     invalidAddress: "Masukkan alamat 0x lengkap",
     belowMin: "Jumlah harus lebih dari ${min} (termasuk biaya jaringan ${fee})",
     overAvailable: "Melebihi saldo tersedia",
@@ -1407,6 +1412,9 @@ export const id: Messages = {
     cancel: "Batal",
     failed: "Gagal menghapus akun. Silakan coba lagi nanti.",
     lastAdmin: "Kamu satu-satunya admin. Jadikan orang lain admin sebelum menghapus akunmu.",
+  },
+  toast: {
+    label: "Notifikasi",
   },
   auth: {
     loginToFavorite: "Masuk untuk menyimpan trader",

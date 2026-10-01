@@ -1,12 +1,12 @@
 "use client";
 
-import { CircleCheck, Loader2, TriangleAlert } from "lucide-react";
+import { Loader2, TriangleAlert } from "lucide-react";
 import { useId, useState } from "react";
-import { cn } from "cn";
 
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import type { WalletSummary } from "@/lib/contracts";
@@ -67,6 +67,7 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
 function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () => void }) {
   const { t, format } = useI18n();
+  const toast = useToast();
   const { wallet } = useAuth();
   const withdraw = useWithdraw();
   const [destination, setDestination] = useState("");
@@ -76,22 +77,6 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   const network = networkConfig(summary.network);
   const withdrawable = summary.hyperliquid?.withdrawable ?? 0;
   const { ready, problem } = withdrawProblem(destination, amount, withdrawable);
-  const error = withdraw.error ? signErrorMessage(withdraw.error) : null;
-
-  if (withdraw.isSuccess) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <CircleCheck className="size-10 text-positive" />
-        <p className="text-sm font-semibold">{t("wallet.withdrawSent")}</p>
-        <p className="text-xs text-muted-foreground">
-          {t("wallet.receive", { amount: format.usd(Number(amount) - WITHDRAW_FEE_USDC, { digits: 2 }) })}
-        </p>
-        <Button variant="secondary" className="mt-2" onClick={onDone}>
-          {t("settings.close")}
-        </Button>
-      </div>
-    );
-  }
 
   const problemText =
     problem === "address"
@@ -108,7 +93,24 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       onSubmit={(e) => {
         e.preventDefault();
         if (!ready || withdraw.isPending) return;
-        withdraw.mutate({ summary, destination: destination.trim(), amount: amount.trim() });
+        // CopyDog's three toasts: "Withdrawing $X…" (no icon) while signing,
+        // then the submitted confirmation (and the modal closes) or the error.
+        const pending = toast.info(t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false });
+        withdraw.mutate(
+          { summary, destination: destination.trim(), amount: amount.trim() },
+          {
+            onSuccess: () => {
+              toast.dismiss(pending);
+              toast.success(t("wallet.withdrawSent"));
+              onDone();
+            },
+            onError: (err) => {
+              toast.dismiss(pending);
+              const error = signErrorMessage(err);
+              toast.error(error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message }));
+            },
+          },
+        );
       }}
     >
       <label htmlFor={destId} className="text-sm font-semibold">
@@ -170,11 +172,6 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         {withdraw.isPending ? t("wallet.withdrawing") : t("wallet.withdrawTitle")}
       </Button>
       {!wallet ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p> : null}
-      {error ? (
-        <p role="alert" className={cn("mt-2 text-center text-xs", error.rejected ? "text-muted-foreground" : "text-negative")}>
-          {error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message })}
-        </p>
-      ) : null}
     </form>
   );
 }

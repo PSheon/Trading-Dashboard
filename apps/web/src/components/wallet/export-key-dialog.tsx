@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Lockup } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 
@@ -16,22 +17,21 @@ import { useAuth } from "@/lib/auth";
  */
 export function ExportKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useI18n();
+  const toast = useToast();
   const { wallet } = useAuth();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const ready = Boolean(wallet?.address);
 
   async function exportKey() {
     if (!wallet) return;
     setBusy(true);
-    setError(null);
     try {
       // Close ours first so Privy's modal is the only one on screen.
       onOpenChange(false);
       await wallet.exportKey();
     } catch (err) {
-      // Privy's own errors carry no key material; show the reason only.
-      setError(err instanceof Error ? err.message : String(err));
+      // Privy's own errors carry no key material; the toast shows the reason only.
+      toast.error(t("wallet.signFailed", { message: err instanceof Error ? err.message : String(err) }));
       onOpenChange(true);
     } finally {
       setBusy(false);
@@ -55,11 +55,6 @@ export function ExportKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
         <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p>
       ) : !ready ? (
         <p className="mt-2 text-center text-xs text-muted-foreground">{t("settings.walletPending")}</p>
-      ) : null}
-      {error ? (
-        <p role="alert" className="mt-2 text-center text-xs text-negative">
-          {t("wallet.signFailed", { message: error })}
-        </p>
       ) : null}
       <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-subtle-foreground">
         {t("wallet.protectedBy")}

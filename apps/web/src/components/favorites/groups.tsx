@@ -8,14 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/provider";
-import { apiErrorCode } from "@/lib/api";
-import { FAVORITE_GROUP_NAME_MAX, FAVORITE_GROUPS_MAX, type FavoriteGroup } from "@/lib/contracts";
+import { FAVORITE_GROUP_NAME_MAX, type FavoriteGroup } from "@/lib/contracts";
 import { useCreateFavoriteGroup, useDeleteFavoriteGroup, usePatchFavoriteGroup, useToggleGroupMember } from "@/lib/favorite-groups";
 
 /**
  * CopyDog's watchlist chip row: 全部 (count), each group (colour dot, name,
  * count; a hover × deletes it after a confirmation), ＋ 新增分組 (an inline
- * name field) and 管理群組 (rename, reorder, delete).
+ * name field) and 管理群組 (rename, reorder, delete). Failures are toasts
+ * (lib/favorite-groups), as on CopyDog.
  */
 export function GroupChips({ groups, counts, total, active, onSelect }: {
   groups: FavoriteGroup[];
@@ -46,7 +46,6 @@ export function GroupChips({ groups, counts, total, active, onSelect }: {
       },
     });
   }
-  const code = apiErrorCode(create.error);
 
   return (
     <div className="flex flex-col gap-2">
@@ -118,11 +117,6 @@ export function GroupChips({ groups, counts, total, active, onSelect }: {
           </button>
         ) : null}
       </div>
-      {code ? (
-        <p role="alert" className="text-xs text-negative">
-          {code === "group_name_exists" ? t("favorites.groups.exists") : code === "group_limit" ? t("favorites.groups.limit", { limit: FAVORITE_GROUPS_MAX }) : t("favorites.groups.failed")}
-        </p>
-      ) : null}
       {confirm ? (
         <DeleteGroupDialog
           group={confirm}
@@ -199,7 +193,6 @@ function ManageGroupsDialog({ groups, onClose }: { groups: FavoriteGroup[]; onCl
   const patch = usePatchFavoriteGroup();
   const [confirm, setConfirm] = useState<FavoriteGroup | null>(null);
   const [editing, setEditing] = useState<{ id: number; name: string } | null>(null);
-  const code = apiErrorCode(patch.error);
 
   function move(index: number, by: -1 | 1) {
     const order = [...groups];
@@ -266,7 +259,6 @@ function ManageGroupsDialog({ groups, onClose }: { groups: FavoriteGroup[]; onCl
           </li>
         ))}
       </ul>
-      {code ? <p role="alert" className="mt-3 text-xs text-negative">{code === "group_name_exists" ? t("favorites.groups.exists") : t("favorites.groups.failed")}</p> : null}
       <div className="mt-5 flex justify-end">
         <Button onClick={onClose}>{t("favorites.groups.done")}</Button>
       </div>

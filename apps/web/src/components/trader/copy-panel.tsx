@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { PaperBadge } from "@/components/copy/paper-badge";
+import { useToast } from "@/components/ui/toast";
 import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
@@ -28,8 +29,9 @@ let measureContext: CanvasRenderingContext2D | null = null;
  * 順向 / 反向, the amount in USDC with 最大, 可交易餘額 with its slider, 更多設定
  * (跟單目前持倉, on by default: CopyDog's only extra setting there) and the CTA,
  * whose label follows CopyDog's order: 請輸入金額 → 最低 $100 才能跟單 → 餘額不足
- * → 開始跟單 $X → 已啟動！. The balance is the user's paper account (模擬),
- * never the wallet. CopyDog's other copy fields (sizing mode, amount per
+ * → 開始跟單 $X → 已啟動！. Submitting with a bad amount or a failed start
+ * raises CopyDog's toast (the panel itself shows no error text). The
+ * balance is the user's paper account (模擬), never the wallet. CopyDog's other copy fields (sizing mode, amount per
  * trade, max allocation) live in the portfolio's 編輯設定, as on CopyDog.
  *
  * `sheet` is the phone version: the amount is typed on CopyDog's keypad with
@@ -37,6 +39,7 @@ let measureContext: CanvasRenderingContext2D | null = null;
  */
 export function CopyPanel({ address, sheet = false }: { address: string; sheet?: boolean }) {
   const { t, format } = useI18n();
+  const toast = useToast();
   const { status, login } = useAuth();
   const overview = useCopyOverview();
   const existing = useCopyOf(address);
@@ -45,7 +48,6 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   const [amount, setAmount] = useState("");
   const [more, setMore] = useState(false);
   const [copyExisting, setCopyExisting] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
   const startedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(startedTimer.current), []);
@@ -94,19 +96,17 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     t("trader.copy.startCopying", { amount: format.num(value, value % 1 ? 2 : 0) });
 
   function setFromPct(p: number) {
-    setError(null);
     setAmount(balance > 0 ? String(Math.floor((balance * p) / 100)) : "");
   }
 
   async function submit() {
-    setError(null);
     if (!signedIn) {
       login();
       return;
     }
-    if (!amount || !(value > 0)) return setError(t("trader.copy.enterAmount"));
-    if (value < min) return setError(t("trader.copy.errors.minAllocation", { min: format.num(min) }));
-    if (value > balance) return setError(t("trader.copy.errors.exceedsBalance"));
+    if (!amount || !(value > 0)) return toast.error(t("trader.copy.enterAmount"));
+    if (value < min) return toast.error(t("trader.copy.errors.minAllocation", { min: format.num(min) }));
+    if (value > balance) return toast.error(t("trader.copy.errors.exceedsBalance"));
     try {
       await start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" });
       setStarted(true);
@@ -115,8 +115,9 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     } catch (err) {
       const code = apiErrorCode(err);
       const limit = overview.data?.limits;
-      setError(
-        code === "already_copying" ? t("trader.copy.errors.alreadyCopying") :
+      // CopyDog: "already copying" is an info toast, the rest are errors.
+      if (code === "already_copying") return toast.info(t("trader.copy.errors.alreadyCopying"));
+      toast.error(
         code === "insufficient_balance" ? t("trader.copy.errors.exceedsBalance") :
         code === "below_min_allocation" ? t("trader.copy.errors.minAllocation", { min: format.num(min) }) :
         code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(limit?.maxAllocationUsd ?? 0) }) :
@@ -231,7 +232,6 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             placeholder="0"
             value={amount}
             onChange={(e) => {
-              setError(null);
               setAmount(e.target.value.replace(/[^\d.]/g, "").slice(0, 12));
             }}
             onBlur={() => {
@@ -289,7 +289,6 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
                 type="button"
                 aria-label={k === "del" ? "Backspace" : k}
                 onClick={() => {
-                  setError(null);
                   setAmount((a) => (k === "del" ? a.slice(0, -1) : `${a}${k}`.replace(/^0+(?=\d)/, "").slice(0, 12)));
                 }}
                 className="flex h-12 items-center justify-center rounded-xl text-xl font-semibold outline-none active:bg-raised focus-visible:ring-2 focus-visible:ring-ring"
@@ -382,13 +381,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             label
           )}
         </button>
-        {error ? (
-          <p role="alert" className="text-center text-xs font-semibold text-negative">
-            {error}
-          </p>
-        ) : sheet ? (
-          <p className="text-center text-[11px] leading-relaxed text-subtle-foreground">{t("trader.copy.paperHint")}</p>
-        ) : null}
+        {sheet ? <p className="text-center text-[11px] leading-relaxed text-subtle-foreground">{t("trader.copy.paperHint")}</p> : null}
       </div>
     </Shell>
   );

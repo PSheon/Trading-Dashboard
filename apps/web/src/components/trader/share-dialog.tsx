@@ -7,6 +7,7 @@ import { cn } from "cn";
 
 import { Modal } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
+import { useToast } from "@/components/ui/toast";
 import { useI18n } from "@/i18n/provider";
 import { SHARE_FORMATS, SHARE_PERIODS, isShareFormat, shareFileName, shareImagePath, type ShareFormat } from "@/lib/share-card";
 
@@ -31,15 +32,16 @@ const pngOf = (src: string) =>
  * CopyDog's 分享交易員主頁: the trader's image card in two formats (16:9 and
  * 4:5, the choice remembered), four periods (ALL first), 複製 (the PNG to
  * the clipboard) and 下載. The PNG comes from
- * /trader/<address>/share-image.
+ * /trader/<address>/share-image. As on CopyDog, a copy and a failed
+ * download are confirmed by a toast; a download that works says nothing.
  */
 export function ShareDialog({ open, onOpenChange, address, name }: { open: boolean; onOpenChange: (open: boolean) => void; address: string; name: string }) {
   const { t } = useI18n();
+  const toast = useToast();
   // Mounted on opening (ShareButton), so the remembered format is read then.
   const [format, setFormat] = useState<ShareFormat>(() => (typeof window === "undefined" ? "landscape" : readFormat()));
   const [period, setPeriod] = useState<TraderWindow>("allTime");
   const [busy, setBusy] = useState<"copy" | "download" | null>(null);
-  const [note, setNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [loaded, setLoaded] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -58,13 +60,12 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
 
   async function copy() {
     setBusy("copy");
-    setNote(null);
     try {
       // The promise form keeps Safari's user-gesture requirement.
       await navigator.clipboard.write([new ClipboardItem({ "image/png": pngOf(src) })]);
-      setNote({ tone: "ok", text: t("trader.share.copied") });
+      toast.success(t("trader.share.copied"));
     } catch {
-      setNote({ tone: "error", text: t("trader.share.copyFailed") });
+      toast.error(t("trader.share.copyFailed"));
     } finally {
       setBusy(null);
     }
@@ -72,7 +73,6 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
 
   async function download() {
     setBusy("download");
-    setNote(null);
     try {
       const url = URL.createObjectURL(await pngOf(src));
       const a = document.createElement("a");
@@ -81,7 +81,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
-      setNote({ tone: "error", text: t("trader.share.downloadFailed") });
+      toast.error(t("trader.share.downloadFailed"));
     } finally {
       setBusy(null);
     }
@@ -166,11 +166,6 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
             {busy === "download" ? t("trader.share.downloading") : t("trader.share.download")}
           </button>
         </div>
-        {note ? (
-          <p role="status" className={cn("text-center text-xs", note.tone === "ok" ? "text-positive" : "text-negative")}>
-            {note.text}
-          </p>
-        ) : null}
       </div>
     </Modal>
   );

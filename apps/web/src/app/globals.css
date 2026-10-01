@@ -457,7 +457,37 @@
   to { opacity: 0; transform: scale(3); }
 }
 
+/* CopyDog's toasts (Toastify's bounce-in-left / bounce-out-left, 0.5 s; the
+   icon zooms in over 0.3 s). */
+.toast-enter {
+  animation: toast-bounce-in 0.5s both;
+}
+.toast-exit {
+  animation: toast-bounce-out 0.5s both;
+}
+.toast-icon {
+  animation: toast-zoom-in 0.3s both;
+}
+@keyframes toast-bounce-in {
+  0%, 60%, 75%, 90%, to { animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1); }
+  0% { opacity: 0; transform: translate3d(-3000px, 0, 0); }
+  60% { opacity: 1; transform: translate3d(25px, 0, 0); }
+  75% { transform: translate3d(-10px, 0, 0); }
+  90% { transform: translate3d(5px, 0, 0); }
+  to { transform: none; }
+}
+@keyframes toast-bounce-out {
+  20% { opacity: 1; transform: translate3d(20px, 0, 0); }
+  to { opacity: 0; transform: translate3d(-2000px, 0, 0); }
+}
+@keyframes toast-zoom-in {
+  0% { opacity: 0; transform: scale3d(0.3, 0.3, 0.3); }
+  50% { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .toast-enter, .toast-icon { animation: none; }
+  .toast-exit { animation: none; opacity: 0; }
   .ui-skeleton::after { animation: none; opacity: 0; }
   .spark-pulse { animation: none; opacity: 0; }
   .about-marquee { animation: none; }

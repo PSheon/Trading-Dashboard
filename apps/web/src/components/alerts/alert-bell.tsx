@@ -14,11 +14,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Segmented } from "@/components/ui/segmented";
 import { useI18n, type Translate } from "@/i18n/provider";
 import { useAddFavorite, useSetFavoriteAlert, useTelegramStatus } from "@/lib/alerts";
-import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Formatter } from "@/lib/format";
 import { coinLabel } from "@/lib/format";
-import { useAlerts, useFavorites, useSiteSettings } from "@/lib/queries";
+import { useAlerts, useFavorites } from "@/lib/queries";
 import { usd0 } from "@/lib/trade-format";
 
 const SIDE_KEY = { buy: "alerts.sideBuy", sell: "alerts.sideSell", both: "alerts.sideBoth" } as const;
@@ -171,7 +170,6 @@ export function AlertHistory({ address }: { address: string }) {
 function AlertEditor({ address, alert, onDone }: { address: string; alert: FavoriteAlert; onDone: () => void }) {
   const { t } = useI18n();
   const telegram = useTelegramStatus();
-  const settings = useSiteSettings();
   const save = useSetFavoriteAlert();
   const [sides, setSides] = useState<AlertSidesInput>(alert.sides);
   const [minText, setMinText] = useState(alert.minUsd === null ? "" : String(alert.minUsd));
@@ -185,12 +183,6 @@ function AlertEditor({ address, alert, onDone }: { address: string; alert: Favor
     if (minInvalid) return;
     save.mutate({ address, patch: { enabled, sides, minUsd } }, { onSuccess: onDone });
   }
-
-  const error = save.error;
-  const limit =
-    error instanceof ApiError && typeof error.details.limit === "number"
-      ? error.details.limit
-      : settings.data?.maxAlertTraders;
 
   return (
     <form
@@ -247,22 +239,8 @@ function AlertEditor({ address, alert, onDone }: { address: string; alert: Favor
         {minInvalid ? <p className="text-xs text-negative">{t("alerts.minUsdInvalid")}</p> : null}
       </div>
 
-      {error ? (
-        <div role="alert" className="rounded-xl bg-negative-soft px-3 py-2.5 text-xs leading-relaxed text-negative">
-          {error.code === "telegram_not_linked" ? (
-            <>
-              {t("alerts.notLinked")}{" "}
-              <Link href="/settings" className="font-semibold underline underline-offset-2" onClick={onDone}>
-                {t("alerts.goSettings")}
-              </Link>
-            </>
-          ) : error.code === "alert_limit" ? (
-            t("alerts.limit", { limit: limit ?? 3 })
-          ) : (
-            error.message
-          )}
-        </div>
-      ) : cannotDeliver && !alert.enabled ? (
+      {/* A save that fails is CopyDog's toast (lib/alerts). */}
+      {cannotDeliver && !alert.enabled ? (
         <div className="rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
           {t("alerts.notLinked")}{" "}
           <Link href="/settings" className="font-semibold underline underline-offset-2" onClick={onDone}>

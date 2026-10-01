@@ -844,6 +844,8 @@ export const pt: Messages = {
     },
   },
   favorites: {
+    addFailed: "Não foi possível adicionar aos favoritos",
+    removeFailed: "Não foi possível remover dos favoritos",
     phoneAlertsBody: "Avisamos no momento em que seus traders salvos operarem.",
     phoneAlertsTitle: "Entre para criar alertas",
     phoneSavedBody: "Acompanhe traders e receba um alerta assim que eles operarem.",
@@ -1048,6 +1050,7 @@ export const pt: Messages = {
     unlink: "Desvincular",
     unlinkConfirm: "Você deixará de receber todos os alertas.",
     unlinkYes: "Desvincular",
+    unlinked: "Telegram desconectado",
     manageAlerts: "Gerenciar alertas",
     unavailable: "O bot de alertas ainda não está disponível: o servidor não tem um bot configurado.",
     rateLimited: "Muitos links solicitados. Tente de novo em alguns minutos.",
@@ -1080,6 +1083,8 @@ export const pt: Messages = {
     withdrawNote: "Saque USDC apenas para a {chain} · taxa de rede de ${fee}",
     withdrawing: "Assinando…",
     withdrawSent: "Saque enviado. Chega em cerca de 5 minutos",
+    addressCopied: "Endereço de depósito copiado!",
+    withdrawSubmitting: "Retirando {amount}…",
     invalidAddress: "Informe um endereço 0x completo",
     belowMin: "O valor deve ser maior que ${min} (inclui a taxa de rede de ${fee})",
     overAvailable: "Maior que seu saldo disponível",
@@ -1407,6 +1412,9 @@ export const pt: Messages = {
     cancel: "Cancelar",
     failed: "Não foi possível excluir a conta. Tente novamente mais tarde.",
     lastAdmin: "Você é o único admin. Torne outra pessoa admin antes de excluir sua conta.",
+  },
+  toast: {
+    label: "Notificações",
   },
   auth: {
     loginToFavorite: "Entre para salvar traders",

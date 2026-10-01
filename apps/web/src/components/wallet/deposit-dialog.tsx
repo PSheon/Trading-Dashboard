@@ -1,11 +1,11 @@
 "use client";
 
 import { ArrowDownToLine, Check, ChevronDown, Info, Loader2, TriangleAlert } from "lucide-react";
-import { cn } from "cn";
 
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,12 +30,15 @@ const GAS_ETH = 0.00002;
  * USDC · 最低 $X」 and 複製地址. The address is the user's main account, so
  * USDC sent there sits on Arbitrum until it is bridged; when some is there,
  * a card offers the one-click bridge (signed by the user's own wallet).
+ * Copying confirms with CopyDog's "儲值地址已複製！" toast.
  */
 export function DepositDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useI18n();
+  const toast = useToast();
   const wallet = useWallet();
   const summary = wallet.data;
-  const [copied, copy] = useCopy();
+  const addressCopied = () => toast.success(t("wallet.addressCopied"));
+  const [copied, copy] = useCopy(addressCopied);
   const network = summary ? networkConfig(summary.network) : null;
 
   return (
@@ -75,7 +78,7 @@ export function DepositDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
           <div className="flex w-full items-center gap-2 rounded-xl bg-raised py-2 pr-2 pl-4">
             <span className="min-w-0 flex-1 truncate text-center font-mono text-[0.8125rem]">{summary.address}</span>
-            <CopyIconButton value={summary.address} />
+            <CopyIconButton value={summary.address} onCopied={addressCopied} />
           </div>
 
           <p className="flex items-center gap-1.5 text-center text-xs text-muted-foreground">
@@ -98,14 +101,14 @@ export function DepositDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 /** USDC waiting at the deposit address on Arbitrum → bridge it. */
 function PendingBridge({ summary }: { summary: WalletSummary }) {
   const { t, format } = useI18n();
+  const toast = useToast();
   const { wallet } = useAuth();
   const bridge = useBridgeDeposit();
   const usdc = summary.arbitrum?.usdc ?? 0;
-  if (usdc <= 0) return null;
   const network = networkConfig(summary.network);
-  const belowMin = usdc < MIN_BRIDGE_USDC;
   const needsSponsor = (summary.arbitrum?.eth ?? 0) < GAS_ETH;
-  const error = bridge.error ? signErrorMessage(bridge.error) : null;
+  if (usdc <= 0) return null;
+  const belowMin = usdc < MIN_BRIDGE_USDC;
 
   return (
     <div className="w-full rounded-2xl border border-primary/30 bg-primary-soft/40 p-4">
@@ -121,18 +124,23 @@ function PendingBridge({ summary }: { summary: WalletSummary }) {
         className="mt-3 w-full"
         variant="secondary"
         disabled={!wallet?.address || belowMin || bridge.isPending || bridge.isSuccess}
-        onClick={() => bridge.mutate({ summary, sponsor: needsSponsor })}
+        onClick={() =>
+          bridge.mutate(
+            { summary, sponsor: needsSponsor },
+            {
+              // A failed bridge is a toast, as CopyDog's wallet errors are.
+              onError: (err) => {
+                const error = signErrorMessage(err);
+                toast.error(error.rejected ? t("wallet.rejected") : `${t("wallet.signFailed", { message: error.message })}${needsSponsor ? ` ${t("wallet.noGas", { chain: network.chainLabel })}` : ""}`);
+              },
+            },
+          )
+        }
       >
         {bridge.isPending ? <Loader2 className="animate-spin" /> : bridge.isSuccess ? <Check /> : <ArrowDownToLine />}
         {bridge.isPending ? t("wallet.bridging") : bridge.isSuccess ? t("wallet.bridgeSent") : t("wallet.bridge")}
       </Button>
       {!wallet ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p> : null}
-      {error ? (
-        <p role="alert" className={cn("mt-2 text-xs", error.rejected ? "text-muted-foreground" : "text-negative")}>
-          {error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message })}
-          {!error.rejected && needsSponsor ? ` ${t("wallet.noGas", { chain: network.chainLabel })}` : null}
-        </p>
-      ) : null}
     </div>
   );
 }

@@ -23,7 +23,6 @@ import {
   useTelegramTest,
   useUnlinkTelegram,
 } from "@/lib/alerts";
-import { apiErrorCode } from "@/lib/api";
 import type { TelegramLinkResponse } from "@/lib/contracts";
 
 /** How often the page asks whether the chat got linked while waiting. */
@@ -91,6 +90,7 @@ export function TradingBotRow({ className }: { className?: string }) {
  * - not linked → 連接 opens a one-time t.me link in a new tab and polls
  *   GET /me/telegram every 2 s until linked or the link expires (10 min);
  * - linked → "已連接" with a menu: test message, manage alerts, unlink.
+ * A failed link and an unlink are CopyDog's toasts (lib/alerts).
  */
 export function AlertBotRow({ className }: { className?: string }) {
   const { t } = useI18n();
@@ -201,14 +201,6 @@ export function AlertBotRow({ className }: { className?: string }) {
       ? { tone: "text-negative", text: t("settings.testFailed") }
       : null;
 
-  const createError = create.error
-    ? apiErrorCode(create.error) === "rate_limited"
-      ? t("settings.rateLimited")
-      : apiErrorCode(create.error) === "telegram_not_configured"
-        ? t("settings.unavailable")
-        : create.error.message
-    : null;
-
   return (
     <BotRow className={className} title={t("settings.alertBot")} hint={hint} action={action}>
       {pending && !linked ? (
@@ -232,11 +224,6 @@ export function AlertBotRow({ className }: { className?: string }) {
         </div>
       ) : null}
       {testResult ? <p className={cn("mt-2 ml-11 text-xs", testResult.tone)}>{testResult.text}</p> : null}
-      {createError ? (
-        <p role="alert" className="mt-2 ml-11 text-xs text-negative">
-          {createError}
-        </p>
-      ) : null}
     </BotRow>
   );
 }

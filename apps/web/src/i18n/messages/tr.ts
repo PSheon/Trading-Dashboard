@@ -844,6 +844,8 @@ export const tr: Messages = {
     },
   },
   favorites: {
+    addFailed: "Favorilere eklenemedi",
+    removeFailed: "Favorilerden kaldırılamadı",
     phoneAlertsBody: "Kaydettiğiniz yatırımcılar işlem yaptığı anda haber verelim.",
     phoneAlertsTitle: "Uyarı kurmak için giriş yapın",
     phoneSavedBody: "Trader’ları takip et, işlem yaptıkları anda haberdar ol.",
@@ -1048,6 +1050,7 @@ export const tr: Messages = {
     unlink: "Bağlantıyı kes",
     unlinkConfirm: "Artık hiçbir uyarı almayacaksınız.",
     unlinkYes: "Bağlantıyı kes",
+    unlinked: "Telegram bağlantısı kesildi",
     manageAlerts: "Uyarıları yönet",
     unavailable: "Uyarı botu henüz kullanılamıyor: sunucuda yapılandırılmış bot yok.",
     rateLimited: "Çok fazla bağlantı istendi. Birkaç dakika sonra tekrar deneyin.",
@@ -1080,6 +1083,8 @@ export const tr: Messages = {
     withdrawNote: "USDC'yi yalnızca {chain} ağına çekin · ${fee} ağ ücreti",
     withdrawing: "İmzalanıyor…",
     withdrawSent: "Çekim gönderildi. Yaklaşık 5 dakikada ulaşır",
+    addressCopied: "Yatırma adresi kopyalandı!",
+    withdrawSubmitting: "{amount} çekiliyor…",
     invalidAddress: "Tam bir 0x adresi girin",
     belowMin: "Tutar ${min} üzerinde olmalı (${fee} ağ ücreti dahil)",
     overAvailable: "Kullanılabilir bakiyenizden fazla",
@@ -1407,6 +1412,9 @@ export const tr: Messages = {
     cancel: "İptal",
     failed: "Hesap silinemedi. Lütfen daha sonra tekrar deneyin.",
     lastAdmin: "Tek yönetici sizsiniz. Hesabınızı silmeden önce başka birini yönetici yapın.",
+  },
+  toast: {
+    label: "Bildirimler",
   },
   auth: {
     loginToFavorite: "Kaydetmek için giriş yapın",

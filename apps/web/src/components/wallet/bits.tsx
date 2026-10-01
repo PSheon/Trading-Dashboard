@@ -80,8 +80,9 @@ export function NetworkBadge({ network, className }: { network: WalletNetwork | 
   );
 }
 
-/** Copies `value`; the icon turns into a check for 1.5 s. */
-export function useCopy(): [boolean, (value: string) => void] {
+/** Copies `value`; the icon turns into a check for 1.5 s. `onCopied` runs
+ * once the clipboard has it (CopyDog's "Deposit address copied!" toast). */
+export function useCopy(onCopied?: () => void): [boolean, (value: string) => void] {
   const [copied, setCopied] = useState(false);
   return [
     copied,
@@ -89,14 +90,15 @@ export function useCopy(): [boolean, (value: string) => void] {
       void navigator.clipboard?.writeText(value).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1_500);
+        onCopied?.();
       });
     },
   ];
 }
 
-export function CopyIconButton({ value, className }: { value: string; className?: string }) {
+export function CopyIconButton({ value, className, onCopied }: { value: string; className?: string; onCopied?: () => void }) {
   const { t } = useI18n();
-  const [copied, copy] = useCopy();
+  const [copied, copy] = useCopy(onCopied);
   return (
     <button
       type="button"

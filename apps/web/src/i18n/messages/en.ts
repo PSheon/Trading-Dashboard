@@ -1128,6 +1128,8 @@ export const en: Messages = {
     },
   },
   favorites: {
+    addFailed: "Failed to add to favorites",
+    removeFailed: "Failed to remove from favorites",
     phoneAlertsBody: "Get notified the moment your saved traders make a move.",
     phoneAlertsTitle: "Sign in to set alerts",
     phoneSavedBody: "Keep an eye on traders and get an alert the moment they trade.",
@@ -1332,6 +1334,7 @@ export const en: Messages = {
     unlink: "Unlink",
     unlinkConfirm: "You'll stop receiving all alerts.",
     unlinkYes: "Unlink",
+    unlinked: "Telegram disconnected",
     manageAlerts: "Manage alerts",
     unavailable: "The alert bot isn't available yet: the server has no bot configured.",
     rateLimited: "Too many links requested. Try again in a few minutes.",
@@ -1364,6 +1367,8 @@ export const en: Messages = {
     withdrawNote: "Only withdraw USDC to {chain} · ${fee} network fee",
     withdrawing: "Signing…",
     withdrawSent: "Withdrawal sent. It arrives in about 5 minutes",
+    addressCopied: "Deposit address copied!",
+    withdrawSubmitting: "Withdrawing {amount}…",
     invalidAddress: "Enter a full 0x address",
     belowMin: "Amount must be more than ${min} (includes the ${fee} network fee)",
     overAvailable: "More than your available balance",
@@ -1691,6 +1696,9 @@ export const en: Messages = {
     cancel: "Cancel",
     failed: "Couldn't delete the account. Please try again later.",
     lastAdmin: "You are the only admin. Make someone else an admin before deleting your account.",
+  },
+  toast: {
+    label: "Notifications",
   },
   auth: {
     loginToFavorite: "Log in to add favorites",

@@ -844,6 +844,8 @@ export const ko: Messages = {
     },
   },
   favorites: {
+    addFailed: "관심 목록에 추가하지 못했습니다",
+    removeFailed: "관심 목록에서 제거하지 못했습니다",
     phoneAlertsBody: "저장한 트레이더가 움직이는 즉시 알려드립니다.",
     phoneAlertsTitle: "알림을 설정하려면 로그인하세요",
     phoneSavedBody: "관심 트레이더를 지켜보고, 거래하는 순간 알림을 받으세요.",
@@ -1048,6 +1050,7 @@ export const ko: Messages = {
     unlink: "연결 해제",
     unlinkConfirm: "더 이상 알림을 받지 않게 됩니다.",
     unlinkYes: "연결 해제",
+    unlinked: "Telegram 연결이 해제되었습니다",
     manageAlerts: "알림 관리",
     unavailable: "알림 봇을 아직 사용할 수 없습니다: 서버에 봇이 설정되지 않았습니다.",
     rateLimited: "링크 요청이 너무 많습니다. 몇 분 후 다시 시도하세요.",
@@ -1080,6 +1083,8 @@ export const ko: Messages = {
     withdrawNote: "{chain} 네트워크로만 USDC 출금 · 네트워크 수수료 ${fee}",
     withdrawing: "서명 중…",
     withdrawSent: "출금을 보냈습니다. 약 5분 후 도착합니다",
+    addressCopied: "입금 주소가 복사되었습니다!",
+    withdrawSubmitting: "{amount} 출금 중…",
     invalidAddress: "전체 0x 주소를 입력하세요",
     belowMin: "금액은 ${min}보다 커야 합니다(네트워크 수수료 ${fee} 포함)",
     overAvailable: "사용 가능 잔액을 초과합니다",
@@ -1407,6 +1412,9 @@ export const ko: Messages = {
     cancel: "취소",
     failed: "계정을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.",
     lastAdmin: "유일한 관리자입니다. 계정을 삭제하기 전에 다른 사람을 관리자로 지정하세요.",
+  },
+  toast: {
+    label: "알림",
   },
   auth: {
     loginToFavorite: "로그인하고 저장하기",

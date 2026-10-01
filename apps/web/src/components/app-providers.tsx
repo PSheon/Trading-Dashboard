@@ -2,13 +2,15 @@
 
 import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages";
+import { ToastProvider } from "@/components/ui/toast";
 import { I18nProvider } from "@/i18n/provider";
 import { AuthProvider } from "@/lib/auth";
 
 /**
- * Client bootstrap: server-selected translations and Privy authentication.
- * Auth owns an identity-scoped QueryClient. Queries set their polling cadence;
- * action SSE and trader WebSockets provide live updates with REST fallback.
+ * Client bootstrap: server-selected translations, CopyDog's toasts and Privy
+ * authentication. Auth owns an identity-scoped QueryClient. Queries set
+ * their polling cadence; action SSE and trader WebSockets provide live
+ * updates with REST fallback.
  */
 export function AppProviders({
   locale,
@@ -21,7 +23,9 @@ export function AppProviders({
 }) {
   return (
     <I18nProvider locale={locale} messages={messages}>
-      <AuthProvider>{children}</AuthProvider>
+      <ToastProvider>
+        <AuthProvider>{children}</AuthProvider>
+      </ToastProvider>
     </I18nProvider>
   );
 }

@@ -17,6 +17,28 @@ const DEBOUNCE_MS = 200;
 
 type Result = DiscoverSearchResponse["items"][number];
 
+/** CopyDog keeps the last five picks per platform and lists them on an
+ * empty focus ("最近搜尋 · 清除", each with its own ×). */
+const RECENT_KEY = "orbie:recent-searches:hyperliquid";
+const RECENT_MAX = 5;
+type Recent = Pick<Result, "address" | "displayName" | "avatarUrl" | "pnl" | "roi">;
+
+function readRecent(): Recent[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((r) => r && typeof r.address === "string").slice(0, RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+function writeRecent(rows: Recent[]) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(rows.slice(0, RECENT_MAX)));
+  } catch {
+    // Private mode: recents just aren't kept.
+  }
+}
+
 /** CopyDog's dropdown ROI: whole percent from 100% up ("+1,486%"), one
  * decimal below ("-60.2%", "+0.0%"). */
 function searchRoi(ratio: number): string {
@@ -34,7 +56,7 @@ function Highlighted({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, i)}
-      <span className="text-primary">{text.slice(i, i + q.length)}</span>
+      <span className="font-bold text-primary">{text.slice(i, i + q.length)}</span>
       {text.slice(i + q.length)}
     </>
   );
@@ -68,8 +90,10 @@ export function AddressSearch({ compact = false, buttonClassName }: {
   const router = useRouter();
   const [value, setValue] = useState("");
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
+  // CopyDog lights no row until ↑/↓ or the pointer picks one.
+  const [active, setActive] = useState(-1);
   const [invalid, setInvalid] = useState(false);
+  const [recent, setRecent] = useState<Recent[]>([]);
   const rootRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
@@ -94,7 +118,9 @@ export function AddressSearch({ compact = false, buttonClassName }: {
   const rows: Array<Result | { address: string; direct: true }> =
     fullAddress && !results.some((r) => r.address === fullAddress) ? [{ address: fullAddress, direct: true }, ...results] : results;
   const settled = query === trimmed && !search.isFetching;
-  const showList = open && trimmed.length > 0 && (rows.length > 0 || (settled && search.isSuccess));
+  const showRecent = open && trimmed.length === 0 && recent.length > 0;
+  const showList = (open && trimmed.length > 0 && (rows.length > 0 || (settled && search.isSuccess))) || showRecent;
+  const listRows: Array<Result | Recent | { address: string; direct: true }> = showRecent ? recent : rows;
 
   // Close on a click outside.
   useEffect(() => {
@@ -106,7 +132,23 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     return () => document.removeEventListener("pointerdown", onDown);
   }, [open]);
 
-  function go(address: string) {
+  function remember(row: Result | Recent | { address: string; direct: true } | undefined, address: string) {
+    const entry: Recent = row && !("direct" in row)
+      ? { address: row.address, displayName: row.displayName, avatarUrl: row.avatarUrl, pnl: row.pnl, roi: row.roi }
+      : { address: address.toLowerCase(), displayName: null, avatarUrl: null, pnl: null, roi: null };
+    const next = [entry, ...readRecent().filter((r) => r.address !== entry.address)];
+    writeRecent(next);
+    setRecent(next.slice(0, RECENT_MAX));
+  }
+
+  function forget(address?: string) {
+    const next = address ? readRecent().filter((r) => r.address !== address) : [];
+    writeRecent(next);
+    setRecent(next);
+  }
+
+  function go(address: string, row?: Result | Recent | { address: string; direct: true }) {
+    remember(row, address);
     setValue("");
     setOpen(false);
     setInvalid(false);
@@ -118,8 +160,8 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     e.preventDefault();
     const q = value.trim();
     if (!q) return;
-    const pick = rows[Math.min(active, rows.length - 1)];
-    if (showList && pick) return go(pick.address);
+    const pick = rows[active] ?? rows[0];
+    if (showList && pick) return go(pick.address, pick);
     if (ADDRESS.test(q)) return go(q);
     if (/^0x[0-9a-fA-F]*$/.test(q) && q.length > 42) {
       setInvalid(true);
@@ -135,13 +177,16 @@ export function AddressSearch({ compact = false, buttonClassName }: {
       setOpen(false);
       return;
     }
-    if (!showList || rows.length === 0) return;
+    if (!showList || listRows.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((i) => (i + 1) % rows.length);
+      setActive((i) => (i + 1) % listRows.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((i) => (i - 1 + rows.length) % rows.length);
+      setActive((i) => (i <= 0 ? listRows.length - 1 : i - 1));
+    } else if (e.key === "Enter" && showRecent && active >= 0 && listRows[active]) {
+      e.preventDefault();
+      go(listRows[active].address, listRows[active]);
     }
   }
 
@@ -171,9 +216,9 @@ export function AddressSearch({ compact = false, buttonClassName }: {
       ref={rootRef}
       role="search"
       onSubmit={submit}
-      className={overlay ? "fixed inset-0 z-[60] flex flex-col bg-background px-3 pt-2.5" : "relative w-full max-w-[460px]"}
+      className={overlay ? "fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top)]" : "relative w-full max-w-md"}
     >
-      <div className="flex items-center gap-1.5">
+      <div className={cn("flex items-center", overlay ? "gap-2 px-3 pt-2 pb-3" : "gap-1.5")}>
       {overlay ? (
         <button
           type="button"
@@ -187,7 +232,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
       <div className="relative min-w-0 flex-1">
       <Search
         aria-hidden
-        className="pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-muted-foreground"
+        className={cn("pointer-events-none absolute top-1/2 left-4 -translate-y-1/2", overlay ? "size-4 text-muted-foreground" : "size-5 text-foreground md:left-5")}
       />
       <input
         ref={inputRef}
@@ -196,16 +241,19 @@ export function AddressSearch({ compact = false, buttonClassName }: {
         aria-expanded={showList}
         aria-controls={listId}
         aria-autocomplete="list"
-        aria-activedescendant={showList && rows.length > 0 ? optionId(Math.min(active, rows.length - 1)) : undefined}
+        aria-activedescendant={showList && active >= 0 && active < listRows.length ? optionId(active) : undefined}
         maxLength={64}
         value={value}
         onChange={(e) => {
           setValue(e.target.value);
           setOpen(true);
-          setActive(0);
+          setActive(-1);
           if (invalid) setInvalid(false);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setRecent(readRecent());
+          setOpen(true);
+        }}
         autoFocus={compact}
         onKeyDown={onKeyDown}
         placeholder={wide === false ? t("topbar.searchShort") : t("topbar.search")}
@@ -215,7 +263,8 @@ export function AddressSearch({ compact = false, buttonClassName }: {
         spellCheck={false}
         autoComplete="off"
         className={cn(
-          "h-11 w-full rounded-full border border-transparent bg-raised pr-11 pl-11 text-sm text-foreground outline-none transition-colors placeholder:text-subtle-foreground hover:bg-raised-hover focus-visible:border-primary/50 focus-visible:bg-raised-hover md:h-12 md:text-[0.9375rem]",
+          "h-11 w-full rounded-full border border-transparent bg-raised pr-11 text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:bg-raised-hover",
+          overlay ? "pl-10 text-[15px]" : "pl-12 text-sm font-medium md:pl-[52px]",
           invalid && "border-negative/60",
         )}
       />
@@ -244,6 +293,9 @@ export function AddressSearch({ compact = false, buttonClassName }: {
           {t("topbar.invalidAddress")}
         </p>
       ) : null}
+      {overlay && !showList && trimmed.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-muted-foreground">{t("topbar.searchHint")}</p>
+      ) : null}
       {showList ? (
         <div
           id={listId}
@@ -251,17 +303,33 @@ export function AddressSearch({ compact = false, buttonClassName }: {
           aria-label={t("topbar.searchResults")}
           className={
             overlay
-              ? "mt-2 min-h-0 flex-1 overflow-y-auto"
-              : "absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-border bg-popover py-1.5 shadow-2xl"
+              ? "min-h-0 flex-1 overflow-y-auto pb-6"
+              : "absolute inset-x-0 top-[calc(100%+8px)] z-50 max-h-[420px] overflow-x-hidden overflow-y-auto rounded-[12px] border border-border bg-raised pb-1.5 shadow-[0_4px_24px_rgb(0_0_0/50%)]"
           }
         >
-          {rows.length === 0 ? (
-            <div className="px-4 py-3">
-              <p className="text-sm font-semibold">{t("topbar.searchEmpty")}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("topbar.searchHint")}</p>
+          {showRecent ? (
+            <div className={cn("flex items-center justify-between text-muted-foreground uppercase", overlay ? "px-5 py-2 text-xs font-semibold tracking-[0.5px] [&>button]:text-xs [&>button]:text-primary" : "px-4 pt-3 pb-2 font-mono text-[10px] font-medium tracking-[0.08em]")}>
+              <span>{t("topbar.searchRecent")}</span>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => forget()}
+                className="rounded font-sans text-[11px] tracking-normal normal-case outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("topbar.searchClearRecent")}
+              </button>
+            </div>
+          ) : null}
+          {listRows.length === 0 && overlay ? (
+            // CopyDog's phone search: one plain line under the field.
+            <p className="px-5 py-4 text-sm text-muted-foreground">{t("topbar.searchEmpty")}</p>
+          ) : listRows.length === 0 ? (
+            <div className="flex flex-col items-center gap-1.5 px-4 py-7 text-center text-[13.5px] text-muted-foreground">
+              <span>{t("topbar.searchEmpty")}</span>
+              <span className="text-[11.5px] opacity-75">{t("topbar.searchHint")}</span>
             </div>
           ) : (
-            rows.map((row, i) => {
+            listRows.map((row, i) => {
               const direct = "direct" in row;
               const name = direct ? null : row.displayName?.trim() || null;
               if (overlay) {
@@ -274,17 +342,18 @@ export function AddressSearch({ compact = false, buttonClassName }: {
                     aria-selected={i === active}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      go(row.address);
+                      go(row.address, row);
                     }}
-                    className="cursor-pointer rounded-xl px-2 py-2.5 active:bg-raised/60"
+                    className="flex min-h-16 cursor-pointer flex-col justify-center gap-0.5 px-5 py-3 active:bg-raised"
                   >
-                    <p className="truncate text-[0.9375rem] font-semibold">
+                    <p className="max-w-full truncate text-base font-semibold">
                       {direct ? t("topbar.searchOpenAddress") : name ?? truncateAddress(row.address)}
                     </p>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.address}</p>
+                    <p className="max-w-full truncate text-xs text-muted-foreground">{row.address}</p>
                   </div>
                 );
               }
+              const q = showRecent ? "" : trimmed;
               return (
                 <div
                   key={row.address}
@@ -295,28 +364,52 @@ export function AddressSearch({ compact = false, buttonClassName }: {
                   // mousedown, not click: the input's blur must not close the list first.
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    go(row.address);
+                    go(row.address, row);
                   }}
-                  className={cn("flex cursor-pointer items-center gap-3 px-4 py-2", i === active && "bg-raised")}
+                  className={cn(
+                    "flex min-h-12 cursor-pointer items-center gap-3 px-4 py-3 shadow-[inset_2px_0_0_0_transparent] transition-[background-color,box-shadow]",
+                    i === active && "bg-raised-hover shadow-[inset_2px_0_0_0_var(--primary)]",
+                  )}
                 >
-                  <TraderAvatar trader={{ address: row.address, avatarUrl: direct ? null : row.avatarUrl }} size={32} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">
-                      {direct ? t("topbar.searchOpenAddress") : name ? <Highlighted text={name} query={trimmed} /> : truncateAddress(row.address)}
-                    </p>
-                    <p className="truncate text-[0.6875rem] text-muted-foreground">{truncateAddress(row.address)}</p>
+                  <TraderAvatar trader={{ address: row.address, avatarUrl: direct ? null : row.avatarUrl }} size={34} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    {direct ? (
+                      <span className="truncate text-[13.5px] leading-[1.25] font-semibold">{t("topbar.searchOpenAddress")}</span>
+                    ) : name ? (
+                      <>
+                        <span className="truncate text-[13.5px] leading-[1.25] font-semibold"><Highlighted text={name} query={q} /></span>
+                        <span className="truncate font-mono text-[11px] leading-[1.2] tracking-[-0.01em] text-muted-foreground">{truncateAddress(row.address)}</span>
+                      </>
+                    ) : (
+                      <span className="truncate font-mono text-[13px] leading-[1.25] font-semibold tracking-[-0.01em]"><Highlighted text={truncateAddress(row.address)} query={q} /></span>
+                    )}
                   </div>
                   {!direct && row.pnl !== null ? (
-                    <div className="shrink-0 text-right">
-                      <p className={cn("num text-sm font-semibold", row.pnl >= 0 ? "text-positive" : "text-negative")}>
+                    <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+                      <span className={cn("num text-[13px] leading-[1.25] font-semibold", row.pnl >= 0 ? "text-positive" : "text-negative")}>
                         {usdCompact(row.pnl, { sign: true })}
-                      </p>
+                      </span>
                       {row.roi !== null ? (
-                        <p className="num text-[0.6875rem] text-muted-foreground">
-                          <span className="font-mono text-[0.625rem]">ROI</span> {searchRoi(row.roi)}
-                        </p>
+                        <span className="num flex items-baseline gap-[5px] text-[11px] leading-[1.2] text-muted-foreground">
+                          <span className="font-mono text-[9px] tracking-[0.06em] uppercase">ROI</span>
+                          {searchRoi(row.roi)}
+                        </span>
                       ) : null}
                     </div>
+                  ) : null}
+                  {showRecent ? (
+                    <button
+                      type="button"
+                      aria-label={t("topbar.searchRemoveRecent")}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        forget(row.address);
+                      }}
+                      className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <X className="size-2.5" strokeWidth={2} />
+                    </button>
                   ) : null}
                 </div>
               );

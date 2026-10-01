@@ -1628,6 +1628,11 @@ export const boardTraderSchema = z.object({
   /** Most-traded coins, at most 5 (Hyperliquid names). */
   topCoins: z.array(z.string()),
   lastTradeAt: z.coerce.date().nullable(),
+  /** Start of the fill history behind the trade-derived figures (win rate,
+   * per-coin PnL and volume, style): they are "since this date", never
+   * lifetime, unless the trader page's coverage says "complete". Null when
+   * no trades have been computed. */
+  tradesFrom: z.coerce.date().nullable().optional(),
   /** Whole-account PnL series (values only, oldest first) of the window. */
   sparkline: z.array(z.number()),
 });

@@ -53,6 +53,60 @@ function copyTrading(source: Environment) {
   };
 }
 
+function decimalValue(key: string, raw: string | undefined, fallback: number, min: number, max: number): number {
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw.trim());
+  if (!/^\d+(?:\.\d+)?$/.test(raw.trim()) || !Number.isFinite(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${key} must be a number between ${min} and ${max}`);
+  }
+  return parsed;
+}
+
+/**
+ * Hyperliquid's public node archive (requester-pays S3). Off unless
+ * S3_ARCHIVE_ENABLED=true. Transfers are billed to the AWS account of
+ * AWS_ACCESS_KEY_ID, so the spend settings are validated here, before any
+ * request: S3_ARCHIVE_MAX_DAILY_USD caps a UTC day's downloads at
+ * S3_ARCHIVE_USD_PER_GB, and S3_ARCHIVE_MAX_BYTES_PER_MINUTE paces them.
+ * S3_ARCHIVE_LOCAL_DIR reads the same keys from disk instead (no AWS).
+ */
+function trust(raw: string | undefined): "none" | "regular" | "all" {
+  const value = (raw ?? "regular").trim().toLowerCase();
+  if (value !== "none" && value !== "regular" && value !== "all") throw new Error("S3_ARCHIVE_TRUST must be none, regular or all");
+  return value;
+}
+function archive(source: Environment) {
+  const enabled = booleanValue("S3_ARCHIVE_ENABLED", source.S3_ARCHIVE_ENABLED, false);
+  const accessKeyId = optional(source.AWS_ACCESS_KEY_ID);
+  const secretAccessKey = optional(source.AWS_SECRET_ACCESS_KEY);
+  const localDir = optional(source.S3_ARCHIVE_LOCAL_DIR);
+  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) throw new Error("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set together");
+  if (enabled && !localDir && !accessKeyId) throw new Error("S3_ARCHIVE_ENABLED requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or S3_ARCHIVE_LOCAL_DIR");
+  const startRaw = optional(source.S3_ARCHIVE_START) ?? "2025-05-25";
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(startRaw) ? Date.parse(`${startRaw}T00:00:00Z`) : Number.NaN;
+  if (!Number.isFinite(start)) throw new Error("S3_ARCHIVE_START must be a UTC date, YYYY-MM-DD");
+  const bucket = optional(source.S3_ARCHIVE_BUCKET) ?? "hl-mainnet-node-data";
+  const region = optional(source.S3_ARCHIVE_REGION) ?? "ap-northeast-1";
+  if (!/^[a-z0-9.-]{3,63}$/.test(bucket) || !/^[a-z0-9-]{3,32}$/.test(region)) throw new Error("S3_ARCHIVE_BUCKET or S3_ARCHIVE_REGION is invalid");
+  return {
+    enabled, bucket, region, localDir, start,
+    credentials: accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey, sessionToken: optional(source.AWS_SESSION_TOKEN) } : undefined,
+    maxDailyUsd: decimalValue("S3_ARCHIVE_MAX_DAILY_USD", source.S3_ARCHIVE_MAX_DAILY_USD, 2, 0, 1000),
+    usdPerGb: decimalValue("S3_ARCHIVE_USD_PER_GB", source.S3_ARCHIVE_USD_PER_GB, 0.114, 0, 10),
+    maxBytesPerMinute: integerValue("S3_ARCHIVE_MAX_BYTES_PER_MINUTE", source.S3_ARCHIVE_MAX_BYTES_PER_MINUTE, 268_435_456, 1, 10_737_418_240),
+    /** Which REST history streams may skip ranges the archive certifies:
+     * "regular" (default; fills), "all" (also TWAP slices — only once a
+     * reconciliation has shown the archive carries them) or "none". */
+    trust: trust(source.S3_ARCHIVE_TRUST),
+    /** false: only the forward cursor runs (no full-archive passes). */
+    backfill: booleanValue("S3_ARCHIVE_BACKFILL_ENABLED", source.S3_ARCHIVE_BACKFILL_ENABLED, true),
+    /** Minutes after an hour ends before its object is read. */
+    settleMinutes: integerValue("S3_ARCHIVE_SETTLE_MINUTES", source.S3_ARCHIVE_SETTLE_MINUTES, 20, 0, 1440),
+    /** More fills than this in one hourly object: the address is excluded. */
+    maxFillsPerAddressHour: integerValue("S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR", source.S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR, 20_000, 1, 10_000_000),
+  };
+}
+
 function productionSecret(key: string, value: string | undefined, production: boolean): void {
   if (!production || value === undefined) return;
   if (value.trim().length < 32 || /change[-_ ]?me|your[-_ ]?secret|replace[-_ ]?with|example|placeholder/i.test(value)) {
@@ -134,6 +188,6 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source) };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source), archive: archive(source) };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

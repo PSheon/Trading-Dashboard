@@ -15,6 +15,9 @@ export function testConfig(): AppConfig {
     hyperliquid: { apiUrl: env.hyperliquidApiUrl(), wsUrl: env.hyperliquidWsUrl(), budgetPerMin: env.hyperliquidWeightBudgetPerMin(), burst: getIntEnv("HYPERLIQUID_WEIGHT_BURST", 200, 1, 1200),
       wallet: { network: "testnet" as const, infoUrl: "https://api.hyperliquid-testnet.xyz/info", arbitrumRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" } },
     alert: { maxActionAgeSeconds: env.alertMaxActionAgeSeconds() },
+    archive: { enabled: false, bucket: "hl-mainnet-node-data", region: "ap-northeast-1", localDir: undefined as string | undefined, start: Date.UTC(2025, 4, 25),
+      credentials: undefined as { accessKeyId: string; secretAccessKey: string; sessionToken: string | undefined } | undefined,
+      maxDailyUsd: 2, usdPerGb: 0.114, maxBytesPerMinute: 268_435_456, settleMinutes: 20, maxFillsPerAddressHour: 20_000, backfill: true, trust: "regular" as "none" | "regular" | "all" },
     copy: { mode: (process.env.COPY_TRADING_MODE === "disabled" ? "disabled" : "paper") as "paper" | "disabled", workerIntervalMs: 2000 },
   }; } };
 }

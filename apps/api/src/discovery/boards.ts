@@ -50,6 +50,7 @@ export function toCandidate(row: BoardSourceRow): Candidate {
       style: style.success ? style.data : null,
       topCoins: row.topCoins,
       lastTradeAt: row.lastTradeAt,
+      tradesFrom: row.tradesFrom,
     },
   };
 }
@@ -198,6 +199,7 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
     style: null,
     topCoins: row?.topCoins ?? [],
     lastTradeAt: row?.lastTradeAt ?? null,
+    tradesFrom: row?.tradesFrom ?? null,
     sparkline: [],
     pnl30d: num(identity?.pnlMonth),
     winRate: null,

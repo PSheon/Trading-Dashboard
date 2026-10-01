@@ -54,6 +54,9 @@ export const REFRESH_PAGES = 6;
  * pages per step; a long history completes over the next refreshes. */
 export const FUNDING_LOOKBACK_MS = LOOKBACK_MS;
 export const FUNDING_MAX_PAGES = 40;
+/** REST pages a refresh may spend finishing an address's history job when
+ * the S3 archive already certifies part of it (pre-archive pages + tail). */
+export const ARCHIVE_CATCHUP_PAGES = 8;
 /** Cold computations at once; more wait. Beyond `MAX_WAITING` a new cold
  * address is answered busy without queueing. */
 export const MAX_CONCURRENT = 2;
@@ -143,7 +146,7 @@ export class TradeAnalyticsService {
       window,
       summary: tradeSummarySchema.parse(summaries[window]),
       classification: traderClassificationSchema.parse(row.classification),
-      coverage: { ...coverageOf(row), backfill: await this.history?.status(address) },
+      coverage: await this.coverage(address, row),
       computedAt: row.computedAt,
       refreshing: this.inflight.has(address),
     };
@@ -165,9 +168,19 @@ export class TradeAnalyticsService {
       items: page.map((t) => toRoundTrip(t, now)),
       nextCursor: rows.length > query.limit && last ? `${last.exitTime ?? last.entryTime}_${last.openTid}` : null,
       total,
-      coverage: { ...coverageOf(row), backfill: await this.history?.status(address) },
+      coverage: await this.coverage(address, row),
       computedAt: row.computedAt,
     };
+  }
+
+  /** What the figures cover, including the archive-certified span, so a
+   * client never has to infer completeness. */
+  private async coverage(address: string, row: Stored): Promise<TradeCoverage> {
+    const [backfill, span] = await Promise.all([
+      this.history?.status(address),
+      this.history?.archiveSpan(address).catch(() => null) ?? null,
+    ]);
+    return { ...coverageOf(row), backfill, archive: span ? { from: new Date(span.from), through: new Date(span.through) } : null };
   }
 
   /** The stored row, refreshed in the background when stale; for a cold
@@ -243,7 +256,13 @@ export class TradeAnalyticsService {
     const cost: Cost = { calls: 0, weight: 0, rank };
     const [state, tracked] = await Promise.all([this.repository.state(address), this.traders.isTracked(address)]);
     if (!tracked) await this.history?.ensure(address);
-    const snapshot = !tracked ? await this.history?.snapshot(address) : null;
+    let snapshot = !tracked ? await this.history?.snapshot(address) : null;
+    // With archive coverage the durable history completes in a few REST
+    // pages (what precedes the archive and the tail after its lag), so do
+    // that instead of the cold read's up to 32 range calls.
+    if (!tracked && !snapshot && await this.history?.catchUp(address, ARCHIVE_CATCHUP_PAGES, cost).catch(() => false)) {
+      snapshot = await this.history?.snapshot(address);
+    }
     // Never replace a newer legacy ledger with an older archive snapshot.
     const historyStartsAt = snapshot?.fills.reduce((min, f) => Math.min(min, f.time), Infinity) ?? Infinity;
     const useHistory = snapshot && snapshot.through.getTime() >= (state?.fillCursor?.getTime() ?? 0)
@@ -258,7 +277,7 @@ export class TradeAnalyticsService {
       ({ next, fillCount, persist } = await this.rebuildTracked(address, state));
     } else if (useHistory) {
       kind = "refresh";
-      ({ next, fillCount, persist } = await this.rebuildHistory(address, snapshot, state));
+      ({ next, fillCount, persist } = await this.rebuildHistory(address, snapshot!, state));
     } else if (!state || state.source !== "hyperliquid" || state.fillCursor === null) {
       kind = "cold";
       ({ next, fillCount, persist } = await this.coldHyperliquid(address, cost));
@@ -336,6 +355,8 @@ export class TradeAnalyticsService {
         coverageFrom: Number.isFinite(earliest) ? new Date(earliest) : null,
         historyThrough: snapshot.through,
         // A completed upstream scan cannot certify the account's lifetime.
+        // (`lifetimeComplete` in fill-integrity.ts is the candidate proof;
+        // it is reported by the reconciliation, not yet trusted here.)
         truncated: true,
         fillsRead: snapshot.fills.length, fillCursor: snapshot.through, cursorTids: [],
         fundingFrom: extended ? null : state?.fundingFrom ?? null,
@@ -345,7 +366,14 @@ export class TradeAnalyticsService {
   }
 
   private async rebuildTracked(address: string, state: AnalyticsRow | undefined) {
-    const fillsRead = await this.repository.trackedFills(address, new Date(Date.now() - LOOKBACK_MS));
+    const since = Date.now() - LOOKBACK_MS;
+    // The archive holds fills the watcher's own backfill could not reach
+    // (REST keeps ~10,000); both describe the same trades, merged by tid.
+    const span = await this.history?.archiveSpan(address).catch(() => null);
+    const archived = span
+      ? (await this.history!.archivedFills(address, span)).filter((f) => f.time >= since && !f.coin.startsWith("@") && !f.coin.includes("/"))
+      : [];
+    const fillsRead = dedupe([...archived, ...await this.repository.trackedFills(address, new Date(since))]);
     const fundingFrom = state?.fundingFrom?.getTime() ?? null;
     const open = new Map<string, Trade>();
     const result = applyFills(address, open, fillsRead, fundingFrom);
@@ -662,6 +690,8 @@ function coverageOf(row: Stored): TradeCoverage {
     source: row.source,
     from: row.coverageFrom,
     truncated: row.truncated,
+    completeness: row.truncated ? "partial" : "complete",
+    partialSince: row.truncated ? row.coverageFrom : null,
     fundingFrom: row.fundingFrom,
     fundingThrough: row.fundingCursor,
     fills: row.fillsRead,

@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
-import { advanceCheckpoint, initialCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
+import { advanceCheckpoint, initialCheckpoint, planRange, type ArchiveSpan, type HistoryCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
+import { AppConfig } from "../config/app-config.js";
 import { HyperliquidInfoClient, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
 import { UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
@@ -17,7 +18,33 @@ export class AnalysisHistoryService {
     private readonly repository: AnalysisHistoryRepository,
     private readonly info: HyperliquidInfoClient,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
+    @Optional() private readonly config?: AppConfig,
   ) {}
+  /** REST streams allowed to skip archive-certified ranges (`S3_ARCHIVE_TRUST`). */
+  private trusts(source: HistorySource): boolean {
+    const trust = this.config?.value.archive.trust ?? "regular";
+    return trust === "all" || (trust === "regular" && source === "regular");
+  }
+  archiveSpan(address: string) { return this.repository.archiveSpan(address); }
+  archivedFills(address: string, span: ArchiveSpan) { return this.repository.archivedFills(address, span); }
+  /**
+   * Runs the address's history job now, up to `maxPages` REST pages, when
+   * the archive already holds most of its history (so the job is a few
+   * calls, not a scan). Returns whether a published snapshot exists after.
+   */
+  async catchUp(address: string, maxPages: number, cost?: { calls: number; weight: number; rank?: number }): Promise<boolean> {
+    if (!(await this.repository.archiveSpan(address))) return false;
+    await this.repository.ensure(address);
+    for (let used = 0; used < maxPages && !this.jobs.stopping;) {
+      const job = await this.repository.state(address);
+      if (!job || job.status !== "pending") return Boolean(job?.publishedThrough);
+      const pages = await this.advance(job, Date.now(), Math.min(HISTORY_PAGES_PER_TICK, maxPages - used), cost);
+      if (pages === 0) break;
+      used += pages;
+    }
+    const job = await this.repository.state(address);
+    return job?.status === "caught_up" && Boolean(job.publishedThrough);
+  }
   ensure(address: string) { return this.repository.ensure(address); }
   preserve(address: string, fills: HlUserFill[]) { return this.repository.preserve(address, fills); }
   snapshot(address: string) { return this.repository.snapshot(address); }
@@ -45,11 +72,18 @@ export class AnalysisHistoryService {
     }).finally(() => { this.running = undefined; });
     return this.running;
   }
-  async advance(initial: HistoryJob, now = Date.now()): Promise<void> {
+  /** Advances one job by at most `maxPages` REST pages; ranges the archive
+   * certifies cost no request. Returns the pages read. */
+  async advance(initial: HistoryJob, now = Date.now(), maxPages = HISTORY_PAGES_PER_TICK, cost?: { calls: number; weight: number; rank?: number }): Promise<number> {
     let job = initial;
-    if (job.status === "blocked") return;
-    for (let page = 0; page < HISTORY_PAGES_PER_TICK && !this.jobs.stopping; page++) {
-      const checkpoint = job.status === "caught_up"
+    if (job.status === "blocked") return 0;
+    const span = await this.repository.archiveSpan(job.address);
+    // The scheduled job yields to every page; a page-driven catch-up passes its own rank.
+    const rank = cost?.rank ?? UNRANKED_BASE;
+    let pages = 0;
+    // Each source needs at most a jump and a page per round; the bound only guards a logic error.
+    for (let step = 0; step < maxPages * 4 + 4 && pages < maxPages && !this.jobs.stopping; step++) {
+      const checkpoint: HistoryCheckpoint = job.status === "caught_up"
         ? initialCheckpoint(Math.max(now, job.checkpoint.until), job.checkpoint.until)
         : job.checkpoint;
       const source = (["regular", "twap"] as HistorySource[])
@@ -57,13 +91,22 @@ export class AnalysisHistoryService {
         .sort((a, b) => (checkpoint.sources[a].through ?? -1) - (checkpoint.sources[b].through ?? -1))[0];
       if (!source) break;
       try {
-        const start = checkpoint.sources[source].cursor;
-        const batch = source === "regular"
-          ? await this.info.userFillsByTime(job.address, start, checkpoint.until, "background", UNRANKED_BASE)
-          : (await this.info.userTwapSliceFillsByTime(job.address, start, checkpoint.until, "background", UNRANKED_BASE)).map(twapSliceToFill);
-        const next = advanceCheckpoint(checkpoint, source, batch);
+        const plan = planRange(checkpoint, source, this.trusts(source) ? span : null);
+        let batch: HlUserFill[] = [];
+        let next = plan.checkpoint;
+        if (plan.start !== null) {
+          batch = source === "regular"
+            ? await this.info.userFillsByTime(job.address, plan.start, plan.end, "background", rank)
+            : (await this.info.userTwapSliceFillsByTime(job.address, plan.start, plan.end, "background", rank)).map(twapSliceToFill);
+          pages += 1;
+          if (cost) {
+            cost.calls += 1;
+            cost.weight += 20 + Math.ceil(batch.length / 20);
+          }
+          next = advanceCheckpoint(plan.checkpoint, source, batch, plan.end);
+        }
         const saved = await this.repository.commit(job, source, batch, next);
-        if (!saved) return;
+        if (!saved) return pages;
         job = saved;
         if (job.status !== "pending") break;
       } catch (error) {
@@ -71,5 +114,6 @@ export class AnalysisHistoryService {
         throw error;
       }
     }
+    return pages;
   }
 }

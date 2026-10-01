@@ -1,7 +1,8 @@
 import { AppConfig } from "../../config/app-config.js";
-import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
 import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
+import { ArchiveIngestService } from "../../ingest/archive-ingest.service.js";
 import { RequestBudgeterService } from "../../hyperliquid/request-budgeter.service.js";
 import { SchedulerService } from "../../scheduler/scheduler.service.js";
 import { WatcherService } from "../../watcher/watcher.service.js";
@@ -14,6 +15,7 @@ export class HealthService {
     private readonly watcher: WatcherService,
     private readonly scheduler: SchedulerService,
     private readonly budgeter: RequestBudgeterService,
+    @Optional() private readonly archive?: ArchiveIngestService,
   ) {}
 
   async heartbeat(): Promise<HeartbeatResponse> {
@@ -43,6 +45,8 @@ export class HealthService {
       queuedRequests: this.budgeter.queued(),
       fillsUnavailable,
       dryRun: this.config.value.telegram.dryRun,
+      // Progress of the S3 archive ingest; a failed read must not fail the heartbeat.
+      archive: this.archive?.enabled ? await this.archive.status().catch(() => undefined) : undefined,
       now: new Date(),
     };
   }

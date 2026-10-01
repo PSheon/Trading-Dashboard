@@ -25,6 +25,8 @@ async function bootstrap(): Promise<void> {
     config.auth.appSecret,
     config.telegram.botToken,
     config.database.url,
+    config.archive.credentials?.secretAccessKey,
+    config.archive.credentials?.sessionToken,
   ].filter((value): value is string => Boolean(value));
   const logger = new StructuredLogger(redactions);
   const app = await NestFactory.create(AppModule, { forceCloseConnections: true, logger });

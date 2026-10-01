@@ -11,6 +11,7 @@ import { ApiModule } from "./api/api.module.js";
 import { AuthModule, AUTH_GUARD_PROVIDERS } from "./common/auth/auth.module.js";
 import { DbModule } from "./db/db.module.js";
 import { DiscoveryModule, DiscoveryWorkerModule } from "./discovery/discovery.module.js";
+import { ArchiveIngestWorkerModule } from "./ingest/archive-ingest.module.js";
 import { ImportModule } from "./import/import.module.js";
 import { InsightsModule, InsightsWorkerModule } from "./insights/insights.module.js";
 import { NotifyModule } from "./notify/notify.module.js";
@@ -52,6 +53,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     InsightsModule,
     InsightsWorkerModule,
     OutboxModule,
+    ArchiveIngestWorkerModule,
   ],
   providers: [...AUTH_GUARD_PROVIDERS, ActionRelay],
 })

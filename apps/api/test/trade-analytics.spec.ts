@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { wireTraderAnalyticsSchema, wireTraderTradesSchema } from "@trading-dashboard/shared/contracts";
-import { fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
+import { analysisHistoryFills, archiveCoverage, fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -405,6 +405,63 @@ describe("trade analytics for any address", () => {
     await service.compute(TRACKED, false);
     expect(await db.select().from(traderTrades).where(eq(traderTrades.address, TRACKED))).toHaveLength(3);
   });
+  it("an archive-covered address skips the cold read: the history job completes in a few pages and coverage says what is certified", async () => {
+    const archiveRepository = new AnalysisHistoryRepository(db);
+    const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    // The archive holds hours T(30)…T(4); REST would return the same fills.
+    const hour = (hoursAgo: number) => Math.floor(T(hoursAgo) / HOUR) * HOUR;
+    const inside = [fill("BTC", 0, 1, 100, T(20)), fill("BTC", 1, -1, 110, T(10), { closedPnl: "10" })];
+    const tail = fill("ETH", 0, 2, 50, T(1));
+    history = [...inside, tail];
+    await db.insert(archiveCoverage).values({ address: X, coveredFrom: new Date(hour(30)), coveredThrough: new Date(hour(4)) });
+    await db.insert(analysisHistoryFills).values(inside.map((f) => ({ address: X, source: "regular" as const, tid: BigInt(f.tid), time: new Date(f.time), raw: f as unknown as Record<string, unknown>, origin: "s3" as const })));
+    info.userFillsByTime.mockClear();
+    traders.latestFills.mockClear();
+
+    await production.compute(X, true, { funding: false });
+    await production.settled();
+    // No cold read (latest page + range windows): only the two REST ranges around the span.
+    expect(traders.latestFills).not.toHaveBeenCalled();
+    const ranges = info.userFillsByTime.mock.calls.map(([, start, end]) => [start, end]);
+    expect(ranges).toHaveLength(2);
+    expect(ranges[0]).toEqual([0, hour(30) + 5 * 60_000 - 1]);
+    expect(ranges[1][0]).toBe(hour(4) - 5 * 60_000);
+    expect(production.lastLog.get(X)!.at(-1)).toMatchObject({ kind: "refresh", fills: 3, trades: 2 });
+
+    const result = await production.analytics(X, "all");
+    expect(result.summary).toMatchObject({ trades: 1, wins: 1 });
+    expect(result.coverage).toMatchObject({
+      source: "hyperliquid", fills: 3, truncated: true, completeness: "partial", partialSince: new Date(inside[0].time),
+      archive: { from: new Date(hour(30) + 5 * 60_000), through: new Date(hour(4) - 5 * 60_000) },
+      backfill: { status: "caught_up" },
+    });
+    const rows = await db.select().from(analysisHistoryFills).where(eq(analysisHistoryFills.address, X));
+    expect(rows.map((row) => row.origin).sort()).toEqual(["rest", "s3", "s3"]);
+  });
+
+  it("a tracked address adds archive fills older than our own fills table", async () => {
+    tracked.add(TRACKED);
+    const hour = (hoursAgo: number) => Math.floor(T(hoursAgo) / HOUR) * HOUR;
+    // Our table starts mid-position; the archive holds the opening.
+    const opening = fill("BTC", 0, 2, 100, T(50));
+    const ours = fill("BTC", 2, -2, 120, T(5), { closedPnl: "40" });
+    await db.insert(fills).values(toFillRow(TRACKED, ours));
+    await db.insert(archiveCoverage).values({ address: TRACKED, coveredFrom: new Date(hour(100)), coveredThrough: new Date(hour(8)) });
+    await db.insert(analysisHistoryFills).values({ address: TRACKED, source: "regular", tid: BigInt(opening.tid), time: new Date(opening.time), raw: opening as unknown as Record<string, unknown>, origin: "s3" });
+    const archive = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient);
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await production.compute(TRACKED, true, { funding: false });
+    await production.settled();
+    const result = await production.analytics(TRACKED, "all");
+    // Whole trade, opened from flat: not partial, hence complete.
+    expect(result.coverage).toMatchObject({ source: "tracked", fills: 2, truncated: false, completeness: "complete", partialSince: null });
+    expect(result.summary).toMatchObject({ trades: 1, wins: 1 });
+    const [trade] = await new TradeAnalyticsRepository(db).allTrades(TRACKED);
+    expect(trade.entryTime).toBe(opening.time);
+    tracked.delete(TRACKED);
+  });
+
   it("replaces a partial legacy entry with the archived opening and resets funding", async () => {
     const closing = fill("BTC", 1, -1, 110, T(2), { closedPnl: "10" });
     history = [closing];

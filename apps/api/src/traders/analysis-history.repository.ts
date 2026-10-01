@@ -1,11 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, isNull, lt, lte, ne, or } from "drizzle-orm";
-import { analysisHistoryFills, analysisHistoryJobs } from "@trading-dashboard/shared/database";
+import { and, asc, eq, gte, isNull, lt, lte, ne, or } from "drizzle-orm";
+import { analysisHistoryFills, analysisHistoryJobs, archiveCoverage } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
-import { completeCheckpoint, initialCheckpoint, type HistoryCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
+import { certifiedSpan, completeCheckpoint, initialCheckpoint, type ArchiveSpan, type HistoryCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
 
 export type HistoryJob = typeof analysisHistoryJobs.$inferSelect;
 export interface HistorySnapshot { fills: HlUserFill[]; through: Date }
@@ -28,6 +28,28 @@ export class AnalysisHistoryRepository {
         tid: BigInt(f.tid), time: new Date(f.time), raw: f as unknown as Record<string, unknown>,
       }))).onConflictDoNothing();
     }
+  }
+  /** The span the S3 node archive certifies for this address; null when it
+   * has none (not tracked, not ingested yet, or excluded as too heavy). */
+  async archiveSpan(address: string): Promise<ArchiveSpan | null> {
+    const [row] = await this.db.select().from(archiveCoverage).where(and(
+      eq(archiveCoverage.chain, CHAIN_DEFAULT), eq(archiveCoverage.address, address.toLowerCase()), eq(archiveCoverage.status, "active"),
+    ));
+    return row ? certifiedSpan(row.coveredFrom, row.coveredThrough) : null;
+  }
+  /** Archive-origin fills inside a certified span, deduplicated by tid
+   * (the TWAP row wins, as in `snapshot`). */
+  async archivedFills(address: string, span: ArchiveSpan): Promise<HlUserFill[]> {
+    const rows = await this.db.select().from(analysisHistoryFills).where(and(
+      eq(analysisHistoryFills.chain, CHAIN_DEFAULT), eq(analysisHistoryFills.address, address.toLowerCase()),
+      gte(analysisHistoryFills.time, new Date(span.from)), lt(analysisHistoryFills.time, new Date(span.through)),
+    )).orderBy(asc(analysisHistoryFills.time), asc(analysisHistoryFills.source));
+    const byTid = new Map<number, HlUserFill>();
+    for (const row of rows) {
+      const fill = row.raw as unknown as HlUserFill;
+      if (!byTid.has(fill.tid) || row.source === "twap") byTid.set(fill.tid, fill);
+    }
+    return [...byTid.values()];
   }
   async state(address: string): Promise<HistoryJob | undefined> {
     return (await this.db.select().from(analysisHistoryJobs).where(mine(address)))[0];

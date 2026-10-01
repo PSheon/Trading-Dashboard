@@ -81,7 +81,8 @@ async function restWindow(type: "userFillsByTime" | "userTwapSliceFillsByTime", 
     const raw = await info<Array<HlUserFill | { fill: HlUserFill; twapId: number }>>({ type, user, startTime: cursor, endTime: end });
     const batch = raw.map((item) => ("fill" in item ? { ...item.fill, twapId: item.twapId } : item));
     for (const fill of batch) byTid.set(fill.tid, fill);
-    if (batch.length < 2000) return { fills: [...byTid.values()], end: covered, complete: true };
+    // A short page ends the range: everything up to `end` was returned.
+    if (batch.length < 2000) return { fills: [...byTid.values()], end, complete: true };
     const last = Math.max(...batch.map((fill) => fill.time));
     covered = last - 1;
     if (last <= cursor) break;
@@ -111,28 +112,36 @@ function check(metric: string, results: Array<{ ok: boolean; error?: number }>, 
 }
 /** Sums of floats in a different order: equal within rounding noise. */
 const sameMoney = (ours: number, theirs: number) => Math.abs(ours - theirs) <= Math.max(0.01, 1e-6 * Math.abs(theirs));
-/** Linear interpolation of a `[time, value]` series at `at` (ends clamp). */
-function valueAt(series: Array<[number, number]>, at: number): number | null {
-  if (series.length === 0) return null;
-  if (at <= series[0][0]) return series[0][1];
-  for (let i = 1; i < series.length; i++) {
-    const [t1, v1] = series[i];
-    if (at <= t1) {
-      const [t0, v0] = series[i - 1];
-      return t1 === t0 ? v1 : v0 + ((v1 - v0) * (at - t0)) / (t1 - t0);
-    }
-  }
-  return series.at(-1)![1];
-}
-/** The `portfolio` response as it stood at `at`: later points dropped, one interpolated point added at `at`. */
-function portfolioAsOf(raw: HlPortfolioResponse, at: number): HlPortfolioResponse {
-  const cut = (series: Array<[number, string]>) => {
-    const numeric = series.map(([t, v]) => [Number(t), Number(v)] as [number, number]);
-    const kept = series.filter(([t]) => Number(t) < at);
-    const value = valueAt(numeric, at);
-    return value === null ? kept : [...kept, [at, String(value)] as [number, string]];
+type Series = Array<[number, string]>;
+/**
+ * `portfolio` samples an account every two hours at best (all-time: every
+ * day or week), so a figure stored at time P cannot be recomputed exactly.
+ * It can be bracketed: this returns the response as it stood at the last
+ * sample at or before P and at the first sample at or after P. The
+ * all-time series are first refined with the finest window that reaches P
+ * (day, week or month: same account, cumulative PnL shifted to the
+ * all-time level), so the bracket is as narrow as upstream allows.
+ */
+function portfolioBracket(raw: HlPortfolioResponse, at: number): [HlPortfolioResponse, HlPortfolioResponse] {
+  const byName = new Map(raw);
+  const refined = raw.map(([name, history]): [string, typeof history] => {
+    if (name !== "allTime" && name !== "perpAllTime") return [name, history];
+    const windows = (name === "allTime" ? ["day", "week", "month"] : ["perpDay", "perpWeek", "perpMonth"]).map((key) => byName.get(key));
+    const fine = windows.find((window) => window && window.pnlHistory.length > 1 && Number(window.pnlHistory[0][0]) <= at);
+    if (!fine || history.pnlHistory.length === 0) return [name, history];
+    const from = Number(fine.pnlHistory[0][0]);
+    const offset = Number(history.pnlHistory.at(-1)![1]) - Number(fine.pnlHistory.at(-1)![1]);
+    return [name, { ...history,
+      pnlHistory: [...history.pnlHistory.filter(([t]) => Number(t) < from), ...fine.pnlHistory.map(([t, v]): [number, string] => [t, String(Number(v) + offset)])],
+      accountValueHistory: [...history.accountValueHistory.filter(([t]) => Number(t) < from), ...fine.accountValueHistory] }];
+  });
+  const cut = (series: Series, inclusiveNext: boolean) => {
+    const before = series.filter(([t]) => Number(t) <= at);
+    const next = series.find(([t]) => Number(t) > at);
+    return inclusiveNext && next && before.at(-1)?.[0] !== at ? [...before, next] : before;
   };
-  return raw.map(([name, history]) => [name, { ...history, accountValueHistory: cut(history.accountValueHistory), pnlHistory: cut(history.pnlHistory) }]);
+  const side = (next: boolean): HlPortfolioResponse => refined.map(([name, history]) => [name, { ...history, accountValueHistory: cut(history.accountValueHistory, next), pnlHistory: cut(history.pnlHistory, next) }]);
+  return [side(false), side(true)];
 }
 
 describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (manual, live)", () => {
@@ -243,21 +252,28 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         if (figures?.portfolio_at) {
           const raw = await info<HlPortfolioResponse>({ type: "portfolio", user: address }, 20);
           const at = figures.portfolio_at.getTime();
-          const then = portfolioNumbers(portfolioAsOf(raw, at));
-          const accountValue = valueAt(portfolioSeries(raw, "allTime", "all").accountValue, at);
+          const [before, after] = portfolioBracket(raw, at).map((side) => portfolioNumbers(side));
           const fresh = Date.now() - at < PORTFOLIO_FRESH_MS;
-          const pair = (stored: string | null, truth: number | null, relative: number, absolute: number) => {
-            if (stored === null || truth === null) return { stored: stored === null ? null : Number(stored), hyperliquid: truth, error: null, ok: stored === null && truth === null };
-            const error = Math.abs(Number(stored) - truth);
-            return { stored: Number(stored), hyperliquid: truth, error, ok: error <= Math.max(absolute, relative * Math.abs(truth)) };
+          // Pass: the stored figure lies between Hyperliquid's two samples
+          // around the time it was stored, within the tolerance. `error` is
+          // how far outside that bracket it is.
+          const pair = (stored: string | null, a: number | null, b: number | null, relative: number, absolute: number) => {
+            if (stored === null || a === null || b === null) return { stored: stored === null ? null : Number(stored), hyperliquid: [a, b], error: null, ok: stored === null && a === null && b === null };
+            const value = Number(stored);
+            const [low, high] = [Math.min(a, b), Math.max(a, b)];
+            const error = value < low ? low - value : value > high ? value - high : 0;
+            return { stored: value, hyperliquid: [a, b], error, ok: error <= Math.max(absolute, relative * Math.max(Math.abs(low), Math.abs(high))) };
           };
+          // The stored account value is the leaderboard's, which upstream
+          // refreshes on its own schedule: bracketed over the preceding day.
+          const values = portfolioSeries(portfolioBracket(raw, at)[1], "allTime", "all").accountValue.filter(([t]) => t >= at - 86_400_000).map(([, v]) => v);
           portfolio = {
             storedAt: figures.portfolio_at.toISOString(), ageMinutes: Math.round((Date.now() - at) / 60_000),
-            pnlAll: pair(figures.pnl_all, then.pnlAll, PORTFOLIO_TOLERANCE, 1), roiAll: pair(figures.roi_all, then.roiAll, PORTFOLIO_TOLERANCE, 0.001),
-            sharpe: pair(figures.sharpe, then.sharpe, 0, 0.05), maxDrawdown: pair(figures.max_drawdown, then.maxDrawdown, 0, 0.005),
-            accountValue: pair(figures.account_value, accountValue, PORTFOLIO_TOLERANCE, 1),
+            pnlAll: pair(figures.pnl_all, before.pnlAll, after.pnlAll, PORTFOLIO_TOLERANCE, 1), roiAll: pair(figures.roi_all, before.roiAll, after.roiAll, PORTFOLIO_TOLERANCE, 0.001),
+            sharpe: pair(figures.sharpe, before.sharpe, after.sharpe, 0, 0.05), maxDrawdown: pair(figures.max_drawdown, before.maxDrawdown, after.maxDrawdown, 0, 0.005),
+            accountValue: values.length > 0 ? pair(figures.account_value, Math.min(...values), Math.max(...values), PORTFOLIO_TOLERANCE, 1) : null,
             // A rolling 30-day window cannot be rebuilt for a past instant: compared only while fresh.
-            pnl30d: fresh ? pair(figures.pnl_30d, then.pnl30d, PORTFOLIO_TOLERANCE, 1) : null, roi30d: fresh ? pair(figures.roi_30d, then.roi30d, PORTFOLIO_TOLERANCE, 0.001) : null,
+            pnl30d: fresh ? pair(figures.pnl_30d, before.pnl30d, after.pnl30d, PORTFOLIO_TOLERANCE, 1) : null, roi30d: fresh ? pair(figures.roi_30d, before.roi30d, after.roi30d, PORTFOLIO_TOLERANCE, 0.001) : null,
           };
         }
 
@@ -346,11 +362,11 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         check("Per-coin trade count", coinRow("coinTradesEqual"), "trader × coin"),
         check("Per-coin PnL", coinRow("coinPnlEqual", "coinPnlMaxError"), "trader × coin; error in USD", " USD"),
         check("Per-coin volume", coinRow("coinVolumeEqual", "coinVolumeMaxError"), "trader × coin; error in USD", " USD"),
-        check("Portfolio PnL (perp, all-time)", portfolioOf("pnlAll"), `vs \`portfolio\` interpolated at the stored time; tolerance ${PORTFOLIO_TOLERANCE * 100}%`, " USD"),
-        check("Portfolio ROI (perp, all-time)", portfolioOf("roiAll"), `tolerance ${PORTFOLIO_TOLERANCE * 100}%`),
-        check("Sharpe", portfolioOf("sharpe"), "tolerance ±0.05"),
-        check("Max drawdown", portfolioOf("maxDrawdown"), "tolerance ±0.005"),
-        check("Account value", portfolioOf("accountValue"), `stored leaderboard value vs \`portfolio\` account value at the stored time; tolerance ${PORTFOLIO_TOLERANCE * 100}%`, " USD"),
+        check("Portfolio PnL (perp, all-time)", portfolioOf("pnlAll"), `stored figure must lie between \`portfolio\`'s two samples around the time it was stored (±${PORTFOLIO_TOLERANCE * 100}%); error = distance outside`, " USD"),
+        check("Portfolio ROI (perp, all-time)", portfolioOf("roiAll"), `same bracket, ±${PORTFOLIO_TOLERANCE * 100}%`),
+        check("Sharpe", portfolioOf("sharpe"), "same bracket, ±0.05"),
+        check("Max drawdown", portfolioOf("maxDrawdown"), "same bracket, ±0.005"),
+        check("Account value", portfolioOf("accountValue"), `stored leaderboard value within \`portfolio\`'s account-value range over the preceding 24 h (±${PORTFOLIO_TOLERANCE * 100}%)`, " USD"),
         check("30-day PnL / ROI", [...portfolioOf("pnl30d"), ...portfolioOf("roi30d")], "only figures stored within the last hour (a rolling window cannot be rebuilt for a past instant)"),
       ];
       console.log(JSON.stringify(totals, null, 2));

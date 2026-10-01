@@ -67,7 +67,7 @@ export async function repairFills(options: RepairOptions) {
   process.env.WORKER_URL ??= "http://127.0.0.1:9";
   process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = String(weight - BURST);
   process.env.HYPERLIQUID_WEIGHT_BURST = String(BURST);
-  const [{ AppModule }, { FillSyncService }, { TradeAnalyticsService }, { AnalysisHistoryService }, { AnalysisHistoryRepository }, { RequestBudgeterService }, { DRIZZLE_CLIENT }] = await Promise.all([
+  const [{ AppModule }, { FillSyncService }, { TradeAnalyticsService }, { AnalysisHistoryService }, { AnalysisHistoryRepository }, { RequestBudgeterService, UNRANKED_BASE }, { DRIZZLE_CLIENT }] = await Promise.all([
     import("../app.module.js"), import("./fill-sync.service.js"), import("../traders/trade-analytics.service.js"), import("../traders/analysis-history.service.js"),
     import("../traders/analysis-history.repository.js"), import("../hyperliquid/request-budgeter.service.js"), import("../db/db.constants.js"),
   ]);
@@ -88,6 +88,20 @@ export async function repairFills(options: RepairOptions) {
     // Weight actually sent: the trailing-minute window, summed once per minute of run time.
     const ticker = setInterval(() => { spent += sample(); }, 60_000);
     ticker.unref();
+
+    // Behind every page request, and never through the page lane's limits.
+    // A revision event may already have started a computation: let it end,
+    // then compute once more from the final state.
+    const recompute = async (address: string) => {
+      for (let attempt = 0; ; attempt++) {
+        await analytics.settled();
+        try {
+          return await analytics.compute(address, false, { rank: UNRANKED_BASE });
+        } catch (error) {
+          if (attempt >= 3) throw error;
+        }
+      }
+    };
 
     const span = async (address: string): Promise<Span> => {
       const { rows: [row] } = await db.execute<{ verified_from: Date | null; verified_through: Date | null; backfill_status: string | null; fills: number; breaks: number }>(sql`
@@ -133,7 +147,7 @@ export async function repairFills(options: RepairOptions) {
           status = step.status;
         }
         const continuity = await fillSync.checkContinuity(address, true);
-        const row = await analytics.refresh(address);
+        const row = await recompute(address);
         const after = await span(address);
         Object.assign(entry, { after, inserted, windows, continuity,
           // Complete from here on; anything earlier REST no longer returns (left to the archive).
@@ -162,7 +176,7 @@ export async function repairFills(options: RepairOptions) {
               if ((await history.advance(job, Date.now(), 2)) === 0 && (await historyRepository.state(row.address))?.version === job.version) break;
             }
             const job = await historyRepository.state(row.address);
-            const refreshed = await analytics.refresh(row.address);
+            const refreshed = await recompute(row.address);
             // Raw-backed only when the rebuild came from the stored history.
             Object.assign(entry, { job: job?.status, analytics: { fills: refreshed.fillsRead, from: refreshed.coverageFrom, through: refreshed.historyThrough },
               backed: refreshed.historyThrough !== null, unrecoverableBefore: refreshed.historyThrough === null ? "REST no longer returns the start of the claimed range" : null });

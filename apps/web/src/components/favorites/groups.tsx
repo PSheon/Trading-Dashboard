@@ -49,7 +49,9 @@ export function GroupChips({ groups, counts, total, active, onSelect }: {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label={t("favorites.groups.manage")}>
+      {/* Filter chips are toggle buttons, not tabs: the row also holds the
+          delete, new-group and manage buttons, which a tablist may not contain. */}
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("favorites.groups.manage")}>
         <Chip active={active === null} onClick={() => onSelect(null)} count={total}>
           {t("favorites.groups.all")}
         </Chip>
@@ -135,8 +137,7 @@ function Chip({ active, onClick, count, children }: { active: boolean; onClick: 
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
         "inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
@@ -293,7 +294,7 @@ export function GroupTags({ address, groups, className }: { address: string; gro
   return (
     <span className={cn("flex flex-wrap items-center gap-1", className)} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
       {mine.map((g) => (
-        <span key={g.id} className="rounded-md px-1.5 py-0.5 text-[0.6875rem] font-semibold" style={{ backgroundColor: `${g.color}22`, color: g.color }}>
+        <span key={g.id} data-slot="group-tag" className="rounded-md px-1.5 py-0.5 text-[0.6875rem] font-semibold" style={{ backgroundColor: `${g.color}22`, color: g.color }}>
           {g.name}
         </span>
       ))}

@@ -1158,3 +1158,52 @@ export const archiveCoverage = pgTable("archive_coverage", {
   index("archive_coverage_from_idx").on(table.coveredFrom),
   index("archive_coverage_through_idx").on(table.coveredThrough),
 ]);
+
+// ---------------------------------------------------------------------------
+// fill_coverage — what the watcher's `fills` table is proven to hold.
+// ---------------------------------------------------------------------------
+
+/** A position-chain break that a targeted re-read of both fill endpoints
+ * did not close: upstream itself has no fill between the two. */
+export interface FillCoverageBreak { coin: string; tid: number; time: number; after: number; expected: string; actual: string }
+
+/**
+ * Per watched address: the one contiguous span `[verified_from,
+ * verified_through]` in which every regular and TWAP fill Hyperliquid's
+ * REST API returned is stored in `fills`. The span only grows by a read
+ * that completed (short final page on both endpoints): forward from
+ * `verified_through` (sweeps, restarts) and backward from `verified_from`
+ * (backfill). A failed or interrupted read leaves it unchanged, so the
+ * next one starts from the same place and nothing is skipped. Fills stored
+ * outside the span (live confirms ahead of it, rows from before this table
+ * existed) are kept but never counted as covered.
+ */
+export const fillCoverage = pgTable("fill_coverage", {
+  chain: text("chain").notNull().default(CHAIN_DEFAULT),
+  address: text("address").notNull(),
+  verifiedFrom: timestamp("verified_from", { withTimezone: true }),
+  verifiedThrough: timestamp("verified_through", { withTimezone: true }),
+  /** Position continuity has been checked for fills up to here. */
+  checkedThrough: timestamp("checked_through", { withTimezone: true }),
+  /** Backward backfill: "pending" until it reaches `backfill_floor`
+   * ("complete"), the start of what the REST API still retains
+   * ("retention": older fills exist upstream only in the node archive),
+   * the fill cap ("capped") or a millisecond holding more fills than the
+   * API pages through ("blocked"). Anything but "complete" means the
+   * figures are partial since `verified_from`. */
+  backfillStatus: text("backfill_status").$type<"pending" | "complete" | "retention" | "capped" | "blocked">().notNull().default("pending"),
+  backfillFloor: timestamp("backfill_floor", { withTimezone: true }).notNull(),
+  /** Length of the next backward window, sized from the density just read. */
+  backfillSpanMs: bigint("backfill_span_ms", { mode: "number" }).notNull().default(21_600_000),
+  breaks: jsonb("breaks").$type<FillCoverageBreak[]>().notNull().default([]),
+  /** When history inside or before the span last changed (backfilled fills,
+   * a repaired hole): analytics computed before this are recomputed. */
+  revisedAt: timestamp("revised_at", { withTimezone: true }),
+  /** A fixed code, never provider text. */
+  lastError: text("last_error"),
+  failedAt: timestamp("failed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  primaryKey({ columns: [table.chain, table.address] }),
+  index("fill_coverage_backfill_idx").on(table.backfillStatus, table.updatedAt),
+]);

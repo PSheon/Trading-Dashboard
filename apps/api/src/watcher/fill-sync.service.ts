@@ -279,9 +279,11 @@ export class FillSyncService {
       // Retention only moves forward: a window read earlier is certain
       // only if the API still starts at or before it now.
       this.retentionProbed.delete(address);
-      const retained = status === "complete" ? await this.retentionStart(address, rank) : 0;
-      const from = Math.max(retained, (await this.repository.coverage(address))?.verifiedFrom?.getTime() ?? end);
-      const reached = status === "complete" && from > Date.now() - BACKFILL_LOOKBACK_MS + 86_400_000 ? "retention" : status;
+      const retained = status === "blocked" ? 0 : await this.retentionStart(address, rank);
+      const spanFrom = (await this.repository.coverage(address))?.verifiedFrom?.getTime() ?? end;
+      const from = Math.max(retained, spanFrom);
+      // Stopped short of the one-year floor because REST holds nothing older.
+      const reached = retained > spanFrom || (status === "complete" && from > Date.now() - BACKFILL_LOOKBACK_MS + 86_400_000) ? "retention" : status;
       await this.repository.patchCoverage(address, { verifiedFrom: new Date(from), backfillStatus: reached, revisedAt: new Date() });
       await this.checkContinuity(address, true, rank).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
       this.events?.emit(FILLS_REVISED_EVENT, { address });

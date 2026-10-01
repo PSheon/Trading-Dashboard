@@ -45,6 +45,9 @@ export interface AreaChartProps {
   /** A marker driven from outside (the home calculator): a dashed vertical
    * line and a dot on that point, with no tooltip. */
   marker?: number | null;
+  /** CopyDog's phone sparkline: the line and a faint fill only, with no
+   * hatch and no end dot. */
+  plain?: boolean;
   ariaLabel?: string;
 }
 
@@ -139,6 +142,7 @@ export function AreaChart({
   grid = 0,
   yAxis = "right",
   marker = null,
+  plain = false,
   ariaLabel,
 }: AreaChartProps) {
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -310,7 +314,7 @@ export function AreaChart({
 
           <g clipPath={`url(#${ids.above})`}>
             <path d={geo.area} fill={`url(#${ids.gradUp})`} />
-            <path d={geo.area} fill={`url(#${ids.hatchUp})`} />
+            {plain ? null : <path d={geo.area} fill={`url(#${ids.hatchUp})`} />}
             <path
               d={geo.line}
               fill="none"
@@ -323,7 +327,7 @@ export function AreaChart({
           {zeroBaseline ? (
             <g clipPath={`url(#${ids.below})`}>
               <path d={geo.area} fill={`url(#${ids.gradDown})`} />
-              <path d={geo.area} fill={`url(#${ids.hatchDown})`} />
+              {plain ? null : <path d={geo.area} fill={`url(#${ids.hatchDown})`} />}
               <path
                 d={geo.line}
                 fill="none"
@@ -335,19 +339,20 @@ export function AreaChart({
             </g>
           ) : null}
 
-          {last && hover === null && !markerPoint ? (
+          {/* CopyDog's hl-spark__dot: a 6px dot with a ring pulsing out of it. */}
+          {last && hover === null && !markerPoint && !plain ? (
             <g>
               <circle
+                className="spark-pulse"
                 cx={geo.x(last[0])}
                 cy={geo.y(last[1])}
-                r={strokeWidth * 3.2}
+                r={3}
                 fill={last[1] < 0 && zeroBaseline ? "var(--chart-2)" : "var(--chart-1)"}
-                opacity={0.22}
               />
               <circle
                 cx={geo.x(last[0])}
                 cy={geo.y(last[1])}
-                r={strokeWidth * 1.6}
+                r={3}
                 fill={last[1] < 0 && zeroBaseline ? "var(--chart-2)" : "var(--chart-1)"}
               />
             </g>

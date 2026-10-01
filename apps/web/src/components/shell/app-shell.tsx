@@ -116,13 +116,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               : chrome === "marketing"
                 ? "pt-16 pb-10"
                 : chrome === "home"
-                  ? "pt-16 pb-[calc(68px+env(safe-area-inset-bottom))]"
+                  ? "pt-[58px] pb-[calc(68px+env(safe-area-inset-bottom))]"
                   : "pt-0 pb-[calc(68px+env(safe-area-inset-bottom))]",
           "md:pt-[81px] md:pb-0 md:pl-[76px]",
         )}
       >
         <AnnouncementBanner />
-        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] px-5 py-5 md:px-8 md:py-7">
+        {/* CopyDog's .hl-page: 32px around with 16px on the right; its
+            trader page sits 8px from the frame. */}
+        <main
+          id="main"
+          tabIndex={-1}
+          className={cn(
+            "mx-auto w-full max-w-[1600px] px-5 py-5",
+            traderPage ? "md:px-2 md:pt-2 md:pb-14" : pathname.startsWith("/admin") ? "md:px-8 md:py-7" : "md:pt-8 md:pr-4 md:pb-8 md:pl-8",
+          )}
+        >
           {children}
         </main>
       </div>

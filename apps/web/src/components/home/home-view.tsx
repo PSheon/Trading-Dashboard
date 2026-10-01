@@ -18,7 +18,6 @@ import { boardCoinLabel, homeTileOrder, roiPillShort } from "@/lib/board-format"
 import type { BoardTrader } from "@/lib/contracts";
 import { useHomeBoards, useSiteSettings } from "@/lib/queries";
 import { historicalSimulation } from "@/lib/historical-simulation";
-import styles from "./home-view.module.css";
 
 const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
 const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
@@ -57,19 +56,19 @@ export function HomeView() {
     : null;
 
   return (
-    <div className={cn(styles.home, "flex flex-col gap-8 md:gap-9")}>
+    <div className="flex flex-col gap-6 md:gap-[34px]">
       {/* Phones: CopyDog's compact two-line title with 登入 beside it. */}
-      <div className={cn(styles.mobileTitle, "flex items-center justify-between gap-3 md:hidden")}>
-        <h1 className="text-[1.75rem] leading-[1.2] font-extrabold tracking-tight whitespace-pre-line">{t("home.heroTitleMobile")}</h1>
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <h1 className="text-[1.75rem] leading-[1.15] font-bold tracking-tight whitespace-pre-line">{t("home.heroTitleMobile")}</h1>
         <AuthButton />
       </div>
 
-      <section className={cn(styles.hero, "hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]")}>
+      <section className="hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
         <div>
-          <h1 className="max-w-[8.2em] text-[3.5rem] leading-[1.08] font-black tracking-tight">{t("home.heroTitle")}</h1>
+          <h1 className="max-w-[8.2em] text-[3.5rem] leading-[1.05] font-extrabold tracking-tight">{t("home.heroTitle")}</h1>
           <Link
             href="/explore"
-            className="mt-6 inline-flex h-12 items-center rounded-full bg-raised px-6 text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-[26px] inline-flex h-[47px] items-center rounded-full bg-raised px-5 text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("home.heroBrowse")}
           </Link>
@@ -79,8 +78,8 @@ export function HomeView() {
         </div>
       </section>
 
-      <section className={styles.markets}>
-        <h2 className="mb-3.5 text-[1.375rem] font-bold tracking-tight md:text-lg md:tracking-normal">{t("home.byMarket")}</h2>
+      <section>
+        <h2 className="mb-4 text-[1.375rem] font-bold tracking-tight md:mb-3.5 md:text-lg md:leading-[27px] md:tracking-normal">{t("home.byMarket")}</h2>
         {/* Desktop: one scrolling row of square tiles. */}
         <div className="hidden md:block">
           <HScroll label={t("home.byMarket")}>
@@ -91,7 +90,7 @@ export function HomeView() {
           </HScroll>
         </div>
         {/* Phones: Top 100 and KOL pills, then a crypto and a stock row. */}
-        <div className="flex flex-col gap-3 md:hidden">
+        <div className="flex flex-col gap-4 md:hidden">
           <div className="grid grid-cols-2 gap-3">
             <WideTile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<Trophy className="size-5 text-primary" />} />
             <WideTile href={exploreHref("kol", "copyScore")} label={t("home.kols")} icon={<UserRound className="size-5 text-primary" />} />
@@ -112,7 +111,7 @@ export function HomeView() {
         ? rows
             .filter((row) => row.items.length > 0)
             .map((row) => (
-              <section key={row.key} className={styles.row}>
+              <section key={row.key}>
                 <RowHeader title={row.title} coin={"coin" in row ? row.coin : undefined} href={row.href} />
                 <HScroll label={row.title}>
                   {row.items.map((trader) => <HomeCard key={trader.address} trader={trader} />)}
@@ -122,8 +121,8 @@ export function HomeView() {
         : !home.isError
           ? Array.from({ length: 3 }, (_, i) => (
               <section key={i}>
-                <Skeleton className="my-2 mb-5.5 h-7 w-40" />
-                <div className="-mx-5 flex gap-3 overflow-hidden px-5 py-1 md:mx-0 md:px-0">
+                <Skeleton className="mb-3 h-[33px] w-40 md:mb-3.5 md:h-[30px]" />
+                <div className="-mx-5 flex gap-3 overflow-hidden px-5 md:mx-0 md:px-0 md:pb-0.5">
                   {Array.from({ length: 7 }, (_, j) => <HomeCardSkeleton key={j} />)}
                 </div>
               </section>
@@ -175,8 +174,8 @@ function WideTile({ href, label, icon }: { href: string; label: string; icon: Re
 function RowHeader({ title, coin, href }: { title: string; coin?: string; href: string }) {
   const { t } = useI18n();
   return (
-    <div className="mb-3.5 flex items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-[1.375rem] font-bold tracking-tight md:text-lg md:tracking-normal">
+    <div className="mb-3 flex items-center justify-between gap-3 md:mb-3.5">
+      <h2 className="flex items-center gap-2 text-[1.375rem] font-bold tracking-tight md:text-lg md:leading-[27px] md:tracking-normal">
         {coin ? <CoinIcon coin={coin} size={24} /> : null}
         {title}
       </h2>
@@ -192,26 +191,10 @@ function RowHeader({ title, coin, href }: { title: string; coin?: string; href: 
   );
 }
 
+/** CopyDog's hero placeholder: one shimmering block the size of the card. */
 function CalculatorSkeleton() {
   const { t } = useI18n();
-  return (
-    <div role="status" aria-label={t("common.loading")} className="ui-skeleton overflow-hidden rounded-3xl border border-border bg-card">
-      <div aria-hidden="true" className="flex items-center gap-3 border-b border-border px-5 py-3.5">
-        <div className="size-10 rounded-full bg-raised" />
-        <div className="h-3 w-28 rounded-full bg-raised" />
-        <div className="ml-auto h-2 w-24 rounded-full bg-raised" />
-      </div>
-      <div aria-hidden="true" className="grid grid-cols-[170px_minmax(0,1fr)] gap-5 p-5">
-        <div className="flex flex-col gap-2">
-          <div className="h-4 w-20 rounded bg-raised" />
-          <div className="h-12 rounded-2xl bg-raised" />
-          <div className="mt-2 h-4 w-24 rounded bg-raised" />
-          <div className="h-12 rounded-2xl bg-raised" />
-        </div>
-        <div className="h-[170px] rounded-xl bg-raised/60" />
-      </div>
-    </div>
-  );
+  return <div role="status" aria-label={t("common.loading")} className="ui-skeleton h-[267px] rounded-xl bg-card" />;
 }
 
 /** "If you invested $1,000 … you would have today": six traders, all-time ROI. */
@@ -230,14 +213,14 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
   const up = change !== null && change >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <section className={cn(styles.calculator, "overflow-hidden rounded-xl border border-border bg-card")}>
-      <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex h-[70px] items-center gap-3 border-b border-border px-[23px]">
         <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <TraderAvatar trader={trader} size={32} />
           <span className="truncate font-semibold">{boardName(trader)}</span>
           {trader.verified ? <VerifiedTick /> : null}
         </Link>
-        <div className="ml-auto flex items-center" role="group" aria-label={t("home.nextTrader")}>
+        <div className="ml-auto flex items-center gap-1.5" role="group" aria-label={t("home.nextTrader")}>
           {traders.map((c, i) => (
             <button
               key={c.address}
@@ -245,25 +228,26 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
               aria-label={t("home.traderN", { n: String(i + 1) })}
               aria-current={i === index % traders.length}
               onClick={() => { setIndex(i); setHover(null); }}
-              className="flex h-8 w-6 items-center justify-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span aria-hidden className={cn("h-1.5 rounded-full transition-colors", i === index % traders.length ? "w-5 bg-foreground" : "w-1.5 bg-border-strong")} />
-            </button>
+              className={cn(
+                "relative h-1.5 rounded-full outline-none transition-[width,background-color] before:absolute before:-inset-x-[3px] before:-inset-y-3 focus-visible:ring-2 focus-visible:ring-ring",
+                i === index % traders.length ? "w-[18px] bg-muted-foreground" : "w-1.5 bg-muted-foreground/35",
+              )}
+            />
           ))}
         </div>
         <button
           type="button"
           aria-label={t("home.nextTrader")}
           onClick={() => { setIndex((i) => (i + 1) % traders.length); setHover(null); }}
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+          className="-ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <ChevronRight className="size-4" />
+          <ChevronRight className="size-[19px]" />
         </button>
       </div>
-      <div className="grid grid-cols-[170px_minmax(0,1fr)] gap-5 p-5">
+      <div className="grid grid-cols-[163px_minmax(0,1fr)] gap-5 px-[23px] py-[19px]">
         <div className="flex flex-col gap-2">
           <label htmlFor="calc-amount" className="text-xs text-muted-foreground">{t("home.ifInvested")}</label>
-          <div className="flex h-12 items-center rounded-2xl bg-raised px-4 focus-within:ring-2 focus-within:ring-ring">
+          <div className="flex h-[46px] items-center rounded-2xl bg-raised px-4 focus-within:ring-2 focus-within:ring-ring">
             <span className="text-lg font-semibold text-subtle-foreground">$</span>
             <input
               id="calc-amount"
@@ -281,7 +265,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
               </span>
             </Tooltip>
           </span>
-          <div className={cn("flex h-12 items-center rounded-2xl px-4", shown === null ? "bg-raised" : up ? "bg-positive-soft" : "bg-negative-soft")} aria-live="polite">
+          <div className={cn("flex h-[46px] items-center rounded-2xl px-4", shown === null ? "bg-raised" : up ? "bg-positive-soft" : "bg-negative-soft")} aria-live="polite">
             <span className={cn("num truncate text-xl font-bold", shown === null ? "text-muted-foreground" : up ? "text-positive" : "text-negative")}>{shown === null ? "—" : `$${Math.round(shown).toLocaleString("en-US")}`}</span>
           </div>
         </div>
@@ -300,7 +284,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
 function HoverChartOrEmpty({ series, hover, onHover, missingRoi }: { series: Array<readonly [number, number]>; hover: number | null; onHover: (i: number | null) => void; missingRoi: boolean }) {
   const { t } = useI18n();
   return series.length > 0 ? <HoverChart series={series} hover={hover} onHover={onHover} /> : (
-    <p className="flex h-[170px] items-center justify-center px-3 text-center text-xs text-muted-foreground" role="status">
+    <p className="flex h-[157px] items-center justify-center px-3 text-center text-xs text-muted-foreground" role="status">
       {t(missingRoi ? "home.calculatorMissingRoi" : "home.calculatorMissingCurve")}
     </p>
   );
@@ -318,7 +302,7 @@ function HoverChart({ series, hover, onHover }: { series: Array<readonly [number
       }}
     >
       {/* CopyDog's crosshair: a dashed line and a dot on the hovered point. */}
-      <AreaChart data={series} height={170} strokeWidth={2} zeroBaseline={false} grid={4} marker={hover} formatValue={(v) => format.usd(v, { compact: true })} />
+      <AreaChart data={series} height={157} strokeWidth={2} zeroBaseline={false} grid={4} marker={hover} formatValue={(v) => format.usd(v, { compact: true })} />
     </div>
   );
 }

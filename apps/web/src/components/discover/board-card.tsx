@@ -117,32 +117,32 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   const up = (trader.roi ?? 0) >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   const pill = (
-    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-[0.6875rem] font-bold", up ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
-      <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
+    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num inline-flex h-[26px] shrink-0 items-center gap-0.5 rounded-md px-1 text-xs font-semibold md:h-6 md:px-1.5", up ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+      <Arrow className="size-[9px] md:size-[11px]" strokeWidth={2.5} aria-hidden />
       {roiPillShort(trader.roi)}
     </span>
   );
   return (
     <Link
       href={traderHref(trader.address)}
-      className="flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-border bg-card p-2 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-3 md:p-[13px]"
+      className="flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-border bg-card p-[7px] outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-[11px] md:p-[13px]"
     >
       <div className="flex min-w-0 items-center gap-2">
         <TraderAvatar trader={trader} size={32} />
         <span className="ml-auto md:hidden">{pill}</span>
         <span className="hidden min-w-0 items-center gap-1 md:flex">
           <span className="truncate text-sm font-semibold">{boardName(trader)}</span>
-          {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
+          {trader.verified ? <VerifiedTick className="size-[13px]" /> : null}
         </span>
       </div>
       <span className="flex min-w-0 items-center gap-1 md:hidden">
         <span className="truncate text-base font-semibold">{boardName(trader)}</span>
-        {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
+        {trader.verified ? <VerifiedTick className="size-[11px]" /> : null}
       </span>
-      <BoardSparkline values={trader.sparkline} height={40} className="md:hidden" />
-      <BoardSparkline values={trader.sparkline} height={78} className="hidden md:block" />
+      <BoardSparkline values={trader.sparkline} height={26} className="md:hidden" plain />
+      <BoardSparkline values={trader.sparkline} height={74} className="hidden md:block" />
       <div className="flex items-center justify-between gap-1.5">
-        <span className={cn("num block truncate text-base font-bold", signTone(trader.pnl))} title={t("home.cardPnl")}>
+        <span className={cn("num block truncate text-base leading-[26px] font-bold md:leading-6", signTone(trader.pnl))} title={t("home.cardPnl")}>
           {format.usd(trader.pnl, { compact: true, sign: true })}
         </span>
         <span className="hidden md:inline-flex">{pill}</span>
@@ -151,15 +151,9 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   );
 }
 
+/** CopyDog's hl-fcard--skel: one shimmering block the size of the card. */
 export function HomeCardSkeleton() {
-  return (
-    <div aria-hidden="true" className="ui-skeleton flex w-[148px] shrink-0 flex-col gap-2 rounded-2xl border border-border bg-card p-2.5 md:w-[190px] md:gap-3 md:p-3.5">
-      <div className="flex h-8 items-center gap-2"><div className="size-8 shrink-0 rounded-full bg-raised" /><div className="h-3 flex-1 rounded bg-raised" /></div>
-      <div className="h-[19.5px] w-24 rounded bg-raised md:hidden" />
-      <div className="h-16 rounded-lg bg-raised/60 md:h-[78px]" />
-      <div className="flex h-[42px] items-end justify-between gap-2"><div className="flex flex-col gap-2"><div className="h-2.5 w-8 rounded bg-raised" /><div className="h-5 w-20 rounded bg-raised" /></div><div className="hidden h-6 w-12 rounded bg-raised md:block" /></div>
-    </div>
-  );
+  return <div aria-hidden="true" className="ui-skeleton h-[148px] w-[116px] shrink-0 rounded-xl bg-card md:h-[180px] md:w-[190px]" />;
 }
 
 /** Mobile list row (CopyDog's dense list): avatar, name, coins and score;

@@ -125,13 +125,13 @@ export function CopyScoreBar({
 }
 
 /** A board sparkline (values only): Orbie's area chart with its end dot. */
-export function BoardSparkline({ values, height, className }: { values: number[]; height: number; className?: string }) {
+export function BoardSparkline({ values, height, className, plain = false }: { values: number[]; height: number; className?: string; plain?: boolean }) {
   const { format } = useI18n();
   const data = values.map((v, i) => [i, v] as const);
   if (data.length < 2) return <div className={cn("rounded-xl bg-raised-hover/40", className)} style={{ height }} />;
   return (
     <div className={className} style={{ height }}>
-      <AreaChart data={data} height={height} strokeWidth={1.75} grid={4} formatValue={(v) => format.usd(v, { compact: true })} />
+      <AreaChart data={data} height={height} strokeWidth={1.75} grid={plain ? 0 : 4} plain={plain} formatValue={(v) => format.usd(v, { compact: true })} />
     </div>
   );
 }
@@ -171,7 +171,7 @@ export function HScroll({ children, className, label }: { children: React.ReactN
           <ChevronLeft className="size-[22px]" />
         </button>
       ) : null}
-      <div ref={ref} role="group" aria-label={label} className={cn("-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 py-1 no-scrollbar md:mx-0 md:scroll-px-0 md:px-0", className)}>
+      <div ref={ref} role="group" aria-label={label} className={cn("-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 no-scrollbar md:pb-0.5 md:mx-0 md:scroll-px-0 md:px-0", className)}>
         {children}
       </div>
       {!atEnd ? (

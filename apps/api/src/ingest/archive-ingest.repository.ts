@@ -83,7 +83,10 @@ export class ArchiveIngestRepository {
     }
   }
 
+  /** The single state row, created on first use (reads stay read-only after that). */
   async state(): Promise<ArchiveState> {
+    const [existing] = await this.db.select().from(archiveIngestState).where(mine);
+    if (existing) return existing;
     await this.db.insert(archiveIngestState).values({ chain: CHAIN_DEFAULT }).onConflictDoNothing();
     return (await this.db.select().from(archiveIngestState).where(mine))[0];
   }

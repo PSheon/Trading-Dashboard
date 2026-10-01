@@ -2,7 +2,7 @@ import { Bell, BriefcaseBusiness, Compass, ShieldCheck, type LucideIcon } from "
 import Link from "next/link";
 import { cn } from "cn";
 
-import { AlertsMock, BoardMock, CopyMock, KolMarquee, PortfolioMock, ProfileMock } from "@/components/content/about-visuals";
+import { AlertsMock, AvatarStack, BoardMock, CopyMock, KolMarquee, PortfolioMock, ProfileMock } from "@/components/content/about-visuals";
 import { InlineText, MarkdownBlocks } from "@/components/content/markdown";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { parseInline, type Block } from "@/lib/markdown";
@@ -166,14 +166,23 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
             </section>
           );
         }
-        // Closing call to action: a heading and a link, nothing else.
-        const last = secs.length === 1 && secs[0].body.length === 1 ? ctaOf(secs[0].body[0]) : null;
-        if (last && secs[0].heading) {
+        // Closing call to action: a heading, one line and a link, nothing else.
+        const closingBody = secs.length === 1 ? secs[0].body : [];
+        const last = closingBody.length >= 1 && closingBody.length <= 2 ? ctaOf(closingBody[closingBody.length - 1]) : null;
+        const lede = closingBody.length === 2 && closingBody[0].type === "paragraph" ? closingBody[0] : null;
+        if (last && secs[0].heading && (closingBody.length === 1 || lede)) {
           return (
             <section key={p} className="mx-auto flex flex-col items-center px-5 py-[88px] text-center md:py-[120px]">
+              {/* CopyDog's rotating trader avatar above the closing line. */}
+              <AvatarStack />
               <h2 className="mt-6 max-w-[900px] text-[36px] leading-none font-[652] tracking-[-0.6px] text-balance lg:text-[80px]">
                 <InlineText text={secs[0].heading.text} />
               </h2>
+              {lede ? (
+                <p className="mx-auto mt-6 max-w-[240px] text-xl leading-[26px] font-[440] text-muted-foreground sm:max-w-[380px] lg:max-w-[560px]">
+                  <InlineText text={lede.text} />
+                </p>
+              ) : null}
               <Cta {...last} className="mt-8" />
             </section>
           );

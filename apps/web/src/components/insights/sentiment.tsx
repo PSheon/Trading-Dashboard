@@ -26,9 +26,9 @@ export function SentimentText({ pctLong, className }: { pctLong: number | null; 
   const { key, dir } = sentiment(pctLong);
   const Icon = dir > 0 ? ArrowUpRight : dir < 0 ? ArrowDownRight : ArrowRight;
   return (
-    <span className={cn("inline-flex items-center gap-1 font-semibold whitespace-nowrap", dir > 0 ? "text-positive" : dir < 0 ? "text-negative" : "text-muted-foreground", className)}>
+    <span className={cn("inline-flex items-center gap-[3px] text-[12.5px] leading-[18.75px] font-semibold whitespace-nowrap", dir > 0 ? "text-positive" : dir < 0 ? "text-negative" : "text-muted-foreground", className)}>
       {t(`insights.cohort.sentiment.${key}`)}
-      <Icon className="size-3.5" aria-hidden />
+      <Icon className="size-[13px]" aria-hidden />
     </span>
   );
 }
@@ -37,7 +37,7 @@ export function SentimentText({ pctLong, className }: { pctLong: number | null; 
 export function SplitBar({ pos, className }: { pos: number | null; className?: string }) {
   const p = pos === null ? 50 : Math.max(0, Math.min(100, pos));
   return (
-    <span className={cn("flex h-1.5 w-full overflow-hidden rounded-full bg-raised", className)} aria-hidden>
+    <span className={cn("flex h-1 w-full overflow-hidden rounded-full bg-raised", className)} aria-hidden>
       <span className="h-full bg-positive" style={{ width: `${p}%` }} />
       <span className="h-full bg-negative" style={{ width: `${100 - p}%` }} />
     </span>

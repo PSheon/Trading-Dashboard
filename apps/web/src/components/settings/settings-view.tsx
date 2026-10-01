@@ -82,9 +82,11 @@ function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="flex flex-col items-center px-6 pt-10 text-center md:pt-8">
-      <Settings className="size-11 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-      <h1 className="mt-5 text-xl leading-[30px] font-bold">{t("settings.signInTitle")}</h1>
+    // CopyDog's settings shell spans the rail edge to 28px short of the
+    // window (centre x=744 at 1440), narrower on the right than the page frame.
+    <div className="flex flex-col items-center px-6 pt-10 text-center md:-ml-8 md:mr-3 md:pt-8">
+      <Settings className="size-12 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
+      <h1 className="mt-4 text-xl leading-[30px] font-bold">{t("settings.signInTitle")}</h1>
       <p className="mt-2 text-sm leading-5 text-muted-foreground">{t("settings.signInBody")}</p>
       <Button size="xl" className="mt-6 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { cn } from "cn";
 
 import { boardName, TraderAvatar } from "@/components/discover/board-bits";
@@ -52,6 +53,67 @@ export function KolMarquee() {
     <div className="flex w-full flex-col gap-5 overflow-hidden pb-[120px]">
       <MarqueeRow traders={featured.slice(0, half)} />
       <MarqueeRow traders={featured.slice(half)} reverse />
+    </div>
+  );
+}
+
+/**
+ * CopyDog's `avatar-stack` over the closing call to action: an 88px (80px
+ * on phones) rounded square showing one featured trader, two grey cards
+ * peeking out behind it; every 2s (first after 1.5s) the front one drops
+ * out (0.2s) and the next slides forward (0.8s).
+ */
+export function AvatarStack() {
+  const featured = useFeatured();
+  const [order, setOrder] = useState<BoardTrader[]>([]);
+  const [leaving, setLeaving] = useState<BoardTrader | null>(null);
+  const ready = order.length > 0 ? order : featured;
+  useEffect(() => {
+    if (featured.length < 2) return;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let exit: ReturnType<typeof setTimeout> | undefined;
+    const shift = () => {
+      setOrder((list) => {
+        const current = list.length ? list : featured;
+        setLeaving(current[0]);
+        return current;
+      });
+      exit = setTimeout(() => {
+        setOrder((list) => {
+          const current = list.length ? [...list] : [...featured];
+          current.push(current.shift()!);
+          return current;
+        });
+        setLeaving(null);
+      }, 200);
+    };
+    const start = setTimeout(() => {
+      shift();
+      interval = setInterval(shift, 2000);
+    }, 1500);
+    return () => {
+      clearTimeout(start);
+      clearTimeout(exit);
+      if (interval) clearInterval(interval);
+    };
+  }, [featured]);
+  const front = ready[0];
+  return (
+    <div className="flex justify-center" aria-hidden>
+      <ul className="relative isolate m-0 size-20 list-none p-0 min-[720px]:size-[88px]">
+        {leaving ? (
+          <li key={`exit-${leaving.address}`} className="avatar-stack-exit absolute inset-0 z-[3] overflow-hidden rounded-3xl">
+            <TraderAvatar trader={leaving} size={88} className="size-full rounded-none" />
+          </li>
+        ) : null}
+        {front ? (
+          <li key={front.address} className="avatar-stack-enter absolute inset-0 z-0 origin-top overflow-hidden rounded-3xl">
+            <TraderAvatar trader={front} size={88} className="size-full rounded-none" />
+          </li>
+        ) : null}
+        <li className="absolute inset-0 -z-10 origin-top -translate-y-2 scale-[0.82] rounded-3xl bg-raised-hover" />
+        <li className="absolute inset-0 -z-20 origin-top -translate-y-4 scale-[0.64] rounded-3xl bg-raised" />
+      </ul>
     </div>
   );
 }

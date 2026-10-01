@@ -318,6 +318,15 @@
 .cd-cohort-wallets th:nth-child(8) { width: 7%; }
 .cd-cohort-wallets th:nth-child(9) { width: 9%; }
 .cd-cohort-wallets th:nth-child(10) { width: 10%; }
+/* 市場: CopyDog's header is 38px (11/10/10 padding) and its columns
+   210 | 158 | 317 | 312 | 317 of 1314. */
+.cd-cohort-markets { table-layout: fixed; }
+.cd-cohort-markets th { padding-top: 11px; padding-bottom: 10px; }
+.cd-cohort-markets th:nth-child(1) { width: 16%; }
+.cd-cohort-markets th:nth-child(2) { width: 12%; }
+.cd-cohort-markets th:nth-child(3) { width: 24%; }
+.cd-cohort-markets th:nth-child(4) { width: 24%; }
+.cd-cohort-markets th:nth-child(5) { width: 24%; }
 
 /* Trader page: three columns on wide screens, profile + main with the copy
    panel under the profile on laptops, one column on phones. */
@@ -485,7 +494,25 @@
   50% { opacity: 1; }
 }
 
+/* CopyDog's about-page avatar stack: the next card slides forward, the
+   front one drops away. */
+.avatar-stack-enter {
+  animation: avatar-stack-enter 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.avatar-stack-exit {
+  animation: avatar-stack-exit 0.2s ease-out forwards;
+}
+@keyframes avatar-stack-enter {
+  0% { transform: translateY(-8px) scale(0.82); }
+  to { transform: translateY(0) scale(1); }
+}
+@keyframes avatar-stack-exit {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(10px) scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .avatar-stack-enter, .avatar-stack-exit { animation: none; }
   .toast-enter, .toast-icon { animation: none; }
   .toast-exit { animation: none; opacity: 0; }
   .ui-skeleton::after { animation: none; opacity: 0; }

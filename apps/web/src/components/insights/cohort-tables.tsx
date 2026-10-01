@@ -126,17 +126,19 @@ const MARKET_KEYS: Record<MarketKey, (m: CohortMarket) => number | string> = {
   upnl: (m) => m.upnl,
 };
 
+/** CopyDog's `.hl-cohort-cellsplit`: figure over its share (10.5px), the
+ * 4px bar between, gap 12; the row comes to 55px. */
 function Split({ left, leftSub, right, rightSub, pos }: { left: string; leftSub: string; right: string; rightSub: string; pos: number | null }) {
   return (
     <div className="flex min-w-[260px] items-center gap-3">
       <span className="flex flex-col">
         <span className="num font-semibold text-positive">{left}</span>
-        <span className="text-[0.6875rem] text-subtle-foreground">{leftSub}</span>
+        <span className="mt-px text-[10.5px] leading-[15.75px] font-medium text-subtle-foreground">{leftSub}</span>
       </span>
       <SplitBar pos={pos} className="flex-1" />
       <span className="flex flex-col items-end">
         <span className="num font-semibold text-negative">{right}</span>
-        <span className="text-[0.6875rem] text-subtle-foreground">{rightSub}</span>
+        <span className="mt-px text-[10.5px] leading-[15.75px] font-medium text-subtle-foreground">{rightSub}</span>
       </span>
     </div>
   );
@@ -155,7 +157,7 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   const share = (part: number, whole: number) => (whole > 0 ? Math.round((100 * part) / whole) : 0);
   return (
     <div className="max-h-[640px] overflow-auto">
-      <table className="cd-cohort-table w-full min-w-[1080px] border-collapse">
+      <table className="cd-cohort-table cd-cohort-markets w-full min-w-[1080px] border-collapse">
         <thead className="sticky top-0 z-10 border-b border-border bg-card">
           <tr>
             <Th label={c("market")} col="coin" sort={sort} align="left" />

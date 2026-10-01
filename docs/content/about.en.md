@@ -55,6 +55,8 @@ When you sign in, Privy creates a wallet just for you. That wallet is your Hyper
 
 ## Let the best traders lead the way
 
+Start copying the best traders on Hyperliquid today.
+
 [Get started](/)
 
 ---

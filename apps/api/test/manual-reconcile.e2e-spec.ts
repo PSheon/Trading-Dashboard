@@ -199,7 +199,7 @@ describe.skipIf(!process.env.E2E_RUN_STORED)("stored history invariants (manual,
     try {
       const rows = (await pool.query<{ address: string; source: string; coverage_from: Date | null; fill_cursor: Date }>(`
         SELECT address, source, coverage_from, fill_cursor FROM trader_analytics WHERE fill_cursor IS NOT NULL ORDER BY address LIMIT $1`, [Number(process.env.E2E_SAMPLE ?? 500)])).rows;
-      const report = [];
+      const report: Array<{ address: string; source: string; fills: number; breaks: number; firstBreak: { coin: string; at: string } | null; pnlIdentityHolds: boolean }> = [];
       for (const row of rows) {
         const table = row.source === "tracked"
           ? `SELECT tid, raw, false AS twap FROM fills WHERE address = $1 AND ts >= $2 AND ts <= $3`

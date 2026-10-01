@@ -13,6 +13,7 @@ import {
 import { AppConfig } from "../config/app-config.js";
 import { parseOr400 } from "../common/http/validation.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
+import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
 import { CopyControlService } from "./copy-control.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
@@ -58,7 +59,7 @@ export class CopyStrategyService {
     const rows = await this.repository.strategiesOfUser(userId);
     const ids = rows.map((r) => r.strategy.id);
     const [positions, counts] = await Promise.all([this.repository.positionsOf(ids), this.repository.orderCounts(ids)]);
-    const mids = positions.length ? await this.market.midPrices() : null;
+    const mids = positions.length ? await this.market.midPrices(PAGE_RANK.profile) : null;
     const strategies = rows.map((r) => toCopyStrategy(r.strategy, r.settings as CopyStrategySettings, positions, mids, counts.get(r.strategy.id)));
     const live = strategies.filter((s) => s.status !== "stopped");
     const liveEquity = live.reduce<number | null>((a, s) => (a === null || s.equity === null ? null : a + s.equity), 0);
@@ -101,14 +102,15 @@ export class CopyStrategyService {
     let snapshot: HlClearinghouseStateResponse | null = null;
     if (req.copyStartMode === "adopt") {
       try {
-        snapshot = await this.market.leaderSnapshot(req.leader);
+        // The user is waiting on this request: page rank, not a background job.
+        snapshot = await this.market.leaderSnapshot(req.leader, PAGE_RANK.profile);
       } catch (error) {
         this.logger.warn(`Leader snapshot for ${req.leader} failed: ${(error as Error).message}`);
         throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Couldn't read the trader's positions; try again" });
       }
     }
-    const mids = snapshot && snapshot.assetPositions.length ? await this.market.midPrices() : null;
-    const assets = snapshot && snapshot.assetPositions.length ? await this.market.assetInfo() : null;
+    const mids = snapshot && snapshot.assetPositions.length ? await this.market.midPrices(PAGE_RANK.profile) : null;
+    const assets = snapshot && snapshot.assetPositions.length ? await this.market.assetInfo(PAGE_RANK.profile) : null;
 
     const { id } = await this.uow.run(async (tx) => {
       const policy = await this.policies.current(tx);
@@ -217,7 +219,7 @@ export class CopyStrategyService {
     const row = await this.repository.strategyWithSettings(strategyId);
     if (!row || row.strategy.userId !== userId) throw new NotFoundException("Copy not found");
     const positions = await this.repository.positionsOf([strategyId]);
-    const mids = positions.length ? await this.market.midPrices() : null;
+    const mids = positions.length ? await this.market.midPrices(PAGE_RANK.profile) : null;
     const counts = await this.repository.orderCounts([strategyId]);
     return toCopyStrategy(row.strategy, row.settings as CopyStrategySettings, positions, mids, counts.get(strategyId));
   }

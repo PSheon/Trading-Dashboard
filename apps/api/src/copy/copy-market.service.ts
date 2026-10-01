@@ -29,6 +29,11 @@ export interface Mids {
  * Hyperliquid reads for copy trading, through the shared budgeter at
  * background priority, each behind a TTL cache with in-flight dedupe.
  * Failures return null (the caller decides; nothing is priced at 0).
+ *
+ * `rank`: a user-facing read (starting or viewing a copy) passes a page rank
+ * (`PAGE_RANK.profile`) so it queues as interactive page work. Without one,
+ * the call is a plain background job behind the pool and cohort refreshes,
+ * which at a full budget means a 20 s deadline and a 504 for the user.
  */
 @Injectable()
 export class CopyMarketService {
@@ -42,11 +47,11 @@ export class CopyMarketService {
   constructor(private readonly info: HyperliquidInfoClient) {}
 
   /** allMids, at most one request per {@link MIDS_TTL_MS}. */
-  async midPrices(): Promise<Mids | null> {
+  async midPrices(rank?: number): Promise<Mids | null> {
     if (this.mids && Date.now() - this.mids.at.getTime() < MIDS_TTL_MS) return this.mids;
     this.midsInflight ??= (async () => {
       try {
-        const raw = await this.info.allMids("background");
+        const raw = await this.info.allMids("background", rank);
         const px = new Map<string, number>();
         for (const [coin, v] of Object.entries(raw)) {
           const n = Number(v);
@@ -65,11 +70,11 @@ export class CopyMarketService {
   }
 
   /** Main-dex universe with funding, at most hourly. */
-  async assetInfo(): Promise<Map<string, AssetInfo> | null> {
+  async assetInfo(rank?: number): Promise<Map<string, AssetInfo> | null> {
     if (this.assets && Date.now() - this.assets.at < ASSETS_TTL_MS) return this.assets.byCoin;
     this.assetsInflight ??= (async () => {
       try {
-        const [meta, ctxs] = await this.info.metaAndAssetCtxs("background");
+        const [meta, ctxs] = await this.info.metaAndAssetCtxs("background", rank);
         const byCoin = new Map<string, AssetInfo>();
         meta.universe.forEach((a, i) => {
           const ctx = ctxs[i];
@@ -95,11 +100,11 @@ export class CopyMarketService {
   }
 
   /** The leader's perp account value, cached {@link LEADER_EQUITY_TTL_MS}. */
-  async leaderEquity(address: string): Promise<number | null> {
+  async leaderEquity(address: string, rank?: number): Promise<number | null> {
     const hit = this.equityCache.get(address);
     if (hit && Date.now() - hit.at < LEADER_EQUITY_TTL_MS) return hit.value;
     try {
-      const state = await this.info.clearinghouseState(address, undefined, "background");
+      const state = await this.info.clearinghouseState(address, undefined, "background", rank);
       const value = Number(state.marginSummary.accountValue);
       const ok = Number.isFinite(value) && value > 0 ? value : null;
       this.equityCache.set(address, { at: Date.now(), value: ok });
@@ -111,8 +116,8 @@ export class CopyMarketService {
   }
 
   /** A fresh snapshot of the leader (adoption at activation). Throws on failure. */
-  async leaderSnapshot(address: string): Promise<HlClearinghouseStateResponse> {
-    const state = await this.info.clearinghouseState(address, undefined, "background");
+  async leaderSnapshot(address: string, rank?: number): Promise<HlClearinghouseStateResponse> {
+    const state = await this.info.clearinghouseState(address, undefined, "background", rank);
     const value = Number(state.marginSummary.accountValue);
     if (Number.isFinite(value) && value > 0) this.equityCache.set(address, { at: Date.now(), value });
     return state;

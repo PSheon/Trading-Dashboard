@@ -2556,6 +2556,128 @@
                                             "dryRun": {
                                               "type": "boolean"
                                             },
+                                            "archive": {
+                                              "type": "object",
+                                              "properties": {
+                                                "enabled": {
+                                                  "type": "boolean"
+                                                },
+                                                "liveNextHour": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "backfillCursorHour": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "lagSeconds": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "objects": {
+                                                  "type": "integer"
+                                                },
+                                                "bytes": {
+                                                  "type": "integer"
+                                                },
+                                                "fillsSeen": {
+                                                  "type": "integer"
+                                                },
+                                                "fillsKept": {
+                                                  "type": "integer"
+                                                },
+                                                "spendDayBytes": {
+                                                  "type": "integer"
+                                                },
+                                                "spendDayUsd": {
+                                                  "type": "number"
+                                                },
+                                                "maxDailyUsd": {
+                                                  "type": "number"
+                                                },
+                                                "addresses": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "total": {
+                                                      "type": "integer"
+                                                    },
+                                                    "backfilled": {
+                                                      "type": "integer"
+                                                    },
+                                                    "pending": {
+                                                      "type": "integer"
+                                                    },
+                                                    "excluded": {
+                                                      "type": "integer"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "total",
+                                                    "backfilled",
+                                                    "pending",
+                                                    "excluded"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                "lastObjectKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "lastRunAt": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "lastError": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "enabled",
+                                                "liveNextHour",
+                                                "backfillCursorHour",
+                                                "lagSeconds",
+                                                "objects",
+                                                "bytes",
+                                                "fillsSeen",
+                                                "fillsKept",
+                                                "spendDayBytes",
+                                                "spendDayUsd",
+                                                "maxDailyUsd",
+                                                "addresses",
+                                                "lastObjectKey",
+                                                "lastRunAt",
+                                                "lastError"
+                                              ],
+                                              "additionalProperties": false
+                                            },
                                             "now": {
                                               "type": "string",
                                               "format": "date-time"
@@ -5903,6 +6025,128 @@
                     },
                     "dryRun": {
                       "type": "boolean"
+                    },
+                    "archive": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "liveNextHour": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "backfillCursorHour": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lagSeconds": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "objects": {
+                          "type": "integer"
+                        },
+                        "bytes": {
+                          "type": "integer"
+                        },
+                        "fillsSeen": {
+                          "type": "integer"
+                        },
+                        "fillsKept": {
+                          "type": "integer"
+                        },
+                        "spendDayBytes": {
+                          "type": "integer"
+                        },
+                        "spendDayUsd": {
+                          "type": "number"
+                        },
+                        "maxDailyUsd": {
+                          "type": "number"
+                        },
+                        "addresses": {
+                          "type": "object",
+                          "properties": {
+                            "total": {
+                              "type": "integer"
+                            },
+                            "backfilled": {
+                              "type": "integer"
+                            },
+                            "pending": {
+                              "type": "integer"
+                            },
+                            "excluded": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "total",
+                            "backfilled",
+                            "pending",
+                            "excluded"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "lastObjectKey": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "lastRunAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastError": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "enabled",
+                        "liveNextHour",
+                        "backfillCursorHour",
+                        "lagSeconds",
+                        "objects",
+                        "bytes",
+                        "fillsSeen",
+                        "fillsKept",
+                        "spendDayBytes",
+                        "spendDayUsd",
+                        "maxDailyUsd",
+                        "addresses",
+                        "lastObjectKey",
+                        "lastRunAt",
+                        "lastError"
+                      ],
+                      "additionalProperties": false
                     },
                     "now": {
                       "type": "string",
@@ -9270,6 +9514,46 @@
                             "truncated": {
                               "type": "boolean"
                             },
+                            "completeness": {
+                              "type": "string",
+                              "enum": [
+                                "complete",
+                                "partial"
+                              ]
+                            },
+                            "partialSince": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "archiveFrom": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "archiveThrough": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "fundingFrom": {
                               "anyOf": [
                                 {
@@ -9662,6 +9946,46 @@
                             },
                             "truncated": {
                               "type": "boolean"
+                            },
+                            "completeness": {
+                              "type": "string",
+                              "enum": [
+                                "complete",
+                                "partial"
+                              ]
+                            },
+                            "partialSince": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "archiveFrom": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "archiveThrough": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "fundingFrom": {
                               "anyOf": [
@@ -13373,6 +13697,17 @@
                                   }
                                 ]
                               },
+                              "tradesFrom": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "sparkline": {
                                 "type": "array",
                                 "items": {
@@ -13729,6 +14064,17 @@
                                   }
                                 ]
                               },
+                              "tradesFrom": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "sparkline": {
                                 "type": "array",
                                 "items": {
@@ -13859,6 +14205,17 @@
                                   }
                                 ]
                               },
+                              "tradesFrom": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "sparkline": {
                                 "type": "array",
                                 "items": {
@@ -13979,6 +14336,17 @@
                                 }
                               },
                               "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "tradesFrom": {
                                 "anyOf": [
                                   {
                                     "type": "string",
@@ -14134,6 +14502,17 @@
                                         }
                                       ]
                                     },
+                                    "tradesFrom": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "date-time"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
                                     "sparkline": {
                                       "type": "array",
                                       "items": {
@@ -14263,6 +14642,17 @@
                                 }
                               },
                               "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "tradesFrom": {
                                 "anyOf": [
                                   {
                                     "type": "string",
@@ -15028,6 +15418,17 @@
                                 }
                               },
                               "lastTradeAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "tradesFrom": {
                                 "anyOf": [
                                   {
                                     "type": "string",

@@ -46,3 +46,4 @@
 | 項目 | CopyDog 證據 | Orbie 狀態 | 狀態 |
 | --- | --- | --- | --- |
 | 首頁主視覺：標題與計算機之間的行星軌道裝飾 SVG（`.orbit`） | `home-hero-copydog-1440.png`：沒有 | 已移除 SVG 與 CSS（`home-hero-orbie-1440.png`） | 已修 |
+| 線圖進場動畫（`chart-reveal` 由左向右展開、面積淡入） | 首頁載入時 `document.getAnimations()` 只有 `shimmer`、`spark-pulse` 與分頁點的轉場，沒有線圖展開 | 已移除 `area-chart.module.css` 與 IntersectionObserver | 已修 |

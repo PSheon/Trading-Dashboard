@@ -128,7 +128,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           id="main"
           tabIndex={-1}
           className={cn(
-            "mx-auto w-full max-w-[1600px] px-5 py-5",
+            // overflow-x-clip: the row scroll arrows hang half outside their
+            // row (as CopyDog's do); without the clip they add 3px of page scroll.
+            "mx-auto w-full max-w-[1600px] overflow-x-clip px-5 py-5",
             traderPage ? "md:px-2 md:pt-2 md:pb-14" : pathname.startsWith("/admin") ? "md:px-8 md:py-7" : "md:pt-8 md:pr-4 md:pb-8 md:pl-8",
           )}
         >

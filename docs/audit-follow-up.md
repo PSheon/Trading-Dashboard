@@ -92,3 +92,16 @@ Claude 的 Telegram bot linking、收藏警報設定、TWAP／冷 trader page �
 Docker runtime readiness／shutdown，以及獨立 DB restore。每個數量與 commit 時點詳見
 執行紀錄；歷史 294／346 等測試數不代表目前整合後驗收數。Default Turbopack 在此環境
 受 worker port binding 限制，曾改以 webpack 驗證；不把替代驗證說成原 bundler 已通過。
+
+## 2026-10-01 設計複查：6 項發現與排程
+
+來源：另一個工作階段對 `dev`（3325239）的設計複查，與 DonutMe-Backend-Core 對照。Paul 要求由主工作階段排程處理。一次只跑一條工作線，全部直接在 `dev` 上做，不另開 worktree。動工前每一項都要先對程式重新確認。
+
+| 順序 | 發現 | 嚴重度 | 做法 | 負責 | 前置 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | API 與 worker 共用同一個 `AppModule`，16 個檔案各自檢查角色；`scheduler/scheduler.module.ts:10` 直接讀 `process.env` | 高 | `AppModule.api()`／`AppModule.worker()`（`combined` 兩者都載入）；watcher、scheduler、outbox drain、跟單迴圈、Telegram bot、rules seed 的啟動移到 worker-only 模組，刪掉各服務的角色檢查；補一個「API 角色不啟動任何背景工作」的測試；保留 `worker.ts` 的 advisory-lock lease | Claude（`admin/revenue.service.ts`、`admin-system.service.ts` 交 Codex 確認） | 等「修監控漏資料」完成（同一批檔案） |
+| 2 | Hyperliquid 額度在行程間靜態分配，沒有跨行程限制 | 中 | 先在程式讀清楚 budgeter 再定案；Railway 上先以設定強制「單一 API 副本」，之後視需要改成 Postgres token bucket | Claude | Railway 部署前 |
+| 3 | 沒有資料保留與分割 | 中 | `action_outbox`、`notification_outbox` 定期刪除已完成的舊資料；`position_snapshots`、`equity_snapshots` 以 `ts` 每月 RANGE 分割＋保留期（手寫 SQL migration＋每月預建分割的工作）；`fills`、`analysis_history_fills` 不做時間分割 | Claude | `admin_audit_logs` 與快照的保留期需 Paul 決定 |
+| 4 | 文件重疊、沒有單一事實來源（46 份，9 份 CopyDog 相關，`README.md:16` 指到過期文件） | 中 | `docs/specs`、`status`、`reference`、`archive` 四個資料夾與 `docs/README.md` 索引；`全站 CopyDog 對照總表.md` 為唯一狀態來源；兩份數值對照合併；過期文件歸檔並在檔頭標示；`AGENTS.md` 加規則；CI 檢查連結。逐份分類要先讀內容確認 | Claude（`docs/admin-*.md` 由 Codex 決定） | 無 |
+| 5 | 兩套驗證（class-validator 17 檔／zod）、兩套 lint、兩個 TypeScript 版本 | 低 | TypeScript 用 pnpm catalog 統一；根目錄單一 ESLint 設定＋Prettier；DTO 逐模組改用 `nestjs-zod`（錯誤訊息格式會變，HTTP contract 測試要一起改） | Claude（`admin/dto` 交 Codex） | 排最後；需安裝新套件，注意機器負載 |
+| — | 未推送的 commit | 已解決 | `dev` 已推到 `3325239`；之後的 commit 尚未推送 | — | 推送前先問 Paul |

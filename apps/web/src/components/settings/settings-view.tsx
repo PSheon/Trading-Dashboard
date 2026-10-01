@@ -82,11 +82,11 @@ function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="flex flex-col items-center px-6 pt-10 text-center md:pt-12">
+    <div className="flex flex-col items-center px-6 pt-10 text-center md:pt-8">
       <Settings className="size-11 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-      <h1 className="mt-5 text-xl font-bold tracking-tight">{t("settings.signInTitle")}</h1>
-      <p className="mt-2.5 text-sm text-muted-foreground">{t("settings.signInBody")}</p>
-      <Button size="xl" className="mt-7 w-[200px]" onClick={login} disabled={status === "disabled"}>
+      <h1 className="mt-5 text-xl leading-[30px] font-bold">{t("settings.signInTitle")}</h1>
+      <p className="mt-2 text-sm leading-5 text-muted-foreground">{t("settings.signInBody")}</p>
+      <Button size="xl" className="mt-6 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
     </div>
@@ -341,9 +341,9 @@ function PhoneRow({ icon: Icon, label, value, onClick }: { icon: LucideIcon; lab
       onClick={onClick}
       className="flex h-[54px] w-full items-center gap-4 border-b border-border text-left outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Icon className="size-5" strokeWidth={1.75} />
+      <Icon className="size-6" strokeWidth={1.75} />
       <span className="flex-1 text-base font-semibold">{label}</span>
-      {value ? <span className="text-sm text-muted-foreground">{value}</span> : null}
+      {value ? <span className="text-[15px] text-muted-foreground">{value}</span> : null}
       <ChevronRight className="size-4 text-muted-foreground" />
     </button>
   );
@@ -394,8 +394,8 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                   <User className="size-5" />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[0.9375rem] font-bold">{t("settings.signInTitle")}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{t("settings.signInBody")}</p>
+                  <p className="text-base leading-6 font-semibold">{t("settings.signInTitle")}</p>
+                  <p className="mt-[3px] text-xs leading-[18px] text-muted-foreground">{t("settings.signInBody")}</p>
                 </div>
               </div>
               <Button size="xl" className="mt-6 w-full" onClick={login} disabled={status === "disabled"}>
@@ -404,18 +404,18 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
             </>
           )}
 
-          <p className="mt-7 text-xs text-muted-foreground">{t("settings.general")}</p>
+          <p className="mt-[22px] text-xs leading-[18px] font-semibold tracking-[0.6px] text-muted-foreground uppercase">{t("settings.general")}</p>
           <div className="mt-1">
             {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => setView("notifications")} /> : null}
             <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => setView("language")} />
             {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => setView("history")} /> : null}
           </div>
 
-          <div className="mt-8 flex items-center gap-4 rounded-2xl bg-card p-5">
+          <div className="mt-6 flex items-center gap-4 rounded-[20px] bg-card p-5">
             <div className="min-w-0 flex-1">
-              <p className="text-xl font-bold tracking-tight">{t("settings.feedbackTitle")}</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{t("settings.feedbackBody")}</p>
-              <Button asChild size="sm" className="mt-4 h-9 px-4">
+              <p className="text-xl leading-6 font-bold tracking-tight">{t("settings.feedbackTitle")}</p>
+              <p className="mt-2 text-sm leading-[21px] text-muted-foreground">{t("settings.feedbackBody")}</p>
+              <Button asChild size="sm" className="mt-4 h-[37px] px-3.5 text-sm font-semibold">
                 <a href="https://t.me/orbie_fun_bot" target="_blank" rel="noreferrer">
                   {t("settings.feedbackCta")}
                 </a>
@@ -434,7 +434,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
           </button>
           ) : null}
 
-          <div className="mt-12 flex flex-col items-center gap-3 text-xs text-subtle-foreground">
+          <div className="mt-10 flex flex-col items-center gap-3 text-xs leading-[18px] text-subtle-foreground">
             <Wordmark className="text-[1.75rem] text-subtle-foreground" />
             <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
               {t("settings.privacy")}

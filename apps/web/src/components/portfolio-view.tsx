@@ -68,11 +68,11 @@ function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="flex flex-col items-center px-6 pt-16 text-center md:pt-24">
-      <ShoppingCart className="size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-      <h1 className="mt-5 text-2xl font-bold tracking-tight md:text-[1.75rem]">{t("portfolio.signInTitle")}</h1>
-      <p className="mt-3 text-[0.9375rem] text-muted-foreground">{t("portfolio.signInBody")}</p>
-      <Button size="xl" className="mt-8 w-[200px]" onClick={login} disabled={status === "disabled"}>
+    <div className="flex flex-col items-center gap-3 px-6 pt-16 text-center md:pt-[88px]">
+      <ShoppingCart className="mb-1 size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
+      <h1 className="text-2xl font-semibold md:text-[28px] md:leading-[42px]">{t("portfolio.signInTitle")}</h1>
+      <p className="text-base leading-6 text-muted-foreground">{t("portfolio.signInBody")}</p>
+      <Button size="xl" className="mt-5 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
     </div>
@@ -295,9 +295,9 @@ function PhoneSignedOut() {
       <PhoneHeader />
       <div className="flex flex-col items-center px-6 pt-14 text-center">
         <ChartPie className="size-10 text-muted-foreground" strokeWidth={1.5} aria-hidden />
-        <p className="mt-4 text-base font-bold">{t("portfolio.signInTitlePhone")}</p>
+        <p className="mt-4 text-base font-semibold">{t("portfolio.signInTitlePhone")}</p>
         <p className="mt-3 text-sm text-muted-foreground">{t("portfolio.signInBodyPhone")}</p>
-        <Button size="lg" className="mt-6 px-6" onClick={login} disabled={status === "disabled"}>
+        <Button size="lg" className="mt-3 h-[52px] px-6 text-[15px] font-semibold" onClick={login} disabled={status === "disabled"}>
           {t("common.signIn")}
         </Button>
       </div>

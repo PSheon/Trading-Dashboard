@@ -125,7 +125,7 @@ Paul 2026-10-01：這一批排進優化；**後台（admin）改由 Claude 接�
 
 | 順序 | 發現 | 嚴重度 | 做法 | 前置 |
 | --- | --- | --- | --- | --- |
-| A（CI 修綠之後） | 13：KOL 頭像抓取會跟著轉址、只檢查網址字串，可連到內網（SSRF） | 中 | `redirect: "manual"`、每一跳重新驗證並限制跳數；解析後的 IP 拒絕私有／loopback／link-local；fxtwitter 回傳的網址也要過同一道檢查；補測試 | 無 |
+| A（已修，`kol-avatar.service.ts`） | 13：KOL 頭像抓取會跟著轉址、只檢查網址字串，可連到內網（SSRF） | 中 | `redirect: "manual"`、每一跳重新驗證並限制跳數；解析後的 IP 拒絕私有／loopback／link-local；fxtwitter 回傳的網址也要過同一道檢查；補測試 | 無 |
 | B | 15：跟單沒有後台介面 | 高（測試網前） | 後台路由與頁面：跟單總覽、策略與模擬訂單、每人曝險、全站／單一使用者的四種停止與恢復（需填原因、樂觀鎖）、風控上限表單；依 Stage 4 文件「給 Codex：跟單管理介面」 | AppModule 拆分之後 |
 | C | 16：設定最多 30 秒才生效，不能當緊急開關 | 中 | 設定變更透過現有 PG LISTEN/NOTIFY 讓各行程立即失效快取；開關類欄位讀取不走快取 | 無 |
 | D | 14：管理員沒有二次驗證、單一角色擁有全部權限 | 高（真實資金前） | 新增唯讀營運角色；敏感權限（`users.manage`、`settings.write`、`risk.manage`、`execution.resume`）要求 Privy MFA 並在伺服器端驗證。需先確認 Privy 後台的 MFA 設定 | 測試網實單之前 |

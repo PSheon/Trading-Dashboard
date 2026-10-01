@@ -16,14 +16,17 @@ export default async function HelpPage() {
   const blocks = contentBlocks("faq", await getLocale());
   const { title } = splitTitle(blocks);
   return (
-    <div className="pt-6 md:pt-10">
-      <h1 className="text-center text-[2.25rem] leading-tight font-extrabold tracking-tight md:text-[3.5rem]">
+    // CopyDog's `.hl-page`: 16px page edges on phones; on desktop the page is
+    // centred between the rail and the window edge (x=758 at 1440), the
+    // title 56px/84px with 40px under it.
+    <div className="-mx-1 pt-[13px] md:-mr-4 md:-ml-8 md:pt-4">
+      <h1 className="text-center text-[56px] leading-[84px] font-bold tracking-tight">
         <InlineText text={title} />
       </h1>
-      <div className="mt-8 md:mt-12">
+      <div className="mt-10">
         <FaqList sections={faqSections(blocks)} />
       </div>
-      <SiteFooter className="mt-24" />
+      <SiteFooter className="mt-20" />
     </div>
   );
 }

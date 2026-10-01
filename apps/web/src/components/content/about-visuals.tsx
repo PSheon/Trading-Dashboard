@@ -22,13 +22,14 @@ function useFeatured(): BoardTrader[] {
   return (home.data?.featured ?? []).filter((t) => t.avatarUrl);
 }
 
-/** One marquee row: the list twice over, scrolled endlessly (80s a lap). */
+/** One marquee row: the list twice over, scrolled endlessly (80s a lap).
+ * Phones: 40px avatars 24px apart; desktop: 64px, 40px apart. */
 function MarqueeRow({ traders, reverse }: { traders: BoardTrader[]; reverse?: boolean }) {
   const row = (
-    <div className="flex shrink-0 gap-10 pr-10">
+    <div className="flex shrink-0 gap-6 pr-6 md:gap-10 md:pr-10">
       {traders.map((t) => (
         <Link key={t.address} href={`/trader/${t.address}`} className="flex items-center gap-4 outline-none focus-visible:ring-2 focus-visible:ring-ring" tabIndex={-1}>
-          <TraderAvatar trader={t} size={64} className="rounded-2xl" />
+          <TraderAvatar trader={t} size={64} className="size-10 rounded-xl md:size-16 md:rounded-2xl" />
           <span className="text-[26px] font-[650] tracking-[-0.2px] whitespace-nowrap">{boardName(t)}</span>
         </Link>
       ))}
@@ -50,7 +51,7 @@ export function KolMarquee() {
   if (featured.length < 4) return <div className="h-[148px]" aria-hidden />;
   const half = Math.ceil(featured.length / 2);
   return (
-    <div className="flex w-full flex-col gap-5 overflow-hidden pb-[120px]">
+    <div className="flex w-full flex-col gap-5 overflow-hidden pb-10 md:pb-[120px]">
       <MarqueeRow traders={featured.slice(0, half)} />
       <MarqueeRow traders={featured.slice(half)} reverse />
     </div>

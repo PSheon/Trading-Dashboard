@@ -100,7 +100,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
   const parts = chunks(body);
   let feature = 0;
   return (
-    <div className="-mx-5 flex flex-col md:-mt-8 md:-mr-4 md:-ml-8">
+    <div className="-mx-5 -mt-5 flex flex-col md:-mt-8 md:-mr-4 md:-ml-8">
       {parts.map((part, p) => {
         const secs = sections(part);
         const steps = part.filter((b): b is Heading => b.type === "heading" && b.level === 3);
@@ -111,9 +111,9 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
             <div key={p} className="flex flex-col items-center">
               {/* CopyDog's hero: no eyebrow, a 79px headline, the lede, one
                   button and the "built for" line, then the trader marquee. */}
-              <section className="flex flex-col items-center px-5 py-[88px] text-center md:py-[120px]">
+              <section className="flex flex-col items-center px-5 py-10 text-center md:py-[120px]">
                 {hero.heading ? (
-                  <h1 className="mx-auto mt-8 max-w-[300px] text-[44px] leading-none font-[652] tracking-[-0.6px] text-balance sm:max-w-[500px] lg:max-w-[700px] lg:text-[79px]">
+                  <h1 className="mx-auto mt-8 max-w-[300px] text-[36px] leading-none font-[652] tracking-[-0.6px] text-balance sm:max-w-[500px] md:text-[56px] lg:max-w-[700px] lg:text-[79px]">
                     <InlineText text={hero.heading.text} />
                   </h1>
                 ) : null}
@@ -122,7 +122,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                   const cta = ctaOf(b);
                   if (cta) return <Cta key={i} {...cta} className="mt-8" />;
                   if (b.type === "small") return <p key={i} className="mt-10 text-[13px] font-medium tracking-[0.4px] text-subtle-foreground"><InlineText text={b.text} /></p>;
-                  if (b.type === "paragraph") return <p key={i} className="mx-auto mt-6 max-w-[560px] text-xl leading-[26px] font-[440] text-muted-foreground"><InlineText text={b.text} /></p>;
+                  if (b.type === "paragraph") return <p key={i} className="mx-auto mt-6 max-w-[240px] text-xl leading-[26px] font-[440] text-muted-foreground sm:max-w-[380px] lg:max-w-[560px]"><InlineText text={b.text} /></p>;
                   return <MarkdownBlocks key={i} blocks={[b]} />;
                 })}
               </section>
@@ -139,7 +139,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
             else if (items.length > 0) items[items.length - 1].body.push(b);
           }
           return (
-            <section key={p} className="mx-auto flex w-full flex-col items-center gap-10 px-5 py-[88px] md:gap-20 md:py-[120px] lg:px-[116px]">
+            <section key={p} className="mx-auto flex w-full flex-col items-center gap-10 px-5 py-10 md:gap-20 md:py-[120px] lg:px-[116px]">
               {title ? (
                 <h2 className="text-center text-[28px] leading-[1.05] font-[652] tracking-[-0.6px] text-balance md:text-[56px]">
                   <InlineText text={title.text} />
@@ -172,7 +172,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
         const lede = closingBody.length === 2 && closingBody[0].type === "paragraph" ? closingBody[0] : null;
         if (last && secs[0].heading && (closingBody.length === 1 || lede)) {
           return (
-            <section key={p} className="mx-auto flex flex-col items-center px-5 py-[88px] text-center md:py-[120px]">
+            <section key={p} className="mx-auto flex flex-col items-center px-5 py-10 text-center md:py-[120px]">
               {/* CopyDog's rotating trader avatar above the closing line. */}
               <AvatarStack />
               <h2 className="mt-6 max-w-[900px] text-[36px] leading-none font-[652] tracking-[-0.6px] text-balance lg:text-[80px]">
@@ -190,7 +190,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
         // Feature sections, alternating sides; the funds-safety one (it has
         // a small print line) is centred with a shield, as on CopyDog.
         return (
-          <div key={p} className="mx-auto grid w-full max-w-[1280px] gap-[88px] px-5 py-[88px] md:gap-[120px] md:py-[120px] lg:px-[116px]">
+          <div key={p} className="mx-auto grid w-full max-w-[1280px] gap-20 px-5 py-10 md:gap-[120px] md:py-[120px] lg:px-[116px]">
             {secs.map((sec, s) => {
               if (!sec.heading) return <MarkdownBlocks key={s} blocks={sec.body} />;
               const smallPrint = sec.body.filter((b) => b.type === "small");
@@ -199,7 +199,8 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                 return (
                   <section key={s} className="mx-auto flex max-w-[620px] flex-col items-center text-center">
                     <ShieldCheck aria-hidden className="size-12 text-primary" strokeWidth={1.6} fill="currentColor" fillOpacity={0.15} />
-                    <h2 className="mt-6 text-[28px] leading-[1.05] font-[652] tracking-[-0.6px] text-balance md:text-[56px]">
+                    {/* CopyDog keeps this heading at 56px even on phones. */}
+                    <h2 className="mt-6 text-[56px] leading-[1.05] font-[652] tracking-[-0.6px] text-balance">
                       <InlineText text={sec.heading.text} />
                     </h2>
                     <MarkdownBlocks blocks={text} className="mt-6 max-w-[420px] text-base leading-[1.5] text-muted-foreground" />
@@ -241,7 +242,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
           </div>
         );
       })}
-      <SiteFooter />
+      <SiteFooter className="mt-20" />
     </div>
   );
 }

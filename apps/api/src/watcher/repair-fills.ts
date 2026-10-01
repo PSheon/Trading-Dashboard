@@ -16,7 +16,8 @@
  *
  * Options:
  *   --addresses a,b     only these watched addresses (default: all active)
- *   --weight N          REST weight per minute, at most 150 (default 150)
+ *   --weight N          REST weight limit per minute, at most 150 (default 150;
+ *                       the sustained rate is N − 50, see HEADROOM)
  *   --max-windows N     backward windows per address this run (default 400)
  *   --max-fills N       stop an address's backfill once its span holds N fills (default 50000)
  *   --untracked N       unbacked untracked addresses to complete now (default 0)
@@ -43,8 +44,13 @@ const option = (name: string) => {
 const list = (name: string) => option(name)?.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
 
 export const MAX_REPAIR_WEIGHT_PER_MIN = 150;
-/** The budgeter's bucket: any minute carries at most rate + burst. */
+/** The budgeter's bucket, and the room left under the limit for a full
+ * page: a list call is admitted before its size is known and may take the
+ * bucket 100 below zero, so the refill rate is set 50 under the limit.
+ * Full pages (120 weight) are then at least 72 s apart and a rolling minute
+ * stays at about the limit; the sustained rate is `weight − 50`. */
 const BURST = 20;
+const HEADROOM = 50;
 
 export interface RepairOptions {
   addresses?: string[];
@@ -61,11 +67,11 @@ interface Span { from: string | null; through: string | null; status: string | n
 
 export async function repairFills(options: RepairOptions) {
   const log = options.log ?? ((line: string) => console.log(line));
-  const weight = Math.min(MAX_REPAIR_WEIGHT_PER_MIN, Math.max(BURST + 1, options.weightPerMin));
+  const weight = Math.min(MAX_REPAIR_WEIGHT_PER_MIN, Math.max(HEADROOM + 10, options.weightPerMin));
   // No watcher, schedules or bot in this process: only the services.
   process.env.APP_ROLE = "api";
   process.env.WORKER_URL ??= "http://127.0.0.1:9";
-  process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = String(weight - BURST);
+  process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = String(weight - HEADROOM);
   process.env.HYPERLIQUID_WEIGHT_BURST = String(BURST);
   const [{ AppModule }, { FillSyncService }, { TradeAnalyticsService }, { AnalysisHistoryService }, { AnalysisHistoryRepository }, { RequestBudgeterService, UNRANKED_BASE }, { DRIZZLE_CLIENT }] = await Promise.all([
     import("../app.module.js"), import("./fill-sync.service.js"), import("../traders/trade-analytics.service.js"), import("../traders/analysis-history.service.js"),
@@ -81,8 +87,6 @@ export async function repairFills(options: RepairOptions) {
     const budgeter = app.get(RequestBudgeterService, { strict: false });
     const started = Date.now();
     let peak = 0;
-    const meter = setInterval(() => { peak = Math.max(peak, budgeter.introspect().weightLastMinute); }, 5_000);
-    meter.unref();
     let spent = 0;
     const sample = () => { const now = budgeter.introspect().weightLastMinute; peak = Math.max(peak, now); return now; };
     // Weight actually sent: the trailing-minute window, summed once per minute of run time.
@@ -125,7 +129,7 @@ export async function repairFills(options: RepairOptions) {
           UNION SELECT address FROM user_favorites UNION SELECT address FROM cohort_members
           UNION SELECT address FROM leaders UNION SELECT leader_address FROM copy_strategies WHERE status <> 'stopped')
       ORDER BY a.fills_read`)).rows.filter((row) => row.stored < row.fills_read);
-    log(`Watched addresses: ${watched.length}; untracked analytics without raw fills: ${unbacked.length} (${unbacked.reduce((sum, row) => sum + row.fills_read - row.stored, 0)} fills unbacked); pace ${weight} weight/min`);
+    log(`Watched addresses: ${watched.length}; untracked analytics without raw fills: ${unbacked.length} (${unbacked.reduce((sum, row) => sum + row.fills_read - row.stored, 0)} fills unbacked); limit ${weight} weight/min (sustained ${weight - HEADROOM})`);
 
     const report: { watched: unknown[]; untracked: unknown[] } = { watched: [], untracked: [] };
     for (const address of watched) {
@@ -143,6 +147,7 @@ export async function repairFills(options: RepairOptions) {
         let status = "pending";
         for (; windows < options.maxWindows && status === "pending"; windows++) {
           const step = await fillSync.backfillStep(address, undefined, options.maxFills);
+          sample();
           inserted += step.inserted;
           status = step.status;
         }
@@ -196,7 +201,6 @@ export async function repairFills(options: RepairOptions) {
     spent += sample();
     const summary = { minutes: Math.round((Date.now() - started) / 6_000) / 10, weightApprox: spent, peakWeightPerMinute: peak, pace: weight };
     log(JSON.stringify(summary));
-    clearInterval(meter);
     clearInterval(ticker);
     return { ...report, summary };
   } finally {

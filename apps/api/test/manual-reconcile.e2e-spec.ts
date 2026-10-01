@@ -118,14 +118,16 @@ type Series = Array<[number, string]>;
  * day or week), so a figure stored at time P cannot be recomputed exactly.
  * It can be bracketed: this returns the response as it stood at the last
  * sample at or before P and at the first sample at or after P. The
- * all-time series are first refined with the finest window that reaches P
- * (day, week or month: same account, cumulative PnL shifted to the
- * all-time level), so the bracket is as narrow as upstream allows.
+ * With `refine`, the all-time series are first refined with the finest
+ * window that reaches P (day, week or month: same account, cumulative PnL
+ * shifted to the all-time level), which narrows the bracket for level
+ * figures (PnL, account value). Sharpe and drawdown are functions of the
+ * all-time samples themselves, so they are bracketed on the unrefined series.
  */
-function portfolioBracket(raw: HlPortfolioResponse, at: number): [HlPortfolioResponse, HlPortfolioResponse] {
+function portfolioBracket(raw: HlPortfolioResponse, at: number, refine: boolean): [HlPortfolioResponse, HlPortfolioResponse] {
   const byName = new Map(raw);
   const refined = raw.map(([name, history]): [string, typeof history] => {
-    if (name !== "allTime" && name !== "perpAllTime") return [name, history];
+    if (!refine || (name !== "allTime" && name !== "perpAllTime")) return [name, history];
     const windows = (name === "allTime" ? ["day", "week", "month"] : ["perpDay", "perpWeek", "perpMonth"]).map((key) => byName.get(key));
     const fine = windows.find((window) => window && window.pnlHistory.length > 1 && Number(window.pnlHistory[0][0]) <= at);
     if (!fine || history.pnlHistory.length === 0) return [name, history];
@@ -206,8 +208,10 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
 
         // (c) Each break in our stored chain, explained by what REST holds
         // between the two fills around it: regular fills we lack (a real
-        // hole), only TWAP slices we lack, or nothing (upstream's own chain
-        // has the jump: no fill of ours is missing there).
+        // hole), only TWAP slices we lack, or nothing: REST's own chain has
+        // the same jump, i.e. the position moved by fills neither endpoint
+        // returns any more (TWAP slices past upstream's retention). Those
+        // cannot be repaired from REST; the range is still not complete.
         const missing = new Set(reconciliation.onlyRight);
         const restByTid = new Map(rest.map((fill) => [fill.tid, fill]));
         const upstreamBreaks = new Set(positionBreaks(rest).map((entry) => entry.tid));
@@ -252,28 +256,31 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         if (figures?.portfolio_at) {
           const raw = await info<HlPortfolioResponse>({ type: "portfolio", user: address }, 20);
           const at = figures.portfolio_at.getTime();
-          const [before, after] = portfolioBracket(raw, at).map((side) => portfolioNumbers(side));
+          const fine = portfolioBracket(raw, at, true).map((side) => portfolioNumbers(side));
+          const coarse = portfolioBracket(raw, at, false).map((side) => portfolioNumbers(side));
           const fresh = Date.now() - at < PORTFOLIO_FRESH_MS;
-          // Pass: the stored figure lies between Hyperliquid's two samples
+          // Pass: the stored figure lies between Hyperliquid's samples
           // around the time it was stored, within the tolerance. `error` is
           // how far outside that bracket it is.
-          const pair = (stored: string | null, a: number | null, b: number | null, relative: number, absolute: number) => {
-            if (stored === null || a === null || b === null) return { stored: stored === null ? null : Number(stored), hyperliquid: [a, b], error: null, ok: stored === null && a === null && b === null };
+          const pair = (stored: string | null, samples: Array<number | null>, relative: number, absolute: number) => {
+            const known = samples.filter((value): value is number => value !== null);
+            if (stored === null || known.length === 0) return { stored: stored === null ? null : Number(stored), hyperliquid: samples, error: null, ok: stored === null && known.length === 0 };
             const value = Number(stored);
-            const [low, high] = [Math.min(a, b), Math.max(a, b)];
+            const [low, high] = [Math.min(...known), Math.max(...known)];
             const error = value < low ? low - value : value > high ? value - high : 0;
-            return { stored: value, hyperliquid: [a, b], error, ok: error <= Math.max(absolute, relative * Math.max(Math.abs(low), Math.abs(high))) };
+            return { stored: value, hyperliquid: [low, high], error, ok: error <= Math.max(absolute, relative * Math.max(Math.abs(low), Math.abs(high))) };
           };
+          const both = (key: "roiAll" | "roi30d") => [...fine, ...coarse].map((side) => side[key]);
           // The stored account value is the leaderboard's, which upstream
           // refreshes on its own schedule: bracketed over the preceding day.
-          const values = portfolioSeries(portfolioBracket(raw, at)[1], "allTime", "all").accountValue.filter(([t]) => t >= at - 86_400_000).map(([, v]) => v);
+          const values = portfolioSeries(portfolioBracket(raw, at, true)[1], "allTime", "all").accountValue.filter(([t]) => t >= at - 86_400_000).map(([, v]) => v);
           portfolio = {
             storedAt: figures.portfolio_at.toISOString(), ageMinutes: Math.round((Date.now() - at) / 60_000),
-            pnlAll: pair(figures.pnl_all, before.pnlAll, after.pnlAll, PORTFOLIO_TOLERANCE, 1), roiAll: pair(figures.roi_all, before.roiAll, after.roiAll, PORTFOLIO_TOLERANCE, 0.001),
-            sharpe: pair(figures.sharpe, before.sharpe, after.sharpe, 0, 0.05), maxDrawdown: pair(figures.max_drawdown, before.maxDrawdown, after.maxDrawdown, 0, 0.005),
-            accountValue: values.length > 0 ? pair(figures.account_value, Math.min(...values), Math.max(...values), PORTFOLIO_TOLERANCE, 1) : null,
+            pnlAll: pair(figures.pnl_all, fine.map((side) => side.pnlAll), PORTFOLIO_TOLERANCE, 1), roiAll: pair(figures.roi_all, both("roiAll"), PORTFOLIO_TOLERANCE, 0.001),
+            sharpe: pair(figures.sharpe, coarse.map((side) => side.sharpe), 0, 0.05), maxDrawdown: pair(figures.max_drawdown, coarse.map((side) => side.maxDrawdown), 0, 0.005),
+            accountValue: values.length > 0 ? pair(figures.account_value, values, PORTFOLIO_TOLERANCE, 1) : null,
             // A rolling 30-day window cannot be rebuilt for a past instant: compared only while fresh.
-            pnl30d: fresh ? pair(figures.pnl_30d, before.pnl30d, after.pnl30d, PORTFOLIO_TOLERANCE, 1) : null, roi30d: fresh ? pair(figures.roi_30d, before.roi30d, after.roi30d, PORTFOLIO_TOLERANCE, 0.001) : null,
+            pnl30d: fresh ? pair(figures.pnl_30d, fine.map((side) => side.pnl30d), PORTFOLIO_TOLERANCE, 1) : null, roi30d: fresh ? pair(figures.roi_30d, both("roi30d"), PORTFOLIO_TOLERANCE, 0.001) : null,
           };
         }
 
@@ -353,8 +360,8 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         check("Fill completeness in the claimed range", report.map((entry) => ({ ok: entry.fills.onlyRest === 0, error: entry.fills.onlyRest })), "traders; error = fills Hyperliquid has and we lack", " fills"),
         check("No fill of ours unknown to Hyperliquid", report.map((entry) => ({ ok: entry.fills.onlyOurs === 0, error: entry.fills.onlyOurs })), "traders", " fills"),
         check("Raw fills stored for the claimed range", report.map((entry) => ({ ok: entry.fills.rawBacked })), "traders; fail = figures with no stored fill behind them"),
-        check("Position continuity: no real hole", report.map((entry) => ({ ok: entry.invariants.breakCauses.hole + entry.invariants.breakCauses.twap + entry.invariants.breakCauses.unknown === 0,
-          error: entry.invariants.breakCauses.hole + entry.invariants.breakCauses.twap })), `traders; breaks: ${totals.breakCauses.hole} missing regular fills, ${totals.breakCauses.twap} missing TWAP slices, ${totals.breakCauses.upstream} in Hyperliquid's own chain (not ours), ${totals.breakCauses.unknown} undetermined`, " breaks"),
+        check("Position continuity in the claimed range", report.map((entry) => ({ ok: entry.invariants.positionBreaks === 0, error: entry.invariants.positionBreaks })),
+          `traders; breaks: ${totals.breakCauses.hole} at regular fills we lack (real holes), ${totals.breakCauses.twap} at TWAP slices we lack, ${totals.breakCauses.upstream} where neither REST endpoint returns the fill any more (not repairable from REST), ${totals.breakCauses.unknown} undetermined`, " breaks"),
         check("No double counting (Σ closedPnl = trade PnL; no duplicate key)", report.map((entry) => ({ ok: entry.invariants.pnlIdentityHolds && entry.invariants.duplicateKeysStored === 0 })), "traders"),
         check("Trade count", derivedOf.map((entry) => ({ ok: Boolean(entry.tradesEqual) })), derivedNote),
         check("Win rate", derivedOf.map((entry) => ({ ok: Boolean(entry.winRateEqual), error: Number(entry.winRateDelta) })), derivedNote),

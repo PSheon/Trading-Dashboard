@@ -1,0 +1,1659 @@
+{
+  "generatedAt": "2026-10-01T08:34:23.479Z",
+  "totals": {
+    "traders": 12,
+    "fillsExact": 5,
+    "fillsCompared": 72574,
+    "fillsMissingInOurs": 40364,
+    "fillsExtraInOurs": 0,
+    "fieldMismatches": 0,
+    "positionBreaks": 80,
+    "breakCauses": {
+      "hole": 0,
+      "twap": 0,
+      "upstream": 80,
+      "unknown": 0
+    },
+    "pnlIdentityHolds": 12,
+    "duplicateKeysStored": 0,
+    "copydogTradesEqual": 0,
+    "copydogCauses": {
+      "unavailable": 12
+    },
+    "hyperliquidWeight": 5129
+  },
+  "table": [
+    {
+      "metric": "Stored fill content (every compared field of shared tids)",
+      "checked": 12,
+      "passed": 12,
+      "maxError": "0 fields",
+      "verdict": "pass",
+      "note": "traders; error = mismatching fields"
+    },
+    {
+      "metric": "Fill completeness in the claimed range",
+      "checked": 12,
+      "passed": 5,
+      "maxError": "13700 fills",
+      "verdict": "fail",
+      "note": "traders; error = fills Hyperliquid has and we lack"
+    },
+    {
+      "metric": "No fill of ours unknown to Hyperliquid",
+      "checked": 12,
+      "passed": 12,
+      "maxError": "0 fills",
+      "verdict": "pass",
+      "note": "traders"
+    },
+    {
+      "metric": "Raw fills stored for the claimed range",
+      "checked": 12,
+      "passed": 6,
+      "maxError": "—",
+      "verdict": "fail",
+      "note": "traders; fail = figures with no stored fill behind them"
+    },
+    {
+      "metric": "Position continuity: no real hole",
+      "checked": 12,
+      "passed": 12,
+      "maxError": "0 breaks",
+      "verdict": "pass",
+      "note": "traders; breaks: 0 missing regular fills, 0 missing TWAP slices, 80 in Hyperliquid's own chain (not ours), 0 undetermined"
+    },
+    {
+      "metric": "No double counting (Σ closedPnl = trade PnL; no duplicate key)",
+      "checked": 12,
+      "passed": 12,
+      "maxError": "—",
+      "verdict": "pass",
+      "note": "traders"
+    },
+    {
+      "metric": "Trade count",
+      "checked": 4,
+      "passed": 3,
+      "maxError": "—",
+      "verdict": "fail",
+      "note": "recomputed from Hyperliquid fills over the whole claimed range; 8 trader(s) not recomputed (range above 14000 fills or REST read incomplete)"
+    },
+    {
+      "metric": "Win rate",
+      "checked": 4,
+      "passed": 3,
+      "maxError": "0.0429",
+      "verdict": "fail",
+      "note": "recomputed from Hyperliquid fills over the whole claimed range; 8 trader(s) not recomputed (range above 14000 fills or REST read incomplete)"
+    },
+    {
+      "metric": "Net PnL (all closed trades)",
+      "checked": 4,
+      "passed": 3,
+      "maxError": "—",
+      "verdict": "fail",
+      "note": "recomputed from Hyperliquid fills over the whole claimed range; 8 trader(s) not recomputed (range above 14000 fills or REST read incomplete)"
+    },
+    {
+      "metric": "Per-coin trade count",
+      "checked": 37,
+      "passed": 36,
+      "maxError": "—",
+      "verdict": "fail",
+      "note": "trader × coin"
+    },
+    {
+      "metric": "Per-coin PnL",
+      "checked": 37,
+      "passed": 36,
+      "maxError": "5.22 USD",
+      "verdict": "fail",
+      "note": "trader × coin; error in USD"
+    },
+    {
+      "metric": "Per-coin volume",
+      "checked": 37,
+      "passed": 36,
+      "maxError": "7290 USD",
+      "verdict": "fail",
+      "note": "trader × coin; error in USD"
+    },
+    {
+      "metric": "Portfolio PnL (perp, all-time)",
+      "checked": 12,
+      "passed": 11,
+      "maxError": "519000 USD",
+      "verdict": "fail",
+      "note": "stored figure must lie between `portfolio`'s two samples around the time it was stored (±2%); error = distance outside"
+    },
+    {
+      "metric": "Portfolio ROI (perp, all-time)",
+      "checked": 12,
+      "passed": 11,
+      "maxError": "0.207",
+      "verdict": "fail",
+      "note": "same bracket, ±2%"
+    },
+    {
+      "metric": "Sharpe",
+      "checked": 12,
+      "passed": 10,
+      "maxError": "0.881",
+      "verdict": "fail",
+      "note": "same bracket, ±0.05"
+    },
+    {
+      "metric": "Max drawdown",
+      "checked": 12,
+      "passed": 12,
+      "maxError": "0.00121",
+      "verdict": "pass",
+      "note": "same bracket, ±0.005"
+    },
+    {
+      "metric": "Account value",
+      "checked": 12,
+      "passed": 9,
+      "maxError": "5280000 USD",
+      "verdict": "fail",
+      "note": "stored leaderboard value within `portfolio`'s account-value range over the preceding 24 h (±2%)"
+    },
+    {
+      "metric": "30-day PnL / ROI",
+      "checked": 0,
+      "passed": 0,
+      "maxError": "—",
+      "verdict": "unverified",
+      "note": "only figures stored within the last hour (a rolling window cannot be rebuilt for a past instant)"
+    }
+  ],
+  "report": [
+    {
+      "address": "0xbf732ea04197942783e34730ed6e0f6099575d58",
+      "source": "tracked",
+      "window": {
+        "from": "2026-09-27T15:53:08.697Z",
+        "through": "2026-09-28T01:56:33.896Z",
+        "restComplete": false,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 0,
+          "volume": 0,
+          "closedPnl": 0,
+          "fees": 0
+        },
+        "rest": {
+          "count": 3896,
+          "volume": 2824637.1475959904,
+          "closedPnl": -118098.1196429999,
+          "fees": 971.7154760000084
+        },
+        "origins": {},
+        "onlyOurs": 0,
+        "onlyRest": 3896,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": false,
+        "rawBacked": false
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 0
+      },
+      "coverage": {
+        "from": "2026-09-24T14:04:48.199Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 23938,
+        "lifetimeProvable": null,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-09-30T08:39:05.293Z",
+        "ageMinutes": 1403,
+        "pnlAll": {
+          "stored": 23126435.218267,
+          "hyperliquid": [
+            22964236.609687,
+            23238446.252721
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": 14.819675075952702,
+          "hyperliquid": [
+            14.715736416395321,
+            14.891452983782544
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 2.077505188536672,
+          "hyperliquid": [
+            2.0579272599047314,
+            2.07274879248051
+          ],
+          "error": 0.004756396056162071,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.19367747081037406,
+          "hyperliquid": [
+            0.19367747081037406,
+            0.19367747081037406
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 6343794.948774,
+          "hyperliquid": [
+            6171151.952627,
+            6445405.530203
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x469e9a7f624b04c24f0e64edf8d8a277e6bf58a5",
+      "source": "tracked",
+      "window": {
+        "from": "2026-09-28T01:38:28.357Z",
+        "through": "2026-09-28T08:23:05.166Z",
+        "restComplete": false,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 0,
+          "volume": 0,
+          "closedPnl": 0,
+          "fees": 0
+        },
+        "rest": {
+          "count": 4968,
+          "volume": 57844372.61667203,
+          "closedPnl": 156857.29536000403,
+          "fees": 9059.844531000066
+        },
+        "origins": {},
+        "onlyOurs": 0,
+        "onlyRest": 4968,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": false,
+        "rawBacked": false
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 0
+      },
+      "coverage": {
+        "from": "2026-08-24T22:03:37.293Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 27936,
+        "lifetimeProvable": null,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-09-30T12:53:00.198Z",
+        "ageMinutes": 1152,
+        "pnlAll": {
+          "stored": 20067577.748727,
+          "hyperliquid": [
+            20740600.902707998,
+            20587050.451696
+          ],
+          "error": 519472.70296899974,
+          "ok": false
+        },
+        "roiAll": {
+          "stored": 8.003625531623609,
+          "hyperliquid": [
+            8.272049821093116,
+            8.21080873233292
+          ],
+          "error": 0.20718320070931107,
+          "ok": false
+        },
+        "sharpe": {
+          "stored": 1.703207648302127,
+          "hyperliquid": [
+            1.7243146613534657,
+            1.7096791564753302
+          ],
+          "error": 0.006471508173203189,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.14504465913296707,
+          "hyperliquid": [
+            0.14504465913296707,
+            0.14504465913296707
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 25716271.073673,
+          "hyperliquid": [
+            25728563.79421,
+            25910939.722631
+          ],
+          "error": 12292.72053700313,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0xea0027b6ea9b6d7d401b5266979cc3b3ca87a918",
+      "source": "tracked",
+      "window": {
+        "from": "2026-04-16T07:24:56.107Z",
+        "through": "2026-09-30T11:51:14.054Z",
+        "restComplete": true,
+        "wholeClaimedRange": true
+      },
+      "fills": {
+        "ours": {
+          "count": 11035,
+          "volume": 94966720.84778011,
+          "closedPnl": 3701325.309926013,
+          "fees": 13680.522160999955
+        },
+        "rest": {
+          "count": 23035,
+          "volume": 105658999.5027003,
+          "closedPnl": 8694663.84143199,
+          "fees": 17214.531252000044
+        },
+        "origins": {
+          "watcher": 11035
+        },
+        "onlyOurs": 0,
+        "onlyRest": 12000,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": false,
+        "rawBacked": true
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 39,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 39,
+          "unknown": 0
+        },
+        "breakSample": [
+          {
+            "coin": "HYPE",
+            "tid": 902932839074652,
+            "time": 1776350476958,
+            "after": 1776349855254,
+            "expected": "0",
+            "actual": "-1425170000000000"
+          },
+          {
+            "coin": "ETH",
+            "tid": 740731357815314,
+            "time": 1776350491177,
+            "after": 1776349722677,
+            "expected": "0",
+            "actual": "-9501100000000"
+          },
+          {
+            "coin": "BTC",
+            "tid": 816206136978640,
+            "time": 1776350507586,
+            "after": 1776346041157,
+            "expected": "0",
+            "actual": "-475050000000"
+          }
+        ],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 1.1175870895385742e-8
+      },
+      "coverage": {
+        "from": "2026-04-16T07:24:56.107Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 11035,
+        "lifetimeProvable": null,
+        "verified": null
+      },
+      "derived": {
+        "trades": [
+          14,
+          15
+        ],
+        "wins": [
+          9,
+          9
+        ],
+        "winRate": [
+          0.6428571428571429,
+          0.6
+        ],
+        "netPnl": [
+          3988989.3115919987,
+          3988984.0961839985
+        ],
+        "volume": [
+          40691557.44419199,
+          40698850.56082799
+        ],
+        "tradesEqual": false,
+        "winRateEqual": false,
+        "winRateDelta": 0.04285714285714293,
+        "netPnlEqual": false,
+        "volumeEqual": false,
+        "coins": 11,
+        "coinTradesEqual": 10,
+        "coinPnlEqual": 10,
+        "coinVolumeEqual": 10,
+        "coinPnlMaxError": 5.215408,
+        "coinVolumeMaxError": 7293.116636,
+        "coinMismatches": [
+          {
+            "coin": "io:NBIS",
+            "trades": [
+              0,
+              1
+            ],
+            "netPnl": [
+              0,
+              -5.215408
+            ],
+            "volume": [
+              0,
+              7293.116636
+            ],
+            "tradesEqual": false,
+            "pnlEqual": false,
+            "volumeEqual": false
+          }
+        ]
+      },
+      "portfolio": {
+        "storedAt": "2026-09-30T13:50:37.106Z",
+        "ageMinutes": 1104,
+        "pnlAll": {
+          "stored": 23140963.067636,
+          "hyperliquid": [
+            22776461.097583998,
+            23128857.780582
+          ],
+          "error": 12105.287054002285,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": 3.370611561561894,
+          "hyperliquid": [
+            3.317519797365285,
+            3.368848358345978
+          ],
+          "error": 0.0017632032159160538,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 1.5602137904164393,
+          "hyperliquid": [
+            1.541353219086023,
+            1.5491862964746979
+          ],
+          "error": 0.011027493941741406,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.24419057915786485,
+          "hyperliquid": [
+            0.24419057915786485,
+            0.24419057915786485
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 20467096.663545,
+          "hyperliquid": [
+            19381008.246061,
+            20023154.011677
+          ],
+          "error": 443942.6518680006,
+          "ok": false
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x13d032655aca891fad353e19424d2a087eccfa8a",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2025-10-01T11:50:51.880Z",
+        "through": "2026-09-30T14:28:06.672Z",
+        "restComplete": true,
+        "wholeClaimedRange": true
+      },
+      "fills": {
+        "ours": {
+          "count": 0,
+          "volume": 0,
+          "closedPnl": 0,
+          "fees": 0
+        },
+        "rest": {
+          "count": 1650,
+          "volume": 2465613.69306,
+          "closedPnl": 53536.61571800003,
+          "fees": 761.1314419999993
+        },
+        "origins": {},
+        "onlyOurs": 0,
+        "onlyRest": 1650,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": false,
+        "rawBacked": false
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 0
+      },
+      "coverage": {
+        "from": "2025-10-01T11:50:51.880Z",
+        "through": null,
+        "truncated": false,
+        "fillsRead": 1769,
+        "lifetimeProvable": null,
+        "verified": null
+      },
+      "derived": {
+        "trades": [
+          36,
+          36
+        ],
+        "wins": [
+          20,
+          20
+        ],
+        "winRate": [
+          0.5555555555555556,
+          0.5555555555555556
+        ],
+        "netPnl": [
+          18899.305898,
+          18899.305898
+        ],
+        "volume": [
+          1017374.52198,
+          1017374.52198
+        ],
+        "tradesEqual": true,
+        "winRateEqual": true,
+        "winRateDelta": 0,
+        "netPnlEqual": true,
+        "volumeEqual": true,
+        "coins": 2,
+        "coinTradesEqual": 2,
+        "coinPnlEqual": 2,
+        "coinVolumeEqual": 2,
+        "coinPnlMaxError": 0,
+        "coinVolumeMaxError": 0,
+        "coinMismatches": []
+      },
+      "portfolio": {
+        "storedAt": "2026-09-30T16:58:00.118Z",
+        "ageMinutes": 918,
+        "pnlAll": {
+          "stored": -57335.213022,
+          "hyperliquid": [
+            -57259.727133,
+            -57295.013648
+          ],
+          "error": 40.199374000003445,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": -0.2597656197549264,
+          "hyperliquid": [
+            -0.2594236198266919,
+            -0.2595834905754837
+          ],
+          "error": 0.00018212917944271378,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 0.8464725794984453,
+          "hyperliquid": [
+            0.7744781450383877,
+            0.8225716032671764
+          ],
+          "error": 0.023900976231268967,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.24526828978616894,
+          "hyperliquid": [
+            0.24526828978616894,
+            0.24526828978616894
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 20943748.840626,
+          "hyperliquid": [
+            20843671.759914,
+            22002133.996538
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x152e41f0b83e6cad4b5dc730c1d6279b7d67c9dc",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2026-09-28T00:08:41.797Z",
+        "through": "2026-09-29T19:44:34.946Z",
+        "restComplete": false,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 0,
+          "volume": 0,
+          "closedPnl": 0,
+          "fees": 0
+        },
+        "rest": {
+          "count": 3965,
+          "volume": 34495851.857361875,
+          "closedPnl": -1986715.13182301,
+          "fees": 5917.441251999976
+        },
+        "origins": {},
+        "onlyOurs": 0,
+        "onlyRest": 3965,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": false,
+        "rawBacked": false
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 0
+      },
+      "coverage": {
+        "from": "2026-09-28T00:08:41.797Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 32178,
+        "lifetimeProvable": null,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-09-30T12:53:00.666Z",
+        "ageMinutes": 1165,
+        "pnlAll": {
+          "stored": 22205244.489501,
+          "hyperliquid": [
+            21707664.952988997,
+            21949523.344899997
+          ],
+          "error": 255721.14460100234,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": 2.247349750469196,
+          "hyperliquid": [
+            2.1969906901243506,
+            2.221468709133196
+          ],
+          "error": 0.025881041336,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 1.582983686016714,
+          "hyperliquid": [
+            1.557892618119997,
+            1.5561600378305485
+          ],
+          "error": 0.02509106789671689,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.13637694000238473,
+          "hyperliquid": [
+            0.13637694000238473,
+            0.13637694000238473
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 18121073.348003,
+          "hyperliquid": [
+            18190847.77117,
+            18731051.590398
+          ],
+          "error": 69774.42316700146,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x4a96036fb1529561fa3eeeb2781fad2d4f25500e",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2026-09-25T07:46:47.996Z",
+        "through": "2026-09-28T07:46:47.996Z",
+        "restComplete": true,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 247,
+          "volume": 2877229.528050002,
+          "closedPnl": -10448.847819999999,
+          "fees": 878.9114880000004
+        },
+        "rest": {
+          "count": 247,
+          "volume": 2877229.5280500017,
+          "closedPnl": -10448.84781999999,
+          "fees": 878.911488
+        },
+        "origins": {
+          "rest": 247
+        },
+        "onlyOurs": 0,
+        "onlyRest": 0,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": true,
+        "rawBacked": true
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": -9.094947017729282e-12
+      },
+      "coverage": {
+        "from": "2026-08-14T03:39:03.938Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 16763,
+        "lifetimeProvable": false,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-10-01T02:00:50.990Z",
+        "ageMinutes": 377,
+        "pnlAll": {
+          "stored": 6946685.625994,
+          "hyperliquid": [
+            6946371.524275,
+            6949266.320648001
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": 0.771831974821369,
+          "hyperliquid": [
+            0.7717970756243817,
+            0.7721187105048949
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 0.4459164118144813,
+          "hyperliquid": [
+            0.4271632621229288,
+            0.4248805725936906
+          ],
+          "error": 0.01875314969155245,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.47126364280297456,
+          "hyperliquid": [
+            0.47126364280297456,
+            0.47126364280297456
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 6739729.277959,
+          "hyperliquid": [
+            6697902.649756,
+            6744639.362772
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0xead5b7d86c681c036c59cd00a0390541061c69f2",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2026-02-22T09:32:08.068Z",
+        "through": "2026-09-28T14:48:03.811Z",
+        "restComplete": true,
+        "wholeClaimedRange": true
+      },
+      "fills": {
+        "ours": {
+          "count": 13308,
+          "volume": 82559872.64819784,
+          "closedPnl": -1530864.3735440022,
+          "fees": 11929.976929999899
+        },
+        "rest": {
+          "count": 13308,
+          "volume": 82559872.64819728,
+          "closedPnl": -1530864.3735440024,
+          "fees": 11929.976929999793
+        },
+        "origins": {
+          "rest": 13308
+        },
+        "onlyOurs": 0,
+        "onlyRest": 0,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": true,
+        "rawBacked": true
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 41,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 41,
+          "unknown": 0
+        },
+        "breakSample": [
+          {
+            "coin": "HYPE",
+            "tid": 183769949367154,
+            "time": 1772124959841,
+            "after": 1771983305984,
+            "expected": "-10000000000",
+            "actual": "-3857560000000000"
+          },
+          {
+            "coin": "HYPE",
+            "tid": 342814228856058,
+            "time": 1772275143115,
+            "after": 1772124978269,
+            "expected": "-13180650000000000",
+            "actual": "-27472200000000000"
+          },
+          {
+            "coin": "ZEC",
+            "tid": 883047033714469,
+            "time": 1772333700192,
+            "after": 1772125110131,
+            "expected": "0",
+            "actual": "971280000000000"
+          }
+        ],
+        "pnlIdentityHolds": true,
+        "pnlDifference": -3.4924596548080444e-9
+      },
+      "coverage": {
+        "from": "2026-02-22T09:32:08.068Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 13459,
+        "lifetimeProvable": false,
+        "verified": null
+      },
+      "derived": {
+        "trades": [
+          40,
+          40
+        ],
+        "wins": [
+          17,
+          17
+        ],
+        "winRate": [
+          0.425,
+          0.425
+        ],
+        "netPnl": [
+          -1470816.5755079987,
+          -1470816.5755079992
+        ],
+        "volume": [
+          39458576.967198975,
+          39458576.967199
+        ],
+        "tradesEqual": true,
+        "winRateEqual": true,
+        "winRateDelta": 0,
+        "netPnlEqual": true,
+        "volumeEqual": true,
+        "coins": 19,
+        "coinTradesEqual": 19,
+        "coinPnlEqual": 19,
+        "coinVolumeEqual": 19,
+        "coinPnlMaxError": 0,
+        "coinVolumeMaxError": 0,
+        "coinMismatches": []
+      },
+      "portfolio": {
+        "storedAt": "2026-10-01T01:43:00.271Z",
+        "ageMinutes": 401,
+        "pnlAll": {
+          "stored": -2315297.746258,
+          "hyperliquid": [
+            -2321774.647766,
+            -2319853.711101
+          ],
+          "error": 4555.964843000285,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": -0.8403824444949141,
+          "hyperliquid": [
+            -0.8427333621385921,
+            -0.8420361207350354
+          ],
+          "error": 0.00165367624012136,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 0.5800107549030076,
+          "hyperliquid": [
+            0.560227176388398,
+            0.5544111761633367
+          ],
+          "error": 0.019783578514609546,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.2620279879799761,
+          "hyperliquid": [
+            0.2620279879799761,
+            0.2620279879799761
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 10730822.690931,
+          "hyperliquid": [
+            5137460.107573,
+            5445957.661371
+          ],
+          "error": 5284865.02956,
+          "ok": false
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x051c2e6d49cf82ebc47f08f9b85800f94fc9693c",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2026-09-27T14:34:23.873Z",
+        "through": "2026-09-30T14:34:23.873Z",
+        "restComplete": true,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 0,
+          "volume": 0,
+          "closedPnl": 0,
+          "fees": 0
+        },
+        "rest": {
+          "count": 186,
+          "volume": 5502075.768599997,
+          "closedPnl": 1782.3234099999995,
+          "fees": 1513.7058299999992
+        },
+        "origins": {},
+        "onlyOurs": 0,
+        "onlyRest": 186,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": false,
+        "rawBacked": false
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 0
+      },
+      "coverage": {
+        "from": "2026-07-06T18:48:59.095Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 16773,
+        "lifetimeProvable": null,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-09-30T17:04:01.434Z",
+        "ageMinutes": 920,
+        "pnlAll": {
+          "stored": 11204157.64848,
+          "hyperliquid": [
+            10978229.122262,
+            11114527.211701
+          ],
+          "error": 89630.43677899987,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": 3.5223460754788527,
+          "hyperliquid": [
+            3.4513190083284138,
+            3.494168194808386
+          ],
+          "error": 0.02817788067046667,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 1.3384837134432253,
+          "hyperliquid": [
+            1.2874143359653567,
+            1.2921161405853754
+          ],
+          "error": 0.04636757285784987,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.09484964680960495,
+          "hyperliquid": [
+            0.09364238127293449,
+            0.09364238127293449
+          ],
+          "error": 0.001207265536670457,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 15337612.863097,
+          "hyperliquid": [
+            14847399.414572,
+            15719014.218448
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2026-09-27T17:39:24.325Z",
+        "through": "2026-09-30T17:39:24.325Z",
+        "restComplete": true,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 89,
+          "volume": 41929.42622999997,
+          "closedPnl": 0,
+          "fees": 16.633856000000005
+        },
+        "rest": {
+          "count": 89,
+          "volume": 41929.42623,
+          "closedPnl": 0,
+          "fees": 16.633856000000005
+        },
+        "origins": {
+          "rest": 89
+        },
+        "onlyOurs": 0,
+        "onlyRest": 0,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": true,
+        "rawBacked": true
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 0
+      },
+      "coverage": {
+        "from": "2026-09-09T19:26:14.375Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 44875,
+        "lifetimeProvable": false,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-09-30T17:49:20.353Z",
+        "ageMinutes": 875,
+        "pnlAll": {
+          "stored": -914346.071383,
+          "hyperliquid": [
+            -916152.021721,
+            -909037.240625
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": -0.32180098709652216,
+          "hyperliquid": [
+            -0.32243658516994816,
+            -0.3199325621842034
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 2.9955302574681344,
+          "hyperliquid": [
+            3.982789257209959,
+            3.8761295900719865
+          ],
+          "error": 0.8805993326038521,
+          "ok": false
+        },
+        "maxDrawdown": {
+          "stored": 0.07116123290249723,
+          "hyperliquid": [
+            0.07116123290249723,
+            0.07116123290249723
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 31322766.618007,
+          "hyperliquid": [
+            29252589.009553,
+            29688827.80516
+          ],
+          "error": 1633938.8128469996,
+          "ok": false
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x6d7823cd5c3d9dcd63e6a8021b475e0c7c94b291",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2026-09-24T14:49:12.579Z",
+        "through": "2026-09-27T14:49:12.579Z",
+        "restComplete": true,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 189,
+          "volume": 173105.14410000015,
+          "closedPnl": 8918.861880000006,
+          "fees": 53.26922200000005
+        },
+        "rest": {
+          "count": 189,
+          "volume": 173105.1441000001,
+          "closedPnl": 8918.86188,
+          "fees": 53.269222
+        },
+        "origins": {
+          "rest": 189
+        },
+        "onlyOurs": 0,
+        "onlyRest": 0,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": true,
+        "rawBacked": true
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 5.4569682106375694e-12
+      },
+      "coverage": {
+        "from": "2025-10-01T04:30:34.925Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 23724,
+        "lifetimeProvable": false,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-10-01T04:28:00.289Z",
+        "ageMinutes": 237,
+        "pnlAll": {
+          "stored": -2907387.12,
+          "hyperliquid": [
+            -2907387.12,
+            -2907387.12
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": -0.9481167749021624,
+          "hyperliquid": [
+            -0.9481167749021624,
+            -0.9481167749021624
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 0.49073514316718364,
+          "hyperliquid": [
+            0.46363520731697,
+            0.4614768256135619
+          ],
+          "error": 0.02709993585021364,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.3798988892858626,
+          "hyperliquid": [
+            0.3798988892858626,
+            0.3798988892858626
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 9227746.07914,
+          "hyperliquid": [
+            8983239.47705,
+            9387937.509219
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0x5d2f4460ac3514ada79f5d9838916e508ab39bb7",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2025-10-10T21:19:52.582Z",
+        "through": "2026-09-24T16:16:36.032Z",
+        "restComplete": true,
+        "wholeClaimedRange": true
+      },
+      "fills": {
+        "ours": {
+          "count": 0,
+          "volume": 0,
+          "closedPnl": 0,
+          "fees": 0
+        },
+        "rest": {
+          "count": 13699,
+          "volume": 317694387.5687572,
+          "closedPnl": 42574476.564653166,
+          "fees": 23434.691096999937
+        },
+        "origins": {},
+        "onlyOurs": 0,
+        "onlyRest": 13699,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": false,
+        "rawBacked": false
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 0
+      },
+      "coverage": {
+        "from": "2025-10-10T21:19:52.582Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 13699,
+        "lifetimeProvable": null,
+        "verified": null
+      },
+      "derived": {
+        "trades": [
+          6,
+          6
+        ],
+        "wins": [
+          2,
+          2
+        ],
+        "winRate": [
+          0.3333333333333333,
+          0.3333333333333333
+        ],
+        "netPnl": [
+          40096975.30860006,
+          40096975.30860006
+        ],
+        "volume": [
+          241113774.9456023,
+          241113774.9456023
+        ],
+        "tradesEqual": true,
+        "winRateEqual": true,
+        "winRateDelta": 0,
+        "netPnlEqual": true,
+        "volumeEqual": true,
+        "coins": 5,
+        "coinTradesEqual": 5,
+        "coinPnlEqual": 5,
+        "coinVolumeEqual": 5,
+        "coinPnlMaxError": 0,
+        "coinVolumeMaxError": 0,
+        "coinMismatches": []
+      },
+      "portfolio": {
+        "storedAt": "2026-09-30T11:01:00.198Z",
+        "ageMinutes": 1290,
+        "pnlAll": {
+          "stored": 65292830.791971,
+          "hyperliquid": [
+            65331231.380319,
+            65288585.975811005
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": 2.60845684250372,
+          "hyperliquid": [
+            2.609990950861675,
+            2.6082872615616255
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 1.0599477106048825,
+          "hyperliquid": [
+            1.0546658514825977,
+            1.0486588474841665
+          ],
+          "error": 0.005281859122284738,
+          "ok": true
+        },
+        "maxDrawdown": {
+          "stored": 0.6124656304921067,
+          "hyperliquid": [
+            0.6124656304921067,
+            0.6124656304921067
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 4851975.687849,
+          "hyperliquid": [
+            4829835.615807,
+            6907491.676184
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    },
+    {
+      "address": "0xf29c6bc1147a841519b382459a6d7a373c6b9971",
+      "source": "hyperliquid",
+      "window": {
+        "from": "2026-09-28T03:31:49.035Z",
+        "through": "2026-09-29T18:46:29.026Z",
+        "restComplete": false,
+        "wholeClaimedRange": false
+      },
+      "fills": {
+        "ours": {
+          "count": 7342,
+          "volume": 29826738.53444609,
+          "closedPnl": -368728.2318759992,
+          "fees": 7092.673675999981
+        },
+        "rest": {
+          "count": 7342,
+          "volume": 29826738.534446057,
+          "closedPnl": -368728.231875999,
+          "fees": 7092.67367599997
+        },
+        "origins": {
+          "rest": 7342
+        },
+        "onlyOurs": 0,
+        "onlyRest": 0,
+        "fieldMismatches": 0,
+        "mismatchSample": [],
+        "exact": true,
+        "rawBacked": true
+      },
+      "invariants": {
+        "duplicateTidsInWindow": 0,
+        "duplicateKeysStored": 0,
+        "positionBreaks": 0,
+        "breakCauses": {
+          "hole": 0,
+          "twap": 0,
+          "upstream": 0,
+          "unknown": 0
+        },
+        "breakSample": [],
+        "pnlIdentityHolds": true,
+        "pnlDifference": 2.9103830456733704e-10
+      },
+      "coverage": {
+        "from": "2026-09-26T22:34:51.334Z",
+        "through": null,
+        "truncated": true,
+        "fillsRead": 18234,
+        "lifetimeProvable": false,
+        "verified": null
+      },
+      "derived": null,
+      "portfolio": {
+        "storedAt": "2026-10-01T03:32:00.309Z",
+        "ageMinutes": 302,
+        "pnlAll": {
+          "stored": 10669824.142299,
+          "hyperliquid": [
+            10616450.292973999,
+            10900697.013666999
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "roiAll": {
+          "stored": 3.051801992728263,
+          "hyperliquid": [
+            3.036535909842803,
+            3.1178366601708642
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "sharpe": {
+          "stored": 4.038994071992737,
+          "hyperliquid": [
+            3.5276662017990006,
+            3.5809681189090132
+          ],
+          "error": 0.4580259530837236,
+          "ok": false
+        },
+        "maxDrawdown": {
+          "stored": 0.16836246296273252,
+          "hyperliquid": [
+            0.16836246296273252,
+            0.16836246296273252
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "accountValue": {
+          "stored": 10528177.869145,
+          "hyperliquid": [
+            10337912.61564,
+            10878166.737375
+          ],
+          "error": 0,
+          "ok": true
+        },
+        "pnl30d": null,
+        "roi30d": null
+      },
+      "copydog": null
+    }
+  ],
+  "note": "Dev database before the fix was deployed (read-only run). Portfolio pairs use the earlier bracket method (Sharpe on refined series); re-measure after deployment."
+}

@@ -300,17 +300,9 @@
 @keyframes skeleton-sweep {
   to { transform: translateX(100%); }
 }
-.ui-lift {
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, background-color 180ms ease;
-}
-@media (hover: hover) and (pointer: fine) {
-  .ui-lift:hover { transform: translateY(-2px); }
-}
-.ui-lift:active { transform: scale(0.985); }
 
 @media (prefers-reduced-motion: reduce) {
   .ui-skeleton::after { animation: none; opacity: 0; }
-  .ui-lift, .ui-lift:hover, .ui-lift:active { transition: none; transform: none; }
   .row-arrive {
     animation: none;
     background-color: var(--primary-soft);

@@ -38,7 +38,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   return (
     <Link
       href={traderHref(trader.address)}
-      className="ui-lift group flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex min-w-0 items-start gap-2.5">
         <TraderAvatar trader={trader} size={40} />
@@ -125,7 +125,7 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   return (
     <Link
       href={traderHref(trader.address)}
-      className="ui-lift flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-border bg-card p-2 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-3 md:p-[13px]"
+      className="flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-border bg-card p-2 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-3 md:p-[13px]"
     >
       <div className="flex min-w-0 items-center gap-2">
         <TraderAvatar trader={trader} size={32} />

@@ -150,7 +150,7 @@ function Tile({ href, label, icon, small = false }: { href: string; label: strin
     <Link
       href={href}
       className={cn(
-        "ui-lift flex shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[12px] border border-border bg-card font-semibold outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring",
+        "flex shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[12px] border border-border bg-card font-semibold outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring",
         small ? "size-[78px] text-xs" : "size-[104px] text-[0.8125rem]",
       )}
     >

@@ -187,23 +187,23 @@ function Card({ data, format, w, h, s }: { data: ShareCardData; format: ShareFor
     );
   }
 
+  // CopyDog's 16:9 card: avatar and name, the PnL with ROI and win rate,
+  // then the brand; no period chip and no PnL line behind it.
   return (
     <div style={{ ...base, justifyContent: "space-between", padding: `${34 * s}px ${38 * s}px` }}>
       <Dots w={w} h={h} s={s} />
-      <Line data={data} w={w} h={h * 0.45} s={s} />
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 17 * s }}>
         <div style={{ display: "flex", alignItems: "center", gap: 17 * s, minWidth: 0 }}>
           <Avatar data={data} size={70 * s} />
           <div style={{ fontSize: 30 * s, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, maxWidth: 380 * s, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{data.name}</div>
         </div>
-        {period}
       </div>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 25 * s }}>
         <div style={{ display: "flex", fontSize: heroSize(pnl, 58, 360) * s, fontWeight: 800, letterSpacing: "-0.04em", color: pnlColor, lineHeight: 1, whiteSpace: "nowrap" }}>{pnl}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 23 * s, paddingBottom: 3 * s, flexShrink: 0 }}>
           <Stat label="ROI" value={shareRoi(data.roi)} color={roiColor} s={s} />
           {divider}
-          <Stat label="Win Rate" value={shareWinRate(data.winRate)} color={C.primary} s={s} />
+          <Stat label="Win Rate" value={shareWinRate(data.winRate)} color={data.winRate == null ? C.text : C.positive} s={s} />
         </div>
       </div>
       <Footer s={s} />

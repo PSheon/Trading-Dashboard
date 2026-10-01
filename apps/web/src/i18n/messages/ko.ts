@@ -417,6 +417,8 @@ export const ko: Messages = {
     win: "수익",
     loss: "손실",
     nTrades: "{count}건 거래",
+    /** CopyDog's 訂單 side badge (hl.side). */
+    orderSides: { long: "롱", short: "숏", closeLong: "롱 청산", closeShort: "숏 청산" },
     sideLong: "롱",
     sideShort: "숏",
     shareTrade: "거래 공유",

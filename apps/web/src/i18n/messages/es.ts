@@ -417,6 +417,8 @@ export const es: Messages = {
     win: "Ganancia",
     loss: "Pérdida",
     nTrades: "{count} operaciones",
+    /** CopyDog's 訂單 side badge (hl.side). */
+    orderSides: { long: "Long", short: "Short", closeLong: "Cerrar long", closeShort: "Cerrar short" },
     sideLong: "Long",
     sideShort: "Short",
     shareTrade: "Compartir operación",

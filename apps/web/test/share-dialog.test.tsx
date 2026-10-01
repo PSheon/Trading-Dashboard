@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ShareDialog, xIntentUrl } from "../src/components/trader/share-dialog";
+import { ShareDialog } from "../src/components/trader/share-dialog";
 import { I18nProvider } from "../src/i18n/provider";
 import { zhTW } from "../src/i18n/messages/zh-TW";
 
@@ -35,7 +35,9 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     expect(image().getAttribute("src")).toBe(`/trader/${A}/share-image?period=allTime&format=landscape`);
     expect([...document.querySelectorAll('[role="radio"][aria-label]')].map((b) => b.getAttribute("aria-label"))).toEqual(["16:9", "4:5"]);
     for (const p of ["24H", "7D", "30D", "ALL"]) expect(button(p)).toBeTruthy();
-    for (const b of ["複製", "分享到 X", "下載"]) expect(button(b)).toBeTruthy();
+    for (const b of ["複製", "下載"]) expect(button(b)).toBeTruthy();
+    // CopyDog's dialog has no X button.
+    expect(button("分享到 X")).toBeUndefined();
     await act(async () => root.unmount());
   });
 
@@ -67,12 +69,4 @@ describe("分享交易員主頁, CopyDog's share flow", () => {
     await act(async () => root.unmount());
   });
 
-  it("shares the page on X, whose preview is the card", async () => {
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    const { root } = await mount();
-    await act(async () => button("分享到 X").click());
-    expect(open).toHaveBeenCalledWith(xIntentUrl("solanadoomer 在 Orbie 的交易表現", `${window.location.origin}/trader/${A}`), "_blank", "noopener,noreferrer");
-    expect(xIntentUrl("a b", "https://x/y")).toBe("https://x.com/intent/post?text=a%20b&url=https%3A%2F%2Fx%2Fy");
-    await act(async () => root.unmount());
-  });
 });

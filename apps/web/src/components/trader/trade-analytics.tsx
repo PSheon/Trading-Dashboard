@@ -84,7 +84,9 @@ export function Empty({ title, body }: { title: string; body?: string }) {
   );
 }
 
-/** "Based on trades since …" when older history isn't included. */
+/** "Based on trades since …" when older history isn't included. CopyDog
+ * shows no such note, so the trader tabs no longer render it; it stays for
+ * surfaces that need the disclosure (and its test). */
 export function CoverageNote({ analytics, className }: { analytics: Pick<TraderAnalyticsResponse, "coverage">; className?: string }) {
   const { t, format } = useI18n();
   const { coverage } = analytics;
@@ -158,7 +160,7 @@ function SideBadge({ side, mobile = false }: { side: RoundTrip["side"]; mobile?:
   return (
     <span
       className={cn(
-        "rounded px-1.5 py-0.5 text-[11px] font-semibold",
+        "rounded-[6px] px-[7px] py-0.5 text-xs font-semibold whitespace-nowrap",
         long ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
       )}
     >
@@ -282,7 +284,7 @@ export function PerfSwitch({ value, onChange }: { value: PerfView; onChange: (v:
     ["asset", t("trader.perf.mostTraded")],
   ];
   return (
-    <div role="radiogroup" aria-label={t("trader.tabs.performance")} className="hidden shrink-0 items-center gap-2.5 sm:flex">
+    <div role="radiogroup" aria-label={t("trader.tabs.performance")} className="mr-2.5 hidden shrink-0 items-center gap-3 sm:flex">
       {options.map(([v, label]) => (
         <button
           key={v}
@@ -291,8 +293,8 @@ export function PerfSwitch({ value, onChange }: { value: PerfView; onChange: (v:
           aria-checked={value === v}
           onClick={() => onChange(v)}
           className={cn(
-            "rounded text-xs font-semibold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            value === v ? "text-primary" : "text-subtle-foreground hover:text-muted-foreground",
+            "rounded font-mono text-[11px] font-medium tracking-[0.2px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+            value === v ? "text-primary" : "text-muted-foreground hover:text-foreground",
           )}
         >
           {label}
@@ -355,7 +357,7 @@ function TradeTable({ rows, dir }: { rows: RoundTrip[]; dir: Dir }) {
                   <Duration trade={trade} />
                 </TableCell>
                 <TableCell className="text-right">{shortTime(trade.exitTime ?? trade.entryTime)}</TableCell>
-                <TableCell className={cn("text-right font-semibold", pnlTone(shownPnl(trade)))}>{signedUsd2(shownPnl(trade))}</TableCell>
+                <TableCell className={cn("text-right", pnlTone(shownPnl(trade)))}>{signedUsd2(shownPnl(trade))}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -444,7 +446,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
                   </TableCell>
                   <TableCell className={cn("text-right", tone && TONE_CLASS[tone])}>{pct1(c.winRate)}</TableCell>
                   <TableCell className="text-right">{usd2(c.volume)}</TableCell>
-                  <TableCell className={cn("text-right font-semibold", pnlTone(c.netPnl))}>{signedUsd2(c.netPnl)}</TableCell>
+                  <TableCell className={cn("text-right", pnlTone(c.netPnl))}>{signedUsd2(c.netPnl)}</TableCell>
                 </TableRow>
               );
             })}
@@ -499,10 +501,12 @@ export function PerformanceTab({
           ]}
         />
       </div>
-      <CoverageNote analytics={analytics} className="px-4 pt-2 sm:px-5" />
-      {view === "best" ? <TradeTable rows={best} dir="desc" /> : null}
-      {view === "worst" ? <TradeTable rows={worst} dir="asc" /> : null}
-      {view === "asset" ? <CoinTable rows={summary.coins} /> : null}
+      {/* CopyDog insets these tables 12px inside the card. */}
+      <div className="sm:px-3">
+        {view === "best" ? <TradeTable rows={best} dir="desc" /> : null}
+        {view === "worst" ? <TradeTable rows={worst} dir="asc" /> : null}
+        {view === "asset" ? <CoinTable rows={summary.coins} /> : null}
+      </div>
     </div>
   );
 }
@@ -599,7 +603,7 @@ export function TradesTab({ address }: { address: string }) {
                       {trade.funding === null ? <span className="text-subtle-foreground">—</span> : signedUsd2(trade.funding)}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap">
-                      <span className={cn("font-semibold", pnlTone(pnl))}>{signedUsd2(pnl)}</span>
+                      <span className={pnlTone(pnl)}>{signedUsd2(pnl)}</span>
                       <ShareButton trade={trade} />
                     </TableCell>
                   </TableRow>
@@ -627,7 +631,6 @@ export function TradesTab({ address }: { address: string }) {
       {body}
       {/* Orbie's disclosure of the history and funding read; CopyDog has
           none, so it sits under the table rather than above it. */}
-      {first ? <CoverageNote analytics={first} className="border-t border-border px-4 py-2.5 sm:px-5" /> : null}
     </div>
   );
 }

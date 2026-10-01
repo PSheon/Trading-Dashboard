@@ -417,6 +417,8 @@ export const zhCN: Messages = {
     win: "盈",
     loss: "亏",
     nTrades: "{count} 笔交易",
+    /** CopyDog's 訂單 side badge (hl.side). */
+    orderSides: { long: "做多", short: "做空", closeLong: "平多", closeShort: "平空" },
     sideLong: "做多",
     sideShort: "做空",
     shareTrade: "分享交易",

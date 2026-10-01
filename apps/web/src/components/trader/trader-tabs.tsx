@@ -47,7 +47,7 @@ function Badge({ tone, children }: { tone: "buy" | "sell" | "move"; children: Re
   return (
     <span
       className={cn(
-        "rounded px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap",
+        "rounded-[6px] px-[7px] py-0.5 text-xs font-semibold whitespace-nowrap",
         tone === "buy" ? BUY_BADGE : tone === "sell" ? SELL_BADGE : "bg-raised text-muted-foreground",
       )}
     >
@@ -102,7 +102,7 @@ function LiqCell({ p, mark }: { p: LivePosition; mark: number | null }) {
   return (
     <span className="inline-flex items-center gap-[7px] leading-tight" title={t("trader.liqTip", { pct: d.pct >= 100 ? ">100" : d.pct.toFixed(2) })}>
       {price(p.liqPx)}
-      <span className={cn("rounded-md px-[7px] py-0.5 text-xs font-semibold", LIQ_TONE[d.tone])}>{label}</span>
+      <span className={cn("rounded-[6px] px-[7px] py-0.5 text-xs font-semibold", LIQ_TONE[d.tone])}>{label}</span>
     </span>
   );
 }
@@ -114,7 +114,7 @@ function LeverageChip({ p }: { p: LivePosition }) {
   if (!p.leverage) return null;
   const side = t(p.side === "long" ? "trader.sideLong" : "trader.sideShort");
   return (
-    <span title={side} className={cn("inline-flex items-center rounded-md px-1 py-px text-xs leading-[18px] font-bold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
+    <span title={side} className={cn("inline-flex items-center rounded-[6px] px-1 py-px text-xs leading-[18px] font-bold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
       {Math.round(p.leverage)}×<span className="sr-only"> {side}</span>
     </span>
   );
@@ -330,7 +330,6 @@ function orderSide(o: TraderOrder): "long" | "short" | "closeLong" | "closeShort
   if (o.side === "buy") return o.reduceOnly ? "closeShort" : "long";
   return o.reduceOnly ? "closeLong" : "short";
 }
-const ORDER_SIDE_LABEL = { long: "Long", short: "Short", closeLong: "Close Long", closeShort: "Close Short" } as const;
 
 type OrderKey = "asset" | "type" | "side" | "size" | "price" | "value" | "trigger";
 const ORDER_KEYS: Record<OrderKey, (o: TraderOrder) => number | string> = {
@@ -377,7 +376,7 @@ export function OrdersTab({ address }: { address: string }) {
               </TableCell>
               <TableCell className="text-right">{o.orderType || "-"}</TableCell>
               <TableCell className="text-right">
-                <Badge tone={side === "long" || side === "closeShort" ? "buy" : "sell"}>{ORDER_SIDE_LABEL[side]}</Badge>
+                <Badge tone={side === "long" || side === "closeShort" ? "buy" : "sell"}>{t(`trader.orderSides.${side}`)}</Badge>
               </TableCell>
               <TableCell className="text-right">
                 {qty(o.size)} {coinLabel(o.coin)}
@@ -409,8 +408,8 @@ export function fillsTruncated(restFills: readonly TraderFill[] | undefined): bo
 /** Consecutive fills of one order stream (same coin, side, direction and
  * liquidation flag), newest first, merged into one row as CopyDog does
  * (its bundle's grouping, 2026-10-01): summed size, value and PnL,
- * volume-weighted price, the oldest fill's starting position, and the fill
- * count shown as a badge. `partial` marks the oldest row when the list was
+ * volume-weighted price, the oldest fill's starting position, and the count
+ * of fills (one per timestamp, as CopyDog's aggregated fills) as a badge. `partial` marks the oldest row when the list was
  * capped, whose size and value then read "≥". */
 export interface FillGroup {
   key: string;
@@ -432,11 +431,15 @@ export function groupFills(fills: readonly TraderFill[], truncated = false): Fil
   const groups: FillGroup[] = [];
   let current: FillGroup | null = null;
   let currentKey = "";
+  let lastTime = Number.NaN;
+  let startTime = Number.NaN;
   const sorted = [...fills].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
   sorted.forEach((f, i) => {
     const key = `${f.coin}|${f.side}|${f.dir}|${f.liquidation ? 1 : 0}`;
     if (!current || key !== currentKey) {
       currentKey = key;
+      lastTime = Number.NaN;
+      startTime = Number.NaN;
       current = {
         key: `f${f.ts}-${f.tid}-${i}`,
         coin: f.coin,
@@ -456,8 +459,23 @@ export function groupFills(fills: readonly TraderFill[], truncated = false): Fil
     current.size += f.sz;
     current.value += f.notionalUsd;
     current.pnl += f.closedPnl ?? 0;
-    current.count += 1;
-    current.startPosition = f.startPosition ?? null;
+    // CopyDog's fills come aggregated by time (one per order per block), so
+    // its badge counts those: partial fills sharing a timestamp count once.
+    const at = new Date(f.ts).getTime();
+    if (at !== lastTime || current.count === 0) current.count += 1;
+    lastTime = at;
+    // The oldest fill's starting position; among partial fills of one
+    // timestamp that is the one furthest from the fill's direction (the
+    // smallest position when adding, the largest when reducing).
+    const start = f.startPosition ?? null;
+    if (start === null || current.startPosition === null || at !== startTime) current.startPosition = start;
+    else {
+      const adding = (f.side === "buy") === (start >= 0);
+      current.startPosition = adding
+        ? (Math.abs(start) < Math.abs(current.startPosition) ? start : current.startPosition)
+        : (Math.abs(start) > Math.abs(current.startPosition) ? start : current.startPosition);
+    }
+    startTime = at;
   });
   for (const g of groups) g.price = g.size ? g.value / g.size : 0;
   if (truncated && groups.length > 0) groups[groups.length - 1].partial = true;
@@ -657,6 +675,9 @@ export function TransfersTab({ address }: { address: string }) {
   if (rows.length === 0) return <Empty title={t("trader.empty.transfersTitle")} body={t("trader.empty.transfersDesc")} />;
   const head = { sort, onSort };
   const party = (who: string | null) => (who ? (who === address.toLowerCase() ? t("trader.self") : shortHex(who)) : "-");
+  // CopyDog: a bridge deposit or withdrawal has no token and no parties, so
+  // it reads as coloured dollars ("$10,349.00") with "-" on both sides.
+  const bridge = (x: TraderTransfer) => x.kind === "deposit" || x.kind === "withdraw";
   return (
     <div>
       <Table dense className="text-xs">
@@ -684,11 +705,11 @@ export function TransfersTab({ address }: { address: string }) {
                   {x.token}
                 </span>
               </TableCell>
-              <TableCell className={cn("text-right", x.usd ? (x.direction === "out" ? "text-negative" : x.direction === "in" ? "text-positive" : "") : "")}>
-                {x.usd ? usdFull(x.amount) : qty(x.amount)}
+              <TableCell className={cn("text-right", x.usd || bridge(x) ? (x.direction === "out" ? "text-negative" : x.direction === "in" ? "text-positive" : "") : "")}>
+                {x.usd || bridge(x) ? usdFull(x.amount) : qty(x.amount)}
               </TableCell>
-              <TableCell className="text-right font-mono">{party(x.from)}</TableCell>
-              <TableCell className="text-right font-mono">{party(x.to)}</TableCell>
+              <TableCell className="text-right font-mono">{bridge(x) ? "-" : party(x.from)}</TableCell>
+              <TableCell className="text-right font-mono">{bridge(x) ? "-" : party(x.to)}</TableCell>
               <TableCell className="text-right">
                 {x.hash && !/^0x0+$/.test(x.hash) ? (
                   <a
@@ -707,11 +728,6 @@ export function TransfersTab({ address }: { address: string }) {
           ))}
         </TableBody>
       </Table>
-      <p className="border-t border-border px-4 py-2.5 text-[11px] text-subtle-foreground sm:px-5">
-        {query.data.truncated
-          ? t("trader.transfersTruncated", { count: rows.length, date: format.date(query.data.from) })
-          : t("trader.transfersWindow")}
-      </p>
     </div>
   );
 }

@@ -417,6 +417,8 @@ export const vi: Messages = {
     win: "Thắng",
     loss: "Thua",
     nTrades: "{count} giao dịch",
+    /** CopyDog's 訂單 side badge (hl.side). */
+    orderSides: { long: "Long", short: "Short", closeLong: "Đóng Long", closeShort: "Đóng Short" },
     sideLong: "Long",
     sideShort: "Short",
     shareTrade: "Chia sẻ giao dịch",

@@ -417,6 +417,8 @@ export const ja: Messages = {
     win: "勝ち",
     loss: "負け",
     nTrades: "{count}件の取引",
+    /** CopyDog's 訂單 side badge (hl.side). */
+    orderSides: { long: "ロング", short: "ショート", closeLong: "ロング決済", closeShort: "ショート決済" },
     sideLong: "ロング",
     sideShort: "ショート",
     shareTrade: "取引をシェア",

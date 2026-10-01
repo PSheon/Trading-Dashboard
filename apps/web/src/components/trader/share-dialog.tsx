@@ -21,11 +21,6 @@ function readFormat(): ShareFormat {
   }
 }
 
-/** The X (Twitter) post intent for a trader page; X shows the page's card. */
-export function xIntentUrl(text: string, url: string): string {
-  return `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
-}
-
 const pngOf = (src: string) =>
   fetch(src).then((r) => {
     if (!r.ok) throw new Error(String(r.status));
@@ -35,8 +30,7 @@ const pngOf = (src: string) =>
 /**
  * CopyDog's 分享交易員主頁: the trader's image card in two formats (16:9 and
  * 4:5, the choice remembered), four periods (ALL first), 複製 (the PNG to
- * the clipboard) and 下載; Orbie adds 分享到 X, which posts the page link
- * (whose preview is the same card). The PNG comes from
+ * the clipboard) and 下載. The PNG comes from
  * /trader/<address>/share-image.
  */
 export function ShareDialog({ open, onOpenChange, address, name }: { open: boolean; onOpenChange: (open: boolean) => void; address: string; name: string }) {
@@ -93,10 +87,6 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
     }
   }
 
-  function shareX() {
-    const page = `${window.location.origin}/trader/${address}`;
-    window.open(xIntentUrl(t("trader.share.xText", { name }), page), "_blank", "noopener,noreferrer");
-  }
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t("trader.share.title")} className="max-w-[680px]" bodyClassName="p-0">
@@ -134,7 +124,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
         />
       </div>
 
-      <div className="flex min-h-[260px] items-center justify-center bg-background bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-5">
+      <div className="flex min-h-[596px] items-center justify-center bg-background bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] [background-size:16px_16px] p-5">
         <div className="relative w-full" style={{ maxWidth: format === "landscape" ? 640 : Math.min(480, (size.w / size.h) * 440) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -156,7 +146,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
       </div>
 
       <div className="flex flex-col gap-2 border-t border-border px-5 py-4">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"
             onClick={copy}
@@ -165,14 +155,6 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
           >
             <Copy className="size-4" />
             {busy === "copy" ? t("trader.share.copying") : t("trader.share.copy")}
-          </button>
-          <button
-            type="button"
-            onClick={shareX}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <span aria-hidden className="text-base leading-none font-bold">𝕏</span>
-            {t("trader.share.shareX")}
           </button>
           <button
             type="button"

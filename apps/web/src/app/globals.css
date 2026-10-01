@@ -252,10 +252,10 @@
   color: var(--foreground);
 }
 .cd-tables td {
-  height: auto;
+  height: 44px;
   padding: 11px 6px;
   font-size: 13px;
-  line-height: 21.5px;
+  line-height: 19.5px;
 }
 .cd-tables th:first-child,
 .cd-tables td:first-child {

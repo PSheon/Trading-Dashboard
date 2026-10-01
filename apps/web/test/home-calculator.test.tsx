@@ -11,7 +11,8 @@ function render(roi: number | null, sparkline = [10, 20, 30]) {
   const sample = fixtureHome().calculator[0];
   const trader = { ...sample, roi, sparkline,
     lastTradeAt: sample.lastTradeAt?.toISOString() ?? null,
-    metricsUpdatedAt: sample.metricsUpdatedAt?.toISOString() ?? null };
+    metricsUpdatedAt: sample.metricsUpdatedAt?.toISOString() ?? null,
+    tradesFrom: sample.tradesFrom?.toISOString() ?? null };
   return renderToStaticMarkup(<I18nProvider locale="en" messages={en}><Calculator traders={[trader]} /></I18nProvider>);
 }
 

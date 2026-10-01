@@ -180,7 +180,7 @@ export class TradeAnalyticsService {
       this.history?.status(address),
       this.history?.archiveSpan(address).catch(() => null) ?? null,
     ]);
-    return { ...coverageOf(row), backfill, archive: span ? { from: new Date(span.from), through: new Date(span.through) } : null };
+    return { ...coverageOf(row), backfill, archiveFrom: span ? new Date(span.from) : null, archiveThrough: span ? new Date(span.through) : null };
   }
 
   /** The stored row, refreshed in the background when stale; for a cold

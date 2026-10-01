@@ -27,7 +27,8 @@ export const wireTradersSchema = s.tradersResponseSchema.extend({ updatedAt: iso
 export const wireTraderProfileSchema = s.traderProfileResponseSchema.extend({ stats: wireTraderStatsSchema.nullable(), lastTradeAt: iso.nullable().optional(), fetchedAt: iso });
 export const wireTraderActivitySchema = s.traderActivityResponseSchema.extend({ lastTradeAt: iso.nullable(), fetchedAt: iso });
 export const wireRoundTripSchema = s.roundTripSchema.extend({ id: z.string().regex(/^-?\d+$/), entryTime: iso, exitTime: iso.nullable() });
-export const wireTradeCoverageSchema = s.tradeCoverageSchema.extend({ through: iso.nullable().optional(), from: iso.nullable(), fundingFrom: iso.nullable(), fundingThrough: iso.nullable() });
+export const wireTradeCoverageSchema = s.tradeCoverageSchema.extend({ through: iso.nullable().optional(), from: iso.nullable(), fundingFrom: iso.nullable(), fundingThrough: iso.nullable(),
+  partialSince: iso.nullable().optional(), archiveFrom: iso.nullable().optional(), archiveThrough: iso.nullable().optional() });
 export const wireTraderAnalyticsSchema = s.traderAnalyticsResponseSchema.extend({
   summary: s.tradeSummarySchema.extend({ best: z.array(wireRoundTripSchema), worst: z.array(wireRoundTripSchema) }),
   coverage: wireTradeCoverageSchema, computedAt: iso,
@@ -43,6 +44,7 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   feedDisconnectedSince: iso.nullable(), lastTradeAt: iso.nullable(), lastFillAt: iso.nullable(), lastSnapshotAt: iso.nullable(),
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
+  archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable() }).optional(),
 });
 /** Private worker probe and admin monitoring share an explicit JSON contract. */
 export const runtimeBudgetSchema = z.object({
@@ -72,7 +74,7 @@ export const adminSystemSchema = z.object({
 });
 export type AdminSystemOverview = z.infer<typeof adminSystemSchema>;
 export const wireBoardFreshnessSchema = s.boardFreshnessSchema.extend({ oldestUpdatedAt: iso.nullable(), newestUpdatedAt: iso.nullable() });
-export const wireBoardTraderSchema = s.boardTraderSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable() });
+export const wireBoardTraderSchema = s.boardTraderSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable(), tradesFrom: iso.nullable().optional() });
 export const wireBoardSchema = s.boardResponseSchema.extend({ freshness: wireBoardFreshnessSchema.optional(), items: z.array(wireBoardTraderSchema), updatedAt: iso.nullable() });
 export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
   freshness: wireBoardFreshnessSchema.optional(),
@@ -84,7 +86,7 @@ export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso
 export const wireCoinIndexSchema = s.coinIndexResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireCoinBoardSchema = s.coinBoardResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireDiscoverSearchSchema = s.discoverSearchResponseSchema;
-export const wireTraderCardSchema = s.traderCardSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable() });
+export const wireTraderCardSchema = s.traderCardSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable(), tradesFrom: iso.nullable().optional() });
 export const wireTraderCardsSchema = s.traderCardsResponseSchema.extend({ items: z.array(wireTraderCardSchema) });
 export const wireCohortDetailSchema = s.cohortDetailResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireCohortHistorySchema = s.cohortHistoryResponseSchema.extend({ series: z.array(z.object({ t: iso, pctLong: z.number() })) });

@@ -1047,8 +1047,10 @@ export const tradeCoverageSchema = z.object({
    * trades since `partialSince`; never present them as lifetime figures. */
   completeness: z.enum(["complete", "partial"]).optional(),
   partialSince: z.coerce.date().nullable().optional(),
-  /** Span certified by the public node archive (no REST retention limit). */
-  archive: z.object({ from: z.coerce.date(), through: z.coerce.date() }).nullable().optional(),
+  /** Span certified by the public node archive (no REST retention limit);
+   * both null when the address has none. */
+  archiveFrom: z.coerce.date().nullable().optional(),
+  archiveThrough: z.coerce.date().nullable().optional(),
   /** Funding is included for trades opened on or after this; null until
    * it has been read. */
   fundingFrom: z.coerce.date().nullable(),

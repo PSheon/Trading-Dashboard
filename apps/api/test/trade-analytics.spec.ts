@@ -433,7 +433,7 @@ describe("trade analytics for any address", () => {
     expect(result.summary).toMatchObject({ trades: 1, wins: 1 });
     expect(result.coverage).toMatchObject({
       source: "hyperliquid", fills: 3, truncated: true, completeness: "partial", partialSince: new Date(inside[0].time),
-      archive: { from: new Date(hour(30) + 5 * 60_000), through: new Date(hour(4) - 5 * 60_000) },
+      archiveFrom: new Date(hour(30) + 5 * 60_000), archiveThrough: new Date(hour(4) - 5 * 60_000),
       backfill: { status: "caught_up" },
     });
     const rows = await db.select().from(analysisHistoryFills).where(eq(analysisHistoryFills.address, X));

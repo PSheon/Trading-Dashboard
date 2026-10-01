@@ -93,6 +93,10 @@ pnpm lint
 pnpm build
 ```
 
+Install the pre-push hook once per clone (contract docs, typecheck, lint; see
+[docs/ci-and-testing.md](docs/ci-and-testing.md)):
+`ln -s ../../scripts/pre-push.sh .git/hooks/pre-push`.
+
 Run `pnpm db:generate` only after database schema changes, and review the SQL.
 Root `pnpm test` creates and removes a fresh migrated API test database. Export
 `TEST_DATABASE_ADMIN_URL` pointing to a disposable loopback PostgreSQL parent

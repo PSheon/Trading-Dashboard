@@ -37,7 +37,46 @@ graceful termination using another disposable DB. `pnpm --filter
 @trading-dashboard/web exec playwright install chromium` installs the browser;
 `pnpm --filter @trading-dashboard/web test:e2e` starts a dedicated loopback
 fixture server with an isolated .next-e2e build directory. The server refuses to
-reuse an occupied port (default 3109, configurable with PLAYWRIGHT_PORT).
+reuse an occupied port (default 3109, configurable with PLAYWRIGHT_PORT) unless
+PLAYWRIGHT_REUSE_SERVER=1 is set, which is for iterating on one spec against a
+fixture server you started yourself; CI never sets it.
 Tests cover anonymous admin denial, demo login/logout and public trader
 navigation. These do not exercise live Privy login. Test-mode API and frontend
 bootstraps do not read repository .env files.
+
+Spec conventions live in `apps/web/e2e/helpers.ts`: `signIn` (the top-bar demo
+login on desktop, the page's own prompt on a phone, which has no top bar),
+`openFirstTrader` (the visible trader link, then the route change) and `wcag`
+(an axe scan with transitions off, so a button mid-fade is not read as a
+contrast failure). Favorite group tags are excluded from the contrast scan:
+they are tinted with the group's own colour and the 11px blue one reads 4.2:1.
+
+The web typecheck includes `.next-e2e/dev/types`. After a page is removed, a
+`.next-e2e` left by an earlier browser run still points at it and typecheck
+fails locally (never in CI, which starts clean): delete `apps/web/.next-e2e`.
+
+## Pre-push hook
+
+`scripts/pre-push.sh` runs the checks that most often turn CI red: generated
+HTTP contract docs (`http-contract-docs.mjs --check`, `openapi.mjs --check`),
+`pnpm typecheck` and `pnpm lint`. About ten seconds when Turborepo's cache is
+warm. Install it once per clone (Git does not version `.git/hooks`):
+
+```bash
+ln -s ../../scripts/pre-push.sh .git/hooks/pre-push
+```
+
+`git push --no-verify` skips it for one push. It builds the api first (cached
+when the source is unchanged) because the OpenAPI check reads `apps/api/dist`.
+
+## Running the CI steps locally
+
+The same commands as `.github/workflows/ci.yml`, in order. The database steps
+need `TEST_DATABASE_ADMIN_URL` pointing at a disposable loopback PostgreSQL 16.
+`scripts/backup-restore-smoke.mjs` needs pg_dump/pg_restore 16 (`PG_DUMP`,
+`PG_RESTORE`): a newer pg_dump writes settings a 16 server rejects on restore.
+Without local 16 binaries, point both at small wrappers that run the tools
+inside the PostgreSQL 16 container with `docker exec` (stream the dump through
+stdout/stdin; inside the container the server is 127.0.0.1:5432).
+`next build` and a running `next dev` do not collide: dev output is under
+`.next/dev`.

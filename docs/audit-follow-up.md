@@ -118,3 +118,19 @@ Docker runtime readiness／shutdown，以及獨立 DB restore。每個數量與 
 | 9 | 11：web 沒有 `error.tsx`／`global-error.tsx`／`loading.tsx`；143 個 tsx 有 105 個是 client component；沒有 server prefetch、robots、sitemap | 中 | 補錯誤與載入邊界、robots／sitemap；server prefetch 逐頁評估（畫面須與 CopyDog 一致，不加新視覺） | 第 4 項之後 |
 
 附註：rate limiter 與 auth cache 也是每個行程各一份，與第 2 項同一個「單一 API 副本」限制；格式化（Prettier）併入第 5 項。
+
+### 第三輪（發現 13–20，資安與後台設定，同日）
+
+Paul 2026-10-01：這一批排進優化；**後台（admin）改由 Claude 接手**（Codex 休息中）。後台畫面不受「照 CopyDog」規則限制（CopyDog 沒有公開後台），沿用現有後台的版面。
+
+| 順序 | 發現 | 嚴重度 | 做法 | 前置 |
+| --- | --- | --- | --- | --- |
+| A（CI 修綠之後） | 13：KOL 頭像抓取會跟著轉址、只檢查網址字串，可連到內網（SSRF） | 中 | `redirect: "manual"`、每一跳重新驗證並限制跳數；解析後的 IP 拒絕私有／loopback／link-local；fxtwitter 回傳的網址也要過同一道檢查；補測試 | 無 |
+| B | 15：跟單沒有後台介面 | 高（測試網前） | 後台路由與頁面：跟單總覽、策略與模擬訂單、每人曝險、全站／單一使用者的四種停止與恢復（需填原因、樂觀鎖）、風控上限表單；依 Stage 4 文件「給 Codex：跟單管理介面」 | AppModule 拆分之後 |
+| C | 16：設定最多 30 秒才生效，不能當緊急開關 | 中 | 設定變更透過現有 PG LISTEN/NOTIFY 讓各行程立即失效快取；開關類欄位讀取不走快取 | 無 |
+| D | 14：管理員沒有二次驗證、單一角色擁有全部權限 | 高（真實資金前） | 新增唯讀營運角色；敏感權限（`users.manage`、`settings.write`、`risk.manage`、`execution.resume`）要求 Privy MFA 並在伺服器端驗證。需先確認 Privy 後台的 MFA 設定 | 測試網實單之前 |
+| E | 17：沒有維護模式 | 中 | `general.maintenance` 設定＋guard（唯讀或維護頁），後台可切換 | C 之後 |
+| F | 19：營運開關後台看不到 | 低–中 | 系統頁唯讀顯示 `TELEGRAM_DRY_RUN`、`COPY_TRADING_MODE`、`HYPERLIQUID_NETWORK`、S3 抓取狀態與當日花費／上限 | 無 |
+| G | 18、20：`MAX_FAVORITES_PER_USER` 與保留期應為後台設定 | 低 | 移入 settings（保留期預設：快照 90 天、稽核 1 年、佇列 30 天） | 第 3 項（保留與分割）一起做 |
+
+第一輪第 1、4、5 項中原本標「交 Codex」的後台檔案（`admin/revenue.service.ts`、`admin-system.service.ts`、`docs/admin-*.md`、`admin/dto`）也改由 Claude 處理。Sentry 暫不加（Paul）；第 8 項只做 logger 保留 stack 與 `/health`／後台的心跳、積壓警示。

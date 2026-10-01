@@ -68,7 +68,7 @@ function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="flex flex-col items-center gap-3 px-6 pt-16 text-center md:pt-[88px]">
+    <div className="flex flex-col items-center gap-3 px-6 pt-16 text-center md:pt-[88px] md:pr-10">
       <ShoppingCart className="mb-1 size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
       <h1 className="text-2xl font-semibold md:text-[28px] md:leading-[42px]">{t("portfolio.signInTitle")}</h1>
       <p className="text-base leading-6 text-muted-foreground">{t("portfolio.signInBody")}</p>

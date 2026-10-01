@@ -26,21 +26,28 @@ const rate = (value: number | null) => (value === null ? "—" : `${(value * 100
 
 /** Page column: CopyDog's 1068 px measure, a little lower than other pages. */
 function Column({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto w-full max-w-[1068px] pt-2 md:pt-0">{children}</div>;
+  // CopyDog centres the column in the page (equal side padding), so it
+  // gives back the frame's extra 16px on the right.
+  return (
+    <div className="md:pr-4">
+      <div className="mx-auto w-full max-w-[1068px] max-md:-mx-1 max-md:-mt-1">{children}</div>
+    </div>
+  );
 }
 
-const th = "h-12 px-3 text-left text-[0.6875rem] font-medium whitespace-nowrap text-muted-foreground";
-const td = "px-3 text-sm whitespace-nowrap";
+// CopyDog's .data-table: mono caps headers (33px), 13px cells in 48–49px rows.
+const th = "px-3 py-2 text-left font-mono text-[11px] leading-[16.5px] font-semibold tracking-[0.4px] whitespace-nowrap text-muted-foreground uppercase";
+const td = "px-3 py-3.5 text-[13px] leading-5 whitespace-nowrap";
 
 export function CoinIndexView() {
   const { t } = useI18n();
   const query = useCoinIndex();
   return (
     <Column>
-      <p className="text-xs font-semibold">{t("coins.markets")}</p>
-      <h1 className="mt-2.5 text-[1.625rem] leading-tight font-bold tracking-tight md:text-[1.75rem]">{t("coins.indexTitle")}</h1>
-      <p className="mt-2 max-w-[680px] text-[0.9375rem] leading-relaxed text-muted-foreground">{t("coins.indexBody")}</p>
-      <div className="mt-8">
+      <p className="cd-label">{t("coins.markets")}</p>
+      <h1 className="mt-2 text-[26px] leading-[1.25] font-bold tracking-[-0.65px]">{t("coins.indexTitle")}</h1>
+      <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] text-muted-foreground">{t("coins.indexBody")}</p>
+      <div className="mt-[31px]">
         {query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data && query.data.items.length === 0 ? (
@@ -57,7 +64,7 @@ export function CoinIndexView() {
             <tbody>
               {query.data
                 ? query.data.items.map((row) => (
-                    <tr key={row.coin} className="relative h-12 border-b border-border transition-colors hover:bg-raised/50">
+                    <tr key={row.coin} className="relative border-b border-border transition-colors hover:bg-raised/50">
                       <td className={td}>
                         <Link
                           href={coinHref(row.coin)}
@@ -100,10 +107,10 @@ export function CoinBoardView({ coin }: { coin: string }) {
         <span aria-hidden> › </span>
         <span aria-current="page">{label}</span>
       </nav>
-      <h1 className="mt-3 text-[1.625rem] leading-tight font-bold tracking-tight md:text-[1.75rem]">{t("coins.title", { coin: label })}</h1>
-      <p className="mt-2 max-w-[660px] text-[0.9375rem] leading-relaxed text-muted-foreground">{t("coins.body", { coin: label })}</p>
+      <h1 className="mt-4 text-[26px] leading-[1.25] font-bold tracking-[-0.65px]">{t("coins.title", { coin: label })}</h1>
+      <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] text-muted-foreground">{t("coins.body", { coin: label })}</p>
 
-      <dl className="mt-7 flex flex-wrap gap-x-8 gap-y-6">
+      <dl className="mt-8 flex flex-wrap gap-x-8 gap-y-6">
         {(
           [
             ["coins.listed", stats ? count(stats.traders) : null, ""],
@@ -112,14 +119,14 @@ export function CoinBoardView({ coin }: { coin: string }) {
             ["coins.trades", stats ? count(stats.trades) : null, ""],
           ] as const
         ).map(([key, value, tone]) => (
-          <div key={key} className="min-w-[88px]">
-            <dt className="text-[0.6875rem] font-semibold">{t(key)}</dt>
-            <dd className={cn("num mt-1 text-xl font-semibold tracking-tight", tone)}>{value ?? <Skeleton className="mt-1 h-6 w-16" />}</dd>
+          <div key={key}>
+            <dt className="cd-label">{t(key)}</dt>
+            <dd className={cn("num text-xl leading-[30px] font-semibold", tone)}>{value ?? <Skeleton className="mt-1 h-6 w-16" />}</dd>
           </div>
         ))}
       </dl>
 
-      <div className="mt-9">
+      <div className="mt-8">
         {query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data && query.data.items.length === 0 ? (
@@ -141,14 +148,14 @@ export function CoinBoardView({ coin }: { coin: string }) {
               <tbody>
                 {query.data
                   ? query.data.items.map((row, i) => (
-                      <tr key={row.address} className="relative h-[49px] border-b border-border transition-colors hover:bg-raised/50">
+                      <tr key={row.address} className="relative border-b border-border transition-colors hover:bg-raised/50">
                         <td className={cn(td, "num")}>{i + 1}</td>
                         <td className={cn(td, "max-w-[260px]")}>
                           <Link
                             href={`/trader/${row.address}`}
-                            className="flex min-w-0 items-center gap-2.5 outline-none after:absolute after:inset-0 focus-visible:underline"
+                            className="flex min-w-0 items-center gap-2 font-medium outline-none after:absolute after:inset-0 focus-visible:underline"
                           >
-                            <TraderAvatar trader={row} size={24} />
+                            <TraderAvatar trader={row} size={20} />
                             <span className="truncate">{boardName(row)}</span>
                           </Link>
                         </td>

@@ -12,7 +12,8 @@ it("keeps unknown trade cutoff explicit for legacy coverage without backfill met
   </I18nProvider>);
   expect(html).toContain("Trade data cutoff unavailable");
   expect(html).toContain("The source may not provide the account’s full history");
-  expect(html).toContain('href="/methodology"');
+  // The methodology page lives under /dev now; no link from user surfaces.
+  expect(html).not.toContain('href="/methodology"');
 });
 
 it("shows an available cutoff without calling completed backfill lifetime-complete", () => {

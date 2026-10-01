@@ -71,7 +71,9 @@ describe("long-form content", () => {
   it("keeps the owner's placeholders visible and links the FAQ at /help", () => {
     for (const locale of ["zh-TW", "en"] as const) {
       expect(CONTENT_PAGES.privacy[locale]).toContain("【待填");
-      expect(CONTENT_PAGES.about[locale]).toContain("](/help)");
+      // The "numbers you can see" section (Orbie-only, shown on /dev) links the FAQ.
+      expect(CONTENT_PAGES.numbers[locale]).toContain("](/help)");
+      expect(CONTENT_PAGES.numbers[locale]).not.toContain("](/faq)");
       expect(CONTENT_PAGES.about[locale]).not.toContain("](/faq)");
     }
   });

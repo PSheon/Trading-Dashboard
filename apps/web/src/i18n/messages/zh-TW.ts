@@ -335,6 +335,7 @@ export const zhTW = {
     portfolio: "投資組合",
     favorites: "收藏",
     insights: "洞察",
+    extras: "Orbie 專有",
     settings: "設定",
     admin: "管理",
     primary: "主要導覽",
@@ -437,7 +438,6 @@ export const zhTW = {
     ifInvested: "如果你投入",
     youWouldHave: "今天你會有",
     youWouldHaveHad: "你會擁有",
-    calculatorTip: "依歷史 ROI 示意，非逐筆跟單回測；未模擬執行成本與延遲，歷史績效不代表未來報酬。",
     calculatorMissingRoi: "尚無 ROI 資料",
     calculatorMissingCurve: "資料不足，無法繪製示意曲線",
     nextTrader: "下一位交易員",
@@ -580,7 +580,6 @@ export const zhTW = {
   },
   trader: {
     title: "交易員",
-    invalidAddress: "這不是有效的 Hyperliquid 地址",
     loadFailed: "無法載入這個地址",
     accountValue: "帳戶價值",
     accountPerp: "永續",

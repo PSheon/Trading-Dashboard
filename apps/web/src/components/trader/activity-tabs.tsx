@@ -1,15 +1,13 @@
 "use client";
 
 import type { TraderFill, TraderProfileResponse } from "@/lib/contracts";
-import { Activity, Download } from "lucide-react";
+import { Activity } from "lucide-react";
 import { Fragment, useId, useMemo, useState } from "react";
 import { cn } from "cn";
 import { rovingFocus } from "@/lib/roving-focus";
 
 import { ErrorState, Skeleton } from "@/components/page";
-import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
-import { downloadCsv, toCsv } from "@/lib/csv";
 import { mergeLiveFills } from "@/lib/live-trader";
 import { isComputing, useTraderAnalytics, useTraderFills } from "@/lib/queries";
 import { PerfSwitch, PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
@@ -39,8 +37,8 @@ const NO_MARKS: Readonly<Record<string, number>> = {};
 /** The tabs under the chart, CopyDog's set and order, with the live-feed
  * pulse at the right of the bar (it swaps the copy panel for 即時動態).
  * Performance and trades are the round trips the api reconstructs for any
- * address; orders, TWAP and transfers load when their tab opens. Fills
- * export to CSV (競品分析 §3.10: your data, portable). */
+ * address; orders, TWAP and transfers load when their tab opens. (Fills
+ * export to CSV lives on /dev: CopyDog has no export.) */
 export function ActivityTabs({
   profile,
   liveFills = NO_FILLS,
@@ -65,8 +63,6 @@ export function ActivityTabs({
   const fillRows = useMemo(() => mergeLiveFills(fills.data, liveFills), [fills.data, liveFills]);
   // All-time, like CopyDog's performance tab; shared with the profile rail.
   const analytics = useTraderAnalytics(profile.address, "all");
-
-  const exportable = tab === "fills" ? fillRows : undefined;
 
   return (
     <section className="cd-tables overflow-hidden rounded-[12px] border border-border bg-card">
@@ -99,17 +95,6 @@ export function ActivityTabs({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {tab === "performance" ? <PerfSwitch value={perfView} onChange={setPerfView} /> : null}
-          {exportable && exportable.length > 0 ? (
-            <Button
-              variant="ghost"
-              aria-label={t("common.exportCsv")}
-              size="sm"
-              onClick={() => exportFills(profile.address, fillRows ?? [])}
-            >
-              <Download />
-              <span className="hidden xl:inline">{t("common.exportCsv")}</span>
-            </Button>
-          ) : null}
           {onToggleFeed ? (
             <button
               type="button"
@@ -166,29 +151,5 @@ function Loading() {
         <Skeleton key={i} className="h-9" />
       ))}
     </div>
-  );
-}
-
-function exportFills(address: string, rows: TraderFill[]) {
-  downloadCsv(
-    `${address}-fills.csv`,
-    toCsv(
-      ["time_utc", "tid", "coin", "side", "dir", "px", "sz", "notional_usd", "fee", "closed_pnl", "start_position", "liquidation", "twap_id"],
-      rows.map((f) => [
-        new Date(f.ts).toISOString(),
-        f.tid,
-        f.coin,
-        f.side,
-        f.dir,
-        f.px,
-        f.sz,
-        f.notionalUsd,
-        f.fee,
-        f.closedPnl,
-        f.startPosition ?? null,
-        f.liquidation ? "true" : "false",
-        f.twapId ?? null,
-      ]),
-    ),
   );
 }

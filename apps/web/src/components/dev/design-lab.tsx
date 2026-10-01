@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ArrowUpRight, SlidersHorizontal, Bookmark, Settings } from "lucide-react";
+import { ArrowRight, ArrowUpRight, SlidersHorizontal, Bookmark, FlaskConical, Settings } from "lucide-react";
 import { useState } from "react";
 import { OrbieMark } from "@/components/brand/logo";
 import { AccountControls } from "@/components/shell/account-controls";
 import { AddressSearch } from "@/components/shell/address-search";
 import { primaryNav, type NavItem } from "@/components/shell/nav";
 import { HistoricalSimulator } from "./historical-simulator";
+import { LabExtras } from "./lab-extras";
 import { BoardsView } from "@/components/explore/boards-view";
 import { PortfolioView } from "@/components/portfolio-view";
 import { FavoritesView } from "@/components/favorites/favorites-view";
@@ -21,19 +22,22 @@ import { useI18n } from "@/i18n/provider";
 import { useHomeBoards, useSiteSettings } from "@/lib/queries";
 import { boardCoinLabel, boardPnl, boardRoi } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
+import type { Block } from "@/lib/markdown";
 import { concepts, previousConcepts } from "./concepts";
 import styles from "./design-lab.module.css";
 
 /** The site rail no longer lists Settings (CopyDog reaches it from the
  * account menu); the lab keeps it as a screen to preview. */
 const settingsNav: NavItem = { href: "/settings", label: "nav.settings", icon: Settings };
+/** Orbie-only features kept off the user pages (see LabExtras). */
+const extrasNav: NavItem = { href: "/extras", label: "nav.extras", icon: FlaskConical };
 
-export function DesignLab({ concept, screen }: { concept: string; screen: string }) {
+export function DesignLab({ concept, screen, numbers }: { concept: string; screen: string; numbers: Block[] }) {
   const router = useRouter();
   const { t, locale } = useI18n();
   const en = locale === "en";
   const selected = [...concepts, ...previousConcepts].find((item) => item.id === concept) ?? concepts[0];
-  const nav = [...primaryNav, settingsNav];
+  const nav = [...primaryNav, settingsNav, extrasNav];
   const base = `/dev/${selected.id}`;
   return (
     <div className={`${styles.lab} ${styles[selected.id]}`} data-design={selected.id}>
@@ -67,9 +71,10 @@ export function DesignLab({ concept, screen }: { concept: string; screen: string
           {screen === "explore" ? <BoardsView /> : null}
           {screen === "portfolio" ? <PortfolioView /> : null}
           {screen === "favorites" ? <FavoritesView /> : null}
-          {screen === "insights" ? <InsightsView /> : null}
+          {screen === "insights" ? <InsightsView tierPicker /> : null}
           {screen === "settings" ? <SettingsView /> : null}
-          <footer className={styles.footer}><span>Orbie · Hyperliquid</span><Link href="/methodology">{en ? "Scoring methodology" : "評分方法"} <ArrowUpRight size={13} /></Link></footer>
+          {screen === "extras" ? <LabExtras base={base} numbers={numbers} /> : null}
+          <footer className={styles.footer}><span>Orbie · Hyperliquid</span><Link href={`${base}/extras`}>{en ? "Scoring methodology" : "評分方法"} <ArrowUpRight size={13} /></Link></footer>
           <p className={styles.previewNote}>{en ? "Interactive style preview · Uses existing data and account actions. Trader details and address search open the current site." : "互動樣式預覽 · 使用現有資料與帳戶操作；交易員詳情與地址搜尋會開啟正式版頁面。"}</p>
         </main>
       </div>
@@ -105,7 +110,7 @@ function LabHome({ base }: { base: string }) {
       <aside className={styles.research}>
         <div className={styles.help}><h2>{en ? "Build your watchlist" : "建立你的觀察清單"}</h2><p>{en ? "Save traders to compare their performance and follow their activity in one place." : "收藏感興趣的交易員，集中比較績效並追蹤交易動態。"}</p><Link href={`${base}/favorites`}>{en ? "Open watchlist" : "查看收藏"}<ArrowRight size={15} /></Link></div>
         <Link href={`${base}/insights`} className={styles.insightLink}><span>{en ? "Market insights" : "市場洞察"}</span><ArrowUpRight size={16} /></Link>
-        <Link href="/methodology" className={styles.insightLink}><span>{en ? "How scores work" : "評分如何計算"}</span><ArrowUpRight size={16} /></Link>
+        <Link href={`${base}/extras`} className={styles.insightLink}><span>{en ? "How scores work" : "評分如何計算"}</span><ArrowUpRight size={16} /></Link>
       </aside>
     </div>
   );

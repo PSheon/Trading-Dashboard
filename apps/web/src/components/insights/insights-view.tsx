@@ -23,13 +23,15 @@ const FILTERS = ["all", "crypto", "tradfi"] as const;
  * 洞察 (CopyDog's /hyperliquid/cohorts): a PnL tier's positioning — the
  * banner with the tier picker, unrealized PnL and notional split cards, the
  * 倉位傾向 chart against BTC, the 各市場持倉方向 treemap, and the 錢包 /
- * 市場 tables. `?tier=` selects the tier (極度盈利 by default).
+ * 市場 tables. CopyDog serves 極度盈利 only, so that is the page; the tier
+ * picker (`tierPicker`, `?tier=`) is for the /dev lab, the other tiers'
+ * data stays in the api.
  */
-export function InsightsView() {
+export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
   const { t } = useI18n();
   const params = useSearchParams();
   const fromUrl = params.get("tier");
-  const [tier, setTier] = useState<CohortTier>(fromUrl && (TIERS as string[]).includes(fromUrl) ? (fromUrl as CohortTier) : "extremely_profitable");
+  const [tier, setTier] = useState<CohortTier>(tierPicker && fromUrl && (TIERS as string[]).includes(fromUrl) ? (fromUrl as CohortTier) : "extremely_profitable");
   const [window, setWindow] = useState<CohortWindow>("all");
   const [tab, setTab] = useState<"wallets" | "markets">("wallets");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
@@ -39,12 +41,13 @@ export function InsightsView() {
   const tierName = t(`trader.pnlTiers.${tier}`);
 
   useEffect(() => {
+    if (!tierPicker) return;
     const qs = new URLSearchParams(globalThis.location.search);
     if (tier === "extremely_profitable") qs.delete("tier");
     else qs.set("tier", tier);
     const next = `${globalThis.location.pathname}${qs.size ? `?${qs}` : ""}`;
     if (next !== `${globalThis.location.pathname}${globalThis.location.search}`) globalThis.history.replaceState(null, "", next);
-  }, [tier]);
+  }, [tier, tierPicker]);
 
   return (
     <div className="flex flex-col gap-2 max-md:-mx-1 max-md:mt-3">
@@ -52,7 +55,7 @@ export function InsightsView() {
         <HyperliquidWordmark className="flex h-[41px] md:hidden" />
         <h1 className="text-[21px] leading-[1.2] font-bold tracking-[-0.6px] md:text-[26px]">{t("insights.cohort.bannerTitle")}</h1>
         <div className="flex items-center gap-4 max-md:absolute max-md:top-[18px] max-md:right-[18px] md:order-3">
-          <TierPicker value={tier} onChange={setTier} />
+          {tierPicker ? <TierPicker value={tier} onChange={setTier} /> : null}
           <HyperliquidWordmark className="hidden md:flex" />
         </div>
       </header>

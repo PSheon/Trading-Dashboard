@@ -3,7 +3,6 @@
 import type { RoundTrip, TradeCoin, TraderAnalyticsResponse, TraderTradesResponse } from "@/lib/contracts";
 import { ArrowDown, ArrowRight, ArrowUpRight, Check, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
@@ -96,7 +95,6 @@ export function CoverageNote({ analytics, className }: { analytics: Pick<TraderA
       {coverage.backfill ? <span className="block">{t(`trader.historyStatus.${coverage.backfill.status}`)}</span> : null}
       {coverage.truncated || coverage.backfill ? <span className="block">{t("trader.historyRetention")}</span> : null}
       {coverage.fundingThrough ? t("trader.fundingThrough", { date: format.date(coverage.fundingThrough) }) : t("trader.fundingPending")}
-      <Link href="/methodology" className="ml-1 rounded-sm underline underline-offset-2 focus-visible:outline-2">{t("methodology.title")}</Link>
     </p>
   );
 }

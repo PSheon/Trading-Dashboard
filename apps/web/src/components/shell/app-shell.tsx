@@ -18,7 +18,7 @@ import { adminNav, isActive, mobileNav, primaryNav, type NavItem } from "./nav";
 const BARE_PAGES = new Set(["/privacy", "/terms", "/delete-account"]);
 
 /** Every route the app serves; anything else is the 404 page. */
-const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/methodology", "/admin", "/about", "/help", "/dev"];
+const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/admin", "/about", "/help", "/dev"];
 const isAppRoute = (pathname: string) => pathname === "/" || ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Info, Trophy, UserRound } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Trophy, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -12,7 +12,6 @@ import { ErrorState, Skeleton } from "@/components/page";
 import { AuthButton } from "@/components/shell/account-controls";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
-import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
 import { boardCoinLabel, homeTileOrder, roiPillShort } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
@@ -259,11 +258,6 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           </div>
           <span className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
             {hover !== null ? t("home.youWouldHaveHad") : t("home.youWouldHave")}
-            <Tooltip content={t("home.calculatorTip")}>
-              <span role="img" tabIndex={0} className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("home.calculatorTip")}>
-                <Info className="size-3.5" />
-              </span>
-            </Tooltip>
           </span>
           <div className={cn("flex h-[46px] items-center rounded-2xl px-4", shown === null ? "bg-raised" : up ? "bg-positive-soft" : "bg-negative-soft")} aria-live="polite">
             <span className={cn("num truncate text-xl font-bold", shown === null ? "text-muted-foreground" : up ? "text-positive" : "text-negative")}>{shown === null ? "—" : `$${Math.round(shown).toLocaleString("en-US")}`}</span>

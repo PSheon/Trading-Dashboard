@@ -7,7 +7,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-export const PAGES = ["about", "faq", "privacy", "terms", "delete-account"];
+export const PAGES = ["about", "faq", "privacy", "terms", "delete-account", "numbers"];
 export const CONTENT_LOCALES = ["zh-TW", "en"];
 
 const docs = new URL("../../../docs/content/", import.meta.url);

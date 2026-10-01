@@ -42,26 +42,19 @@ export function faqSections(blocks: Block[]): Section[] {
 
 /**
  * CopyDog's 常見問題 (`/help`): a centred title and one column of questions
- * that open in place, the first one open. Orbie's FAQ is longer, so its
- * `##` groups show as small labels between the questions. Plain
+ * that open in place, the first one open. Orbie's `##` groups only order
+ * the questions (CopyDog shows one plain list, so no group labels). Plain
  * <details>: works without JavaScript and with find-in-page. Sizes are
  * CopyDog's `.faq-item`: 672px column, 20px/600 question with 20px above
  * and below, 18px chevron, 16px/1.7 answer with 20px under it.
  */
 export function FaqList({ sections }: { sections: Section[] }) {
-  let index = 0;
+  const questions = sections.flatMap((section) => section.questions);
   return (
     <div className="mx-auto w-full max-w-[672px]">
-      {sections.map((section, s) => (
-        <section key={s} aria-label={section.title ?? undefined} className="mt-10 first:mt-0">
-          {section.title ? (
-            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">
-              <InlineText text={section.title} />
-            </h2>
-          ) : null}
           <div className="border-t border-border">
-            {section.questions.map((q) => {
-              const open = index++ === 0;
+            {questions.map((q, index) => {
+              const open = index === 0;
               return (
                 <details key={q.question} open={open} className="group border-b border-border">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-[20px] leading-[30px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -75,8 +68,6 @@ export function FaqList({ sections }: { sections: Section[] }) {
               );
             })}
           </div>
-        </section>
-      ))}
     </div>
   );
 }

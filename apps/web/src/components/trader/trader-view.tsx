@@ -1,12 +1,9 @@
 "use client";
 
 import type { TraderWindow } from "@/lib/contracts";
-import { SearchX } from "lucide-react";
-import Link from "next/link";
 import { useState } from "react";
 
-import { EmptyState, ErrorState, Skeleton } from "@/components/page";
-import { Button } from "@/components/ui/button";
+import { ErrorState, Skeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import { isBusy } from "@/lib/api";
 import {
@@ -37,25 +34,26 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 /** Trader page: profile | KPIs + chart + tabs | copy panel (Stage 2 §6). */
 export function TraderView({ address: rawAddress }: { address: string }) {
-  const { t } = useI18n();
   const valid = ADDRESS.test(rawAddress);
   const address = rawAddress.toLowerCase();
 
-  if (!valid) {
-    return (
-      <EmptyState
-        icon={SearchX}
-        title={t("trader.invalidAddress")}
-        body={rawAddress}
-        action={
-          <Button asChild variant="secondary">
-            <Link href="/explore">{t("home.browse")}</Link>
-          </Button>
-        }
-      />
-    );
-  }
+  // CopyDog shows the page's loading skeleton for an address that can't be
+  // one, and never resolves; so does Orbie (nothing is requested).
+  if (!valid) return <TraderLoading />;
   return <TraderLoaded address={address} />;
+}
+
+function TraderLoading() {
+  return (
+    <>
+      <div className="md:hidden"><Skeleton className="h-[640px] rounded-2xl" /></div>
+      <div className="trader-grid -mx-1 md:mx-0">
+        <div data-area="profile"><Skeleton className="h-[640px] rounded-2xl" /></div>
+        <div data-area="main"><Skeleton className="h-[640px] rounded-2xl" /></div>
+        <div data-area="copy"><Skeleton className="h-64 rounded-2xl" /></div>
+      </div>
+    </>
+  );
 }
 
 function TraderLoaded({ address }: { address: string }) {

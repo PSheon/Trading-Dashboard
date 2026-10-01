@@ -381,7 +381,6 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             label
           )}
         </button>
-        {sheet ? <p className="text-center text-[11px] leading-relaxed text-subtle-foreground">{t("trader.copy.paperHint")}</p> : null}
       </div>
     </Shell>
   );

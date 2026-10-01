@@ -332,6 +332,7 @@ export const en: Messages = {
     portfolio: "Portfolio",
     favorites: "Saved",
     insights: "Insights",
+    extras: "Orbie extras",
     settings: "Settings",
     admin: "Admin",
     primary: "Main navigation",
@@ -433,7 +434,6 @@ export const en: Messages = {
     ifInvested: "If you invested",
     youWouldHave: "You would have today",
     youWouldHaveHad: "You would have had",
-    calculatorTip: "Historical ROI illustration, not a copy-trading backtest. Execution costs and delays are not simulated. Past performance does not predict future returns.",
     calculatorMissingRoi: "ROI unavailable",
     calculatorMissingCurve: "Not enough data to illustrate the curve",
     nextTrader: "Next trader",
@@ -576,7 +576,6 @@ export const en: Messages = {
   },
   trader: {
     title: "Trader",
-    invalidAddress: "That isn't a valid Hyperliquid address",
     loadFailed: "Couldn't load this address",
     accountValue: "Account Value",
     accountPerp: "Perps",

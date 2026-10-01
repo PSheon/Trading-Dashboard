@@ -38,13 +38,6 @@ Your main account balance, the amount and PnL of each copy, and every deposit an
 
 Favorite a trader and turn on the bell. Orbie's official Telegram bot, @orbie_fun_bot, tells you when they open, add to, reduce, close or flip a position. Choose buys only, sells only or both, and set a minimum size to skip small orders. We aim to deliver alerts within seconds of the trade.
 
-## Numbers you can see, methods we can explain
-
-- **More than profit.** Every trader shows max drawdown and Sharpe ratio alongside PnL and ROI.
-- **Enough data.** Accounts below the trade-count threshold are flagged instead of being ranked alongside long, steady records.
-- **Rankings aren't for sale.** Rankings and featured traders follow public metrics only, never revenue or payment.
-- **Open methods.** How each metric is calculated is explained in the [FAQ](/help).
-
 ## Your funds, your control
 
 When you sign in, Privy creates a wallet just for you. That wallet is your Hyperliquid account. Its private key is protected by Privy and Orbie never sees it; you can export the key at any time and take the wallet anywhere. When copy trading launches, Orbie will only receive limited trading permissions and will not be able to withdraw funds or send them to another address.

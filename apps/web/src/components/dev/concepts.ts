@@ -9,4 +9,4 @@ export const previousConcepts = [
   { id: "terminal", name: "Focus" },
   { id: "orbit", name: "Dark" },
 ] as const;
-export const screenIds = ["home", "explore", "portfolio", "favorites", "insights", "settings"];
+export const screenIds = ["home", "explore", "portfolio", "favorites", "insights", "settings", "extras"];

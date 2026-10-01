@@ -134,10 +134,10 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
   }
 
   return (
-    <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <h2 className="truncate text-sm font-semibold">{title}</h2>
-        <div className="flex items-center gap-1" role="radiogroup" aria-label={title}>
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
+      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border px-3">
+        <h2 className="truncate text-[13px] font-semibold tracking-[-0.12px]">{title}</h2>
+        <div className="flex items-center gap-3" role="radiogroup" aria-label={title}>
           {WINDOWS.map((w) => (
             <button
               key={w}
@@ -146,8 +146,8 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
               aria-checked={window === w}
               onClick={() => onWindow(w)}
               className={cn(
-                "num rounded px-1.5 py-0.5 font-mono text-[0.6875rem] font-semibold uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                window === w ? "text-foreground" : "text-subtle-foreground hover:text-foreground",
+                "num rounded font-mono text-[11px] leading-[16.5px] font-medium tracking-[0.2px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                window === w ? "text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {w}
@@ -155,7 +155,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           ))}
         </div>
       </div>
-      <div ref={box} className="relative m-3 h-[300px] md:h-[372px]">
+      <div ref={box} className="relative h-[400px]">
         {loading && !geo ? <Skeleton className="absolute inset-0" /> : null}
         {geo ? (
           <svg width={size.w} height={size.h} className="absolute inset-0" onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={title}>

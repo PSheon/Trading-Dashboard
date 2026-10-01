@@ -74,11 +74,11 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
   }, [markets]);
 
   return (
-    <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card">
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
+      <div className="flex min-h-10 items-center border-b border-border px-3">
+        <h2 className="text-[13px] font-semibold tracking-[-0.12px]">{title}</h2>
       </div>
-      <div ref={box} className="relative m-3 h-[300px] md:h-[372px]" role="figure" aria-label={title}>
+      <div ref={box} className="relative m-2.5 h-[300px] md:h-[380px]" role="figure" aria-label={title}>
         {loading && !markets ? <Skeleton className="absolute inset-0" /> : null}
         {!loading && cells.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-raised/40 text-sm text-muted-foreground">{t("insights.cohort.treemapEmpty")}</div>
@@ -94,27 +94,27 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
           return (
             <div
               key={c.coin}
-              className="absolute p-[3px]"
+              className="absolute p-0.5"
               style={{ left: `${c.x}%`, top: `${c.y}%`, width: `${c.w}%`, height: `${c.h}%` }}
               title={`${coinLabel(c.coin)} · ${bias.toFixed(1)}% ${t("insights.cohort.long")} · ${usdCompact(c.value, { digits: 2 })}`}
             >
               <div
-                className={cn("flex h-full w-full flex-col justify-between overflow-hidden rounded-lg", full ? "p-3" : "p-2")}
+                className={cn("flex h-full w-full flex-col justify-between overflow-hidden rounded-[6px]", full ? "px-[13px] py-[11px]" : "px-2.5 py-2")}
                 style={{ backgroundColor: `rgb(${base} / ${(0.22 + strength * 0.45).toFixed(2)})` }}
               >
                 <div className="min-w-0">
-                  <div className={cn("flex min-w-0 items-center gap-1.5 font-bold", full ? "text-base" : "text-xs")}>
+                  <div className={cn("flex min-w-0 items-center font-bold tracking-[-0.3px]", full ? "gap-2 text-[17px]" : "gap-[5px] text-[12.5px] font-semibold")}>
                     <CoinIcon coin={c.coin} size={full ? 20 : 14} />
                     <span className="truncate">{coinLabel(c.coin)}</span>
                   </div>
                   {full ? (
-                    <div className="mt-1 text-xs text-foreground/70">
+                    <div className="mt-1 font-mono text-[11.5px] text-foreground/70">
                       {long ? `${bias.toFixed(0)}% ${t("insights.cohort.long")}` : `${(100 - bias).toFixed(0)}% ${t("insights.cohort.short")}`}
                     </div>
                   ) : null}
                 </div>
                 {mid ? (
-                  <span className="flex h-1 w-full overflow-hidden rounded-full bg-black/20" aria-hidden>
+                  <span className="flex h-[5px] w-full shrink-0 overflow-hidden rounded-full bg-black/30" aria-hidden>
                     <span className="h-full bg-positive" style={{ width: `${bias}%` }} />
                     <span className="h-full bg-negative" style={{ width: `${100 - bias}%` }} />
                   </span>

@@ -269,6 +269,56 @@
   border-bottom-width: 0.5px;
 }
 
+/* CopyDog's cohort tables (.hl-cohort-table): mono caps headers, 13px cells,
+   10px gutters (14px at the row ends), fixed wallet column widths. */
+.cd-cohort-table th {
+  padding: 9px 10px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.cd-cohort-table th button {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.cd-cohort-table th[aria-sort="ascending"],
+.cd-cohort-table th[aria-sort="descending"] {
+  font-weight: 700;
+  color: var(--foreground);
+}
+.cd-cohort-table td {
+  padding: 9px 10px;
+  font-size: 13px;
+  line-height: 19.5px;
+}
+.cd-cohort-table th:first-child,
+.cd-cohort-table td:first-child {
+  padding-left: 14px;
+}
+.cd-cohort-table th:last-child,
+.cd-cohort-table td:last-child {
+  padding-right: 14px;
+}
+.cd-cohort-wallets {
+  table-layout: fixed;
+  min-width: 1120px;
+}
+.cd-cohort-wallets th:nth-child(1) { width: 15%; }
+.cd-cohort-wallets th:nth-child(2) { width: 8%; }
+.cd-cohort-wallets th:nth-child(3) { width: 11%; }
+.cd-cohort-wallets th:nth-child(4) { width: 8%; }
+.cd-cohort-wallets th:nth-child(5) { width: 10%; }
+.cd-cohort-wallets th:nth-child(6) { width: 12%; }
+.cd-cohort-wallets th:nth-child(7) { width: 10%; }
+.cd-cohort-wallets th:nth-child(8) { width: 7%; }
+.cd-cohort-wallets th:nth-child(9) { width: 9%; }
+.cd-cohort-wallets th:nth-child(10) { width: 10%; }
+
 /* Trader page: three columns on wide screens, profile + main with the copy
    panel under the profile on laptops, one column on phones. */
 .trader-grid {

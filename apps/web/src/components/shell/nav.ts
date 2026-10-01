@@ -1,8 +1,10 @@
 import {
   Briefcase,
+  ChartPie,
   ChartSpline,
   Compass,
   House,
+  Search,
   ShieldCheck,
   Star,
   type LucideIcon,
@@ -14,23 +16,26 @@ export interface NavItem {
   href: string;
   label: MessageKey;
   icon: LucideIcon;
+  /** CopyDog fills the active icon (house, star, pie); outline ones stay. */
+  fillable?: boolean;
 }
 
 /** Left rail / bottom tabs (Stage 2 §6). */
 export const primaryNav: NavItem[] = [
-  { href: "/", label: "nav.home", icon: House },
+  { href: "/", label: "nav.home", icon: House, fillable: true },
   { href: "/explore", label: "nav.explore", icon: Compass },
   { href: "/portfolio", label: "nav.portfolio", icon: Briefcase },
-  { href: "/favorites", label: "nav.favorites", icon: Star },
+  { href: "/favorites", label: "nav.favorites", icon: Star, fillable: true },
   { href: "/insights", label: "nav.insights", icon: ChartSpline },
 ];
 
-/** Phones: CopyDog's four bottom tabs (洞察 stays on the desktop rail). */
+/** Phones: CopyDog's four bottom tabs (洞察 stays on the desktop rail),
+ * with its app icons: search for 探索 and a pie for 投資組合. */
 export const mobileNav: NavItem[] = [
-  { href: "/", label: "nav.home", icon: House },
-  { href: "/explore", label: "nav.explore", icon: Compass },
-  { href: "/favorites", label: "nav.favorites", icon: Star },
-  { href: "/portfolio", label: "nav.portfolio", icon: Briefcase },
+  { href: "/", label: "nav.home", icon: House, fillable: true },
+  { href: "/explore", label: "nav.explore", icon: Search },
+  { href: "/favorites", label: "nav.favorites", icon: Star, fillable: true },
+  { href: "/portfolio", label: "nav.portfolio", icon: ChartPie, fillable: true },
 ];
 
 export const adminNav: NavItem = { href: "/admin", label: "nav.admin", icon: ShieldCheck };

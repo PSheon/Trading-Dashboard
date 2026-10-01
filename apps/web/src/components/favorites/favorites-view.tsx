@@ -79,23 +79,23 @@ function SignedOut() {
   const PhoneIcon = phoneTab === "saved" ? Star : Bell;
   return (
     <>
-      <div className="hidden min-h-[60vh] flex-col items-center gap-4 px-4 pt-28 text-center md:flex">
-        <Bookmark className="size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-        <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("favorites.signInTitle")}</h1>
+      <div className="hidden min-h-[60vh] flex-col items-center gap-3 px-4 pt-[88px] text-center md:flex">
+        <Bookmark className="mb-1 size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
+        <h1 className="text-[28px] leading-[42px] font-semibold">{t("favorites.signInTitle")}</h1>
         <p className="text-muted-foreground">{t("favorites.signInBody")}</p>
         <button
           type="button"
           onClick={login}
           disabled={disabled}
           title={disabled ? t("topbar.loginUnavailable") : undefined}
-          className="mt-5 h-14 w-[200px] rounded-full bg-primary text-base font-bold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="mt-5 h-14 w-[200px] rounded-full bg-primary text-base font-semibold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           {t("common.signIn")}
         </button>
       </div>
       <div className="md:hidden">
-        <div className="flex items-center justify-between">
-          <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("favorites.title")}</h1>
+        <div className="-mt-[7px] flex items-center justify-between">
+          <h1 className="text-[28px] leading-[1.15] font-bold tracking-[-0.5px]">{t("favorites.title")}</h1>
           <div role="tablist" aria-label={t("favorites.title")} className="flex rounded-full bg-raised p-1">
             {(["saved", "alerts"] as const).map((key) => {
               const Icon = key === "saved" ? Star : Bell;
@@ -115,15 +115,15 @@ function SignedOut() {
             })}
           </div>
         </div>
-        <div className="flex flex-col items-center gap-2 pt-16 text-center">
+        <div className="flex flex-col items-center gap-2 pt-[57px] text-center">
           <PhoneIcon className="size-10 text-muted-foreground" strokeWidth={1.5} aria-hidden />
-          <p className="mt-2 text-base font-bold">{t(phoneTab === "saved" ? "favorites.phoneSavedTitle" : "favorites.phoneAlertsTitle")}</p>
+          <p className="mt-2 text-base font-semibold">{t(phoneTab === "saved" ? "favorites.phoneSavedTitle" : "favorites.phoneAlertsTitle")}</p>
           <p className="text-sm text-muted-foreground">{t(phoneTab === "saved" ? "favorites.phoneSavedBody" : "favorites.phoneAlertsBody")}</p>
           <button
             type="button"
             onClick={login}
             disabled={disabled}
-            className="mt-4 h-12 rounded-full bg-primary px-5 text-base font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className="mt-4 h-12 rounded-full bg-primary px-5 text-base font-semibold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {t("common.signIn")}
           </button>

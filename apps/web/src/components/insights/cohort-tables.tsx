@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -38,12 +37,10 @@ function useSort<T, K extends string>(rows: T[], keys: Record<K, (row: T) => num
 
 function Th<K extends string>({ label, col, sort, align = "right" }: { label: string; col: K; sort: { key: K; dir: Dir; onSort: (k: K) => void }; align?: "left" | "right" }) {
   const active = sort.key === col;
-  const Icon = sort.dir === "desc" ? ChevronDown : ChevronUp;
   return (
     <th className={cn("px-3 py-3 text-[0.8125rem] font-medium whitespace-nowrap text-subtle-foreground", align === "left" ? "text-left" : "text-right")} aria-sort={active ? (sort.dir === "desc" ? "descending" : "ascending") : undefined}>
       <button type="button" onClick={() => sort.onSort(col)} className={cn("inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", active && "font-bold text-foreground")}>
         {label}
-        {active ? <Icon className="size-3" /> : null}
       </button>
     </th>
   );
@@ -78,7 +75,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   return (
     <div className="max-h-[640px] overflow-auto">
-      <table className="w-full min-w-[1080px] border-collapse text-sm">
+      <table className="cd-cohort-table cd-cohort-wallets w-full border-collapse">
         <thead className="sticky top-0 z-10 border-b border-border bg-card">
           <tr>
             <Th label={c("address")} col="address" sort={sort} align="left" />
@@ -158,7 +155,7 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   const share = (part: number, whole: number) => (whole > 0 ? Math.round((100 * part) / whole) : 0);
   return (
     <div className="max-h-[640px] overflow-auto">
-      <table className="w-full min-w-[1080px] border-collapse text-sm">
+      <table className="cd-cohort-table w-full min-w-[1080px] border-collapse">
         <thead className="sticky top-0 z-10 border-b border-border bg-card">
           <tr>
             <Th label={c("market")} col="coin" sort={sort} align="left" />

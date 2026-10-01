@@ -95,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <nav
         aria-label={t("nav.primary")}
-        className="fixed top-[81px] bottom-0 left-0 z-30 hidden w-[76px] flex-col items-center gap-1 border-r border-border bg-background py-3 md:flex"
+        className="fixed top-[81px] bottom-0 left-0 z-30 hidden w-[76px] flex-col items-center gap-0.5 border-r border-border bg-background px-2 pt-3 pb-4 md:flex"
       >
         {primaryNav.map((item) => (
           <RailLink key={item.href} item={item} active={isActive(pathname, item.href)} />
@@ -139,7 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav
         aria-label={t("nav.primary")}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-30 grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden",
+          "fixed inset-x-0 bottom-0 z-30 h-[calc(56px+env(safe-area-inset-bottom))] grid-cols-4 border-t-[0.5px] border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden",
           traderPage || barePhonePage || chrome === "marketing" ? "hidden" : "grid",
         )}
       >
@@ -155,20 +155,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function RailLink({ item, active }: { item: NavItem; active: boolean }) {
   const t = useT();
   const Icon = item.icon;
+  // CopyDog's .hl-siderail__item: 12px radius, 11px × 2px padding, 21px
+  // icon, 10px / 600 label; active is the raised fill in white.
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group flex w-[62px] flex-col items-center gap-1 rounded-2xl py-2.5 text-[0.6875rem] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-        active ? "bg-raised text-foreground" : "text-muted-foreground hover:bg-raised/60 hover:text-foreground",
+        "group flex w-[60px] flex-col items-center gap-[5px] rounded-[12px] px-0.5 py-[11px] text-[10px] leading-[15px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+        active ? "bg-raised text-foreground hover:bg-raised-hover" : "text-muted-foreground hover:bg-raised hover:text-foreground",
       )}
     >
-      <Icon
-        className={cn("size-[22px] transition-colors", active ? "text-primary" : "")}
-        strokeWidth={active ? 2.25 : 1.75}
-      />
-      <span className="leading-tight">{t(item.label)}</span>
+      <Icon className="size-[21px]" strokeWidth={active ? 2 : 1.75} fill={active && item.fillable ? "currentColor" : "none"} />
+      <span className="whitespace-nowrap">{t(item.label)}</span>
     </Link>
   );
 }
@@ -176,17 +175,19 @@ function RailLink({ item, active }: { item: NavItem; active: boolean }) {
 function TabLink({ item, active }: { item: NavItem; active: boolean }) {
   const t = useT();
   const Icon = item.icon;
+  // CopyDog's .hl-bottomnav__item: 24px icons, 10px labels; the active tab
+  // in the brand colour; house, star and pie are always solid there.
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-[60px] flex-col items-center justify-center gap-1 text-[0.6875rem] font-medium",
-        active ? "text-foreground" : "text-muted-foreground",
+        "flex min-h-11 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[10px] leading-none transition-colors",
+        active ? "font-semibold text-primary" : "font-medium text-muted-foreground hover:text-foreground",
       )}
     >
-      <Icon className={cn("size-[22px]", active ? "text-primary" : "")} strokeWidth={active ? 2.25 : 1.75} />
-      {t(item.label)}
+      <Icon className="size-6" strokeWidth={active ? 2 : 1.75} fill={item.fillable ? "currentColor" : "none"} />
+      <span className="max-w-full truncate">{t(item.label)}</span>
     </Link>
   );
 }

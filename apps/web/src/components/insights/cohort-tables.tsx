@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
@@ -70,6 +71,7 @@ const WALLET_KEYS: Record<WalletKey, (w: CohortWallet) => number | string> = {
 /** 錢包: CopyDog's wallet columns, perp equity first by default. */
 export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   const { t } = useI18n();
+  const router = useRouter();
   const sort = useSort<CohortWallet, WalletKey>(rows, WALLET_KEYS, "perpEquity");
   if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t("insights.cohort.tableEmpty")}</p>;
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
@@ -92,7 +94,15 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
         </thead>
         <tbody>
           {sort.sorted.map((w) => (
-            <tr key={w.address} className="border-b border-border transition-colors last:border-0 hover:bg-raised/50">
+            <tr
+              key={w.address}
+              // CopyDog's wallet rows open the trader (the name stays a link).
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest("a")) return;
+                router.push(`/trader/${w.address}`);
+              }}
+              className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-raised/50"
+            >
               <td className="px-3 py-3">
                 <Link href={`/trader/${w.address}`} className="flex min-w-0 items-center gap-2 rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
                   <TraderAvatar trader={w} size={22} />

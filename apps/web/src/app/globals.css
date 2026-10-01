@@ -144,6 +144,28 @@
     background: var(--primary);
     color: var(--primary-foreground);
   }
+  /* Tailwind v4's preflight leaves buttons with the arrow cursor; CopyDog
+     (and the browser default for links) shows the hand on everything that
+     acts on click, and not-allowed on disabled controls. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  [role="radio"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  a[href],
+  summary,
+  label[for],
+  select:not(:disabled),
+  input[type="range"]:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"],
+  input[type="range"]:disabled {
+    cursor: not-allowed;
+  }
   /* Thin, dark scrollbars everywhere. */
   * {
     scrollbar-width: thin;

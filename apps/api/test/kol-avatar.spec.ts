@@ -5,7 +5,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminKolController, KolAvatarController } from "../src/discovery/discovery.controller.js";
-import { allowedImageUrl, avatarSource, kolAvatarPath, sniffImageType } from "../src/discovery/kol-avatar.js";
+import { allowedImageUrl, avatarSource, isPublicAddress, kolAvatarPath, sniffImageType } from "../src/discovery/kol-avatar.js";
 import { KolAvatarRepository } from "../src/discovery/kol-avatar.repository.js";
 import { KolAvatarService, nextDue, retryDelayMs } from "../src/discovery/kol-avatar.service.js";
 import { KolRepository } from "../src/discovery/kol.repository.js";
@@ -33,6 +33,15 @@ describe("KOL avatar rules", () => {
     for (const bad of ["http://example.com/a.png", "https://127.0.0.1/a.png", "https://localhost/a", "https://[::1]/a", "https://api.copydog.xyz/x", "https://example.com:8443/a"]) {
       expect(allowedImageUrl(bad), bad).toBe(false);
     }
+  });
+
+  it("treats only public internet addresses as fetchable", () => {
+    for (const ok of ["93.184.216.34", "104.18.24.69", "2606:4700::6812:1845"]) expect(isPublicAddress(ok), ok).toBe(true);
+    for (const bad of [
+      "127.0.0.1", "10.1.2.3", "172.16.0.9", "172.31.255.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1",
+      "::1", "::", "fd12:3456::1", "fe80::1", "ff02::1", "::ffff:10.0.0.1", "::ffff:127.0.0.1", "64:ff9b::a00:1", "not-an-ip",
+    ]) expect(isPublicAddress(bad), bad).toBe(false);
+    expect(isPublicAddress("::ffff:93.184.216.34")).toBe(true);
   });
 
   it("recognises images by their bytes, never SVG", () => {
@@ -77,6 +86,45 @@ describe("KOL avatar cache (db)", () => {
     service = new KolAvatarService(config, repository);
     fetcher = vi.fn();
     service.fetchImpl = fetcher as unknown as typeof fetch;
+    service.resolveHost = async () => ["93.184.216.34"];
+  });
+
+  describe("fetch safety (the worker runs inside the private network)", () => {
+    const redirect = (location: string, status = 302) => new Response(null, { status, headers: { location } });
+
+    it("follows a public redirect by hand and stores the image", async () => {
+      fetcher.mockResolvedValueOnce(redirect("https://cdn.example.com/a.jpg")).mockResolvedValueOnce(image(JPEG));
+      expect(await service.fetchImage("https://example.com/a")).toMatchObject({ kind: "image" });
+      expect(fetcher.mock.calls.map((c) => c[0])).toEqual(["https://example.com/a", "https://cdn.example.com/a.jpg"]);
+      expect(fetcher.mock.calls.every((c) => (c[1] as RequestInit).redirect === "manual")).toBe(true);
+    });
+
+    it("refuses a redirect to an internal host, plain http, a port or an IP literal without requesting it", async () => {
+      for (const target of ["http://worker.railway.internal:3000/health", "https://worker.railway.internal/x", "https://10.0.0.5/x", "http://example.com/a.jpg", "https://example.com:8443/a.jpg", "https://localhost/a"]) {
+        fetcher.mockReset();
+        fetcher.mockResolvedValueOnce(redirect(target));
+        expect(await service.fetchImage("https://example.com/a"), target).toEqual({ kind: "error", message: "blocked url" });
+        expect(fetcher).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it("refuses a public name that resolves to a private address, on the first hop and after a redirect", async () => {
+      service.resolveHost = async (host) => (host === "rebind.example.com" ? ["93.184.216.34", "10.0.0.7"] : ["93.184.216.34"]);
+      expect(await service.fetchImage("https://rebind.example.com/a.jpg")).toEqual({ kind: "error", message: "blocked address" });
+      expect(fetcher).not.toHaveBeenCalled();
+      fetcher.mockResolvedValueOnce(redirect("https://rebind.example.com/a.jpg"));
+      expect(await service.fetchImage("https://example.com/a")).toEqual({ kind: "error", message: "blocked address" });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a host that doesn't resolve, and stops after three redirects", async () => {
+      service.resolveHost = async () => { throw new Error("ENOTFOUND"); };
+      expect(await service.fetchImage("https://gone.example.com/a.jpg")).toEqual({ kind: "error", message: "host did not resolve" });
+      service.resolveHost = async () => ["93.184.216.34"];
+      fetcher.mockImplementation(async () => redirect("https://example.com/next"));
+      expect(await service.fetchImage("https://example.com/a")).toEqual({ kind: "error", message: "too many redirects" });
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    });
   });
   afterAll(async () => {
     await closeTestDb();

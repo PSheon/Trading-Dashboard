@@ -42,6 +42,34 @@ export function allowedImageUrl(raw: string): boolean {
   return host.includes(".");
 }
 
+/**
+ * Whether a resolved address is on the public internet. The avatar fetch runs
+ * inside the deployment's private network, so loopback, private, link-local,
+ * CGNAT, multicast and reserved ranges are refused (IPv4, IPv6 and
+ * IPv4-mapped IPv6).
+ */
+export function isPublicAddress(address: string): boolean {
+  const ip = address.toLowerCase();
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+  const v4 = mapped ? mapped[1]! : /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip) ? ip : null;
+  if (v4) {
+    const [a, b] = v4.split(".").map(Number) as [number, number, number, number];
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT
+    if (a === 169 && b === 254) return false; // link-local, cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && (b === 168 || b === 0)) return false;
+    if (a === 198 && (b === 18 || b === 19)) return false;
+    return true;
+  }
+  if (!ip.includes(":")) return false;
+  if (ip === "::" || ip === "::1") return false;
+  // Unique local fc00::/7, link-local fe80::/10, multicast ff00::/8,
+  // IPv4-compatible and NAT64 forms that embed an address.
+  if (/^f[cd]/.test(ip) || /^fe[89ab]/.test(ip) || ip.startsWith("ff") || ip.startsWith("::") || ip.startsWith("64:ff9b:")) return false;
+  return true;
+}
+
 /** The image type from its first bytes; null for anything else (SVG
  * included: it can carry script). */
 export function sniffImageType(bytes: Uint8Array): AvatarImageType | null {

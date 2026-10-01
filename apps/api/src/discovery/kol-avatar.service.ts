@@ -1,8 +1,10 @@
+import { lookup } from "node:dns/promises";
+
 import { Injectable, Logger, Optional } from "@nestjs/common";
 
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { AVATAR_MAX_BYTES, AVATAR_REFRESH_MS, avatarEtag, avatarSource, sniffImageType } from "./kol-avatar.js";
+import { AVATAR_MAX_BYTES, AVATAR_REFRESH_MS, allowedImageUrl, avatarEtag, avatarSource, isPublicAddress, sniffImageType } from "./kol-avatar.js";
 import { KolAvatarRepository, type AvatarCandidate, type StoredAvatar } from "./kol-avatar.repository.js";
 
 /** Where an 𝕏 profile picture comes from. unavatar.io is the primary; its
@@ -20,6 +22,8 @@ type Fetched =
 /** Clamp of a 429's pause: at least 5 min, at most a day. */
 const MIN_PAUSE_MS = 5 * 60_000;
 const MAX_PAUSE_MS = 24 * 3_600_000;
+/** Redirects followed for one image before giving up. */
+const MAX_REDIRECTS = 3;
 /** A missing picture is looked for again a day later … */
 const NOT_FOUND_RETRY_MS = 24 * 3_600_000;
 /** … a failure after 15 min, doubling, at most a day. */
@@ -73,6 +77,20 @@ export class KolAvatarService {
   private readonly backoff = new Map<AvatarProvider, number>();
   /** Settable for tests. */
   fetchImpl: typeof fetch = (input, init) => fetch(input, init);
+  /** Every address a host name resolves to (replaceable in tests). */
+  resolveHost: (host: string) => Promise<string[]> = async (host) => (await lookup(host, { all: true })).map((entry) => entry.address);
+
+  /** Why a URL may not be fetched, or null when it may. */
+  private async blockedReason(raw: string): Promise<string | null> {
+    if (!allowedImageUrl(raw)) return "blocked url";
+    let addresses: string[];
+    try {
+      addresses = await this.resolveHost(new URL(raw).hostname);
+    } catch {
+      return "host did not resolve";
+    }
+    return addresses.length > 0 && addresses.every(isPublicAddress) ? null : "blocked address";
+  }
   timeoutMs = 10_000;
 
   constructor(
@@ -194,20 +212,42 @@ export class KolAvatarService {
   }
 
   /**
-   * GETs an image: follows redirects, stops reading past the size cap, and
-   * accepts only bytes that are PNG, JPEG, GIF or WebP. `provider` names
-   * whose 429 it is; without one a 429 is an ordinary failure.
+   * GETs an image: stops reading past the size cap and accepts only bytes
+   * that are PNG, JPEG, GIF or WebP. `provider` names whose 429 it is;
+   * without one a 429 is an ordinary failure.
+   *
+   * The fetch runs inside the private network on a stored URL, so every hop
+   * is checked before it is requested: redirects are followed by hand (at
+   * most {@link MAX_REDIRECTS}), each URL must pass `allowedImageUrl`, and
+   * its host must resolve only to public addresses. The check and the
+   * connection resolve the name separately; a name that changes its answer
+   * between the two is not covered here.
    */
   async fetchImage(url: string, provider?: AvatarProvider): Promise<Fetched> {
     let response: Response;
-    try {
-      response = await this.fetchImpl(url, {
-        headers: { Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9", "User-Agent": USER_AGENT },
-        redirect: "follow",
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (error) {
-      return { kind: "error", message: (error as Error).message };
+    let current = url;
+    for (let hop = 0; ; hop++) {
+      const blocked = await this.blockedReason(current);
+      if (blocked) return { kind: "error", message: blocked };
+      try {
+        response = await this.fetchImpl(current, {
+          headers: { Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9", "User-Agent": USER_AGENT },
+          redirect: "manual",
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (error) {
+        return { kind: "error", message: (error as Error).message };
+      }
+      if (response.status < 300 || response.status >= 400 || response.status === 304) break;
+      const location = response.headers.get("location");
+      await response.body?.cancel().catch(() => undefined);
+      if (!location) return { kind: "error", message: `HTTP ${response.status} without a location` };
+      if (hop >= MAX_REDIRECTS) return { kind: "error", message: "too many redirects" };
+      try {
+        current = new URL(location, current).toString();
+      } catch {
+        return { kind: "error", message: "invalid redirect" };
+      }
     }
     if (response.status === 429 && provider) return this.limited(provider, response);
     if (response.status === 404 || response.status === 410) {

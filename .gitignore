@@ -31,6 +31,7 @@ pnpm-debug.log*
 
 # agent worktrees
 .claude/worktrees/
+.claude/logs/
 
 # Automated browser test artifacts
 .next-e2e/

@@ -156,11 +156,15 @@ export function FavoriteButton({
   favorite,
   className,
   size = "md",
+  solid = false,
 }: {
   address: string;
   favorite: boolean;
   className?: string;
   size?: "sm" | "md";
+  /** CopyDog's trader header: a 30px square button whose star is always
+   * filled, grey until tracked and then its warning yellow. */
+  solid?: boolean;
 }) {
   const { t } = useI18n();
   const { toggle, pending, needsLogin } = useToggleFavorite();
@@ -180,12 +184,12 @@ export function FavoriteButton({
       }}
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
-        size === "sm" ? "size-7" : "size-9",
-        favorite ? "text-primary" : "text-subtle-foreground hover:text-foreground",
+        solid ? "size-[30px] rounded-md" : size === "sm" ? "size-7" : "size-9",
+        favorite ? (solid ? "text-warning" : "text-primary") : solid ? "text-muted-foreground hover:text-foreground" : "text-subtle-foreground hover:text-foreground",
         className,
       )}
     >
-      <Star className={size === "sm" ? "size-4" : "size-[18px]"} fill={favorite ? "currentColor" : "none"} />
+      <Star className={solid ? "size-[15px]" : size === "sm" ? "size-4" : "size-[18px]"} fill={favorite || solid ? "currentColor" : "none"} />
     </button>
   );
 }

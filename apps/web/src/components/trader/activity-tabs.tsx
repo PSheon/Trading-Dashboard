@@ -69,12 +69,12 @@ export function ActivityTabs({
   const exportable = tab === "fills" ? fillRows : undefined;
 
   return (
-    <section className="rounded-[12px] border border-border bg-card">
+    <section className="cd-tables overflow-hidden rounded-[12px] border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-3">
         <div role="tablist" aria-label={t("trader.tabsLabel")} className="flex min-w-0 items-center overflow-x-auto no-scrollbar">
           {TAB_GROUPS.map((group, g) => (
             <Fragment key={g}>
-              {g > 0 ? <span aria-hidden className="mx-1.5 h-3.5 w-px shrink-0 bg-border-strong" /> : null}
+              {g > 0 ? <span aria-hidden className="mr-4 h-3.5 w-px shrink-0 bg-border-strong" /> : null}
               {group.map((id) => (
                 <button
                   key={id}
@@ -87,12 +87,11 @@ export function ActivityTabs({
                   aria-selected={tab === id}
                   onClick={() => setTab(id)}
                   className={cn(
-                    "relative shrink-0 px-2.5 py-3.5 text-[0.8125rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    tab === id ? "text-foreground" : "text-subtle-foreground hover:text-muted-foreground",
+                    "mr-[22px] shrink-0 border-b-2 px-0.5 py-3 font-mono text-xs leading-[18px] font-semibold tracking-[0.4px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    tab === id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {t(`trader.tabs.${id}`)}
-                  {tab === id ? <span className="absolute inset-x-2.5 bottom-0 h-0.5 rounded-full bg-primary" /> : null}
                 </button>
               ))}
             </Fragment>
@@ -119,8 +118,8 @@ export function ActivityTabs({
               aria-label={feedOpen ? t("trader.activity.hide") : t("trader.activity.pulse")}
               title={feedOpen ? t("trader.activity.hide") : t("trader.activity.pulse")}
               className={cn(
-                "hidden size-8 items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex",
-                feedOpen ? "bg-primary-soft text-primary" : "text-muted-foreground hover:bg-raised hover:text-foreground",
+                "hidden size-7 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex",
+                feedOpen ? "text-primary" : "text-muted-foreground hover:bg-raised hover:text-foreground",
               )}
             >
               <Activity className="size-4" />
@@ -129,7 +128,7 @@ export function ActivityTabs({
         </div>
       </div>
 
-      <div role="tabpanel" id={panelId} aria-labelledby={`${panelId}-${tab}`} tabIndex={0} className="min-h-[180px]">
+      <div role="tabpanel" id={panelId} aria-labelledby={`${panelId}-${tab}`} tabIndex={0}>
         {tab === "positions" ? <PositionsTab profile={profile} marks={marks} /> : null}
         {tab === "performance" ? (
           <PerformanceTab

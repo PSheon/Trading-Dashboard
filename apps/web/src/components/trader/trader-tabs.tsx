@@ -100,9 +100,9 @@ function LiqCell({ p, mark }: { p: LivePosition; mark: number | null }) {
   if (!d || p.liqPx === null) return <span className="text-subtle-foreground">—</span>;
   const label = d.pct >= 100 ? ">100%" : `${d.pct.toFixed(d.pct < 10 ? 2 : 1)}%`;
   return (
-    <span className="inline-flex items-center gap-1.5" title={t("trader.liqTip", { pct: d.pct >= 100 ? ">100" : d.pct.toFixed(2) })}>
+    <span className="inline-flex items-center gap-[7px] leading-tight" title={t("trader.liqTip", { pct: d.pct >= 100 ? ">100" : d.pct.toFixed(2) })}>
       {price(p.liqPx)}
-      <span className={cn("rounded px-1 py-px text-[10px] font-semibold", LIQ_TONE[d.tone])}>{label}</span>
+      <span className={cn("rounded-md px-[7px] py-0.5 text-xs font-semibold", LIQ_TONE[d.tone])}>{label}</span>
     </span>
   );
 }
@@ -114,7 +114,7 @@ function LeverageChip({ p }: { p: LivePosition }) {
   if (!p.leverage) return null;
   const side = t(p.side === "long" ? "trader.sideLong" : "trader.sideShort");
   return (
-    <span title={side} className={cn("rounded px-1 py-px text-[10px] font-bold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
+    <span title={side} className={cn("inline-flex items-center rounded-md px-1 py-px text-xs leading-[18px] font-bold", p.side === "long" ? BUY_BADGE : SELL_BADGE)}>
       {Math.round(p.leverage)}×<span className="sr-only"> {side}</span>
     </span>
   );
@@ -133,7 +133,7 @@ function SharePosition({ p, mark }: { p: LivePosition; mark: number | null }) {
       onClick={() => copy(`${positionLine(p, mark)}\n${window.location.href}`)}
       aria-label={done ? t("trader.shareCopied") : t("trader.sharePosition")}
       title={done ? t("trader.shareCopied") : t("trader.sharePosition")}
-      className="ml-1.5 inline-flex size-5 items-center justify-center rounded align-middle text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      className="ml-2 inline-flex size-5 items-center justify-center rounded-md align-middle text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
     >
       {done ? <Check className="size-3 text-positive" /> : <Share2 className="size-3" />}
     </button>
@@ -256,7 +256,7 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
                   <TableCell className="text-right" data-testid="mark">{price(mark)}</TableCell>
                   <TableCell className={cn("text-right whitespace-nowrap", pnlTone(p.unrealizedPnl))}>
                     {signedUsd2(p.unrealizedPnl)}
-                    {pct !== null ? <span className="text-[11px] opacity-80"> ({signedPct2(pct)})</span> : null}
+                    {pct !== null ? <span> ({signedPct2(pct)})</span> : null}
                     <SharePosition p={p} mark={mark} />
                   </TableCell>
                   <TableCell className="text-right">

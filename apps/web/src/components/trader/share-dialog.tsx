@@ -206,7 +206,7 @@ export function ShareButton({ address, name, className, iconClassName }: { addre
         aria-label={t("trader.share.title")}
         title={t("trader.share.title")}
         aria-haspopup="dialog"
-        className={cn("inline-flex items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
+        className={cn("inline-flex shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
       >
         <Share2 className={iconClassName} />
       </button>

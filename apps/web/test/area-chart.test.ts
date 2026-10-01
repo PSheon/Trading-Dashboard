@@ -14,6 +14,10 @@ describe("area chart", () => {
     expect(r(stepTicks(-37_500, 341_300))).toEqual([-37_500, 57_500, 152_500, 341_300]);
     expect(r(stepTicks(0, 300_100))).toEqual([0, 80_000, 160_000, 300_100]);
     expect(r(stepTicks(-39.5, 14.4))).toEqual([-39.5, -24.5, -9.5, 14.4]);
+    // Recharts keeps a step that is at least 0.99 of a step below the high.
+    expect(r(stepTicks(-37_500, 342_100))).toEqual([-37_500, 57_500, 152_500, 247_500, 342_100]);
+    // Below 10 the steps are whole units.
+    expect(r(stepTicks(0, 29))).toEqual([0, 8, 16, 29]);
   });
 
   it("draws a smooth curve that passes through every point", () => {

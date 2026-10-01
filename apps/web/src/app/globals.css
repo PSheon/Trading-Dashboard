@@ -166,6 +166,37 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* CopyDog's .hl-label / .hl-row__k: small mono caps (11px, 0.4px). */
+  .cd-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 14px;
+    font-weight: 500;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  /* CopyDog's .hl-row__v: 13px/20px, weight 440. */
+  .cd-value {
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 440;
+    letter-spacing: 0.156px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* CopyDog's .hl-pos__bar / .hd-bar: an 8px squared meter with a faint rim. */
+  .cd-bar {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 2px;
+    border: 1px solid rgb(255 255 255 / 6%);
+    background-color: var(--raised);
+    display: flex;
+  }
+  .cd-bar > * {
+    height: 100%;
+    border-radius: 2px;
+    border: 1px solid rgb(255 255 255 / 28%);
+  }
 }
 
 /* Tables scroll sideways inside their card, with a thin visible bar. */
@@ -193,11 +224,56 @@
   font-size: 11px;
 }
 
+/* CopyDog's .hd-section--tabs .data-table: mono caps headers (11px, the
+   sorted one bold), 13px cells in 44px rows, 6px gutters and 12px at the
+   row ends. Unlayered, so it wins over the cells' utility classes. */
+.cd-tables table {
+  font-size: 13px;
+}
+.cd-tables th {
+  height: auto;
+  padding: 11px 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.cd-tables th button {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.cd-tables th[aria-sort="ascending"],
+.cd-tables th[aria-sort="descending"] {
+  font-weight: 700;
+  color: var(--foreground);
+}
+.cd-tables td {
+  height: auto;
+  padding: 11px 6px;
+  font-size: 13px;
+  line-height: 21.5px;
+}
+.cd-tables th:first-child,
+.cd-tables td:first-child {
+  padding-left: 12px;
+}
+.cd-tables th:last-child,
+.cd-tables td:last-child {
+  padding-right: 12px;
+}
+.cd-tables tbody tr {
+  border-bottom-width: 0.5px;
+}
+
 /* Trader page: three columns on wide screens, profile + main with the copy
    panel under the profile on laptops, one column on phones. */
 .trader-grid {
   display: grid;
-  gap: 0.625rem; /* CopyDog's 10 px */
+  gap: 0.5rem; /* CopyDog's 8 px between its three columns */
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "profile" "main" "copy";
 }
@@ -227,46 +303,57 @@
 }
 @media (min-width: 1280px) {
   .trader-grid {
-    grid-template-columns: 276px minmax(0, 1fr) 340px; /* CopyDog's widths at 1440: 275 | 713 | 340 */
+    grid-template-columns: 276px minmax(0, 1fr) 340px; /* CopyDog's widths at 1440: 276 | 716 | 340 */
     grid-template-rows: auto;
     grid-template-areas: "profile main copy";
   }
 }
 
-/* Range input styled as a thin track with a ring thumb (copy panel). */
+/* CopyDog's .hl-amt__slider: a 6px track in a 16px input, with a ring thumb. */
 .range-accent {
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
-  border-radius: 999px;
-  background: linear-gradient(
-    to right,
-    var(--primary) 0%,
-    var(--primary) var(--fill, 0%),
-    var(--border-strong) var(--fill, 0%),
-    var(--border-strong) 100%
-  );
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
   outline: none;
+}
+.range-accent:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.range-accent::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--primary) var(--fill, 0%), var(--border) var(--fill, 0%));
 }
 .range-accent::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 16px;
   height: 16px;
-  border-radius: 999px;
+  margin-top: -5px;
+  border-radius: 50%;
   background: var(--background);
   border: 2px solid var(--primary);
   cursor: pointer;
+}
+.range-accent::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+}
+.range-accent::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--primary);
 }
 .range-accent::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
   background: var(--background);
   border: 2px solid var(--primary);
   cursor: pointer;
-}
-.range-accent:disabled::-webkit-slider-thumb {
-  cursor: not-allowed;
 }
 
 /* A feed row that just arrived over the live stream. */

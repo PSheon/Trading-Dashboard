@@ -2,7 +2,7 @@
 
 import { ArrowDownRight, ArrowUpRight, Check, ChevronDown, Delete, TriangleAlert } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { PaperBadge } from "@/components/copy/paper-badge";
@@ -18,6 +18,10 @@ type Direction = "same" | "reverse";
 /** CopyDog's Hyperliquid floor (`Minimum ${min} to copy`); the api's policy wins once loaded. */
 const DEFAULT_MIN = 100;
 const KEYPAD = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["00", "0", "del"]] as const;
+/** CopyDog's amount type: 64px, shrinking to 28px as the amount grows. */
+const AMOUNT_MAX_PX = 64;
+const AMOUNT_MIN_PX = 28;
+let measureContext: CanvasRenderingContext2D | null = null;
 
 /**
  * CopyDog's copy widget for a Hyperliquid trader, in paper mode:
@@ -56,6 +60,32 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   // CopyDog shrinks the amount to keep "<amount> USDC" on one line.
   const digits = Math.max(1, amount.length);
   const fit = digits <= 4 ? { number: 3.25, unit: 2.25 } : digits <= 5 ? { number: 2.75, unit: 1.9 } : digits <= 7 ? { number: 2.25, unit: 1.6 } : { number: 1.75, unit: 1.25 };
+  // Desktop: CopyDog's own fit, 64px down to 28px so that the amount, its
+  // unit and 最大 share the row.
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const [amountPx, setAmountPx] = useState(AMOUNT_MAX_PX);
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    const measure = () => {
+      const input = field.querySelector<HTMLInputElement>("input");
+      const max = field.querySelector<HTMLButtonElement>("button");
+      if (!input) return;
+      const gap = Number.parseFloat(getComputedStyle(field).columnGap) || 0;
+      const room = field.clientWidth - ((max ? max.offsetWidth + gap : 0) + gap);
+      if (room <= 0) return;
+      measureContext ??= document.createElement("canvas").getContext("2d");
+      if (!measureContext) return;
+      measureContext.font = `700 ${AMOUNT_MAX_PX}px ${getComputedStyle(input).fontFamily}`;
+      const width = measureContext.measureText(`${amount || "0"}USDC`).width;
+      setAmountPx(Math.max(AMOUNT_MIN_PX, Math.min(AMOUNT_MAX_PX, Math.floor((AMOUNT_MAX_PX * (room * 0.98)) / Math.max(width, 1)))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(field);
+    void document.fonts?.ready?.then(measure);
+    return () => observer.disconnect();
+  }, [amount]);
 
   const label =
     !amount || !(value > 0) ? t("trader.copy.enterAmount") :
@@ -100,7 +130,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   }
 
   const directionPill = (
-    <div role="radiogroup" aria-label={t("trader.copy.amount")} className="grid grid-cols-2 gap-1 rounded-full bg-raised p-1">
+    <div role="radiogroup" aria-label={t("trader.copy.amount")} className="grid grid-cols-2 rounded-full bg-raised">
       {(["same", "reverse"] as const).map((d) => {
         const active = direction === d;
         const Icon = d === "same" ? ArrowUpRight : ArrowDownRight;
@@ -114,13 +144,13 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             onKeyDown={rovingFocus}
             onClick={() => setDirection(d)}
             className={cn(
-              "flex h-12 items-center justify-center gap-1.5 rounded-full text-[0.9375rem] font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              "flex min-h-[52px] items-center justify-center gap-1.5 rounded-full px-4 py-2 text-base leading-6 font-semibold outline-none transition-[color,background-color,opacity] hover:opacity-[0.88] focus-visible:ring-2 focus-visible:ring-ring",
               active && d === "same" && "bg-primary text-primary-foreground",
               active && d === "reverse" && "bg-negative text-white",
-              !active && "text-muted-foreground hover:text-foreground",
+              !active && "text-foreground",
             )}
           >
-            <Icon className="size-4" strokeWidth={2.5} />
+            <Icon className="size-4" strokeWidth={2} />
             {t(d === "same" ? "trader.copy.follow" : "trader.copy.reverse")}
           </button>
         );
@@ -172,37 +202,56 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     <Shell sheet={sheet}>
       {directionPill}
 
-      <div className={cn("flex items-center gap-3", sheet ? "justify-center py-3" : "py-2")}>
-        <label className="sr-only" htmlFor={sheet ? "copy-amount-sheet" : "copy-amount"}>
-          {t("trader.copy.amount")}
-        </label>
-        <div className={cn("flex min-w-0 items-baseline gap-2", !sheet && "flex-1")}>
+      {sheet ? (
+        <div className="flex items-center justify-center gap-3 py-3">
+          <label className="sr-only" htmlFor="copy-amount-sheet">
+            {t("trader.copy.amount")}
+          </label>
+          <div className="flex min-w-0 items-baseline gap-2">
+            <input
+              id="copy-amount-sheet"
+              inputMode="none"
+              readOnly
+              placeholder="0"
+              value={amount}
+              className="num min-w-0 bg-transparent leading-none font-bold tracking-tight outline-none placeholder:text-foreground"
+              style={{ width: `${Math.max(1, (amount || "0").length) + 0.15}ch`, fontSize: `${fit.number}rem` }}
+            />
+            <span className="leading-none font-bold text-muted-foreground" style={{ fontSize: `${fit.unit}rem` }}>USDC</span>
+          </div>
+        </div>
+      ) : (
+        <div ref={fieldRef} className="flex min-w-0 items-baseline gap-2.5 pt-10">
+          <label className="sr-only" htmlFor="copy-amount">
+            {t("trader.copy.amount")}
+          </label>
           <input
-            id={sheet ? "copy-amount-sheet" : "copy-amount"}
-            inputMode={sheet ? "none" : "decimal"}
-            readOnly={sheet}
+            id="copy-amount"
+            inputMode="decimal"
             placeholder="0"
             value={amount}
             onChange={(e) => {
               setError(null);
               setAmount(e.target.value.replace(/[^\d.]/g, "").slice(0, 12));
             }}
-            className="num min-w-0 bg-transparent leading-none font-bold tracking-tight outline-none placeholder:text-foreground"
-            style={{ width: `${Math.max(1, (amount || "0").length) + 0.15}ch`, fontSize: `${fit.number}rem` }}
+            onBlur={() => {
+              // CopyDog clamps to the whole-dollar balance when focus leaves.
+              if (amount && Number.isFinite(value)) setAmount(String(Math.min(Math.floor(value), Math.floor(balance))));
+            }}
+            className="num min-w-[1ch] bg-transparent p-0 leading-none font-bold outline-none placeholder:text-foreground"
+            style={{ width: `${Math.max(1, (amount || "0").length)}ch`, fontSize: amountPx, height: Math.round(amountPx * 1.328) }}
           />
-          <span className="leading-none font-bold text-muted-foreground" style={{ fontSize: `${fit.unit}rem` }}>USDC</span>
-        </div>
-        {!sheet ? (
+          <span className="shrink-0 leading-none font-bold text-muted-foreground" style={{ fontSize: amountPx }}>USDC</span>
           <button
             type="button"
             onClick={() => setFromPct(100)}
             disabled={balance <= 0}
-            className="h-9 shrink-0 rounded-full bg-raised px-3.5 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:hover:text-muted-foreground"
+            className="ml-auto shrink-0 self-center rounded-full bg-raised px-4 py-2 text-[13px] leading-5 font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("trader.copy.max")}
           </button>
-        ) : null}
-      </div>
+        </div>
+      )}
 
       {sheet ? (
         <>
@@ -251,15 +300,15 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
           </div>
         </>
       ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-2 text-[0.8125rem]">
+        <div>
+          <div className="mt-10 flex items-center justify-between gap-3 text-sm leading-[21px]">
             <span className="flex items-center gap-2 text-muted-foreground">
               {t("trader.copy.balance")}
               <PaperBadge />
             </span>
             <span className="num font-semibold">{balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="mt-4 flex items-center gap-3">
             <input
               type="range"
               min={0}
@@ -272,28 +321,25 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
               className="range-accent flex-1"
               style={{ ["--fill" as string]: `${pct}%` }}
             />
-            <span className="num w-10 text-right text-[0.8125rem] font-semibold">{pct}%</span>
+            <span className="num min-w-[3.5ch] shrink-0 text-right text-sm leading-[21px] font-bold">{pct}%</span>
           </div>
         </div>
       )}
 
-      <div>
+      <div className={sheet ? undefined : "mt-7"}>
         <button
           type="button"
           aria-expanded={more}
           aria-controls={sheet ? "copy-more-sheet" : "copy-more"}
           onClick={() => setMore((m) => !m)}
-          className={cn(
-            "flex w-full items-center justify-between rounded-lg py-1 text-[0.8125rem] outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            more ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-          )}
+          className="flex w-full items-center justify-between gap-2 rounded text-xs leading-[18px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("trader.copy.more")}
-          <ChevronDown className={cn("size-4 transition-transform", more && "rotate-180")} />
+          <ChevronDown className={cn("size-3 transition-transform", more && "rotate-180")} />
         </button>
         {more ? (
           <div id={sheet ? "copy-more-sheet" : "copy-more"} className="mt-3 flex items-center justify-between gap-3">
-            <span id="copy-positions" className="text-[0.8125rem] font-semibold" title={t("trader.copy.copyPositionsDesc")}>
+            <span id="copy-positions" className="text-[13px] font-semibold" title={t("trader.copy.copyPositionsDesc")}>
               {t("trader.copy.copyPositions")}
             </span>
             <button
@@ -303,29 +349,29 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
               aria-labelledby="copy-positions"
               onClick={() => setCopyExisting((v) => !v)}
               className={cn(
-                "relative h-6 w-11 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                "relative h-5 w-9 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                 copyExisting ? "bg-primary" : "bg-border-strong",
               )}
             >
-              <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-primary-foreground transition-transform", copyExisting && "translate-x-5")} />
+              <span className={cn("absolute top-0.5 left-0.5 size-4 rounded-full bg-primary-foreground shadow-xs transition-transform", copyExisting && "translate-x-4")} />
             </button>
           </div>
         ) : null}
       </div>
 
       {paused ? (
-        <p className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
+        <p className={cn("flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning", !sheet && "mt-7")}>
           <TriangleAlert className="mt-px size-3.5 shrink-0" />
           {t(overview.data?.platform.pauseNewRisk || overview.data?.platform.reduceOnly ? "trader.copy.platformPaused" : "trader.copy.userPaused")}
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-2.5">
+      <div className={cn("flex flex-col gap-2.5", !sheet && "pt-7")}>
         <button
           type="button"
           onClick={submit}
           disabled={start.isPending || started}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-bold text-primary-foreground outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-80"
+          className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-base font-semibold text-primary-foreground outline-none transition-[opacity,transform] focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-80 md:hover:-translate-y-px md:disabled:translate-y-0"
         >
           {started ? (
             <>
@@ -340,9 +386,9 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
           <p role="alert" className="text-center text-xs font-semibold text-negative">
             {error}
           </p>
-        ) : (
+        ) : sheet ? (
           <p className="text-center text-[11px] leading-relaxed text-subtle-foreground">{t("trader.copy.paperHint")}</p>
-        )}
+        ) : null}
       </div>
     </Shell>
   );
@@ -352,6 +398,6 @@ function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode 
   return sheet ? (
     <div className="flex flex-col gap-4 px-1 pt-9">{children}</div>
   ) : (
-    <aside className="flex flex-col gap-6 rounded-[12px] border border-border bg-card p-4 md:p-5 xl:sticky xl:top-[90px]">{children}</aside>
+    <aside className="flex flex-col rounded-[12px] border border-border bg-card p-[22px] xl:sticky xl:top-[90px]">{children}</aside>
   );
 }

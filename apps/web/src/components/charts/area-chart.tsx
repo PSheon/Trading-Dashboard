@@ -76,18 +76,20 @@ export function spanTicks(min: number, max: number, count = 5): number[] {
   return Array.from({ length: count }, (_, i) => min + ((max - min) * i) / (count - 1));
 }
 
-/** CopyDog's desktop y labels: the low, then steps of about a quarter of the
- * range (rounded up to a multiple of 5 in the second digit: 94.7K → 95K,
- * 75K → 80K), dropping any step closer than one step to the high, then the
- * high ("-$37.5K $57.5K $152.5K $341.3K"). */
+/** CopyDog's desktop y labels are Recharts' fixed-domain ticks
+ * (`getTickValuesFixedDomain`, tickCount 5): the low, then steps of a
+ * quarter of the range rounded up to 0.05 of its order of magnitude (94.7K →
+ * 95K, 75K → 80K; whole units below 10), stopping 0.99 of a step short of the
+ * high, then the high ("-$37.5K $57.5K $152.5K $247.5K $342.1K"). */
 export function stepTicks(min: number, max: number): number[] {
   if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
   if (max <= min) return [min];
   const raw = (max - min) / 4;
-  const unit = 5 * 10 ** (Math.floor(Math.log10(raw)) - 1);
+  const digits = Math.floor(Math.log10(raw)) + 1;
+  const unit = (digits === 1 ? 0.1 : 0.05) * 10 ** digits;
   const step = Math.ceil(raw / unit - 1e-9) * unit;
-  const ticks = [min];
-  for (let v = min + step; v <= max - step + step * 1e-9; v += step) ticks.push(v);
+  const ticks: number[] = [];
+  for (let i = 0, v = min; v < max - 0.99 * step && i < 100; i++, v = min + i * step) ticks.push(v);
   ticks.push(max);
   return ticks;
 }

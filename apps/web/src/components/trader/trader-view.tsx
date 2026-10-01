@@ -131,7 +131,7 @@ function TraderLoaded({ address }: { address: string }) {
         )}
       </div>
 
-      <div data-area="main" className="flex min-w-0 flex-col gap-3">
+      <div data-area="main" className="flex min-w-0 flex-col gap-1.5">
         {profile.data?.dataQuality?.partial ? (
           <p role="status" className="text-sm text-warning">{t("trader.partialProfile")} <button type="button" className="underline" onClick={() => profile.refetch()}>{t("common.retry")}</button></p>
         ) : null}
@@ -152,9 +152,9 @@ function TraderLoaded({ address }: { address: string }) {
             tradesComputing={isComputing(tradesAll)}
           />
         ) : profile.isError ? null : (
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-1.5 xl:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => (
-              <Skeleton key={i} className="h-[116px] rounded-2xl" />
+              <Skeleton key={i} className="h-[128px] rounded-[12px]" />
             ))}
           </div>
         )}

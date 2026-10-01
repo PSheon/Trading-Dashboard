@@ -16,7 +16,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Segmented } from "@/components/ui/segmented";
+import { rovingFocus } from "@/lib/roving-focus";
 import { useI18n } from "@/i18n/provider";
 import { usdCompact } from "@/lib/format";
 import { pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
@@ -106,24 +106,24 @@ function Tile({
 }) {
   const t = muted ? null : tone;
   return (
-    <div className="flex min-w-0 flex-col rounded-[12px] border border-border bg-card">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground">
+    <div className="flex min-w-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
+      <div className="flex h-8 shrink-0 items-center justify-between gap-1 border-b border-border pr-2 pl-3 text-xs leading-4 font-medium tracking-[-0.12px] text-muted-foreground">
         <span>{label}</span>
         {action}
       </div>
-      <div className="flex flex-1 flex-col gap-2 px-4 pt-3 pb-3">
+      <div className="flex min-w-0 flex-col gap-2.5 p-3">
         {loading ? (
-          <Skeleton className="h-6 w-24" />
+          <Skeleton className="h-[26px] w-24" />
         ) : (
-          <div className={cn("num truncate text-lg font-bold tracking-tight md:text-xl", muted ? "text-subtle-foreground" : t ? TEXT[t] : "")}>{value}</div>
+          <div className={cn("num truncate text-lg leading-[26px] font-semibold tracking-[-0.16px]", muted ? "text-subtle-foreground" : t ? TEXT[t] : "")}>{value}</div>
         )}
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+        <div className="cd-bar w-full">
           <div
-            className={cn("h-full rounded-full transition-[width] duration-500", muted ? "bg-subtle-foreground" : t ? BAR[t] : "bg-border-strong")}
+            className={cn("transition-[width] duration-300", muted ? "bg-subtle-foreground" : t ? BAR[t] : "bg-border-strong")}
             style={{ width: `${fill}%` }}
           />
         </div>
-        <div className="num truncate text-[11px] text-subtle-foreground">{sub}</div>
+        <div className="num truncate text-[11px] leading-4 font-medium tracking-[-0.2px] text-muted-foreground">{sub}</div>
       </div>
     </div>
   );
@@ -190,10 +190,10 @@ export function KpiTiles({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={t("trader.kpi.period")}
-        className="group inline-flex items-center gap-0.5 rounded-md bg-raised px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised-hover data-[state=open]:text-foreground"
+        className="group inline-flex items-center gap-[3px] rounded-md px-[5px] py-0.5 text-xs leading-4 font-medium text-muted-foreground outline-none hover:bg-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised data-[state=open]:text-foreground"
       >
         {KPI_PERIODS.find(([p]) => p === period)![1]}
-        <ChevronDown className="size-3 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+        <ChevronDown className="size-[11px] transition-transform group-data-[state=open]:rotate-180" aria-hidden />
       </DropdownMenuTrigger>
       {/* CopyDog's period list: as narrow as the pill, dropping from it. */}
       <DropdownMenuContent sideOffset={4} className="min-w-[var(--radix-dropdown-menu-trigger-width)] rounded-lg p-1">
@@ -209,7 +209,7 @@ export function KpiTiles({
   );
 
   return (
-    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-1.5 xl:grid-cols-4">
       <Tile
         label={t("trader.kpi.pnl")}
         action={periodMenu}
@@ -263,6 +263,35 @@ export function KpiTiles({
         fill={(winRate ?? 0) * 100}
         sub={trades ? t("trader.kpi.trades", { count: trades.summary.trades }) : tradesComputing ? t("trader.kpi.computing") : t("trader.kpi.noTrades")}
       />
+    </div>
+  );
+}
+
+/** CopyDog's .hd-seg: bare mono labels, 12px apart; only the active one
+ * brightens. */
+function TextSeg<T extends string>({ value, onChange, options }: { value: T; onChange: (value: T) => void; options: Array<{ value: T; label: React.ReactNode }> }) {
+  return (
+    <div role="radiogroup" className="flex items-center gap-3">
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            onKeyDown={rovingFocus}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "rounded-sm font-mono text-[11px] leading-[16.5px] font-medium tracking-[0.2px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -338,8 +367,8 @@ export function PerformanceChart({
 
   return (
     <section className="rounded-[12px] border border-border bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-3 py-2">
-        <div className="flex items-center">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-3 border-b border-border px-3">
+        <div className="flex items-center gap-5">
           {(["perp", "all", "calendar"] as const).map((m) => {
             const active = m === "calendar" ? calendar : !calendar && market === m;
             return (
@@ -353,18 +382,17 @@ export function PerformanceChart({
                 }}
                 aria-pressed={active}
                 className={cn(
-                  "relative px-2.5 py-2 text-[0.8125rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  active ? "text-foreground" : "text-subtle-foreground hover:text-muted-foreground",
+                  "h-10 border-b-2 font-mono text-xs leading-[18px] font-medium tracking-[0.3px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                  active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
               >
                 {t(m === "perp" ? "trader.chart.perp" : m === "all" ? "trader.chart.all" : "trader.chart.calendar")}
-                {active ? <span className="absolute inset-x-2.5 -bottom-2 h-0.5 rounded-full bg-primary" /> : null}
               </button>
             );
           })}
         </div>
         {calendar ? (
-          <Segmented
+          <TextSeg
             value={calendarUnit}
             onChange={setCalendarUnit}
             options={[
@@ -373,8 +401,8 @@ export function PerformanceChart({
             ]}
           />
         ) : (
-          <div className="flex flex-wrap items-center gap-1">
-            <Segmented
+          <div className="flex flex-wrap items-center gap-3.5 [&>div+div]:border-l [&>div+div]:border-border [&>div+div]:pl-3.5">
+            <TextSeg
               value={mode}
               onChange={onMode}
               options={[
@@ -382,14 +410,12 @@ export function PerformanceChart({
                 { value: "value", label: t("trader.chart.value") },
               ]}
             />
-            <span className="mx-1 h-4 w-px bg-border" aria-hidden />
-            <Segmented
+            <TextSeg
               value={window}
               onChange={onWindow}
               options={WINDOWS.map((w) => ({ value: w, label: t(`windows.${w}`) }))}
             />
-            <span className="mx-1 h-4 w-px bg-border" aria-hidden />
-            <Segmented
+            <TextSeg
               value={unit}
               onChange={onUnit}
               options={[
@@ -407,12 +433,12 @@ export function PerformanceChart({
         </div>
       ) : (
         <>
-          <div className="px-4 pt-4 md:px-5">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
+          <div className="px-3 pt-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col items-start gap-2.5">
                 <div
                   className={cn(
-                    "num text-[1.75rem] leading-none font-bold tracking-tight md:text-[1.625rem]",
+                    "num text-[26px] leading-[1.1] font-bold tracking-[-0.3px]",
                     muted
                       ? "text-subtle-foreground"
                       : mode === "pnl" && last
@@ -424,22 +450,22 @@ export function PerformanceChart({
                 >
                   {loading && !portfolio ? <Skeleton className="h-8 w-48" /> : headline}
                 </div>
-                {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} digits={2} className="mt-2.5" muted={muted} /> : null}
+                {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} digits={2} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" muted={muted} /> : null}
                 {usdPnl !== null ? (
-                  <span className={cn("num mt-2.5 inline-flex h-6 items-center rounded-full px-2 text-xs font-semibold", muted ? "bg-raised text-subtle-foreground" : usdPnl >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+                  <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm leading-none font-semibold", muted ? "bg-raised text-subtle-foreground" : usdPnl >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
                     {usdCompact(usdPnl, { sign: true, digits: 2 })}
                   </span>
                 ) : null}
               </div>
-              {last ? <p className="num font-mono text-xs text-subtle-foreground">{format.stamp(last[0])}</p> : null}
+              {last ? <p className="num mt-1 ml-auto shrink-0 font-mono text-[11px] font-medium tracking-[0.2px] whitespace-nowrap text-muted-foreground uppercase">{format.stamp(last[0])}</p> : null}
             </div>
           </div>
 
-          <div className="px-2 pt-2 pb-2 md:px-3">
+          <div className="px-1.5 pt-1.5 pb-2">
             {portfolio && series.length > 1 ? (
               <AreaChart
                 data={series}
-                height={296}
+                height={300}
                 axes
                 interactive
                 zeroBaseline={mode === "pnl"}
@@ -456,9 +482,9 @@ export function PerformanceChart({
                 }
               />
             ) : loading ? (
-              <Skeleton className="m-2 h-[280px]" />
+              <Skeleton className="h-[300px]" />
             ) : (
-              <div className="flex h-[296px] items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
                 {t("trader.chart.noData")}
               </div>
             )}

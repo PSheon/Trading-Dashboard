@@ -55,9 +55,9 @@ function useCopied() {
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="border-t border-border px-4 py-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-[0.8125rem] font-semibold">{title}</h3>
+    <div className="mt-[18px] border-t border-border px-4 pt-[18px]">
+      <div className="mb-3.5 flex min-h-[14px] items-center justify-between gap-2">
+        <h3 className="cd-label !font-semibold !tracking-[0.6px]">{title}</h3>
         {action}
       </div>
       {children}
@@ -67,20 +67,17 @@ function Section({ title, children, action }: { title: string; children: React.R
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5 text-[0.8125rem]">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="num text-right font-medium">{children}</span>
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <span className="cd-label text-muted-foreground">{label}</span>
+      <span className="cd-value text-right">{children}</span>
     </div>
   );
 }
 
 function Meter({ fill, className }: { fill: number; className?: string }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
-      <div
-        className={cn("h-full rounded-full bg-primary", className)}
-        style={{ width: `${Math.max(2, Math.min(100, fill * 100))}%` }}
-      />
+    <div className="cd-bar w-full">
+      <div className={cn("bg-primary", className)} style={{ width: `${Math.max(2, Math.min(100, fill * 100))}%` }} />
     </div>
   );
 }
@@ -99,20 +96,20 @@ function AccountValue({ profile }: { profile: TraderProfileResponse }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState(false);
   const value = (
-    <span className="num text-[1.625rem] leading-none font-bold tracking-tight" data-testid="account-value">
+    <span className="num text-[23px] leading-[30px] font-semibold" data-testid="account-value">
       {format.usd(profile.accountValue, { digits: 2 })}
     </span>
   );
   if (profile.isVault) {
     return (
-      <div className="border-t border-border px-4 py-4">
-        <p className="mb-1.5 text-xs text-muted-foreground">{t("common.tvl")}</p>
+      <div className="mt-[18px] border-t border-border px-4 pt-[18px]">
+        <p className="cd-label mb-2.5 !font-semibold !tracking-[0.6px]">{t("common.tvl")}</p>
         {value}
       </div>
     );
   }
   return (
-    <div className="border-t border-border px-4 py-4">
+    <div className="mt-[18px] border-t border-border px-4 pt-[18px]">
       <button
         type="button"
         aria-expanded={open}
@@ -120,10 +117,10 @@ function AccountValue({ profile }: { profile: TraderProfileResponse }) {
         onClick={() => setOpen((v) => !v)}
         className="w-full rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className="mb-1.5 block text-xs text-muted-foreground">{t("trader.accountValue")}</span>
+        <span className="cd-label mb-2.5 block">{t("trader.accountValue")}</span>
         <span className="flex items-center justify-between gap-2">
           {value}
-          <ChevronDown aria-hidden className={cn("size-4 shrink-0 text-subtle-foreground transition-transform", open && "rotate-180")} />
+          <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
         </span>
       </button>
       {open ? (
@@ -185,29 +182,29 @@ export function ProfileCard({
   const marginUsage = profile.perpEquity === null || profile.marginUsed === null ? null : profile.perpEquity > 0 ? profile.marginUsed / profile.perpEquity : 0;
 
   return (
-    <aside className="overflow-hidden rounded-[12px] border border-border bg-card">
+    <aside className="overflow-hidden rounded-[12px] border border-border bg-card pb-3.5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
       {identity ? (
-        <div className="flex items-center gap-2 px-4 pt-4 pb-3.5">
+        <div className="flex items-center gap-3 px-4 pt-4">
           {/* A verified KOL's badge sits on the avatar, so the name keeps the
               narrow rail's width. */}
-          <span className="relative shrink-0">
-            <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={40} />
+          <span className="relative flex shrink-0">
+            <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={44} />
             {profile.kol?.verified ? <VerifiedTick className="absolute -right-0.5 -bottom-0.5 size-4 rounded-full bg-card" /> : null}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1">
-              <h1 className="flex min-w-0 text-[0.8125rem] font-semibold">
+              <h1 className="flex min-w-0 text-[13px] leading-5 font-medium tracking-[0.156px]">
                 <TraderName trader={profile} />
               </h1>
               {/* CopyDog puts the KOL's 𝕏 right after the name. */}
               {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
               {profile.isVault ? <VaultBadge /> : null}
             </div>
-            <span className="mt-0.5 flex items-center gap-1.5">
+            <span className="mt-1 flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => copy("address", profile.address)}
-                className="num flex items-center gap-1 rounded text-[11px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="num flex items-center gap-1 rounded text-xs leading-[18px] tracking-[0.24px] whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 title={profile.address}
                 aria-label={`${t("common.copy")} ${profile.address}`}
               >
@@ -218,57 +215,59 @@ export function ProfileCard({
           </div>
           {/* CopyDog's desktop header has ★ and share only; alerts live on
               the watchlist (and the phone header's bell). */}
-          <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
-          <ShareButton
-            address={profile.address}
-            name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
-            className="-ml-2 size-7 text-subtle-foreground hover:bg-raised-hover hover:text-foreground"
-            iconClassName="size-4"
-          />
+          <span className="flex shrink-0 items-center gap-1">
+            <FavoriteButton address={profile.address} favorite={profile.favorite} solid />
+            <ShareButton
+              address={profile.address}
+              name={shareName({ address: profile.address, displayName: profile.displayName, kol: profile.kol })}
+              className="size-[30px] rounded-md text-muted-foreground hover:bg-raised-hover hover:text-foreground"
+              iconClassName="size-[15px]"
+            />
+          </span>
         </div>
       ) : null}
 
       <AccountValue profile={profile} />
 
       <Section title={t("trader.holdings")}>
-        <div className="flex items-center justify-between text-[0.8125rem]">
-          <span className="text-muted-foreground">{t("trader.leverage")}</span>
-          <span className="num font-semibold text-warning">{leverage === null ? "—" : `${leverage.toFixed(1)}X`}</span>
+        <div className="flex items-baseline justify-between gap-2.5 pt-0.5">
+          <span className="cd-label text-muted-foreground">{t("trader.leverage")}</span>
+          <span className="num text-sm leading-[18px] font-semibold tracking-[0.1px] text-warning">{leverage === null ? "—" : `${leverage.toFixed(1)}X`}</span>
         </div>
         <div className="mt-2">
           <Meter fill={(leverage ?? 0) / 10} className="bg-warning" />
         </div>
-        <p className="num mt-1.5 text-[11px] text-subtle-foreground">
+        <p className="num mt-[7px] pb-0.5 text-[11px] leading-[14px] font-medium text-muted-foreground">
           <span className="text-warning">{usd0(gross)}</span> {t("trader.notional")}
         </p>
 
-        <div className="mt-4 flex items-center justify-between text-[0.8125rem]">
-          <span className="text-muted-foreground">{t("trader.bias")}</span>
-          <span className={cn("inline-flex items-center gap-0.5 font-semibold", biasDir === "long" && "text-positive", biasDir === "short" && "text-negative")} data-testid="bias">
-            {biasDir === "long" ? <ArrowUpRight className="size-3.5" aria-hidden /> : biasDir === "short" ? <ArrowDownRight className="size-3.5" aria-hidden /> : null}
+        <div className="mt-[18px] flex items-baseline justify-between gap-2.5 pt-0.5">
+          <span className="cd-label text-muted-foreground">{t("trader.bias")}</span>
+          <span className={cn("inline-flex items-center gap-0.5 text-sm leading-[18px] font-semibold tracking-[0.1px]", biasDir === "long" && "text-positive", biasDir === "short" && "text-negative")} data-testid="bias">
+            {biasDir === "long" ? <ArrowUpRight className="size-2.5" aria-hidden /> : biasDir === "short" ? <ArrowDownRight className="size-2.5" aria-hidden /> : null}
             {bias}
           </span>
         </div>
-        <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-border">
+        <div className="cd-bar mt-2">
           {gross !== null && gross > 0 ? (
             <>
-              <div className="h-full bg-positive" style={{ width: `${longShare * 100}%` }} />
-              <div className="h-full bg-negative" style={{ width: `${(1 - longShare) * 100}%` }} />
+              <div className="bg-positive" style={{ width: `${longShare * 100}%` }} />
+              <div className="bg-negative" style={{ width: `${(1 - longShare) * 100}%` }} />
             </>
           ) : null}
         </div>
-        <div className="num mt-1.5 flex justify-between text-[11px]">
+        <div className="num mt-[7px] flex justify-between gap-2 pb-0.5 text-[11px] leading-[14px] font-medium whitespace-nowrap">
           <span>
             <span className="text-positive">{format.pct(gross === null ? null : gross > 0 ? longShare : 0)}</span>
-            <span className="text-subtle-foreground">
-              {" · "}
+            <span className="text-muted-foreground">
+              <span className="mx-1 text-subtle-foreground">▪</span>
               {t("common.long")} {usd0(profile.longNotional)}
             </span>
           </span>
           <span>
-            <span className="text-subtle-foreground">
+            <span className="text-muted-foreground">
               {usd0(profile.shortNotional)} {t("common.short")}
-              {" · "}
+              <span className="mx-1 text-subtle-foreground">▪</span>
             </span>
             <span className="text-negative">{format.pct(gross === null ? null : gross > 0 ? 1 - longShare : 0)}</span>
           </span>
@@ -289,7 +288,7 @@ export function ProfileCard({
         </Row>
         {copyScore != null ? (
           <Row label={t("discover.copyScore")}>
-            <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-14" />
+            <CopyScoreBar score={copyScore} layout="bar-first" barClassName="w-14 bg-white/10" className="gap-2.5 [&>span:last-child]:font-[440] [&>span:last-child]:tracking-[0.156px]" />
           </Row>
         ) : null}
       </Section>
@@ -344,7 +343,7 @@ function Unavailable({ computing }: { computing: boolean }) {
 function TierValue({ icon: Icon, label, hint, testId }: { icon?: LucideIcon; label: string; hint: string; testId: string }) {
   return (
     <span className="inline-flex items-center gap-1.5" title={hint} data-testid={testId}>
-      {Icon ? <Icon className="size-3.5" aria-hidden /> : null}
+      {Icon ? <Icon className="size-[13px]" aria-hidden /> : null}
       {label}
     </span>
   );
@@ -389,14 +388,14 @@ function GroupsSection({ trades, computing }: { trades: TraderAnalyticsResponse 
 
 function CoinFigureRows({ rows }: { rows: Array<{ key: string; coin: string; figure: string; className?: string }> }) {
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="flex flex-col">
       {rows.map((row) => (
-        <li key={row.key} className="flex items-center justify-between py-1 text-[0.8125rem]">
-          <span className="flex items-center gap-1.5">
+        <li key={row.key} className="flex items-center justify-between gap-3 py-1.5 text-[13px] leading-5">
+          <span className="flex min-w-0 items-center gap-1.5">
             <CoinIcon coin={row.coin} size={16} />
-            {coinLabel(row.coin)}
+            <span className="truncate">{coinLabel(row.coin)}</span>
           </span>
-          <span className={cn("num font-medium", row.className)}>{row.figure}</span>
+          <span className={cn("cd-value", row.className)}>{row.figure}</span>
         </li>
       ))}
     </ul>
@@ -417,10 +416,10 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label={t("trader.bestWorst")}
-            className="group inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised data-[state=open]:text-foreground"
+            className="group -my-1 inline-flex items-center gap-[3px] rounded-md px-[5px] py-0.5 font-mono text-[11px] leading-4 font-semibold tracking-[0.04em] text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised data-[state=open]:text-foreground"
           >
             {t(view === "best" ? "trader.best" : "trader.worst")}
-            <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+            <ChevronDown className="size-[11px] transition-transform group-data-[state=open]:rotate-180" aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent sideOffset={4} className="min-w-[var(--radix-dropdown-menu-trigger-width)] rounded-lg p-1">
             <DropdownMenuRadioGroup value={view} onValueChange={(v) => setView(v as "best" | "worst")}>

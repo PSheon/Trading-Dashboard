@@ -3,7 +3,6 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -23,8 +22,9 @@ export function LanguageMenu({ trigger, align = "end" }: { trigger: React.ReactN
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align={align} className="max-h-[min(420px,calc(100dvh-96px))] min-w-44 overflow-y-auto">
-        <DropdownMenuLabel>{t("topbar.language")}</DropdownMenuLabel>
+      {/* CopyDog's: 176px wide, 288px tall and scrolling, 44px rows in
+          muted text, the current one in white on a raised fill. */}
+      <DropdownMenuContent align={align} aria-label={t("topbar.language")} className="max-h-[min(288px,calc(100dvh-96px))] w-44 min-w-44 overflow-y-auto rounded-2xl bg-background p-0">
         <DropdownMenuRadioGroup
           value={locale}
           onValueChange={(value) => {
@@ -32,7 +32,12 @@ export function LanguageMenu({ trigger, align = "end" }: { trigger: React.ReactN
           }}
         >
           {LOCALES.map((l) => (
-            <DropdownMenuRadioItem key={l} value={l} lang={l}>
+            <DropdownMenuRadioItem
+              key={l}
+              value={l}
+              lang={l}
+              className="rounded-none px-4 py-3 text-sm font-medium text-muted-foreground data-[highlighted]:bg-raised data-[state=checked]:bg-raised data-[state=checked]:font-medium data-[state=checked]:text-foreground"
+            >
               {LOCALE_NAMES[l]}
             </DropdownMenuRadioItem>
           ))}

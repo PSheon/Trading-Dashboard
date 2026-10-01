@@ -46,7 +46,7 @@ function LocaleMenu() {
     <LanguageMenu
       trigger={
         <Button variant="secondary" size="icon" className="size-10 md:size-11" aria-label={t("topbar.language")}>
-          <Globe className="size-[18px]" />
+          <Globe className="size-5" />
         </Button>
       }
     />
@@ -63,7 +63,7 @@ export function AuthButton() {
     return (
       <Tooltip content={t("topbar.loginUnavailable")}>
         <span tabIndex={0} className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Button disabled size="lg" className="h-10 px-5 md:h-11 md:px-6">
+          <Button disabled size="lg" className="h-10 px-5 md:h-11">
             {t("topbar.login")}
           </Button>
         </span>
@@ -79,7 +79,7 @@ export function AuthButton() {
     return (
       <Button
         size="lg"
-        className="h-10 px-5 md:h-11 md:px-6"
+        className="h-10 px-5 md:h-11"
         onClick={login}
       >
         {mode === "fixture" ? t("topbar.fixtureLogin") : t("topbar.login")}

@@ -74,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {t("nav.skip")}
       </a>
 
-      <header className="fixed inset-x-0 top-0 z-40 hidden h-[81px] items-center gap-6 border-b border-border bg-background/90 px-5 backdrop-blur-xl md:flex">
+      <header className="fixed inset-x-0 top-0 z-40 hidden h-[81px] items-center gap-6 border-b border-border bg-background/90 px-4 backdrop-blur-xl md:flex">
         <Link href="/" className="flex shrink-0 items-center rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Lockup />
         </Link>

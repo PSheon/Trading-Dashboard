@@ -105,3 +105,16 @@ Docker runtime readiness／shutdown，以及獨立 DB restore。每個數量與 
 | 4 | 文件重疊、沒有單一事實來源（46 份，9 份 CopyDog 相關，`README.md:16` 指到過期文件） | 中 | `docs/specs`、`status`、`reference`、`archive` 四個資料夾與 `docs/README.md` 索引；`全站 CopyDog 對照總表.md` 為唯一狀態來源；兩份數值對照合併；過期文件歸檔並在檔頭標示；`AGENTS.md` 加規則；CI 檢查連結。逐份分類要先讀內容確認 | Claude（`docs/admin-*.md` 由 Codex 決定） | 無 |
 | 5 | 兩套驗證（class-validator 17 檔／zod）、兩套 lint、兩個 TypeScript 版本 | 低 | TypeScript 用 pnpm catalog 統一；根目錄單一 ESLint 設定＋Prettier；DTO 逐模組改用 `nestjs-zod`（錯誤訊息格式會變，HTTP contract 測試要一起改） | Claude（`admin/dto` 交 Codex） | 排最後；需安裝新套件，注意機器負載 |
 | — | 未推送的 commit | 已解決 | `dev` 已推到 `3325239`；之後的 commit 尚未推送 | — | 推送前先問 Paul |
+
+### 第二輪（發現 7–12，同日）
+
+| 順序 | 發現 | 嚴重度 | 做法 | 狀態 |
+| --- | --- | --- | --- | --- |
+| 0 | 7：`dev` 的 CI 是紅的。3325239 的 run 在「HTTP contract documentation」失敗（`docs/openapi.json` 過期），後面的 API 測試、Playwright、建置、Docker 都沒跑；之前 278 個 commit 沒被 CI 檢查過 | 高 | 重新產生 `openapi.json` 與 HTTP contract 文件；在本機照 `ci.yml` 的步驟全部跑過（audit、typecheck、lint、api 測試、migration smoke、web 測試、bootstrap、e2e、build）；推送後盯到整個 run 變綠；加 pre-push hook | 排第一；等「修監控漏資料」commit 後做（它改了 schema 與 contract）。推送前問 Paul |
+| 0 | 12：`/dev` 在正式環境沒有關卡 | 中 | 正式建置回 404，除非設 `NEXT_DEV_LAB=1` | 已修（`page.tsx`）；正式建置下的行為尚未實測，併入 CI 那輪驗證 |
+| 6 | 8：沒有 Sentry／OTel／指標；`runtime/structured-logger.ts` 丟掉 stack trace；worker 心跳與 outbox 積壓沒有警示 | 高（真實資金前） | logger 保留 stack；錯誤追蹤（Sentry）與基本指標；心跳／積壓警示。需 Paul 提供 Sentry DSN 或決定服務 | 排在 Railway 部署前 |
+| 7 | 9：`apps/api/src/copy` 有 69 處 `Number()`／`parseFloat`，沒有十進位函式庫 | 中（測試網／正式前為高） | 逐一分類（金額／數量 vs 計數／顯示）；金額與數量改用十進位運算並補測試 | 測試網實單（第 5 步）之前 |
+| 8 | 10：`db.ts` 有 56 個欄位只用 `.$type<>`，migration 沒有 CHECK／enum | 中 | 先從狀態欄位加 CHECK（`analysis_history_jobs` 等進行中的表排在後面） | 與第 3 項（保留與分割）同一批 migration |
+| 9 | 11：web 沒有 `error.tsx`／`global-error.tsx`／`loading.tsx`；143 個 tsx 有 105 個是 client component；沒有 server prefetch、robots、sitemap | 中 | 補錯誤與載入邊界、robots／sitemap；server prefetch 逐頁評估（畫面須與 CopyDog 一致，不加新視覺） | 第 4 項之後 |
+
+附註：rate limiter 與 auth cache 也是每個行程各一份，與第 2 項同一個「單一 API 副本」限制；格式化（Prettier）併入第 5 項。

@@ -36,3 +36,13 @@
 - 第 2 步之後、第 3 步之前插入「第 2.5 步」：幣種排行頁、搜尋對齊、刪除帳號、11 種語言、關於／FAQ／隱私／條款頁面。
 - 第 2.5 步已完成於分支 `stage4-pages`（基於 `stage4-wallet`），對照清單與截圖見 `Stage 4 — 跟單與管理（執行順序）.md` 的「第 2.5 步」。
 - 第 3 步（模擬跟單）完成於分支 `stage4-paper-copy`（基於 `stage4-pages`），對照清單與截圖見 `Stage 4 — 跟單與管理（執行順序）.md` 的「第 3 步」。後台畫面改由 Codex 做。
+
+## 逐頁比對（2026-10-01）
+
+未登入，1440×900 與 390×844，CopyDog（copydog.xyz）對 Orbie（localhost:3002）。截圖在 scratchpad `screens-parity-sweep-2/`，檔名 `<頁>-<狀態>-<copydog|orbie>-<1440|390>.png`。狀態：一致／已修／Orbie 專有（保留）／暫時做不到（原因）。
+
+### 0. Codex 04991f3「improve UI」在使用者頁面加的東西
+
+| 項目 | CopyDog 證據 | Orbie 狀態 | 狀態 |
+| --- | --- | --- | --- |
+| 首頁主視覺：標題與計算機之間的行星軌道裝飾 SVG（`.orbit`） | `home-hero-copydog-1440.png`：沒有 | 已移除 SVG 與 CSS（`home-hero-orbie-1440.png`） | 已修 |

@@ -7,19 +7,6 @@
   isolation: isolate;
 }
 
-/* A quiet reference to Orbie's planet mark, kept clear of the headline. */
-.orbit {
-  position: absolute;
-  z-index: -1;
-  pointer-events: none;
-  width: 220px;
-  height: 220px;
-  right: 42%;
-  top: 18px;
-  color: var(--primary);
-  opacity: 0.13;
-}
-
 .calculator {
   position: relative;
 }
@@ -52,8 +39,4 @@
 
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .home a:hover > svg { transform: translateX(2px); }
-}
-
-@media (max-width: 1279px) {
-  .orbit { display: none; }
 }

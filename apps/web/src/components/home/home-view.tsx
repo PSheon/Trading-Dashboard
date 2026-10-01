@@ -65,11 +65,6 @@ export function HomeView() {
       </div>
 
       <section className={cn(styles.hero, "hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]")}>
-        <svg className={styles.orbit} viewBox="0 0 220 220" fill="none" aria-hidden="true">
-          <circle cx="110" cy="110" r="66" stroke="currentColor" />
-          <ellipse cx="110" cy="110" rx="106" ry="34" transform="rotate(-32 110 110)" stroke="currentColor" />
-          <circle cx="194" cy="57" r="3" fill="currentColor" />
-        </svg>
         <div>
           <h1 className="max-w-[8.2em] text-[3.5rem] leading-[1.08] font-black tracking-tight">{t("home.heroTitle")}</h1>
           <Link

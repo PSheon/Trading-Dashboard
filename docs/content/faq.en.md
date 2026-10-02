@@ -1,12 +1,12 @@
 # FAQ
 
-<!-- Draft. Each ### is one expandable question. Features marked "coming soon" are not live yet; recheck the text when they launch. -->
+<!-- Draft. Each ### is one expandable question. Copy trading is paper (simulated) only; anything marked "planned" is not available yet. Recheck the text when copying with real funds launches. -->
 
 ## About Orbie
 
 ### What is Orbie?
 
-Orbie (app.orbie.fun) is a trader-monitoring and copy-trading platform for Hyperliquid. You can browse the performance of every trader on Hyperliquid, dig into their positions and trade history, favorite the ones you like, and get Telegram alerts when they trade. Copy trading, where Orbie places orders for you, is in development (coming soon).
+Orbie (app.orbie.fun) is a trader-monitoring and copy-trading platform for Hyperliquid. You can browse the performance of every trader on Hyperliquid, dig into their positions and trade history, favorite the ones you like, and get Telegram alerts when they trade. Paper (simulated) copy trading is available now: it uses virtual funds, sends no orders to Hyperliquid, and its results are estimates. Copying with real funds is not available yet.
 
 ### What is Hyperliquid?
 
@@ -18,7 +18,7 @@ Hyperliquid only, including crypto perpetuals and perpetuals on other Hyperliqui
 
 ### Does Orbie cost anything?
 
-Browsing, search, favorites and Telegram alerts are free. See "Fees" below for copy trading once it launches.
+Browsing, search, favorites, Telegram alerts and paper copy trading are free. See "Fees" below for the fee planned for copying with real funds.
 
 ## Data sources and update frequency
 
@@ -147,17 +147,17 @@ Every on-chain asset carries risk, though. Protect the email, Google account or 
 ### How do I deposit?
 
 1. Open "Portfolio" and click "Deposit". You'll see your main account address and a QR code.
-2. From an exchange or another wallet, send **USDC on the Arbitrum network** to that address.
-3. Once it arrives, the funds are credited to your Hyperliquid account.
+2. From an exchange or another wallet, send **USDC on the Arbitrum network** to that address. The USDC arrives at your own address on Arbitrum first; it is not on Hyperliquid yet.
+3. Open "Deposit" again. The window shows the amount waiting. Press "Bridge to Hyperliquid" and your own wallet signs the transfer to Hyperliquid's bridge.
+4. About a minute after you bridge, the funds are in your Hyperliquid account.
 
 Please note:
 
-- The minimum deposit is **10 USDC**. A transfer below the minimum may not be credited and may not be recoverable.
+- The minimum deposit is **5 USDC**. Hyperliquid's bridge does not credit smaller amounts, and USDC sent to the bridge below the minimum is lost, so Orbie does not let you bridge a balance under 5 USDC. Top it up first.
 - Only USDC on Arbitrum is supported. Sending another token or using another network can result in permanent loss.
 - If you already have funds on Hyperliquid, you can also transfer them to your main account inside Hyperliquid.
 - The network fee for sending USDC to your address is charged by the exchange or wallet you send from.
-- After the USDC arrives at your address on Arbitrum, the Deposit window shows the amount waiting. Press "Bridge to Hyperliquid" and your own wallet signs the transfer to Hyperliquid's bridge. This step needs a small Arbitrum network fee, paid in ETH from your wallet. If your wallet holds too little ETH, Orbie asks Privy to cover the fee; if that isn't available, you need to send a small amount of ETH on Arbitrum to your address first. Orbie charges nothing for this step.
-- After you bridge, the funds usually reach your Hyperliquid account in about a minute.
+- The bridge step needs a small Arbitrum network fee, paid in ETH from your wallet. If your wallet holds too little ETH, Orbie asks Privy to cover the fee; if that isn't available, you need to send a small amount of ETH on Arbitrum to your address first. Orbie charges nothing for this step.
 
 ### How do I withdraw?
 
@@ -173,46 +173,52 @@ Choose "Export private key" in Portfolio or Settings. After you verify your iden
 
 Portfolio lists your deposits, withdrawals and transfers, as reported by Hyperliquid.
 
-## Copy trading (coming soon)
+## Copy trading
 
-<!-- This section describes the planned design; rewrite it against the shipped feature before launch. -->
+<!-- Describes paper mode as shipped. Parts marked "planned" describe copying with real funds; rewrite them against the shipped feature before launch. -->
 
-### How does copy trading work? (coming soon)
+### How does copy trading work?
 
-1. Choose a direction and an amount in the copy panel on a trader's page.
-2. Grant Orbie a restricted permission on Hyperliquid that **can only place and cancel orders**.
-3. When the trader's fill is confirmed, Orbie places a matching order for you on Hyperliquid according to your settings.
-4. Stop copying at any time.
+Copy trading is available in paper (simulated) mode only. It uses virtual funds, no order is sent to Hyperliquid, and the results are estimates. Copying with real funds is not available yet.
 
-### What's the difference between "same direction" and "reverse"? (coming soon)
+1. Choose a direction and an amount in the copy panel on a trader's page. The amount comes from your paper account, which starts with 10,000 virtual USDC.
+2. When the trader's fill is confirmed, Orbie simulates a matching order for your copy at the current market price, with an estimated trading fee and slippage.
+3. Pause or stop the copy at any time.
+
+Planned for real funds: you will grant Orbie a restricted permission on Hyperliquid that **can only place and cancel orders**, and Orbie will place real orders for you according to your settings.
+
+### What's the difference between "same direction" and "reverse"?
 
 - **Same direction:** when they go long, you go long; when they go short, you go short.
 - **Reverse:** you take the opposite side. Useful if you think a trader is often wrong.
 
-### Can Orbie touch my funds when it trades for me? (coming soon)
+### Can Orbie touch my funds when it trades for me?
 
-Orbie only receives a restricted trading permission. It is technically limited to trading actions such as placing and cancelling orders, and **cannot withdraw or send funds to any other address**. You can revoke it at any time, after which Orbie can no longer trade for you.
+Paper copy trading does not touch your wallet at all: it uses virtual funds and sends no orders.
+
+Planned for real funds: Orbie will only receive a restricted trading permission. It will be technically limited to trading actions such as placing and cancelling orders, and **will not be able to withdraw or send funds to any other address**. You will be able to revoke it at any time.
 
 ### Will I get the same price as the trader?
 
-No, not exactly. Orbie places your order after the trader's fill is confirmed, so there is a delay and the price may have moved (slippage). Your position size, available margin and leverage also differ from theirs. Your results will differ from the trader's, and can even go the other way.
+No, not exactly. Orbie acts after the trader's fill is confirmed, so there is a delay and the price may have moved (slippage). Your position size, available margin and leverage also differ from theirs. Your results will differ from the trader's, and can even go the other way. Paper results are estimates as well: real orders could fill at different prices, partially or not at all.
 
-### Can I copy several traders at once? (coming soon)
+### Can I copy several traders at once?
 
-Yes. Copy trading currently runs in paper mode only: your account gets a virtual balance of 10,000 USDC, orders are simulated and no real order is sent. You can run up to 10 copies at the same time, one per trader. Each copy needs an allocation of at least 100 USDC, and a single order smaller than 10 USD is not placed. These limits may change before real-money copying launches (coming soon).
+Yes. Copy trading currently runs in paper mode only: your account gets a virtual balance of 10,000 USDC, orders are simulated and no real order is sent. You can run up to 10 copies at the same time, one per trader. Each copy needs an allocation of at least 100 USDC, and a single order smaller than 10 USD is not placed. These limits may change, including when copying with real funds becomes available.
 
-### What happens to my positions and funds when I stop copying? (coming soon)
+### What happens to my positions and funds when I stop copying?
 
 When you stop a copy, Orbie stops opening new positions for it, cancels its pending orders and closes its open positions at the market price. Once every position is closed, the copy's remaining balance returns to your available balance. Until then the copy shows "Stopping", and a stopping copy cannot be resumed.
 
-Copy trading is in paper mode today, so these are virtual positions and virtual funds: no real order is sent and your wallet is not touched. Real-money copying is coming soon, and we will update this answer when it launches.
+Copy trading is in paper mode today, so these are virtual positions and virtual funds: no real order is sent and your wallet is not touched. Copying with real funds is not available yet; we will update this answer when it is.
 
 ## Fees
 
 ### How does Orbie make money?
 
 - **Browsing, favorites, Telegram alerts:** free.
-- **Copy trading (coming soon):** Orbie charges a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate is shown to you before you sign the approval. It never exceeds the maximum you sign, and under Hyperliquid's rules it cannot exceed 0.1% on perpetuals. Before you start copying, you approve this maximum rate by signing with your own wallet.
+- **Paper copy trading:** free. Simulated results include an estimated Hyperliquid trading fee, but nothing is actually charged.
+- **Copying with real funds (planned, not available yet):** Orbie plans to charge a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate will be shown to you before you sign the approval. It will never exceed the maximum you sign, and under Hyperliquid's rules it cannot exceed 0.1% on perpetuals. Before you start copying with real funds, you will approve this maximum rate by signing with your own wallet.
 - **Referral rebates:** Orbie may take part in Hyperliquid's referral program and receive rebates. These rebates do not change the fees you pay to Hyperliquid, and they do not give you a fee discount.
 
 ### What other costs are there?
@@ -265,7 +271,7 @@ Only commit money you can afford to lose entirely.
 
 ### What if a trader I copy loses money?
 
-Your copied positions lose money too. Orbie does not guarantee any profit and does not compensate trading losses. Consider spreading your copies, keeping amounts reasonable and checking performance regularly.
+Your copied positions lose money too (in paper mode, the loss is in virtual funds). Orbie does not guarantee any profit and does not compensate trading losses. Consider spreading your copies, keeping amounts reasonable and checking performance regularly.
 
 ### Does Orbie give investment advice?
 

@@ -28,7 +28,7 @@ We **never** receive or store your wallet's private key or seed phrase, your Goo
 
 - the trader addresses you favorite;
 - alert preferences (which traders, buy/sell direction, minimum size);
-- copy trading settings and records (coming soon): the traders you copy, direction, amounts, limits, authorization status, and the orders and fills Orbie places for you.
+- copy trading settings and records: the traders you copy, direction, amounts, limits, and your paper (simulated) orders, fills and positions. For copying with real funds (planned, not available yet), also your authorization status and the orders and fills Orbie places for you.
 
 ### 2.3 Telegram information
 
@@ -54,11 +54,11 @@ The trader data Orbie analyzes (addresses, fills, positions, account value, PnL)
 ## 3. How we use information
 
 - to create and maintain your account and verify who you are;
-- to provide favorites, alerts, portfolio, deposits, withdrawals and copy trading (coming soon);
+- to provide favorites, alerts, portfolio, deposits, withdrawals and paper copy trading (and, once available, copying with real funds);
 - to send the trade alerts you set up, and service notices, via Telegram;
 - to calculate and display trader performance metrics;
 - to keep the Service secure, detect abuse and fraud, and fix problems;
-- to calculate platform revenue and reconcile it against actual Hyperliquid fills (once copy trading launches);
+- to calculate platform revenue and reconcile it against actual Hyperliquid fills (planned, for copying with real funds);
 - to meet legal obligations and respond to lawful requests from authorities.
 
 We **do not sell** your personal information and do not use it for third-party advertising.
@@ -69,8 +69,8 @@ We share information only with the service providers needed to run the Service:
 
 | Provider | Purpose | Information involved |
 | --- | --- | --- |
-| Privy | Sign-in, embedded wallet, private key custody and export, (once copy trading launches) restricted trading permission | sign-in method, email, wallet addresses |
-| Hyperliquid | Exchange: public data queries, deposits, withdrawals, (once copy trading launches) order placement | your wallet address and trades (public on-chain data) |
+| Privy | Sign-in, embedded wallet, private key custody and export, (planned, for copying with real funds) restricted trading permission | sign-in method, email, wallet addresses |
+| Hyperliquid | Exchange: public data queries, deposits, withdrawals, (planned, for copying with real funds) order placement | your wallet address and trades (public on-chain data) |
 | Telegram | Sending alerts | chat ID, alert content |
 | Railway | Website and API hosting, database, logs | all information listed in this policy |
 
@@ -85,11 +85,11 @@ Our servers and service providers may be located outside your country or region,
 ## 6. Retention
 
 - **Account information and settings:** kept while your account exists. When you delete your account in Orbie, it is removed immediately. When you ask us to delete it by email, we delete or de-identify it within 30 days. In both cases, information the law requires us to keep is excepted.
-- **Telegram chat ID:** no longer used, and deleted, once you unlink Telegram.
+- **Telegram chat ID:** deleted from our database when you unlink Telegram.
 - **Alert delivery records:** kept for 30 days to investigate delivery problems.
 - **Server logs:** kept for 30 days.
 - **Admin audit logs and account deletion records:** kept for 1 year. A deletion record holds only an account number, the time of deletion and counts; it contains no email or wallet address.
-- **Copy trading orders and fills (coming soon):** kept for 【待填：period】 for reconciliation, tax and legal purposes.
+- **Paper copy trading orders and fills:** kept while your account exists; deleted with your account.
 - **Backups:** data in backups is overwritten on the normal backup cycle, within at most 30 days.
 - **Public blockchain data:** fills and positions on Hyperliquid are public on-chain records that cannot be deleted. Public market data we store to calculate performance is not part of your account data and may be kept long term.
 
@@ -103,13 +103,13 @@ Depending on the law where you live, you may have the right to:
 - restrict or object to certain processing;
 - withdraw consent you have given.
 
-You can do these yourself at any time: remove favorites, turn off alerts, unlink Telegram, change your language, and revoke copy trading permission (once copy trading launches).
+You can do these yourself at any time: remove favorites, turn off alerts, unlink Telegram, change your language, and pause or stop your copies.
 
 **Deleting your account:** you can delete your account yourself in Orbie: open Settings, choose Account, then Delete account. The account is deleted immediately; if you have copies running, you need to stop them first. The steps, and what is deleted and kept, are described on the [Delete your Orbie account](/delete-account) page. If you cannot sign in, email 【待填：contact email】 from the email linked to your account, or tell us your wallet address, and we will process the request after verifying your identity.
 
 Before deleting your Orbie account, please note:
 
-- Your embedded wallet and its funds belong to you and do not disappear when you delete your Orbie account, but you may no longer be able to reach them through Orbie. **Withdraw your funds or export your private key first.**
+- Your embedded wallet and its funds belong to you and do not disappear when you delete your Orbie account. If you sign in again the same way later, you get a new, empty Orbie account with the same wallet. We still recommend that you **withdraw your funds or export your private key first.**
 - The wallet itself is managed by Privy; deleting data held by Privy is subject to Privy's policies.
 - Trades already recorded on Hyperliquid cannot be deleted.
 
@@ -118,7 +118,7 @@ We will respond to your request within 30 days.
 ## 8. Security
 
 - Private keys exist only in Privy's secure infrastructure. Orbie's servers and website never see them.
-- Once copy trading launches, the trading permission Orbie holds is restricted by Privy policies to trading actions such as placing and cancelling orders. It does not allow withdrawals or transfers to outside addresses.
+- Paper copy trading does not use your wallet. For copying with real funds (planned, not available yet), the trading permission Orbie holds will be restricted by Privy policies to trading actions such as placing and cancelling orders. It will not allow withdrawals or transfers to outside addresses.
 - Traffic between the website and the API is encrypted. The service keys our servers use to talk to each other never reach the browser.
 - Server logs mask keys and sign-in credentials. Access to logs and the admin area is limited to authorized staff.
 

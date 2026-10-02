@@ -15,9 +15,9 @@ Orbie is a trader-analytics and copy-trading tool for Hyperliquid. It currently 
 - browsing, searching and analyzing public trading data and performance metrics of Hyperliquid traders;
 - favoriting traders and receiving trade alerts through Telegram;
 - an embedded wallet, provided by Privy, for deposits, withdrawals and private key export;
-- copy trading (coming soon): placing matching orders for you on Hyperliquid according to your settings.
+- paper (simulated) copy trading: simulated orders that follow the traders you choose, using virtual funds. No order is sent to Hyperliquid and the results are estimates. Copying with real funds is planned and not available yet.
 
-Orbie is not an exchange, broker, bank or investment adviser, and does not hold your funds. All trades are executed on Hyperliquid and are subject to Hyperliquid's rules.
+Orbie is not an exchange, broker, bank or investment adviser, and does not hold your funds. All real trades are executed on Hyperliquid and are subject to Hyperliquid's rules.
 
 ## 3. Eligibility
 
@@ -45,7 +45,7 @@ You sign in through Privy with email, a Google account or a crypto wallet. You m
 
 ### 4.3 Deposits and withdrawals
 
-- Deposits are supported only as USDC on the Arbitrum network, with a minimum of 10 USDC. Transfers below the minimum or not meeting these requirements may not be credited and may not be recoverable.
+- Deposits are supported only as USDC on the Arbitrum network, with a minimum of 5 USDC. USDC you send arrives at your own wallet address on Arbitrum; it reaches your Hyperliquid account only after you send it to Hyperliquid's bridge from the Deposit window, signing with your own wallet. Transfers to the bridge below the minimum, or transfers not meeting these requirements, may not be credited and may not be recoverable.
 - Withdrawals are sent as USDC to an address on Arbitrum, and Hyperliquid charges a 1 USDC fee.
 - Deposits and withdrawals are processed by Hyperliquid and its bridge; timing and availability depend on Hyperliquid and Arbitrum.
 
@@ -68,22 +68,24 @@ Trading crypto assets and derivatives is highly risky, and you may lose all the 
 - **Smart contract and bridge risk:** Hyperliquid and its bridge may contain vulnerabilities.
 - **Regulatory risk:** laws may change and restrict or prohibit some features of the Service.
 
-## 7. Copy trading (coming soon)
+## 7. Copy trading
 
-When copy trading launches, the following applies:
+Copy trading is currently available in paper (simulated) mode only. It uses virtual funds, no order is sent to Hyperliquid, and the results shown are estimates that may differ from what real orders would have achieved. Virtual funds and paper results have no monetary value. To manage risk, Orbie may reject, delay, reduce, pause or stop paper copies.
 
-- Before you start copying, you sign an authorization with your own wallet that gives Orbie a restricted trading permission. It only allows trading actions such as placing and cancelling orders, and **does not allow withdrawals or transfers to outside addresses**.
-- You authorize Orbie to place orders for you on Hyperliquid automatically, according to the traders, direction (same or reverse), amounts and limits you set. You understand these orders are not confirmed with you one by one.
+Copying with real funds is planned and not available yet. When it becomes available, the following will apply:
+
+- Before you start copying, you will sign an authorization with your own wallet that gives Orbie a restricted trading permission. It will only allow trading actions such as placing and cancelling orders, and **will not allow withdrawals or transfers to outside addresses**.
+- You will authorize Orbie to place orders for you on Hyperliquid automatically, according to the traders, direction (same or reverse), amounts and limits you set. These orders will not be confirmed with you one by one.
 - Orbie will make reasonable efforts to execute copies but does **not guarantee** that every trade will be copied, filled at a particular price or time, or match the trader's result. To manage risk, Orbie may reject, delay, reduce or stop certain copy orders, or pause copy trading across the Service.
-- You can stop copying or revoke the authorization at any time. Orders sent before revocation may still fill.
-- You are responsible for monitoring your own positions and margin.
+- You will be able to stop copying or revoke the authorization at any time. Orders sent before revocation may still fill.
+- You will be responsible for monitoring your own positions and margin.
 
 ## 8. Fees
 
-- Browsing, favorites and Telegram alerts are currently free.
-- Once copy trading launches, Orbie charges a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate is shown to you before you sign the approval and never exceeds the maximum you approved by signature; under Hyperliquid's rules the maximum for perpetuals is 0.1%.
+- Browsing, favorites, Telegram alerts and paper copy trading are currently free.
+- For copying with real funds (planned, not available yet), Orbie will charge a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate will be shown to you before you sign the approval and will never exceed the maximum you approved by signature; under Hyperliquid's rules the maximum for perpetuals is 0.1%.
 - Orbie may also receive rebates through Hyperliquid's referral program. These rebates do not change the fees you pay to Hyperliquid.
-- You also pay Hyperliquid's trading fees, funding, withdrawal fee and blockchain network fees.
+- When you trade, deposit or withdraw with real funds, you also pay Hyperliquid's trading fees, funding, withdrawal fee and blockchain network fees.
 - We may change our fees, but raising the builder fee above the maximum you approved requires your new authorization.
 - You are responsible for reporting and paying any taxes on your trading.
 
@@ -132,7 +134,7 @@ You agree to indemnify Orbie and hold it harmless from third-party claims, losse
 ## 16. Termination
 
 - You may stop using the Service at any time and request account deletion as described in the Privacy Policy. Withdraw your funds or export your private key first.
-- We may suspend or end your account if you breach these terms, if the law requires it, or if we reasonably suspect a security or fraud issue. Once copy trading launches, a suspended or terminated account's copies stop opening new positions; 【待填：handling of existing positions】.
+- We may suspend or end your account if you breach these terms, if the law requires it, or if we reasonably suspect a security or fraud issue. We may also pause or close the copies on a suspended or terminated account. When we close a paper copy, its paper positions are closed. For copying with real funds (planned), open positions will remain your own positions on Hyperliquid and you will stay responsible for them.
 - Termination does not affect your ownership of your wallet or the funds in it; you can still use your wallet through an exported private key or through Privy.
 - Terms that by their nature should survive termination (such as the risk disclosure, disclaimer, limitation of liability, indemnification and governing law) continue to apply.
 

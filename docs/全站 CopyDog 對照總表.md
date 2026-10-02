@@ -82,10 +82,10 @@
 | 表格 | 表頭等寬 11px／600（排序欄 700）；列高 44、13px；左右 6px（列首尾 12px） | `.cd-tables` 相同 | 已修 |
 | 持倉列 | 槓桿標 12px／700；損益 % 同字級；強平距離標 12px／600；分享鈕 20×20 | 相同 | 已修 |
 | 分頁內容高度 | 卡片貼合內容 | 移除 `min-h-[180px]` | 已修 |
-| 跟單面板版面 | 內距 22；方向鈕高 52、16px／600；金額 64px（依寬度縮到 28px）；最大 13px／600；餘額列 14px；滑桿軌 6px；更多設定 12px／600；CTA 高 56、16px／600；區塊間距 40／16／28／28 | 相同；Inter 較寬，金額在同寬度下為 60px | 已修 |
+| 跟單面板版面 | 內距 22；方向鈕高 52、16px／600；金額 64px（依寬度縮到 28px）；最大 13px／600；餘額列 14px；滑桿軌 6px；更多設定 12px／600；CTA 高 56、16px／600；區塊間距 40／16／28／28 | 相同 | 已修 |
 | 跟單金額失焦 | 失焦時夾到整數餘額 | 相同 | 已修 |
 | 「模擬」標章 | 無 | 保留標章作為揭露（Paul 決定）；CTA 下方說明文字桌面與手機皆移除 | Orbie 專有（保留：揭露） |
-| 字體 | Host Grotesk | Inter（品牌字體） | Orbie 專有（保留） |
+| 字體 | Host Grotesk（可變字重 300–800，僅 latin）；等寬 Geist Mono；數字用 `tabular-nums`，`font-feature-settings: normal`；中日韓走 Noto Sans SC／TC 網頁字型 | Host Grotesk（`next/font/google` 建置時自架、`display: swap`、自動調整後備字型）；Geist Mono；`.num` 只留 `tabular-nums`，拿掉 Inter 專用的 `cv11`／`ss01`；分享卡圖片也改 Host Grotesk 600／800。中日韓仍用系統字（PingFang／Noto／JhengHei），沒有載入 Noto 網頁字型 | 已修（2026-10-02，Paul 決定改用 CopyDog 字體）；中日韓網頁字型未做 |
 
 #### 1b. 交易員頁分頁與對話框（桌面）
 
@@ -244,4 +244,4 @@ T1 = `0xfc52…ee77`（有持倉、掛單）、KOL = `0xbf73…5d58`（大型帳
 | 游標 | 按鈕、連結、分頁、選項、卡片、可排序表頭、洞察錢包列皆為 pointer；停用的「最大」與滑桿為 not-allowed（`cursor-probe.mjs`） | Tailwind v4 預設讓按鈕為箭頭 → `globals.css` 基礎規則；洞察錢包列可點擊；`test/cursor.test.tsx`、`e2e/cursor.spec.ts` | 已修 |
 | 無障礙（axe） | — | 見 `docs/accessibility.md`（對比、ARIA、標題層級、地標名稱、連結底線） | 已修 |
 | 內建錢包地址未入庫 | — | 建立錢包後重新抓 /me 與 /me/wallet；api 缺地址時每 15 秒重查（`use-wallet-backfill.ts`、`auth.service.ts`） | 已修（Orbie 專有） |
-| Orbie 專有功能的去留（新規則：CopyDog 沒有的不加，要加放 /dev） | — | CSV 匯出、分層選單、「看得到的數字」、評分方法、計算機說明圖示、跟單面板提示文字、常見問題分組標籤、無效地址頁皆已移除或移到 `/dev`；保留：模擬標章（揭露）、Inter 字體、分享卡網址頁尾／無 App 徽章（Orbie 沒有 App）、隱私／條款草稿提示（docs/content 的內容）、`/explore/all`（搜尋框 Enter 的落點，待決定） | 已修 |
+| Orbie 專有功能的去留（新規則：CopyDog 沒有的不加，要加放 /dev） | — | CSV 匯出、分層選單、「看得到的數字」、評分方法、計算機說明圖示、跟單面板提示文字、常見問題分組標籤、無效地址頁皆已移除或移到 `/dev`；保留：模擬標章（揭露）、分享卡網址頁尾／無 App 徽章（Orbie 沒有 App）、隱私／條款草稿提示（docs/content 的內容）、`/explore/all`（搜尋框 Enter 的落點，待決定） | 已修 |

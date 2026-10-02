@@ -28,16 +28,16 @@ const C = {
 };
 
 let fonts: Promise<Array<{ name: string; data: Buffer; weight: 600 | 800; style: "normal" }>> | null = null;
-/** Inter 600 / 800 (Latin subsets) for the figures and the name, Fredoka
+/** Host Grotesk 600 / 800 (Latin) for the figures and the name, Fredoka
  * 600 for the wordmark: bundled in src/assets, nothing fetched. */
 function loadFonts() {
   fonts ??= Promise.all([
-    readFile(join(process.cwd(), "src/assets/inter-600-subset.ttf")),
-    readFile(join(process.cwd(), "src/assets/inter-800-subset.ttf")),
+    readFile(join(process.cwd(), "src/assets/host-grotesk-600.ttf")),
+    readFile(join(process.cwd(), "src/assets/host-grotesk-800.ttf")),
     readFile(join(process.cwd(), "src/assets/fredoka-600-subset.ttf")),
-  ]).then(([i6, i8, fr]) => [
-    { name: "Inter", data: i6, weight: 600 as const, style: "normal" as const },
-    { name: "Inter", data: i8, weight: 800 as const, style: "normal" as const },
+  ]).then(([h6, h8, fr]) => [
+    { name: "Host Grotesk", data: h6, weight: 600 as const, style: "normal" as const },
+    { name: "Host Grotesk", data: h8, weight: 800 as const, style: "normal" as const },
     { name: "Fredoka", data: fr, weight: 600 as const, style: "normal" as const },
   ]);
   return fonts;
@@ -110,7 +110,7 @@ function Dots({ w, h, s }: { w: number; h: number; s: number }) {
 }
 
 /** The hero figure's size: as large as the design allows, shrunk to fit
- * `room` design px (Inter 800 figures run ~0.62 em). */
+ * `room` design px (Host Grotesk 800 figures run ~0.62 em). */
 export function heroSize(text: string, max: number, room: number): number {
   return Math.min(max, room / (Math.max(text.length, 1) * 0.62));
 }
@@ -147,7 +147,7 @@ function Card({ data, format, w, h, s }: { data: ShareCardData; format: ShareFor
     flexDirection: "column" as const,
     overflow: "hidden",
     color: C.text,
-    fontFamily: "Inter",
+    fontFamily: "Host Grotesk",
     backgroundColor: C.bg,
   };
   const divider = <div style={{ width: 1, height: 30 * s, background: C.border }} />;

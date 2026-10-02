@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Fredoka, Geist_Mono, Inter } from "next/font/google";
+import { Fredoka, Geist_Mono, Host_Grotesk } from "next/font/google";
 import "./globals.css";
 
 import { AppProviders } from "@/components/app-providers";
@@ -8,8 +8,11 @@ import { OG_LOCALES } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
 import { APP_NAME, APP_URL } from "@/lib/config";
 
-const inter = Inter({
-  variable: "--font-inter",
+/** CopyDog's text face: the variable file (300–800), Latin only; CJK falls
+ * through to the system stack in globals.css. Self-hosted at build time, with
+ * next/font's size-adjusted fallback so the swap does not move the layout. */
+const hostGrotesk = Host_Grotesk({
+  variable: "--font-host-grotesk",
   subsets: ["latin"],
   display: "swap",
 });
@@ -65,7 +68,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang={locale}
-      className={`dark ${inter.variable} ${fredoka.variable} ${geistMono.variable} h-full antialiased`}
+      className={`dark ${hostGrotesk.variable} ${fredoka.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
         <AppProviders locale={locale} messages={messages}>

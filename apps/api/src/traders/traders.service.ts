@@ -354,6 +354,12 @@ export class TradersService {
     const stored = await this.history.recentFills(address, source, span, FILL_PAGE);
     if (stored.length < FILL_PAGE) return null;
     const now = Date.now();
+    // An account that fills a page faster than the archive lags (thousands
+    // of fills an hour) has its whole page after the span: REST's one list
+    // is the answer, and reading the tail first would cost two more.
+    const times = stored.map((fill) => fill.time);
+    const pageMs = Math.max(...times) - Math.min(...times);
+    if (pageMs <= now - span.through) return null;
     const tail = await readForward(async (since) => source === "twap"
       ? (await this.info.userTwapSliceFillsByTime(address, since, now, LANE, PAGE_RANK.fills)).map(twapSliceToFill)
       : this.info.userFillsByTime(address, since, now, LANE, PAGE_RANK.fills), span.through, 2);

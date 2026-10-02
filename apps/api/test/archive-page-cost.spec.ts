@@ -158,6 +158,15 @@ describe("what a cold trader page costs for an address the archive covers", () =
     expect((await now.history.status(X))?.status).toBe("pending");
   });
 
+  it("an account that fills a page faster than the archive lags gets REST's one list, not tail calls first", async () => {
+    // 2,200 fills in the span's last 37 minutes; the span ended two hours ago.
+    const dense = trades(1100, COVERED.through - 40 * 60_000, 1_000);
+    await new HistoryFillStore(db).insert(dense.map((fill) => ({ address: X, source: "regular" as const, origin: "s3" as const, fill })));
+    const hl = hyperliquid();
+    await services(hl.info, "regular").traders.latestFills(X);
+    expect([hl.count("userFills"), hl.count("userFillsByTime")]).toEqual([1, 0]);
+  });
+
   it("with S3_ARCHIVE_TRUST=all the TWAP list also comes from stored slices; with none nothing changes", async () => {
     const slices = trades(1100, COVERED.from + 2 * HOUR, 10 * 60_000).map((fill) => ({ ...fill, coin: "ETH", twapId: 9, hash: `0x${"0".repeat(64)}` }));
     await new HistoryFillStore(db).insert(slices.map((fill) => ({ address: X, source: "twap" as const, origin: "s3" as const, fill })));

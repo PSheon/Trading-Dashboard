@@ -169,6 +169,13 @@
       "when": 1790936515616,
       "tag": "0023_archive_pass_started",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790956930212,
+      "tag": "0024_retention",
+      "breakpoints": true
     }
   ]
 }

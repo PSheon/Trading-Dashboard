@@ -1411,6 +1411,50 @@ export const maintenanceSettingsSchema = z.object({
 });
 export type MaintenanceSettings = z.infer<typeof maintenanceSettingsSchema>;
 
+/** What the retention job cleans, in the order it does. `account_deletion_records`
+ * are the `user.delete` rows of `admin_audit_logs` (counts only); every
+ * other audit row is `admin_audit_logs`. */
+export const RETENTION_TABLES = [
+  "position_snapshots", "equity_snapshots", "admin_audit_logs", "account_deletion_records",
+  "action_outbox", "notification_outbox", "copy_signal_outbox", "alerts",
+] as const;
+export type RetentionTable = (typeof RETENTION_TABLES)[number];
+
+const retentionDays = (min: number) => z.number().int().min(min).max(3650);
+/**
+ * How long operational data is kept (review findings 3 and 20). The worker
+ * deletes what is older, once a day off-peak, in bounded batches. The
+ * defaults are the periods the privacy policy (§6) states: changing one here
+ * makes that text untrue until the policy is changed too.
+ */
+const retentionFields = {
+  /** Off stops the job; nothing is deleted. */
+  enabled: z.boolean(),
+  /** position_snapshots and equity_snapshots. */
+  snapshotDays: retentionDays(30),
+  /** admin_audit_logs, except account-deletion records. */
+  auditDays: retentionDays(30),
+  /** `user.delete` audit rows (counts only, no email or address). */
+  accountDeletionDays: retentionDays(30),
+  /** Finished action_outbox, notification_outbox and copy_signal_outbox rows. */
+  queueDays: retentionDays(7),
+  /** Alert delivery records (`alerts`): what was sent to whom, and its result. */
+  alertDays: retentionDays(7),
+};
+export const RETENTION_DEFAULTS = { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 } as const;
+/** A stored value that lacks a field reads that field's default. */
+export const retentionSettingsSchema = z.object({
+  enabled: retentionFields.enabled.default(RETENTION_DEFAULTS.enabled),
+  snapshotDays: retentionFields.snapshotDays.default(RETENTION_DEFAULTS.snapshotDays),
+  auditDays: retentionFields.auditDays.default(RETENTION_DEFAULTS.auditDays),
+  accountDeletionDays: retentionFields.accountDeletionDays.default(RETENTION_DEFAULTS.accountDeletionDays),
+  queueDays: retentionFields.queueDays.default(RETENTION_DEFAULTS.queueDays),
+  alertDays: retentionFields.alertDays.default(RETENTION_DEFAULTS.alertDays),
+});
+export type RetentionSettings = z.infer<typeof retentionSettingsSchema>;
+/** A save sends every field: a missing one must not quietly fall back to its default. */
+export const retentionPatchSchema = z.object(retentionFields).strict();
+
 /** One schema per `app_settings.key`; `.default()`s are the values before
  * an admin saves anything. */
 export const generalSettingsSchema = z.object({
@@ -1434,6 +1478,8 @@ export const generalSettingsSchema = z.object({
    * watches yet is refused; addresses already watched, and the admin's
    * imported leaders, are not affected. Lowering it stops additions only. */
   maxWatchedAddresses: z.number().int().min(1).max(100_000).default(100),
+  /** Data retention periods (the whole value when changed). */
+  retention: retentionSettingsSchema.default(RETENTION_DEFAULTS),
 });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 
@@ -1529,6 +1575,7 @@ export const patchAdminSettingsRequestSchema = z.object({
   general: generalSettingsSchema.partial().extend({
     announcement: z.object({ enabled: z.boolean(), text: localizedTextSchema.strict() }).strict().optional(),
     maintenance: maintenanceSettingsSchema.extend({ message: localizedTextSchema.strict() }).strict().optional(),
+    retention: retentionPatchSchema.optional(),
   }).strict().optional(),
   discovery: discoverySettingsSchema.partial().strict().optional(),
   notifications: notificationSettingsSchema.partial().strict().optional(),

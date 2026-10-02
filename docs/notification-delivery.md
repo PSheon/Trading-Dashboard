@@ -22,7 +22,7 @@ get at most five claims before terminal failure. Each delivery claim retains the
 existing bounded Telegram retry policy; Retry-After over one minute is persisted
 as a future available time instead of keeping a worker asleep. Failed transient
 attempts retry after at least one minute. Completed and terminal failed rows are
-retained for investigation; retention automation remains a separate task.
+retained for investigation; finished rows are deleted after 30 days by the retention job ([data-retention.md](data-retention.md)).
 
 Before every external attempt, including retries, check current account status, Telegram destination, favorite
 subscription/filters or admin role, and the global notification switch. Removing

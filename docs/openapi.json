@@ -1317,7 +1317,8 @@
                 "kol.delete",
                 "kol.import",
                 "copy.control",
-                "copy.risk"
+                "copy.risk",
+                "retention.run"
               ]
             }
           },
@@ -3154,6 +3155,112 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "retention": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "running": {
+                                  "type": "boolean"
+                                },
+                                "lastStartedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "lastFinishedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "lastStatus": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "ok",
+                                        "partial",
+                                        "failed"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "removed": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "integer"
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "cutoffs": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "lastError": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "durationMs": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "running",
+                                "lastStartedAt",
+                                "lastFinishedAt",
+                                "lastStatus",
+                                "removed",
+                                "cutoffs",
+                                "lastError",
+                                "durationMs"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -3356,6 +3463,54 @@
                               "minimum": 1,
                               "maximum": 100000,
                               "default": 100
+                            },
+                            "retention": {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean",
+                                  "default": true
+                                },
+                                "snapshotDays": {
+                                  "type": "integer",
+                                  "minimum": 30,
+                                  "maximum": 3650,
+                                  "default": 90
+                                },
+                                "auditDays": {
+                                  "type": "integer",
+                                  "minimum": 30,
+                                  "maximum": 3650,
+                                  "default": 365
+                                },
+                                "accountDeletionDays": {
+                                  "type": "integer",
+                                  "minimum": 30,
+                                  "maximum": 3650,
+                                  "default": 365
+                                },
+                                "queueDays": {
+                                  "type": "integer",
+                                  "minimum": 7,
+                                  "maximum": 3650,
+                                  "default": 30
+                                },
+                                "alertDays": {
+                                  "type": "integer",
+                                  "minimum": 7,
+                                  "maximum": 3650,
+                                  "default": 30
+                                }
+                              },
+                              "additionalProperties": false,
+                              "default": {
+                                "enabled": true,
+                                "snapshotDays": 90,
+                                "auditDays": 365,
+                                "accountDeletionDays": 365,
+                                "queueDays": 30,
+                                "alertDays": 30
+                              }
                             }
                           },
                           "additionalProperties": false
@@ -3803,6 +3958,54 @@
                               "minimum": 1,
                               "maximum": 100000,
                               "default": 100
+                            },
+                            "retention": {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean",
+                                  "default": true
+                                },
+                                "snapshotDays": {
+                                  "type": "integer",
+                                  "minimum": 30,
+                                  "maximum": 3650,
+                                  "default": 90
+                                },
+                                "auditDays": {
+                                  "type": "integer",
+                                  "minimum": 30,
+                                  "maximum": 3650,
+                                  "default": 365
+                                },
+                                "accountDeletionDays": {
+                                  "type": "integer",
+                                  "minimum": 30,
+                                  "maximum": 3650,
+                                  "default": 365
+                                },
+                                "queueDays": {
+                                  "type": "integer",
+                                  "minimum": 7,
+                                  "maximum": 3650,
+                                  "default": 30
+                                },
+                                "alertDays": {
+                                  "type": "integer",
+                                  "minimum": 7,
+                                  "maximum": 3650,
+                                  "default": 30
+                                }
+                              },
+                              "additionalProperties": false,
+                              "default": {
+                                "enabled": true,
+                                "snapshotDays": 90,
+                                "auditDays": 365,
+                                "accountDeletionDays": 365,
+                                "queueDays": 30,
+                                "alertDays": 30
+                              }
                             }
                           },
                           "additionalProperties": false
@@ -22306,6 +22509,54 @@
         ],
         "additionalProperties": false
       },
+      "RetentionDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Off stops the retention job; nothing is deleted"
+          },
+          "snapshotDays": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3650,
+            "description": "position_snapshots and equity_snapshots, days"
+          },
+          "auditDays": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3650,
+            "description": "admin_audit_logs except account-deletion records, days"
+          },
+          "accountDeletionDays": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3650,
+            "description": "Account-deletion records (user.delete audit rows), days"
+          },
+          "queueDays": {
+            "type": "integer",
+            "minimum": 7,
+            "maximum": 3650,
+            "description": "Finished action_outbox, notification_outbox and copy_signal_outbox rows, days"
+          },
+          "alertDays": {
+            "type": "integer",
+            "minimum": 7,
+            "maximum": 3650,
+            "description": "Alert delivery records (alerts), days"
+          }
+        },
+        "required": [
+          "enabled",
+          "snapshotDays",
+          "auditDays",
+          "accountDeletionDays",
+          "queueDays",
+          "alertDays"
+        ],
+        "additionalProperties": false
+      },
       "GeneralPatchDto": {
         "type": "object",
         "properties": {
@@ -22338,6 +22589,14 @@
             "allOf": [
               {
                 "$ref": "#/components/schemas/MaintenanceDto"
+              }
+            ]
+          },
+          "retention": {
+            "description": "Data retention periods; the whole value when changed. The privacy policy states the defaults",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RetentionDto"
               }
             ]
           }

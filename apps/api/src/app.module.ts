@@ -24,6 +24,7 @@ import { UsersModule } from "./users/users.module.js";
 import { WalletModule } from "./wallet/wallet.module.js";
 import { CopyModule } from "./copy/copy.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
+import { RetentionWorkerModule } from "./retention/retention.module.js";
 
 @Module({
   imports: [RuntimeConfigModule,
@@ -54,6 +55,7 @@ import { WatcherModule } from "./watcher/watcher.module.js";
     InsightsWorkerModule,
     OutboxModule,
     ArchiveIngestWorkerModule,
+    RetentionWorkerModule,
   ],
   providers: [...AUTH_GUARD_PROVIDERS, ActionRelay],
 })

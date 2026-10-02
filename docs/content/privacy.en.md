@@ -85,10 +85,10 @@ Our servers and service providers may be located outside your country or region.
 ## 6. Retention
 
 - **Account information and settings:** kept while your account exists. When you delete your account in Orbie, it is removed immediately. When you ask us to delete it by email, we delete or de-identify it within 30 days. In both cases, information the law requires us to keep is excepted.
-- **Telegram chat ID:** deleted from our database when you unlink Telegram.
-- **Alert delivery records:** kept for 30 days to investigate delivery problems.
+- **Telegram chat ID:** the link itself is deleted from our database as soon as you unlink Telegram. Delivery records of alerts already sent still hold the chat ID they were sent to; it is deleted with the record after 30 days.
+- **Alert delivery records:** kept for 30 days to investigate delivery problems, then deleted by a daily cleanup job.
 - **Server logs:** kept for 30 days.
-- **Admin audit logs and account deletion records:** kept for 1 year. A deletion record holds only an account number, the time of deletion and counts; it contains no email or wallet address.
+- **Admin audit logs and account deletion records:** kept for 1 year, then deleted by a daily cleanup job. A deletion record holds only an account number, the time of deletion and counts; it contains no email or wallet address.
 - **Paper copy trading orders and fills:** kept while your account exists; deleted with your account.
 - **Backups:** data in backups is overwritten on the normal backup cycle, within at most 30 days.
 - **Public blockchain data:** fills and positions on Hyperliquid are public on-chain records that cannot be deleted. Public market data we store to calculate performance is not part of your account data and may be kept long term.

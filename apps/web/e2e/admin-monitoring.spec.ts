@@ -10,11 +10,16 @@ for (const width of [1440, 375]) {
     await expect(page.getByText("Standby", {exact: true})).toBeVisible();
     await expect(page.getByText(/Connected ·/)).toHaveCount(0);
     await expect(page.getByText("824 / 1000", {exact: true})).toBeVisible();
+    // The retention job's last run, with the rows it removed per table.
+    const retention = page.getByTestId("retention-panel");
+    await expect(retention.getByRole("heading", {name: "Data retention", exact: true})).toBeVisible();
+    await expect(retention.getByText("Complete", {exact: true})).toBeVisible();
+    await expect(retention.getByText("15,604", {exact: true})).toBeVisible();
     await page.getByRole("button", {name: "Refresh", exact: true}).click();
     await expect(page.getByRole("button", {name: "Refresh", exact: true})).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const audit = await (await wcag(page)).analyze();
     expect(audit.violations.map(v => ({id: v.id, nodes: v.nodes.map(n => n.target)}))).toEqual([]);
-    await page.screenshot({path: `/tmp/orbie-admin-monitoring-${width}.png`, fullPage: true});
+    await page.screenshot({path: `${process.env.E2E_SCREENSHOT_DIR ?? "/tmp"}/orbie-admin-monitoring-${width}.png`, fullPage: true});
   });
 }

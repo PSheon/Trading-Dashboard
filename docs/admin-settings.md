@@ -160,6 +160,14 @@ imported leaders, are not counted or refused. Lowering it removes nothing. Set i
 to what the worker's budget can carry (see the budget table in
 [railway-deploy.md](railway-deploy.md)).
 
+`general.retention` (review finding 20) is how long operational data is kept:
+`snapshotDays` 90, `auditDays` 365, `accountDeletionDays` 365, `queueDays` 30,
+`alertDays` 30, and `enabled`. The whole value is sent when any of it changes
+(a partial one is a 400, so a missing field can never fall back to its default
+unnoticed). The worker's retention job reads it at the start of each run; see
+[data-retention.md](data-retention.md). The defaults are the periods the privacy
+policy states.
+
 The Discovery card now has inputs for the three weight caps that could only be
 set through the API: `poolPerformanceWeightPerMinute`,
 `historyWeightPerMinute` and `backfillWeightPerMinute` (0–600 each; 0 pauses

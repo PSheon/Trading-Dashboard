@@ -70,3 +70,39 @@ it("preserves another section's draft and revision after a save, then explicitly
     client.clear(); container.remove(); vi.restoreAllMocks();
   }
 });
+
+it("retention periods are edited in the general section and saved as one whole value (review finding 20)", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const initial = snapshot();
+  expect(initial.general.retention).toEqual({ enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 });
+  vi.spyOn(api, "get").mockImplementation(async (path) => (path === "/admin/settings/runtime" ? { savedRevision: initial.revisions.discovery, state: "active", instanceId: "test", sampledAt: new Date().toISOString(), consumers: [] } : initial) as never);
+  const patch = vi.spyOn(api, "patch").mockImplementation(async (_path, body) => ({ ...initial, general: { ...initial.general, ...(body as { general: object }).general }, revisions: { ...initial.revisions, general: rev(1) } }) as never);
+  patch.mockClear();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
+  client.setQueryData(["admin", "settings"], initial);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const type = async (id: string, value: string) => act(async () => {
+    const input = container.querySelector(`#${id}`) as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><AdminSettingsForm /></QueryClientProvider>));
+    // The defaults are the periods the privacy policy states.
+    const shown = (id: string) => (container.querySelector(`#retention-${id}`) as HTMLInputElement).value;
+    expect(["snapshotDays", "auditDays", "accountDeletionDays", "queueDays", "alertDays"].map(shown)).toEqual(["90", "365", "365", "30", "30"]);
+    expect(container.querySelector('[aria-label="adminOps.retention.enabled"]')?.getAttribute("aria-checked")).toBe("true");
+    await type("retention-snapshotDays", "120");
+    await act(async () => { container.querySelector("#general form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+    expect(patch.mock.calls[0]?.[1]).toEqual({
+      general: { retention: { enabled: true, snapshotDays: 120, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 } },
+      expectedRevisions: { general: rev(0) },
+    });
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});

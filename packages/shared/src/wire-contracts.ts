@@ -81,6 +81,17 @@ export const workerMonitorSchema = z.object({
   switches: operationalSwitchesSchema.optional(),
   uptimeSeconds: z.number().nonnegative(), budget: runtimeBudgetSchema.nullable(), heartbeat: wireHeartbeatSchema.nullable(),
 }).refine(v => v.state !== "active" || (v.budget !== null && v.heartbeat !== null), "Active worker requires telemetry");
+/** `removed` and `cutoffs` are keyed by `RETENTION_TABLES`; a table absent
+ * from `removed` was not reached in that run. `running` is a live lease. */
+export const retentionStatusSchema = z.object({
+  running: z.boolean(),
+  lastStartedAt: iso.nullable(), lastFinishedAt: iso.nullable(),
+  lastStatus: z.enum(["ok", "partial", "failed"]).nullable(),
+  removed: z.record(z.string(), z.number().int()).nullable(),
+  cutoffs: z.record(z.string(), iso).nullable(),
+  lastError: z.string().nullable(), durationMs: z.number().int().nullable(),
+});
+export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
 export const adminSystemSchema = z.object({
   sampledAt: iso,
   api: z.object({ state: z.literal("active"), role: z.enum(["api", "worker", "combined"]), uptimeSeconds: z.number(), budget: runtimeBudgetSchema,
@@ -97,6 +108,9 @@ export const adminSystemSchema = z.object({
     portfolios: z.number(), trades: z.number(), errors: z.number(), oldestPortfolioAt: iso.nullable(), newestPortfolioAt: iso.nullable(),
   }).nullable(),
   outbox: z.array(z.object({ kind: z.enum(["evaluations", "deliveries"]), pending: z.number(), processing: z.number(), failed: z.number(), due: z.number(), expiredLeases: z.number(), oldestDueAt: iso.nullable() })).nullable(),
+  /** The data-retention job: its last run and what it removed per table.
+   * Optional while older APIs roll out; null when it could not be read. */
+  retention: retentionStatusSchema.nullable().optional(),
 });
 export type AdminSystemOverview = z.infer<typeof adminSystemSchema>;
 export const wireBoardFreshnessSchema = s.boardFreshnessSchema.extend({ oldestUpdatedAt: iso.nullable(), newestUpdatedAt: iso.nullable() });

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
-import type { AdminSystemOverview } from "@trading-dashboard/shared/contracts";
+import type { AdminSystemOverview, RetentionStatus } from "@trading-dashboard/shared/contracts";
 import { DATABASE_POOL } from "../db/drizzle.provider.js";
 
 @Injectable()
@@ -48,6 +48,17 @@ export class AdminSystemRepository {
       min(portfolio_at) AS "oldestPortfolioAt", max(portfolio_at) AS "newestPortfolioAt"
       FROM discovery_traders WHERE in_pool`);
     return JSON.parse(JSON.stringify(row));
+  }
+
+  /** The retention job's last run; a state row that does not exist yet reads as "never ran". */
+  async retention(): Promise<RetentionStatus> {
+    const [row] = await this.query<RetentionStatus>(`SELECT
+      coalesce(locked_until > now(), false) AS running,
+      last_started_at AS "lastStartedAt", last_finished_at AS "lastFinishedAt", last_status AS "lastStatus",
+      removed, cutoffs, last_error AS "lastError", duration_ms AS "durationMs"
+      FROM retention_state WHERE id = 1`);
+    return row ? JSON.parse(JSON.stringify(row))
+      : { running: false, lastStartedAt: null, lastFinishedAt: null, lastStatus: null, removed: null, cutoffs: null, lastError: null, durationMs: null };
   }
 
   async outbox(): Promise<NonNullable<AdminSystemOverview["outbox"]>> {

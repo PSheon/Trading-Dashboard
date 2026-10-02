@@ -12,7 +12,7 @@ export const settingsRuntimeSchema = z.object({
   instanceId: z.string().nullable(), consumers: z.array(appliedDiscoverySchema),
 });
 export type SettingsRuntime = z.infer<typeof settingsRuntimeSchema>;
-export const auditEvents = ["job.retry", "user.update", "user.delete", "user.bootstrap", "settings.update", "rule.create", "rule.update", "leader.update", "list.import", "kol.upsert", "kol.delete", "kol.import", "copy.control", "copy.risk"] as const;
+export const auditEvents = ["job.retry", "user.update", "user.delete", "user.bootstrap", "settings.update", "rule.create", "rule.update", "leader.update", "list.import", "kol.upsert", "kol.delete", "kol.import", "copy.control", "copy.risk", "retention.run"] as const;
 const auditId = z.string().regex(/^[1-9]\d{0,18}$/).refine(v => BigInt(v) <= 9223372036854775807n);
 export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25), beforeId: auditId.optional(),

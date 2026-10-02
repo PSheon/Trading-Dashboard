@@ -1,6 +1,6 @@
 # Delete your Orbie account
 
-Last updated: October 2, 2026
+Last updated: October 3, 2026
 
 ## Overview
 
@@ -20,7 +20,7 @@ Email 【待填：contact email】 from the address registered to your account a
 
 ## What is deleted
 
-The following is removed as soon as you delete your account: your Orbie account (email, wallet address records, display name, language and role); your saved traders, groups and alert settings; your Telegram link and any alerts waiting to be sent; your personal alert history. If you sign in again the same way later, a brand-new account is created.
+The following is removed as soon as you delete your account: your Orbie account (email, wallet address records, display name, language and role); your saved traders, groups and alert settings; your Telegram link and any alerts waiting to be sent; your personal alert history; your paper copy trading settings, orders and fills. If you sign in again the same way later, a brand-new account is created.
 
 ## What is kept
 

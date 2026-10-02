@@ -27,6 +27,20 @@ class MaintenanceDto {
   @ApiProperty({ type: String, format: "date-time", nullable: true, description: "Expected end, shown to visitors. Informational: writes stay refused until maintenance is switched off" })
   @IsDefined() @Nullable() @IsISO8601({ strict: true }) declare endsAt: string | null;
 }
+class RetentionDto {
+  @ApiProperty({ type: Boolean, description: "Off stops the retention job; nothing is deleted" })
+  @IsBoolean() declare enabled: boolean;
+  @ApiProperty({ type: "integer", minimum: 30, maximum: 3650, description: "position_snapshots and equity_snapshots, days" })
+  @IsInt() @Min(30) @Max(3650) declare snapshotDays: number;
+  @ApiProperty({ type: "integer", minimum: 30, maximum: 3650, description: "admin_audit_logs except account-deletion records, days" })
+  @IsInt() @Min(30) @Max(3650) declare auditDays: number;
+  @ApiProperty({ type: "integer", minimum: 30, maximum: 3650, description: "Account-deletion records (user.delete audit rows), days" })
+  @IsInt() @Min(30) @Max(3650) declare accountDeletionDays: number;
+  @ApiProperty({ type: "integer", minimum: 7, maximum: 3650, description: "Finished action_outbox, notification_outbox and copy_signal_outbox rows, days" })
+  @IsInt() @Min(7) @Max(3650) declare queueDays: number;
+  @ApiProperty({ type: "integer", minimum: 7, maximum: 3650, description: "Alert delivery records (alerts), days" })
+  @IsInt() @Min(7) @Max(3650) declare alertDays: number;
+}
 class GeneralPatchDto {
   @ApiPropertyOptional({ type: () => AnnouncementDto })
   @Optional() @IsObject() @Type(() => AnnouncementDto) @ValidateNested() declare announcement?: AnnouncementDto;
@@ -40,6 +54,8 @@ class GeneralPatchDto {
   @Optional() @IsInt() @Min(1) @Max(100000) declare maxWatchedAddresses?: number;
   @ApiPropertyOptional({ type: () => MaintenanceDto, description: "The whole value when changed: enabled, message and endsAt" })
   @Optional() @IsObject() @Type(() => MaintenanceDto) @ValidateNested() declare maintenance?: MaintenanceDto;
+  @ApiPropertyOptional({ type: () => RetentionDto, description: "Data retention periods; the whole value when changed. The privacy policy states the defaults" })
+  @Optional() @IsObject() @Type(() => RetentionDto) @ValidateNested() declare retention?: RetentionDto;
 }
 class DiscoveryPatchDto {
   @ApiPropertyOptional({ type: "array", maxItems: 12, items: { type: "string", pattern: "^0x[0-9a-fA-F]{40}$" } })

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
 import { OperationalSwitchesPanel } from "./operational-switches";
 import { WorkerHeartbeat } from "./worker-heartbeat";
+import { RETENTION_TABLES } from "@trading-dashboard/shared/contracts";
 import type { HeartbeatResponse } from "@/lib/contracts";
 import type { AdminSystemOverview } from "@/lib/contracts";
 import { api } from "@/lib/api";
@@ -84,12 +85,40 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
           </dl></div>)}<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("monitoring.queueHint")}</p>
       </Panel>
     </div>
+    {d.retention !== undefined && <RetentionPanel retention={d.retention} />}
   </div>;
+}
+
+/** The data-retention job: when it last ran, how it ended and how many rows
+ * it removed from each table (review findings 3 and 20). */
+export function RetentionPanel({ retention: r }: { retention: NonNullable<AdminSystemOverview["retention"]> | null }) {
+  const { t, format } = useI18n();
+  const time = (v: string | null) => v ? format.dateTime(v) : t("adminOps.retention.never");
+  return <Panel className="p-5" data-testid="retention-panel"><h3 className="font-semibold">{t("adminOps.retention.title")}</h3>
+    {r === null ? <p className="mt-4 text-sm text-muted-foreground">{t("adminOps.retention.missing")}</p> : <div className="grid items-start gap-x-8 gap-y-4 xl:grid-cols-2">
+      <dl className="mt-3 divide-y divide-border text-sm">
+        <Metric label={t("adminOps.retention.status")} value={r.running ? t("adminOps.retention.running") : r.lastStatus ? t(`adminOps.retention.statuses.${r.lastStatus}`) : t("adminOps.retention.never")} />
+        <Metric label={t("adminOps.retention.lastStarted")} value={time(r.lastStartedAt)} />
+        <Metric label={t("adminOps.retention.lastFinished")} value={time(r.lastFinishedAt)} />
+        {r.durationMs !== null && <Metric label={t("adminOps.retention.duration")} value={t("monitoring.milliseconds", { value: format.num(r.durationMs, 0) })} />}
+        {r.lastError && <Metric label={t("adminOps.retention.error")} value={r.lastError} />}
+      </dl>
+      <div className="mt-3">
+        <h4 className="text-sm font-medium">{t("adminOps.retention.removed")}</h4>
+        <dl className="mt-1 divide-y divide-border text-xs">
+          {RETENTION_TABLES.map((table) => <Metric key={table}
+            label={<>{t(`adminOps.retention.tables.${table}`)}{r.cutoffs?.[table] ? <span className="ml-2 text-subtle-foreground">{t("adminOps.retention.keptSince", { time: format.dateTime(r.cutoffs[table]) })}</span> : null}</>}
+            value={r.removed === null ? "—" : r.removed[table] === undefined ? t("adminOps.retention.notReached") : format.num(r.removed[table], 0)} />)}
+        </dl>
+      </div>
+    </div>}
+    <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("adminOps.retention.hint")}</p>
+  </Panel>;
 }
 function Status({ state }: {state: AdminSystemOverview["worker"]["state"] | "available"}) {
   const { t } = useI18n();
   return <span className={cn("mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", state === "active" || state === "available" ? "bg-positive-soft text-positive" : "bg-warning/10 text-warning")}>{t(`monitoring.${state}`)}</span>;
 }
-function Metric({label, value}: {label: string; value: React.ReactNode}) {
+function Metric({label, value}: {label: React.ReactNode; value: React.ReactNode}) {
   return <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2"><dt className="text-muted-foreground">{label}</dt><dd className="num break-words text-right">{value}</dd></div>;
 }

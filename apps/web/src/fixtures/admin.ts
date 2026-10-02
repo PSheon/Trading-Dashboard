@@ -237,5 +237,10 @@ export function systemOverview() {
     database: { state: "available", latencyMs: 7 },
     data: { leaderboardCount: 25000, leaderboardUpdatedAt: now, watched: 12, candidates: 1000, portfolios: 824, trades: 618, errors: 3,
       oldestPortfolioAt: new Date(Date.now() - 7200_000).toISOString(), newestPortfolioAt: now },
-    outbox: ["evaluations", "deliveries"].map(kind => ({ kind, pending: 2, processing: 1, failed: 0, due: 1, expiredLeases: 0, oldestDueAt: now })) };
+    outbox: ["evaluations", "deliveries"].map(kind => ({ kind, pending: 2, processing: 1, failed: 0, due: 1, expiredLeases: 0, oldestDueAt: now })),
+    // Last night's retention run: every table reached, snapshots and queues trimmed.
+    retention: { running: false, lastStartedAt: "2026-10-01T18:07:00.000Z", lastFinishedAt: "2026-10-01T18:07:42.000Z", lastStatus: "ok", lastError: null, durationMs: 42_180,
+      removed: { position_snapshots: 15_604, equity_snapshots: 4_147, admin_audit_logs: 0, account_deletion_records: 0, action_outbox: 1_689, notification_outbox: 212, copy_signal_outbox: 311, alerts: 198 },
+      cutoffs: { position_snapshots: "2026-07-03T18:07:00.000Z", equity_snapshots: "2026-07-03T18:07:00.000Z", admin_audit_logs: "2025-10-01T18:07:00.000Z", account_deletion_records: "2025-10-01T18:07:00.000Z",
+        action_outbox: "2026-09-01T18:07:00.000Z", notification_outbox: "2026-09-01T18:07:00.000Z", copy_signal_outbox: "2026-09-01T18:07:00.000Z", alerts: "2026-09-01T18:07:00.000Z" } } };
 }

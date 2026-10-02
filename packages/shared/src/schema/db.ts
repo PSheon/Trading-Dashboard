@@ -40,6 +40,7 @@ export * from "../enums.js";
 import {
   bigint,
   bigserial,
+  check,
   customType,
   foreignKey,
   boolean,
@@ -188,6 +189,8 @@ export const positionSnapshots = pgTable(
     primaryKey({
       columns: [table.chain, table.address, table.coin, table.ts],
     }),
+    // The retention job deletes the oldest rows in batches (ts < cutoff).
+    index("position_snapshots_ts_idx").on(table.ts),
   ],
 );
 
@@ -210,6 +213,8 @@ export const equitySnapshots = pgTable(
       table.address,
       table.ts.desc(),
     ),
+    // The retention job deletes the oldest rows in batches (ts < cutoff).
+    index("equity_snapshots_ts_idx").on(table.ts),
   ],
 );
 
@@ -286,7 +291,12 @@ export const alerts = pgTable(
     px4h: numeric("px_4h"),
     px24h: numeric("px_24h"),
   },
-  (table) => [index("alerts_sent_at_idx").on(table.sentAt.desc())],
+  (table) => [
+    index("alerts_sent_at_idx").on(table.sentAt.desc()),
+    // Rows never stamped (a delivery that never finished): the retention job
+    // finds them here instead of scanning the table.
+    index("alerts_unsent_idx").on(table.id).where(sql`${table.sentAt} is null`),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -499,6 +509,26 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
   afterJson: jsonb("after_json"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("admin_audit_logs_created_idx").on(table.createdAt), index("admin_audit_logs_actor_idx").on(table.actorUserId, table.createdAt)]);
+
+/**
+ * The data-retention job's single row (id = 1): its lease, so two workers
+ * never clean at once, and what the last run did, for the admin system page.
+ * `removed` and `cutoffs` are keyed by RETENTION_TABLES names.
+ */
+export const retentionState = pgTable("retention_state", {
+  id: integer("id").primaryKey(),
+  leaseToken: text("lease_token"),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  lastStartedAt: timestamp("last_started_at", { withTimezone: true }),
+  lastFinishedAt: timestamp("last_finished_at", { withTimezone: true }),
+  /** "ok": every table reached its cutoff; "partial": the run's batch or
+   * time budget ended first (the next run continues); "failed": an error. */
+  lastStatus: text("last_status").$type<"ok" | "partial" | "failed">(),
+  removed: jsonb("removed").$type<Record<string, number>>(),
+  cutoffs: jsonb("cutoffs").$type<Record<string, string>>(),
+  lastError: text("last_error"),
+  durationMs: integer("duration_ms"),
+}, (table) => [check("retention_state_single_row", sql`${table.id} = 1`)]);
 
 // ---------------------------------------------------------------------------
 // trader_trades / trader_analytics — round trips reconstructed from fills for

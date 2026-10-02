@@ -33,8 +33,8 @@ export class AdminSystemService {
   }
 
   private async collect(): Promise<AdminSystemOverview> {
-    const [database, data, outbox, worker] = await Promise.allSettled([
-      this.repository.probe(), this.repository.data(), this.repository.outbox(), this.worker(),
+    const [database, data, outbox, worker, retention] = await Promise.allSettled([
+      this.repository.probe(), this.repository.data(), this.repository.outbox(), this.worker(), this.repository.retention(),
     ]);
     const budget = this.budgeter.introspect();
     return {
@@ -46,6 +46,7 @@ export class AdminSystemService {
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },
       data: data.status === "fulfilled" ? data.value : null,
       outbox: outbox.status === "fulfilled" ? outbox.value : null,
+      retention: retention.status === "fulfilled" ? retention.value : null,
     };
   }
 }

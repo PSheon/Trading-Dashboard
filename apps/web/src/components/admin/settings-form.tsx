@@ -259,6 +259,9 @@ function Toggle({
   );
 }
 
+/** The retention periods and the shortest each may be (the api's bounds). */
+const RETENTION_FIELDS = [["snapshotDays", 30], ["auditDays", 30], ["accountDeletionDays", 30], ["queueDays", 7], ["alertDays", 7]] as const;
+
 function GeneralForm({ value: incoming, revision: incomingRevision }: { value: AdminSettings["general"]; revision: string }) {
   const { t } = useI18n();
   const { value, original, revision, setValue, accept } = useSectionDraft<"general">(incoming, incomingRevision);
@@ -267,6 +270,9 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
     set({ announcement: { ...value.announcement, ...patch } });
   const setMaintenance = (patch: Partial<AdminSettings["general"]["maintenance"]>) =>
     set({ maintenance: { ...value.maintenance, ...patch } });
+  // The whole retention value is sent when any of it changes.
+  const setRetention = (patch: Partial<AdminSettings["general"]["retention"]>) =>
+    set({ retention: { ...value.retention, ...patch } });
   // Switching maintenance on or off is confirmed; editing its text is not.
   const confirm = (next: AdminSettings["general"], before: AdminSettings["general"]) =>
     next.maintenance.enabled === before.maintenance.enabled ? null
@@ -340,6 +346,34 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
           }}
         />
         <p className="max-w-prose text-xs text-muted-foreground">{t("adminOps.settings.maxWatchedHint")}</p>
+      </div>
+      <div id="retention-settings" className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
+        <h3 className="text-sm font-semibold">{t("adminOps.retention.settingsTitle")}</h3>
+        <p className="max-w-prose text-xs text-muted-foreground">{t("adminOps.retention.settingsHint")}</p>
+        <Toggle
+          label={t("adminOps.retention.enabled")}
+          hint={t("adminOps.retention.enabledHint")}
+          checked={value.retention.enabled}
+          onChange={(enabled) => setRetention({ enabled })}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {RETENTION_FIELDS.map(([field, min]) => (
+            <div key={field} className="grid gap-2">
+              <Label htmlFor={`retention-${field}`}>{t(`adminOps.retention.${field}`)}</Label>
+              <Input
+                id={`retention-${field}`}
+                type="number"
+                min={min}
+                max={3650}
+                value={value.retention[field]}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (Number.isInteger(next) && next >= 1) setRetention({ [field]: next });
+                }}
+              />
+            </div>
+          ))}
+        </div>
       </div>
       <div className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
         <div className="flex items-center gap-2">

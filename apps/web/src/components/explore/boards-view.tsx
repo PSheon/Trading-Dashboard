@@ -47,8 +47,7 @@ const pick = <T extends string>(value: string | null, options: readonly T[], fal
 /**
  * Explore (Stage 3 §1, CopyDog's /hyperliquid/discover): crypto / stocks,
  * board tabs (Top 100, KOL, coins), style, sort, window and grid / list;
- * a fixed top 100 from the api's discovery pool. The full leaderboard is
- * at /explore/all.
+ * a fixed top 100 from the api's discovery pool.
  */
 export function BoardsView() {
   const { t } = useI18n();
@@ -233,16 +232,6 @@ export function BoardsView() {
           ) : null}
         </div>
       )}
-
-      <div className="flex justify-center pt-2 pb-4">
-        <Link
-          href="/explore/all"
-          className="inline-flex h-11 items-center gap-1.5 rounded-full bg-raised px-5 text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {t("discover.viewAll")}
-          <ChevronRight className="size-4" />
-        </Link>
-      </div>
 
       {sheet ? (
         <FilterSheet

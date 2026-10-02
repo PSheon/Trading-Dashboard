@@ -8,7 +8,8 @@ for (const width of [1440, 375])
   }) => {
     await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/explore/all?q=%40research_whale");
+    // Orbie's indexed-trader search lives in the lab (CopyDog has no such page).
+    await page.goto("/dev/explore/all?q=%40research_whale");
     const results = page.getByRole("region", { name: "Matching traders" });
     await expect(
       results.getByText("Research Whale", { exact: true }),

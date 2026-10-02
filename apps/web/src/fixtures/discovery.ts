@@ -33,6 +33,16 @@ export function fixtureBoard(query: BoardQuery) {
     freshness: { oldestUpdatedAt: leaderboardUpdatedAt, newestUpdatedAt: leaderboardUpdatedAt, missingTimestamps: 0 }, updatedAt: leaderboardUpdatedAt };
 }
 
+/** GET /discover/search: name or address prefix over the fixture pool. */
+export function fixtureSearch(q: string, limit: number) {
+  const term = q.replace(/^@/, "").toLowerCase();
+  const items = fixtureBoard({ market: "crypto", board: "top100", sort: "pnl", window: "all" }).items
+    .filter((trader) => trader.address.startsWith(term) || (trader.displayName ?? "").toLowerCase().includes(term))
+    .slice(0, limit)
+    .map(({ address, displayName, avatarUrl, xHandle, verified, kol, pnl, roi, accountValue }) => ({ address, displayName, avatarUrl, xHandle, verified, kol, pnl, roi, accountValue }));
+  return { items };
+}
+
 export function fixtureHome() {
   const board = (market: "crypto" | "stocks", board = "top100", sort: BoardQuery["sort"] = "copyScore") => fixtureBoard({ market, board, sort, window: "all" }).items.slice(0, 7);
   const settings = publicSettings();

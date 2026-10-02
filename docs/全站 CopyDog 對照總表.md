@@ -7,7 +7,7 @@
 | Orbie 頁面 | CopyDog 對應 | 狀態 | 備註／剩餘差異 |
 | --- | --- | --- | --- |
 | `/` 首頁 | `/hyperliquid` | ✅ | 幣種／股票列要等候選池交易歷史補齊（約 6.6 天） |
-| `/explore` 探索 | `/hyperliquid/discover` | ✅ | 完整排行榜移到 `/explore/all`（Orbie 專有） |
+| `/explore` 探索 | `/hyperliquid/discover` | ✅ | 完整排行榜是 Orbie 專有，2026-10-02 移到 `/dev/explore/all`（實驗室的「其他」畫面有連結）；探索頁底的「查看完整排行榜」連結已移除（CopyDog 探索頁沒有這個連結） |
 | `/trader/:addr` 交易者 | `/hyperliquid/:addr` | ✅ | 手機「洞察」分頁版面不同；KOL 頭像／名稱 🟡；跟單面板 🟡 第 3 步（模擬，`stage4-paper-copy`）：順向／反向、金額＋最大、可交易餘額滑桿、更多設定（跟單目前持倉）、CTA 各狀態、手機數字鍵盤面板 |
 | `/favorites` 收藏 | `/hyperliquid/watchlist` | 🟡 | 等 Codex commit 後合併 |
 | `/insights` 洞察 | `/hyperliquid/cohorts` | 🟡 | 同上；Orbie 多了分層選擇 |
@@ -202,6 +202,7 @@ T1 = `0xfc52…ee77`（有持倉、掛單）、KOL = `0xbf73…5d58`（大型帳
 | 最近搜尋 | 選過的交易員（最多 5 位）在空白聚焦時列出：「最近搜尋 · 清除」＋各列 × | 原本沒有 → 新增（localStorage，11 語） | 已修 |
 | 輸入「solana」 | 下拉在框下 8px、圓角 12、列高 60：頭像 34、名稱 13.5px／600（命中字主色粗體）、地址等寬 11px、損益 13px／600、ROI 等寬 9px 標籤；預設不反白 | 原本 14px 字、預設反白第一列 → 相同 | 已修 |
 | 無結果 | 置中「未找到交易員」13.5px＋「以地址或名稱搜尋」11.5px | 原本靠左、粗體 → 相同 | 已修 |
+| 按 Enter | 2026-10-02 無頭瀏覽器實測：有 ↑／↓ 選中的列就開那位交易員；沒有選中時不挑第一筆，直接開 `/hyperliquid/<輸入的文字>`（完整地址、名稱、亂打都一樣）。不是地址或查無資料的地址照樣畫交易員頁，數字全空 | 相同的導向（`/trader/<輸入的文字>`）；輸入超過 42 字元的提示（`topbar.invalidAddress`）已刪。**差異（Paul 決定）**：查無資料顯示 404 頁——不是地址的字串由伺服器回 404；地址格式正確但 Hyperliquid 沒有任何資料（無價值、持倉、餘額、排行榜、KOL、Vault、成交）在問完 profile 與 activity 後顯示 404 | 已修（404 為 Orbie 規則） |
 | 手機全螢幕搜尋 | 輸入 44px、圖示 16、15px；佔位「搜尋交易者」（無刪節號）；空白時一行提示；無結果一行文字；列 64px（名稱 16px／600、完整地址 12px）；最近搜尋標題 12px 大寫、「清除」主色 | 原本無提示、無結果置中兩行、佔位有「…」→ 相同（11 語佔位改用 CopyDog 字串） | 已修 |
 | 損益數值 | +$23.2M | +$23.1M | 暫時做不到（數值來源快照時間不同） |
 
@@ -233,7 +234,7 @@ T1 = `0xfc52…ee77`（有持倉、掛單）、KOL = `0xbf73…5d58`（大型帳
 | 頁首右側 | 地球鈕 44（圖示 20）、登入 70×44；頁首左右 16px | 原本圖示 18、登入 80 寬、左右 20px → 相同 | 已修 |
 | App Store／Google Play 徽章 | 有 | 沒有（Orbie 沒有 App） | Orbie 專有（保留） |
 | 登入視窗（Privy） | Logo、「Log in or sign up」、Email、Google、錢包、Protected by Privy | 相同（Orbie logo） | 一致 |
-| 無效地址的交易員頁 | 照常顯示交易員頁骨架，永遠載入中 | 改為同樣的載入骨架、不發請求（`trader.invalidAddress` 鍵已刪；`screens-parity-3/_pair-badaddr-page-*`） | 已修 |
+| 無效地址的交易員頁 | 照常顯示交易員頁骨架，永遠載入中 | 2026-10-02 起顯示 404 頁（Paul 決定：查無資料一律 404），見「5. 頂端搜尋」 | Orbie 規則 |
 | Toast 提示 | Toastify，左下角（手機全寬貼底）、320px、3 秒、最新在上、最多 4 則、點擊關閉、不因 hover 暫停、bounceInLeft；深色 0.92 底、16px 圓角、22px 圖示、× 在右上 | `ToastProvider`／`useToast` 同樣設定（Orbie 配色）；分享複製、跟單驗證／失敗、收藏與群組、提醒、Telegram、錢包對話框改用 toast（`screens-parity-3/_pair-toast-share-copy-1440.png`、`-390.png`） | 已修 |
 
 ### 8. 第三輪補充（2026-10-01，截圖在 `screens-parity-3/`）
@@ -244,4 +245,4 @@ T1 = `0xfc52…ee77`（有持倉、掛單）、KOL = `0xbf73…5d58`（大型帳
 | 游標 | 按鈕、連結、分頁、選項、卡片、可排序表頭、洞察錢包列皆為 pointer；停用的「最大」與滑桿為 not-allowed（`cursor-probe.mjs`） | Tailwind v4 預設讓按鈕為箭頭 → `globals.css` 基礎規則；洞察錢包列可點擊；`test/cursor.test.tsx`、`e2e/cursor.spec.ts` | 已修 |
 | 無障礙（axe） | — | 見 `docs/accessibility.md`（對比、ARIA、標題層級、地標名稱、連結底線） | 已修 |
 | 內建錢包地址未入庫 | — | 建立錢包後重新抓 /me 與 /me/wallet；api 缺地址時每 15 秒重查（`use-wallet-backfill.ts`、`auth.service.ts`） | 已修（Orbie 專有） |
-| Orbie 專有功能的去留（新規則：CopyDog 沒有的不加，要加放 /dev） | — | CSV 匯出、分層選單、「看得到的數字」、評分方法、計算機說明圖示、跟單面板提示文字、常見問題分組標籤、無效地址頁皆已移除或移到 `/dev`；保留：模擬標章（揭露）、分享卡網址頁尾／無 App 徽章（Orbie 沒有 App）、隱私／條款草稿提示（docs/content 的內容）、`/explore/all`（搜尋框 Enter 的落點，待決定） | 已修 |
+| Orbie 專有功能的去留（新規則：CopyDog 沒有的不加，要加放 /dev） | — | CSV 匯出、分層選單、「看得到的數字」、評分方法、計算機說明圖示、跟單面板提示文字、常見問題分組標籤、無效地址頁皆已移除或移到 `/dev`；保留：模擬標章（揭露）、分享卡網址頁尾／無 App 徽章（Orbie 沒有 App）、隱私／條款草稿提示（docs/content 的內容）；`/explore/all` 已移到 `/dev/explore/all`（2026-10-02） | 已修 |

@@ -321,11 +321,17 @@ function isTrackedFixture(address: string, favorite: boolean): boolean {
 }
 
 /** GET /traders/:address/activity: sample size and last trade. */
+/** An address Hyperliquid has nothing for (the trader page's 404). */
+export const UNKNOWN_ADDRESS = `0x${"0".repeat(36)}dead`;
+
 export function activityFor(
   address: string,
   favorite: boolean,
   lowSampleThreshold: number,
 ): TraderActivityResponse {
+  if (address.toLowerCase() === UNKNOWN_ADDRESS) {
+    return { address: UNKNOWN_ADDRESS, lastTradeAt: null, sample: { fills30d: 0, capped: false, lowSample: true }, fetchedAt: new Date(NOW) };
+  }
   const sample = sampleFor(address, isTrackedFixture(address, favorite));
   return {
     address: address.toLowerCase(),
@@ -339,6 +345,13 @@ export function profileFor(
   address: string,
   favorite: boolean,
 ): TraderProfileResponse {
+  if (address.toLowerCase() === UNKNOWN_ADDRESS) {
+    return {
+      address: UNKNOWN_ADDRESS, displayName: null, stats: null, accountValue: 0, perpEquity: 0, spotValue: 0, stakedValue: 0,
+      accountMode: "standard", spotBalances: [], perpDexes: ["", "xyz"], marginUsed: 0, withdrawable: 0, longNotional: 0,
+      shortNotional: 0, positions: [], tracked: false, isVault: false, favorite: false, analytics: null, fetchedAt: new Date(NOW),
+    };
+  }
   const stats = findStats(address);
   const accountValue = stats?.accountValue ?? SAMPLE_ACCOUNT_VALUE;
   const positions = stats ? positionsFor(address, accountValue) : samplePositions;

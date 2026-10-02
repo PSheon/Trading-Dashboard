@@ -16,8 +16,9 @@ const METHODOLOGY = ["intro", "scope", "copyScore", "flow", "exclusions", "risk"
 /**
  * Orbie's own features that copydog.xyz doesn't have, kept off the user
  * pages (owner's rule) and reachable here: the performance methodology,
- * the about page's "numbers you can see" section, fills export to CSV, and
- * a pointer to the cohort tier picker on the lab's insights screen.
+ * the about page's "numbers you can see" section, fills export to CSV, the
+ * full leaderboard, and a pointer to the cohort tier picker on the lab's
+ * insights screen.
  */
 export function LabExtras({ base, numbers }: { base: string; numbers: Block[] }) {
   const { t, locale } = useI18n();
@@ -33,6 +34,15 @@ export function LabExtras({ base, numbers }: { base: string; numbers: Block[] })
           {sample ? ` · ${sample.displayName ?? sample.address}` : ""}
         </p>
         {sample ? <FillsExport trader={sample} /> : null}
+      </section>
+      <section className="rounded-2xl border border-border bg-card p-6">
+        <h2 className="text-lg font-bold">{en ? "Full leaderboard" : "完整排行榜"}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {en ? "The whole official leaderboard with Orbie's filters and the indexed-trader search; CopyDog shows the top 100 only." : "官方排行榜全部名單、Orbie 的篩選與已收錄交易員搜尋；CopyDog 只顯示前 100 名。"}
+        </p>
+        <Link href="/dev/explore/all" className="mt-3 inline-block text-sm font-semibold text-primary underline underline-offset-2">
+          {t("explore.title")}
+        </Link>
       </section>
       <section className="rounded-2xl border border-border bg-card p-6">
         <h2 className="text-lg font-bold">{en ? "Cohort tier picker" : "洞察分層選單"}</h2>

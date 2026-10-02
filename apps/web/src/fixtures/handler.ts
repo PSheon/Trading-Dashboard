@@ -25,6 +25,8 @@ import { systemOverview } from "./admin";
  */
 import {
   boardQuerySchema,
+  discoverSearchQuerySchema,
+  discoverSearchResponseSchema,
   boardResponseSchema,
   homeBoardsResponseSchema,
   adminOverviewSchema,
@@ -118,7 +120,7 @@ import {
   setAdminUsers,
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
-import { fixtureBoard, fixtureHome } from "./discovery";
+import { fixtureBoard, fixtureHome, fixtureSearch } from "./discovery";
 import { fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
 import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
 
@@ -269,6 +271,10 @@ export async function fixtureRequest<T>(
       return wire(homeBoardsResponseSchema, fixtureHome());
     case "GET /discover/boards":
       return wire(boardResponseSchema, fixtureBoard(query(boardQuerySchema, search)));
+    case "GET /discover/search": {
+      const { q, limit } = query(discoverSearchQuerySchema, search) as z.infer<typeof discoverSearchQuerySchema>;
+      return wire(discoverSearchResponseSchema, fixtureSearch(q, limit));
+    }
     // --- discovery -----------------------------------------------------------
     case "GET /trader-search": {
       const { q } = traderSearchQuerySchema.parse(Object.fromEntries(url.searchParams));

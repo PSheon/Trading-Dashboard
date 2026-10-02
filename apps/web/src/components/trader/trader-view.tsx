@@ -1,6 +1,7 @@
 "use client";
 
 import type { TraderWindow } from "@/lib/contracts";
+import { notFound } from "next/navigation";
 import { useState } from "react";
 
 import { ErrorState, Skeleton } from "@/components/page";
@@ -14,6 +15,7 @@ import {
   useTraderAnalytics,
   useTraderProfile,
 } from "@/lib/queries";
+import { traderIsUnknown } from "@/lib/trader-presence";
 import { useLiveTrader } from "@/lib/use-live-trader";
 import { ActivityTabs } from "./activity-tabs";
 import { CopyPanel } from "./copy-panel";
@@ -30,17 +32,9 @@ import {
 } from "./performance";
 import { ProfileCard } from "./profile-card";
 
-const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-
 /** Trader page: profile | KPIs + chart + tabs | copy panel (Stage 2 §6). */
-export function TraderView({ address: rawAddress }: { address: string }) {
-  const valid = ADDRESS.test(rawAddress);
-  const address = rawAddress.toLowerCase();
-
-  // CopyDog shows the page's loading skeleton for an address that can't be
-  // one, and never resolves; so does Orbie (nothing is requested).
-  if (!valid) return <TraderLoading />;
-  return <TraderLoaded address={address} />;
+export function TraderView({ address }: { address: string }) {
+  return <TraderLoaded address={address.toLowerCase()} />;
 }
 
 function TraderLoading() {
@@ -86,6 +80,12 @@ function TraderLoaded({ address }: { address: string }) {
   const lowSample = activity.data?.sample.lowSample ?? false;
   const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
+  // Owner's rule: no data for the address is the 404 page (CopyDog draws
+  // its trader page with every figure empty). Until the fill history has
+  // answered for a blank profile, the page keeps its loading look.
+  const unknown = traderIsUnknown(profile.data, activity.data);
+  if (unknown) notFound();
+
   const copyScore = useCopyScore(address);
   const rail = live.profile ? (
     <ProfileCard
@@ -96,6 +96,8 @@ function TraderLoaded({ address }: { address: string }) {
       copyScore={copyScore.data?.copyScore ?? null}
     />
   ) : null;
+
+  if (unknown === null && profile.data && !activity.isError) return <TraderLoading />;
 
   return (
     <>

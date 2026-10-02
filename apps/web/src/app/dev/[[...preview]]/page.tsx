@@ -5,17 +5,12 @@ import { concepts, previousConcepts, screenIds } from "@/components/dev/concepts
 import { DesignLab } from "@/components/dev/design-lab";
 import { getLocale } from "@/i18n/server";
 import { contentBlocks } from "@/lib/content";
+import { labEnabled } from "@/lib/dev-lab";
 
 export const metadata: Metadata = {
   title: "Design lab",
   robots: { index: false, follow: false },
 };
-
-/** The lab (design concepts and the Orbie-only extras) is a development
- * tool: a production server answers 404 unless NEXT_DEV_LAB=1 is set on it. */
-function labEnabled(): boolean {
-  return process.env.NODE_ENV !== "production" || process.env.NEXT_DEV_LAB === "1";
-}
 
 export default async function DevPage({ params }: { params: Promise<{ preview?: string[] }> }) {
   if (!labEnabled()) notFound();

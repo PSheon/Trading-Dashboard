@@ -76,8 +76,8 @@ function useDebounced(value: string, ms: number): string {
  * leaderboard name) or an address prefix opens a dropdown of up to five
  * traders (avatar, name with the match lit, short address, all-time PnL and
  * ROI); nothing opens on an empty focus. ↑/↓ move, Enter opens the
- * highlighted trader (a full 0x address opens directly; any other text with
- * no match goes to the full leaderboard's search), Esc closes. On a phone
+ * highlighted trader, or with none highlighted the trader page for the
+ * typed text (the 404 when there is no such trader), Esc closes. On a phone
  * the search takes the whole screen while open (back arrow, field, then
  * name + full address rows), as CopyDog's app-style search does.
  */
@@ -92,11 +92,9 @@ export function AddressSearch({ compact = false, buttonClassName }: {
   const [open, setOpen] = useState(false);
   // CopyDog lights no row until ↑/↓ or the pointer picks one.
   const [active, setActive] = useState(-1);
-  const [invalid, setInvalid] = useState(false);
   const [recent, setRecent] = useState<Recent[]>([]);
   const rootRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const hintId = useId();
   const listId = useId();
   const query = useDebounced(value.trim(), DEBOUNCE_MS);
   const search = useDiscoverSearch(query);
@@ -151,7 +149,6 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     remember(row, address);
     setValue("");
     setOpen(false);
-    setInvalid(false);
     inputRef.current?.blur();
     router.push(`/trader/${address.toLowerCase()}`);
   }
@@ -160,16 +157,16 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     e.preventDefault();
     const q = value.trim();
     if (!q) return;
-    const pick = rows[active] ?? rows[0];
-    if (showList && pick) return go(pick.address, pick);
+    // CopyDog: Enter opens the row ↑/↓ lit; with none lit it opens the
+    // trader page for the typed text as it stands (a page that finds no
+    // trader is the 404).
+    const pick = showList && active >= 0 ? listRows[active] : undefined;
+    if (pick) return go(pick.address, pick);
     if (ADDRESS.test(q)) return go(q);
-    if (/^0x[0-9a-fA-F]*$/.test(q) && q.length > 42) {
-      setInvalid(true);
-      return;
-    }
-    setInvalid(false);
+    setValue("");
     setOpen(false);
-    router.push(`/explore/all?q=${encodeURIComponent(q)}`);
+    inputRef.current?.blur();
+    router.push(`/trader/${encodeURIComponent(q)}`);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -184,9 +181,6 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((i) => (i <= 0 ? listRows.length - 1 : i - 1));
-    } else if (e.key === "Enter" && showRecent && active >= 0 && listRows[active]) {
-      e.preventDefault();
-      go(listRows[active].address, listRows[active]);
     }
   }
 
@@ -248,7 +242,6 @@ export function AddressSearch({ compact = false, buttonClassName }: {
           setValue(e.target.value);
           setOpen(true);
           setActive(-1);
-          if (invalid) setInvalid(false);
         }}
         onFocus={() => {
           setRecent(readRecent());
@@ -258,14 +251,11 @@ export function AddressSearch({ compact = false, buttonClassName }: {
         onKeyDown={onKeyDown}
         placeholder={wide === false ? t("topbar.searchShort") : t("topbar.search")}
         aria-label={t("topbar.searchLabel")}
-        aria-invalid={invalid || undefined}
-        aria-describedby={invalid ? hintId : undefined}
         spellCheck={false}
         autoComplete="off"
         className={cn(
           "h-11 w-full rounded-full border border-transparent bg-raised pr-11 text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:bg-raised-hover",
           overlay ? "pl-10 text-[15px]" : "pl-12 text-sm font-medium md:pl-[52px]",
-          invalid && "border-negative/60",
         )}
       />
       {value ? (
@@ -274,8 +264,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
           aria-label={t("topbar.searchClear")}
           onClick={() => {
             setValue("");
-            setInvalid(false);
-            inputRef.current?.focus();
+                    inputRef.current?.focus();
           }}
           className="absolute top-1/2 right-3 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -284,15 +273,6 @@ export function AddressSearch({ compact = false, buttonClassName }: {
       ) : null}
       </div>
       </div>
-      {invalid ? (
-        <p
-          id={hintId}
-          role="alert"
-          className="absolute top-full left-4 mt-1.5 rounded-lg bg-popover px-2.5 py-1 text-xs text-negative shadow-lg"
-        >
-          {t("topbar.invalidAddress")}
-        </p>
-      ) : null}
       {overlay && !showList && trimmed.length === 0 ? (
         <p className="px-5 py-4 text-sm text-muted-foreground">{t("topbar.searchHint")}</p>
       ) : null}

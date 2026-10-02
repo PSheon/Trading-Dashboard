@@ -133,7 +133,7 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
       await sync.sync(A, "backfill", 0);
       expect(lanes(info.userFillsByTime)).toEqual(["background"]);
 
-      await db.update(copyStrategies).set({ status: "stopped" });
+      await db.update(copyStrategies).set({ status: "stopped", stoppedAt: new Date() });
       info.userFillsByTime.mockClear();
       await sync.sync(A, "confirm", Date.now() - 10_000);
       await sync.catchUp(A);

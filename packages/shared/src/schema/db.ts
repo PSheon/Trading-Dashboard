@@ -19,6 +19,21 @@ import {
   type CopySizingMode,
   type CopyStartMode,
   type CopyStrategyStatus,
+  actionKindEnum,
+  alertRuleKindEnum,
+  alertRuleScopeEnum,
+  alertSidesEnum,
+  appSettingsKeyEnum,
+  copyControlCommandEnum,
+  copyControlScopeEnum,
+  copyLegEnum,
+  copyOrderStatusEnum,
+  copyStrategyStatusEnum,
+  leaderSourceEnum,
+  notificationChannelKindEnum,
+  sendStatusEnum,
+  tierEnum,
+  userRoleEnum,
 } from "../enums.js";
 export * from "../enums.js";
 /**
@@ -55,7 +70,23 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+
+/**
+ * CHECK constraints (review finding 10). The text columns below are typed
+ * with `.$type<>()`, which only TypeScript sees; these make Postgres refuse
+ * a value the code would not understand, and a size, balance or fee the
+ * code assumes can't be negative. `oneOf` renders `col in ('a', 'b')` from
+ * the same shared enum the type comes from, so the two can't drift apart
+ * without a migration. Deliberately unconstrained: `users.locale` (a new
+ * language needs no migration), values Hyperliquid defines and may extend
+ * (`fills.dir`, `position_snapshots.margin_mode`), free-text reasons and
+ * outcomes, and `copy_strategies.cash`, which may be below zero while a
+ * position's unrealized gain keeps the equity positive.
+ */
+const oneOf = (column: AnyPgColumn, values: readonly string[]): SQL =>
+  sql`${column} in (${sql.raw(values.map((v) => `'${v.replaceAll("'", "''")}'`).join(", "))})`;
 
 /** All core tables are chain-scoped; v1 only ever writes 'hyperliquid'. */
 
@@ -109,7 +140,11 @@ export const leaders = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.chain, table.address] })],
+  (table) => [
+    primaryKey({ columns: [table.chain, table.address] }),
+    check("leaders_tier_check", oneOf(table.tier, tierEnum)),
+    check("leaders_source_check", oneOf(table.source, leaderSourceEnum)),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -139,6 +174,9 @@ export const fills = pgTable(
   (table) => [
     primaryKey({ columns: [table.chain, table.address, table.tid] }),
     index("fills_address_ts_idx").on(table.address, table.ts.desc()),
+    // "B" buy / "A" sell: the info client's validation admits nothing else.
+    check("fills_side_check", oneOf(table.side, ["A", "B"])),
+    check("fills_amounts_check", sql`${table.px} >= 0 and ${table.sz} >= 0`),
   ],
 );
 
@@ -165,6 +203,9 @@ export const actions = pgTable(
     index("actions_ts_idx").on(table.ts.desc()),
     index("actions_chain_address_ts_id_idx").on(table.chain, table.address, table.ts.desc(), table.id.desc()),
     index("actions_coin_ts_idx").on(table.coin, table.ts.desc()),
+    check("actions_kind_check", oneOf(table.kind, actionKindEnum)),
+    check("actions_side_check", oneOf(table.side, ["long", "short"])),
+    check("actions_amounts_check", sql`${table.notionalUsd} >= 0 and ${table.avgPx} >= 0`),
   ],
 );
 
@@ -232,7 +273,10 @@ export const coinMeta = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.chain, table.coin] })],
+  (table) => [
+    primaryKey({ columns: [table.chain, table.coin] }),
+    check("coin_meta_bounds_check", sql`${table.szDecimals} >= 0 and ${table.maxLeverage} >= 1`),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -260,6 +304,9 @@ export const alertRules = pgTable(
   (table) => [
     uniqueIndex("alert_rules_user_kind_uq").on(table.userId, table.kind),
     uniqueIndex("alert_rules_default_kind_uq").on(table.kind).where(sql`${table.userId} is null`),
+    check("alert_rules_scope_check", oneOf(table.scope, alertRuleScopeEnum)),
+    check("alert_rules_kind_check", oneOf(table.kind, alertRuleKindEnum)),
+    check("alert_rules_cooldown_check", sql`${table.cooldownS} >= 0`),
   ],
 );
 
@@ -296,6 +343,7 @@ export const alerts = pgTable(
     // Rows never stamped (a delivery that never finished): the retention job
     // finds them here instead of scanning the table.
     index("alerts_unsent_idx").on(table.id).where(sql`${table.sentAt} is null`),
+    check("alerts_send_status_check", oneOf(table.sendStatus, sendStatusEnum)),
   ],
 );
 
@@ -321,7 +369,7 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }).notNull().defaultNow(),
   /** Set by an admin; a disabled user is treated as signed out. */
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
-});
+}, (table) => [check("users_role_check", oneOf(table.role, userRoleEnum))]);
 
 
 // ---------------------------------------------------------------------------
@@ -349,6 +397,8 @@ export const userFavorites = pgTable(
     index("user_favorites_alerting_idx")
       .on(table.chain, table.address)
       .where(sql`${table.alertEnabled}`),
+    check("user_favorites_alert_sides_check", oneOf(table.alertSides, alertSidesEnum)),
+    check("user_favorites_alert_min_check", sql`${table.alertMinUsd} >= 0`),
   ],
 );
 
@@ -371,7 +421,10 @@ export const notificationChannels = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex("notification_channels_user_kind_uq").on(table.userId, table.kind)],
+  (table) => [
+    uniqueIndex("notification_channels_user_kind_uq").on(table.userId, table.kind),
+    check("notification_channels_kind_check", oneOf(table.kind, notificationChannelKindEnum)),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -420,7 +473,7 @@ export const appSettings = pgTable("app_settings", {
   updatedByUserId: integer("updated_by_user_id").references(() => users.id, {
     onDelete: "set null",
   }),
-});
+}, (table) => [check("app_settings_key_check", oneOf(table.key, appSettingsKeyEnum))]);
 
 // ---------------------------------------------------------------------------
 // revenue_snapshots — 平台地址在 Hyperliquid 的累計 builder fee 與推薦返佣
@@ -473,7 +526,11 @@ export const actionOutbox = pgTable("action_outbox", {
   availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   lastError: text("last_error"),
-}, (table) => [index("action_outbox_pending_idx").on(table.status, table.availableAt)]);
+}, (table) => [
+  index("action_outbox_pending_idx").on(table.status, table.availableAt),
+  check("action_outbox_status_check", oneOf(table.status, ["pending", "processing", "done", "failed"])),
+  check("action_outbox_attempts_check", sql`${table.attempts} >= 0`),
+]);
 
 export const notificationOutbox = pgTable("notification_outbox", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
@@ -490,6 +547,8 @@ export const notificationOutbox = pgTable("notification_outbox", {
 }, (table) => [
   uniqueIndex("notification_outbox_action_user_uq").on(table.actionId, table.userId),
   index("notification_outbox_pending_idx").on(table.status, table.availableAt),
+  check("notification_outbox_status_check", oneOf(table.status, ["pending", "processing", "sent", "dry_run", "failed"])),
+  check("notification_outbox_attempts_check", sql`${table.attempts} >= 0`),
 ]);
 
 export const notificationCooldowns = pgTable("notification_cooldowns", {
@@ -508,7 +567,11 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
   beforeJson: jsonb("before_json"),
   afterJson: jsonb("after_json"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("admin_audit_logs_created_idx").on(table.createdAt), index("admin_audit_logs_actor_idx").on(table.actorUserId, table.createdAt)]);
+}, (table) => [
+  index("admin_audit_logs_created_idx").on(table.createdAt),
+  index("admin_audit_logs_actor_idx").on(table.actorUserId, table.createdAt),
+  check("admin_audit_logs_actor_kind_check", oneOf(table.actorKind, ["user", "service", "system"])),
+]);
 
 /**
  * The data-retention job's single row (id = 1): its lease, so two workers
@@ -528,7 +591,10 @@ export const retentionState = pgTable("retention_state", {
   cutoffs: jsonb("cutoffs").$type<Record<string, string>>(),
   lastError: text("last_error"),
   durationMs: integer("duration_ms"),
-}, (table) => [check("retention_state_single_row", sql`${table.id} = 1`)]);
+}, (table) => [
+  check("retention_state_single_row", sql`${table.id} = 1`),
+  check("retention_state_last_status_check", oneOf(table.lastStatus, ["ok", "partial", "failed"])),
+]);
 
 // ---------------------------------------------------------------------------
 // trader_trades / trader_analytics — round trips reconstructed from fills for
@@ -573,6 +639,7 @@ export const traderTrades = pgTable(
   (table) => [
     primaryKey({ columns: [table.chain, table.address, table.openTid] }),
     index("trader_trades_address_sort_idx").on(table.address, table.sortTime.desc(), table.openTid.desc()),
+    check("trader_trades_side_check", oneOf(table.side, ["long", "short"])),
   ],
 );
 
@@ -602,7 +669,10 @@ export const traderAnalytics = pgTable(
     classification: jsonb("classification").$type<Record<string, unknown>>().notNull(),
     computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
   },
-  (table) => [primaryKey({ columns: [table.chain, table.address] })],
+  (table) => [
+    primaryKey({ columns: [table.chain, table.address] }),
+    check("trader_analytics_source_check", oneOf(table.source, ["tracked", "hyperliquid"])),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -777,6 +847,7 @@ export const historyFills = pgTable("history_fills", {
 }, table => [
   primaryKey({ columns: [table.accountId, table.twap, table.tid] }),
   index("history_fills_account_time_idx").on(table.accountId, table.time),
+  check("history_fills_origin_check", oneOf(table.origin, ["rest", "s3"])),
 ]);
 
 export const analysisHistoryJobs = pgTable("analysis_history_jobs", {
@@ -801,6 +872,7 @@ export const analysisHistoryJobs = pgTable("analysis_history_jobs", {
 }, table => [
   primaryKey({ columns: [table.chain, table.address] }),
   index("analysis_history_jobs_attempted_idx").on(table.status, table.attemptedAt),
+  check("analysis_history_jobs_status_check", oneOf(table.status, ["pending", "caught_up", "blocked"])),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -935,7 +1007,11 @@ export const copyControls = pgTable("copy_controls", {
   revision: bigint("revision", { mode: "number" }).notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   updatedByUserId: integer("updated_by_user_id"),
-}, (table) => [primaryKey({ columns: [table.scope, table.scopeId] })]);
+}, (table) => [
+  primaryKey({ columns: [table.scope, table.scopeId] }),
+  check("copy_controls_scope_check", oneOf(table.scope, ["platform", "user"])),
+  check("copy_controls_revision_check", sql`${table.revision} >= 0`),
+]);
 
 /** Every stop / resume command at any level, with who, why and what it did.
  * Admin commands are also in admin_audit_logs (same transaction). */
@@ -949,7 +1025,11 @@ export const copyControlEvents = pgTable("copy_control_events", {
   reason: text("reason"),
   result: jsonb("result").$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("copy_control_events_created_idx").on(table.createdAt)]);
+}, (table) => [
+  index("copy_control_events_created_idx").on(table.createdAt),
+  check("copy_control_events_scope_check", oneOf(table.scope, copyControlScopeEnum)),
+  check("copy_control_events_command_check", oneOf(table.command, copyControlCommandEnum)),
+]);
 
 /** Per-user virtual USDC (paper mode only; never the real wallet). `balance`
  * is what isn't allocated to a strategy. */
@@ -959,7 +1039,11 @@ export const paperAccounts = pgTable("paper_accounts", {
   startingBalance: numeric("starting_balance").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // What is not allocated to a copy: allocations are refused beyond it, and
+  // a stopped copy returns its cash, which is never negative.
+  check("paper_accounts_balance_check", sql`${table.balance} >= 0 and ${table.startingBalance} >= 0`),
+]);
 
 /** One copy of one leader by one user. Settings live in immutable
  * copy_strategy_versions; `version` is the one in force. Only fills at or
@@ -991,6 +1075,12 @@ export const copyStrategies = pgTable("copy_strategies", {
   index("copy_strategies_leader_idx").on(table.chain, table.leaderAddress, table.status),
   // One live copy per user and leader (CopyDog: "Already copying").
   uniqueIndex("copy_strategies_live_uq").on(table.userId, table.chain, table.leaderAddress).where(sql`status <> 'stopped'`),
+  check("copy_strategies_mode_check", oneOf(table.mode, ["paper"])),
+  check("copy_strategies_status_check", oneOf(table.status, copyStrategyStatusEnum)),
+  check("copy_strategies_amounts_check", sql`${table.allocated} > 0 and ${table.fees} >= 0 and ${table.version} >= 1 and ${table.controlRevision} >= 0`),
+  // Cash may be below zero only while a position is open (see the note at
+  // the top); what a stopped copy returned to the balance was not negative.
+  check("copy_strategies_stopped_check", sql`(${table.status} = 'stopped') = (${table.stoppedAt} is not null) and (${table.status} <> 'stopped' or ${table.cash} >= 0)`),
 ]);
 
 export interface CopyStrategySettingsJson {
@@ -1032,6 +1122,8 @@ export const copySignalOutbox = pgTable("copy_signal_outbox", {
 }, (table) => [
   uniqueIndex("copy_signal_outbox_fill_uq").on(table.chain, table.address, table.tid),
   index("copy_signal_outbox_pending_idx").on(table.status, table.id),
+  check("copy_signal_outbox_status_check", oneOf(table.status, ["pending", "done", "failed"])),
+  check("copy_signal_outbox_attempts_check", sql`${table.attempts} >= 0`),
 ]);
 
 /** The consumer's own checkpoint: the highest outbox id below which every
@@ -1061,6 +1153,7 @@ export const copySignalLegs = pgTable("copy_signal_legs", {
 }, (table) => [
   primaryKey({ columns: [table.strategyId, table.tid, table.leg] }),
   index("copy_signal_legs_coin_time_idx").on(table.strategyId, table.coin, table.fillTime),
+  check("copy_signal_legs_leg_check", oneOf(table.leg, ["open", "close"])),
 ]);
 
 /** Paper (later testnet/live) orders and their state machine. Bound at
@@ -1107,6 +1200,14 @@ export const copyOrders = pgTable("copy_orders", {
   index("copy_orders_strategy_idx").on(table.strategyId, table.createdAt.desc()),
   index("copy_orders_status_idx").on(table.status, table.id),
   index("copy_orders_trade_key_idx").on(table.strategyId, table.tradeKey).where(sql`${table.tradeKey} is not null`),
+  check("copy_orders_mode_check", oneOf(table.mode, ["paper"])),
+  check("copy_orders_leg_check", oneOf(table.leg, copyLegEnum)),
+  check("copy_orders_side_check", oneOf(table.side, ["B", "A"])),
+  check("copy_orders_status_check", oneOf(table.status, copyOrderStatusEnum)),
+  // An order never fills more than it asked for, and only reductions are reduce-only.
+  check("copy_orders_sizes_check", sql`${table.size} >= 0 and ${table.filledSize} >= 0 and ${table.filledSize} <= ${table.size}`),
+  check("copy_orders_amounts_check", sql`${table.fee} >= 0 and ${table.builderFee} >= 0 and ${table.signalPx} >= 0 and ${table.avgPx} > 0 and ${table.attempts} >= 0`),
+  check("copy_orders_reduce_only_check", sql`${table.reduceOnly} = (${table.leg} in ('close', 'stop_close', 'liquidation'))`),
 ]);
 
 /** Margin held for an order between approval and fill, made in the same
@@ -1121,7 +1222,11 @@ export const copyReservations = pgTable("copy_reservations", {
   status: text("status").$type<"held" | "consumed" | "released">().notNull().default("held"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   settledAt: timestamp("settled_at", { withTimezone: true }),
-}, (table) => [index("copy_reservations_held_idx").on(table.strategyId, table.status)]);
+}, (table) => [
+  index("copy_reservations_held_idx").on(table.strategyId, table.status),
+  check("copy_reservations_status_check", oneOf(table.status, ["held", "consumed", "released"])),
+  check("copy_reservations_amounts_check", sql`${table.notional} >= 0 and ${table.margin} >= 0`),
+]);
 
 /** Simulated fills of paper orders. */
 export const copyPaperFills = pgTable("copy_paper_fills", {
@@ -1140,7 +1245,11 @@ export const copyPaperFills = pgTable("copy_paper_fills", {
   builderFee: numeric("builder_fee").notNull(),
   realizedPnl: numeric("realized_pnl").notNull(),
   ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("copy_paper_fills_strategy_idx").on(table.strategyId, table.ts.desc())]);
+}, (table) => [
+  index("copy_paper_fills_strategy_idx").on(table.strategyId, table.ts.desc()),
+  check("copy_paper_fills_side_check", oneOf(table.side, ["B", "A"])),
+  check("copy_paper_fills_amounts_check", sql`${table.size} > 0 and ${table.px} > 0 and ${table.basePx} > 0 and ${table.fee} >= 0 and ${table.builderFee} >= 0`),
+]);
 
 /** A strategy's own position per coin, isolated from its other strategies
  * and from the leader's numbers. `size` is signed (long > 0). */
@@ -1160,7 +1269,13 @@ export const copyPositions = pgTable("copy_positions", {
   /** Funding is accrued per whole hour up to here (idempotent per hour). */
   fundingThrough: timestamp("funding_through", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [primaryKey({ columns: [table.strategyId, table.coin] })]);
+}, (table) => [
+  primaryKey({ columns: [table.strategyId, table.coin] }),
+  // An open position has an entry price; what is owed to later reductions
+  // is never more than the position.
+  check("copy_positions_entry_check", sql`${table.entryPx} >= 0 and (${table.size} = 0 or ${table.entryPx} > 0)`),
+  check("copy_positions_carry_check", sql`${table.reduceCarry} >= 0 and ${table.reduceCarry} <= abs(${table.size})`),
+]);
 
 /** Append-only money movements of a strategy (and paper account transfers). */
 export const copyLedger = pgTable("copy_ledger", {
@@ -1174,7 +1289,14 @@ export const copyLedger = pgTable("copy_ledger", {
   coin: text("coin"),
   orderId: bigint("order_id", { mode: "bigint" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("copy_ledger_strategy_idx").on(table.strategyId, table.id)]);
+}, (table) => [
+  index("copy_ledger_strategy_idx").on(table.strategyId, table.id),
+  check("copy_ledger_kind_check", oneOf(table.kind, ["allocate", "realized_pnl", "fee", "builder_fee", "funding", "release", "liquidation"])),
+  // The sign each kind always has: money in on an allocation or a
+  // write-off, out on a fee or a release. PnL and funding go either way;
+  // no row is zero.
+  check("copy_ledger_sign_check", sql`${table.amount} <> 0 and case ${table.kind} when 'allocate' then ${table.amount} > 0 when 'liquidation' then ${table.amount} > 0 when 'fee' then ${table.amount} < 0 when 'builder_fee' then ${table.amount} < 0 when 'release' then ${table.amount} < 0 else true end`),
+]);
 
 /** Durable initial watched-address backfill. Admission shares the leader transaction. */
 export const backfillJobs = pgTable("backfill_jobs", {
@@ -1196,7 +1318,11 @@ export const backfillJobs = pgTable("backfill_jobs", {
   lastErrorCode: text("last_error_code").$type<"backfill_failed" | "lease_expired">(),
 }, table => [uniqueIndex("backfill_jobs_address_uq").on(table.chain, table.address),
   index("backfill_jobs_pending_idx").on(table.status, table.availableAt),
-  index("backfill_jobs_lease_idx").on(table.status, table.leaseExpiresAt)]);
+  index("backfill_jobs_lease_idx").on(table.status, table.leaseExpiresAt),
+  check("backfill_jobs_source_check", oneOf(table.source, ["import", "favorite"])),
+  check("backfill_jobs_status_check", oneOf(table.status, ["pending", "running", "completed", "failed"])),
+  check("backfill_jobs_error_code_check", oneOf(table.lastErrorCode, ["backfill_failed", "lease_expired"])),
+  check("backfill_jobs_counts_check", sql`${table.attempts} >= 0 and ${table.runAttempts} >= 0 and ${table.version} >= 0`)]);
 
 
 /** Private organization only; deleting a group never deletes a favorite.
@@ -1274,6 +1400,7 @@ export const archiveCoverage = pgTable("archive_coverage", {
   primaryKey({ columns: [table.chain, table.address] }),
   index("archive_coverage_from_idx").on(table.coveredFrom),
   index("archive_coverage_through_idx").on(table.coveredThrough),
+  check("archive_coverage_status_check", oneOf(table.status, ["active", "excluded"])),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1323,4 +1450,5 @@ export const fillCoverage = pgTable("fill_coverage", {
 }, table => [
   primaryKey({ columns: [table.chain, table.address] }),
   index("fill_coverage_backfill_idx").on(table.backfillStatus, table.updatedAt),
+  check("fill_coverage_backfill_status_check", oneOf(table.backfillStatus, ["pending", "complete", "retention", "capped", "blocked"])),
 ]);

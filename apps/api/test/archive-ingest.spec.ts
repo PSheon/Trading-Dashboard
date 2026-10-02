@@ -68,7 +68,7 @@ describe("archive ingest", () => {
     await db.insert(cohortMembers).values({ address: a(5), tier: "profitable", source: "pool", rank: 1 });
     await db.insert(leaders).values([{ address: a(6) }, { address: a(7), active: false }, { address: `0x${"AB".repeat(20)}` }]);
     for (const [address, status] of [[a(8), "active"], [a(9), "stopped"], [a(10), "paused"]]) {
-      await db.execute(sql`INSERT INTO copy_strategies (user_id, leader_address, status, allocated, cash, activated_at) VALUES (${user.id}, ${address}, ${status}, 100, 100, now())`);
+      await db.execute(sql`INSERT INTO copy_strategies (user_id, leader_address, status, allocated, cash, activated_at, stopped_at) VALUES (${user.id}, ${address}, ${status}, 100, 100, now(), ${status === "stopped" ? new Date() : null})`);
     }
     expect(await repository.trackedSet()).toEqual([a(1), a(3), a(4), a(5), a(6), a(8), a(10), `0x${"ab".repeat(20)}`]);
     expect(await repository.syncTrackedSet()).toBe(8);

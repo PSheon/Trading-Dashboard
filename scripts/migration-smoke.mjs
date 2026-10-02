@@ -13,7 +13,9 @@ await withTestDatabase(async (url) => {
     assert.equal(after.rows[0].count, before.rows[0].count);
     // Readiness only probes connectivity: independently verify the archive
     // schema needed by the new worker and analytics queries.
-    await pool.query('SELECT chain, address, source, tid, time, raw FROM analysis_history_fills LIMIT 0');
+    await pool.query('SELECT account_id, twap, tid, time, origin, px, sz, hash, extra FROM history_fills LIMIT 0');
+    await pool.query('SELECT id, chain, address FROM history_accounts LIMIT 0');
+    await pool.query('SELECT id, term FROM history_terms LIMIT 0');
     await pool.query('SELECT checkpoint, version, status, published_through, attempted_at, last_error FROM analysis_history_jobs LIMIT 0');
     await pool.query('SELECT history_through FROM trader_analytics LIMIT 0');
     await pool.query('SELECT id, status, version, lease_token, lease_expires_at, run_attempts FROM backfill_jobs LIMIT 0');

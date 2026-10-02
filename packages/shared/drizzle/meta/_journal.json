@@ -148,6 +148,20 @@
       "when": 1790924617927,
       "tag": "0020_analysis_history_requested_at",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790934076208,
+      "tag": "0021_compact_history_fills",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790934078629,
+      "tag": "0022_retire_raw_history_fills",
+      "breakpoints": true
     }
   ]
 }

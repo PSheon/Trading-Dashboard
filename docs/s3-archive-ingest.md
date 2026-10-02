@@ -38,7 +38,7 @@ Rates: data transfer out of Tokyo to the internet US$0.114/GB (the brief's US$0.
 | (a) Full archive, every prefix | Not measured. `explorer_blocks` / `replica_cmds` hold every L1 transaction and are expected to be far larger than fills | — | — | Not needed for Stage 1; price it with the probe before considering it |
 | Same work from EC2 in Tokyo | — | US$0 transfer | — | Only if the worker moves into AWS |
 
-Database growth is the larger cost. The dev database holds 1,082,275 history fills in 716 MB (≈ 660 bytes per fill with indexes). The tracked set is ≈ 2,300 addresses (1,135 pool + 168 KOLs + 1,050 cohort members + leaders, overlapping); at tens of thousands of fills each that is tens of GB. `S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR` (default 20,000) excludes market-maker-like accounts.
+Database growth is the larger cost. Until migration 0021 every fill was one `raw jsonb` row of ≈ 700 bytes with indexes (dev, 2026-10-02: 5,855,781 fills in 4,118 MB); since 0021 it is typed columns of ≈ 209 bytes (see "Storage format" below). The tracked set is ≈ 1,400 addresses on dev (pool + KOLs + cohort members + leaders, overlapping) and produced ≈ 84,000 kept fills an hour on 2026-10-02.
 
 ## Credentials the owner must create
 
@@ -96,7 +96,7 @@ Code: `apps/api/src/ingest/` (`lz4-frame.ts`, `archive-format.ts`, `archive-stor
 
 **Tables** (migration `0017_s3_archive_ingest`, additive):
 
-- `analysis_history_fills.origin` (`rest` | `s3`, default `rest`). Archive fills are written to Codex's existing table under its existing key `(chain, address, source, tid)`, with `source` = `regular` or `twap` exactly as the REST path decides it. A fill read from both origins is therefore one row; `origin` only records who arrived first. This is why "source = s3" became a separate column: putting `s3` into `source` would have made every fill two rows.
+- `history_fills.origin` (`rest` | `s3`, default `rest`). Archive fills are written to the history table under its key `(chain, address, source, tid)` (stored as `(account_id, twap, tid)`, see "Storage format"), with `source` = `regular` or `twap` exactly as the REST path decides it. A fill read from both origins is therefore one row; `origin` only records who arrived first. This is why "source = s3" became a separate column: putting `s3` into `source` would have made every fill two rows.
 - `archive_ingest_state` (one row): `live_next_hour`, `backfill_cursor_hour`, counters (`objects`, `bytes`, `fills_seen`, `fills_kept`), the day's spend, `last_object_key`, `last_error`, `version`.
 - `archive_coverage` (one row per address): `covered_from`, `covered_through` (hour boundaries), `status` (`active` | `excluded`), `queued_at`.
 
@@ -114,6 +114,42 @@ One object is one unit: fills are inserted in batches (idempotent), then cursor,
 **Holes and bad data.** A missing object during backfill ends the pass (`missing_object`): the participants' spans stay where they are. A line that does not parse, or a download that fails its checksum, stops the cursor (`parse_error` / `corrupt_object`) until someone looks. Neither is skipped silently.
 
 **The heartbeat** (the worker's private `/health`; through the api it is `GET /admin/system/heartbeat` for admins, since the public `/health` only says whether the feed is up) gains `archive`: `liveNextHour`, `backfillCursorHour`, `lagSeconds`, `objects`, `bytes`, `fillsSeen`, `fillsKept`, `spendDayBytes`, `spendDayUsd`, `maxDailyUsd`, `addresses {total, backfilled, pending, excluded}`, `lastObjectKey`, `lastRunAt`, `lastError`. No UI.
+
+## Storage format (migration 0021, 2026-10-02)
+
+Decision (Paul, 2026-10-02): keep every field of every fill of every tracked address, losslessly, in a compact form. `analysis_history_fills.raw jsonb` is replaced by `history_fills`, typed columns written and read only by `HistoryFillStore` (`apps/api/src/traders/history-fill.store.ts`); the mapping is `apps/api/src/analytics/fill-codec.ts`. Callers still hand over and get back Hyperliquid fill objects.
+
+**Keys surveyed** (5,843,100 dev rows and two whole archive objects, 826,552 fills, 2026-10-02): 21 keys in 29 combinations — `coin px sz side time startPosition dir closedPnl hash oid crossed fee tid feeToken twapId` on every fill; `cloid` (23 %), `builderFee` (3.4 %), `deployerFee` (1.9 %), `liquidation` (0.6 %; `{markPx, method}` with `liquidatedUser` on all but 369), `priorityGas` (0.5 %), `builder` (0.2 %). Every decimal is a plain string with a decimal point, every hex value lower case, `twapId` always present (null or a number), 20 % of hashes all zero (TWAP slices).
+
+| Field | Column | Exactness |
+| --- | --- | --- |
+| address (+ chain) | `account_id integer` → `history_accounts` | 4 bytes instead of 43 in the row and in both indexes |
+| source | `twap boolean` (in the key) | `twap` / `regular` |
+| tid, time, oid | `bigint`, `timestamptz`, `bigint` | integers; `time` is the fill's own millisecond |
+| twapId | `twap_id bigint` | NULL = JSON null, −1 = no such key, else the number |
+| coin, dir, feeToken | `integer` → `history_terms` | any string, by dictionary (1,231 terms on dev) |
+| side, crossed | `boolean` | "B"/"A", true/false |
+| px, sz, startPosition, closedPnl, fee, builderFee, deployerFee, priorityGas, liquidation.markPx | `numeric` | Postgres `numeric` keeps the scale it was given, so "0.0", "1.50" and "64585.0" read back as written. Only plain decimals go in; "1e-7", "+1", ".5", "-0.0", leading zeros or a JSON number stay as text in `extra` |
+| hash, cloid, builder, liquidation.liquidatedUser | `bytea` | lower-case hex of the exact length only; the all-zero hash is the empty string (1 byte instead of 33) |
+| liquidation.method | `text` | present exactly when the fill has a `liquidation` held in columns |
+| anything else | `extra jsonb` | unknown keys, and any known key whose value is not in its canonical shape, verbatim |
+| origin | `text` | unchanged |
+
+Key order inside a fill is not kept (jsonb never kept it). Nothing Hyperliquid sends today uses `extra` (0 of 5,888,577 converted rows, 0 of 826,552 archive fills).
+
+**Proof of exactness.** `test/fill-codec.spec.ts` (59 cases incl. 20,000 generated fills), `test/history-fill-store.spec.ts` (through Postgres) and the conversion itself: all 5,888,577 dev rows (copied read-only into a scratch database) were converted and compared row by row with the raw JSON — 0 missing, 0 different; both archive objects (20261002/8 and 20260705/12, every fill of every address) round-trip with 0 differences.
+
+**Measured size** (scratch copy of dev, same rows in both layouts):
+
+| | Rows | Heap | Indexes | Total | Bytes per row |
+| --- | --- | --- | --- | --- | --- |
+| `analysis_history_fills` (raw jsonb), freshly loaded | 5,888,577 | 3,022 MB | 787 MB | 3,810 MB | 647 |
+| the same table on dev (grown in place) | 5,855,781 | 2,853 MiB | 1,074 MiB | 3,927 MiB | 703 |
+| `history_fills` after the conversion | 5,888,577 | 913 MB | 320 MB | 1,233 MB | **209** (heap 155, key 31.5, time index 22.9) |
+
+Archive-origin rows are ≈ 8 bytes larger than REST rows (more `cloid`s), so plan with ≈ 218 bytes per archived fill. The 190 that was estimated is not reached: the fixed part is 36 bytes of row header, 24 of `tid`/`time`/`oid`, 16 of ids, 27 of hash and 54 of indexes. `origin` as a boolean and 2-byte ids for `dir`/`feeToken` would save ≈ 7 more bytes (3 %); not done, `origin` stays the column it was.
+
+**Query plans** (address with 66,174 fills; before → after): all fills in time order: index scan on `(chain, address, time)` 58 ms → index scan on `(account_id, time)` + three memoized dictionary joins 114 ms; one day: 0.26 ms → 0.83 ms; newest 2,000: 0.33 ms → 2.8 ms; key probe (ON CONFLICT): index-only in both, 0.2 ms; the repair script's distinct-tid count: 101 ms (it never named `chain`, so the index was scanned whole) → 14 ms.
 
 ## How REST usage goes down
 
@@ -156,4 +192,4 @@ The saving is proportional to how much of an account's history lies inside the a
 - Funding and ledger events (`misc_events_by_block`) are not ingested; funding still comes from REST.
 - Admin UI: `/admin/system` shows whether the ingest is enabled, its state, today's spend against the cap, lag and last run; the remaining figures are in `GET /admin/system/heartbeat`.
 - Backfill passes are not batched by a minimum interval; cost control is the daily cap.
-- `analysis_history_fills` has no retention or partitioning; watch its size.
+- `history_fills` has no retention or partitioning; watch its size.

@@ -36,6 +36,8 @@ import { fileURLToPath } from "node:url";
 import { NestFactory } from "@nestjs/core";
 import { sql } from "drizzle-orm";
 
+import { storedTids } from "../traders/history-fill.store.js";
+
 const args = process.argv.slice(2);
 const option = (name: string) => {
   const index = args.indexOf(`--${name}`);
@@ -120,7 +122,7 @@ export async function repairFills(options: RepairOptions) {
     // The tracked set's untracked members whose figures no stored raw fill backs.
     const unbacked = (await db.execute<{ address: string; coverage_from: Date; fills_read: number; stored: number }>(sql`
       SELECT a.address, a.coverage_from, a.fills_read,
-        (SELECT count(DISTINCT tid)::int FROM analysis_history_fills f WHERE f.address = a.address AND f.time >= a.coverage_from AND f.time <= a.fill_cursor) AS stored
+        ${storedTids(sql`a.address`, sql`a.coverage_from`, sql`a.fill_cursor`)} AS stored
       FROM trader_analytics a
       WHERE a.source = 'hyperliquid' AND a.history_through IS NULL AND a.coverage_from IS NOT NULL AND a.fill_cursor IS NOT NULL
         AND a.address NOT IN (SELECT address FROM leaders WHERE active)

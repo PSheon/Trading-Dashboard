@@ -1,10 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
-import { analysisHistoryFills, archiveCoverage, archiveIngestState } from "@trading-dashboard/shared/database";
+import { archiveCoverage, archiveIngestState } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { HistoryFillStore } from "../traders/history-fill.store.js";
 import { fillStream, HOUR_MS, type ArchiveFill } from "./archive-format.js";
 
 export type ArchiveState = typeof archiveIngestState.$inferSelect;
@@ -49,13 +50,16 @@ export const TRACKED_SET_SQL = sql`
 
 /**
  * Cursors and coverage of the archive ingest. Fill rows go to
- * `analysis_history_fills` under the REST path's own key
+ * `history_fills` under the REST path's own key
  * `(chain, address, source, tid)`, so a fill read from both origins is
  * stored once; `origin` records which one arrived first.
  */
 @Injectable()
 export class ArchiveIngestRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  private readonly fills: HistoryFillStore;
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {
+    this.fills = new HistoryFillStore(db);
+  }
 
   /** Lower-case addresses of the tracked set (see {@link TRACKED_SET_SQL}). */
   async trackedSet(): Promise<string[]> {
@@ -118,12 +122,7 @@ export class ArchiveIngestRepository {
   /** Stores kept fills. Idempotent and safe before the object commits: a
    * fill outside certified coverage is still a true fill. */
   async insertFills(fills: ArchiveFill[]): Promise<void> {
-    for (let i = 0; i < fills.length; i += 500) {
-      await this.db.insert(analysisHistoryFills).values(fills.slice(i, i + 500).map(({ address, fill }) => ({
-        address, source: fillStream(fill), tid: BigInt(fill.tid), time: new Date(fill.time),
-        raw: fill as unknown as Record<string, unknown>, origin: "s3" as const,
-      }))).onConflictDoNothing();
-    }
+    await this.fills.insert(fills.map(({ address, fill }) => ({ address, source: fillStream(fill), origin: "s3" as const, fill })));
   }
 
   /** Where the next backfill pass starts: the hour before the latest span

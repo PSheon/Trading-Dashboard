@@ -1,10 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, eq, gte, inArray, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
-import { analysisHistoryFills, analysisHistoryJobs, archiveCoverage, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
+import { and, asc, count, eq, inArray, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
+import { analysisHistoryJobs, archiveCoverage, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
+import { HistoryFillStore } from "./history-fill.store.js";
 import { certifiedSpan, completeCheckpoint, initialCheckpoint, type ArchiveSpan, type HistoryCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
 
 export type HistoryJob = typeof analysisHistoryJobs.$inferSelect;
@@ -36,7 +37,11 @@ const mine = (address: string) => and(eq(analysisHistoryJobs.chain, CHAIN_DEFAUL
 
 @Injectable()
 export class AnalysisHistoryRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  /** The stored fills themselves (typed columns; see `fill-codec.ts`). */
+  readonly fills: HistoryFillStore;
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {
+    this.fills = new HistoryFillStore(db);
+  }
 
   /**
    * Makes sure the address has a durable history job, if `caller` may have
@@ -82,7 +87,7 @@ export class AnalysisHistoryRepository {
         .orderBy(asc(analysisHistoryJobs.requestedAt)).limit(EXPIRE_BATCH).for("update", { skipLocked: true });
       if (stale.length === 0) return 0;
       const addresses = stale.map(r => r.address);
-      await tx.delete(analysisHistoryFills).where(and(eq(analysisHistoryFills.chain, CHAIN_DEFAULT), inArray(analysisHistoryFills.address, addresses)));
+      await this.fills.remove(addresses, tx);
       await tx.delete(analysisHistoryJobs).where(and(eq(analysisHistoryJobs.chain, CHAIN_DEFAULT), inArray(analysisHistoryJobs.address, addresses)));
       return addresses.length;
     });
@@ -91,12 +96,7 @@ export class AnalysisHistoryRepository {
    * records which may expire upstream before the background scan reaches them. */
   async preserve(address: string, batch: HlUserFill[]): Promise<void> {
     const unique = [...new Map(batch.map(f => [f.tid, f])).values()];
-    for (let i = 0; i < unique.length; i += 500) {
-      await this.db.insert(analysisHistoryFills).values(unique.slice(i, i + 500).map(f => ({
-        address, source: f.twapId == null ? "regular" as const : "twap" as const,
-        tid: BigInt(f.tid), time: new Date(f.time), raw: f as unknown as Record<string, unknown>,
-      }))).onConflictDoNothing();
-    }
+    await this.fills.insert(unique.map(fill => ({ address, source: fill.twapId == null ? "regular" as const : "twap" as const, origin: "rest" as const, fill })));
   }
   /** The span the S3 node archive certifies for this address; null when it
    * has none (not tracked, not ingested yet, or excluded as too heavy). */
@@ -109,16 +109,7 @@ export class AnalysisHistoryRepository {
   /** Archive-origin fills inside a certified span, deduplicated by tid
    * (the TWAP row wins, as in `snapshot`). */
   async archivedFills(address: string, span: ArchiveSpan): Promise<HlUserFill[]> {
-    const rows = await this.db.select().from(analysisHistoryFills).where(and(
-      eq(analysisHistoryFills.chain, CHAIN_DEFAULT), eq(analysisHistoryFills.address, address.toLowerCase()),
-      gte(analysisHistoryFills.time, new Date(span.from)), lt(analysisHistoryFills.time, new Date(span.through)),
-    )).orderBy(asc(analysisHistoryFills.time), asc(analysisHistoryFills.source));
-    const byTid = new Map<number, HlUserFill>();
-    for (const row of rows) {
-      const fill = row.raw as unknown as HlUserFill;
-      if (!byTid.has(fill.tid) || row.source === "twap") byTid.set(fill.tid, fill);
-    }
-    return [...byTid.values()];
+    return this.fills.fills(address.toLowerCase(), { from: new Date(span.from), before: new Date(span.through) });
   }
   async state(address: string): Promise<HistoryJob | undefined> {
     return (await this.db.select().from(analysisHistoryJobs).where(mine(address)))[0];
@@ -153,11 +144,7 @@ export class AnalysisHistoryRepository {
       }).where(and(mine(job.address), eq(analysisHistoryJobs.version, job.version))).returning();
       if (!saved) return undefined;
       const unique = [...new Map(batch.map(f => [f.tid, f])).values()];
-      for (let i = 0; i < unique.length; i += 500) {
-        await tx.insert(analysisHistoryFills).values(unique.slice(i, i + 500).map(f => ({
-          address: job.address, source, tid: BigInt(f.tid), time: new Date(f.time), raw: f as unknown as Record<string, unknown>,
-        }))).onConflictDoNothing();
-      }
+      await this.fills.insert(unique.map(fill => ({ address: job.address, source, origin: "rest" as const, fill })), tx);
       return saved;
     });
   }
@@ -170,17 +157,8 @@ export class AnalysisHistoryRepository {
     return this.db.transaction(async tx => {
       const [job] = await tx.select().from(analysisHistoryJobs).where(mine(address));
       if (!job?.publishedThrough) return null;
-      const rows = await tx.select().from(analysisHistoryFills).where(and(
-        eq(analysisHistoryFills.chain, CHAIN_DEFAULT), eq(analysisHistoryFills.address, address),
-        lte(analysisHistoryFills.time, job.publishedThrough),
-      )).orderBy(asc(analysisHistoryFills.time), asc(analysisHistoryFills.source));
       // A fill can appear in both endpoints; TWAP carries the extra identity.
-      const byTid = new Map<number, HlUserFill>();
-      for (const row of rows) {
-        const fill = row.raw as unknown as HlUserFill;
-        if (!byTid.has(fill.tid) || row.source === "twap") byTid.set(fill.tid, fill);
-      }
-      return { fills: [...byTid.values()], through: job.publishedThrough };
+      return { fills: await this.fills.fills(address, { through: job.publishedThrough }, tx), through: job.publishedThrough };
     }, { isolationLevel: "repeatable read" });
   }
 }

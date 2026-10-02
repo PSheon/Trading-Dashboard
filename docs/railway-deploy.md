@@ -116,7 +116,7 @@ At the default 840/min: jobs 240 + 100 + 60 + 120 + 120 = 640, plus the home war
 ## Volumes and storage
 
 - Only Postgres has a volume. api, worker and web are stateless; the archive ingest streams objects through memory (one decoded block, at most 4 MiB, plus a batch of rows) and writes nothing to disk.
-- Size the Postgres volume for `analysis_history_fills`: about 660 bytes per fill with indexes (dev: 1.08 M fills = 716 MB). A backfilled tracked set of ≈ 2,300 addresses is tens of GB. Watch the volume after enabling backfill; Railway volumes can be grown, not shrunk.
+- Size the Postgres volume for `history_fills`: about 209 bytes per fill with indexes after migration 0021 (dev: 5.89 M fills = 1.23 GB; ≈ 218 for archive rows). See `docs/s3-archive-ingest.md` for the 90-day figure. Watch the volume after enabling backfill; Railway volumes can be grown, not shrunk.
 - `archive_ingest_state` and `archive_coverage` are small but are the only record of what was ingested: they are part of the normal database backup. Losing them means re-reading (and re-paying for) the archive; the fills themselves would deduplicate.
 - Back up before every release that carries a migration (`backup-and-restore.md`).
 

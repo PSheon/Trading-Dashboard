@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { actions, analysisHistoryFills, archiveCoverage, cohortMembers, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
+import { actions, archiveCoverage, cohortMembers, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
 
 import { auditFills, reconcileFills } from "../src/analytics/fill-integrity.js";
 import { ARCHIVE_BOUNDARY_MARGIN_MS } from "../src/analytics/history-checkpoint.js";
@@ -20,7 +20,7 @@ import { AnalysisHistoryRepository } from "../src/traders/analysis-history.repos
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { storedFrame } from "./archive-test-utils.js";
 import { testConfig } from "./config-test-utils.js";
-import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
 
 const FIXTURES = fileURLToPath(new URL("./fixtures/archive/", import.meta.url));
 const expected = JSON.parse(readFileSync(join(FIXTURES, "expected.json"), "utf8")) as Record<string, HlUserFill[]>;
@@ -46,9 +46,8 @@ describe("archive ingest", () => {
   const service = (overrides: Partial<AppConfig["value"]["archive"]> = {}, store: ArchiveStore = new LocalArchiveStore(overrides.localDir ?? FIXTURES)) =>
     new ArchiveIngestService(config(overrides), repository, new BackgroundJobs(), store);
   const track = (addresses: string[]) => db.insert(kolTraders).values(addresses.map((address) => ({ address }))).onConflictDoNothing();
-  const stored = async (address: string) => (await db.select().from(analysisHistoryFills).where(eq(analysisHistoryFills.address, address)))
-    .map((row) => row.raw as unknown as HlUserFill);
-  const count = async () => Number((await db.execute<{ n: string }>(sql`SELECT count(*) AS n FROM analysis_history_fills`)).rows[0].n);
+  const stored = async (address: string) => (await storedFills(db, address)).map((row) => row.fill);
+  const count = async () => Number((await db.execute<{ n: string }>(sql`SELECT count(*) AS n FROM history_fills`)).rows[0].n);
   const span = async (address: string) => {
     const [row] = await db.select().from(archiveCoverage).where(eq(archiveCoverage.address, address));
     return row ? [row.coveredFrom?.getTime() ?? null, row.coveredThrough?.getTime() ?? null, row.status] : undefined;
@@ -92,7 +91,7 @@ describe("archive ingest", () => {
       expect(await span(address)).toEqual([H11, H13, "active"]);
       expect(await history.archiveSpan(address)).toEqual({ from: H11 + ARCHIVE_BOUNDARY_MARGIN_MS, through: H13 - ARCHIVE_BOUNDARY_MARGIN_MS });
     }
-    const rows = await db.select({ origin: analysisHistoryFills.origin, source: analysisHistoryFills.source }).from(analysisHistoryFills);
+    const rows = await storedFills(db);
     expect(new Set(rows.map((row) => row.origin))).toEqual(new Set(["s3"]));
     expect(rows.filter((row) => row.source === "twap")).toHaveLength(48);
     // Historical ingestion never creates watcher actions (no alerts).
@@ -164,11 +163,11 @@ describe("archive ingest", () => {
     const fromRest = expected[address].slice(0, 120);
     await history.preserve(address, fromRest);
     await service().tick(NOW);
-    const rows = await db.select().from(analysisHistoryFills).where(eq(analysisHistoryFills.address, address));
+    const rows = await storedFills(db, address);
     expect(rows).toHaveLength(expected[address].length);
     expect(new Set(rows.map((row) => row.tid)).size).toBe(rows.length);
     expect(rows.filter((row) => row.origin === "rest")).toHaveLength(120);
-    expect(reconcileFills(rows.map((row) => row.raw as unknown as HlUserFill), expected[address]).exact).toBe(true);
+    expect(reconcileFills(rows.map((row) => row.fill), expected[address]).exact).toBe(true);
   });
 
   it("stops before the daily spend cap and says so", async () => {

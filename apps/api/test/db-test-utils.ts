@@ -3,6 +3,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
 import { Pool } from "pg";
 
+import { HistoryFillStore, type StoredHistoryFill } from "../src/traders/history-fill.store.js";
+
 export type TestDb = NodePgDatabase<typeof schema>;
 
 /** Destructive tests may only use an explicitly named, local test database.
@@ -44,13 +46,26 @@ export async function truncateAll(db: TestDb): Promise<void> {
     TRUNCATE TABLE
       favorite_group_members, favorite_groups, backfill_jobs, admin_audit_logs,
       alerts, alert_rules, actions, position_snapshots, equity_snapshots,
-      fill_coverage, archive_coverage, archive_ingest_state, analysis_history_fills, analysis_history_jobs, fills, coin_meta, leader_list_items, leader_lists, leaders, trader_trades, trader_analytics, kol_traders, kol_avatars, discovery_traders, cohort_members, cohort_snapshots,
+      fill_coverage, archive_coverage, archive_ingest_state, history_fills, history_accounts, history_terms, analysis_history_jobs, fills, coin_meta, leader_list_items, leader_lists, leaders, trader_trades, trader_analytics, kol_traders, kol_avatars, discovery_traders, cohort_members, cohort_snapshots,
       notification_channels, user_favorites, users, trader_stats,
       app_settings, revenue_snapshots, telegram_link_tokens, notification_cooldowns, notification_outbox, action_outbox,
       copy_ledger, copy_paper_fills, copy_reservations, copy_orders, copy_signal_legs, copy_positions, copy_strategy_versions, copy_strategies,
       copy_signal_outbox, copy_consumer_checkpoints, copy_controls, copy_control_events, copy_risk_policies, paper_accounts
     RESTART IDENTITY CASCADE
   `);
+}
+
+/** Every stored history fill with its key, through the store (the only
+ * reader of `history_fills`). */
+export async function storedFills(db: TestDb, only?: string): Promise<Array<StoredHistoryFill & { address: string; tid: number }>> {
+  const store = new HistoryFillStore(db);
+  const accounts = await db.select().from(schema.historyAccounts).orderBy(schema.historyAccounts.address);
+  const rows = [];
+  for (const { address } of accounts) {
+    if (only !== undefined && address !== only) continue;
+    for (const row of await store.read(address)) rows.push({ ...row, address, tid: row.fill.tid });
+  }
+  return rows;
 }
 
 let userSeq = 0;

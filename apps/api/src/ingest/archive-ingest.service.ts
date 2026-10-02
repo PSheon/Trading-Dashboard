@@ -25,7 +25,7 @@ export function archiveStoreFrom(config: AppConfig): ArchiveStore | undefined {
 
 /**
  * Reads Hyperliquid's public node archive (hourly, whole-market fill files)
- * and keeps the fills of the tracked set in `analysis_history_fills`.
+ * and keeps the fills of the tracked set in `history_fills`.
  *
  * Two cursors over the same hourly keys:
  * - live, forward: the next hour once it has settled; every active address

@@ -1,5 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
+import * as schema from "@trading-dashboard/shared/database";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +10,7 @@ import { summarize } from "../src/analytics/trade-metrics.js";
 import { applyFills, toRoundTrip, type Trade } from "../src/analytics/trade-reconstruction.js";
 import { portfolioNumbers } from "../src/discovery/discovery-figures.js";
 import type { HlPortfolioResponse, HlUserFill } from "../src/hyperliquid/types.js";
+import { HistoryFillStore } from "../src/traders/history-fill.store.js";
 import { portfolioSeries } from "../src/traders/traders.mappers.js";
 import { isOutOfScopeSpotFill } from "../src/watcher/action-classifier.js";
 
@@ -99,6 +102,14 @@ async function copydog(address: string, path: string): Promise<Record<string, un
   return await response.json() as Record<string, unknown>;
 }
 
+/** One row per tid from history and watcher rows: the TWAP row wins (it
+ * carries `twapId`), otherwise the first seen. */
+function oneRowPerTid<T extends { raw: HlUserFill; twap: boolean }>(rows: T[]): T[] {
+  const byTid = new Map<number, T>();
+  for (const row of rows) if (!byTid.has(row.raw.tid) || (row.twap && !byTid.get(row.raw.tid)!.twap)) byTid.set(row.raw.tid, row);
+  return [...byTid.values()];
+}
+
 const relative = (ours: number, theirs: number) => (theirs === 0 ? (ours === 0 ? 0 : Infinity) : Math.abs(ours - theirs) / Math.abs(theirs));
 
 type Verdict = "pass" | "fail" | "unverified";
@@ -168,10 +179,9 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         ORDER BY (a.source = 'tracked') DESC, md5(a.address) LIMIT $1`, [SAMPLE, only])).rows;
       expect(sample.length).toBeGreaterThanOrEqual(only ? 1 : Math.min(10, SAMPLE));
 
-      // A database not yet on migration 0017 has no `origin`: every row is REST's.
-      const hasOrigin = (await pool.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'analysis_history_fills' AND column_name = 'origin'`)).rowCount === 1;
+      // History fills are read through the store (typed columns since migration 0021).
+      const store = new HistoryFillStore(drizzle(pool, { schema }));
       const hasCoverage = (await pool.query(`SELECT to_regclass('fill_coverage') AS t`)).rows[0].t !== null;
-      const origin = hasOrigin ? "origin" : "'rest'";
       const report = [];
       for (const row of sample) {
         const address = row.address;
@@ -189,18 +199,18 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
         const rest = [...new Map([...regular.fills, ...twap.fills].filter((fill) => fill.time <= through && !isOutOfScopeSpotFill(fill)).map((fill) => [fill.tid, fill])).values()];
         const restComplete = regular.complete && twap.complete;
 
-        const stored = (await pool.query<{ raw: HlUserFill; origin: string }>(`
-          SELECT DISTINCT ON (tid) raw, origin FROM (
-            SELECT tid, raw, ${origin} AS origin, (source = 'twap') AS twap FROM analysis_history_fills WHERE address = $1 AND time >= to_timestamp($2::double precision / 1000) AND time <= to_timestamp($3::double precision / 1000)
-            UNION ALL
-            SELECT tid, raw, 'watcher', false FROM fills WHERE address = $1 AND ts >= to_timestamp($2::double precision / 1000) AND ts <= to_timestamp($3::double precision / 1000)
-          ) merged ORDER BY tid, twap DESC`, [address, start, through])).rows.filter((entry) => !isOutOfScopeSpotFill(entry.raw));
+        const kept = await store.read(address, { from: new Date(start), through: new Date(through) });
+        const watched = (await pool.query<{ raw: HlUserFill }>(
+          `SELECT raw FROM fills WHERE address = $1 AND ts >= to_timestamp($2::double precision / 1000) AND ts <= to_timestamp($3::double precision / 1000)`, [address, start, through])).rows;
+        const stored = oneRowPerTid([...kept.map((entry) => ({ raw: entry.fill, origin: entry.origin as string, twap: entry.source === "twap" })),
+          ...watched.map((entry) => ({ raw: entry.raw, origin: "watcher", twap: false }))]).filter((entry) => !isOutOfScopeSpotFill(entry.raw));
         const ours = stored.map((entry) => entry.raw);
         const origins = stored.reduce<Record<string, number>>((count, entry) => ({ ...count, [entry.origin]: (count[entry.origin] ?? 0) + 1 }), {});
         const reconciliation = reconcileFills(ours, rest);
         const audit = auditFills(address, ours);
-        const duplicates = Number((await pool.query(`SELECT count(*) - count(DISTINCT (source, tid)) AS n FROM analysis_history_fills WHERE address = $1`, [address])).rows[0].n);
-        const everything = (await pool.query<{ raw: HlUserFill }>(`SELECT raw FROM analysis_history_fills WHERE address = $1`, [address])).rows.map((entry) => entry.raw);
+        const all = await store.read(address);
+        const duplicates = all.length - new Set(all.map((entry) => `${entry.source}:${entry.fill.tid}`)).size;
+        const everything = all.map((entry) => entry.fill);
         // Nothing stored proves nothing: null, not a vacuous true.
         const provable = everything.length > 0 ? lifetimeComplete(everything, applyFills(address, new Map<string, Trade>(), everything, null)) : null;
         const coverage = hasCoverage ? (await pool.query<{ verified_from: Date | null; verified_through: Date | null; backfill_status: string; breaks: unknown[] }>(
@@ -388,7 +398,7 @@ describe.skipIf(!process.env.E2E_RUN_LIVE)("fills and metrics reconciliation (ma
 
 /**
  * No network: the invariants over everything stored for each address the
- * analytics claim to cover (watcher `fills` ∪ `analysis_history_fills`,
+ * analytics claim to cover (watcher `fills` ∪ `history_fills`,
  * inside `[coverage_from, fill_cursor]`). A break here is a hole in our own
  * data: fills the figures were computed without.
  *
@@ -405,13 +415,13 @@ describe.skipIf(!process.env.E2E_RUN_STORED)("stored history invariants (manual,
       // (the far side of an old hole) are kept but not claimed.
       const rows = (await pool.query<{ address: string; source: string; coverage_from: Date | null; fill_cursor: Date; history_through: Date | null }>(`
         SELECT address, source, coverage_from, fill_cursor, history_through FROM trader_analytics WHERE fill_cursor IS NOT NULL ORDER BY address LIMIT $1`, [Number(process.env.E2E_SAMPLE ?? 500)])).rows;
+      const store = new HistoryFillStore(drizzle(pool, { schema }));
       const report: Array<{ address: string; source: string; fills: number; breaks: number; firstBreak: { coin: string; at: string } | null; pnlIdentityHolds: boolean }> = [];
       for (const row of rows) {
-        const table = row.source === "tracked"
-          ? `SELECT tid, raw, false AS twap FROM fills WHERE address = $1 AND ts >= $2 AND ts <= $3`
-          : `SELECT tid, raw, (source = 'twap') AS twap FROM analysis_history_fills WHERE address = $1 AND time >= $2 AND time <= $3`;
-        const stored = (await pool.query<{ raw: HlUserFill }>(`SELECT DISTINCT ON (tid) raw FROM (${table}) merged ORDER BY tid, twap DESC`,
-          [row.address, row.coverage_from ?? new Date(0), row.history_through ?? row.fill_cursor])).rows.map((entry) => entry.raw);
+        const range = { from: row.coverage_from ?? new Date(0), through: row.history_through ?? row.fill_cursor };
+        const stored = row.source === "tracked"
+          ? (await pool.query<{ raw: HlUserFill }>(`SELECT DISTINCT ON (tid) raw FROM fills WHERE address = $1 AND ts >= $2 AND ts <= $3 ORDER BY tid`, [row.address, range.from, range.through])).rows.map((entry) => entry.raw)
+          : await store.fills(row.address, range);
         const audit = auditFills(row.address, stored);
         report.push({ address: row.address, source: row.source, fills: stored.length, breaks: audit.positionBreaks.length,
           firstBreak: audit.positionBreaks[0] ? { coin: audit.positionBreaks[0].coin, at: new Date(audit.positionBreaks[0].time).toISOString() } : null,

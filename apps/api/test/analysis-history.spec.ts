@@ -1,12 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { analysisHistoryFills, analysisHistoryJobs, actions, archiveCoverage, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
+import { analysisHistoryJobs, actions, archiveCoverage, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
 import { advanceCheckpoint, initialCheckpoint } from "../src/analytics/history-checkpoint.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { AnalysisHistoryRepository, MAX_REQUESTED_JOBS, REQUESTED_JOB_TTL_MS } from "../src/traders/analysis-history.repository.js";
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
-import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
 
 const ADDRESS = `0x${"ab".repeat(20)}`;
 const fill = (tid: number, time = tid): HlUserFill => ({
@@ -99,7 +99,7 @@ describe("durable fill history", () => {
     const next = advanceCheckpoint(job.checkpoint, "regular", [fill(1)]);
     await expect(repository.commit(job, "regular", [fill(NaN)], next)).rejects.toThrow();
     expect((await repository.state(ADDRESS))!.version).toBe(0);
-    expect(await db.select().from(analysisHistoryFills)).toHaveLength(0);
+    expect(await storedFills(db)).toHaveLength(0);
   });
 
   it("rejects stale worker commits and deduplicates overlap with TWAP metadata", async () => {
@@ -178,7 +178,7 @@ describe("durable fill history", () => {
 
       expect(await repository.expire()).toBe(1);
       expect(await jobs()).toEqual([followed, recent].sort());
-      const kept = await db.select().from(analysisHistoryFills);
+      const kept = await storedFills(db);
       expect(kept.map(f => f.address).sort()).toEqual([followed, followed, recent].sort());
       expect(await repository.expire()).toBe(0);
     });

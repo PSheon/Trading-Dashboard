@@ -669,21 +669,84 @@ export const discoveryTraders = pgTable(
 );
 
 
-/** Durable analysis history, separate from watcher fills so historical
- * ingestion never creates trading alerts. Both streams retain raw payloads. */
-export const analysisHistoryFills = pgTable("analysis_history_fills", {
+/** Postgres `bytea` as a Node Buffer. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
+// ---------------------------------------------------------------------------
+// Durable analysis history, separate from watcher fills so historical
+// ingestion never creates trading alerts. Every field of every fill is kept,
+// losslessly, in typed columns (see `apps/api/src/analytics/fill-codec.ts`
+// for the mapping and its exactness rules); the previous layout held the
+// whole fill as `raw jsonb` and cost about 3.5 times the space.
+// ---------------------------------------------------------------------------
+
+/** One row per (chain, address) that has history: the 4-byte id the fill
+ * rows and both of their indexes carry instead of the 42-character address. */
+export const historyAccounts = pgTable("history_accounts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   chain: text("chain").notNull().default(CHAIN_DEFAULT),
   address: text("address").notNull(),
-  source: text("source").$type<"regular" | "twap">().notNull(),
+}, table => [
+  uniqueIndex("history_accounts_chain_address_idx").on(table.chain, table.address),
+]);
+
+/** Dictionary of the repeated strings of a fill: coin, dir and feeToken. */
+export const historyTerms = pgTable("history_terms", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  term: text("term").notNull(),
+}, table => [
+  uniqueIndex("history_terms_term_idx").on(table.term),
+]);
+
+/**
+ * A fill of an address's history. The key is the former
+ * `(chain, address, source, tid)`: `account_id` stands for (chain, address)
+ * and `twap` for the source ("twap" true, "regular" false), so a fill read
+ * from REST and from the archive is still one row.
+ *
+ * Column order is storage order: 8-byte columns, then 4-byte, then 1-byte,
+ * then the variable-length ones, so no alignment padding is stored.
+ */
+export const historyFills = pgTable("history_fills", {
   tid: bigint("tid", { mode: "bigint" }).notNull(),
   time: timestamp("time", { withTimezone: true }).notNull(),
-  raw: jsonb("raw").$type<Record<string, unknown>>().notNull(),
+  oid: bigint("oid", { mode: "number" }),
+  /** NULL: the fill says `"twapId": null`; -1: it has no such key. */
+  twapId: bigint("twap_id", { mode: "number" }),
+  accountId: integer("account_id").notNull().references(() => historyAccounts.id),
+  coinId: integer("coin_id").references(() => historyTerms.id),
+  dirId: integer("dir_id").references(() => historyTerms.id),
+  feeTokenId: integer("fee_token_id").references(() => historyTerms.id),
+  /** The stream the row was read from: TWAP slices (true) or fills (false). */
+  twap: boolean("twap").notNull(),
+  /** side "B" (true) or "A" (false). */
+  sideBuy: boolean("side_buy"),
+  crossed: boolean("crossed"),
   /** Where the row was first read: Hyperliquid's REST API or its public S3
    * node archive. Not part of the key, so both origins deduplicate by tid. */
   origin: text("origin").$type<"rest" | "s3">().notNull().default("rest"),
+  /** 32 bytes; empty for the all-zero hash of a TWAP slice. */
+  hash: bytea("hash"),
+  px: numeric("px"),
+  sz: numeric("sz"),
+  startPosition: numeric("start_position"),
+  closedPnl: numeric("closed_pnl"),
+  fee: numeric("fee"),
+  cloid: bytea("cloid"),
+  builder: bytea("builder"),
+  builderFee: numeric("builder_fee"),
+  deployerFee: numeric("deployer_fee"),
+  priorityGas: numeric("priority_gas"),
+  liquidatedUser: bytea("liquidated_user"),
+  liquidationMarkPx: numeric("liquidation_mark_px"),
+  liquidationMethod: text("liquidation_method"),
+  /** Keys without a column and values a column could not reproduce exactly. */
+  extra: jsonb("extra").$type<Record<string, unknown>>(),
 }, table => [
-  primaryKey({ columns: [table.chain, table.address, table.source, table.tid] }),
-  index("analysis_history_fills_address_time_idx").on(table.chain, table.address, table.time),
+  primaryKey({ columns: [table.accountId, table.twap, table.tid] }),
+  index("history_fills_account_time_idx").on(table.accountId, table.time),
 ]);
 
 export const analysisHistoryJobs = pgTable("analysis_history_jobs", {
@@ -716,11 +779,6 @@ export const analysisHistoryJobs = pgTable("analysis_history_jobs", {
 // GET /kols/:address/avatar, so boards never hotlink a third-party host.
 // Refreshed weekly; a row without bytes records failed attempts.
 // ---------------------------------------------------------------------------
-
-/** Postgres `bytea` as a Node Buffer. */
-const bytea = customType<{ data: Buffer; driverData: Buffer }>({
-  dataType: () => "bytea",
-});
 
 export const kolAvatars = pgTable(
   "kol_avatars",
@@ -1121,7 +1179,7 @@ export const favoriteGroupMembers = pgTable("favorite_group_members", {
 
 // ---------------------------------------------------------------------------
 // Hyperliquid public node archive (S3 `hl-mainnet-node-data`) ingest.
-// Fills land in `analysis_history_fills` (origin = "s3"); these two tables
+// Fills land in `history_fills` (origin = "s3"); these two tables
 // hold only the cursors, so they are small and must be backed up.
 // ---------------------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { wireTraderAnalyticsSchema, wireTraderTradesSchema } from "@trading-dashboard/shared/contracts";
-import { analysisHistoryFills, analysisHistoryJobs, archiveCoverage, fillCoverage, fills, traderAnalytics, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
+import { analysisHistoryJobs, archiveCoverage, fillCoverage, fills, traderAnalytics, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.
 import type { HlUserFill, HlUserFundingEntry } from "../src/hyperliquid/types.js";
 import { TradeAnalyticsController } from "../src/traders/trade-analytics.controller.js";
 import { AnalysisHistoryRepository } from "../src/traders/analysis-history.repository.js";
+import { HistoryFillStore } from "../src/traders/history-fill.store.js";
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { TradeAnalyticsRepository } from "../src/traders/trade-analytics.repository.js";
 import { STALE_MS, MAX_CONCURRENT, MAX_WAITING, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
@@ -16,7 +17,7 @@ import { PAGE_DEADLINE_MS } from "../src/traders/traders.controller.js";
 import type { TradersService } from "../src/traders/traders.service.js";
 import { toFillRow } from "../src/watcher/fill-row.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
-import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
 
 const X = `0x${"7a".repeat(20)}`;
 const TRACKED = `0x${"7b".repeat(20)}`;
@@ -410,7 +411,7 @@ describe("trade analytics for any address", () => {
   describe("who may create a durable history job (review 27): the routes are public and take any address", () => {
     const withHistory = () => new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined,
       new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient));
-    const stored = async () => ({ jobs: (await db.select().from(analysisHistoryJobs)).length, fills: (await db.select().from(analysisHistoryFills)).length });
+    const stored = async () => ({ jobs: (await db.select().from(analysisHistoryJobs)).length, fills: (await storedFills(db)).length });
 
     it("an anonymous request for an address the product does not follow is answered, and leaves no job and no stored fills", async () => {
       const production = withHistory();
@@ -446,7 +447,7 @@ describe("trade analytics for any address", () => {
     const tail = fill("ETH", 0, 2, 50, T(1));
     history = [...inside, tail];
     await db.insert(archiveCoverage).values({ address: X, coveredFrom: new Date(hour(30)), coveredThrough: new Date(hour(4)) });
-    await db.insert(analysisHistoryFills).values(inside.map((f) => ({ address: X, source: "regular" as const, tid: BigInt(f.tid), time: new Date(f.time), raw: f as unknown as Record<string, unknown>, origin: "s3" as const })));
+    await new HistoryFillStore(db).insert(inside.map((f) => ({ address: X, source: "regular" as const, origin: "s3" as const, fill: f })));
     info.userFillsByTime.mockClear();
     traders.latestFills.mockClear();
 
@@ -467,7 +468,7 @@ describe("trade analytics for any address", () => {
       archiveFrom: new Date(hour(30) + 5 * 60_000), archiveThrough: new Date(hour(4) - 5 * 60_000),
       backfill: { status: "caught_up" },
     });
-    const rows = await db.select().from(analysisHistoryFills).where(eq(analysisHistoryFills.address, X));
+    const rows = await storedFills(db, X);
     expect(rows.map((row) => row.origin).sort()).toEqual(["rest", "s3", "s3"]);
   });
 
@@ -481,7 +482,7 @@ describe("trade analytics for any address", () => {
     // REST no longer retains anything before T(10); the archive does.
     await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(10)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(10)), backfillStatus: "retention" });
     await db.insert(archiveCoverage).values({ address: TRACKED, coveredFrom: new Date(hour(100)), coveredThrough: new Date(hour(8)) });
-    await db.insert(analysisHistoryFills).values({ address: TRACKED, source: "regular", tid: BigInt(opening.tid), time: new Date(opening.time), raw: opening as unknown as Record<string, unknown>, origin: "s3" });
+    await new HistoryFillStore(db).insert([{ address: TRACKED, source: "regular", origin: "s3", fill: opening }]);
     const archive = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient);
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
     await production.compute(TRACKED, true, { funding: false });

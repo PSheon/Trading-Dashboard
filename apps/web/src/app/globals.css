@@ -138,6 +138,9 @@
   }
   html {
     @apply bg-background font-sans;
+    /* Host Grotesk's contextual alternates turn an x between digits into a
+       multiplication sign, so "0x9e8b…" read "0×9e8b…". */
+    font-feature-settings: "calt" 0;
     -webkit-tap-highlight-color: transparent;
   }
   body {

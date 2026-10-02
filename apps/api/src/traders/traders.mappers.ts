@@ -207,6 +207,12 @@ export interface CapitalSeries {
 
 const DAY_MS = 24 * 3_600_000;
 
+/** Below this much capital a return means nothing (CopyDog's calendar
+ * rule, `apps/web/src/lib/pnl-calendar.ts`). */
+export const MIN_ROI_CAPITAL = 100;
+/** Above this (+10,000 %) a return is a denominator artefact, not a return. */
+export const MAX_ROI = 100;
+
 /**
  * CopyDog's ROI (verified against its public API on 18 traders and every
  * window, 2026-09-30): the window's PnL ÷ its peak net deposits, the most
@@ -214,7 +220,17 @@ const DAY_MS = 24 * 3_600_000;
  * window's points of (account value − cumulative PnL). Deposits and
  * withdrawals move account value and C, never PnL, so they don't count as
  * return. `cumulativeReturn` is PnL ÷ C at every point, so the chart's %
- * mode ends at the ROI. C ≤ 0 (nothing was ever deposited) → 0 %.
+ * mode ends at the ROI.
+ *
+ * The denominator must be capital that was actually in the account: only
+ * points whose account value is above 0 count. Hyperliquid reports a perp
+ * account value of 0 at every point of a unified account's perp series
+ * (its collateral is spot), and `0 − PnL` is then not a deposit but the
+ * loss itself, so a −$66 month read as −100 % (seen live on
+ * 0x1aa7…29ed, 0xeecc…4c09, 0x8bf3…9060, 2026-10-02). As CopyDog's calendar
+ * does, no return is given below `MIN_ROI_CAPITAL` of capital or above
+ * `MAX_ROI`, and a loss is capped at −100 %; the ROI is then null (shown
+ * as "—") and the % curve stays flat at 0. Null without data.
  */
 export function returnMetrics({ accountValue, pnl }: CapitalSeries): {
   roi: number | null;
@@ -225,12 +241,15 @@ export function returnMetrics({ accountValue, pnl }: CapitalSeries): {
   let capital = -Infinity;
   for (let i = 0; i < pnl.length; i++) {
     const av = valueAt(accountValue, pnl[i][0]);
-    if (av !== null) capital = Math.max(capital, av - pnl[i][1]);
+    if (av !== null && av > 0) capital = Math.max(capital, av - pnl[i][1]);
   }
-  if (!(capital > 0)) return { roi: 0, cumulativeReturn: pnl.map(([t]) => [t, 0]), capital: null };
+  const flat = (): Point[] => pnl.map(([t]) => [t, 0]);
+  if (!(capital >= MIN_ROI_CAPITAL)) return { roi: null, cumulativeReturn: flat(), capital: capital > 0 ? capital : null };
+  const roi = Math.max(-1, pnl[pnl.length - 1][1] / capital);
+  if (roi > MAX_ROI) return { roi: null, cumulativeReturn: flat(), capital };
   // Hyperliquid starts every window's PnL at 0, so no rebasing is needed.
-  const cumulativeReturn: Point[] = pnl.map(([t, p]) => [t, p / capital]);
-  return { roi: pnl[pnl.length - 1][1] / capital, cumulativeReturn, capital };
+  const cumulativeReturn: Point[] = pnl.map(([t, p]) => [t, Math.max(-1, p / capital)]);
+  return { roi, cumulativeReturn, capital };
 }
 
 /**

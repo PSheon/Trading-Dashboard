@@ -198,9 +198,15 @@ export class TradersService {
   /**
    * Account value = perp (every dex) + spot + staked HYPE, except that a
    * unified or portfolio-margin account's spot balance already holds its
-   * perp collateral (`totalAccountValue`). Costs, per cold profile: 2 per
-   * dex and 2 for spot; the account mode and staking (20 each) are kept 10
-   * min, the spot price book (22) 30 s app-wide.
+   * perp collateral (`totalAccountValue`). A vault's account value is its
+   * TVL: the latest whole-account value of Hyperliquid's `portfolio` (the
+   * figure Hyperliquid's own vault page, its leaderboard and CopyDog show).
+   * A parent vault's clearinghouse state holds only its own perp equity,
+   * not what it has in its child vaults (HLP: $43.5M against a $183M TVL,
+   * 2026-10-02), so the sum above is wrong for vaults. Costs, per cold
+   * profile: 2 per dex and 2 for spot; the account mode and staking (20
+   * each) are kept 10 min, the spot price book (22) 30 s app-wide; a
+   * vault's `portfolio` (20) is the chart's own 60 s copy.
    */
   private async loadProfile(address: string): Promise<SharedProfile> {
     const since = new Date(Date.now() - THIRTY_DAYS_MS);
@@ -225,10 +231,10 @@ export class TradersService {
     };
     // Identity/tracking, the dex universe, spot valuation and account mode are
     // required. Without them the accounting scope itself would be a guess.
-    const [dexes, tracked] = await Promise.all([this.perpDexes(), this.isTracked(address)]);
+    const [dexes, tracked, vault] = await Promise.all([this.perpDexes(), this.isTracked(address), this.isVault(address)]);
     sources.dexes = { status: "available", asOf: new Date(this.dexCache.observedAt("dexes") ?? Date.now()).toISOString(), stale: false, maxAgeMs: DEX_LIST_TTL_MS };
     let statsMaxAgeMs = PROFILE_TTL_MS;
-    const [states, spot, abstraction, staked, book, statsRows, analytics] = await Promise.all([
+    const [states, spot, abstraction, staked, book, statsRows, analytics, vaultPortfolio] = await Promise.all([
       Promise.all(dexes.map(dex => read(`perp:${dex || "main"}`,
         () => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile), PROFILE_TTL_MS, true))),
       read("spot", () => this.info.spotClearinghouseState(address, LANE, PAGE_RANK.profile), PROFILE_TTL_MS),
@@ -242,8 +248,12 @@ export class TradersService {
         return this.repository.findStats(address);
       }, PROFILE_TTL_MS, true),
       read("analytics", async () => tracked ? summarizeRoundTrips(await this.roundTrips.reconstructRoundTrips(address), since) : null, PROFILE_TTL_MS, true),
+      // A vault's TVL is required: without it the headline figure would be
+      // its own perp equity, a fraction of the TVL for a parent vault.
+      vault ? read("portfolio", () => this.rawPortfolio(address), PORTFOLIO_TTL_MS, false, () => this.portfolioCache.observedAt(address)) : Promise.resolve(null),
     ]);
     if (spot === null || abstraction === null || book === null) throw new Error("Required profile source unavailable");
+    const tvl = vaultPortfolio === null ? null : (portfolioSeries(vaultPortfolio, "allTime", "all").accountValue.at(-1)?.[1] ?? null);
     const stats = statsRows?.[0] ? toTraderStats(statsRows[0]) : null;
     if (statsRows?.[0]) {
       sources.stats.asOf = statsRows[0].updatedAt.toISOString();
@@ -262,9 +272,9 @@ export class TradersService {
       withdrawable: completePerps ? perp.withdrawable : null,
       longNotional: completePerps ? perp.longNotional : null,
       shortNotional: completePerps ? perp.shortNotional : null,
-      accountValue: completePerps && stakedValue !== null ? totalAccountValue(accountMode, perp.perpEquity, spotValue, stakedValue) : null,
+      accountValue: vault ? tvl : completePerps && stakedValue !== null ? totalAccountValue(accountMode, perp.perpEquity, spotValue, stakedValue) : null,
       spotValue, stakedValue, accountMode, spotBalances: balances, perpDexes: dexes, tracked,
-      isVault: stats?.isVault ?? this.ingest.isVault(address), analytics,
+      isVault: vault, analytics,
       dataQuality: { partial: Object.values(sources).some(source => source.status === "unavailable"), sources },
       fetchedAt: new Date(),
     };
@@ -338,6 +348,13 @@ export class TradersService {
   }
 
   isTracked(address: string) { return this.repository.isTracked(address); }
+
+  /** A vault (parent, child or a user's), from the imported leaderboard row
+   * or, for an address not on it, the last vault list fetched. */
+  private async isVault(address: string): Promise<boolean> {
+    const [row] = await this.repository.findStats(address);
+    return row?.isVault ?? this.ingest.isVault(address);
+  }
 
   /** Hyperliquid's leaderboard all-time PnL, as last imported; null for an
    * address not on the leaderboard. */

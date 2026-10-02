@@ -597,7 +597,10 @@ export const traderProfileResponseSchema = z.object({
   stats: traderStatsSchema.nullable(),
   /** Total equity, as Hyperliquid's portfolio totals it: perp equity (except
    * in unified / portfolio-margin accounts, where the spot balance already
-   * holds it) + spot value + staked HYPE. */
+   * holds it) + spot value + staked HYPE. A vault's is its TVL: the latest
+   * whole-account value of Hyperliquid's `portfolio`, which for a parent
+   * vault (HLP) includes its child vaults; its own perp clearinghouse
+   * state does not. */
   accountValue: z.number().nullable(),
   /** Sum of `marginSummary.accountValue` over every perp dex. Leverage and
    * margin usage are relative to this. */
@@ -759,8 +762,11 @@ export const portfolioResponseSchema = z.object({
   /**
    * CopyDog's ROI for this market and window: its PnL ÷ `basis.capital`
    * (peak net deposits), so deposits and withdrawals don't count as return.
-   * 0 when nothing was ever deposited; null without data. The trader page's
-   * ROI tile and the chart's ROI pill.
+   * Capped at −100 %. Null without data, and null (shown as "—") when the
+   * denominator is not real capital: below $100 of peak net deposits, when
+   * the market's account value was never above 0 in the window (a unified
+   * account's perp series), or above +10,000 %. The trader page's ROI tile
+   * and the chart's ROI pill.
    */
   roi: z.number().nullable(),
   /**

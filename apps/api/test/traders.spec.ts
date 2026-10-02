@@ -867,6 +867,44 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(spy).toHaveBeenCalledWith(UNKNOWN);
       spy.mockRestore();
     });
+
+    describe("a vault's account value is its TVL (live Hyperliquid responses, 2026-10-02)", () => {
+      const live = fixture<{ vaults: Array<{ address: string; role: string; copydog: { accountValueCombined: number; accountValue: number } | null;
+        clearinghouseState: HlClearinghouseStateResponse; portfolio: HlPortfolioResponse }> }>("vault-account-value-live.json");
+      const tvlOf = (p: HlPortfolioResponse) => Number(p.find(([w]) => w === "allTime")![1].accountValueHistory.at(-1)![1]);
+
+      for (const v of live.vaults) {
+        it(`${v.role} ${v.address.slice(0, 6)}…: the portfolio's whole-account value, not its own perp equity`, async () => {
+          info.clearinghouseState.mockImplementation(async (_address: string, dex?: string) => (dex ? xyzState : v.clearinghouseState));
+          info.portfolio.mockResolvedValue(v.portfolio);
+          const spy = vi.spyOn(ingest, "isVault").mockImplementation((a) => a === v.address);
+          try {
+            const res = await controller.profile(v.address, null);
+            expect(res.isVault).toBe(true);
+            expect(res.accountValue).toBeCloseTo(tvlOf(v.portfolio), 2);
+            // The parent vault (HLP) holds most of its TVL in child vaults.
+            if (v.role === "parent") {
+              expect(res.accountValue!).toBeGreaterThan(4 * Number(v.clearinghouseState.marginSummary.accountValue));
+              expect(res.accountValue! / v.copydog!.accountValueCombined).toBeCloseTo(1, 3);
+            }
+            expect(res.dataQuality?.sources.portfolio?.status).toBe("available");
+            // The chart shares the read: one `portfolio` call for the page.
+            await controller.portfolio(v.address, { window: "allTime", market: "all" });
+            expect(info.portfolio).toHaveBeenCalledTimes(1);
+          } finally {
+            spy.mockRestore();
+          }
+        });
+      }
+
+      it("a trader's account value is still perp + spot + staking, with no portfolio read on the first paint", async () => {
+        const res = await controller.profile(A, null);
+        expect(res.isVault).toBe(false);
+        expect(res.accountValue).toBeCloseTo(500_000 + Number(xyzState.marginSummary.accountValue) + 1_400 + 200, 2);
+        expect(info.portfolio).not.toHaveBeenCalled();
+        expect(res.dataQuality?.sources).not.toHaveProperty("portfolio");
+      });
+    });
   });
 
   describe("activity (§12)", () => {

@@ -115,7 +115,7 @@ value). Reverse-engineered on 2026-09-30 from CopyDog's public API
 
 | Metric | Definition | Match |
 | --- | --- | --- |
-| ROI | window PnL ÷ C, C = max over the window of (account value − PnL) (peak net deposits), on the market's own series (perp, or the whole account for 永續＋現貨); 0 when C ≤ 0 | CopyDog's live chart ROI to ±0.1 pt on every trader and window; `stats.roi*` exactly where CopyDog's snapshot is fresh |
+| ROI | window PnL ÷ C, C = max over the window's points with account value > 0 of (account value − PnL) (peak net deposits), on the market's own series (perp, or the whole account for 永續＋現貨), capped at −100 %; null (shown "—") when C < $100, when the market's account value was never above 0 in the window (a unified account's perp series reads 0 throughout, so `0 − PnL` is the loss, not capital: 0x8bf3…9060's −$0.0014 month showed as −100 %), or above +10,000 % | CopyDog's live chart ROI to ±0.1 pt on every trader and window; `stats.roi*` exactly where CopyDog's snapshot is fresh |
 | % chart | PnL ÷ C at each point (ends at the ROI) | same series as CopyDog's `metric=roi` chart |
 | Sharpe | whole account (perp + spot) for every market: rᵢ = ΔPnLᵢ ÷ the window's peak account value, intervals starting from an empty account (value ≤ 0) skipped; mean ÷ sample stdev × √(365 ÷ median spacing of the returns' time index, days) | all-time: median error 0.2 % (0.01 % where CopyDog's metrics were < 5 h old); sample count equals CopyDog's `return_sample_count` |
 | Volatility | stdev(r) × the same √ | 0.3875 vs 0.3874 (0xd70c…) |

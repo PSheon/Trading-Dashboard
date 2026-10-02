@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import type { HlPortfolioResponse } from "../src/hyperliquid/types.js";
-import { returnMetrics, riskMetrics, toPortfolioResponse } from "../src/traders/traders.mappers.js";
+import { MAX_ROI, MIN_ROI_CAPITAL, returnMetrics, riskMetrics, toPortfolioResponse } from "../src/traders/traders.mappers.js";
 
 const D = 24 * 3_600_000;
 const T0 = Date.UTC(2026, 8, 1, 12);
@@ -31,9 +31,75 @@ describe("ROI — CopyDog's: PnL ÷ peak net deposits", () => {
     expect(m.roi).toBeCloseTo(0.09, 12);
   });
 
-  it("0 % when nothing was ever deposited, null without data", () => {
-    expect(returnMetrics(series([0, 0], [0, 0])).roi).toBe(0);
+  it("no return when nothing was ever deposited, null without data", () => {
+    expect(returnMetrics(series([0, 0], [0, 0]))).toMatchObject({ roi: null, capital: null, cumulativeReturn: [[T0, 0], [T0 + D, 0]] });
     expect(returnMetrics({ accountValue: [], pnl: [] })).toEqual({ roi: null, cumulativeReturn: [], capital: null });
+  });
+
+  it("only capital that was in the account counts: a 0 account value with a negative PnL is a loss, not a deposit", () => {
+    // Hyperliquid's perp series of a unified account: value 0 at every
+    // point while the perp PnL moves. 0 − (−66,730) is not capital.
+    const m = returnMetrics(series([0, 0, 0], [0, -30_000, -66_730]));
+    expect(m).toMatchObject({ roi: null, capital: null });
+    expect(m.cumulativeReturn.map(([, r]) => r)).toEqual([0, 0, 0]);
+    // The same account with real capital at one point has a return.
+    expect(returnMetrics(series([1000, 0, 0], [0, -300, -500])).roi).toBeCloseTo(-0.5, 12);
+  });
+
+  it(`no return under $${MIN_ROI_CAPITAL} of capital or above +${MAX_ROI * 100}%, and a loss is capped at −100%`, () => {
+    expect(returnMetrics(series([0.0014, 0], [0, -0.0014]))).toMatchObject({ roi: null, capital: 0.0014 });
+    expect(returnMetrics(series([99, 120], [0, 21])).roi).toBeNull();
+    expect(returnMetrics(series([100, 121], [0, 21])).roi).toBeCloseTo(0.21, 12);
+    expect(returnMetrics(series([100, 20_100], [0, 20_000])).roi).toBeNull();
+    expect(returnMetrics(series([100, 10_100], [0, 10_000])).roi).toBe(100);
+    // Fees can take the PnL a little past the capital: still −100 %.
+    const m = returnMetrics(series([1000, 0], [0, -1000.5]));
+    expect(m.roi).toBe(-1);
+    expect(m.cumulativeReturn.at(-1)![1]).toBe(-1);
+  });
+});
+
+describe("ROI on live Hyperliquid portfolios where the denominator is not capital (read 2026-10-02)", () => {
+  const f = JSON.parse(readFileSync(new URL("./fixtures/portfolio-roi-degenerate-live.json", import.meta.url), "utf8")) as {
+    cases: Array<{ address: string; copydog: { roi30d: number; roi: number }; portfolio: HlPortfolioResponse }>;
+  };
+  const byAddress = Object.fromEntries(f.cases.map((c) => [c.address.slice(0, 6), c]));
+
+  it("0x8bf3… (J): a −$0.0014 perp month on a $0.0014 denominator is no longer −100%", () => {
+    const c = byAddress["0x8bf3"];
+    expect(toPortfolioResponse(c.portfolio, "month", "perp").roi).toBeNull();
+    // The whole account (spot) has real capital and a return.
+    expect(toPortfolioResponse(c.portfolio, "month", "all").roi).not.toBeNull();
+    // All-time perp: real capital, CopyDog's figure.
+    expect(toPortfolioResponse(c.portfolio, "allTime", "perp").roi!).toBeCloseTo(c.copydog.roi, 4);
+  });
+
+  it("0x1aa7…: a −$66,730 perp month with the perp value at 0 throughout is not −100% (CopyDog shows −100%)", () => {
+    const c = byAddress["0x1aa7"];
+    const month = toPortfolioResponse(c.portfolio, "month", "perp");
+    expect(month.roi).toBeNull();
+    expect(month.basis?.capital).toBeNull();
+    expect(c.copydog.roi30d).toBe(-1);
+    expect(toPortfolioResponse(c.portfolio, "month", "all").roi!).toBeCloseTo(-0.13018, 4);
+    expect(toPortfolioResponse(c.portfolio, "allTime", "perp").roi!).toBeCloseTo(c.copydog.roi, 4);
+  });
+
+  it("0xeecc…: a −$66 perp month on a $3.69 denominator has no return; the all-time −100% is real (the perp deposit was lost)", () => {
+    const c = byAddress["0xeecc"];
+    expect(toPortfolioResponse(c.portfolio, "month", "perp").roi).toBeNull();
+    // All time the perp account did hold capital (peak net deposits
+    // $9,261.53, above the floor) and lost all of it: −100 % is the figure,
+    // as CopyDog's.
+    const all = toPortfolioResponse(c.portfolio, "allTime", "perp");
+    expect(all.basis?.capital).toBeGreaterThan(MIN_ROI_CAPITAL);
+    expect(all.roi).toBe(-1);
+    expect(c.copydog.roi).toBe(-1);
+  });
+
+  it("0x4f76…: a flat perp month (value and PnL 0) has no return, while its all-time ROI is CopyDog's", () => {
+    const c = byAddress["0x4f76"];
+    expect(toPortfolioResponse(c.portfolio, "month", "perp").roi).toBeNull();
+    expect(toPortfolioResponse(c.portfolio, "allTime", "perp").roi!).toBeCloseTo(c.copydog.roi, 4);
   });
 });
 

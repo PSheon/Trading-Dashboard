@@ -6,7 +6,7 @@ import { useToast } from "@/components/ui/toast";
 import { useT } from "@/i18n/provider";
 import { api, apiErrorCode, type ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { FAVORITE_GROUPS_MAX, type FavoriteGroup, type FavoriteGroupInput, type FavoriteGroupPatch, type TraderCardsResponse } from "@/lib/contracts";
+import { FAVORITE_GROUPS_MAX, type FavoriteGroup, type FavoriteGroupInput, type TraderCardsResponse } from "@/lib/contracts";
 import { queryKeys } from "@/lib/query-keys";
 
 /**
@@ -53,16 +53,6 @@ export function useCreateFavoriteGroup() {
   const failed = useGroupFailure();
   return useMutation<FavoriteGroup, ApiError, FavoriteGroupInput>({
     mutationFn: (body) => api.post<FavoriteGroup>("/me/favorite-groups", body),
-    onError: failed,
-    onSettled: refresh,
-  });
-}
-
-export function usePatchFavoriteGroup() {
-  const refresh = useRefresh();
-  const failed = useGroupFailure();
-  return useMutation<FavoriteGroup, ApiError, { id: number; patch: FavoriteGroupPatch }>({
-    mutationFn: ({ id, patch }) => api.patch<FavoriteGroup>(`/me/favorite-groups/${id}`, patch),
     onError: failed,
     onSettled: refresh,
   });

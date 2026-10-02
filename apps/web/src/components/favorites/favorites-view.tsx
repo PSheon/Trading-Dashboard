@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bookmark, ChevronDown, Copy as CopyIcon, Send, Star, X, Zap } from "lucide-react";
+import { Bell, Bookmark, ChevronDown, Send, Star, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -24,15 +24,15 @@ import { useFavorites, useLiveActions, useSiteSettings, useSparklines, useToggle
 import { useNow } from "@/lib/use-now";
 import { GroupChips, GroupTags } from "./groups";
 
-type Tab = "saved" | "alerts" | "copying" | "feed";
-const TABS: Tab[] = ["saved", "alerts", "copying", "feed"];
+type Tab = "saved" | "alerts" | "feed";
+const TABS: Tab[] = ["saved", "alerts", "feed"];
 
 /**
  * 收藏 (CopyDog's /hyperliquid/watchlist). Signed out: CopyDog's centred
- * prompt. Signed in: four tabs — 收藏 (group chips, explore cards in a grid
+ * prompt. Signed in: three tabs — 收藏 (group chips, explore cards in a grid
  * or CopyDog's watchlist table), 提醒 (Telegram alerts, edited in place,
- * "提醒 x / N"), 跟單 (empty until copy trading exists) and 動態 (the live
- * feed of favorites over the existing SSE; new rows flash).
+ * "提醒 x / N") and 動態 (the live feed of favorites over the existing SSE;
+ * new rows flash). Copies are on /portfolio, as on CopyDog.
  */
 export function FavoritesView() {
   const { status } = useAuth();
@@ -145,7 +145,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
   const max = settings.data?.maxAlertTraders;
   const feedRows = feed.query.data ?? [];
 
-  const counts: Record<Tab, number | null> = { saved: favorites.data ? list.length : null, alerts: favorites.data ? alerting : null, copying: 0, feed: feed.query.data ? feedRows.length : null };
+  const counts: Record<Tab, number | null> = { saved: favorites.data ? list.length : null, alerts: favorites.data ? alerting : null, feed: feed.query.data ? feedRows.length : null };
 
   let right: React.ReactNode = null;
   if (tab === "saved") right = <ViewToggle value={view} onChange={onView} />;
@@ -205,8 +205,6 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
         <SavedTab favorites={favorites.data} groups={groups.data ?? []} view={view} />
       ) : tab === "alerts" ? (
         <AlertsTab favorites={favorites.data} />
-      ) : tab === "copying" ? (
-        <EmptyState icon={CopyIcon} title={t("favorites.copying.title")} body={t("favorites.copying.body")} className="rounded-2xl border border-border bg-card" />
       ) : (
         <FeedTab rows={feedRows} loading={!feed.query.data} highlight={feed.highlight} favorites={list} hasFavorites={list.length > 0} />
       )}

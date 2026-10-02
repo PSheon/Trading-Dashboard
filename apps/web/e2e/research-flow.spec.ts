@@ -1,4 +1,4 @@
-import { signIn, wcag } from "./helpers";
+import { shot, signIn, wcag } from "./helpers";
 import { expect, test } from "@playwright/test";
 for (const width of [1440, 375])
   test(`research search and private groups at ${width}px`, async ({
@@ -23,7 +23,9 @@ for (const width of [1440, 375])
     // chips; the fixture account starts with two seeded groups).
     await page.goto("/favorites");
     await signIn(page);
-    const chips = page.getByRole("group", { name: "Manage groups" });
+    // Three tabs, as on CopyDog: copies are on /portfolio, not here.
+    await expect(page.getByRole("tablist", { name: "Saved" }).getByRole("tab")).toHaveText([/^Saved/, /^Alerts/, /^Feed/]);
+    const chips = page.getByRole("group", { name: "Groups" });
     const allChip = chips.getByRole("button", { name: /^All/ });
     await expect(allChip).toBeVisible();
     const addButtons = page.getByRole("button", { name: "Add to group", exact: true });
@@ -41,20 +43,18 @@ for (const width of [1440, 375])
     await page.getByRole("option", { name: "Research", exact: true }).click();
     await page.keyboard.press("Escape");
     await expect(research).toContainText("1");
+    await shot(page, `favorites-groups-${width}`);
     await research.click();
     await expect(addButtons).toHaveCount(1);
-    await page.getByRole("button", { name: "Manage groups", exact: true }).click();
-    const manage = page.getByRole("dialog", { name: "Manage groups" });
-    await manage.getByRole("button", { name: "Research", exact: true }).click();
-    await manage.getByLabel("Rename", { exact: true }).fill("Watch closely");
-    await page.keyboard.press("Enter");
-    await expect(manage.getByRole("button", { name: "Watch closely", exact: true })).toBeVisible();
-    await manage.getByRole("button", { name: "Delete group", exact: true }).last().click();
+    // Groups are created and deleted, not renamed or reordered (CopyDog
+    // has neither): the chip row offers nothing else.
+    await expect(page.getByRole("button", { name: "Manage groups" })).toHaveCount(0);
+    await chips.getByRole("button", { name: "Delete group Research", exact: true }).click();
     const confirm = page.getByRole("dialog", { name: "Delete group" });
     await expect(confirm).toContainText("Traders in the group stay in your watchlist.");
     await confirm.getByRole("button", { name: "Delete", exact: true }).click();
-    await manage.getByRole("button", { name: "Done", exact: true }).last().click();
-    await expect(chips.getByRole("button", { name: /^Watch closely/ })).toHaveCount(0);
+    await expect(confirm).toHaveCount(0);
+    await expect(chips.getByRole("button", { name: /^Research/ })).toHaveCount(0);
     await allChip.click();
     await expect(addButtons).toHaveCount(cards);
     expect(

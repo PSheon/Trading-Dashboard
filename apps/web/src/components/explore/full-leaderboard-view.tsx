@@ -183,7 +183,7 @@ export function FullLeaderboardView() {
       </div>
 
       <Panel className="overflow-hidden">
-        {traders.isError ? (
+        {traders.isError && !traders.data ? (
           <ErrorState message={traders.error.message} onRetry={() => traders.refetch()} />
         ) : !traders.data ? (
           <div className="flex flex-col gap-2 p-5">

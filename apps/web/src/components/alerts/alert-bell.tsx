@@ -133,7 +133,7 @@ export function AlertHistory({ address }: { address: string }) {
   return (
     <section className="mt-4 border-t border-border pt-3" aria-label={t("alerts.recent")}>
       <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{t("alerts.recent")}</h4>
-      {alerts.isError ? (
+      {alerts.isError && !alerts.data ? (
         <p className="text-xs text-negative">{alerts.error.message}</p>
       ) : !alerts.data ? (
         <p className="text-xs text-subtle-foreground">{t("common.loading")}</p>

@@ -350,7 +350,7 @@ export function OrdersTab({ address }: { address: string }) {
   const query = useTraderOrders(address);
   const rows = query.data?.orders ?? [];
   const { sorted, sort, onSort } = useSorted<TraderOrder, OrderKey>(rows, ORDER_KEYS, { key: "value", dir: "desc" });
-  if (query.isError) return <LoadError onRetry={() => query.refetch()} />;
+  if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
   if (!query.data) return <Loading />;
   if (rows.length === 0) return <Empty title={t("trader.empty.ordersTitle")} body={t("trader.empty.ordersDesc")} />;
   const head = { sort, onSort };
@@ -589,7 +589,7 @@ export function TwapTab({ address }: { address: string }) {
   const query = useTraderTwap(address);
   const rows = query.data?.twaps ?? [];
   const { sorted, sort, onSort } = useSorted<TraderTwap, TwapKey>(rows, TWAP_KEYS, { key: "time", dir: "desc" });
-  if (query.isError) return <LoadError onRetry={() => query.refetch()} />;
+  if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
   if (!query.data) return <Loading />;
   if (rows.length === 0) return <Empty title={t("trader.empty.twapTitle")} body={t("trader.empty.twapDesc")} />;
   const head = { sort, onSort };
@@ -671,7 +671,7 @@ export function TransfersTab({ address }: { address: string }) {
   const query = useTraderTransfers(address);
   const rows = query.data?.transfers ?? [];
   const { sorted, sort, onSort } = useSorted<TraderTransfer, TransferKey>(rows, TRANSFER_KEYS, { key: "time", dir: "desc" });
-  if (query.isError) return <LoadError onRetry={() => query.refetch()} />;
+  if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
   if (!query.data) return <Loading />;
   if (rows.length === 0) return <Empty title={t("trader.empty.transfersTitle")} body={t("trader.empty.transfersDesc")} />;
   const head = { sort, onSort };

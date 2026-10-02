@@ -135,7 +135,7 @@ export function AlertBotRow({ className }: { className?: string }) {
       : t("settings.alertBotHint");
 
   let action: React.ReactNode;
-  if (status.isError) {
+  if (status.isError && !data) {
     action = (
       <Button variant="secondary" size="sm" onClick={() => status.refetch()}>
         {t("common.retry")}

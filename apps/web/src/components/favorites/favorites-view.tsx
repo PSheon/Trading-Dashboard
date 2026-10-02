@@ -199,7 +199,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
         {right}
       </div>
 
-      {favorites.isError ? (
+      {favorites.isError && !favorites.data ? (
         <ErrorState message={t("favorites.error")} onRetry={() => favorites.refetch()} />
       ) : tab === "saved" ? (
         <SavedTab favorites={favorites.data} groups={groups.data ?? []} view={view} />

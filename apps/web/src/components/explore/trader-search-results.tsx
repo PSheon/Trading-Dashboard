@@ -42,7 +42,7 @@ export function TraderSearchResults({ query }: { query: string }) {
         <p className="text-sm text-muted-foreground">
           {t("research.queryLength")}
         </p>
-      ) : result.isError ? (
+      ) : result.isError && !result.data ? (
         <ErrorState
           message={result.error.message}
           onRetry={() => result.refetch()}

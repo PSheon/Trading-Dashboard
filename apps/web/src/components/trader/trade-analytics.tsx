@@ -542,7 +542,8 @@ export function TradesTab({ address }: { address: string }) {
   const head = { sort, onSort };
 
   let body: React.ReactNode;
-  if (query.isError) body = <LoadError onRetry={() => query.refetch()} />;
+  // A failed "show more" or background refresh keeps the pages already loaded.
+  if (query.isError && !first) body = <LoadError onRetry={() => query.refetch()} />;
   else if (!first) body = isComputing(query) && query.failureReason ? <Computing /> : <Loading />;
   else if (rows.length === 0) {
     const dense = first.coverage.truncated && first.coverage.from !== null;

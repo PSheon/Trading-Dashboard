@@ -48,7 +48,7 @@ export function CoinIndexView() {
       <h1 className="mt-2 text-[26px] leading-[1.25] font-bold tracking-[-0.65px]">{t("coins.indexTitle")}</h1>
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] text-muted-foreground">{t("coins.indexBody")}</p>
       <div className="mt-[31px]">
-        {query.isError ? (
+        {query.isError && !query.data ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data && query.data.items.length === 0 ? (
           <EmptyState title={t("coins.emptyIndex")} body={t("coins.emptyBody")} />
@@ -127,7 +127,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
       </dl>
 
       <div className="mt-8">
-        {query.isError ? (
+        {query.isError && !query.data ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data && query.data.items.length === 0 ? (
           <EmptyState title={t("coins.empty", { coin: label })} body={t("coins.emptyBody")} />

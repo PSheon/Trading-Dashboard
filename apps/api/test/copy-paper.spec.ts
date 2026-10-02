@@ -9,6 +9,7 @@ import {
   copySignalLegs,
   copySignalOutbox,
   copyStrategies,
+  copyStrategyVersions,
   leaders,
   paperAccounts,
   adminAuditLogs,
@@ -564,6 +565,185 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await execution.settleStopping();
       await app.get(AccountDeletionService).delete(u!.id);
       expect(await db.select().from(copyStrategies)).toHaveLength(0);
+    });
+  });
+
+  describe("pause, resume and edit over the HTTP routes (the three controls on the user pages)", () => {
+    const btc = (o: { side: "B" | "A"; sz: number; start: number; at: number }) => fill({ side: o.side, sz: o.sz, px: 100_000, start: o.start, time: o.at });
+    const eth = (o: { side: "B" | "A"; sz: number; start: number; at: number }) => fill({ coin: "ETH", side: o.side, sz: o.sz, px: 4_000, start: o.start, time: o.at });
+    const versions = (id: number) => db.select().from(copyStrategyVersions).where(eq(copyStrategyVersions.strategyId, id)).orderBy(asc(copyStrategyVersions.version));
+
+    it("start → pause → resume → edit → stop: each step is what the next GET /me/copy shows", async () => {
+      const { id, activatedAt } = await startCopy();
+      const shown = async () => (await alice.get("/me/copy").expect(200)).body.data.strategies.find((s: { id: number }) => s.id === id);
+      await store([btc({ side: "B", sz: 0.1, start: 0, at: activatedAt + 1_000 })]);
+      await run();
+      expect(await shown()).toMatchObject({ status: "active", version: 1, pauseNewRisk: false, tradesCopied: 1, positions: [expect.objectContaining({ coin: "BTC", size: 0.01 })] });
+
+      expect((await alice.post(`/me/copy/strategies/${id}/commands`, { command: "pause" }).expect(200)).body.data).toMatchObject({ id, status: "paused", pauseNewRisk: true, reduceOnly: false });
+      expect(await shown()).toMatchObject({ status: "paused", pauseNewRisk: true, version: 1 });
+      // Pausing twice is the same state, not an error.
+      expect((await alice.post(`/me/copy/strategies/${id}/commands`, { command: "pause" }).expect(200)).body.data.status).toBe("paused");
+
+      expect((await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(200)).body.data).toMatchObject({ status: "active", pauseNewRisk: false, reduceOnly: false });
+      expect(await shown()).toMatchObject({ status: "active", pauseNewRisk: false });
+
+      const edited = (await alice.patch(`/me/copy/strategies/${id}`, { sizingMode: "fixed", perTradeUsd: 200, maxLeverage: 3 }).expect(200)).body.data;
+      expect(edited).toMatchObject({ id, status: "active", version: 2, settings: { direction: "same", sizingMode: "fixed", perTradeUsd: 200, maxTotalExposureUsd: null, maxLeverage: 3, copyStartMode: "delta" } });
+      expect(await shown()).toMatchObject({ version: 2, settings: { sizingMode: "fixed", perTradeUsd: 200, maxLeverage: 3 } });
+
+      expect((await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200)).body.data.status).toBe("stopping");
+      await run();
+      expect(await execution.settleStopping()).toBe(1);
+      expect(await shown()).toMatchObject({ status: "stopped", positions: [] });
+      // Every command left its own row: who, what, and the revision it produced.
+      const events = await db.select().from(copyControlEvents).orderBy(asc(copyControlEvents.id));
+      expect(events.map((e) => [e.scope, e.command, e.revision])).toEqual([
+        ["strategy", "pause_new_risk", 1], ["strategy", "pause_new_risk", 2], ["strategy", "resume", 3], ["strategy", "close_positions", 4],
+      ]);
+      expect(new Set(events.map((e) => e.actorUserId))).toEqual(new Set([(await aliceUser()).id]));
+    });
+
+    it("a paused copy takes no new risk — no new coin, no add, and an approved open is cancelled — while the leader's reductions still execute", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([btc({ side: "B", sz: 0.1, start: 0, at: activatedAt + 1_000 })]);
+      await run();
+      expect(await position(id)).toBeCloseTo(0.01);
+
+      // Approved but not yet submitted when the pause arrives.
+      await store([eth({ side: "B", sz: 1, start: 0, at: activatedAt + 2_000 })]);
+      await signals.drain();
+      expect((await orders(id)).at(-1)).toMatchObject({ coin: "ETH", status: "risk_approved" });
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "pause" }).expect(200);
+      expect((await orders(id)).at(-1)).toMatchObject({ coin: "ETH", status: "cancelled", reason: "strategy_pause" });
+
+      // The leader adds to BTC and opens kPEPE: both refused, nothing moves.
+      await store([btc({ side: "B", sz: 0.1, start: 0.1, at: activatedAt + 3_000 })]);
+      await store([fill({ coin: "kPEPE", side: "B", sz: 100_000, px: 0.01, start: 0, time: activatedAt + 4_000 })]);
+      await run();
+      const refused = (await orders(id)).slice(2);
+      expect(refused.map((o) => [o.coin, o.status, o.reason])).toEqual([["BTC", "rejected", "strategy_paused"], ["kPEPE", "rejected", "strategy_paused"]]);
+      expect(await position(id)).toBeCloseTo(0.01);
+      expect(await position(id, "ETH")).toBe(0);
+      expect(await position(id, "kPEPE")).toBe(0);
+
+      // The leader sells half of its 0.2 BTC: the copy halves too.
+      await store([btc({ side: "A", sz: 0.1, start: 0.2, at: activatedAt + 5_000 })]);
+      await run();
+      expect((await orders(id)).at(-1)).toMatchObject({ coin: "BTC", side: "A", reduceOnly: true, status: "filled" });
+      expect(await position(id)).toBeCloseTo(0.005);
+      // …and closes the rest: the copy is flat, still paused.
+      await store([btc({ side: "A", sz: 0.1, start: 0.1, at: activatedAt + 6_000 })]);
+      await run();
+      expect(await position(id)).toBe(0);
+      const [s] = await db.select().from(copyStrategies);
+      expect(s).toMatchObject({ status: "paused", pauseNewRisk: true });
+
+      // Resumed: the next open is copied again.
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(200);
+      await store([eth({ side: "B", sz: 1, start: 1, at: activatedAt + 7_000 })]);
+      await run();
+      expect((await orders(id)).at(-1)).toMatchObject({ coin: "ETH", side: "B", reduceOnly: false, status: "filled" });
+      expect(await position(id, "ETH")).toBeGreaterThan(0);
+    });
+
+    it("an edit writes a new version and leaves the old one as it was; orders carry the version they were sized under", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([btc({ side: "B", sz: 0.1, start: 0, at: activatedAt + 1_000 })]);
+      await run();
+      const [v1] = await versions(id);
+      expect(v1).toMatchObject({ version: 1, settings: { sizingMode: "ratio", perTradeUsd: null, maxLeverage: null } });
+
+      await alice.patch(`/me/copy/strategies/${id}`, { sizingMode: "fixed", perTradeUsd: 200 }).expect(200);
+      // Fixed sizing: $200 of ETH at 4,000 whatever the leader's size.
+      await store([eth({ side: "B", sz: 3, start: 0, at: activatedAt + 2_000 })]);
+      await run();
+      const placed = await orders(id);
+      expect(placed.map((o) => [o.coin, o.strategyVersion, o.size, o.status])).toEqual([["BTC", 1, "0.01", "filled"], ["ETH", 2, "0.05", "filled"]]);
+
+      // A second edit changes one field and keeps the rest of version 2.
+      const third = (await alice.patch(`/me/copy/strategies/${id}`, { maxTotalExposureUsd: 2_500 }).expect(200)).body.data;
+      expect(third).toMatchObject({ version: 3, settings: { sizingMode: "fixed", perTradeUsd: 200, maxTotalExposureUsd: 2_500 } });
+      // null clears a cap back to the platform default.
+      expect((await alice.patch(`/me/copy/strategies/${id}`, { maxTotalExposureUsd: null }).expect(200)).body.data).toMatchObject({ version: 4, settings: { maxTotalExposureUsd: null } });
+
+      const all = await versions(id);
+      expect(all.map((v) => v.version)).toEqual([1, 2, 3, 4]);
+      expect(all[0]).toEqual(v1);
+      expect(all[1]!.settings).toMatchObject({ sizingMode: "fixed", perTradeUsd: 200, maxTotalExposureUsd: null });
+      expect(all.every((v) => v.createdByUserId === v1!.createdByUserId)).toBe(true);
+      // An edit is not a control command: paused stays paused, positions stay.
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "pause" }).expect(200);
+      expect((await alice.patch(`/me/copy/strategies/${id}`, { maxLeverage: 2 }).expect(200)).body.data).toMatchObject({ version: 5, status: "paused", pauseNewRisk: true });
+      expect(await position(id)).toBeCloseTo(0.01);
+    });
+
+    it("refuses a bad edit or command with 400 and changes nothing", async () => {
+      const { id } = await startCopy();
+      const path = `/me/copy/strategies/${id}`;
+      for (const body of [
+        {}, { maxLeverage: 0 }, { maxLeverage: 51 }, { maxLeverage: "3x" }, { perTradeUsd: 0 }, { perTradeUsd: -5 }, { perTradeUsd: 1.0000001 },
+        { maxTotalExposureUsd: 0 }, { sizingMode: "martingale" }, { direction: "reverse" }, { leader: OTHER }, { allocationUsd: 5_000 }, { copyStartMode: "adopt" },
+      ]) {
+        const res = await alice.patch(path, body);
+        expect([res.status, JSON.stringify(body)]).toEqual([400, JSON.stringify(body)]);
+      }
+      // Fixed sizing without an amount (none saved, none sent).
+      expect((await alice.patch(path, { sizingMode: "fixed" }).expect(400)).body.error.code).toBe("per_trade_required");
+      for (const body of [{}, { command: "explode" }, { command: "pause", extra: 1 }, { command: ["pause"] }]) await alice.post(`${path}/commands`, body).expect(400);
+      for (const bad of ["abc", "0", "-1", "1.5", "99999999999"]) {
+        await alice.patch(`/me/copy/strategies/${bad}`, { maxLeverage: 3 }).expect(400);
+        await alice.post(`/me/copy/strategies/${bad}/commands`, { command: "pause" }).expect(400);
+      }
+      await alice.patch("/me/copy/strategies/999999", { maxLeverage: 3 }).expect(404);
+      await alice.post("/me/copy/strategies/999999/commands", { command: "pause" }).expect(404);
+
+      expect(await versions(id)).toHaveLength(1);
+      expect(await db.select().from(copyControlEvents)).toHaveLength(0);
+      const [s] = await db.select().from(copyStrategies);
+      expect(s).toMatchObject({ status: "active", version: 1, pauseNewRisk: false, controlRevision: 0 });
+    });
+
+    it("is closed to anyone but the owner: 401 signed out, 403 for the service token, 404 for another user — and nothing changes", async () => {
+      const { id } = await startCopy();
+      const path = `/me/copy/strategies/${id}`;
+      const calls = (as: ReturnType<typeof api>) => [
+        as.patch(path, { maxLeverage: 3 }), as.post(`${path}/commands`, { command: "pause" }), as.post(`${path}/commands`, { command: "resume" }),
+        as.post(`${path}/commands`, { command: "stop" }), as.post(`${path}/funds`, { amountUsd: 100 }), as.get(`${path}/orders`),
+      ];
+      for (const res of await Promise.all(calls(api()))) expect(res.status).toBe(401);
+      for (const res of await Promise.all(calls(api("not-a-token")))) expect(res.status).toBe(401);
+      for (const res of await Promise.all(calls(api(SERVICE_TOKEN)))) expect(res.status).toBe(403);
+      const bob = api("bob-token");
+      await bob.get("/me/copy").expect(200);
+      for (const res of await Promise.all(calls(bob))) {
+        expect(res.status).toBe(404);
+        // The same answer as for an id that does not exist.
+        expect(res.body.message).toBe((await bob.get("/me/copy/strategies/999999/orders")).body.message);
+      }
+      expect((await bob.get("/me/copy").expect(200)).body.data).toMatchObject({ strategies: [], paper: { balance: 10_000 } });
+
+      expect(await versions(id)).toHaveLength(1);
+      expect(await db.select().from(copyControlEvents)).toHaveLength(0);
+      const mine = (await alice.get("/me/copy").expect(200)).body.data;
+      expect(mine.strategies[0]).toMatchObject({ id, status: "active", version: 1, pauseNewRisk: false, allocated: 1_000 });
+      expect(mine.paper.balance).toBe(9_000);
+    });
+
+    it("a stopping or stopped copy can't be edited or resumed", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([btc({ side: "B", sz: 0.1, start: 0, at: activatedAt + 1_000 })]);
+      await run();
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
+      expect((await alice.patch(`/me/copy/strategies/${id}`, { maxLeverage: 3 }).expect(409)).body.error.code).toBe("strategy_stopped");
+      expect((await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(409)).body.error.code).toBe("strategy_stopping");
+      await run();
+      await execution.settleStopping();
+      for (const command of ["pause", "resume", "stop"]) {
+        expect((await alice.post(`/me/copy/strategies/${id}/commands`, { command }).expect(409)).body.error.code).toBe("strategy_stopped");
+      }
+      expect((await alice.patch(`/me/copy/strategies/${id}`, { maxLeverage: 3 }).expect(409)).body.error.code).toBe("strategy_stopped");
+      expect(await versions(id)).toHaveLength(1);
     });
   });
 

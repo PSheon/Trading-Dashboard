@@ -3,6 +3,10 @@
  * copies, shaped exactly like GET /me/copy. `?paper=empty` in the page URL
  * starts with no copies; otherwise two seeded copies (one long BTC/HYPE
  * follow, one counter ETH) so the portfolio has something to show.
+ *
+ * Browser tests arm one failure: `sessionStorage["orbie:fixtures:copy-fail"]`
+ * set to `patch`, `commands` or `funds` makes the next such request answer
+ * 503 once, so a control's error state can be driven through the real UI.
  */
 import { ApiError } from "@/lib/api";
 import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
@@ -104,6 +108,18 @@ function owned(id: number): Strategy {
 }
 const conflict = (code: string, message: string) => new ApiError(409, message, { code });
 
+const FAIL_KEY = "orbie:fixtures:copy-fail";
+function failOnce(kind: "patch" | "commands" | "funds") {
+  let armed = false;
+  try {
+    armed = sessionStorage.getItem(FAIL_KEY) === kind;
+    if (armed) sessionStorage.removeItem(FAIL_KEY);
+  } catch {
+    // No storage (unit tests): nothing is armed.
+  }
+  if (armed) throw new ApiError(503, "Service unavailable", { code: "unavailable" });
+}
+
 export function fixtureStartCopy(body: Record<string, unknown>) {
   const leader = String(body.leader ?? "").toLowerCase();
   const amount = Number(body.allocationUsd);
@@ -128,14 +144,20 @@ export function fixtureStartCopy(body: Record<string, unknown>) {
   return view(s);
 }
 
+/** As the api: a new version; a stopped copy is 409, fixed sizing needs its amount. */
 export function fixturePatchCopy(id: number, body: Record<string, unknown>) {
+  failOnce("patch");
   const s = owned(id);
-  s.settings = { ...s.settings, ...(body as Partial<CopyStrategySettings>) };
+  if (s.status === "stopped" || s.status === "stopping") throw conflict("strategy_stopped", "This copy has stopped");
+  const next = { ...s.settings, ...(body as Partial<CopyStrategySettings>) };
+  if (next.sizingMode === "fixed" && next.perTradeUsd === null) throw new ApiError(400, "Fixed sizing needs an amount per trade", { code: "per_trade_required" });
+  s.settings = next;
   s.version += 1;
   return view(s);
 }
 
 export function fixtureAddFunds(id: number, body: Record<string, unknown>) {
+  failOnce("funds");
   const s = owned(id);
   const amount = Number(body.amountUsd);
   if (!(amount > 0) || amount > balance) throw conflict("insufficient_balance", "Not enough paper balance");
@@ -146,6 +168,7 @@ export function fixtureAddFunds(id: number, body: Record<string, unknown>) {
 }
 
 export function fixtureCopyCommand(id: number, body: Record<string, unknown>) {
+  failOnce("commands");
   const s = owned(id);
   if (s.status === "stopped") throw conflict("strategy_stopped", "This copy has stopped");
   switch (body.command) {

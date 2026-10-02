@@ -186,7 +186,7 @@ export class AuthService {
    * New user: fetch
    * email/wallet from Privy (best effort); when sign-ups are closed only a
    * AUTH_ADMIN_EMAILS address gets in. The new row is admin when its
-   * email is in that list. Nothing else is created with it: alerts are set
+   * email is in that list and no enabled admin exists yet. Nothing else is created with it: alerts are set
    * per favorite, and admins are alerted on the default rules themselves.
    * The new row's language is `locale` when given (the language the person
    * signed up in), else the column default; the web adopts the account's
@@ -201,21 +201,25 @@ export class AuthService {
 
     const profile = await this.privy.fetchProfile(privyUserId);
     const email = profile?.email ?? null;
-    const bootstrapAdmin = email !== null && this.config.value.auth.adminEmails.includes(email);
-    if (!bootstrapAdmin && !(await this.settings.get("general")).signupsOpen) {
+    // Listed in AUTH_ADMIN_EMAILS: may always sign up, and becomes the
+    // admin if the site has none yet (see createBootstrapCandidate).
+    const listed = email !== null && this.config.value.auth.adminEmails.includes(email);
+    if (!listed && !(await this.settings.get("general")).signupsOpen) {
       return { status: "signups_closed" };
     }
 
-    const created = await this.repository.createIfAbsent({
+    const values = {
       privyUserId,
       email,
       walletAddress: profile?.walletAddress ?? null,
       embeddedWalletAddress: profile?.embeddedWalletAddress ?? null,
-      role: bootstrapAdmin ? "admin" : "user",
       ...(locale ? { locale } : {}),
-    });
+    };
+    const created = listed
+      ? await this.repository.createBootstrapCandidate(values)
+      : await this.repository.createIfAbsent({ ...values, role: "user" });
     if (created) {
-      this.logger.log(`New user ${created.id}${bootstrapAdmin ? " — bootstrap admin" : ""}`);
+      this.logger.log(`New user ${created.id}${created.role === "admin" ? " — bootstrap admin (no admin existed)" : ""}`);
       return { status: "ok", user: created };
     }
 

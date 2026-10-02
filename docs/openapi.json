@@ -1307,6 +1307,7 @@
                 "job.retry",
                 "user.update",
                 "user.delete",
+                "user.bootstrap",
                 "settings.update",
                 "rule.create",
                 "rule.update",

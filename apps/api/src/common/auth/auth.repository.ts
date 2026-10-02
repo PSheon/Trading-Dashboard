@@ -1,8 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { users } from "@trading-dashboard/shared/database";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
+import { recordAdminAudit } from "../audit/admin-audit.js";
+
+/** Advisory-lock key serializing first-admin bootstraps. */
+const BOOTSTRAP_LOCK = 7404;
 
 export type AuthUserRow = typeof users.$inferSelect;
 
@@ -36,6 +40,28 @@ export class AuthRepository {
     const [row] = await this.db.insert(users).values(input)
       .onConflictDoNothing({ target: users.privyUserId }).returning();
     return row;
+  }
+
+  /**
+   * First sign-in of an AUTH_ADMIN_EMAILS address. The row is `admin` only
+   * while the site has no enabled admin: the list is how the first admin
+   * comes to exist, not a standing grant. Otherwise a demoted admin could
+   * delete the account (deletion keeps no identifier, by design) and sign
+   * in again as a new row to get the role back. Once an admin exists,
+   * further admins are made by an admin. Serialized, so two listed
+   * addresses signing in together can't both see "no admin"; a bootstrap
+   * is written to the audit log in the same transaction. Undefined when
+   * another first sign-in of the same Privy DID won the insert.
+   */
+  async createBootstrapCandidate(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress"> & { embeddedWalletAddress?: string | null; locale?: AuthUserRow["locale"] }) {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${sql.raw(String(BOOTSTRAP_LOCK))}, 0)`);
+      const [admin] = await tx.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), isNull(users.disabledAt))).limit(1);
+      const role = admin ? "user" as const : "admin" as const;
+      const [row] = await tx.insert(users).values({ ...input, role }).onConflictDoNothing({ target: users.privyUserId }).returning();
+      if (row && role === "admin") await recordAdminAudit(tx, null, "user.bootstrap", String(row.id), null, { role: "admin", source: "AUTH_ADMIN_EMAILS" });
+      return row;
+    });
   }
 
   /** Record the Privy embedded wallet once. It never changes for a Privy user,

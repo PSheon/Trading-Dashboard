@@ -3,7 +3,7 @@ import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { testConfig } from "./config-test-utils.js";
 import { RequirePermissions } from "../src/common/auth/permissions.js";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
-import { alertRules, users } from "@trading-dashboard/shared/database";
+import { adminAuditLogs, alertRules, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -274,6 +274,36 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       auth.clearCache();
       await get("/t/admin", "boss-token").expect(403);
       expect((await db.select().from(users))[0].role).toBe("user");
+    });
+
+    it("a demoted admin who deletes the account and signs in again is a plain user: the list only makes the first admin (review 33)", async () => {
+      await get("/t/admin", "boss-token").expect(200);
+      // Another admin exists and demotes boss, who then deletes the account.
+      await get("/t/protected", "alice-token").expect(200);
+      await db.update(users).set({ role: "admin" }).where(eq(users.privyUserId, "did:privy:alice"));
+      await db.delete(users).where(eq(users.privyUserId, "did:privy:boss"));
+      auth.clearCache();
+
+      await get("/t/protected", "boss-token").expect(200); // still allowed to sign up
+      await get("/t/admin", "boss-token").expect(403);
+      const [boss] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:boss"));
+      expect(boss!.role).toBe("user");
+      // One bootstrap happened, the first, and it is in the audit log.
+      const audit = (await db.select().from(adminAuditLogs)).filter((a) => a.event === "user.bootstrap");
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ event: "user.bootstrap", actorKind: "system", actorUserId: null, afterJson: { role: "admin", source: "AUTH_ADMIN_EMAILS" } });
+      expect(JSON.stringify([audit[0]!.target, audit[0]!.afterJson, audit[0]!.beforeJson])).not.toContain("boss@example.com");
+    });
+
+    it("with no enabled admin left, a listed address is the admin again; two signing in together make one admin", async () => {
+      await get("/t/admin", "boss-token").expect(200);
+      await db.update(users).set({ disabledAt: new Date() });
+      process.env.AUTH_ADMIN_EMAILS = "alice@example.com,newbie@example.com";
+      auth.clearCache();
+      await Promise.all([get("/t/protected", "alice-token").expect(200), get("/t/protected", "newbie-token").expect(200)]);
+      const roles = (await db.select().from(users)).filter((u) => u.disabledAt === null).map((u) => u.role).sort();
+      expect(roles).toEqual(["admin", "user"]);
+      expect((await db.select().from(adminAuditLogs)).filter((a) => a.event === "user.bootstrap")).toHaveLength(2);
     });
 
     it("adding an email to the bootstrap list does not promote an existing user", async () => {

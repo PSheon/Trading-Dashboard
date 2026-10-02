@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { monotonePath, spanTicks, stepTicks } from "@/components/charts/area-chart";
+import { basisPath, monotonePath, spanTicks, stepTicks } from "@/components/charts/area-chart";
 
 describe("area chart", () => {
   it("labels the y axis as CopyDog does: low, high and three even steps between", () => {
@@ -27,5 +27,20 @@ describe("area chart", () => {
     expect(d.endsWith("30.00,5.00")).toBe(true);
     // Two points stay a straight line.
     expect(monotonePath([[0, 0], [5, 5]])).toBe("M0.00,0.00L5.00,5.00");
+  });
+});
+
+describe("basisPath (card sparklines)", () => {
+  it("starts and ends on the data and rounds the corners between (d3 curveBasis)", () => {
+    const d = basisPath([[0, 0], [6, 6], [12, 0], [18, 6]]);
+    expect(d.startsWith("M0.00,0.00L1.00,1.00C2.00,2.00,4.00,4.00,6.00,4.00")).toBe(true);
+    expect(d.endsWith("L18.00,6.00")).toBe(true);
+    // The spike at (6, 6) is smoothed: the curve never reaches it.
+    const ys = [...d.matchAll(/,(-?\d+\.\d+)(?=[CL]|$)/g)].map((m) => Number(m[1]));
+    expect(Math.max(...ys.slice(0, -1))).toBeLessThan(6);
+  });
+  it("draws two points as a straight line", () => {
+    expect(basisPath([[0, 0], [5, 5]])).toBe("M0.00,0.00L5.00,5.00");
+    expect(basisPath([])).toBe("");
   });
 });

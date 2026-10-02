@@ -19,6 +19,8 @@ Not compared: coins, favorites, portfolio, settings; mobile home, explore and in
 
 ## B. Visual differences not in the docs
 
+All ten were fixed on 2026-10-02 (see the "2026-10-02 視覺差異" rows in `docs/全站 CopyDog 對照總表.md`); the list below is the original finding.
+
 Layout
 1. **Trader page, desktop, positions table**: the last column (保證金) is clipped at 1440; only "保…" and half of each value show. CopyDog shows the full column. Possibly Inter being wider than Host Grotesk (font difference is recorded as intentional in 對照總表 line 88); not verified by swapping the font. `ob-trader-1440.jpeg` vs `cd-trader-1440.jpeg`.
 2. **Card style, home and explore**: CopyDog cards are a solid lighter fill with no border; Orbie cards are near-background with a visible border.

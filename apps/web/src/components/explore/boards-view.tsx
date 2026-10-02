@@ -1,7 +1,7 @@
 "use client";
 
 
-import { Bitcoin, CandlestickChart, ChevronDown, ChevronRight, LayoutGrid, List, ListFilter, Trophy, UserRound, X } from "lucide-react";
+import { Bitcoin, ChevronDown, ChevronRight, ListFilter, Trophy, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -96,9 +96,9 @@ export function BoardsView() {
   const tabs = useMemo(() => {
     const coins = market === "crypto" ? cryptoBoards : stockBoards;
     return [
-      { key: "top100", label: t("discover.top100"), icon: <Trophy className="size-4" aria-hidden /> },
-      ...(market === "crypto" ? [{ key: "kol", label: t("discover.kol"), icon: <UserRound className="size-4" aria-hidden /> }] : []),
-      ...coins.map((coin) => ({ key: coin, label: boardCoinLabel(coin, t), icon: <CoinIcon coin={coin} size={18} /> })),
+      { key: "top100", label: t("discover.top100"), icon: <Trophy className="size-[18px] fill-current" aria-hidden /> },
+      ...(market === "crypto" ? [{ key: "kol", label: t("discover.kol"), icon: <UserRound className="size-[18px] fill-current" aria-hidden /> }] : []),
+      ...coins.map((coin) => ({ key: coin, label: boardCoinLabel(coin, t), icon: <CoinIcon coin={coin} size={16} /> })),
     ];
   }, [market, cryptoBoards, stockBoards, t]);
 
@@ -117,7 +117,7 @@ export function BoardsView() {
   const sortLabel = (s: BoardSort) => t(`discover.sort.${s}`);
 
   return (
-    <div className="flex flex-col gap-4 md:gap-5">
+    <div className="flex flex-col gap-4">
       {/* CopyDog's desktop discover page has no visible title; one for assistive technology. */}
       <h1 className="sr-only hidden md:block">{t("discover.title")}</h1>
       {/* Phones: title, filter sheet and layout toggle (CopyDog's mobile header). */}
@@ -136,7 +136,8 @@ export function BoardsView() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* CopyDog's .hl-hero: a 42px row, 20px above the board chips. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 md:mb-1 md:min-h-[42px]">
         <AssetSwitch value={market} onChange={switchMarket} />
         <div className="hidden flex-wrap items-center gap-2 md:flex">
           <PillMenu
@@ -154,7 +155,7 @@ export function BoardsView() {
             strong
           />
           {r.windowed ? (
-            <div className="flex h-11 items-center rounded-full bg-raised p-1" role="group" aria-label={t("discover.timeframe")}>
+            <div className="flex h-[42px] items-center gap-0.5 rounded-full bg-raised p-[3px]" role="group" aria-label={t("discover.timeframe")}>
               {(["30d", "all"] as const).map((w) => (
                 <button
                   key={w}
@@ -162,7 +163,7 @@ export function BoardsView() {
                   aria-pressed={r.effectiveWindow === w}
                   onClick={() => setWindow(w)}
                   className={cn(
-                    "h-9 rounded-full px-3.5 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    "h-9 rounded-full px-3 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                     r.effectiveWindow === w ? "bg-background text-foreground" : "text-subtle-foreground hover:text-foreground",
                   )}
                 >
@@ -175,7 +176,7 @@ export function BoardsView() {
         </div>
       </div>
 
-      <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-0.5 no-scrollbar md:mx-0 md:flex-wrap md:px-0" role="tablist" aria-label={t("discover.boards")}>
+      <div className="-mx-5 flex gap-2 overflow-x-auto px-5 py-0.5 no-scrollbar md:mx-0 md:flex-wrap md:px-0" role="tablist" aria-label={t("discover.boards")}>
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -184,8 +185,8 @@ export function BoardsView() {
             aria-selected={board === tab.key}
             onClick={() => switchBoard(tab.key)}
             className={cn(
-              "flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-semibold whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-11",
-              board === tab.key ? "bg-primary text-primary-foreground" : "bg-raised text-muted-foreground hover:bg-raised-hover hover:text-foreground",
+              "flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm leading-none font-bold whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              board === tab.key ? "bg-primary text-primary-foreground" : "bg-tile text-muted-foreground hover:bg-raised-hover hover:text-foreground",
             )}
           >
             {tab.icon}
@@ -253,10 +254,49 @@ export function BoardsView() {
   );
 }
 
+/** CopyDog's toolbar icons are solid shapes, not outlines: a coin disc with
+ * the ₿ cut out of it, two filled candles, four tiles and three bars. */
+function CoinGlyph({ active }: { active: boolean }) {
+  return (
+    <span aria-hidden className="flex size-[18px] items-center justify-center rounded-full bg-current">
+      <Bitcoin className={cn("size-3", active ? "text-primary" : "text-raised")} strokeWidth={3} />
+    </span>
+  );
+}
+function CandlesGlyph() {
+  return (
+    <svg aria-hidden viewBox="0 0 18 18" className="size-[18px] fill-current">
+      <rect x="2.5" y="5" width="5" height="8" rx="1" />
+      <rect x="4.25" y="2" width="1.5" height="14" rx="0.75" />
+      <rect x="10.5" y="7" width="5" height="6" rx="1" />
+      <rect x="12.25" y="4" width="1.5" height="12" rx="0.75" />
+    </svg>
+  );
+}
+function GridGlyph() {
+  return (
+    <svg aria-hidden viewBox="0 0 16 16" className="size-4 fill-current">
+      <rect x="2" y="2" width="5.3" height="5.3" rx="1" />
+      <rect x="8.7" y="2" width="5.3" height="5.3" rx="1" />
+      <rect x="2" y="8.7" width="5.3" height="5.3" rx="1" />
+      <rect x="8.7" y="8.7" width="5.3" height="5.3" rx="1" />
+    </svg>
+  );
+}
+function BarsGlyph() {
+  return (
+    <svg aria-hidden viewBox="0 0 17 17" className="size-[17px] fill-current">
+      <rect x="2" y="3" width="13" height="1.5" />
+      <rect x="2" y="7.75" width="13" height="1.5" />
+      <rect x="2" y="12.5" width="13" height="1.5" />
+    </svg>
+  );
+}
+
 function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: BoardMarket) => void }) {
   const { t } = useI18n();
   return (
-    <div className="grid w-full grid-cols-2 rounded-full bg-raised p-1 md:inline-grid md:w-auto" role="tablist" aria-label={t("discover.assetClass")}>
+    <div className="grid w-full grid-cols-2 rounded-full bg-raised p-1 md:inline-grid md:w-auto md:p-0" role="tablist" aria-label={t("discover.assetClass")}>
       {(["crypto", "stocks"] as const).map((m) => (
         <button
           key={m}
@@ -265,11 +305,11 @@ function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: Bo
           aria-selected={value === m}
           onClick={() => onChange(m)}
           className={cn(
-            "flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[0.9375rem] font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-10",
+            "flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[0.9375rem] font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-10 md:min-w-[114px] md:px-4 md:text-sm md:leading-none md:font-semibold",
             value === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {m === "crypto" ? <Bitcoin className="size-4" aria-hidden /> : <CandlestickChart className="size-4" aria-hidden />}
+          {m === "crypto" ? <CoinGlyph active={value === m} /> : <CandlesGlyph />}
           {t(`discover.${m}`)}
         </button>
       ))}
@@ -285,9 +325,9 @@ export function ViewToggle({ value, onChange, listFirst = false }: {
 }) {
   const { t } = useI18n();
   return (
-    <div className="flex h-10 items-center rounded-full bg-raised p-1 md:h-11" role="group" aria-label={t("discover.layout")}>
+    <div className="flex h-10 items-center gap-0.5 rounded-full bg-raised p-1 md:h-[42px] md:p-[3px]" role="group" aria-label={t("discover.layout")}>
       {(listFirst ? (["list", "grid"] as const) : (["grid", "list"] as const)).map((v) => {
-        const Icon = v === "grid" ? LayoutGrid : List;
+        const Icon = v === "grid" ? GridGlyph : BarsGlyph;
         return (
           <button
             key={v}
@@ -296,11 +336,11 @@ export function ViewToggle({ value, onChange, listFirst = false }: {
             aria-label={t(`discover.${v}`)}
             onClick={() => onChange(v)}
             className={cn(
-              "flex h-8 w-9 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-9 md:w-10",
+              "flex h-8 w-9 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:size-9",
               value === v ? "bg-background text-foreground" : "text-subtle-foreground hover:text-foreground",
             )}
           >
-            <Icon className="size-4" />
+            <Icon />
           </button>
         );
       })}
@@ -323,12 +363,12 @@ function PillMenu({ label, value, options, onChange, active = false, strong = fa
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "group flex h-11 items-center gap-1.5 rounded-full bg-raised px-4 text-sm outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
-          strong || active ? "font-bold text-foreground" : "font-semibold text-subtle-foreground",
+          "group flex h-10 items-center rounded-full bg-raised px-4 text-sm leading-none font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
+          strong ? "gap-2 text-foreground" : active ? "gap-1.5 text-foreground" : "gap-1.5 text-subtle-foreground",
         )}
       >
         {label}
-        <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+        <ChevronDown className="size-[13px] text-subtle-foreground transition-transform group-data-[state=open]:rotate-180" strokeWidth={2.4} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[var(--radix-dropdown-menu-trigger-width)]">
         {options.map((o) => (

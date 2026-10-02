@@ -24,7 +24,7 @@ import { useState } from "react";
 import { cn } from "cn";
 
 import { TraderName } from "@/components/traders/trader-name";
-import { FavoriteButton, VaultBadge } from "@/components/traders/bits";
+import { FavoriteButton } from "@/components/traders/bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import {
   DropdownMenu,
@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
 import { coinLabel, truncateAddress } from "@/lib/format";
-import { CopyScoreBar, TraderAvatar, VerifiedTick, XProfileLink } from "@/components/discover/board-bits";
+import { CopyScoreBar, TraderAvatar, XProfileLink } from "@/components/discover/board-bits";
 import { shareName } from "@/lib/share-card";
 import { pnlTone, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/trade-format";
 import { ShareButton } from "./share-dialog";
@@ -185,12 +185,9 @@ export function ProfileCard({
     <aside aria-labelledby="trader-name" className="overflow-hidden rounded-[12px] border border-border bg-card pb-3.5 [&>div:first-child]:mt-0 [&>div:first-child]:border-t-0">
       {identity ? (
         <div className="flex items-center gap-3 px-4 pt-4">
-          {/* A verified KOL's badge sits on the avatar, so the name keeps the
-              narrow rail's width. */}
-          <span className="relative flex shrink-0">
-            <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={44} />
-            {profile.kol?.verified ? <VerifiedTick className="absolute -right-0.5 -bottom-0.5 size-4 rounded-full bg-card" /> : null}
-          </span>
+          {/* CopyDog's header: the picture alone, then the name and its 𝕏;
+              no verified tick and no account-type badge. */}
+          <TraderAvatar trader={{ address: profile.address, avatarUrl: profile.kol?.avatarUrl ?? null }} size={44} />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1">
               <h1 id="trader-name" className="flex min-w-0 text-[13px] leading-5 font-medium tracking-[0.156px]">
@@ -198,7 +195,6 @@ export function ProfileCard({
               </h1>
               {/* CopyDog puts the KOL's 𝕏 right after the name. */}
               {profile.kol?.xHandle ? <XProfileLink handle={profile.kol.xHandle} className="text-[11px]" /> : null}
-              {profile.isVault ? <VaultBadge /> : null}
             </div>
             <span className="mt-1 flex items-center gap-1.5">
               <button

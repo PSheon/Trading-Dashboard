@@ -26,13 +26,13 @@ export function apiTarget(apiUrl: string | undefined, path: string): URL | null 
   return target.origin === base.origin ? target : null;
 }
 
-async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: string): Promise<T | null> {
+async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: string, timeoutMs = TIMEOUT_MS): Promise<T | null> {
   const url = apiTarget(apiUrl, path);
   if (!url) return null;
   try {
     const res = await fetchImpl(url, {
       headers: { Accept: "application/json", "x-api-contract": "1" },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       next: { revalidate: SHARE_REVALIDATE_S },
     } as RequestInit);
     if (!res.ok) return null;
@@ -59,6 +59,18 @@ async function avatarDataUri(fetchImpl: Fetch, apiUrl: string | undefined, path:
   } catch {
     return null;
   }
+}
+
+/** The trader's name for the browser tab (KOL or leaderboard name), from
+ * the api's search index: a database read, so the title never waits on
+ * Hyperliquid. null when there is none or the api is slow. */
+export async function loadTraderName(
+  address: string,
+  { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch }: { apiUrl?: string; fetchImpl?: Fetch } = {},
+): Promise<string | null> {
+  const lower = address.toLowerCase();
+  const found = await getJson<{ items: Array<{ address: string; displayName: string | null }> }>(fetchImpl, apiUrl, `/discover/search?q=${lower}&limit=1`, 2_000);
+  return found?.items.find((item) => item.address.toLowerCase() === lower)?.displayName?.trim() || null;
 }
 
 interface ProfileLike {

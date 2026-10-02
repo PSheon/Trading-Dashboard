@@ -14,7 +14,7 @@ import {
   shareWinRate,
   sparklinePaths,
 } from "../src/lib/share-card";
-import { apiTarget, loadShareCard } from "../src/lib/share-card-data";
+import { apiTarget, loadShareCard, loadTraderName } from "../src/lib/share-card-data";
 import { renderShareCard } from "../src/lib/share-card-image";
 
 const A = "0xbf732ea04197942783e34730ed6e0f6099575d58";
@@ -102,4 +102,20 @@ describe("share card server side", () => {
     expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630]);
     if (process.env.SHARE_CARD_OUT) writeFileSync(`${process.env.SHARE_CARD_OUT}/orbie-share-og-negative.png`, png);
   }, 30_000);
+});
+
+it("the tab title's name comes from the search index, for that address only", async () => {
+  const address = `0x${"ab".repeat(20)}`;
+  const answer = (items: unknown[]) => (async (url: URL) => {
+    expect(String(url)).toBe(`http://api:3002/discover/search?q=${address}&limit=1`);
+    return new Response(JSON.stringify({ success: true, data: { items } }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const name = (items: unknown[]) => loadTraderName(address.toUpperCase().replace("0X", "0x"), { apiUrl: "http://api:3002", fetchImpl: answer(items) });
+  expect(await name([{ address, displayName: " Bholu " }])).toBe("Bholu");
+  expect(await name([{ address, displayName: null }])).toBeNull();
+  // A prefix match on someone else is not this trader's name.
+  expect(await name([{ address: `0x${"ab".repeat(19)}cd`, displayName: "Other" }])).toBeNull();
+  expect(await name([])).toBeNull();
+  expect(await loadTraderName(address, { apiUrl: undefined })).toBeNull();
+  expect(await loadTraderName(address, { apiUrl: "http://api:3002", fetchImpl: (async () => new Response("busy", { status: 503 })) as unknown as typeof fetch })).toBeNull();
 });

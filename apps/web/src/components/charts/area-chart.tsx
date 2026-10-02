@@ -33,6 +33,9 @@ export interface AreaChartProps {
   /** Dotted line at zero (sparklines). */
   zeroLine?: boolean;
   strokeWidth?: number;
+  /** "basis": CopyDog's card sparklines (a smoothing B-spline); the default
+   * monotone curve passes through every point. */
+  curve?: "monotone" | "basis";
   className?: string;
   /** Rendered faintly in the middle of the plot (brand watermark). */
   watermark?: React.ReactNode;
@@ -127,6 +130,29 @@ export function monotonePath(points: ReadonlyArray<readonly [number, number]>): 
   return d;
 }
 
+/** A uniform cubic B-spline over the points (d3's curveBasis): it starts and
+ * ends on the first and last point and rounds everything between, which is
+ * how CopyDog's card sparklines look smooth on a jumpy series. */
+export function basisPath(points: ReadonlyArray<readonly [number, number]>): string {
+  const n = points.length;
+  if (n === 0) return "";
+  const f = (v: number) => v.toFixed(2);
+  if (n < 3) return points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${f(x)},${f(y)}`).join("");
+  let [x0, y0] = points[0];
+  let [x1, y1] = points[1];
+  let d = `M${f(x0)},${f(y0)}L${f((5 * x0 + x1) / 6)},${f((5 * y0 + y1) / 6)}`;
+  const bezier = (x: number, y: number) => {
+    d += `C${f((2 * x0 + x1) / 3)},${f((2 * y0 + y1) / 3)},${f((x0 + 2 * x1) / 3)},${f((y0 + 2 * y1) / 3)},${f((x0 + 4 * x1 + x) / 6)},${f((y0 + 4 * y1 + y) / 6)}`;
+    x0 = x1;
+    y0 = y1;
+    x1 = x;
+    y1 = y;
+  };
+  for (let i = 2; i < n; i++) bezier(points[i][0], points[i][1]);
+  bezier(x1, y1);
+  return `${d}L${f(x1)},${f(y1)}`;
+}
+
 export function AreaChart({
   data,
   height,
@@ -139,6 +165,7 @@ export function AreaChart({
   formatAxisTime,
   zeroLine = false,
   strokeWidth = 2,
+  curve = "monotone",
   className,
   watermark,
   grid = 0,
@@ -184,7 +211,7 @@ export function AreaChart({
     const bottom = pad.top + innerH;
     const zeroY = zeroBaseline ? Math.min(bottom, Math.max(pad.top, y(0))) : bottom;
 
-    const line = monotonePath(data.map((d) => [x(d[0]), y(d[1])] as const));
+    const line = (curve === "basis" ? basisPath : monotonePath)(data.map((d) => [x(d[0]), y(d[1])] as const));
     const area = `${line}L${x(maxX).toFixed(2)},${zeroY.toFixed(2)}L${x(minX).toFixed(2)},${zeroY.toFixed(2)}Z`;
     const lo = zeroBaseline ? Math.min(...ys) : low;
     const hi = zeroBaseline ? Math.max(...ys) : high;
@@ -196,7 +223,7 @@ export function AreaChart({
       ? Array.from({ length: xTickCount }, (_, i) => (i === xTickCount - 1 ? maxX : minX + ((maxX - minX) * (i + 1)) / (xTickCount + 0.5)))
       : [];
     return { x, y, line, area, zeroY, bottom, innerW, minX, maxX, yTicks, xTicks };
-  }, [data, width, height, zeroBaseline, axes, yAxis, pad.left, pad.right, pad.top, pad.bottom]);
+  }, [data, width, height, zeroBaseline, axes, yAxis, curve, pad.left, pad.right, pad.top, pad.bottom]);
 
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     if (!geo || !interactive) return;

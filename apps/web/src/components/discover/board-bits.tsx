@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { AreaChart } from "@/components/charts/area-chart";
-import { AddressAvatar } from "@/components/traders/address-avatar";
+import { OrbieMark } from "@/components/brand/logo";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import type { BoardTrader } from "@/lib/contracts";
@@ -14,10 +14,17 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { coinLabel, truncateAddress } from "@/lib/format";
 
 /** A KOL's picture (the api's cached copy of its 𝕏 avatar), else — and
- * when the image fails — the generated planet avatar. */
+ * when the image fails — CopyDog's default: the site's own mark on a plain
+ * disc (theirs is their logo; this is Orbie's). */
 export function TraderAvatar({ trader, size, className }: { trader: Pick<BoardTrader, "address" | "avatarUrl">; size: number; className?: string }) {
   const [failed, setFailed] = useState(false);
-  if (!trader.avatarUrl || failed) return <AddressAvatar seed={trader.address} size={size} className={className} />;
+  if (!trader.avatarUrl || failed) {
+    return (
+      <span aria-hidden className={cn("inline-flex shrink-0 items-center justify-center rounded-full bg-raised-hover", className)} style={{ width: size, height: size }}>
+        <OrbieMark size={Math.round(size * 0.56)} />
+      </span>
+    );
+  }
   return (
     // eslint-disable-next-line @next/next/no-img-element -- the api serves the bytes with a month-long versioned cache; next/image would re-encode them
     <img
@@ -68,7 +75,7 @@ export function CoinStack({ coins, size = 14, className, dash = false }: { coins
     <span role="img" className={cn("inline-flex items-center", className)} aria-label={coins.join(", ")}>
       {coins.slice(0, 5).map((coin, i) => (
         <Tooltip key={coin} content={coinLabel(coin)} side="top" variant="chip">
-          <span className="rounded-full ring-2 ring-card" style={{ marginLeft: i === 0 ? 0 : -size * 0.28, zIndex: 5 - i }}>
+          <span className="flex rounded-full" style={{ marginLeft: i === 0 ? 0 : -size * 0.36, zIndex: 5 - i }}>
             <CoinIcon coin={coin} size={size} />
           </span>
         </Tooltip>
@@ -106,7 +113,7 @@ export function CopyScoreBar({
   const { t } = useI18n();
   const value = score === null ? null : Math.max(0, Math.min(100, Math.round(score)));
   const bar = (
-    <span className={cn("relative h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-raised-hover", barClassName)} aria-hidden>
+    <span className={cn("relative h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-foreground/10", barClassName)} aria-hidden>
       <span className={cn("absolute inset-y-0 left-0 rounded-full", scoreTone(value))} style={{ width: `${value ?? 0}%` }} />
     </span>
   );
@@ -124,14 +131,15 @@ export function CopyScoreBar({
   );
 }
 
-/** A board sparkline (values only): Orbie's area chart with its end dot. */
+/** A board sparkline (values only): the area chart with its end dot, drawn
+ * as CopyDog's card charts are — a B-spline that rounds every corner. */
 export function BoardSparkline({ values, height, className, plain = false }: { values: number[]; height: number; className?: string; plain?: boolean }) {
   const { format } = useI18n();
   const data = values.map((v, i) => [i, v] as const);
   if (data.length < 2) return <div className={cn("rounded-xl bg-raised-hover/40", className)} style={{ height }} />;
   return (
     <div className={className} style={{ height }}>
-      <AreaChart data={data} height={height} strokeWidth={1.75} grid={plain ? 0 : 4} plain={plain} formatValue={(v) => format.usd(v, { compact: true })} />
+      <AreaChart data={data} height={height} strokeWidth={1.5} curve="basis" grid={plain ? 0 : 4} plain={plain} formatValue={(v) => format.usd(v, { compact: true })} />
     </div>
   );
 }

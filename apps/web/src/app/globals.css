@@ -22,6 +22,9 @@
   --card: #15122a;
   --card-foreground: #fbf6ee;
   --raised: #1d1a36;
+  /* CopyDog's .hl-card / .hl-fcard / .hl-chip fill: a solid tile a shade
+     under the controls, with no visible edge. */
+  --tile: #1a1731;
   --raised-hover: #262243;
   --popover: #1b1833;
   --popover-foreground: #fbf6ee;
@@ -118,6 +121,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-raised: var(--raised);
+  --color-tile: var(--tile);
   --color-raised-hover: var(--raised-hover);
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: calc(var(--radius) * 0.75);
@@ -292,7 +296,7 @@
 /* CopyDog's cohort tables (.hl-cohort-table): mono caps headers, 13px cells,
    10px gutters (14px at the row ends), fixed wallet column widths. */
 .cd-cohort-table th {
-  padding: 9px 10px 8px;
+  padding: 11px 10px 10px;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 16.5px;
@@ -328,6 +332,10 @@
   table-layout: fixed;
   min-width: 1120px;
 }
+/* CopyDog's wallet rows are 46.5px (its market rows 55px by their content). */
+.cd-cohort-wallets td {
+  height: 46.5px;
+}
 .cd-cohort-wallets th:nth-child(1) { width: 15%; }
 .cd-cohort-wallets th:nth-child(2) { width: 8%; }
 .cd-cohort-wallets th:nth-child(3) { width: 11%; }
@@ -341,7 +349,6 @@
 /* 市場: CopyDog's header is 38px (11/10/10 padding) and its columns
    210 | 158 | 317 | 312 | 317 of 1314. */
 .cd-cohort-markets { table-layout: fixed; }
-.cd-cohort-markets th { padding-top: 11px; padding-bottom: 10px; }
 .cd-cohort-markets th:nth-child(1) { width: 16%; }
 .cd-cohort-markets th:nth-child(2) { width: 12%; }
 .cd-cohort-markets th:nth-child(3) { width: 24%; }

@@ -38,13 +38,14 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   return (
     <Link
       href={traderHref(trader.address)}
-      className="group flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex min-w-0 flex-col gap-3 rounded-xl border border-raised bg-tile px-4 py-3 outline-none transition-colors hover:border-border-strong hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex min-w-0 items-start gap-2.5">
+      <div className="flex min-h-10 min-w-0 items-start gap-2.5">
         <TraderAvatar trader={trader} size={40} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {/* CopyDog's .hl-card__id: the name (14/21), 2px, the 14px coins. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-0.5">
           <span className="flex min-w-0 items-center gap-1">
-            <span className="truncate text-[0.875rem] font-bold">{boardName(trader)}</span>
+            <span className="truncate text-[0.875rem] leading-[21px] font-bold tracking-[-0.14px]">{boardName(trader)}</span>
             {trader.verified ? <VerifiedTick /> : null}
           </span>
           <CoinStack coins={trader.topCoins} />
@@ -52,31 +53,31 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
         </div>
         {ago ? (
           <Tooltip variant="chip" side="top" content={`${t("discover.lastTrade")} · ${trader.lastTradeAt ? lastTradeStamp(trader.lastTradeAt) : ""}`}>
-            <span className="num flex shrink-0 items-center gap-1 text-[0.6875rem] font-medium tracking-wide text-subtle-foreground uppercase">
-              <Clock3 className="size-3" aria-hidden />
+            <span className="num flex shrink-0 items-center gap-1 text-[0.6875rem] leading-[16.5px] tracking-[0.3px] text-subtle-foreground uppercase">
+              <Clock3 className="size-[11px]" strokeWidth={2.2} aria-hidden />
               {ago}
             </span>
           </Tooltip>
         ) : null}
         {accessory}
       </div>
-      <div className="flex min-w-0 items-end gap-3">
-        <div className="flex min-w-0 shrink-0 flex-col gap-3">
+      <div className="flex min-w-0 items-center gap-3.5">
+        <div className="flex w-[130px] min-w-0 shrink-0 flex-col gap-3.5">
           <div>
             {/* CopyDog prints the card's PnL in white and colours only the ROI. */}
-            <div className="num text-[1.0625rem] leading-tight font-extrabold text-foreground">{boardPnl(trader.pnl)}</div>
-            <div className="text-[0.6875rem] text-subtle-foreground">{pnlLabel}</div>
+            <div className="num text-[1.0625rem] leading-[1.1] font-extrabold text-foreground">{boardPnl(trader.pnl)}</div>
+            <div className="mt-0.5 text-[0.6875rem] leading-[16.5px] tracking-[0.4px] text-subtle-foreground">{pnlLabel}</div>
           </div>
           <div>
-            <div className={cn("num text-[1.0625rem] leading-tight font-bold", signTone(trader.roi))}>{boardRoi(trader.roi)}</div>
+            <div className={cn("num text-[1.0625rem] leading-[1.1] font-bold", signTone(trader.roi))}>{boardRoi(trader.roi)}</div>
             {roiHint ? (
               <Tooltip content={roiHint}>
-                <span tabIndex={0} className="cursor-help text-[0.6875rem] text-subtle-foreground underline decoration-dotted underline-offset-2 outline-none">
+                <span tabIndex={0} className="mt-0.5 block cursor-help text-[0.6875rem] leading-[16.5px] tracking-[0.4px] text-subtle-foreground underline decoration-dotted underline-offset-2 outline-none">
                   {roiLabel}
                 </span>
               </Tooltip>
             ) : (
-              <div className="text-[0.6875rem] text-subtle-foreground">{roiLabel}</div>
+              <div className="mt-0.5 text-[0.6875rem] leading-[16.5px] tracking-[0.4px] text-subtle-foreground">{roiLabel}</div>
             )}
           </div>
         </div>
@@ -102,7 +103,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
 
 export function BoardCardSkeleton() {
   return (
-    <div aria-hidden="true" className="ui-skeleton flex h-[214px] flex-col gap-4 rounded-xl border border-border bg-card px-4 py-3">
+    <div aria-hidden="true" className="ui-skeleton flex h-[214px] flex-col gap-4 rounded-xl border border-raised bg-tile px-4 py-3">
       <div className="flex items-center gap-2.5"><div className="size-10 rounded-full bg-raised" /><div className="h-3 w-24 rounded bg-raised" /></div>
       <div className="flex flex-1 items-end gap-4"><div className="h-16 w-16 rounded-lg bg-raised" /><div className="h-20 flex-1 rounded-lg bg-raised/60" /></div>
       <div className="flex justify-between"><div className="h-5 w-20 rounded bg-raised" /><div className="h-8 w-16 rounded-full bg-raised" /></div>
@@ -125,7 +126,7 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   return (
     <Link
       href={traderHref(trader.address)}
-      className="flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-border bg-card p-[7px] outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-[11px] md:p-[13px]"
+      className="flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-transparent bg-tile p-[7px] outline-none transition-colors hover:border-border-strong hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-[11px] md:p-[13px]"
     >
       <div className="flex min-w-0 items-center gap-2">
         <TraderAvatar trader={trader} size={32} />
@@ -153,7 +154,7 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
 
 /** CopyDog's hl-fcard--skel: one shimmering block the size of the card. */
 export function HomeCardSkeleton() {
-  return <div aria-hidden="true" className="ui-skeleton h-[148px] w-[116px] shrink-0 rounded-xl bg-card md:h-[180px] md:w-[190px]" />;
+  return <div aria-hidden="true" className="ui-skeleton h-[148px] w-[116px] shrink-0 rounded-xl bg-tile md:h-[180px] md:w-[190px]" />;
 }
 
 /** Mobile list row (CopyDog's dense list): avatar, name, coins and score;

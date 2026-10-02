@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { TraderView } from "@/components/trader/trader-view";
-import { getLocale, getMessages } from "@/i18n/server";
 import { truncateAddress } from "@/lib/format";
+import { loadTraderName } from "@/lib/share-card-data";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
@@ -11,8 +11,8 @@ export async function generateMetadata({ params }: PageProps<"/trader/[address]"
   const address = decodeURIComponent((await params).address);
   // The 404 keeps the site's own title.
   if (!ADDRESS.test(address)) return {};
-  const messages = getMessages(await getLocale());
-  return { title: `${truncateAddress(address)} · ${messages.trader.title}` };
+  // CopyDog's tab: "<name or short address> · Hyperliquid".
+  return { title: `${(await loadTraderName(address)) ?? truncateAddress(address)} · Hyperliquid` };
 }
 
 /** Anything that can't be an address (the search box sends whatever was

@@ -453,7 +453,7 @@ export function PerformanceChart({
                 >
                   {loading && !portfolio ? <Skeleton className="h-8 w-48" /> : headline}
                 </div>
-                {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} digits={2} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" muted={muted} /> : null}
+                {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} label={`${Math.abs(pnlPct * 100).toFixed(2)}%`} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" muted={muted} /> : null}
                 {usdPnl !== null ? (
                   <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm leading-none font-semibold", muted ? "bg-raised text-subtle-foreground" : usdPnl >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
                     {usdCompact(usdPnl, { sign: true, digits: 2 })}

@@ -193,17 +193,20 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-raised/40 px-6 text-center text-sm text-muted-foreground">{emptyHint}</div>
         ) : null}
         {value !== null && value !== undefined ? (
-          <div className="pointer-events-none absolute top-1 left-1 rounded-lg bg-background/70 px-2 py-1 backdrop-blur">
-            <div className="font-mono text-[0.625rem] text-subtle-foreground uppercase">
+          // CopyDog's .hl-cohort-chart__badge, 12px in from the plot's corner.
+          // Both lines sit on the card's colour, so a curve that climbs
+          // into the corner passes behind the figure instead of through it.
+          <div className="pointer-events-none absolute top-[13px] left-3 flex flex-col items-start gap-[3px]">
+            <div className="rounded-[3px] bg-card/90 py-[3px] pr-2 pl-1 font-mono text-[10px] leading-[15px] tracking-[0.4px] text-muted-foreground uppercase">
               {window} - {t(`insights.cohort.sentiment.${tone.key}`)}
             </div>
-            <div className={cn("num text-lg font-bold", tone.dir > 0 ? "text-positive" : tone.dir < 0 ? "text-negative" : "text-foreground")}>
+            <div className={cn("num rounded-[3px] bg-card/90 pr-2 pl-1 text-[19px] leading-[28.5px] font-semibold tracking-[-0.3px]", tone.dir > 0 ? "text-positive" : tone.dir < 0 ? "text-negative" : "text-foreground")}>
               {value.toFixed(1)}% {t("insights.cohort.long")}
             </div>
           </div>
         ) : null}
         {geo && (btcAt !== null || hover !== null) ? (
-          <div className="pointer-events-none absolute top-1 right-14 flex flex-col items-end gap-0.5 font-mono text-[0.625rem] text-subtle-foreground">
+          <div className="pointer-events-none absolute top-[13px] right-14 flex flex-col items-end gap-0.5 font-mono text-[10.5px] leading-[15.75px] text-subtle-foreground">
             {btcAt !== null ? <span>— BTC ${Math.round(btcAt).toLocaleString("en-US")}</span> : null}
             {hover !== null && shown ? <span>{stamp.format(new Date(shown.x))}</span> : null}
           </div>

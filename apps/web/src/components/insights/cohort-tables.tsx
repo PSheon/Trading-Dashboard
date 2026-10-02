@@ -104,9 +104,14 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
               className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-raised/50"
             >
               <td className="px-3 py-3">
-                <Link href={`/trader/${w.address}`} className="flex min-w-0 items-center gap-2 rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                <Link href={`/trader/${w.address}`} className="flex min-w-0 items-center gap-[9px] rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
                   <TraderAvatar trader={w} size={22} />
-                  <span className="max-w-[160px] truncate font-semibold">{w.displayName ?? truncateAddress(w.address)}</span>
+                  {/* CopyDog's .hl-cohort-addr: a bare address is mono 12.5px. */}
+                  {w.displayName ? (
+                    <span className="max-w-[160px] truncate font-semibold">{w.displayName}</span>
+                  ) : (
+                    <span className="truncate font-mono text-[12.5px] leading-[18.75px] font-medium tracking-[0.2px]">{truncateAddress(w.address)}</span>
+                  )}
                   {w.verified ? <VerifiedTick className="size-3.5" /> : null}
                 </Link>
               </td>
@@ -114,7 +119,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
               <td className={cn("num px-3 py-3 text-right", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</td>
               <td className={cn("num px-3 py-3 text-right", signTone(w.roi))}>{pctText(w.roi)}</td>
               <td className="num px-3 py-3 text-right">{money(w.perpEquity)}</td>
-              <td className="px-3 py-3"><CopyScoreBar score={w.copyScore} layout="number-first" className="justify-end" /></td>
+              <td className="px-3 py-3"><CopyScoreBar score={w.copyScore} layout="number-first" className="flex justify-end gap-2.5" barClassName="w-16" /></td>
               <td className="num px-3 py-3 text-right">{money(w.positionValue)}</td>
               <td className="num px-3 py-3 text-right">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</td>
               <td className={cn("num px-3 py-3 text-right", signTone(w.sumUpnl))}>{money(w.sumUpnl, true)}</td>

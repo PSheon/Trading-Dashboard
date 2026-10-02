@@ -109,6 +109,12 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  * `PAGE_SHARE`, so background work yields when page demand rises instead
  * of queueing behind it.
  *
+ * A new process starts paced (`HYPERLIQUID_STARTUP_PACE_SECONDS`, default
+ * 60): both buckets empty and the refill at `STARTUP_RATE_SHARE` of the
+ * rate until that time has passed. A redeploy overlaps the instance it
+ * replaces, which is still spending the same IP limit: two full bursts and
+ * two full rates at once drew a 429 on 2026-10-02.
+ *
  * On a real 429 the rate halves (floor 20% of the budget) and both buckets
  * empty, the main one 2 s into debt; the rate recovers by 10% of the budget
  * per 20 consecutive successes. List endpoints (`userFills`,
@@ -146,6 +152,8 @@ const RESERVE_REFILL_SPLIT = 1 / 3;
 export const MIN_BACKGROUND_FACTOR = 0.25;
 /** A capped consumer may save up this many minutes of its cap. */
 const CAP_SAVED_MINUTES = 2;
+/** Share of the rate a process refills at while it is starting up. */
+export const STARTUP_RATE_SHARE = 0.5;
 /** Consumer caps are re-read from settings this often. */
 const CAPS_TTL_MS = 30_000;
 
@@ -274,6 +282,8 @@ export class RequestBudgeterService {
 
   private consecutiveSuccesses = 0;
   private lastRateLimitedAt: number | undefined;
+  /** Until this time the refill runs at `STARTUP_RATE_SHARE` (0: not paced). */
+  private readonly startupUntil: number;
 
   constructor(private readonly config: AppConfig) {
     const hl = this.config.value.hyperliquid;
@@ -287,16 +297,29 @@ export class RequestBudgeterService {
     this.reserveCapacity = this.capacity - this.mainCapacity;
     this.liveReserve = Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE);
     this.pageReserveShare = hl.pageReserveShare;
-    this.tokens = this.mainCapacity;
-    this.reserve = this.reserveCapacity;
     this.lastRefillAt = Date.now();
+    const paced = hl.startupPaceSeconds > 0;
+    this.startupUntil = paced ? this.lastRefillAt + hl.startupPaceSeconds * 1000 : 0;
+    // A paced start has no burst to spend: the instance being replaced may
+    // just have spent its own.
+    this.tokens = paced ? 0 : this.mainCapacity;
+    this.reserve = paced ? 0 : this.reserveCapacity;
+    if (paced) this.logger.log(`Starting at ${STARTUP_RATE_SHARE * 100}% of ${this.configuredBudgetPerMin}/min with empty buckets for ${hl.startupPaceSeconds} s`);
     this.pageQueueMax = Math.round((this.configuredBudgetPerMin * PAGE_QUEUE_SECONDS) / 60) + this.capacity;
     this.pageClientQueueMax = Math.round(this.pageQueueMax * PAGE_CLIENT_SHARE);
   }
 
-  /** Tokens per millisecond at the current rate. */
-  private rate(): number {
-    return this.effectiveBudgetPerMin / 60_000;
+  /** Tokens per millisecond at the current rate (reduced during start-up). */
+  private rate(now = Date.now()): number {
+    return (this.effectiveBudgetPerMin / 60_000) * (now < this.startupUntil ? STARTUP_RATE_SHARE : 1);
+  }
+
+  /** Tokens refilled between two times: the part before the start-up
+   * period ends at the reduced rate, the rest at the full one. */
+  private refilled(from: number, to: number): number {
+    const full = this.effectiveBudgetPerMin / 60_000;
+    const paced = Math.max(0, Math.min(to, this.startupUntil) - from);
+    return paced * full * STARTUP_RATE_SHARE + (to - from - paced) * full;
   }
 
   /**
@@ -311,7 +334,7 @@ export class RequestBudgeterService {
     const elapsed = Math.max(0, now - this.lastRefillAt);
     this.lastRefillAt = now;
     if (elapsed === 0) return;
-    const delta = elapsed * this.rate();
+    const delta = this.refilled(now - elapsed, now);
     const share = this.pageOverShare(now) ? this.pageReserveShare : this.queues.background.some((w) => !w.interactive) ? RESERVE_REFILL_SPLIT : 1;
     const toReserve = Math.min(delta * share, Math.max(0, this.reserveCapacity - this.reserve));
     this.reserve += toReserve;
@@ -322,6 +345,14 @@ export class RequestBudgeterService {
       bucket.at = now;
       this.capTokens.set(label, bucket);
     }
+  }
+
+  /** Milliseconds until `tokens` more have been refilled. */
+  private msToRefill(tokens: number, now: number): number {
+    const full = this.effectiveBudgetPerMin / 60_000;
+    const paced = Math.max(0, this.startupUntil - now);
+    const duringStartup = paced * full * STARTUP_RATE_SHARE;
+    return Math.ceil(tokens <= duringStartup ? tokens / (full * STARTUP_RATE_SHARE) : paced + (tokens - duringStartup) / full);
   }
 
   private prune(now: number): void {
@@ -653,12 +684,12 @@ export class RequestBudgeterService {
           index = other;
           short = altShort;
         } else {
-          this.sleep(Math.ceil(Math.min(short, altShort) / this.rate()));
+          this.sleep(this.msToRefill(Math.min(short, altShort), now));
           return;
         }
       }
       if (short > 0) {
-        this.sleep(Math.ceil(short / this.rate()));
+        this.sleep(this.msToRefill(short, now));
         return;
       }
       const next = lane[index];

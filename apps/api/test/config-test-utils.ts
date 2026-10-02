@@ -14,6 +14,7 @@ export function testConfig(): AppConfig {
     telegram: { botToken: env.telegramBotToken(), botUsername: env.telegramBotUsername(), systemChatId: env.telegramSystemChatId(), dryRun: env.telegramDryRun(), polling: env.telegramBotPolling(), linkBaseUrl: env.telegramLinkBaseUrl() },
     hyperliquid: { apiUrl: env.hyperliquidApiUrl(), wsUrl: env.hyperliquidWsUrl(), budgetPerMin: env.hyperliquidWeightBudgetPerMin(), burst: getIntEnv("HYPERLIQUID_WEIGHT_BURST", 200, 1, 1200),
       pageReserveShare: Number(process.env.HYPERLIQUID_PAGE_RESERVE_SHARE ?? 0.25),
+      startupPaceSeconds: getIntEnv("HYPERLIQUID_STARTUP_PACE_SECONDS", 0, 0, 600),
       wallet: { network: "testnet" as const, infoUrl: "https://api.hyperliquid-testnet.xyz/info", arbitrumRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" } },
     alert: { maxActionAgeSeconds: env.alertMaxActionAgeSeconds() },
     archive: { enabled: false, bucket: "hl-mainnet-node-data", region: "ap-northeast-1", localDir: undefined as string | undefined, start: Date.UTC(2025, 4, 25),

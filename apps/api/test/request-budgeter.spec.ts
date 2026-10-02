@@ -34,6 +34,64 @@ describe("RequestBudgeterService (W6)", () => {
     return budgeter;
   }
 
+  describe("a new process (redeploys overlap the instance they replace)", () => {
+    afterEach(() => { delete process.env.HYPERLIQUID_STARTUP_PACE_SECONDS; });
+
+    it("starts with empty buckets and half its rate for the first minute, then runs at the full rate with its burst", async () => {
+      process.env.HYPERLIQUID_WEIGHT_BURST = "200";
+      process.env.HYPERLIQUID_STARTUP_PACE_SECONDS = "60";
+      const budgeter = new RequestBudgeterService(testConfig());
+      expect(budgeter.introspect().tokensAvailable).toBe(0);
+      const sent: number[] = [];
+      const started = Date.now();
+      // Saturated: live and background callers, more than a minute's budget of each.
+      const calls = [
+        ...Array.from({ length: 400 }, () => budgeter.acquire(2, "live").then(() => sent.push(Date.now() - started))),
+        ...Array.from({ length: 400 }, () => budgeter.acquire(2).then(() => sent.push(Date.now() - started))),
+      ];
+      await vi.advanceTimersByTimeAsync(0);
+      // Nothing goes out at once: no burst to spend.
+      expect(sent).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const firstMinute = sent.length * 2;
+      // 600/min at 50 %: 300 in the first minute (the instance being replaced may be sending its 600 + burst).
+      expect(firstMinute).toBeGreaterThanOrEqual(298);
+      expect(firstMinute).toBeLessThanOrEqual(300);
+      // Evenly, not as a burst at the end: half of it by half time.
+      expect(sent.filter((at) => at <= 30_000).length * 2).toBeLessThanOrEqual(150);
+      await vi.advanceTimersByTimeAsync(60_000);
+      // The second minute runs at the full 600.
+      expect(sent.length * 2 - firstMinute).toBeGreaterThanOrEqual(598);
+      expect(sent.length * 2 - firstMinute).toBeLessThanOrEqual(600);
+      await vi.advanceTimersByTimeAsync(120_000);
+      await Promise.all(calls);
+      // Idle afterwards, the buckets fill to the configured burst.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(budgeter.introspect().tokensAvailable).toBe(200);
+    });
+
+    it("a wait that spans the end of the start-up period is timed at both rates", async () => {
+      process.env.HYPERLIQUID_WEIGHT_BURST = "200";
+      process.env.HYPERLIQUID_STARTUP_PACE_SECONDS = "10";
+      const budgeter = new RequestBudgeterService(testConfig());
+      let done = false;
+      // 80 weight: 10 s at 5/s give 50, the other 30 take 3 s at 10/s.
+      const call = budgeter.acquire(80, "live").then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(12_999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done).toBe(true);
+      await call;
+    });
+
+    it("HYPERLIQUID_STARTUP_PACE_SECONDS=0 keeps the full burst and rate from the first call", async () => {
+      process.env.HYPERLIQUID_WEIGHT_BURST = "200";
+      process.env.HYPERLIQUID_STARTUP_PACE_SECONDS = "0";
+      const budgeter = new RequestBudgeterService(testConfig());
+      expect(budgeter.introspect().tokensAvailable).toBe(200);
+    });
+  });
+
   it("lets a burst up to the bucket go out at once", async () => {
     process.env.HYPERLIQUID_WEIGHT_BURST = "200";
     const budgeter = new RequestBudgeterService(testConfig());

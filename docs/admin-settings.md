@@ -2,7 +2,7 @@
 
 `GET /admin/settings` returns the four settings sections plus `revisions` (an
 opaque token for each section) and `invalidSections`. Admin reads bypass the
-30-second business settings cache. GET and PATCH retain the default
+per-process settings cache. GET and PATCH retain the default
 HTTP envelope described in [http-contract.md](http-contract.md).
 
 Send only changed fields and the revision last read for every touched section:
@@ -54,11 +54,43 @@ The new browser requires snapshot metadata and cannot operate against an old API
 No schema migration is required for this batch. No production settings are changed
 by deploying the code.
 
-Business/public reads still cache for up to 30 seconds per process; public browser
-settings still lack polling. These are not a live trading kill-switch guarantee.
-Builder snapshot scheduling remains a post-commit best-effort effect. Immutable
-policy history, distributed invalidation/acknowledgement, finer permissions and
-real copy execution remain tracked in [the review](copy-execution-and-admin-review.md).
+Builder snapshot scheduling remains a post-commit best-effort effect.
+Acknowledgement of a change by each consumer, finer permissions and real copy
+execution remain tracked in [the review](copy-execution-and-admin-review.md).
+
+## When a save takes effect (review finding 16)
+
+A save applies in every process, api and worker, as soon as it commits:
+
+- `SettingsService.patch` sends `pg_notify('orbie_settings', <origin>)` inside
+  the saving transaction. PostgreSQL delivers it at commit and not at all on a
+  rollback. The saving process drops its own cache right after the commit.
+- Every process holds one `LISTEN orbie_settings` connection
+  (`SettingsRelay`, in the global `SettingsModule`, any `APP_ROLE`) and drops
+  its cached snapshot when the notification arrives. The next read loads the
+  rows. In `test/settings-relay.spec.ts` a second pool sees the change in well
+  under a second.
+- The notification is a hint, never the data. While a process's listening
+  connection is down it caches nothing (every read goes to the database) and
+  reconnects every second; on reconnect the cache is dropped once more. The
+  30-second TTL stays as a bound in case a notification is ever lost.
+
+What that covers: `general.signupsOpen` (checked by `AuthService` when a new
+Privy user first signs in), `notifications.alertsEnabled` (checked by
+`RulesService` when an action is evaluated, and again uncached by
+`NotifyService` before each delivery), `general.maintenance` (below), the
+public `GET /settings`, and every other settings field.
+
+`general.copyTradingEnabled` is published in `GET /settings` and gates nothing
+in the api or the worker: it predates paper copy and no code path reads it. The
+copy kill switches are the stop commands on `/admin/copy`
+([admin-copy.md](admin-copy.md)), which are read from their rows inside the
+transaction that creates an order and again before submission, with no cache at
+all. `COPY_TRADING_MODE` is the deployment's capability, not a setting.
+
+The browser reads `GET /settings` once a minute and when the tab regains focus,
+so what a visitor sees (announcement, maintenance notice) follows a save by at
+most that long; the api's enforcement does not wait for the browser.
 
 Known minor UI limitation: simultaneous saves of different sections can return
 snapshots out of order and temporarily show older values in clean sections. Dirty

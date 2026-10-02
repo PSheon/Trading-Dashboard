@@ -62,8 +62,11 @@ export function useSiteSettings() {
   return useQuery({
     queryKey: queryKeys.siteSettings,
     queryFn: ({ signal }) => api.get<PublicSettings>("/settings", signal),
-    staleTime: 5 * 60_000,
-    refetchInterval: false,
+    // The api applies a save at once; an open tab learns of it (an
+    // announcement, the maintenance notice) within a minute or on focus.
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -10,6 +10,8 @@ export class SettingsRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
   readSections(db: Pick<DrizzleDb, "select"> = this.db) { return db.select().from(appSettings); }
   async lockSections(tx: DbTransaction) { await tx.execute(sql`SELECT pg_advisory_xact_lock(73104, 1)`); }
+  /** NOTIFY inside the saving transaction: other processes hear it only if this commits. */
+  async announceChange(tx: DbTransaction, channel: string, origin: string) { await tx.execute(sql`SELECT pg_notify(${channel}, ${origin})`); }
   async saveSections(tx: DbTransaction, keys: AppSettingsKey[], value: AdminSettings, userId: number | null) {
     const updatedAt = new Date();
     for (const key of keys) {

@@ -31,6 +31,7 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { BusyException } from "./busy.js";
 import { AnalysisHistoryService } from "./analysis-history.service.js";
+import type { HistoryCaller } from "./analysis-history.repository.js";
 import type { HistorySnapshot } from "./analysis-history.repository.js";
 import { positionBreaks } from "../analytics/fill-integrity.js";
 import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow, type FillCoverage, type TradeAnalyticsTx } from "./trade-analytics.repository.js";
@@ -79,6 +80,11 @@ export interface Cost {
   /** Budgeter rank of the computation's calls; default `PAGE_RANK.fills`.
    * The discovery pool passes an unranked value so pages go first. */
   rank?: number;
+  /** Who asked: decides whether a durable history job may be created. */
+  caller?: HistoryCaller;
+  /** Set by the computation: the address has a durable history job, so
+   * the fills it reads are kept. */
+  keep?: boolean;
 }
 const listWeight = (items: number) => 20 + Math.ceil(items / 20);
 
@@ -140,10 +146,12 @@ export class TradeAnalyticsService {
 
   // --- reading --------------------------------------------------------------
 
-  async analytics(address: string, window: TradeWindow): Promise<TraderAnalyticsResponse> {
-    let row = await this.current(address);
+  /** `caller`: who is asking (the routes are public). It only decides
+   * whether a cold address also gets a durable history job. */
+  async analytics(address: string, window: TradeWindow, caller: HistoryCaller = "product"): Promise<TraderAnalyticsResponse> {
+    let row = await this.current(address, caller);
     // A row stored before a window existed is recomputed first.
-    if (!(window in row.summary)) row = await this.compute(address, true);
+    if (!(window in row.summary)) row = await this.compute(address, true, { caller });
     const summaries = row.summary as Record<TradeWindow, unknown>;
     return {
       address,
@@ -156,8 +164,8 @@ export class TradeAnalyticsService {
     };
   }
 
-  async trades(address: string, query: TraderTradesQuery): Promise<TraderTradesResponse> {
-    const row = await this.current(address);
+  async trades(address: string, query: TraderTradesQuery, caller: HistoryCaller = "product"): Promise<TraderTradesResponse> {
+    const row = await this.current(address, caller);
     const [ms, tid] = query.cursor ? query.cursor.split("_") : [];
     const cursor = query.cursor ? { sortTime: new Date(Number(ms)), openTid: BigInt(tid) } : null;
     const [rows, total] = await Promise.all([
@@ -190,14 +198,14 @@ export class TradeAnalyticsService {
   /** The stored row, refreshed in the background when stale; for a cold
    * address the computation (the caller's deadline turns a long one into
    * 503 busy, and it carries on). */
-  private async current(address: string): Promise<Stored> {
+  private async current(address: string, caller: HistoryCaller): Promise<Stored> {
     const row = await this.repository.state(address);
-    if (!row) return this.compute(address, true);
+    if (!row) return this.compute(address, true, { caller });
     // Backfilled fills (or a repaired hole) landed after these figures
     // were computed: they describe a history that has since changed.
     const revisedAt = (await this.repository.fillCoverage(address))?.revisedAt;
-    if (revisedAt && revisedAt > row.computedAt && await this.traders.isTracked(address)) return this.compute(address, false);
-    if (Date.now() - row.computedAt.getTime() > STALE_MS) this.compute(address, false).catch(() => undefined);
+    if (revisedAt && revisedAt > row.computedAt && await this.traders.isTracked(address)) return this.compute(address, false, { caller });
+    if (Date.now() - row.computedAt.getTime() > STALE_MS) this.compute(address, false, { caller }).catch(() => undefined);
     return row;
   }
 
@@ -215,8 +223,8 @@ export class TradeAnalyticsService {
    * other page's. `rank` defaults to the trader page's fills rank;
    * `funding: false` (the discovery pool) skips the funding step that
    * normally follows. */
-  compute(address: string, _cold: boolean, options: { rank?: number; funding?: boolean } = {}): Promise<AnalyticsRow> {
-    const { rank, funding = true } = options;
+  compute(address: string, _cold: boolean, options: { rank?: number; funding?: boolean; caller?: HistoryCaller } = {}): Promise<AnalyticsRow> {
+    const { rank, funding = true, caller = "product" } = options;
     const existing = this.inflight.get(address);
     if (existing) {
       const cost = this.costs.get(address);
@@ -225,7 +233,7 @@ export class TradeAnalyticsService {
     }
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     if (this.inflight.size >= MAX_CONCURRENT + MAX_WAITING) return Promise.reject(new BusyException(5_000));
-    const promise = this.jobs.run(() => this.serial(address, () => this.limited(() => this.refresh(address, rank))));
+    const promise = this.jobs.run(() => this.serial(address, () => this.limited(() => this.refresh(address, rank, caller))));
     this.inflight.set(address, promise);
     promise
       .then(() => funding ? this.jobs.run(() => this.serial(address, () => this.limited(() => this.fundingStep(address)))) : undefined)
@@ -273,9 +281,9 @@ export class TradeAnalyticsService {
 
   /** Brings the address's trades and summary up to date (cold, incremental
    * or, when tracked, a rebuild from our fills). */
-  async refresh(address: string, rank?: number): Promise<AnalyticsRow> {
+  async refresh(address: string, rank?: number, caller: HistoryCaller = "product"): Promise<AnalyticsRow> {
     const started = Date.now();
-    const cost: Cost = { calls: 0, weight: 0, rank };
+    const cost: Cost = { calls: 0, weight: 0, rank, caller };
     this.costs.set(address, cost);
     try {
       return await this.refreshAt(address, cost, started);
@@ -298,12 +306,15 @@ export class TradeAnalyticsService {
     const tracked = Boolean(coverage?.verifiedFrom && coverage.verifiedThrough && coverage.backfillStatus !== "pending");
     // Figures stored before raw fills were kept get a job over exactly the
     // range they claim, so that range becomes auditable first.
-    if (!watched) await this.history?.ensure(address, state?.source === "hyperliquid" ? state.coverageFrom?.getTime() : undefined);
-    let snapshot = !watched ? await this.history?.snapshot(address) : null;
+    // Only for an address that may have a durable job (anyone can ask for
+    // any address): without one the answer is computed from Hyperliquid as
+    // before, and nothing is stored for a background scan.
+    cost.keep = !watched && (await this.history?.ensure(address, state?.source === "hyperliquid" ? state.coverageFrom?.getTime() : undefined, cost.caller)) === true;
+    let snapshot = cost.keep ? await this.history?.snapshot(address) : null;
     // With archive coverage the durable history completes in a few REST
     // pages (what precedes the archive and the tail after its lag), so do
     // that instead of the cold read's up to 32 range calls.
-    if (!watched && !snapshot && await this.history?.catchUp(address, ARCHIVE_CATCHUP_PAGES, cost).catch(() => false)) {
+    if (cost.keep && !snapshot && await this.history?.catchUp(address, ARCHIVE_CATCHUP_PAGES, cost).catch(() => false)) {
       snapshot = await this.history?.snapshot(address);
     }
     // Never replace a newer legacy ledger with an older archive snapshot.
@@ -524,7 +535,7 @@ export class TradeAnalyticsService {
     };
     const [regularTail, twapTail] = await Promise.all([tail(false, latest), tail(true, latestTwap)]);
     all = dedupe([...all, ...regularTail, ...twapTail]).filter(f => f.time <= now && (from === null || f.time >= from));
-    await this.history?.preserve(address, all);
+    if (cost.keep) await this.history?.preserve(address, all);
     const open = new Map<string, Trade>();
     const result = applyFills(address, open, all, null);
     const persist = (tx: TradeAnalyticsTx) => this.repository.replaceTrades(tx, address, result.touched);
@@ -568,7 +579,7 @@ export class TradeAnalyticsService {
     const fresh = dedupe([...regular.fills, ...twap.fills]).filter(
       (f) => f.time > since || (f.time === since && !seen.has(String(f.tid))),
     );
-    await this.history?.preserve(address, fresh);
+    if (cost.keep) await this.history?.preserve(address, fresh);
     const fundingFrom = state.fundingFrom?.getTime() ?? null;
     const open = new Map((await this.repository.openTrades(address)).map((t) => [t.coin, t]));
     const result = applyFills(address, open, fresh, fundingFrom);

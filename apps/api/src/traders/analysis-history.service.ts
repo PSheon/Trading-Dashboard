@@ -5,15 +5,19 @@ import { HyperliquidInfoClient, twapSliceToFill } from "../hyperliquid/hyperliqu
 import { UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { AnalysisHistoryRepository, type HistoryJob } from "./analysis-history.repository.js";
+import { AnalysisHistoryRepository, type HistoryCaller, type HistoryJob } from "./analysis-history.repository.js";
 
 /** At most two range pages per minute (~240 weight). Uses the existing
  * global budgeter, behind page requests. No detached notification work. */
 export const HISTORY_PAGES_PER_TICK = 2;
+/** Jobs nobody asks for any more are looked for this often. */
+const EXPIRE_EVERY_MS = 3_600_000;
 @Injectable()
 export class AnalysisHistoryService {
   private readonly logger = new Logger(AnalysisHistoryService.name);
   private running: Promise<string | undefined> | undefined;
+  private turns = 0;
+  private expiredAt = 0;
   constructor(
     private readonly repository: AnalysisHistoryRepository,
     private readonly info: HyperliquidInfoClient,
@@ -45,7 +49,8 @@ export class AnalysisHistoryService {
     const job = await this.repository.state(address);
     return job?.status === "caught_up" && Boolean(job.publishedThrough);
   }
-  ensure(address: string, from?: number) { return this.repository.ensure(address, Date.now(), from); }
+  /** Whether the address has a durable job afterwards; see the repository for who may create one. */
+  ensure(address: string, from?: number, caller: HistoryCaller = "product") { return this.repository.ensure(address, Date.now(), from, caller); }
   preserve(address: string, fills: HlUserFill[]) { return this.repository.preserve(address, fills); }
   snapshot(address: string) { return this.repository.snapshot(address); }
   async status(address: string) {
@@ -61,7 +66,14 @@ export class AnalysisHistoryService {
   tick(): Promise<string | undefined> {
     if (this.jobs.stopping) return Promise.resolve(undefined);
     this.running ??= this.jobs.run(async () => {
-      const job = await this.repository.claim();
+      if (Date.now() - this.expiredAt > EXPIRE_EVERY_MS) {
+        this.expiredAt = Date.now();
+        const removed = await this.repository.expire().catch(() => 0);
+        if (removed > 0) this.logger.log(`History: ${removed} job(s) nobody asked for in 14 days removed, with their fills`);
+      }
+      // Every other turn goes to a job already in progress (or due for its
+      // refresh), so new jobs can't hold the whole queue.
+      const job = await this.repository.claim(Date.now(), this.turns++ % 2 === 1);
       if (!job) return undefined;
       await this.advance(job);
       const updated = await this.repository.state(job.address);

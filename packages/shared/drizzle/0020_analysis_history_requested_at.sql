@@ -1,0 +1,1 @@
+ALTER TABLE "analysis_history_jobs" ADD COLUMN "requested_at" timestamp with time zone DEFAULT now() NOT NULL;

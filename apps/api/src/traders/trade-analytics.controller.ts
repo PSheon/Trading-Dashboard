@@ -5,7 +5,9 @@ import { AnalyticsQueryDto, TradesQueryDto } from "./dto/trader-query.dto.js";
 import { BadGatewayException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
 import { type TraderAnalyticsResponse, type TraderTradesResponse } from "@trading-dashboard/shared/contracts";
 
+import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Public } from "../common/auth/public.decorator.js";
+import type { HistoryCaller } from "./analysis-history.repository.js";
 import { BusyException, BusyFilter } from "./busy.js";
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
 import { currentRequestClient } from "../runtime/request-context.js";
@@ -15,6 +17,10 @@ import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "./traders.co
  * address runs for many seconds after its 503, so without this one client
  * could fill every computation slot with random addresses. */
 export const MAX_PENDING_PER_CLIENT = 3;
+
+/** A durable history job is permanent work, so an anonymous request only
+ * gets one for an address the product already follows. */
+const callerOf = (user: RequestUser | null): HistoryCaller => (user ? "user" : "anonymous");
 
 /**
  * Round-trip analytics for any address: GET /traders/:address/analytics
@@ -37,17 +43,17 @@ export class TradeAnalyticsController {
 
   @ApiDoc("Summary")
   @Get(":address/analytics")
-  summary(@Param() params: AddressParamsDto, @Query() query: AnalyticsQueryDto): Promise<TraderAnalyticsResponse> {
+  summary(@Param() params: AddressParamsDto, @Query() query: AnalyticsQueryDto, @CurrentUser() user: RequestUser | null = null): Promise<TraderAnalyticsResponse> {
     const addr = params.address;
     const { window } = query;
-    return this.within(() => this.analytics.analytics(addr, window), addr);
+    return this.within(() => this.analytics.analytics(addr, window, callerOf(user)), addr);
   }
 
   @ApiDoc("Trades")
   @Get(":address/trades")
-  trades(@Param() params: AddressParamsDto, @Query() query: TradesQueryDto): Promise<TraderTradesResponse> {
+  trades(@Param() params: AddressParamsDto, @Query() query: TradesQueryDto, @CurrentUser() user: RequestUser | null = null): Promise<TraderTradesResponse> {
     const addr = params.address;
-    return this.within(() => this.analytics.trades(addr, query), addr);
+    return this.within(() => this.analytics.trades(addr, query, callerOf(user)), addr);
   }
 
   /** Runs `work` for the calling client unless it already has

@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { wireTraderAnalyticsSchema, wireTraderTradesSchema } from "@trading-dashboard/shared/contracts";
-import { analysisHistoryFills, archiveCoverage, fillCoverage, fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
+import { analysisHistoryFills, analysisHistoryJobs, archiveCoverage, fillCoverage, fills, traderAnalytics, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,7 @@ import { PAGE_DEADLINE_MS } from "../src/traders/traders.controller.js";
 import type { TradersService } from "../src/traders/traders.service.js";
 import { toFillRow } from "../src/watcher/fill-row.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
-import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 
 const X = `0x${"7a".repeat(20)}`;
 const TRACKED = `0x${"7b".repeat(20)}`;
@@ -407,6 +407,35 @@ describe("trade analytics for any address", () => {
     await service.compute(TRACKED, false);
     expect(await db.select().from(traderTrades).where(eq(traderTrades.address, TRACKED))).toHaveLength(3);
   });
+  describe("who may create a durable history job (review 27): the routes are public and take any address", () => {
+    const withHistory = () => new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined,
+      new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient));
+    const stored = async () => ({ jobs: (await db.select().from(analysisHistoryJobs)).length, fills: (await db.select().from(analysisHistoryFills)).length });
+
+    it("an anonymous request for an address the product does not follow is answered, and leaves no job and no stored fills", async () => {
+      const production = withHistory();
+      const result = await production.analytics(X, "all", "anonymous");
+      await production.settled();
+      expect(result.summary).toMatchObject({ trades: 2, wins: 1 });
+      expect(await production.trades(X, { status: "closed", limit: 50 } as never, "anonymous")).toMatchObject({ total: 2 });
+      expect(await stored()).toEqual({ jobs: 0, fills: 0 });
+    });
+
+    it("the same request for a favorited address, or from a signed-in person, gets the job and keeps the fills", async () => {
+      const production = withHistory();
+      const user = await insertUser(db);
+      await db.insert(userFavorites).values({ userId: user.id, address: X });
+      await production.analytics(X, "all", "anonymous");
+      await production.settled();
+      expect(await stored()).toEqual({ jobs: 1, fills: 6 });
+
+      const other = `0x${"7c".repeat(20)}`;
+      await production.analytics(other, "all", "user");
+      await production.settled();
+      expect((await db.select().from(analysisHistoryJobs)).map((j) => j.address).sort()).toEqual([X, other].sort());
+    });
+  });
+
   it("an archive-covered address skips the cold read: the history job completes in a few pages and coverage says what is certified", async () => {
     const archiveRepository = new AnalysisHistoryRepository(db);
     const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);

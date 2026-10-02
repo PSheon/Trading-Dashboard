@@ -1,12 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { analysisHistoryFills, analysisHistoryJobs, actions } from "@trading-dashboard/shared/database";
+import { analysisHistoryFills, analysisHistoryJobs, actions, archiveCoverage, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
 import { advanceCheckpoint, initialCheckpoint } from "../src/analytics/history-checkpoint.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
-import { AnalysisHistoryRepository } from "../src/traders/analysis-history.repository.js";
+import { AnalysisHistoryRepository, MAX_REQUESTED_JOBS, REQUESTED_JOB_TTL_MS } from "../src/traders/analysis-history.repository.js";
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
-import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 
 const ADDRESS = `0x${"ab".repeat(20)}`;
 const fill = (tid: number, time = tid): HlUserFill => ({
@@ -129,6 +129,76 @@ describe("durable fill history", () => {
     expect(await repository.claim()).toBeUndefined();
     await db.update(analysisHistoryJobs).set({ attemptedAt: new Date(0) }).where(eq(analysisHistoryJobs.address, ADDRESS));
     expect((await repository.claim())!.address).toBe(ADDRESS);
+  });
+
+  describe("admission, the cap, expiry and the queue's share (review 27)", () => {
+    const other = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
+    const jobs = async () => (await db.select().from(analysisHistoryJobs)).map(j => j.address).sort();
+
+    it("an anonymous caller gets a job only for an address the product follows: pool, KOL, watched, favorited or archived", async () => {
+      expect(await repository.ensure(ADDRESS, Date.now(), 0, "anonymous")).toBe(false);
+      expect(await jobs()).toEqual([]);
+
+      const [pool, kol, watched, inactive, favorite, archived] = [1, 2, 3, 4, 5, 6].map(other);
+      const user = await insertUser(db);
+      await db.insert(discoveryTraders).values({ address: pool });
+      await db.insert(kolTraders).values({ address: kol });
+      await db.insert(leaders).values([{ address: watched, active: true }, { address: inactive, active: false }]);
+      await db.insert(userFavorites).values({ userId: user.id, address: favorite });
+      await db.insert(archiveCoverage).values({ address: archived });
+      for (const address of [pool, kol, watched, favorite, archived]) expect(await repository.ensure(address, Date.now(), 0, "anonymous"), address).toBe(true);
+      expect(await repository.ensure(inactive, Date.now(), 0, "anonymous")).toBe(false);
+      expect(await jobs()).toEqual([pool, kol, watched, favorite, archived].sort());
+      // A job that exists is used by anyone, and counts as asked for again.
+      await db.delete(discoveryTraders);
+      expect(await repository.ensure(pool, Date.now() + 5_000, 0, "anonymous")).toBe(true);
+    });
+
+    it("a signed-in caller may add other addresses, up to the cap on pending ones; the product's own jobs are never capped", async () => {
+      await db.insert(analysisHistoryJobs).values(Array.from({ length: MAX_REQUESTED_JOBS - 1 }, (_, i) => ({ address: other(1_000 + i), checkpoint: initialCheckpoint(Date.now(), 0) })));
+      expect(await repository.ensure(other(1), Date.now(), 0, "user")).toBe(true);
+      expect(await repository.ensure(other(2), Date.now(), 0, "user")).toBe(false);
+      expect(await repository.ensure(other(3), Date.now(), 0, "product")).toBe(true);
+      // Finished jobs free their place.
+      await db.update(analysisHistoryJobs).set({ status: "caught_up" }).where(eq(analysisHistoryJobs.address, other(1)));
+      await db.update(analysisHistoryJobs).set({ status: "caught_up" }).where(eq(analysisHistoryJobs.address, other(3)));
+      expect(await repository.ensure(other(2), Date.now(), 0, "user")).toBe(true);
+    });
+
+    it("a job nobody asked for in 14 days is deleted with its fills, unless the product follows the address", async () => {
+      const [forgotten, followed, recent] = [1, 2, 3].map(other);
+      const old = Date.now() - REQUESTED_JOB_TTL_MS - 60_000;
+      for (const address of [forgotten, followed]) {
+        await repository.ensure(address, old);
+        await repository.preserve(address, [fill(1), fill(2)]);
+      }
+      await repository.ensure(recent, Date.now() - 3_600_000);
+      await repository.preserve(recent, [fill(3)]);
+      await db.insert(kolTraders).values({ address: followed });
+
+      expect(await repository.expire()).toBe(1);
+      expect(await jobs()).toEqual([followed, recent].sort());
+      const kept = await db.select().from(analysisHistoryFills);
+      expect(kept.map(f => f.address).sort()).toEqual([followed, followed, recent].sort());
+      expect(await repository.expire()).toBe(0);
+    });
+
+    it("every other turn goes to a job already in progress, so new jobs can't hold the whole queue", async () => {
+      const [running, fresh1, fresh2] = [1, 2, 3].map(other);
+      for (const address of [running, fresh1, fresh2]) await repository.ensure(address);
+      await db.update(analysisHistoryJobs).set({ attemptedAt: new Date(Date.now() - 10 * 60_000) }).where(eq(analysisHistoryJobs.address, running));
+      const service = new AnalysisHistoryService(repository, provider([]));
+      const attempted = async () => (await db.select().from(analysisHistoryJobs)).filter(j => j.attemptedAt && Date.now() - j.attemptedAt.getTime() < 30_000).map(j => j.address);
+      await service.tick(); // a new job
+      expect(await attempted()).toHaveLength(1);
+      expect(await attempted()).not.toContain(running);
+      await service.tick(); // the job in progress, although a never-attempted one is still waiting
+      expect(await attempted()).toContain(running);
+      expect(await attempted()).toHaveLength(2);
+      // With no attempted job due, that turn falls to a new one instead of being wasted.
+      expect((await repository.claim(Date.now(), true))!.attemptedAt).not.toBeNull();
+      expect(await attempted()).toHaveLength(3);
+    });
   });
 });
 

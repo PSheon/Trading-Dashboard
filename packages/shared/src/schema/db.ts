@@ -700,6 +700,11 @@ export const analysisHistoryJobs = pgTable("analysis_history_jobs", {
   publishedThrough: timestamp("published_through", { withTimezone: true }),
   attemptedAt: timestamp("attempted_at", { withTimezone: true }),
   lastError: text("last_error"),
+  /** When a computation last asked for this job. A job for an address the
+   * product does not otherwise know (not in the pool, a KOL, watched,
+   * favorited or archived) is deleted, with its fills, once nobody has
+   * asked for it for a while. */
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [
   primaryKey({ columns: [table.chain, table.address] }),
   index("analysis_history_jobs_attempted_idx").on(table.status, table.attemptedAt),

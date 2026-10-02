@@ -59,7 +59,8 @@ export class LeadersRepository {
   async summaryMetadata(addresses: string[]) {
     if (addresses.length === 0) return new Map<string, { rank: number | null; openPositionCount: number; lastActionAt: Date | null }>();
     // One round trip; correlated lookups use each table's address/time indexes.
-    const result = await this.db.execute<{ address: string; rank: number | null; openPositionCount: number; lastActionAt: Date | null }>(sql`
+    // A raw query returns timestamps as the driver's text, not as a Date.
+    const result = await this.db.execute<{ address: string; rank: number | null; openPositionCount: number; lastActionAt: Date | string | null }>(sql`
       SELECT l.address,
         (SELECT i.rank FROM leader_list_items i JOIN leader_lists lists ON lists.id = i.list_id
           WHERE i.address = l.address ORDER BY lists.imported_at DESC, lists.id DESC LIMIT 1) AS rank,
@@ -68,7 +69,7 @@ export class LeadersRepository {
         (SELECT max(a.ts) FROM actions a WHERE a.chain = l.chain AND a.address = l.address) AS "lastActionAt"
       FROM leaders l WHERE l.chain = ${CHAIN_DEFAULT} AND l.address IN (${sql.join(addresses.map(address => sql`${address}`), sql`, `)})
     `);
-    return new Map(result.rows.map(row => [row.address, row]));
+    return new Map(result.rows.map(row => [row.address, { ...row, lastActionAt: row.lastActionAt === null ? null : new Date(row.lastActionAt) }]));
   }
   async findOne(chain: string, address: string) {
     const [row] = await this.db.select().from(leaders).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).limit(1);

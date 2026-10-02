@@ -4,6 +4,25 @@ import { sendHttpError } from "./response-contract.js";
 
 const codes: Record<number, string> = { 400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
   409: "conflict", 413: "payload_too_large", 429: "rate_limited", 500: "internal_error", 502: "bad_gateway", 503: "unavailable", 504: "deadline_exceeded" };
+
+/**
+ * What the log keeps of a failure: where it was thrown and the database's
+ * own complaint. Never the thrown message of a query error, which carries
+ * the SQL and its bind values.
+ */
+export function describeError(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) return { thrown: typeof error };
+  const cause = error.cause instanceof Error ? error.cause : undefined;
+  const pg = (cause ?? error) as { code?: unknown };
+  const isQuery = error.message.startsWith("Failed query");
+  return {
+    name: error.name,
+    reason: isQuery ? cause?.message : error.message,
+    code: typeof pg.code === "string" ? pg.code : undefined,
+    stack: (error.stack ?? "").split("\n").filter((line) => line.trimStart().startsWith("at ")).slice(0, 12).map((line) => line.trim()),
+  };
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
@@ -38,7 +57,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return { path: Array.isArray(i.path) ? i.path.map(String).join(".") : typeof i.path === "string" ? i.path : "",
         message: typeof i.message === "string" ? i.message : "Invalid value" };
     }) : undefined;
-    if (status >= 500) { this.logger.error(`HTTP ${status} ${req.method} ${req.path}`); details = {}; }
+    if (status >= 500) { this.logger.error({ event: "http.error", status, method: req.method, path: req.path, ...describeError(error) }); details = {}; }
     for (const key of ["code", "issues", "message", "statusCode", "error"]) delete details[key];
     sendHttpError(req, res, status, message, code, details, fields);
   }

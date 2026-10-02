@@ -55,6 +55,8 @@ it('the public list is computed once for concurrent and repeated callers; admins
   await service.findAll({});
   expect(reconstruct).toHaveBeenCalledTimes(1);
   expect(answers.every(a => a.length === 1 && a[0]!.avgHoldTimeSeconds === 60)).toBe(true);
+  // A Date, not the driver's text: the response schema rejected the text with a 500.
+  expect(answers[0]![0]!.lastActionAt).toEqual(new Date(now - 1000));
   // Another filter is its own entry; an admin always gets a fresh answer.
   await service.findAll({ tier: 'A' });
   await service.findAll({}, 'admin');

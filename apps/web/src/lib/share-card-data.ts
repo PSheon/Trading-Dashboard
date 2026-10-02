@@ -1,5 +1,5 @@
 /** Server side only: reads NEXT_API_URL, which never reaches the browser. */
-import type { TraderWindow } from "@/lib/contracts";
+import type { CoinBoardResponse, TraderWindow } from "@/lib/contracts";
 import { shareCardData, type ShareCardData } from "@/lib/share-card";
 
 export const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -76,6 +76,16 @@ export async function loadTraderName(
   const lower = address.toLowerCase();
   const found = await getJson<{ items: Array<{ address: string; displayName: string | null }> }>(fetchImpl, apiUrl, `/discover/search?q=${lower}&limit=1`, 2_000, client);
   return found?.items.find((item) => item.address.toLowerCase() === lower)?.displayName?.trim() || null;
+}
+
+/** One coin's board (GET /discover/coins/:coin: a snapshot read, no
+ * Hyperliquid call), for the coin page to decide between the page and the
+ * 404 before anything is sent. null when the api is unset, slow or failing. */
+export function loadCoinBoard(
+  coin: string,
+  { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch, client }: { apiUrl?: string; fetchImpl?: Fetch; client?: string } = {},
+): Promise<Pick<CoinBoardResponse, "items" | "stats" | "pool"> | null> {
+  return getJson<Pick<CoinBoardResponse, "items" | "stats" | "pool">>(fetchImpl, apiUrl, `/discover/coins/${encodeURIComponent(coin)}`, 3_000, client);
 }
 
 interface ProfileLike {

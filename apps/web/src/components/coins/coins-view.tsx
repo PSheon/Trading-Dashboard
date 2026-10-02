@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { cn } from "cn";
 
 import { EmptyState, ErrorState, Skeleton } from "@/components/page";
@@ -9,6 +10,7 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import { APP_NAME } from "@/lib/config";
 import { coinHref } from "@/lib/coin-slug";
+import { coinIsUnknown } from "@/lib/coin-presence";
 import { coinLabel, usdCompact } from "@/lib/format";
 import { useCoinBoard, useCoinIndex } from "@/lib/queries";
 
@@ -96,6 +98,9 @@ export function CoinIndexView() {
 export function CoinBoardView({ coin }: { coin: string }) {
   const { t } = useI18n();
   const query = useCoinBoard(coin);
+  // A market nobody in the pool has traded is the 404 page (the server
+  // decides this first when it can reach the api; see app/coins/[coin]).
+  if (coinIsUnknown(query.data) === true) notFound();
   const label = coinLabel(coin);
   const stats = query.data?.stats;
   return (

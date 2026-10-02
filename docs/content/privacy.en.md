@@ -49,7 +49,7 @@ The trader data Orbie analyzes (addresses, fills, positions, account value, PnL)
 - We use one cookie to remember your language.
 - We use your browser's localStorage to remember interface preferences, such as announcements you have dismissed.
 - Privy stores data in your browser to keep you signed in.
-- We do not currently use third-party advertising or behavioral tracking cookies. 【待填：list any analytics tools here if added later】
+- We do not currently use third-party advertising or behavioral tracking cookies, and we do not use third-party analytics or error-tracking tools.
 
 ## 3. How we use information
 
@@ -72,7 +72,7 @@ We share information only with the service providers needed to run the Service:
 | Privy | Sign-in, embedded wallet, private key custody and export, (once copy trading launches) restricted trading permission | sign-in method, email, wallet addresses |
 | Hyperliquid | Exchange: public data queries, deposits, withdrawals, (once copy trading launches) order placement | your wallet address and trades (public on-chain data) |
 | Telegram | Sending alerts | chat ID, alert content |
-| 【待填：hosting and database providers】 | Website and API hosting, database, logs | all information listed in this policy |
+| Railway | Website and API hosting, database, logs | all information listed in this policy |
 
 Beyond the table above, we disclose information only when required by law, court order or a competent authority; to protect the rights and safety of Orbie, our users or others; or in a merger, acquisition or asset transfer, in which case the recipient must continue to honor this policy.
 
@@ -80,16 +80,17 @@ These providers handle information under their own privacy policies.
 
 ## 5. International transfers
 
-Our servers and service providers may be located outside your country or region, including in 【待填：main data storage regions】. By using the Service you understand that your information may be transferred to and processed in those places.
+Our servers and service providers may be located outside your country or region, including in the United States and other regions where our service providers operate. By using the Service you understand that your information may be transferred to and processed in those places.
 
 ## 6. Retention
 
-- **Account information and settings:** kept while your account exists. After you delete your account, we delete or de-identify it within 【待填：number】 days, except where the law requires us to keep it.
+- **Account information and settings:** kept while your account exists. When you delete your account in Orbie, it is removed immediately. When you ask us to delete it by email, we delete or de-identify it within 30 days. In both cases, information the law requires us to keep is excepted.
 - **Telegram chat ID:** no longer used, and deleted, once you unlink Telegram.
-- **Alert delivery records:** kept for 【待填：period】 to investigate delivery problems.
-- **Server logs:** kept for 【待填：period】.
+- **Alert delivery records:** kept for 30 days to investigate delivery problems.
+- **Server logs:** kept for 30 days.
+- **Admin audit logs and account deletion records:** kept for 1 year. A deletion record holds only an account number, the time of deletion and counts; it contains no email or wallet address.
 - **Copy trading orders and fills (coming soon):** kept for 【待填：period】 for reconciliation, tax and legal purposes.
-- **Backups:** data in backups is overwritten on the normal backup cycle, within at most 【待填：period】.
+- **Backups:** data in backups is overwritten on the normal backup cycle, within at most 30 days.
 - **Public blockchain data:** fills and positions on Hyperliquid are public on-chain records that cannot be deleted. Public market data we store to calculate performance is not part of your account data and may be kept long term.
 
 ## 7. Your rights
@@ -104,7 +105,7 @@ Depending on the law where you live, you may have the right to:
 
 You can do these yourself at any time: remove favorites, turn off alerts, unlink Telegram, change your language, and revoke copy trading permission (once copy trading launches).
 
-**Deleting your account:** email 【待填：contact email】 from the email linked to your account, or tell us your wallet address, and we will process the request after verifying your identity. 【待填：whether in-app deletion is offered】
+**Deleting your account:** you can delete your account yourself in Orbie: open Settings, choose Account, then Delete account. The account is deleted immediately; if you have copies running, you need to stop them first. The steps, and what is deleted and kept, are described on the [Delete your Orbie account](/delete-account) page. If you cannot sign in, email 【待填：contact email】 from the email linked to your account, or tell us your wallet address, and we will process the request after verifying your identity.
 
 Before deleting your Orbie account, please note:
 
@@ -112,7 +113,7 @@ Before deleting your Orbie account, please note:
 - The wallet itself is managed by Privy; deleting data held by Privy is subject to Privy's policies.
 - Trades already recorded on Hyperliquid cannot be deleted.
 
-We will respond to your request within 【待填：number】 days.
+We will respond to your request within 30 days.
 
 ## 8. Security
 

@@ -25,7 +25,7 @@ You may use the Service only if all of the following are true:
 
 - you are at least 18 years old, or the age of majority where you live if that is higher, and have full legal capacity;
 - you are not, and are not acting for, a sanctioned person or entity;
-- you are not located in, resident in, established in, or a citizen or resident of 【待填：list of restricted countries/regions】;
+- you are not located in, resident in, established in, or a citizen or resident of the United States, any country or region under comprehensive sanctions (Cuba, Iran, North Korea, Syria, and the Crimea, Donetsk and Luhansk regions), or any other place where using the Service is unlawful;
 - using the Service, and in particular trading derivatives, is legal where you are, and you also meet Hyperliquid's terms of use.
 
 It is your responsibility to confirm these conditions. We may ask for information to confirm eligibility and may refuse or end access for anyone who does not qualify.
@@ -81,8 +81,8 @@ When copy trading launches, the following applies:
 ## 8. Fees
 
 - Browsing, favorites and Telegram alerts are currently free.
-- Once copy trading launches, Orbie charges a fee on each copied fill through Hyperliquid's builder fee mechanism. The rate is 【待填：actual rate】 and never exceeds the maximum you approved by signature; under Hyperliquid's rules the maximum for perpetuals is 0.1%.
-- Orbie may also receive rebates through Hyperliquid's referral program. 【待填：effect on users' fees】
+- Once copy trading launches, Orbie charges a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate is shown to you before you sign the approval and never exceeds the maximum you approved by signature; under Hyperliquid's rules the maximum for perpetuals is 0.1%.
+- Orbie may also receive rebates through Hyperliquid's referral program. These rebates do not change the fees you pay to Hyperliquid.
 - You also pay Hyperliquid's trading fees, funding, withdrawal fee and blockchain network fees.
 - We may change our fees, but raising the builder fee above the maximum you approved requires your new authorization.
 - You are responsible for reporting and paying any taxes on your trading.
@@ -121,7 +121,7 @@ To the maximum extent permitted by law:
 
 - Orbie and its directors, employees and partners are not liable for any indirect, incidental, special, consequential or punitive damages, or for loss of profits, trading losses, loss of data or loss of goodwill, even if advised of their possibility;
 - Orbie is not liable for losses caused by trading losses, liquidation, copy-trading latency or slippage, a leaked private key, third-party failures or your breach of these terms;
-- Orbie's total liability to you is limited to the greater of the fees you actually paid Orbie in the 【待填：number】 months before the loss occurred, or 【待填：amount】.
+- Orbie's total liability to you is limited to the greater of the fees you actually paid Orbie in the 12 months before the loss occurred, or US$100.
 
 Some jurisdictions do not allow certain liabilities to be excluded or limited; to that extent, these limits may not apply to you.
 
@@ -149,7 +149,7 @@ These terms are governed by 【待填：governing law】. The parties will first
 - If any provision is invalid or unenforceable, the rest remain in effect.
 - Our failure or delay in exercising a right is not a waiver of it.
 - You may not transfer your rights or obligations under these terms without our consent; we may transfer them in a merger, acquisition or asset transfer.
-- If the Chinese and English versions of these terms conflict, 【待填：prevailing language version】 prevails.
+- If the Chinese and English versions of these terms conflict, the English version prevails.
 
 ## 20. Contact
 

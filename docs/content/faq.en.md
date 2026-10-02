@@ -155,7 +155,9 @@ Please note:
 - The minimum deposit is **10 USDC**. A transfer below the minimum may not be credited and may not be recoverable.
 - Only USDC on Arbitrum is supported. Sending another token or using another network can result in permanent loss.
 - If you already have funds on Hyperliquid, you can also transfer them to your main account inside Hyperliquid.
-- 【待填：who pays Arbitrum network (gas) fees; expected arrival time】
+- The network fee for sending USDC to your address is charged by the exchange or wallet you send from.
+- After the USDC arrives at your address on Arbitrum, the Deposit window shows the amount waiting. Press "Bridge to Hyperliquid" and your own wallet signs the transfer to Hyperliquid's bridge. This step needs a small Arbitrum network fee, paid in ETH from your wallet. If your wallet holds too little ETH, Orbie asks Privy to cover the fee; if that isn't available, you need to send a small amount of ETH on Arbitrum to your address first. Orbie charges nothing for this step.
+- After you bridge, the funds usually reach your Hyperliquid account in about a minute.
 
 ### How do I withdraw?
 
@@ -197,19 +199,21 @@ No, not exactly. Orbie places your order after the trader's fill is confirmed, s
 
 ### Can I copy several traders at once? (coming soon)
 
-That is planned. 【待填：maximum number of traders copied at once; minimum amount per copy】
+Yes. Copy trading currently runs in paper mode only: your account gets a virtual balance of 10,000 USDC, orders are simulated and no real order is sent. You can run up to 10 copies at the same time, one per trader. Each copy needs an allocation of at least 100 USDC, and a single order smaller than 10 USD is not placed. These limits may change before real-money copying launches (coming soon).
 
 ### What happens to my positions and funds when I stop copying? (coming soon)
 
-【待填：whether positions are closed automatically and whether funds return to the main account, per the final design】
+When you stop a copy, Orbie stops opening new positions for it, cancels its pending orders and closes its open positions at the market price. Once every position is closed, the copy's remaining balance returns to your available balance. Until then the copy shows "Stopping", and a stopping copy cannot be resumed.
+
+Copy trading is in paper mode today, so these are virtual positions and virtual funds: no real order is sent and your wallet is not touched. Real-money copying is coming soon, and we will update this answer when it launches.
 
 ## Fees
 
 ### How does Orbie make money?
 
 - **Browsing, favorites, Telegram alerts:** free.
-- **Copy trading (coming soon):** Orbie charges a fee on each copied fill through Hyperliquid's builder fee mechanism. The rate is 【待填：actual rate】, and under Hyperliquid's rules it cannot exceed 0.1% on perpetuals. Before you start copying, you approve this maximum rate by signing with your own wallet.
-- **Referral rebates:** Orbie may take part in Hyperliquid's referral program and receive rebates. 【待填：whether rebates affect users' fees and whether users get a discount】
+- **Copy trading (coming soon):** Orbie charges a fee on each copied fill through Hyperliquid's builder fee mechanism. The exact rate is shown to you before you sign the approval. It never exceeds the maximum you sign, and under Hyperliquid's rules it cannot exceed 0.1% on perpetuals. Before you start copying, you approve this maximum rate by signing with your own wallet.
+- **Referral rebates:** Orbie may take part in Hyperliquid's referral program and receive rebates. These rebates do not change the fees you pay to Hyperliquid, and they do not give you a fee discount.
 
 ### What other costs are there?
 

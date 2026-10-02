@@ -1,6 +1,6 @@
 # Delete your Orbie account
 
-Last updated: September 30, 2026
+Last updated: October 2, 2026
 
 ## Overview
 
@@ -8,7 +8,7 @@ This page explains how to delete your Orbie account and what happens to your dat
 
 ## Before you delete
 
-Your money is never deleted with your account. The wallet Privy creates for you at sign-in is your Hyperliquid account; your funds always stay in it, and Orbie cannot move them. Before deleting, go to Settings › Account, export your private key and keep it safe; with it you can recover your funds in any wallet. Once copy trading launches, you will also need to stop every copy first.
+Your money is never deleted with your account. The wallet Privy creates for you at sign-in is your Hyperliquid account; your funds always stay in it, and Orbie cannot move them. Before deleting, go to Settings › Account, export your private key and keep it safe; with it you can recover your funds in any wallet. If you have copies running (copy trading is in paper mode today), stop every copy in your Portfolio first; your account cannot be deleted until they have stopped.
 
 ## How to delete your account
 
@@ -25,7 +25,7 @@ The following is removed as soon as you delete your account: your Orbie account 
 ## What is kept
 
 - Your Privy sign-in and embedded wallet are not deleted, because your funds are in that wallet. Signing in again the same way brings you back to the same wallet. If you want your Privy sign-in data deleted too, export your private key or move your funds out first, then contact us.
-- A deletion record (account number, time of deletion and counts such as saved traders and alerts), with no email or addresses, kept for security auditing. Retention: 【待填：retention period】.
+- A deletion record (account number, time of deletion and counts such as saved traders and alerts), with no email or addresses, kept for security auditing. Retention: 1 year.
 - Public Hyperliquid blockchain data is outside our control and cannot be deleted by us.
 
 ## Questions

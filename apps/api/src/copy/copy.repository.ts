@@ -354,14 +354,21 @@ export class CopyRepository {
       .from(copyReservations).where(and(inArray(copyReservations.strategyId, strategyIds), eq(copyReservations.status, "held")));
   }
 
-  /** Orders the executor should work on next, oldest first. */
-  approvedOrderIds(limit: number) {
-    return this.db.select({ id: copyOrders.id }).from(copyOrders).where(eq(copyOrders.status, "risk_approved")).orderBy(asc(copyOrders.id)).limit(limit);
+  /** Orders the executor should work on next, oldest first. A strategy's
+   * orders run strictly in id order: while one of them is past the
+   * execution boundary and not final (a fill that failed and waits for its
+   * retry), its later orders are left out, so an open can never run ahead
+   * of the close it follows. Other strategies are not held up. */
+  approvedOrders(limit: number) {
+    return this.db.select({ id: copyOrders.id, strategyId: copyOrders.strategyId }).from(copyOrders).where(and(eq(copyOrders.status, "risk_approved"),
+      sql`not exists (select 1 from ${copyOrders} b where b.strategy_id = ${copyOrders.strategyId} and b.status in ('submitting', 'submitted', 'unknown'))`))
+      .orderBy(asc(copyOrders.id)).limit(limit);
   }
 
-  /** `submitting` orders left by a crash or timeout. */
+  /** `submitting` orders left by a crash, a timeout or a failed fill. */
   staleSubmitting(olderThan: Date, limit: number) {
-    return this.db.select({ id: copyOrders.id }).from(copyOrders).where(and(eq(copyOrders.status, "submitting"), lte(copyOrders.updatedAt, olderThan))).orderBy(asc(copyOrders.id)).limit(limit);
+    return this.db.select({ id: copyOrders.id, strategyId: copyOrders.strategyId }).from(copyOrders)
+      .where(and(eq(copyOrders.status, "submitting"), lte(copyOrders.updatedAt, olderThan))).orderBy(asc(copyOrders.id)).limit(limit);
   }
 
   async lockOrder(tx: DbTransaction, id: bigint): Promise<OrderRow | undefined> {

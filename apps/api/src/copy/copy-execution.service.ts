@@ -17,6 +17,8 @@ export interface ExecutionResult {
   cancelled: number;
 }
 
+const signalAgeSeconds = (order: Pick<OrderRow, "signalTime">) => (Date.now() - order.signalTime.getTime()) / 1000;
+
 /**
  * Paper execution. Moves orders through
  * risk_approved → submitting → filled | partial | cancelled, each step its
@@ -37,6 +39,17 @@ export interface ExecutionResult {
  * between the two; there an unanswered request becomes `unknown` and is
  * reconciled by client order id instead of being re-sent. In paper a
  * leftover `submitting` order is simply re-simulated.
+ *
+ * Order within a strategy is strict: its orders run in id order, and while
+ * one is `submitting` (its fill failed and waits for the retry) nothing
+ * later of that strategy runs, so a flip's open never executes before its
+ * close. A failure stops only that strategy for the pass; every other
+ * strategy's orders still execute. Two more guards at the boundary, for an
+ * order that waited (worker downtime, an earlier order that kept failing):
+ * a risk-increasing order older than the policy's maxSignalAgeSeconds is
+ * cancelled, and one that would trade against the strategy's own
+ * opposite-signed position is cancelled instead of being booked as a
+ * reduction.
  */
 @Injectable()
 export class CopyExecutionService {
@@ -53,27 +66,45 @@ export class CopyExecutionService {
   async drain(limit = EXECUTION_BATCH): Promise<ExecutionResult> {
     const result: ExecutionResult = { filled: 0, cancelled: 0 };
     const stale = await this.repository.staleSubmitting(new Date(Date.now() - SUBMITTING_RECOVERY_MS), limit);
-    const approved = await this.repository.approvedOrderIds(limit);
+    let approved = await this.repository.approvedOrders(limit);
     if (stale.length === 0 && approved.length === 0) return result;
     const mids = await this.market.midPrices();
     const assets = await this.market.assetInfo();
     const policy = await this.policies.current();
     const builderFeeTenthsBps = (await this.settings.get("revenue")).builderFeeTenthsBps;
-    const pricing = { mids, assets, slippageBps: policy.limits.simulatedSlippageBps, takerFeeBps: policy.limits.takerFeeBps, builderFeeTenthsBps };
+    const maxSignalAgeSeconds = policy.limits.maxSignalAgeSeconds;
+    const pricing = { mids, assets, slippageBps: policy.limits.simulatedSlippageBps, takerFeeBps: policy.limits.takerFeeBps, builderFeeTenthsBps, maxSignalAgeSeconds };
 
-    for (const { id } of stale) {
-      if (await this.fill(id, pricing)) result.filled += 1;
+    /** Strategies whose order failed this pass: nothing later of theirs runs before it. */
+    const held = new Set<number>();
+    const guarded = async (order: { id: bigint; strategyId: number }, work: () => Promise<void>) => {
+      if (held.has(order.strategyId)) return;
+      try {
+        await work();
+      } catch (error) {
+        held.add(order.strategyId);
+        this.logger.error(`Copy order ${order.id} (strategy ${order.strategyId}) failed; the strategy's later orders wait for it: ${(error as Error).message}`);
+      }
+    };
+    for (const order of stale) {
+      await guarded(order, async () => {
+        if (await this.fill(order.id, pricing)) result.filled += 1;
+      });
     }
-    for (const { id } of approved) {
-      const outcome = await this.submit(id);
-      if (outcome === "cancelled") result.cancelled += 1;
-      else if (outcome === "submitting" && (await this.fill(id, pricing))) result.filled += 1;
+    // A strategy whose leftover order just finished can go on in this pass.
+    if (stale.length > 0) approved = await this.repository.approvedOrders(limit);
+    for (const order of approved) {
+      await guarded(order, async () => {
+        const outcome = await this.submit(order.id, maxSignalAgeSeconds);
+        if (outcome === "cancelled") result.cancelled += 1;
+        else if (outcome === "submitting" && (await this.fill(order.id, pricing))) result.filled += 1;
+      });
     }
     return result;
   }
 
-  /** Step 1, the execution boundary. */
-  async submit(orderId: bigint): Promise<"submitting" | "cancelled" | "skipped"> {
+  /** Step 1, the execution boundary. `maxSignalAgeSeconds` defaults to the policy in force. */
+  async submit(orderId: bigint, maxSignalAgeSeconds?: number): Promise<"submitting" | "cancelled" | "skipped"> {
     const owner = await this.repository.orderOwner(orderId);
     if (!owner) return "skipped";
     return this.uow.run(async (tx) => {
@@ -83,6 +114,7 @@ export class CopyExecutionService {
       const peek = await this.repository.lockOrder(tx, orderId);
       if (!strategy || !peek || peek.status !== "risk_approved") return "skipped";
       if (!peek.reduceOnly) {
+        const maxAge = maxSignalAgeSeconds ?? (await this.policies.current(tx)).limits.maxSignalAgeSeconds;
         const blocked =
           controls.platform?.pauseNewRisk ? "platform_paused" :
           controls.platform?.reduceOnly ? "platform_reduce_only" :
@@ -90,7 +122,9 @@ export class CopyExecutionService {
           controls.user?.reduceOnly ? "user_reduce_only" :
           strategy.pauseNewRisk ? "strategy_paused" :
           strategy.reduceOnly ? "strategy_reduce_only" :
-          strategy.status !== "active" ? `strategy_${strategy.status}` : null;
+          strategy.status !== "active" ? `strategy_${strategy.status}` :
+          // Approved in time, but it waited: it would fill at a mid the leader never traded at.
+          signalAgeSeconds(peek) > maxAge ? "stale_signal" : null;
         if (blocked) {
           await this.repository.updateOrder(tx, orderId, { status: "cancelled", reason: `${blocked}_before_submit` });
           await this.repository.settleReservation(tx, orderId, "released");
@@ -109,6 +143,8 @@ export class CopyExecutionService {
     slippageBps: number;
     takerFeeBps: number;
     builderFeeTenthsBps: number;
+    /** A resumed risk-increasing order older than this is cancelled; omitted, no age check. */
+    maxSignalAgeSeconds?: number;
   }): Promise<boolean> {
     const owner = await this.repository.orderOwner(orderId);
     if (!owner) return false;
@@ -127,6 +163,15 @@ export class CopyExecutionService {
           return false;
         }
         size = Math.min(size, Math.abs(current));
+      } else if (current !== 0 && Math.sign(current) !== sign) {
+        // The close this open follows has not run (it failed, or was
+        // cancelled): filling now would be booked as a reduction of the
+        // position and leave the copy on the wrong side of the leader.
+        await this.cancel(tx, order, "opposite_position");
+        return false;
+      } else if (pricing.maxSignalAgeSeconds !== undefined && signalAgeSeconds(order) > pricing.maxSignalAgeSeconds) {
+        await this.cancel(tx, order, "stale_signal_before_fill");
+        return false;
       }
       const mid = pricing.mids?.px.get(order.coin);
       const basePx = mid ?? Number(order.signalPx);

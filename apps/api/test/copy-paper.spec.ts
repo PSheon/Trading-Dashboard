@@ -1073,6 +1073,84 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
     });
   });
 
+  describe("execution order within a strategy (review 24)", () => {
+    it("a flip whose close fails: the open waits for it, other strategies still execute, and the retry ends on the leader's side", async () => {
+      const { id } = await startCopy();
+      const bob = api("bob-token");
+      const bobId = (await bob.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000, copyStartMode: "delta" }).expect(201)).body.data.id as number;
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: Date.now() + 1_000 })]);
+      await run();
+      expect([await position(id), await position(bobId)]).toEqual([0.05, 0.05]);
+      // The leader flips long 0.5 → short 0.5: a close and an open per copy.
+      await store([fill({ side: "A", sz: 1, px: 100_000, start: 0.5, time: Date.now() + 2_000 })]);
+      await signals.drain();
+      expect((await orders(id)).map((o) => [o.leg, o.status])).toEqual([["open", "filled"], ["close", "risk_approved"], ["open", "risk_approved"]]);
+
+      const repo = app.get(CopyRepository);
+      const save = repo.savePosition.bind(repo);
+      let failing = true;
+      const spy = vi.spyOn(repo, "savePosition").mockImplementation(async (tx, strategyId, coin, v) => {
+        if (failing && strategyId === id) throw new Error("db blip");
+        return save(tx, strategyId, coin, v);
+      });
+      // One failed fill neither throws nor stops the other strategy.
+      expect(await execution.drain()).toEqual({ filled: 2, cancelled: 0 });
+      expect(await position(bobId)).toBeCloseTo(-0.05);
+      // Alice's close is past the boundary and unfilled; her open must not run ahead of it.
+      await execution.drain();
+      expect((await orders(id)).map((o) => [o.leg, o.status])).toEqual([["open", "filled"], ["close", "submitting"], ["open", "risk_approved"]]);
+      expect(await position(id)).toBeCloseTo(0.05);
+
+      failing = false;
+      spy.mockRestore();
+      await db.update(copyOrders).set({ updatedAt: new Date(Date.now() - 60_000) }).where(eq(copyOrders.status, "submitting"));
+      expect(await execution.drain()).toEqual({ filled: 2, cancelled: 0 });
+      expect((await orders(id)).map((o) => [o.leg, o.side, o.status])).toEqual([["open", "B", "filled"], ["close", "A", "filled"], ["open", "A", "filled"]]);
+      expect(await position(id)).toBeCloseTo(-0.05);
+      const held = await db.execute(sql`select count(*)::int as n from copy_reservations where status = 'held'`);
+      expect(held.rows).toEqual([{ n: 0 }]);
+    });
+
+    it("an open never fills against the strategy's own opposite position", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      const [s] = await db.select().from(copyStrategies);
+      await db.insert(copyOrders).values({
+        cloid: "0x" + "ef".repeat(16), strategyId: id, userId: s!.userId, strategyVersion: 1, riskPolicyVersion: 0, leaderAddress: LEADER,
+        coin: "BTC", leg: "open", side: "A", reduceOnly: false, size: "0.05", signalPx: "100000", signalTime: new Date(), signalTids: [], status: "risk_approved",
+        controlRevisions: { platform: 0, user: 0, strategy: 0 },
+      });
+      expect(await execution.drain()).toEqual({ filled: 0, cancelled: 0 });
+      expect((await orders(id)).at(-1)).toMatchObject({ status: "cancelled", reason: "opposite_position" });
+      expect(await position(id)).toBeCloseTo(0.05);
+    });
+
+    it("an approved open that waited past maxSignalAgeSeconds is cancelled at the boundary and its margin released", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await signals.drain();
+      // The worker was down for ten minutes.
+      await db.update(copyOrders).set({ signalTime: new Date(Date.now() - 600_000) });
+      expect(await execution.drain()).toEqual({ filled: 0, cancelled: 1 });
+      expect((await orders(id))[0]).toMatchObject({ status: "cancelled", reason: "stale_signal_before_submit" });
+      expect(await position(id)).toBe(0);
+      expect((await db.execute(sql`select status from copy_reservations`)).rows).toEqual([{ status: "released" }]);
+    });
+
+    it("the same for an open left `submitting`: resumed too late, it is cancelled, not filled at today's mid", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await signals.drain();
+      const [o] = await orders(id);
+      await execution.submit(o!.id);
+      await db.update(copyOrders).set({ signalTime: new Date(Date.now() - 600_000), updatedAt: new Date(Date.now() - 600_000) });
+      await execution.drain();
+      expect((await orders(id))[0]).toMatchObject({ status: "cancelled", reason: "stale_signal_before_fill" });
+      expect(await position(id)).toBe(0);
+    });
+  });
+
   describe("ledger", () => {
     it("matches the hand-computed fixture: fees, builder fee, realized PnL and funding", async () => {
       await db.insert(appSettings).values({ key: "revenue", value: { builderAddress: null, builderFeeTenthsBps: 10 } });

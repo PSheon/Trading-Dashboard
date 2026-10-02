@@ -181,7 +181,9 @@ Measured on the scratch copy (5.89 M rows, this laptop): copy 642 s (≈ 9,200 r
 ## How REST usage goes down
 
 - The durable history job (`AnalysisHistoryService`) asks the archive what it certifies for the address — the ingested hours minus 5 minutes at each end, because files rotate on the node's clock, not block time — and plans its REST range around it: it reads `[0, span.from − 1]`, jumps over the span without a request, then reads `[span.through, now]`. Ranges meet the span exactly, so there is no gap; overlap rows collapse on the tid key.
-- A cold analytics read of an address with archive coverage no longer runs the newest-first cold read (up to 24 fill + 8 TWAP range calls). It finishes the history job (at most 8 pages) and builds from the snapshot.
+- A first analytics build of an address with archive coverage (`archive` in the compute log; the pool's ledger builds take the same path) reads the stored fills of the certified span and asks REST for one thing: the fills after the span (`userFillsByTime` from its end, normally one call). No newest-first cold read (up to 24 fill + 8 TWAP range calls) and, since 2026-10-02, no history-job pages in the request either: what precedes the span is brought by the durable job in the worker, and the next build uses its snapshot. TWAP slices come from REST's latest list (shared with the page's tabs, ranges only if that list is full) until `S3_ARCHIVE_TRUST=all`, then from stored slices plus their tail.
+- The page's fills tab and activity strip (`latestFills`: Hyperliquid's newest 2,000 fills, 120 weight for a busy account) come from the stored fills plus the same tail call when the span alone holds a full page; otherwise REST answers as before, because its page reaches further back than the span. The TWAP list follows the same rule under `S3_ARCHIVE_TRUST=all`.
+- One build reads at most the newest 100,000 stored fills of an address (`HISTORY_BUILD_MAX_FILLS`; the snapshot of the history job and the tracked rebuild as well). Without it a 90-day archive would hand a single build millions of rows: the busiest tracked address makes 8,300 fills an hour. A build cut this way reports where it starts (`coverage.from`, `truncated`).
 - Tracked (watched) addresses merge archive fills inside their span into the rebuild from our `fills` table, so a favorite's history is not limited to what the watcher's own backfill reached.
 - TWAP slices keep the full REST scan until a reconciliation shows the archive carries them (`S3_ARCHIVE_TRUST=all`).
 
@@ -191,9 +193,11 @@ Measured in tests (`archive-ingest.spec.ts`, Hyperliquid's weight formula 20 + i
 | --- | --- | --- |
 | History job, 14,500 fills inside the archive span | 9 calls, weight 906 | 3 calls, weight 60 |
 | History job, 2,500 fills before the archive + 500 inside + a tail | 3 calls, weight 211 | 4 calls, weight 208 (no saving: the fills are outside the archive) |
-| Cold page read of a busy trader (staging, 2026-09-30: 42,158 fills) | 38 calls, weight 2,698 (measured) | not measured; by construction at most 8 pages (≤ 960), and 2–4 calls when the account's fills lie inside the span |
+| Cold page read of a busy trader without coverage (staging, 2026-09-30: 42,158 fills) | 38 calls, weight 2,698 (measured) | unchanged: no span, no saving |
+| Cold trader page, covered address: 2,500 fills before a 30-day span, 6,000 inside, 4 after (`archive-page-cost.spec.ts`; fill reads only) | lists 140 (`userFills` 120 + TWAP 20) + history job 207 (pages 120 + 46 before the span, tail 21, TWAP scan 20) = **347** | lists 41 (tail 21 + TWAP 20) + build 21 (tail) = **62** |
+| The same page with `S3_ARCHIVE_TRUST=all` and 2,200 stored TWAP slices | 240 for the two lists | 41 (two tail calls) |
 
-The saving is proportional to how much of an account's history lies inside the archive span. These are fixture measurements; the live figure needs the archive running.
+The rest of a cold page is unchanged and not fill history: account states (2 per dex), `portfolio` (20), the dex list (20, cached an hour), and the funding step afterwards (unranked, behind pages). The saving is proportional to how much of an account's history lies inside the archive span, and the page list only changes for an account with at least 2,000 fills in its span. These are fixture measurements; the live figure needs the backfill.
 
 ## Correctness layer
 

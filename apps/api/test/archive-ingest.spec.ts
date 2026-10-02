@@ -288,6 +288,10 @@ describe("archive ingest", () => {
       expect((await repository.state()).backfillPassStartedAt).toEqual(new Date(NOW));
 
       await track([late]);
+      // Queued strictly before the next run reads its participants (the
+      // comparison is to the millisecond).
+      await repository.syncTrackedSet();
+      await new Promise((resolve) => setTimeout(resolve, 5));
       const second = recording();
       // The joiner's span starts with the next live hour; no pass yet.
       expect(await service(options, second.store).tick(NOW + HOUR_MS)).toEqual(["ingested"]);

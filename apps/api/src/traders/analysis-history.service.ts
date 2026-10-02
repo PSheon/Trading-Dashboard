@@ -24,13 +24,15 @@ export class AnalysisHistoryService {
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() private readonly config?: AppConfig,
   ) {}
-  /** REST streams allowed to skip archive-certified ranges (`S3_ARCHIVE_TRUST`). */
-  private trusts(source: HistorySource): boolean {
+  /** REST streams allowed to skip archive-certified ranges (`S3_ARCHIVE_TRUST`):
+   * for those the stored fills of the span stand in for the REST read. */
+  trusts(source: HistorySource): boolean {
     const trust = this.config?.value.archive.trust ?? "regular";
     return trust === "all" || (trust === "regular" && source === "regular");
   }
   archiveSpan(address: string) { return this.repository.archiveSpan(address); }
   archivedFills(address: string, span: ArchiveSpan) { return this.repository.archivedFills(address, span); }
+  recentFills(address: string, source: HistorySource, span: ArchiveSpan, limit: number) { return this.repository.recentFills(address, source, span, limit); }
   /**
    * Runs the address's history job now, up to `maxPages` REST pages, when
    * the archive already holds most of its history (so the job is a few

@@ -437,7 +437,7 @@ describe("trade analytics for any address", () => {
     });
   });
 
-  it("an archive-covered address skips the cold read: the history job completes in a few pages and coverage says what is certified", async () => {
+  it("an archive-covered address skips the cold read: its first build is the stored span plus REST's tail, and coverage says what is certified", async () => {
     const archiveRepository = new AnalysisHistoryRepository(db);
     const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
@@ -449,27 +449,39 @@ describe("trade analytics for any address", () => {
     await db.insert(archiveCoverage).values({ address: X, coveredFrom: new Date(hour(30)), coveredThrough: new Date(hour(4)) });
     await new HistoryFillStore(db).insert(inside.map((f) => ({ address: X, source: "regular" as const, origin: "s3" as const, fill: f })));
     info.userFillsByTime.mockClear();
+    info.userTwapSliceFillsByTime.mockClear();
     traders.latestFills.mockClear();
+    // The account still holds what the tail fill opened.
+    livePositions = [["ETH", "2"]];
 
     await production.compute(X, true, { funding: false });
     await production.settled();
-    // No cold read (latest page + range windows): only the two REST ranges around the span.
-    expect(traders.latestFills).not.toHaveBeenCalled();
-    const ranges = info.userFillsByTime.mock.calls.map(([, start, end]) => [start, end]);
-    expect(ranges).toHaveLength(2);
-    expect(ranges[0]).toEqual([0, hour(30) + 5 * 60_000 - 1]);
-    expect(ranges[1][0]).toBe(hour(4) - 5 * 60_000);
-    expect(production.lastLog.get(X)!.at(-1)).toMatchObject({ kind: "refresh", fills: 3, trades: 2 });
+    // No cold read (range windows back from now) and no page before the
+    // span: one REST range, from the end of the certified span.
+    const ranges = info.userFillsByTime.mock.calls.map(([, start]) => start);
+    expect(ranges).toEqual([hour(4) - 5 * 60_000]);
+    // TWAP slices are not trusted to the archive by default: the latest
+    // list (shared with the page's tabs), which here is short, so no range.
+    expect(traders.latestFills).toHaveBeenCalledTimes(1);
+    expect(info.userTwapSliceFillsByTime).not.toHaveBeenCalled();
+    expect(production.lastLog.get(X)!.at(-1)).toMatchObject({ kind: "archive", fills: 3, trades: 2 });
 
     const result = await production.analytics(X, "all");
     expect(result.summary).toMatchObject({ trades: 1, wins: 1 });
     expect(result.coverage).toMatchObject({
       source: "hyperliquid", fills: 3, truncated: true, completeness: "partial", partialSince: new Date(inside[0].time),
       archiveFrom: new Date(hour(30) + 5 * 60_000), archiveThrough: new Date(hour(4) - 5 * 60_000),
-      backfill: { status: "caught_up" },
+      // What precedes the span is the durable job's work, in the worker.
+      backfill: { status: "pending" },
     });
     const rows = await storedFills(db, X);
     expect(rows.map((row) => row.origin).sort()).toEqual(["rest", "s3", "s3"]);
+
+    // The job then completes around the span (two ranges), and the next build is its snapshot.
+    info.userFillsByTime.mockClear();
+    expect(await archive.catchUp(X, 8)).toBe(true);
+    expect(info.userFillsByTime.mock.calls.map(([, start, end]) => [start, end])[0]).toEqual([0, hour(30) + 5 * 60_000 - 1]);
+    expect(info.userFillsByTime.mock.calls[1][1]).toBe(hour(4) - 5 * 60_000);
   });
 
   it("a tracked address adds archive fills older than our own fills table", async () => {

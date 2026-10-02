@@ -5,7 +5,7 @@ import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
-import { HistoryFillStore } from "./history-fill.store.js";
+import { HistoryFillStore, type StoredHistoryFill } from "./history-fill.store.js";
 import { certifiedSpan, completeCheckpoint, initialCheckpoint, type ArchiveSpan, type HistoryCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
 
 export type HistoryJob = typeof analysisHistoryJobs.$inferSelect;
@@ -18,6 +18,14 @@ export type HistoryCaller = "product" | "user" | "anonymous";
 export const MAX_REQUESTED_JOBS = 200;
 /** Such a job is deleted, with its fills, this long after it was last asked for. */
 export const REQUESTED_JOB_TTL_MS = 14 * 24 * 3_600_000;
+/**
+ * Most stored fills one analytics build reads: the newest ones. An address
+ * can hold millions (`0xf5d8…` trades 8,000 times an hour: 18 million in a
+ * 90-day archive), which no process can hold as objects; 100,000 fills are
+ * about 100 MB while a build runs, and cover 90 days of anyone below 46
+ * fills an hour. A build cut here says so (`truncated`, `coverage.from`).
+ */
+export const HISTORY_BUILD_MAX_FILLS = 100_000;
 /** Jobs removed per expiry pass (their fills go in the same transaction). */
 const EXPIRE_BATCH = 50;
 
@@ -33,6 +41,11 @@ function known(address: SQL | string): SQL {
   )`;
 }
 export interface HistorySnapshot { fills: HlUserFill[]; through: Date }
+function oneFillPerTid(rows: StoredHistoryFill[]): HlUserFill[] {
+  const byTid = new Map<number, HlUserFill>();
+  for (const row of rows) if (!byTid.has(row.fill.tid) || row.source === "twap") byTid.set(row.fill.tid, row.fill);
+  return [...byTid.values()];
+}
 const mine = (address: string) => and(eq(analysisHistoryJobs.chain, CHAIN_DEFAULT), eq(analysisHistoryJobs.address, address));
 
 @Injectable()
@@ -106,10 +119,18 @@ export class AnalysisHistoryRepository {
     ));
     return row ? certifiedSpan(row.coveredFrom, row.coveredThrough) : null;
   }
-  /** Archive-origin fills inside a certified span, deduplicated by tid
-   * (the TWAP row wins, as in `snapshot`). */
-  async archivedFills(address: string, span: ArchiveSpan): Promise<HlUserFill[]> {
-    return this.fills.fills(address.toLowerCase(), { from: new Date(span.from), before: new Date(span.through) });
+  /** Stored fills inside a certified span (the newest `limit` of them),
+   * deduplicated by tid (the TWAP row wins, as in `snapshot`). `capped`:
+   * the span holds more, so the first fill returned is not its first. */
+  async archivedFills(address: string, span: ArchiveSpan, limit = HISTORY_BUILD_MAX_FILLS): Promise<HlUserFill[] & { capped?: boolean }> {
+    const rows = await this.fills.read(address.toLowerCase(), { from: new Date(span.from), before: new Date(span.through), newest: limit });
+    const fills: HlUserFill[] & { capped?: boolean } = oneFillPerTid(rows);
+    fills.capped = rows.length >= limit;
+    return fills;
+  }
+  /** The newest `limit` stored fills of one stream inside a span, oldest first. */
+  async recentFills(address: string, source: HistorySource, span: ArchiveSpan, limit: number): Promise<HlUserFill[]> {
+    return (await this.fills.read(address.toLowerCase(), { from: new Date(span.from), before: new Date(span.through), source, newest: limit })).map((row) => row.fill);
   }
   async state(address: string): Promise<HistoryJob | undefined> {
     return (await this.db.select().from(analysisHistoryJobs).where(mine(address)))[0];
@@ -158,7 +179,9 @@ export class AnalysisHistoryRepository {
       const [job] = await tx.select().from(analysisHistoryJobs).where(mine(address));
       if (!job?.publishedThrough) return null;
       // A fill can appear in both endpoints; TWAP carries the extra identity.
-      return { fills: await this.fills.fills(address, { through: job.publishedThrough }, tx), through: job.publishedThrough };
+      // The newest fills only, for an address with more than a build can hold.
+      const rows = await this.fills.read(address, { through: job.publishedThrough, newest: HISTORY_BUILD_MAX_FILLS }, tx);
+      return { fills: oneFillPerTid(rows), through: job.publishedThrough };
     }, { isolationLevel: "repeatable read" });
   }
 }

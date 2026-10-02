@@ -17,7 +17,9 @@ import {
   type TraderWindowInput,
 } from "@trading-dashboard/shared/contracts";
 
+import { FILL_PAGE, readForward } from "../analytics/fill-history.js";
 import { RoundTripService } from "../analytics/round-trip.service.js";
+import { AnalysisHistoryService } from "./analysis-history.service.js";
 import { TradersRepository } from "./traders.repository.js";
 import { HyperliquidInfoClient, LEDGER_MAX_ITEMS, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
 import { budgetConsumer, PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
@@ -143,6 +145,7 @@ export class TradersService {
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() spotPrices?: SpotPriceService,
     @Optional() private readonly kols?: KolAvatarRepository,
+    @Optional() private readonly history?: AnalysisHistoryService,
   ) {
     this.spotPrices = spotPrices ?? new SpotPriceService(info);
   }
@@ -323,13 +326,40 @@ export class TradersService {
     return sampleFromLists(await this.latestFills(address), since.getTime());
   }
 
-  /** `userFills` and the latest TWAP slices (which it doesn't include). */
+  /** `userFills` and the latest TWAP slices (which it doesn't include):
+   * the newest 2,000 of each. Where the archive certifies a span that
+   * alone holds a full page, the page is the stored fills plus REST's
+   * fills after the span (20 weight and up instead of 120). */
   latestFills(address: string): Promise<[HlUserFill[], HlUserFill[]]> {
     return Promise.all([
-      this.userFillsCache.get(address, () => this.info.userFills(address, LANE, PAGE_RANK.fills), FILLS_TTL_MS, PAGE_RANK.fills),
+      this.userFillsCache.get(address, async () =>
+        (await this.archivedLatest(address, "regular")) ?? this.info.userFills(address, LANE, PAGE_RANK.fills), FILLS_TTL_MS, PAGE_RANK.fills),
       this.twapFillsCache.get(address, async () =>
-        (await this.info.userTwapSliceFills(address, LANE, PAGE_RANK.fills)).map(twapSliceToFill), FILLS_TTL_MS, PAGE_RANK.fills),
+        (await this.archivedLatest(address, "twap")) ?? (await this.info.userTwapSliceFills(address, LANE, PAGE_RANK.fills)).map(twapSliceToFill), FILLS_TTL_MS, PAGE_RANK.fills),
     ]);
+  }
+
+  /**
+   * The newest `FILL_PAGE` fills of one stream from the archive's span and
+   * REST's tail after it, newest first as Hyperliquid lists them; null
+   * when REST has to answer: the stream is not trusted to the archive
+   * (`S3_ARCHIVE_TRUST`), the address has no span, the span holds less
+   * than a page (REST's page reaches further back), or the tail does not
+   * fit two calls.
+   */
+  private async archivedLatest(address: string, source: "regular" | "twap"): Promise<HlUserFill[] | null> {
+    if (!this.history?.trusts(source)) return null;
+    const span = await this.history.archiveSpan(address).catch(() => null);
+    if (!span) return null;
+    const stored = await this.history.recentFills(address, source, span, FILL_PAGE);
+    if (stored.length < FILL_PAGE) return null;
+    const now = Date.now();
+    const tail = await readForward(async (since) => source === "twap"
+      ? (await this.info.userTwapSliceFillsByTime(address, since, now, LANE, PAGE_RANK.fills)).map(twapSliceToFill)
+      : this.info.userFillsByTime(address, since, now, LANE, PAGE_RANK.fills), span.through, 2);
+    if (!tail.complete) return null;
+    const byTid = new Map([...stored, ...tail.fills].map((fill) => [fill.tid, fill]));
+    return [...byTid.values()].sort((a, b) => b.time - a.time || b.tid - a.tid).slice(0, FILL_PAGE);
   }
 
   /**

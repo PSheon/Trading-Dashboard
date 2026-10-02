@@ -33,6 +33,7 @@ import { BusyException } from "./busy.js";
 import { AnalysisHistoryService } from "./analysis-history.service.js";
 import type { HistoryCaller } from "./analysis-history.repository.js";
 import type { HistorySnapshot } from "./analysis-history.repository.js";
+import type { ArchiveSpan } from "../analytics/history-checkpoint.js";
 import { positionBreaks } from "../analytics/fill-integrity.js";
 import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow, type FillCoverage, type TradeAnalyticsTx } from "./trade-analytics.repository.js";
 import { portfolioSeries } from "./traders.mappers.js";
@@ -57,9 +58,6 @@ export const REFRESH_PAGES = 6;
  * pages per step; a long history completes over the next refreshes. */
 export const FUNDING_LOOKBACK_MS = LOOKBACK_MS;
 export const FUNDING_MAX_PAGES = 40;
-/** REST pages a refresh may spend finishing an address's history job when
- * the S3 archive already certifies part of it (pre-archive pages + tail). */
-export const ARCHIVE_CATCHUP_PAGES = 8;
 /** Cold computations at once; more wait. Beyond `MAX_WAITING` a new cold
  * address is answered busy without queueing. */
 export const MAX_CONCURRENT = 2;
@@ -99,7 +97,9 @@ interface LiveAccount {
 /** A computation's figures (logged; the last few kept per address).
  * `fills`: fills read (funding: payments read). */
 export interface ComputeLog {
-  kind: "cold" | "refresh" | "tracked" | "funding";
+  /** "archive": a first build from the stored fills of the archive's span
+   * plus REST's tail after it. */
+  kind: "cold" | "archive" | "refresh" | "tracked" | "funding";
   ms: number;
   calls: number;
   weight: number;
@@ -117,6 +117,10 @@ type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "cove
  * - Other addresses: Hyperliquid's fill and TWAP-slice history, newest
  *   first, up to `COLD_TARGET_FILLS`; later refreshes read only fills after
  *   the stored cursor and continue the open trades.
+ * - Addresses the S3 archive covers: the first build reads the stored
+ *   fills of the certified span and asks REST only for what follows it
+ *   (and for TWAP slices, until the archive is trusted for those); what
+ *   precedes the span arrives with the durable history job.
  * - Funding: a second, lower-priority step after the trades are stored.
  *
  * Everything is stored (`trader_trades`, `trader_analytics`) and served
@@ -310,13 +314,7 @@ export class TradeAnalyticsService {
     // any address): without one the answer is computed from Hyperliquid as
     // before, and nothing is stored for a background scan.
     cost.keep = !watched && (await this.history?.ensure(address, state?.source === "hyperliquid" ? state.coverageFrom?.getTime() : undefined, cost.caller)) === true;
-    let snapshot = cost.keep ? await this.history?.snapshot(address) : null;
-    // With archive coverage the durable history completes in a few REST
-    // pages (what precedes the archive and the tail after its lag), so do
-    // that instead of the cold read's up to 32 range calls.
-    if (cost.keep && !snapshot && await this.history?.catchUp(address, ARCHIVE_CATCHUP_PAGES, cost).catch(() => false)) {
-      snapshot = await this.history?.snapshot(address);
-    }
+    const snapshot = cost.keep ? await this.history?.snapshot(address) : null;
     // Never replace a newer legacy ledger with an older archive snapshot.
     const historyStartsAt = snapshot?.fills.reduce((min, f) => Math.min(min, f.time), Infinity) ?? Infinity;
     const useHistory = snapshot && snapshot.through.getTime() >= (state?.fillCursor?.getTime() ?? 0)
@@ -333,8 +331,12 @@ export class TradeAnalyticsService {
       kind = "refresh";
       ({ next, fillCount, persist } = await this.rebuildHistory(address, snapshot!, state));
     } else if (!state || state.source !== "hyperliquid" || state.fillCursor === null) {
-      kind = "cold";
-      ({ next, fillCount, persist } = await this.coldHyperliquid(address, cost));
+      // Where the archive certifies a span its stored fills are the
+      // history: no newest-first REST read (up to 32 range calls), and no
+      // wait for the durable job, which brings what precedes the span later.
+      const span = cost.keep && this.history?.trusts("regular") ? await this.history.archiveSpan(address).catch(() => null) : null;
+      kind = span ? "archive" : "cold";
+      ({ next, fillCount, persist } = span ? await this.archiveHyperliquid(address, span, cost) : await this.coldHyperliquid(address, cost));
     } else {
       kind = "refresh";
       ({ next, fillCount, persist } = await this.incrementalHyperliquid(address, state, cost));
@@ -436,7 +438,10 @@ export class TradeAnalyticsService {
     let archived: HlUserFill[] = [];
     if (span && span.from < from && span.through >= from) {
       from = Math.max(lookback, span.from);
-      archived = (await this.history!.archivedFills(address, span)).filter((f) => f.time >= from && f.time <= through.getTime() && !f.coin.startsWith("@") && !f.coin.includes("/"));
+      const stored = await this.history!.archivedFills(address, span);
+      // More in the span than a build holds: the figures start at what was read.
+      if (stored.capped) from = Math.max(from, stored.reduce((min, f) => Math.min(min, f.time), Infinity) + 1);
+      archived = stored.filter((f) => f.time >= from && f.time <= through.getTime() && !f.coin.startsWith("@") && !f.coin.includes("/"));
     }
     const fillsRead = dedupe([...archived, ...await this.repository.trackedFills(address, coverage.verifiedFrom!, through)]).filter((f) => f.time >= from);
     const fundingFrom = state?.fundingFrom?.getTime() ?? null;
@@ -464,7 +469,7 @@ export class TradeAnalyticsService {
         address,
         source: "tracked" as const,
         historyThrough: through,
-        coverageFrom: fillsRead.length > 0 ? new Date(Math.min(...fillsRead.map((f) => f.time))) : null,
+        coverageFrom: fillsRead.length > 0 ? new Date(fillsRead.reduce((min, f) => Math.min(min, f.time), Infinity)) : null,
         truncated: trades.some(isPartial) || !continuous || (coverage.backfillStatus !== "complete" && archived.length === 0),
         fillsRead: fillsRead.length,
         fillCursor: newest.time === null ? null : new Date(newest.time),
@@ -550,6 +555,71 @@ export class TradeAnalyticsService {
         historyThrough: null,
         coverageFrom: all.length > 0 ? new Date(Math.min(...all.map((f) => f.time))) : null,
         truncated: history.truncated || twap.truncated || result.touched.some(isPartial),
+        fillsRead: all.length,
+        fillCursor: cursor.time === null ? new Date(now) : new Date(cursor.time),
+        cursorTids: cursor.tids,
+        fundingFrom: null,
+        fundingCursor: null,
+      },
+    };
+  }
+
+  /**
+   * First build of an address the archive covers: the stored fills of the
+   * certified span (the newest `HISTORY_BUILD_MAX_FILLS`), REST from the
+   * span's end to now, and TWAP slices: stored ones where the archive is
+   * trusted for them (`S3_ARCHIVE_TRUST=all`, then only their tail is
+   * read), otherwise REST's over the same range, as a cold read does.
+   */
+  private async archiveHyperliquid(address: string, span: ArchiveSpan, cost: Cost) {
+    const now = Date.now();
+    const stored = await this.history!.archivedFills(address, span);
+    // A cut read may have split its oldest millisecond: start after it.
+    let from = stored.capped ? stored.reduce((min, f) => Math.min(min, f.time), Infinity) + 1 : Math.max(span.from, now - LOOKBACK_MS);
+    const forward = async (twap: boolean) => {
+      const result = await readForward(async (since) => {
+        const batch = twap
+          ? (await this.info.userTwapSliceFillsByTime(address, since, now, LANE, cost.rank ?? RANK)).map(twapSliceToFill)
+          : await this.info.userFillsByTime(address, since, now, LANE, cost.rank ?? RANK);
+        cost.calls += 1;
+        cost.weight += listWeight(batch.length);
+        return batch;
+      }, span.through, REFRESH_PAGES);
+      if (!result.complete) throw new BusyException(5_000);
+      return result.fills;
+    };
+    let twap: HlUserFill[];
+    if (this.history!.trusts("twap")) {
+      twap = await forward(true);
+    } else {
+      const cached = this.traders.twapFillsCache.peek(address) !== undefined;
+      const [, latestTwap] = await this.traders.latestFills(address);
+      if (!cached) {
+        cost.calls += 1;
+        cost.weight += listWeight(latestTwap.length);
+      }
+      const slices = await readRecentHistory(this.fillSource(address, true, latestTwap, cost), { now, lookbackStart: from, target: Number.POSITIVE_INFINITY, maxCalls: COLD_TWAP_CALLS });
+      // Slices older than REST could page through: the span starts where they are complete.
+      if (slices.truncated && slices.from !== null) from = Math.max(from, slices.from);
+      twap = slices.fills;
+    }
+    const tail = await forward(false);
+    const fresh = dedupe([...tail, ...twap]).filter((f) => f.time <= now);
+    if (cost.keep) await this.history?.preserve(address, fresh);
+    const all = dedupe([...stored, ...fresh]).filter((f) => f.time >= from && f.time <= now);
+    const result = applyFills(address, new Map<string, Trade>(), all, null);
+    const cursor = latestOf(all);
+    return {
+      persist: (tx: TradeAnalyticsTx) => this.repository.replaceTrades(tx, address, result.touched),
+      fillCount: all.length,
+      next: {
+        chain: CHAIN_DEFAULT,
+        address,
+        source: "hyperliquid" as const,
+        historyThrough: null,
+        coverageFrom: all.length > 0 ? new Date(all.reduce((min, f) => Math.min(min, f.time), Infinity)) : null,
+        // The archive certifies its span, not the account's lifetime.
+        truncated: true,
         fillsRead: all.length,
         fillCursor: cursor.time === null ? new Date(now) : new Date(cursor.time),
         cursorTids: cursor.tids,

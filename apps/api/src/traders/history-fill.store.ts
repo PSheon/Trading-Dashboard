@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, lt, lte, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { historyAccounts, historyFills, historyTerms } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
@@ -23,8 +23,10 @@ export interface StoredHistoryFill {
   origin: FillOrigin;
   fill: HlUserFill;
 }
-/** `from` inclusive; `before` exclusive; `through` inclusive. */
-export interface FillRange { from?: Date; before?: Date; through?: Date }
+/** `from` inclusive; `before` exclusive; `through` inclusive. `source`: one
+ * stream only. `newest`: at most this many rows, the latest ones (still
+ * returned oldest first), so a read of a very active address is bounded. */
+export interface FillRange { from?: Date; before?: Date; through?: Date; source?: FillSource; newest?: number }
 
 /** Rows per INSERT: 27 parameters each, far below the protocol's 65,535. */
 const INSERT_BATCH = 500;
@@ -103,9 +105,9 @@ export class HistoryFillStore {
     await this.ready();
     const account = await this.accountId(address, db);
     if (account === undefined) return [];
-    const rows = await this.rows(db).where(and(eq(historyFills.accountId, account), ...timeRange(range)))
-      .orderBy(asc(historyFills.time), asc(historyFills.twap));
-    return rows.map(stored);
+    const query = this.rows(db).where(and(eq(historyFills.accountId, account), ...timeRange(range)));
+    if (range.newest === undefined) return (await query.orderBy(asc(historyFills.time), asc(historyFills.twap))).map(stored);
+    return (await query.orderBy(desc(historyFills.time), desc(historyFills.twap)).limit(range.newest)).reverse().map(stored);
   }
 
   /** One stream of an address in tid order, `limit` rows after `afterTid`:
@@ -216,6 +218,7 @@ function timeRange(range: FillRange): SQL[] {
     ...(range.from ? [gte(historyFills.time, range.from)] : []),
     ...(range.before ? [lt(historyFills.time, range.before)] : []),
     ...(range.through ? [lte(historyFills.time, range.through)] : []),
+    ...(range.source ? [eq(historyFills.twap, range.source === "twap")] : []),
   ];
 }
 

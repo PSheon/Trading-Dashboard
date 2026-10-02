@@ -1,6 +1,7 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { GET } from "../src/app/api/hl/[...path]/route";
+import { GET, POST } from "../src/app/api/hl/[...path]/route";
+import { MAX_BODY_BYTES, readBody } from "../src/lib/forward-body";
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 const context = { params: Promise.resolve({ path: ["actions"] }) };
@@ -57,4 +58,55 @@ it("keeps a cached KOL avatar's caching headers and revalidates it, but never JS
   expect(new Headers(fetcher.mock.calls[1][1]!.headers).get("if-none-match")).toBeNull();
   expect(json.headers.get("cache-control")).toBe("no-store");
   expect(json.headers.get("etag")).toBeNull();
+});
+
+describe("request bodies are bounded (review 31)", () => {
+  const post = { params: Promise.resolve({ path: ["me", "favorites"] }) };
+  const upstream = () => {
+    vi.stubEnv("NEXT_API_URL", "http://api.test");
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ success: true }, { status: 201 }));
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  };
+  const request = (body: BodyInit, headers: Record<string, string> = {}) =>
+    new NextRequest("http://web.test/api/hl/me/favorites", { method: "POST", body, headers: { "content-type": "application/json", ...headers }, duplex: "half" } as never);
+
+  it("a body within the limit is forwarded byte for byte", async () => {
+    const fetcher = upstream();
+    const payload = JSON.stringify({ note: "x".repeat(MAX_BODY_BYTES - 100) });
+    const result = await POST(request(payload), post);
+    expect(result.status).toBe(201);
+    expect(new TextDecoder().decode(fetcher.mock.calls[0][1]!.body as ArrayBuffer)).toBe(payload);
+  });
+
+  it("413 by the declared length, before reading and without calling the api", async () => {
+    const fetcher = upstream();
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({ pull(controller) { pulled += 1; controller.enqueue(new Uint8Array(1024)); } });
+    const result = await POST(request(body, { "content-length": String(50 * 1024 * 1024) }), post);
+    expect(result.status).toBe(413);
+    expect(await result.json()).toMatchObject({ success: false, statusCode: 413, error: { code: "payload_too_large" } });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(pulled).toBeLessThanOrEqual(1);
+  });
+
+  it("413 while reading when no length is declared (chunked): the stream is cancelled just past the limit, not buffered", async () => {
+    const fetcher = upstream();
+    let sent = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { sent += 16 * 1024; controller.enqueue(new Uint8Array(16 * 1024)); },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    const result = await POST(request(body), post);
+    expect(result.status).toBe(413);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(cancelled).toBe(true);
+    expect(sent).toBeLessThanOrEqual(MAX_BODY_BYTES + 32 * 1024);
+  });
+
+  it("a body that stops arriving is given up on (408), not held open", async () => {
+    const stalled = new Request("http://web.test/api/hl/me/favorites", { method: "POST", body: new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array(10)); } }), duplex: "half" } as never);
+    expect(await readBody(stalled, MAX_BODY_BYTES, 30)).toBe("timeout");
+  });
 });

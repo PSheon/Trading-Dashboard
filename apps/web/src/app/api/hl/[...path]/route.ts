@@ -1,6 +1,8 @@
 import { isIP } from "node:net";
 import type { NextRequest } from "next/server";
 
+import { readBody } from "@/lib/forward-body";
+
 /**
  * Same-origin forwarder: /api/hl/<path>?<query>  →  ${NEXT_API_URL}/<path>?<query>.
  * It exists so the browser never needs apps/api's URL or CORS.
@@ -18,12 +20,21 @@ import type { NextRequest } from "next/server";
  * Responses are `Cache-Control: no-store`, except images (cached KOL
  * avatars), which keep the api's Cache-Control and ETag.
  *
- * Bodies are buffered, except `text/event-stream` (GET /actions/stream),
- * which is relayed as it arrives; the browser disconnecting cancels the
- * upstream request.
+ * Response bodies are buffered, except `text/event-stream` (GET
+ * /actions/stream), which is relayed as it arrives; the browser
+ * disconnecting cancels the upstream request.
+ *
+ * Request bodies are buffered too, so they are bounded here: nothing in
+ * front of this route does it (proxy.ts, and with it Next's own body
+ * limit, skips `/api/`). More than `MAX_BODY_BYTES` is 413, by the
+ * declared Content-Length before anything is read and by count while
+ * reading; a body that doesn't arrive within `BODY_READ_TIMEOUT_MS` is
+ * 408. apps/api accepts 100 KiB of JSON at most, so nothing it would
+ * take is refused.
  */
 
 const UPSTREAM_TIMEOUT_MS = 20_000;
+const ERROR_CODES: Record<number, string> = { 400: "bad_request", 408: "request_timeout", 413: "payload_too_large", 504: "deadline_exceeded" };
 
 function requestId(request: NextRequest) {
   const supplied = request.headers.get("x-request-id");
@@ -31,7 +42,7 @@ function requestId(request: NextRequest) {
 }
 function json(status: number, message: string, request: NextRequest, id: string) {
   const body = { success: false, statusCode: status, message,
-    error: { code: status === 504 ? "deadline_exceeded" : status === 400 ? "bad_request" : "bad_gateway" },
+    error: { code: ERROR_CODES[status] ?? "bad_gateway" },
     meta: { requestId: id, path: request.nextUrl.pathname, timestamp: new Date().toISOString() } };
   return Response.json(body, { status, headers: { "x-request-id": id, "Cache-Control": "no-store",
     "x-api-contract": "1" } });
@@ -100,7 +111,9 @@ async function forward(
   if (client) headers.set("X-Forwarded-For", client);
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
-  const body = hasBody ? await request.arrayBuffer() : undefined;
+  const body = hasBody ? await readBody(request) : undefined;
+  if (body === "too_large") return json(413, "Request body too large", request, id);
+  if (body === "timeout") return json(408, "Request body not received in time", request, id);
 
   // Client disconnects abort the upstream call. The deadline covers a
   // buffered response until its body is read; a stream's only until its

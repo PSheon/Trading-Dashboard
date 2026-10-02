@@ -123,6 +123,8 @@ type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "cove
 export class TradeAnalyticsService {
   private readonly logger = new Logger(TradeAnalyticsService.name);
   private readonly inflight = new Map<string, Promise<AnalyticsRow>>();
+  /** The running computation's cost (its rank is promoted by joiners). */
+  private readonly costs = new Map<string, Cost>();
   private readonly chains = new Map<string, Promise<unknown>>();
   private running = 0;
   private readonly waiting: Array<() => void> = [];
@@ -206,14 +208,21 @@ export class TradeAnalyticsService {
     this.compute(event.address, false).catch(() => undefined);
   }
 
-  /** One computation per address at a time; callers share it (a page
-   * request joining a discovery computation waits at the latter's rank).
-   * `rank` defaults to the trader page's fills rank; `funding: false`
-   * (the discovery pool) skips the funding step that normally follows. */
+  /** One computation per address at a time; callers share it. A caller
+   * with a better rank than the computation in flight (a page request
+   * joining the discovery pool's unranked build) promotes it: its calls
+   * from then on go at the page's rank instead of waiting behind every
+   * other page's. `rank` defaults to the trader page's fills rank;
+   * `funding: false` (the discovery pool) skips the funding step that
+   * normally follows. */
   compute(address: string, _cold: boolean, options: { rank?: number; funding?: boolean } = {}): Promise<AnalyticsRow> {
     const { rank, funding = true } = options;
     const existing = this.inflight.get(address);
-    if (existing) return existing;
+    if (existing) {
+      const cost = this.costs.get(address);
+      if (cost && (cost.rank ?? RANK) > (rank ?? RANK)) cost.rank = rank ?? RANK;
+      return existing;
+    }
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     if (this.inflight.size >= MAX_CONCURRENT + MAX_WAITING) return Promise.reject(new BusyException(5_000));
     const promise = this.jobs.run(() => this.serial(address, () => this.limited(() => this.refresh(address, rank))));
@@ -267,6 +276,20 @@ export class TradeAnalyticsService {
   async refresh(address: string, rank?: number): Promise<AnalyticsRow> {
     const started = Date.now();
     const cost: Cost = { calls: 0, weight: 0, rank };
+    this.costs.set(address, cost);
+    try {
+      return await this.refreshAt(address, cost, started);
+    } finally {
+      if (this.costs.get(address) === cost) this.costs.delete(address);
+    }
+  }
+
+  /** The rank the computation in flight for `address` runs at (tests). */
+  rankOf(address: string): number | undefined {
+    return this.costs.get(address)?.rank;
+  }
+
+  private async refreshAt(address: string, cost: Cost, started: number): Promise<AnalyticsRow> {
     const [state, watched] = await Promise.all([this.repository.state(address), this.traders.isTracked(address)]);
     // Our own fills are the source only once their backward backfill has
     // ended: before that the verified span is a recent sliver, and the

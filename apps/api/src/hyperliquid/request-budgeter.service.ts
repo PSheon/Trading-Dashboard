@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { AppConfig } from "../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { currentRequestAnswered, currentRequestClient } from "../runtime/request-context.js";
@@ -18,26 +20,46 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  * REST weight. REST carries (a) the odd `clearinghouseState` the feed fast
  * path needs, (b) a `userFillsByTime` per address that traded, a few seconds
  * later, to store its fills, (c) the 5-minute snapshots, (d) the hourly
- * sweep, (e) A5 backfill and (f) page loads. Only (a) is latency-sensitive,
- * so it runs in the `live` lane; everything else is `background`. The
- * default rate is PRD §8's 70% of 1200.
+ * sweep, (e) A5 backfill, (f) the discovery pool, cohort and history jobs
+ * and (g) page loads. Only (a) is latency-sensitive, so it runs in the
+ * `live` lane; everything else is `background`. The default rate is PRD
+ * §8's 70% of 1200.
  *
  * ## Design
  *
- * A token bucket with two priority lanes. Tokens (weight) refill at the
- * budget rate up to `HYPERLIQUID_WEIGHT_BURST` (default 200), so a few
- * calls after a quiet spell go out at once (a cold page load) while the
- * long-run average stays at the budget. Any 60 s then carries at most
- * rate + burst; the burst is capped so that stays under Hyperliquid's 1200.
+ * Two token buckets fed by one refill at the budget rate, so any 60 s
+ * carries at most rate + burst (`HYPERLIQUID_WEIGHT_BURST`, capped so that
+ * stays under Hyperliquid's 1200):
  *
- * - `live` waiters go before `background` ones, and `background` may not
- *   spend the last 10% of the bucket, which stays for `live`: a burst of
- *   page loads leaves a detection call its tokens.
+ * - the **page reserve** (`PAGE_RESERVE_CAPACITY_SHARE` of the burst): only
+ *   `live` calls and interactive page calls (background ranks ≤
+ *   `INTERACTIVE_MAX_RANK`: a trader page's first paint and its chart)
+ *   may spend it, and the refill fills it first (half of it while
+ *   main-bucket work waits, see `refill`). Background jobs can't
+ *   consume it, however full their queues and however deep in debt the
+ *   main bucket is, so a cold profile + portfolio read (≈ 130 weight) goes
+ *   out at once while backfill, sweeps and pool builds are queued behind
+ *   heavy fill lists. While page work is over its share of the minute
+ *   (`PAGE_SHARE`), the reserve refills at only `pageReserveShare` of the
+ *   rate and interactive calls may spend nothing else: that share is the
+ *   hard floor pages always get, and the rest of the budget goes to
+ *   everything else;
+ * - the **main bucket** (the rest of the burst): everything else, with the
+ *   last `LIVE_RESERVE_SHARE` of it kept for `live`. Background lists take
+ *   it into debt (a call heavier than what it may use waits for all of it,
+ *   then runs); the debt is paid from the main bucket's refill only, never
+ *   from the reserve's.
+ *
+ * - `live` waiters go before `background` ones and spend the reserve
+ *   first, then the main bucket: a background list's debt never holds
+ *   the watcher, and the watcher never eats what a background call is
+ *   saving up for.
  * - Starvation guard: while `background` waiters exist, at least one in
  *   every four dispatches goes to `background`.
- * - Within a lane the lowest `rank` goes first.
- * - A call heavier than the bucket waits for a full bucket and takes it
- *   negative, so it always runs eventually and later callers pay for it.
+ * - Within a lane the lowest `rank` goes first; the lowest-ranked waiter is
+ *   served first even when a later one would fit now, so a heavy page call
+ *   isn't starved by a stream of small background calls: the tokens build
+ *   up for it.
  *
  * ## Page loads (Stage 2 §10 cold trader pages)
  *
@@ -45,14 +67,6 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  * profile (first paint) 0, portfolio 1, fills/activity 2, home warm-up 3.
  * Every other background call without an explicit rank gets
  * `UNRANKED_BASE + arrival`, so it always sorts behind them.
- *
- * - Background calls ranked above `INTERACTIVE_MAX_RANK` (anything but the
- *   profile and portfolio) also leave `INTERACTIVE_RESERVE_SHARE` of the
- *   bucket, so a first paint finds tokens even while backfill, sweeps and
- *   heavy fill lists are queued.
- * - The lowest-ranked waiter is served first even when a later one would
- *   fit now, so a heavy page call isn't starved by a stream of small
- *   background calls: the tokens build up for it.
  *
  * ## On-demand page work (anyone can ask for any address)
  *
@@ -70,53 +84,95 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  *   fits a client's share.
  * - While page work has spent `PAGE_SHARE` of the budget in the trailing
  *   minute, a waiting non-page background call (fill storage behind
- *   alerts, snapshots, sweeps) goes first. Below the share page work keeps
- *   its priority, and with nothing else waiting it may use everything.
+ *   alerts, snapshots, sweeps) goes first in the main bucket and
+ *   interactive calls live on the reserve's guaranteed share. Below the
+ *   share page work keeps its priority, and with nothing else waiting it
+ *   may use everything.
  * - A page waiter made inside an HTTP request is dropped once that request
  *   has been answered or abandoned (`currentRequestAnswered`).
  *
- * On a real 429 the rate halves (floor 20% of the budget) and the bucket
- * goes 2 s into debt; the rate recovers by 10% of the budget per 20
- * consecutive successes. List endpoints (`userFills`, `userFillsByTime`,
- * TWAP slices) cost 1 more per 20 items returned, known only afterwards:
- * the client acquires the worst case up front and `adjust()`s the bucket by
- * the difference once the response is in. Charging afterwards instead let
- * a burst of heavy lists (each up to +100) drive the bucket hundreds into
- * debt, and every call queued behind them, a first paint included, paid it.
+ * ## Consumers (who spends the budget)
+ *
+ * A job wraps its work in `budgetConsumer(label, …)`; every call made
+ * inside is accounted to that label (`introspect().consumers`, on
+ * `/health`). Page work is "page" and the live lane "live" unless labelled.
+ * `setConsumerCaps` gives a label a weight-per-minute cap, enforced here as
+ * a token bucket (two minutes may be saved up): a capped consumer's calls
+ * wait while its bucket is empty, whatever the main bucket holds. The caps
+ * come from the admin's discovery settings (`refreshCaps`).
+ *
+ * `backgroundFactor()` tells adaptive jobs how much of their own allowance
+ * to use this minute: 1 while page work is within the reserve's share of
+ * the budget, falling to `MIN_BACKGROUND_FACTOR` as it reaches
+ * `PAGE_SHARE`, so background work yields when page demand rises instead
+ * of queueing behind it.
+ *
+ * On a real 429 the rate halves (floor 20% of the budget) and both buckets
+ * empty, the main one 2 s into debt; the rate recovers by 10% of the budget
+ * per 20 consecutive successes. List endpoints (`userFills`,
+ * `userFillsByTime`, TWAP slices) cost 1 more per 20 items returned, known
+ * only afterwards: the client acquires the worst case up front and
+ * `adjust()`s the main bucket by the difference once the response is in.
  * Background lists wait for their whole worst case; a page's list (rank ≤
  * `PAGE_RANK.fills`) waits only for its known base plus the reserves, then
- * takes the worst case, so at most one such list at a time runs the bucket
- * below zero (by ≤ 100), and first paints, first in line, pay a few
- * seconds at most instead of waiting behind every list.
+ * takes the worst case; the next page list within `PAGE_LIST_GRACE_MS` is
+ * not held behind that worst case (the real cost is settled within a
+ * second), so a cold page's two fill lists go out back to back and the
+ * exposure beyond budget + burst stays at one list's surcharge (100).
  */
 export type RequestPriority = "live" | "background";
 
 /** Hyperliquid's documented REST limit per IP. */
 const HARD_LIMIT_PER_MIN = 1200;
-/** Share of the bucket only `live` may spend. */
+/** Share of the main bucket only `live` may spend. */
 const LIVE_RESERVE_SHARE = 0.1;
-/** Further share that only live and interactive page loads may spend. */
-const INTERACTIVE_RESERVE_SHARE = 0.2;
+/** Share of the burst that is the page reserve (first paint + chart of a
+ * cold trader page ≈ 106–130 weight at 200 burst → 120). */
+export const PAGE_RESERVE_CAPACITY_SHARE = 0.6;
 /** Live dispatches in a row, while background waits, before one background. */
 const MAX_LIVE_STREAK = 3;
+/** A page list's worst-case surcharge is forgiven in the next page list's
+ * gate for this long (its real cost is settled within a second), so a cold
+ * page's second fill list doesn't wait out the first one's worst case.
+ * One list at a time: at most 100 weight of exposure beyond budget + burst. */
+const PAGE_LIST_GRACE_MS = 3_000;
+const PAGE_LIST_GRACE_LISTS = 1;
+/** Share of the refill the page reserve takes while main-bucket work is
+ * waiting (see `refill`). */
+const RESERVE_REFILL_SPLIT = 1 / 3;
+/** Adaptive jobs never go below this share of their allowance. */
+export const MIN_BACKGROUND_FACTOR = 0.25;
+/** A capped consumer may save up this many minutes of its cap. */
+const CAP_SAVED_MINUTES = 2;
+/** Consumer caps are re-read from settings this often. */
+const CAPS_TTL_MS = 30_000;
 
 /** Background ranks of trader-page and home-page calls; lower goes first. */
 export const PAGE_RANK = { profile: 0, portfolio: 1, fills: 2, warm: 3 } as const;
-/** Background ranks up to this may spend the interactive reserve. */
+/** Background ranks up to this may spend the page reserve. */
 export const INTERACTIVE_MAX_RANK = PAGE_RANK.portfolio;
 /** Rank of a background call that names none: behind every page rank. */
 export const UNRANKED_BASE = 1_000;
 /** Background ranks up to this are on-demand page work (see above). */
 export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
-/** Share of the budget page work may spend per minute while other
- * background work is waiting. */
+/** Share of the budget page work may spend, over `PAGE_SHARE_WINDOW_MS`,
+ * while other background work is waiting. */
 export const PAGE_SHARE = 0.5;
+/** The share is measured over this window, not a single minute, so a few
+ * cold pages in a row (≈ 270–360 weight each) go out at once and only a
+ * sustained flood is held to the share. */
+export const PAGE_SHARE_WINDOW_MS = 3 * 60_000;
 /** Seconds of the configured budget page work may have queued at once. */
 const PAGE_QUEUE_SECONDS = 30;
 /** Share of the page queue one client may hold. */
 const PAGE_CLIENT_SHARE = 0.5;
 /** Waiters other than page work (live and background) that may queue. */
 export const MAX_QUEUED = 1000;
+
+/** Consumer labels the budgeter assigns itself. */
+export const CONSUMER_PAGE = "page";
+export const CONSUMER_LIVE = "live";
+export const CONSUMER_OTHER = "other";
 
 /** Page work refused because the page budget (global or the caller's) is
  * full. Callers answer 503 busy rather than queueing it. */
@@ -125,8 +181,20 @@ export class PageBusyError extends Error {
   constructor(message = "Hyperliquid page budget is full") { super(message); }
 }
 
+const consumers = new AsyncLocalStorage<string>();
+
+/** Runs `work` with every Hyperliquid call inside accounted to `label`
+ * (and subject to its cap, if any). Survives `BackgroundJobs.run`, which
+ * leaves the request context but not this one. */
+export function budgetConsumer<T>(label: string, work: () => T): T {
+  return consumers.run(label, work);
+}
+
+/** The consumer label of the current async context, if any. */
+export const currentBudgetConsumer = () => consumers.getStore();
+
 interface Waiter {
-  /** Taken from the bucket when the call goes out. */
+  /** Taken from the buckets when the call goes out. */
   weight: number;
   /** Tokens (beyond the reserves) the call waits for; see `acquire`. */
   gate: number;
@@ -138,6 +206,15 @@ interface Waiter {
   seq: number;
   /** On-demand page work (see the class comment). */
   page: boolean;
+  /** May spend the page reserve. */
+  interactive: boolean;
+  consumer: string;
+}
+
+/** Reads the per-minute caps of labelled consumers (the settings service,
+ * injected loosely so the budgeter stays free of the settings module). */
+export interface ConsumerCapSource {
+  consumerCaps(): Promise<Record<string, number>>;
 }
 
 @Injectable()
@@ -146,16 +223,24 @@ export class RequestBudgeterService {
 
   /** Trailing-60s log. `request` is false for post-hoc surcharge entries,
    * so `requestsLastMinute` counts calls, not log lines. */
-  private readonly window: { ts: number; weight: number; request: boolean }[] = [];
+  private readonly window: { ts: number; weight: number; request: boolean; consumer: string }[] = [];
 
   private readonly configuredBudgetPerMin: number;
   private effectiveBudgetPerMin: number;
   private readonly floorBudgetPerMin: number;
+  /** Burst: main capacity + reserve capacity. */
   private readonly capacity: number;
+  private readonly mainCapacity: number;
+  readonly reserveCapacity: number;
   private readonly liveReserve: number;
-  private readonly interactiveReserve: number;
+  /** Share of the rate the reserve keeps refilling at while page work is
+   * over its share of the minute. */
+  readonly pageReserveShare: number;
 
+  /** The main bucket (may be negative: debt). */
   private tokens: number;
+  /** The page reserve (never negative). */
+  private reserve: number;
   private lastRefillAt: number;
   private readonly queues: Record<RequestPriority, Waiter[]> = { live: [], background: [] };
   private pumpTimer: ReturnType<typeof setTimeout> | undefined;
@@ -164,9 +249,13 @@ export class RequestBudgeterService {
   /** Live dispatches in a row while background waiters existed. */
   private liveStreak = 0;
 
-  /** Page weight dispatched in the trailing minute, and its running sum. */
+  /** Page weight dispatched in the trailing `PAGE_SHARE_WINDOW_MS`, and its
+   * running sum. */
   private readonly pageWindow: { ts: number; weight: number }[] = [];
   private pageWindowWeight = 0;
+  /** Worst-case surcharges of page lists just dispatched (see
+   * `PAGE_LIST_GRACE_MS`). */
+  private readonly pageListGrace: { ts: number; surplus: number }[] = [];
   /** Page weight waiting, overall and per client. */
   private pageQueued = 0;
   private readonly pageQueuedByClient = new Map<string, number>();
@@ -174,18 +263,30 @@ export class RequestBudgeterService {
   readonly pageQueueMax: number;
   readonly pageClientQueueMax: number;
 
+  /** Per-consumer caps (weight per minute) and their token buckets. */
+  private caps = new Map<string, number>();
+  private readonly capTokens = new Map<string, { tokens: number; at: number }>();
+  private capsSource: ConsumerCapSource | undefined;
+  private capsReadAt = 0;
+  private capsReading: Promise<void> | undefined;
+
   private consecutiveSuccesses = 0;
   private lastRateLimitedAt: number | undefined;
 
   constructor(private readonly config: AppConfig) {
-    this.configuredBudgetPerMin = this.config.value.hyperliquid.budgetPerMin;
+    const hl = this.config.value.hyperliquid;
+    this.configuredBudgetPerMin = hl.budgetPerMin;
     this.effectiveBudgetPerMin = this.configuredBudgetPerMin;
     this.floorBudgetPerMin = Math.max(1, Math.round(this.configuredBudgetPerMin * 0.2));
-    const burst = this.config.value.hyperliquid.burst;
-    this.capacity = Math.max(1, Math.min(burst, HARD_LIMIT_PER_MIN - this.configuredBudgetPerMin));
-    this.liveReserve = Math.floor(this.capacity * LIVE_RESERVE_SHARE);
-    this.interactiveReserve = Math.floor(this.capacity * INTERACTIVE_RESERVE_SHARE);
-    this.tokens = this.capacity;
+    this.capacity = Math.max(1, Math.min(hl.burst, HARD_LIMIT_PER_MIN - this.configuredBudgetPerMin));
+    // The main bucket keeps at least one token of burst, so a tiny burst
+    // (tests) still paces instead of dispatching into endless debt.
+    this.mainCapacity = Math.max(1, this.capacity - Math.round(this.capacity * PAGE_RESERVE_CAPACITY_SHARE));
+    this.reserveCapacity = this.capacity - this.mainCapacity;
+    this.liveReserve = Math.floor(this.mainCapacity * LIVE_RESERVE_SHARE);
+    this.pageReserveShare = hl.pageReserveShare;
+    this.tokens = this.mainCapacity;
+    this.reserve = this.reserveCapacity;
     this.lastRefillAt = Date.now();
     this.pageQueueMax = Math.round((this.configuredBudgetPerMin * PAGE_QUEUE_SECONDS) / 60) + this.capacity;
     this.pageClientQueueMax = Math.round(this.pageQueueMax * PAGE_CLIENT_SHARE);
@@ -196,9 +297,29 @@ export class RequestBudgeterService {
     return this.effectiveBudgetPerMin / 60_000;
   }
 
+  /**
+   * Refills both buckets from one rate. The reserve gets everything until
+   * it is full while nothing waits for the main bucket; half the refill
+   * while main-bucket work is waiting (so a cold page's own fill lists
+   * aren't held behind the reserve refilling after its first paint); and
+   * only its guaranteed share (`pageReserveShare`) while page work is over
+   * its share of the minute. The rest goes to the main bucket.
+   */
   private refill(now: number): void {
-    this.tokens = Math.min(this.capacity, this.tokens + (now - this.lastRefillAt) * this.rate());
+    const elapsed = Math.max(0, now - this.lastRefillAt);
     this.lastRefillAt = now;
+    if (elapsed === 0) return;
+    const delta = elapsed * this.rate();
+    const share = this.pageOverShare(now) ? this.pageReserveShare : this.queues.background.some((w) => !w.interactive) ? RESERVE_REFILL_SPLIT : 1;
+    const toReserve = Math.min(delta * share, Math.max(0, this.reserveCapacity - this.reserve));
+    this.reserve += toReserve;
+    this.tokens = Math.min(this.mainCapacity, this.tokens + delta - toReserve);
+    for (const [label, cap] of this.caps) {
+      const bucket = this.capTokens.get(label) ?? { tokens: cap * CAP_SAVED_MINUTES, at: now };
+      bucket.tokens = Math.min(cap * CAP_SAVED_MINUTES, bucket.tokens + ((now - bucket.at) / 60_000) * cap);
+      bucket.at = now;
+      this.capTokens.set(label, bucket);
+    }
   }
 
   private prune(now: number): void {
@@ -206,20 +327,103 @@ export class RequestBudgeterService {
     while (this.window.length > 0 && this.window[0].ts < cutoff) {
       this.window.shift();
     }
-    while (this.pageWindow.length > 0 && this.pageWindow[0].ts < cutoff) {
+    const pageCutoff = now - PAGE_SHARE_WINDOW_MS;
+    while (this.pageWindow.length > 0 && this.pageWindow[0].ts < pageCutoff) {
       this.pageWindowWeight -= this.pageWindow.shift()!.weight;
     }
   }
 
-  /** Page work has used its share of the trailing minute. */
+  /** Page work has used its share of the budget over `PAGE_SHARE_WINDOW_MS`. */
   private pageOverShare(now: number): boolean {
     this.prune(now);
-    return this.pageWindowWeight >= PAGE_SHARE * this.effectiveBudgetPerMin;
+    return this.pageWindowWeight >= (PAGE_SHARE * this.effectiveBudgetPerMin * PAGE_SHARE_WINDOW_MS) / 60_000;
   }
 
-  private record(ts: number, weight: number, request = true): void {
-    this.window.push({ ts, weight, request });
+  private record(ts: number, weight: number, request = true, consumer = this.consumerOf()): void {
+    this.window.push({ ts, weight, request, consumer });
     this.prune(Date.now());
+  }
+
+  private consumerOf(priority: RequestPriority = "background", page = false): string {
+    return consumers.getStore() ?? (priority === "live" ? CONSUMER_LIVE : page ? CONSUMER_PAGE : CONSUMER_OTHER);
+  }
+
+  // --- consumer caps --------------------------------------------------------
+
+  /** Weight-per-minute caps per consumer label; a label absent is uncapped. */
+  setConsumerCaps(caps: Record<string, number>): void {
+    const next = new Map(Object.entries(caps).filter(([, v]) => Number.isFinite(v) && v >= 0));
+    for (const label of this.capTokens.keys()) if (!next.has(label)) this.capTokens.delete(label);
+    this.caps = next;
+    this.rearm();
+  }
+
+  /** Where the caps come from (the settings module registers itself). */
+  useConsumerCaps(source: ConsumerCapSource): void {
+    this.capsSource = source;
+    this.capsReadAt = 0;
+  }
+
+  /** Re-reads the caps when they are stale; never blocks a caller. */
+  private refreshCaps(now: number): void {
+    if (!this.capsSource || this.capsReading || now - this.capsReadAt < CAPS_TTL_MS) return;
+    this.capsReadAt = now;
+    this.capsReading = this.capsSource.consumerCaps()
+      .then((caps) => this.setConsumerCaps(caps))
+      .catch((error: Error) => this.logger.warn(`Consumer caps unavailable: ${error.message}`))
+      .finally(() => { this.capsReading = undefined; });
+  }
+
+  /** Milliseconds until a capped consumer may send again; 0 when it may now. */
+  private capWait(label: string): number {
+    const cap = this.caps.get(label);
+    if (cap === undefined) return 0;
+    if (cap <= 0) return Infinity;
+    const bucket = this.capTokens.get(label);
+    if (!bucket || bucket.tokens > 0) return 0;
+    return Math.ceil((-bucket.tokens + 1) / (cap / 60_000));
+  }
+
+  private chargeCap(label: string, weight: number): void {
+    const cap = this.caps.get(label);
+    if (cap === undefined) return;
+    const bucket = this.capTokens.get(label) ?? { tokens: cap * CAP_SAVED_MINUTES, at: Date.now() };
+    bucket.tokens -= weight;
+    this.capTokens.set(label, bucket);
+  }
+
+  // --- adaptive hints for jobs ----------------------------------------------
+
+  /** Page weight dispatched in the trailing minute. */
+  pageWeightLastMinute(): number {
+    const now = Date.now();
+    this.prune(now);
+    let weight = 0;
+    for (let i = this.pageWindow.length - 1; i >= 0 && this.pageWindow[i].ts >= now - 60_000; i--) weight += this.pageWindow[i].weight;
+    return weight;
+  }
+
+  /**
+   * How much of its allowance an adaptive background job should use now:
+   * 1 while page work in the trailing minute is within the reserve's share
+   * of the budget, down to `MIN_BACKGROUND_FACTOR` as page work reaches
+   * `PAGE_SHARE` of it.
+   */
+  backgroundFactor(): number {
+    const budget = this.effectiveBudgetPerMin;
+    const low = this.pageReserveShare * budget;
+    const high = PAGE_SHARE * budget;
+    const used = this.pageWeightLastMinute();
+    if (used <= low || high <= low) return 1;
+    const t = Math.min(1, (used - low) / (high - low));
+    return 1 - t * (1 - MIN_BACKGROUND_FACTOR);
+  }
+
+  /** Interactive page calls are waiting, or the reserve is not full: a
+   * heavy background step started now would compete with a page. */
+  pagePressure(): boolean {
+    this.refill(Date.now());
+    return this.reserve < this.reserveCapacity || this.queues.background.some((w) => w.interactive);
   }
 
   /**
@@ -237,7 +441,9 @@ export class RequestBudgeterService {
     { known = weight, signal }: { known?: number; signal?: AbortSignal } = {},
   ): Promise<void> {
     if (this.stopped) return Promise.reject(new Error("Budgeter stopped"));
+    this.refreshCaps(Date.now());
     const page = priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
+    const interactive = priority === "background" && rank !== undefined && rank <= INTERACTIVE_MAX_RANK;
     // Page work made for an HTTP request stops waiting once it is answered.
     const answered = page ? currentRequestAnswered() : undefined;
     const cancel = signal && answered && signal !== answered ? AbortSignal.any([signal, answered]) : (signal ?? answered);
@@ -253,6 +459,7 @@ export class RequestBudgeterService {
     } else if (this.queues.live.length + this.queues.background.length - this.pageWaiters() >= MAX_QUEUED) {
       return Promise.reject(new Error("Hyperliquid queue is full"));
     }
+    const consumer = this.consumerOf(priority, page);
     return new Promise((resolve, reject) => {
       const seq = this.seq++;
       const queue = this.queues[priority];
@@ -270,7 +477,7 @@ export class RequestBudgeterService {
       };
       let holding = page;
       if (page) this.holdPage(client, held);
-      const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq, page,
+      const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq, page, interactive, consumer,
         cleanup: () => {
           cancel?.removeEventListener("abort", abort);
           if (holding) { holding = false; this.holdPage(client, -held); }
@@ -328,6 +535,55 @@ export class RequestBudgeterService {
     return { lane: "live", forced: false };
   }
 
+  /**
+   * What `next` may spend now, and the most it could ever spend (a call
+   * heavier than that waits for all of it and takes the main bucket into
+   * debt). Live: the reserve plus the main bucket above its debt.
+   * Interactive page calls: the reserve plus,
+   * unless page work is over its share, the main bucket above live's
+   * reserve. Other background: the main bucket above live's reserve
+   * (all of it on a forced turn).
+   */
+  private allowance(next: Waiter, lane: RequestPriority, forced: boolean, now: number): { available: number; most: number } {
+    // Live counts the reserve and the main bucket above its debt.
+    if (lane === "live") return { available: Math.max(0, this.tokens) + this.reserve, most: this.mainCapacity + this.reserveCapacity };
+    if (next.interactive) {
+      const main = this.pageOverShare(now) ? 0 : Math.max(0, this.tokens - this.liveReserve);
+      return { available: this.reserve + main, most: this.reserveCapacity + this.mainCapacity - this.liveReserve };
+    }
+    const reserve = forced ? 0 : this.liveReserve;
+    const grace = next.page ? this.pageListGraceDebt(now) : 0;
+    return { available: this.tokens - reserve + grace, most: this.mainCapacity - reserve };
+  }
+
+  /** Worst-case surcharge of the newest page lists still in their grace. */
+  private pageListGraceDebt(now: number): number {
+    while (this.pageListGrace.length > 0 && now - this.pageListGrace[0].ts > PAGE_LIST_GRACE_MS) this.pageListGrace.shift();
+    let debt = 0;
+    for (const entry of this.pageListGrace.slice(-PAGE_LIST_GRACE_LISTS)) debt += entry.surplus;
+    return debt;
+  }
+
+  /** Tokens `next` is short of going now (≤ 0: it may go). */
+  private shortfall(next: Waiter, lane: RequestPriority, forced: boolean, now: number): number {
+    const { available, most } = this.allowance(next, lane, forced, now);
+    return Math.min(next.gate, most) - available;
+  }
+
+  /** Takes `weight` for `next`: live and interactive calls from the
+   * reserve then the main bucket (so live never eats what a waiting
+   * background call is saving up for); others from the main bucket (into
+   * debt if need be). */
+  private spend(next: Waiter, lane: RequestPriority): void {
+    let weight = next.weight;
+    if (lane === "live" || next.interactive) {
+      const fromReserve = Math.min(weight, this.reserve);
+      this.reserve -= fromReserve;
+      weight -= fromReserve;
+    }
+    this.tokens -= weight;
+  }
+
   private pump(): void {
     if (this.pumpTimer) return;
     for (;;) {
@@ -335,55 +591,102 @@ export class RequestBudgeterService {
       if (!pick) return;
       const lane = this.queues[pick.lane];
       const now = Date.now();
+      this.refill(now);
       // Page work over its share of the minute yields to any other
-      // background waiter (fill storage, snapshots, sweeps).
-      const skipPage = pick.lane === "background" && lane.some((w) => !w.page) && lane.some((w) => w.page) && this.pageOverShare(now);
-      let index = -1;
+      // background waiter (fill storage, snapshots, sweeps); interactive
+      // calls are served from the reserve regardless.
+      const overShare = pick.lane === "background" && this.pageOverShare(now);
+      const skipPage = overShare && lane.some((w) => !w.page) && lane.some((w) => w.page && !w.interactive);
+      // The best waiter of each bucket: interactive calls (the reserve) and
+      // everything else (the main bucket). Within a bucket the lowest rank
+      // goes first even when a later one would fit now, so tokens build up
+      // for a heavy call instead of a stream of small ones starving it.
+      let interactive = -1;
+      let other = -1;
+      let capped = Infinity;
       for (let i = 0; i < lane.length; i++) {
         const a = lane[i];
-        if (skipPage && a.page) continue;
-        const b = lane[index];
-        if (index < 0 || a.rank < b.rank || (a.rank === b.rank && a.seq < b.seq)) index = i;
+        if (skipPage && a.page && !a.interactive) continue;
+        const wait = this.capWait(a.consumer);
+        if (wait > 0) { capped = Math.min(capped, wait); continue; }
+        const slot = pick.lane === "background" && a.interactive ? interactive : other;
+        const b = lane[slot];
+        if (slot < 0 || a.rank < b.rank || (a.rank === b.rank && a.seq < b.seq)) {
+          if (pick.lane === "background" && a.interactive) interactive = i;
+          else other = i;
+        }
       }
-      const next = lane[index];
-      this.refill(now);
-      // Background leaves the reserve to live (and, below the interactive
-      // ranks, a further share to page loads), unless it is its guaranteed
-      // turn. A call heavier than what it may use waits for all of it.
-      const reserve =
-        pick.lane === "live" || pick.forced
-          ? 0
-          : next.rank <= INTERACTIVE_MAX_RANK
-            ? this.liveReserve
-            : this.liveReserve + this.interactiveReserve;
-      const needed = Math.min(next.gate, this.capacity - reserve) + reserve;
-      if (this.tokens < needed) {
-        this.pumpTimer = setTimeout(
-          () => {
-            this.pumpTimer = undefined;
-            this.pump();
-          },
-          Math.ceil((needed - this.tokens) / this.rate()),
-        );
+      if (interactive < 0 && other < 0) {
+        // Everything eligible is capped (or skipped): wake when a cap refills.
+        this.sleep(Number.isFinite(capped) ? capped : 1000);
         return;
       }
-      lane.splice(index, 1);
-      this.tokens -= next.weight;
-      this.liveStreak = pick.lane === "live" && this.queues.background.length > 0 ? this.liveStreak + 1 : 0;
-      this.record(now, next.weight);
-      if (next.page) {
-        this.pageWindow.push({ ts: now, weight: next.weight });
-        this.pageWindowWeight += next.weight;
+      // An interactive call goes first. While page work is over its share
+      // it lives on the reserve alone, so a main-bucket waiter is not held
+      // behind it; otherwise it may draw on the main bucket too and the
+      // tokens build up for it.
+      let index = interactive >= 0 ? interactive : other;
+      let short = this.shortfall(lane[index], pick.lane, pick.forced, now);
+      // A forced background turn that can't go yet doesn't hold live while
+      // the reserve alone covers it: live goes on, the main bucket keeps
+      // filling for the background call, and the streak stays so it is
+      // next the moment it can.
+      if (short > 0 && pick.forced && this.queues.live.length > 0) {
+        const liveIndex = this.queues.live.reduce((best, w, i, q) => (best < 0 || w.rank < q[best].rank || (w.rank === q[best].rank && w.seq < q[best].seq) ? i : best), -1);
+        if (this.queues.live[liveIndex].gate <= this.reserve) {
+          const next = this.queues.live.splice(liveIndex, 1)[0];
+          this.dispatch(next, "live", now);
+          continue;
+        }
       }
-      next.cleanup();
-      next.resolve();
+      if (short > 0 && index === interactive && other >= 0 && overShare) {
+        const altShort = this.shortfall(lane[other], pick.lane, pick.forced, now);
+        if (altShort <= 0) {
+          index = other;
+          short = altShort;
+        } else {
+          this.sleep(Math.ceil(Math.min(short, altShort) / this.rate()));
+          return;
+        }
+      }
+      if (short > 0) {
+        this.sleep(Math.ceil(short / this.rate()));
+        return;
+      }
+      const next = lane[index];
+      lane.splice(index, 1);
+      this.dispatch(next, pick.lane, now);
     }
+  }
+
+  private dispatch(next: Waiter, lane: RequestPriority, now: number): void {
+    this.spend(next, lane);
+    this.chargeCap(next.consumer, next.weight);
+    this.liveStreak = lane === "live" && this.queues.background.length > 0 ? this.liveStreak + 1 : 0;
+    this.record(now, next.weight, true, next.consumer);
+    if (next.page) {
+      this.pageWindow.push({ ts: now, weight: next.weight });
+      this.pageWindowWeight += next.weight;
+      if (next.weight > next.gate) this.pageListGrace.push({ ts: now, surplus: next.weight - next.gate });
+    }
+    next.cleanup();
+    next.resolve();
+  }
+
+  private sleep(ms: number): void {
+    this.pumpTimer = setTimeout(
+      () => {
+        this.pumpTimer = undefined;
+        this.pump();
+      },
+      Math.max(1, Math.min(ms, 60_000)),
+    );
   }
 
   /**
    * Reports weight consumed that couldn't be known until after the
    * response arrived (userFillsByTime's per-20-items surcharge). Taken from
-   * the bucket for future callers; never delays the caller that just
+   * the main bucket for future callers; never delays the caller that just
    * finished — the call already happened.
    */
   recordAdditionalWeight(weight: number): void {
@@ -391,13 +694,14 @@ export class RequestBudgeterService {
     const now = Date.now();
     this.refill(now);
     this.tokens -= weight;
+    this.chargeCap(this.consumerOf(), weight);
     this.record(now, weight, false);
   }
 
   /**
    * Settles a call acquired with a worst-case estimate: a positive `delta`
    * is charged like `recordAdditionalWeight`, a negative one (the estimate
-   * was too high) goes back to the bucket, and waiters may go at once.
+   * was too high) goes back to the main bucket, and waiters may go at once.
    */
   adjust(delta: number): void {
     if (delta >= 0) {
@@ -406,7 +710,8 @@ export class RequestBudgeterService {
     }
     const now = Date.now();
     this.refill(now);
-    this.tokens = Math.min(this.capacity, this.tokens - delta);
+    this.tokens = Math.min(this.mainCapacity, this.tokens - delta);
+    this.chargeCap(this.consumerOf(), delta);
     this.record(now, delta, false);
     this.rearm();
   }
@@ -443,8 +748,9 @@ export class RequestBudgeterService {
       `429 from Hyperliquid — backing off effective budget ${this.effectiveBudgetPerMin.toFixed(0)} -> ${next}/min`,
     );
     this.effectiveBudgetPerMin = next;
-    // Also empty the bucket, 2 s into debt, so we don't immediately retry
-    // into another 429 while the lower rate takes effect.
+    // Also empty both buckets, the main one 2 s into debt, so we don't
+    // immediately retry into another 429 while the lower rate takes effect.
+    this.reserve = 0;
     this.tokens = Math.min(this.tokens, 0) - 2000 * this.rate();
     if (this.pumpTimer) this.rearm();
   }
@@ -456,19 +762,35 @@ export class RequestBudgeterService {
     effectiveBudgetPerMin: number;
     configuredBudgetPerMin: number;
     burstCapacity: number;
+    /** Main bucket + page reserve. */
     tokensAvailable: number;
+    /** The page reserve's tokens and capacity. */
+    reserveTokens: number;
+    reserveCapacity: number;
+    /** Page weight in the trailing minute and the adaptive factor jobs see. */
+    pageWeightLastMinute: number;
+    backgroundFactor: number;
+    /** Weight in the trailing minute per consumer label. */
+    consumers: Record<string, number>;
     lastRateLimitedAt: Date | null;
   } {
     const now = Date.now();
     this.prune(now);
     this.refill(now);
+    const byConsumer: Record<string, number> = {};
+    for (const e of this.window) byConsumer[e.consumer] = (byConsumer[e.consumer] ?? 0) + e.weight;
     return {
       requestsLastMinute: this.window.filter((e) => e.request).length,
       weightLastMinute: this.window.reduce((sum, e) => sum + e.weight, 0),
       effectiveBudgetPerMin: this.effectiveBudgetPerMin,
       configuredBudgetPerMin: this.configuredBudgetPerMin,
       burstCapacity: this.capacity,
-      tokensAvailable: this.tokens,
+      tokensAvailable: this.tokens + this.reserve,
+      reserveTokens: this.reserve,
+      reserveCapacity: this.reserveCapacity,
+      pageWeightLastMinute: this.pageWeightLastMinute(),
+      backgroundFactor: this.backgroundFactor(),
+      consumers: byConsumer,
       lastRateLimitedAt: this.lastRateLimitedAt
         ? new Date(this.lastRateLimitedAt)
         : null,

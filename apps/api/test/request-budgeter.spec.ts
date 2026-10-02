@@ -138,11 +138,13 @@ describe("RequestBudgeterService (W6)", () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(order).toEqual(["bg0"]);
     const live = budgeter.acquire(2, "live").then(() => order.push("live"));
-    expect(budgeter.queued()).toEqual({ live: 1, background: 4 });
+    // The reserve has refilled a little: live goes at once, ahead of bg1..bg4,
+    // while the main bucket is still in bg0's debt.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(budgeter.queued()).toEqual({ live: 0, background: 4 });
 
     await vi.advanceTimersByTimeAsync(60_000);
     await Promise.all([...background, live]);
-    // bg0 was already out; the live call goes next, ahead of bg1..bg4.
     expect(order).toEqual(["bg0", "live", "bg1", "bg2", "bg3", "bg4"]);
   });
 
@@ -160,23 +162,26 @@ describe("RequestBudgeterService (W6)", () => {
     expect(order).toEqual(["live", "heavy"]);
   });
 
-  it("leaves the last 10% of the bucket to live and 20% more to first paints: page loads can't drain it", async () => {
-    process.env.HYPERLIQUID_WEIGHT_BURST = "200";
+  it("keeps the page reserve for first paints and the chart, and the last 10% of the main bucket for live", async () => {
+    process.env.HYPERLIQUID_WEIGHT_BURST = "200"; // main 80 (live keeps 8), page reserve 120
     const budgeter = new RequestBudgeterService(testConfig());
+    expect(budgeter.introspect()).toMatchObject({ burstCapacity: 200, reserveCapacity: 120, reserveTokens: 120 });
     const released: string[] = [];
-    // Unranked background (sweeps, backfill) leaves 20 + 40: seven calls of
-    // 20 fit in 140; the eighth would eat the reserves.
+    // Unranked background (sweeps, backfill) has the main bucket above
+    // live's 8: three calls of 20 fit in 72; the fourth would eat it.
     for (let i = 0; i < 10; i++) void budgeter.acquire(20, "background").then(() => released.push(`bg${i}`));
     await vi.advanceTimersByTimeAsync(0);
-    expect(released).toHaveLength(7);
-    // A first paint (rank 0) and a chart (rank 1) may use the interactive
-    // share; fill lists (rank 2) may not. None may touch live's 20.
+    expect(released).toHaveLength(3);
+    // A first paint (rank 0) and a chart (rank 1) spend the reserve; a
+    // fill list (rank 2) may not, and waits for the main bucket.
     void budgeter.acquire(20, "background", PAGE_RANK.fills).then(() => released.push("fills"));
     void budgeter.acquire(20, "background", PAGE_RANK.profile).then(() => released.push("profile"));
     void budgeter.acquire(20, "background", PAGE_RANK.portfolio).then(() => released.push("portfolio"));
     void budgeter.acquire(20, "background", PAGE_RANK.profile).then(() => released.push("profile2"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(released.slice(7)).toEqual(["profile", "portfolio"]);
+    expect(released.slice(3)).toEqual(["profile", "portfolio", "profile2"]);
+    expect(budgeter.introspect().reserveTokens).toBe(60);
+    // Live still has its 8 in the main bucket.
     void budgeter.acquire(2, "live").then(() => released.push("live"));
     await vi.advanceTimersByTimeAsync(0);
     expect(released[released.length - 1]).toBe("live");
@@ -196,36 +201,46 @@ describe("RequestBudgeterService (W6)", () => {
     expect(order).toEqual(["profile", "fills", "warm", "sweep"]);
   });
 
-  it("lets a page's list call go on its known base; a background list waits for its whole worst case", async () => {
-    process.env.HYPERLIQUID_WEIGHT_BURST = "200"; // reserves: live 20 + page 40; 14 tokens/s at 840/min
+  it("a background list takes the main bucket into debt; a first paint still goes at once; a page's list waits on its known base only", async () => {
+    process.env.HYPERLIQUID_WEIGHT_BURST = "200"; // main 80 (live keeps 8), reserve 120; 10 tokens/s at 600/min
     const budgeter = new RequestBudgeterService(testConfig());
-    await budgeter.acquire(100, "live"); // 100 left
     const order: string[] = [];
-    // A sweep's list: 120 up front (20 base + worst-case 100) needs 180.
+    // A sweep's list: 120 up front (20 base + worst-case 100) needs the
+    // whole usable main bucket (72), then takes it to -40.
     void budgeter.acquire(120, "background", undefined, { known: 20 }).then(() => order.push("sweep"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(order).toEqual([]);
-    // A trader page's list: goes on 20 + 60, taking the bucket to -20.
-    void budgeter.acquire(120, "background", PAGE_RANK.fills, { known: 20 }).then(() => order.push("page"));
+    expect(order).toEqual(["sweep"]);
+    expect(budgeter.introspect()).toMatchObject({ tokensAvailable: -40 + 120, reserveTokens: 120 });
+    // The debt is the main bucket's: a first paint is served from the reserve now.
+    void budgeter.acquire(20, "background", PAGE_RANK.profile).then(() => order.push("profile"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(order).toEqual(["page"]);
-    expect(budgeter.introspect().tokensAvailable).toBe(-20);
+    expect(order).toEqual(["sweep", "profile"]);
+    // A trader page's list goes on its known 20 (+ live's 8) once the main
+    // bucket is back there, after the reserve has refilled: 20 + 68 tokens
+    // at 10/s.
+    void budgeter.acquire(120, "background", PAGE_RANK.fills, { known: 20 }).then(() => order.push("page"));
+    await vi.advanceTimersByTimeAsync(8_600);
+    expect(order).toEqual(["sweep", "profile"]);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(order).toEqual(["sweep", "profile", "page"]);
+    expect(budgeter.introspect().reserveTokens).toBe(120);
+    expect(budgeter.introspect().tokensAvailable).toBeLessThan(120 - 80);
   });
 
-  it("settles a worst-case estimate: a refund goes back to the bucket and wakes waiters", async () => {
-    process.env.HYPERLIQUID_WEIGHT_BURST = "200";
+  it("settles a worst-case estimate: a refund goes back to the main bucket and wakes waiters", async () => {
+    process.env.HYPERLIQUID_WEIGHT_BURST = "200"; // main 80 (live keeps 8), reserve 120
     const budgeter = new RequestBudgeterService(testConfig());
-    await budgeter.acquire(120); // a list call's base + worst-case surcharge
+    await budgeter.acquire(120); // a list call's base + worst-case surcharge: main -40
     const released: string[] = [];
-    void budgeter.acquire(100, "background", PAGE_RANK.profile).then(() => released.push("next"));
+    void budgeter.acquire(40, "background").then(() => released.push("next"));
     await vi.advanceTimersByTimeAsync(0);
-    expect(released).toEqual([]); // 80 left, 100 + 20 reserve needed
+    expect(released).toEqual([]); // -40, 40 + 8 reserve needed
     budgeter.adjust(-97); // the list had 60 items: 3 of the 100 were used
     await vi.advanceTimersByTimeAsync(0);
     expect(released).toEqual(["next"]);
-    expect(budgeter.introspect().weightLastMinute).toBe(120 - 97 + 100);
+    expect(budgeter.introspect().weightLastMinute).toBe(120 - 97 + 40);
     budgeter.adjust(5); // more than estimated: charged like a surcharge
-    expect(budgeter.introspect().tokensAvailable).toBeCloseTo(200 - 23 - 100 - 5, 0);
+    expect(budgeter.introspect().tokensAvailable).toBeCloseTo(200 - 23 - 40 - 5, 0);
   });
 
   it("sends at least one in four dispatches to background while live keeps coming (starvation guard)", async () => {
@@ -236,25 +251,30 @@ describe("RequestBudgeterService (W6)", () => {
     for (let i = 0; i < 9; i++) calls.push(budgeter.acquire(2, "live").then(() => order.push("live")));
     await vi.advanceTimersByTimeAsync(60_000);
     await Promise.all(calls);
-    expect(order).toEqual(["live", "live", "live", "bg", "live", "live", "live", "bg", "live", "live", "live", "bg"]);
+    // Live goes first and keeps going on the reserve; background is never
+    // starved: each background call goes out among the live ones, not after
+    // them all (live spends the reserve first, so the main bucket fills for it).
+    expect(order[0]).toBe("live");
+    expect(order.filter((x) => x === "bg")).toHaveLength(3);
+    expect(order.lastIndexOf("live")).toBeGreaterThan(order.indexOf("bg"));
+    expect(order.indexOf("bg")).toBeLessThanOrEqual(3);
   });
 
   it("runs a call heavier than the whole bucket once the bucket is full, taking it into debt", async () => {
-    process.env.HYPERLIQUID_WEIGHT_BURST = "50";
+    process.env.HYPERLIQUID_WEIGHT_BURST = "50"; // main 20 (live keeps 2), reserve 30
     const budgeter = new RequestBudgeterService(testConfig());
     const order: string[] = [];
-    await budgeter.acquire(10, "live");
+    await budgeter.acquire(10); // main 20 → 10
     const oversize = budgeter.acquire(120, "background").then(() => order.push("oversize"));
     const after = budgeter.acquire(2, "background").then(() => order.push("after"));
-    // Needs a full bucket (50): 10 tokens refill in 1 s.
+    // Needs a full main bucket (20 − live's 2): 10 tokens refill in 1 s.
     await vi.advanceTimersByTimeAsync(999);
     expect(order).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
     expect(order).toEqual(["oversize"]);
-    expect(budgeter.introspect().tokensAvailable).toBe(50 - 120);
-    // The next caller pays off the debt first: 70 + 5 (live reserve) + 10
-    // (page reserve) + 2 → 8.7 s.
-    await vi.advanceTimersByTimeAsync(8_600);
+    expect(budgeter.introspect()).toMatchObject({ tokensAvailable: 20 - 120 + 30, reserveTokens: 30 });
+    // The next caller pays off the debt first: 100 + 2 (live reserve) + 2 → 10.4 s.
+    await vi.advanceTimersByTimeAsync(10_300);
     expect(order).toEqual(["oversize"]);
     await vi.advanceTimersByTimeAsync(200);
     await Promise.all([oversize, after]);

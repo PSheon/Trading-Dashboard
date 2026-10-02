@@ -60,6 +60,7 @@ import {
 import { FILLS_TTL_MS, POOL_SPARKLINE_MAX_AGE_MS, TradersService } from "../src/traders/traders.service.js";
 import { PageBusyError } from "../src/hyperliquid/request-budgeter.service.js";
 import { TtlCache } from "../src/traders/ttl-cache.js";
+import { withRequestSignal } from "../src/runtime/request-context.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
 const fixture = <T>(name: string): T =>
@@ -1290,6 +1291,60 @@ describe("TtlCache", () => {
     release(3);
     expect(await Promise.all([a, b])).toEqual([3, 3]);
     expect(slow).toHaveBeenCalledTimes(1);
+  });
+
+  it("a better-ranked caller starts its own load instead of joining a worse-ranked one; later callers join the better load", async () => {
+    const cache = new TtlCache<string>(60_000);
+    let releaseSlow!: (v: string) => void;
+    const slow = vi.fn(() => new Promise<string>((resolve) => (releaseSlow = resolve)));
+    const fast = vi.fn(async () => "page");
+    // A sparkline batch (rank 2) is reading the address …
+    const batch = cache.get("k", slow, 60_000, 2);
+    expect(cache.inflightRank("k")).toBe(2);
+    // … the trader page's chart (rank 1) does not wait behind it.
+    expect(await cache.get("k", fast, 60_000, 1)).toBe("page");
+    expect(fast).toHaveBeenCalledTimes(1);
+    expect(cache.peek("k")).toEqual({ value: "page" });
+    // An unranked joiner would have shared the batch's load; a worse rank too.
+    releaseSlow("batch");
+    expect(await batch).toBe("batch");
+    // An unranked load in flight is left for a ranked caller as well.
+    let releaseUnranked!: (v: string) => void;
+    const unranked = cache.get("u", () => new Promise<string>((resolve) => (releaseUnranked = resolve)));
+    expect(await cache.get("u", async () => "mine", 60_000, 0)).toBe("mine");
+    releaseUnranked("theirs");
+    expect(await unranked).toBe("theirs");
+    // Equal or worse ranks join.
+    let releaseShared!: (v: string) => void;
+    const shared = cache.get("s", () => new Promise<string>((resolve) => (releaseShared = resolve)), 60_000, 1);
+    const joiner = cache.get("s", async () => "never", 60_000, 2);
+    releaseShared("shared");
+    expect(await Promise.all([shared, joiner])).toEqual(["shared", "shared"]);
+  });
+
+  it("a joiner whose shared load was aborted by another request's deadline loads again for itself", async () => {
+    const cache = new TtlCache<string>(60_000);
+    let rejectShared!: (e: unknown) => void;
+    const shared = cache.get("k", () => new Promise<string>((_, reject) => (rejectShared = reject)));
+    const retry = vi.fn(async () => "retried");
+    const joiner = cache.get("k", retry);
+    // The starter's request timed out: its load aborts.
+    rejectShared(new DOMException("The operation was aborted", "AbortError"));
+    await expect(shared).rejects.toMatchObject({ name: "AbortError" });
+    expect(await joiner).toBe("retried");
+    expect(retry).toHaveBeenCalledTimes(1);
+    // A joiner whose own request is gone does not retry.
+    const own = new AbortController();
+    let rejectAgain!: (e: unknown) => void;
+    const again = cache.get("j", () => new Promise<string>((_, reject) => (rejectAgain = reject)));
+    const dead = withRequestSignal(own.signal, () => cache.get("j", async () => "no"));
+    own.abort();
+    rejectAgain(new DOMException("The operation was aborted", "AbortError"));
+    await expect(again).rejects.toMatchObject({ name: "AbortError" });
+    await expect(dead).rejects.toMatchObject({ name: "AbortError" });
+    // A real failure is shared as before.
+    const failing = cache.get("f", async () => { throw new Error("boom"); });
+    await expect(Promise.all([failing, cache.get("f", async () => "x")])).rejects.toThrow("boom");
   });
 
   it("stays within its size bound, dropping the oldest", async () => {

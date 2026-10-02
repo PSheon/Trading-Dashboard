@@ -20,7 +20,7 @@ import {
 import { RoundTripService } from "../analytics/round-trip.service.js";
 import { TradersRepository } from "./traders.repository.js";
 import { HyperliquidInfoClient, LEDGER_MAX_ITEMS, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
-import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
+import { budgetConsumer, PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { activeTwaps, mergeOrders, toTraderTransfer } from "./trader-tabs.mappers.js";
 import { SettingsService } from "../settings/settings.service.js";
@@ -151,7 +151,7 @@ export class TradersService {
     // The first trader page after a deploy then needs one request, not two.
     this.perpDexes().catch(() => undefined);
     // After the startup import, so "top by month PnL" has data.
-    this.ingest.startup.then(() => this.onWarmSchedule()).catch(() => undefined);
+    this.ingest.startup.then(() => budgetConsumer("warm", () => this.onWarmSchedule())).catch(() => undefined);
   }
 
   // --- GET /traders ---------------------------------------------------------
@@ -180,7 +180,7 @@ export class TradersService {
    */
   async profile(address: string, userId: number | null): Promise<TraderProfileResponse> {
     const [shared, favorites, kol] = await Promise.all([
-      this.profileCache.get(address, () => this.loadProfile(address), value => value.dataQuality?.partial ? 5_000 : PROFILE_TTL_MS),
+      this.profileCache.get(address, () => this.loadProfile(address), value => value.dataQuality?.partial ? 5_000 : PROFILE_TTL_MS, PAGE_RANK.profile),
       this.repository.favoritesAmong(userId, [address]),
       this.kols?.card(address),
     ]);
@@ -238,9 +238,9 @@ export class TradersService {
       Promise.all(dexes.map(dex => read(`perp:${dex || "main"}`,
         () => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile), PROFILE_TTL_MS, true))),
       read("spot", () => this.info.spotClearinghouseState(address, LANE, PAGE_RANK.profile), PROFILE_TTL_MS),
-      read("accountMode", () => this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.profile)),
+      read("accountMode", () => this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.profile), ACCOUNT_MODE_TTL_MS, PAGE_RANK.profile),
         ACCOUNT_MODE_TTL_MS, false, () => this.abstractionCache.observedAt(address)),
-      read("staking", () => this.stakingCache.get(address, async () => stakedHype(await this.info.delegatorSummary(address, LANE, PAGE_RANK.profile))),
+      read("staking", () => this.stakingCache.get(address, async () => stakedHype(await this.info.delegatorSummary(address, LANE, PAGE_RANK.profile)), STAKING_TTL_MS, PAGE_RANK.profile),
         STAKING_TTL_MS, true, () => this.stakingCache.observedAt(address)),
       read("prices", () => this.spotPrices.book(LANE, PAGE_RANK.profile), SPOT_PRICE_TTL_MS, false, () => this.spotPrices.cache.observedAt("book")),
       read("stats", async () => {
@@ -325,10 +325,9 @@ export class TradersService {
   /** `userFills` and the latest TWAP slices (which it doesn't include). */
   latestFills(address: string): Promise<[HlUserFill[], HlUserFill[]]> {
     return Promise.all([
-      this.userFillsCache.get(address, () => this.info.userFills(address, LANE, PAGE_RANK.fills)),
+      this.userFillsCache.get(address, () => this.info.userFills(address, LANE, PAGE_RANK.fills), FILLS_TTL_MS, PAGE_RANK.fills),
       this.twapFillsCache.get(address, async () =>
-        (await this.info.userTwapSliceFills(address, LANE, PAGE_RANK.fills)).map(twapSliceToFill),
-      ),
+        (await this.info.userTwapSliceFills(address, LANE, PAGE_RANK.fills)).map(twapSliceToFill), FILLS_TTL_MS, PAGE_RANK.fills),
     ]);
   }
 
@@ -369,9 +368,11 @@ export class TradersService {
     return toPortfolioResponse(await this.rawPortfolio(address), query.window, query.market);
   }
 
-  /** Hyperliquid's `portfolio`, through the page's 60 s cache. */
+  /** Hyperliquid's `portfolio`, through the page's 60 s cache, at the
+   * chart's rank: a sparkline batch's read of the same address (rank 2) is
+   * not joined, a fresh read goes out ahead of it. */
   rawPortfolio(address: string): Promise<HlPortfolioResponse> {
-    return this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.portfolio));
+    return this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.portfolio), PORTFOLIO_TTL_MS, PAGE_RANK.portfolio);
   }
 
   // --- GET /traders/sparklines ---------------------------------------------
@@ -416,8 +417,8 @@ export class TradersService {
         try {
           // A fresh trader-page copy (60 s) is reused; either way one fetch.
           const raw = await this.sparklineCache.get(address, () =>
-            this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.fills)),
-          );
+            this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.fills), PORTFOLIO_TTL_MS, PAGE_RANK.fills),
+          SPARKLINE_TTL_MS, PAGE_RANK.fills);
           ready[address] = downsample(portfolioSeries(raw, window, "all").pnl, SPARKLINE_MAX_POINTS);
         } catch (error) {
           // Timed out waiting for the request budget (or shutting down): still
@@ -548,7 +549,7 @@ export class TradersService {
   private async orderDexes(address: string): Promise<string[]> {
     const [all, abstraction] = await Promise.all([
       this.perpDexes(),
-      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.fills)),
+      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.fills), ACCOUNT_MODE_TTL_MS, PAGE_RANK.fills),
     ]);
     const hip3 = all.filter((dex) => dex !== "");
     if (toAccountMode(abstraction) !== "standard" || abstraction === "dexAbstraction") return ["", ...hip3];

@@ -34,7 +34,7 @@ export class SpotPriceService {
         }),
       ]);
       return buildSpotPriceBook(metaAndCtxs, mids);
-    });
+    }, SPOT_PRICE_TTL_MS, rank);
   }
 
   value(balances: HlSpotBalance[], book: SpotPriceBook): SpotValuation {

@@ -3,6 +3,7 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { UnitOfWork } from "../db/unit-of-work.js";
+import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
 import { SchedulerRepository } from "./scheduler.repository.js";
@@ -52,7 +53,7 @@ export class SchedulerService {
   @Cron(CronExpression.EVERY_5_MINUTES)
   async snapshotAll(): Promise<{ written: number; reconciled: number; failed: number }> {
     if (this.jobs.stopping) return { written: 0, reconciled: 0, failed: 0 };
-    this.snapshotFlight ??= this.jobs.run(() => this.takeSnapshots()).finally(() => { this.snapshotFlight = undefined; });
+    this.snapshotFlight ??= budgetConsumer("snapshots", () => this.jobs.run(() => this.takeSnapshots())).finally(() => { this.snapshotFlight = undefined; });
     return this.snapshotFlight;
   }
   private async takeSnapshots(): Promise<{ written: number; reconciled: number; failed: number }> {
@@ -94,7 +95,7 @@ export class SchedulerService {
     } catch (error) {
       this.logger.error(`Market refresh failed: ${(error as Error).message}`);
     }
-    const result = await this.watcher.sweep();
+    const result = await budgetConsumer("sweep", () => this.watcher.sweep());
     this.logger.log(`Hourly sweep: ${result.addresses} addresses, ${result.inserted} new fills, ${result.failed} failed`);
   }
 
@@ -103,14 +104,14 @@ export class SchedulerService {
   @Cron("0 15,30,45 * * * *")
   async catchUp(): Promise<void> {
     if (this.jobs.stopping) return;
-    await this.watcher.sweep();
+    await budgetConsumer("sweep", () => this.watcher.sweep());
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async backfillTick(): Promise<void> {
     if (this.jobs.stopping) return;
     try {
-      await this.fillSync.backfillTick();
+      await budgetConsumer("backfill", () => this.fillSync.backfillTick());
     } catch (error) {
       // Progress is in fill_coverage; the next minute retries the same window.
       this.logger.warn(`Backfill window failed: ${(error as Error).message}`);

@@ -84,7 +84,7 @@ describe("page work in the Hyperliquid budget", () => {
     await Promise.all(background);
   });
 
-  it("gives other background work the budget once page work has spent its share of the minute", async () => {
+  it("gives other background work the budget once page work has spent its share", { timeout: 60_000 }, async () => {
     vi.useFakeTimers();
     const budget = await drained();
     const order: string[] = [];
@@ -102,7 +102,9 @@ describe("page work in the Hyperliquid budget", () => {
       budget.acquire(20, "background").then(() => { stored += 1; order.push("store"); store(); }, () => undefined);
     };
     store();
-    await vi.advanceTimersByTimeAsync(120_000);
+    // The share is measured over three minutes (a few cold pages in a row
+    // go out at once); over ten the flood is held to it.
+    await vi.advanceTimersByTimeAsync(600_000);
     // Page work got about its share and no more; the rest went to storage.
     expect(stored).toBeGreaterThan(0);
     const total = pageWeight + stored * 20;

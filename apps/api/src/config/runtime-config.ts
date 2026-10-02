@@ -164,6 +164,9 @@ export function validateEnvironment(source: Environment = process.env) {
     wsUrl: urlValue("HYPERLIQUID_WS_URL", source.HYPERLIQUID_WS_URL, "wss://api.hyperliquid.xyz/ws", ["ws:", "wss:"]),
     budgetPerMin: integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
     burst: integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
+    /** Share of the budget rate the page reserve keeps refilling at while
+     * page work is over its share of the minute: the floor pages always get. */
+    pageReserveShare: decimalValue("HYPERLIQUID_PAGE_RESERVE_SHARE", source.HYPERLIQUID_PAGE_RESERVE_SHARE, 0.25, 0.05, 0.9),
     wallet: walletNetwork(source),
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };

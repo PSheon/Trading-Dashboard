@@ -449,12 +449,11 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       expect((await orders(id))[1]!.reason).toBe("frequency");
     });
 
-    it("unknown leader equity is never sized as zero", async () => {
+    it("a leader whose account was read and holds nothing is never sized as zero", async () => {
       const { id, activatedAt } = await startCopy();
-      info.clearinghouseState.mockRejectedValue(new Error("down"));
+      market.leaderEquity = 0;
       await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
       await run();
-      info.clearinghouseState.mockReset();
       expect((await orders(id))[0]).toMatchObject({ status: "rejected", reason: "leader_equity_unknown" });
     });
   });
@@ -897,6 +896,61 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       info.allMids.mockImplementation(async () => Object.fromEntries(Object.entries(market.mids).map(([k, v]) => [k, String(v)])));
       expect(await orders(id)).toEqual([expect.objectContaining({ coin: "ETH", status: "rejected", reason: "stale_signal" })]);
       expect((await db.select().from(copySignalOutbox))[0]).toMatchObject({ status: "done" });
+    });
+  });
+
+  describe("a leader-equity read that fails is retried, never a rejection (review 23)", () => {
+    const down = () => new Error("Request deadline exceeded");
+
+    it("a ratio-sized open waits in the outbox and is copied once the leader's account can be read", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      marketService.resetCaches();
+      info.clearinghouseState.mockRejectedValueOnce(down());
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0, deferred: 1 });
+      expect(await orders(id)).toHaveLength(0);
+      expect(await db.select().from(copySignalLegs)).toHaveLength(0);
+      expect((await db.select().from(copySignalOutbox))[0]).toMatchObject({ status: "pending", attempts: 1, lastError: "market_data_unavailable:leader_equity" });
+
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      expect(await run()).toMatchObject({ processed: 1, orders: 1, filled: 1 });
+      expect(await orders(id)).toEqual([expect.objectContaining({ leg: "open", status: "filled", size: "0.05" })]);
+    });
+
+    it("a failed read is not cached: the next pass asks Hyperliquid again", async () => {
+      await startCopy();
+      marketService.resetCaches();
+      info.clearinghouseState.mockRejectedValueOnce(down());
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "failed" });
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 10_000 });
+    });
+
+    it("fixed sizing needs no leader equity and does not wait; a reduction in the same batch is placed", async () => {
+      const { id, activatedAt } = await startCopy({ sizingMode: "fixed", perTradeUsd: 200 });
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      marketService.resetCaches();
+      info.clearinghouseState.mockRejectedValue(down());
+      expect(await signals.drain()).toEqual({ processed: 1, orders: 1 });
+      await execution.drain();
+      await store([fill({ side: "A", sz: 0.5, px: 100_000, start: 0.5, time: activatedAt + 2_000 })]);
+      expect(await signals.drain()).toEqual({ processed: 1, orders: 1 });
+      await execution.drain();
+      info.clearinghouseState.mockReset();
+      expect((await orders(id)).map((o) => [o.leg, o.status])).toEqual([["open", "filled"], ["close", "filled"]]);
+    });
+
+    it("the wait is bounded by the signal-age rule: past maxSignalAgeSeconds the open is rejected as stale", async () => {
+      const { id, activatedAt } = await startCopy();
+      await db.update(copyStrategies).set({ activatedAt: new Date(activatedAt - 3_600_000) });
+      await store([fill({ coin: "ETH", side: "B", sz: 1, px: 4_000, start: 0, time: Date.now() - 90_000 })]);
+      marketService.resetCaches();
+      info.clearinghouseState.mockRejectedValue(down());
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0, deferred: 1 }); // 90 s old, limit 120 s
+      await policies.put({ limits: { maxSignalAgeSeconds: 60 }, reason: "tighter", expectedVersion: 0 }, admin);
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      expect(await signals.drain()).toEqual({ processed: 1, orders: 1 });
+      info.clearinghouseState.mockReset();
+      expect(await orders(id)).toEqual([expect.objectContaining({ coin: "ETH", status: "rejected", reason: "stale_signal" })]);
     });
   });
 

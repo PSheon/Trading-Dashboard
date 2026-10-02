@@ -43,6 +43,9 @@ export interface PlaceOrder {
   rejectReason?: string;
 }
 
+/** An upstream read an open may be waiting for. */
+export type CopyDataGap = "mids" | "asset_info" | "leader_equity";
+
 /** Which upstream read a risk-increasing order of `coin` is missing, if any.
  * `null` maps mean the read failed (Hyperliquid timeout, budget starvation):
  * a transient gap, not a fact about the coin. HIP-3 markets are not in the

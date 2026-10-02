@@ -3,9 +3,9 @@ import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
-import { CopyMarketService, type AssetInfo, type Mids } from "./copy-market.service.js";
+import { CopyMarketService, type AssetInfo, type LeaderEquity, type Mids } from "./copy-market.service.js";
 import { followerSign, legsOf, openNotional, reduceSize, type LeaderFill, type SignalLeg } from "./copy-math.js";
-import { CopyOrderPlanner, marketDataGap, strategyValue } from "./copy-planner.service.js";
+import { CopyOrderPlanner, marketDataGap, strategyValue, type CopyDataGap } from "./copy-planner.service.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OutboxRow } from "./copy.repository.js";
 
@@ -56,8 +56,9 @@ function groupLegs(legs: SignalLeg[]): Group[] {
  * processed fill of the same coin supersedes is skipped; late reductions
  * still apply. Only fills after a strategy's activation cursor count.
  *
- * Market data that failed to load (mids or the universe: a Hyperliquid
- * timeout, a starved budget) is not a reason to reject. In such a pass
+ * Market data that failed to load (mids, the universe, or the leader's
+ * account value a ratio-sized copy needs: a Hyperliquid timeout, a starved
+ * budget) is not a reason to reject. In such a pass
  * reductions are still placed (they need no price to be approved); an open
  * is left unclaimed and its outbox row stays pending with a short backoff,
  * so the next pass decides it with real prices. The wait is bounded by the
@@ -84,7 +85,7 @@ export class CopySignalService {
     const live = await this.repository.liveStrategiesOf(addresses);
     const mids = live.length ? await this.market.midPrices() : null;
     const assets = live.length ? await this.market.assetInfo() : null;
-    const leaderEquity = new Map<string, number | null>();
+    const leaderEquity = new Map<string, LeaderEquity>();
     for (const a of new Set(live.map((s) => s.leaderAddress))) leaderEquity.set(a, await this.market.leaderEquity(a));
 
     const ids = pending.map((r) => r.id);
@@ -99,7 +100,7 @@ export class CopySignalService {
         const byAddress = new Map<string, OutboxRow[]>();
         for (const row of claimed) byAddress.set(row.address, [...(byAddress.get(row.address) ?? []), row]);
         for (const [address, rows] of byAddress) {
-          const r = await this.processLeader(tx, address, rows, { mids, assets, policy, leaderEquity: leaderEquity.get(address) ?? null });
+          const r = await this.processLeader(tx, address, rows, { mids, assets, policy, leaderEquity: leaderEquity.get(address) ?? { state: "failed" } });
           orders += r.orders;
           for (const row of rows) if (r.deferred.has(row.tid)) waiting.set(row.id, r.deferred.get(row.tid)!);
         }
@@ -124,7 +125,7 @@ export class CopySignalService {
     tx: DbTransaction,
     address: string,
     rows: OutboxRow[],
-    ctx: { mids: Mids | null; assets: Map<string, AssetInfo> | null; policy: PolicyRead; leaderEquity: number | null },
+    ctx: { mids: Mids | null; assets: Map<string, AssetInfo> | null; policy: PolicyRead; leaderEquity: LeaderEquity },
   ): Promise<{ orders: number; deferred: Map<bigint, string> }> {
     /** Fill tids with an open that waits for market data, and for which read. */
     const deferred = new Map<bigint, string>();
@@ -182,7 +183,11 @@ export class CopySignalService {
             continue;
           }
           const age = (Date.now() - last.time) / 1000;
-          const gap = strategy.status === "active" && !ctx.policy.invalid ? marketDataGap(ctx.mids, ctx.assets, g.coin) : null;
+          // Ratio sizing divides by the leader's account value: a read of it
+          // that failed is a gap like the mids, not "the leader has nothing".
+          const gap: CopyDataGap | null = strategy.status === "active" && !ctx.policy.invalid
+            ? (marketDataGap(ctx.mids, ctx.assets, g.coin) ?? (settings.sizingMode === "ratio" && ctx.leaderEquity.state === "failed" ? "leader_equity" : null))
+            : null;
           if (gap && age <= ctx.policy.limits.maxSignalAgeSeconds) {
             // Not decidable yet: give the legs back so the retry sees them as new.
             await this.repository.releaseLegs(tx, strategy.id, refs);
@@ -191,7 +196,7 @@ export class CopySignalService {
           }
           const positions = await this.repository.positionsOf([strategy.id], tx);
           const value = strategyValue(strategy, positions, ctx.mids);
-          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: sizeSum * signalPx, strategyEquity: value.equity ?? 0, leaderEquity: ctx.leaderEquity });
+          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: sizeSum * signalPx, strategyEquity: value.equity ?? 0, leaderEquity: ctx.leaderEquity.state === "known" ? ctx.leaderEquity.value : null });
           const order = await this.planner.place(tx, {
             strategy, settings, policy: ctx.policy, controls: { platform: controls.platform, user: controls.user }, mids: ctx.mids, assets: ctx.assets,
             coin: g.coin, leg: "open", side: fSign > 0 ? "B" : "A", notional: notional ?? 0,

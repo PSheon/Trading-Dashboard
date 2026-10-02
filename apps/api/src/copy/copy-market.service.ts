@@ -25,6 +25,12 @@ export interface Mids {
   px: Map<string, number>;
 }
 
+/** A leader's capital for ratio sizing. `none` is a fact (the account was
+ * read and holds nothing); `failed` is a read that did not complete (a
+ * Hyperliquid timeout, a starved budget): a transient gap, retried by the
+ * caller like missing mids, never a reason to reject. */
+export type LeaderEquity = { state: "known"; value: number } | { state: "none" } | { state: "failed" };
+
 /**
  * Copy trading mirrors a leader's fills, so its reads are time-critical:
  * they use the budgeter's `live` lane, ahead of every background job (pool,
@@ -36,8 +42,9 @@ const LANE = "live" as const;
 
 /**
  * Hyperliquid reads for copy trading, through the shared budgeter, each
- * behind a TTL cache with in-flight dedupe. Failures return null (the caller
- * decides; nothing is priced at 0).
+ * behind a TTL cache with in-flight dedupe. Failures return null, or
+ * `failed` for a leader's equity (the caller decides; nothing is priced at
+ * 0 and a failed read is never cached).
  */
 @Injectable()
 export class CopyMarketService {
@@ -47,6 +54,7 @@ export class CopyMarketService {
   private assets: { at: number; byCoin: Map<string, AssetInfo> } | null = null;
   private assetsInflight: Promise<Map<string, AssetInfo> | null> | null = null;
   readonly equityCache = new Map<string, { at: number; value: number | null }>();
+  private readonly equityInflight = new Map<string, Promise<LeaderEquity>>();
 
   constructor(private readonly info: HyperliquidInfoClient) {}
 
@@ -103,20 +111,30 @@ export class CopyMarketService {
     this.equityCache.clear();
   }
 
-  /** The leader's perp account value, cached {@link LEADER_EQUITY_TTL_MS}. */
-  async leaderEquity(address: string): Promise<number | null> {
+  /** The leader's perp account value, cached {@link LEADER_EQUITY_TTL_MS}.
+   * Only a completed read is cached, so a failure is asked again next pass. */
+  async leaderEquity(address: string): Promise<LeaderEquity> {
     const hit = this.equityCache.get(address);
-    if (hit && Date.now() - hit.at < LEADER_EQUITY_TTL_MS) return hit.value;
-    try {
-      const state = await this.info.clearinghouseState(address, undefined, LANE);
-      const value = Number(state.marginSummary.accountValue);
-      const ok = Number.isFinite(value) && value > 0 ? value : null;
-      this.equityCache.set(address, { at: Date.now(), value: ok });
-      return ok;
-    } catch (error) {
-      this.logger.warn(`Leader equity for ${address} failed: ${(error as Error).message}`);
-      return null;
+    if (hit && Date.now() - hit.at < LEADER_EQUITY_TTL_MS) return toLeaderEquity(hit.value);
+    let flight = this.equityInflight.get(address);
+    if (!flight) {
+      flight = (async (): Promise<LeaderEquity> => {
+        try {
+          const state = await this.info.clearinghouseState(address, undefined, LANE);
+          const value = Number(state.marginSummary.accountValue);
+          const ok = Number.isFinite(value) && value > 0 ? value : null;
+          this.equityCache.set(address, { at: Date.now(), value: ok });
+          return toLeaderEquity(ok);
+        } catch (error) {
+          this.logger.warn(`Leader equity for ${address} failed: ${(error as Error).message}`);
+          return { state: "failed" };
+        } finally {
+          this.equityInflight.delete(address);
+        }
+      })();
+      this.equityInflight.set(address, flight);
     }
+    return flight;
   }
 
   /** A fresh snapshot of the leader (adoption at activation). Throws on failure. */
@@ -126,4 +144,8 @@ export class CopyMarketService {
     if (Number.isFinite(value) && value > 0) this.equityCache.set(address, { at: Date.now(), value });
     return state;
   }
+}
+
+function toLeaderEquity(value: number | null): LeaderEquity {
+  return value === null ? { state: "none" } : { state: "known", value };
 }

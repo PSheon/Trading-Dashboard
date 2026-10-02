@@ -119,6 +119,8 @@ export class HyperliquidInfoClient {
     known?: number,
     /** Another info host (the wallet network's), still under this budget. */
     apiUrl?: string,
+    /** Set once the budget was taken: only then is there anything to refund. */
+    admission?: { admitted: boolean },
   ): Promise<T> {
     const caller = currentRequestSignal();
     // Time in the budget queue doesn't count against the request timeout:
@@ -127,6 +129,7 @@ export class HyperliquidInfoClient {
     // bounded by its own request's deadline (`caller`) instead.
     const queued = AbortSignal.any([this.jobs.signal, ...(caller ? [caller] : [])]);
     await this.budgeter.acquire(weight, priority, rank, { known, signal: queued });
+    if (admission) admission.admitted = true;
     queued.throwIfAborted();
     const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
 
@@ -162,7 +165,8 @@ export class HyperliquidInfoClient {
    * response didn't use. On failure the surcharge goes back and the base
    * stays spent (a failed call may still have been counted), except after a
    * 429, where the budgeter has just backed off and handing tokens back
-   * would undo that.
+   * would undo that. A call the budgeter refused (page busy, queue full,
+   * aborted while waiting) took nothing, so nothing goes back.
    */
   private async postList<T extends unknown[]>(
     body: HlInfoRequestBody,
@@ -174,10 +178,11 @@ export class HyperliquidInfoClient {
   ): Promise<T> {
     const worst = surcharge(maxItems);
     let result: T;
+    const admission = { admitted: false };
     try {
-      result = await this.post<T>(body, base + worst, priority, rank, base, apiUrl);
+      result = await this.post<T>(body, base + worst, priority, rank, base, apiUrl, admission);
     } catch (error) {
-      if (!(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-worst);
+      if (admission.admitted && !(error as Error).message.endsWith(": 429")) this.budgeter.adjust(-worst);
       throw error;
     }
     this.budgeter.adjust(surcharge(result.length) - worst);

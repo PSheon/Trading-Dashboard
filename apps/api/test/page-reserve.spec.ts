@@ -207,6 +207,24 @@ describe("consumer accounting, caps and the adaptive factor", () => {
     budget.onModuleDestroy();
   });
 
+  it("live calls do not wait for a capped background consumer's forced turn", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "840");
+    vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "200");
+    const budget = new RequestBudgeterService(testConfig());
+    budget.setConsumerCaps({ history: 20 });
+    // Spend the cap's saved-up allowance; the rest stay queued, capped.
+    for (let i = 0; i < 6; i++) void budgetConsumer("history", () => budget.acquire(20)).catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(budget.queued().background).toBeGreaterThan(0);
+    // More live calls than the streak that forces a background turn.
+    let live = 0;
+    for (let i = 0; i < 8; i++) void budget.acquire(2, "live").then(() => { live += 1; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(live).toBe(8);
+    budget.onModuleDestroy();
+  });
+
   it("the adaptive factor is 1 while page work is within the reserve's share and falls to the floor at the page share", async () => {
     vi.useFakeTimers();
     vi.stubEnv("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", "840");

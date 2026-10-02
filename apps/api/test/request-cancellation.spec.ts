@@ -53,3 +53,20 @@ it("keeps explicitly admitted background jobs independent of HTTP cancellation",
     expect(currentRequestSignal()).toBeUndefined();
   }));
 });
+
+it("refunds no list surcharge for a call the budgeter never admitted", async () => {
+  const { withRequestSignal } = await import("../src/runtime/request-context.js");
+  const { HyperliquidInfoClient } = await import("../src/hyperliquid/hyperliquid-info.client.js");
+  vi.stubEnv("HYPERLIQUID_WEIGHT_BURST", "1");
+  const budget = new RequestBudgeterService(testConfig());
+  await budget.acquire(1, "live");
+  const adjust = vi.spyOn(budget, "adjust");
+  const abort = new AbortController();
+  const client = new HyperliquidInfoClient(testConfig(), budget);
+  const waiting = withRequestSignal(abort.signal, () => client.userFills("0x" + "ab".repeat(20)));
+  const rejected = expect(waiting).rejects.toMatchObject({ name: "AbortError" });
+  abort.abort();
+  await rejected;
+  expect(adjust).not.toHaveBeenCalled();
+  budget.onModuleDestroy();
+});

@@ -617,6 +617,12 @@ export class RequestBudgeterService {
         }
       }
       if (interactive < 0 && other < 0) {
+        // A forced background turn with nothing able to go (every waiter
+        // over its consumer cap) is spent: live must not wait for a cap.
+        if (pick.forced) {
+          this.liveStreak = 0;
+          continue;
+        }
         // Everything eligible is capped (or skipped): wake when a cap refills.
         this.sleep(Number.isFinite(capped) ? capped : 1000);
         return;

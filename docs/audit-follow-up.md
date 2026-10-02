@@ -153,3 +153,11 @@ Source: `docs/copydog-visual-diff-2026-10-02.md`. Paul has not set priorities; o
 - The remaining review findings are done in the queue's order, all of them; security findings must be closed and verified.
 - Claude completes the About / FAQ / Privacy / Terms content. Builder address and fee wait for his confirmation.
 - `git push origin dev` is authorized without asking.
+
+## Decisions and state, 2026-10-02 afternoon
+
+- Stage redeployed at `23a41e1`. Variables set: api `API_TRUSTED_PROXY_CIDRS=fd12::/16`, `STREAM_TRUSTED_PROXY_HOPS=1`; web `CLIENT_IP_HEADER=x-real-ip`. Verified: limits are keyed on the visitor's address (log line `rate.limited`), spoofed `X-Real-IP` / `X-Forwarded-For` do not bypass, and Paul's phone on mobile data was not limited while this machine was.
+- Stage budgets changed (Paul): api 480/min burst 200, worker 360/min burst 100 (were 240/100 and 600/100). A first cold trader page answers in under 1 s; a second cold page in the same minute still waits (profile 10.9 s, activity and fills 503 at 12 s).
+- Deploys must be spaced: on 07:44Z a worker redeploy overlapped the old instance and Hyperliquid answered 429; the worker fell to its floor budget. To do: a new process starts at a reduced rate for its first minute.
+- Archive backfill (Paul): keep every field of every fill, no address excluded, last 90 days first. Storage becomes typed columns instead of the raw JSON text (lossless; about 190 bytes a row with indexes against about 700, estimate to be measured). Measured 2026-10-02: 84k kept fills an hour for 1,402 tracked addresses; 30 addresses over 500 fills an hour make 75% of rows. Six ingested hours matched the REST-confirmed fills exactly (5,434 of 5,434, no value mismatch).
+- Next streams, one at a time: admin and kill switches (running) → archive storage format and 90-day backfill → remaining review items 34–63 and the earlier findings (site optimisation).

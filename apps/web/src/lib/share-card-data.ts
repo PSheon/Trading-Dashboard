@@ -31,14 +31,14 @@ export function apiTarget(apiUrl: string | undefined, path: string): URL | null 
  * server, whose one bucket every visitor would otherwise share. */
 const onBehalfOf = (client: string | undefined): Record<string, string> => (client ? { "X-Forwarded-For": client } : {});
 
-async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: string, timeoutMs = TIMEOUT_MS, client?: string): Promise<T | null> {
+async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: string, timeoutMs = TIMEOUT_MS, client?: string, fresh = false): Promise<T | null> {
   const url = apiTarget(apiUrl, path);
   if (!url) return null;
   try {
     const res = await fetchImpl(url, {
       headers: { Accept: "application/json", "x-api-contract": "1", ...onBehalfOf(client) },
       signal: AbortSignal.timeout(timeoutMs),
-      next: { revalidate: SHARE_REVALIDATE_S },
+      ...(fresh ? { cache: "no-store" as const } : { next: { revalidate: SHARE_REVALIDATE_S } }),
     } as RequestInit);
     if (!res.ok) return null;
     const body = (await res.json()) as { success?: boolean; data?: T };
@@ -81,11 +81,13 @@ export async function loadTraderName(
 /** One coin's board (GET /discover/coins/:coin: a snapshot read, no
  * Hyperliquid call), for the coin page to decide between the page and the
  * 404 before anything is sent. null when the api is unset, slow or failing. */
+/** Not cached here: the answer decides between a page and a 404, and one
+ * taken while the api could not tell yet (`listed` null) must not be kept. */
 export function loadCoinBoard(
   coin: string,
   { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch, client }: { apiUrl?: string; fetchImpl?: Fetch; client?: string } = {},
 ): Promise<Pick<CoinBoardResponse, "items" | "stats" | "pool" | "listed"> | null> {
-  return getJson<Pick<CoinBoardResponse, "items" | "stats" | "pool" | "listed">>(fetchImpl, apiUrl, `/discover/coins/${encodeURIComponent(coin)}`, 3_000, client);
+  return getJson<Pick<CoinBoardResponse, "items" | "stats" | "pool" | "listed">>(fetchImpl, apiUrl, `/discover/coins/${encodeURIComponent(coin)}`, 3_000, client, true);
 }
 
 /** What the sitemap lists besides the fixed pages: every market on the coin

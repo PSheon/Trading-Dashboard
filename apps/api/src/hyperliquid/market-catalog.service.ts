@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { outsideRequest } from "../runtime/request-context.js";
 import { HyperliquidInfoClient } from "./hyperliquid-info.client.js";
@@ -24,7 +24,7 @@ export const MARKET_CATALOG_WAIT_MS = 2_000;
  * (no list has been read); callers must not treat that as "no".
  */
 @Injectable()
-export class MarketCatalogService {
+export class MarketCatalogService implements OnModuleInit {
   private readonly logger = new Logger(MarketCatalogService.name);
   private list: { coins: ReadonlySet<string>; at: number } | null = null;
   private loading: Promise<ReadonlySet<string> | null> | null = null;
@@ -33,6 +33,12 @@ export class MarketCatalogService {
   now: () => number = () => Date.now();
 
   constructor(private readonly info: HyperliquidInfoClient) {}
+
+  /** The first read starts with the process, not with the first visitor of
+   * a coin page (who would get "cannot tell yet" and no 404). */
+  onModuleInit(): void {
+    void this.markets(0);
+  }
 
   /** The listed markets, or null when none has been read yet and the read
    * did not finish within `waitMs`. */
@@ -75,10 +81,12 @@ export class MarketCatalogService {
   }
 
   private async read(): Promise<Set<string>> {
-    const dexes = await this.info.perpDexs();
+    // The live lane: a dozen small calls an hour, and behind the background
+    // queue they did not finish for minutes after a start.
+    const dexes = await this.info.perpDexs("live");
     const coins = new Set<string>();
     for (const dex of dexes) {
-      const meta = await this.info.meta(dex?.name || undefined);
+      const meta = await this.info.meta(dex?.name || undefined, "live");
       for (const asset of meta.universe) coins.add(asset.name);
       for (const [name] of dex?.assetToStreamingOiCap ?? []) coins.add(name);
     }

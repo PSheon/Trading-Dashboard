@@ -79,7 +79,18 @@ export class ArchiveIngestService {
   /** Cron entry point: one run at a time; never throws. */
   onTick(): Promise<void> {
     if (!this.enabled || this.jobs.stopping) return Promise.resolve();
-    this.running ??= this.jobs.run(async () => { await this.tick(); })
+    this.running ??= this.jobs.run(async () => {
+      // A run cut short by its time budget goes straight on: an object that
+      // takes longer than the budget would otherwise be the only one of its
+      // minute, and the rest of that minute idle. A run that stopped for
+      // any other reason (byte pace, daily cap, nothing due) waits for the
+      // next cron tick.
+      for (;;) {
+        const started = Date.now();
+        const outcomes = await this.tick();
+        if (this.jobs.stopping || outcomes.at(-1) !== "ingested" || Date.now() - started < TICK_BUDGET_MS) break;
+      }
+    })
       .catch(async (error: Error) => {
         // Name only: S3 errors can describe the account and the request.
         this.logger.warn(`Archive ingest failed: ${error.name}`);

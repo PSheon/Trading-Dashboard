@@ -433,7 +433,8 @@ describe("archive ingest", () => {
         .toEqual({ before: { calls: 3, weight: 211 }, after: { calls: 4, weight: 208 } });
     });
 
-    it("costs a fraction for an account whose history sits inside the archive", async () => {
+    // 14,500 rows written and read back: past the default 5 s on a slow CI runner.
+    it("costs a fraction for an account whose history sits inside the archive", { timeout: 30_000 }, async () => {
       // 14,500 fills inside the certified span; REST keeps the same fills.
       const spanFrom = H11 + ARCHIVE_BOUNDARY_MARGIN_MS;
       const heavy = Array.from({ length: 14_500 }, (_, i) => ({ ...template, tid: 50_000 + i, time: spanFrom + 1_000 + i * 400, startPosition: undefined }));

@@ -2,6 +2,9 @@ import { firstTraderLink, openFirstTrader, signIn, wcag } from "./helpers";
 import { test, expect } from '@playwright/test';
 for (const width of [1280, 390]) {
   test(`public discovery and trader accessibility at ${width}px`, async ({ page, context, baseURL }) => {
+    // First in the run: on a cold dev server it also pays for compiling the
+    // explore and trader pages (15 s locally, past the 30 s default in CI).
+    test.setTimeout(90000);
     await context.addCookies([{ name: 'locale', value: 'en', url: baseURL! }]);
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/explore');

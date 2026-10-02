@@ -1230,6 +1230,7 @@ export const zhCN: Messages = {
       allRoles: "所有角色",
       roles: {
         user: "用户",
+        operator: "运营（只读）",
         admin: "管理员",
       },
       total: "共 {total} 位用户",

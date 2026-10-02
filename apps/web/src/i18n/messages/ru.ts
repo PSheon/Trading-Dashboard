@@ -1230,6 +1230,7 @@ export const ru: Messages = {
       allRoles: "Все роли",
       roles: {
         user: "Пользователь",
+        operator: "Оператор (только чтение)",
         admin: "Админ",
       },
       total: "Пользователей: {total}",

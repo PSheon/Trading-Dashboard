@@ -129,6 +129,30 @@ describe("admin routes over HTTP", () => {
     expect(res.body.data).not.toHaveProperty("builderAddress");
   });
 
+  it("an operator reads every admin page here and can change nothing", async () => {
+    const users = await get("/admin/users?q=", "admin-token");
+    const target = users.body.data.items.find((u: { role: string }) => u.role === "user");
+    const patch = (path: string, body: object, token: string) => request(app.getHttpServer()).patch(path).set("Authorization", `Bearer ${token}`).send(body);
+    await patch(`/admin/users/${target.id}`, { role: "operator" }, "admin-token").expect(200);
+
+    for (const path of ["/admin/users", "/admin/settings", "/admin/overview", "/admin/revenue"]) {
+      expect((await get(path, "user-token")).status, path).toBe(200);
+    }
+    const me = (await get("/admin/users?role=operator", "user-token")).body.data.items;
+    expect(me).toHaveLength(1);
+    const admin = users.body.data.items.find((u: { role: string }) => u.role === "admin");
+    const { revisions } = (await get("/admin/settings", "user-token")).body.data;
+    // Not other users, not themself, not the settings.
+    expect((await patch(`/admin/users/${admin.id}`, { disabled: true }, "user-token")).body.error.code).toBe("insufficient_permissions");
+    await patch(`/admin/users/${target.id}`, { role: "admin" }, "user-token").expect(403);
+    await patch("/admin/settings", { general: { signupsOpen: false }, expectedRevisions: { general: revisions.general } }, "user-token").expect(403);
+    expect((await get("/admin/settings", "admin-token")).body.data.general.signupsOpen).toBe(true);
+    expect((await get("/admin/users?role=admin", "admin-token")).body.data.items).toHaveLength(1);
+    // Back to a plain user: the admin area closes on the very next request.
+    await patch(`/admin/users/${target.id}`, { role: "user" }, "admin-token").expect(200);
+    expect((await get("/admin/users", "user-token")).status).toBe(403);
+  });
+
   it("applies a promotion or a disable to the user's very next request", async () => {
     expect((await get("/admin/users", "user-token")).status).toBe(403); // now cached as a plain user
     const users = await get("/admin/users?q=", "admin-token");

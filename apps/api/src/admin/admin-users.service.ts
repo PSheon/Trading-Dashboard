@@ -32,9 +32,10 @@ export class AdminUsersService {
   }
 
   /**
-   * Role change and/or disable. Rules, in order:
-   * 404 unknown id; 400 `{code:"self"}` when an admin demotes or disables
-   * themself; 409 `{code:"last_admin"}` when no enabled admin would be left.
+   * Role change (user, operator, admin) and/or disable. Rules, in order:
+   * 404 unknown id; 400 `{code:"self"}` when an admin demotes (to operator
+   * or user) or disables themself; 409 `{code:"last_admin"}` when no
+   * enabled admin would be left.
    *
    * Runs in a transaction that first locks every enabled admin row (in id
    * order, so two admins demoting each other can't deadlock), so concurrent
@@ -48,7 +49,7 @@ export class AdminUsersService {
       const target = await this.repository.lockUser(tx, id);
       if (!target) throw new NotFoundException({ statusCode: 404, message: `No user ${id}` });
 
-      if (userIdOf(actor) === id && (request.role === "user" || request.disabled === true)) {
+      if (userIdOf(actor) === id && ((request.role !== undefined && request.role !== "admin") || request.disabled === true)) {
         throw new BadRequestException({
           statusCode: 400,
           code: "self",

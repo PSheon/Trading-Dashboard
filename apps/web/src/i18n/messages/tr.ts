@@ -1230,6 +1230,7 @@ export const tr: Messages = {
       allRoles: "Tüm roller",
       roles: {
         user: "Kullanıcı",
+        operator: "Operatör (salt okunur)",
         admin: "Yönetici",
       },
       total: "{total} kullanıcı",

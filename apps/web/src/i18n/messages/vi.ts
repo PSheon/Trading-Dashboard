@@ -1230,6 +1230,7 @@ export const vi: Messages = {
       allRoles: "Mọi vai trò",
       roles: {
         user: "Người dùng",
+        operator: "Vận hành (chỉ đọc)",
         admin: "Quản trị viên",
       },
       total: "{total} người dùng",

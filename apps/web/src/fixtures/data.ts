@@ -653,15 +653,20 @@ export function health(): HeartbeatResponse {
   };
 }
 
+/** `?as=operator` in the page URL signs the demo account in as a read-only
+ * operator instead of an admin (browser tests and screenshots). */
+const fixtureRole: "admin" | "operator" =
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).get("as") === "operator" ? "operator" : "admin";
+
 export function fixtureMe(locale: MeResponse["locale"]): MeResponse {
   return {
     id: 1,
     privyUserId: "did:privy:fixture-demo-user",
-    permissions: [...ROLE_PERMISSIONS.admin],
+    permissions: [...ROLE_PERMISSIONS[fixtureRole]],
     email: "demo@example.com",
     walletAddress: "0x0000000000000000000000000000000000000000",
     displayName: "Demo",
-    role: "admin",
+    role: fixtureRole,
     locale,
     createdAt: new Date(NOW - 12 * 86400_000),
   };

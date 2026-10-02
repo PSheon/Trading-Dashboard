@@ -199,7 +199,7 @@ function FormCard<S extends Section>({
         <p className="text-sm leading-relaxed text-muted-foreground">{asking?.body}</p>
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={() => setAsking(null)}>{t("adminOps.maintenance.cancel")}</Button>
-          <Button type="button" variant="destructive" onClick={() => send(true)}>{t("adminOps.maintenance.confirm")}</Button>
+          <Button type="button" onClick={() => send(true)}>{t("adminOps.maintenance.confirm")}</Button>
         </div>
       </Modal>
     </Panel>

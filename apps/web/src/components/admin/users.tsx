@@ -1,7 +1,7 @@
 "use client";
 
 import { LOCALE_NAMES, type Locale } from "@/i18n/config";
-import type { UserRole } from "@/lib/contracts";
+import { userRoleEnum, type AdminUser, type UserRole } from "@/lib/contracts";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
@@ -9,6 +9,7 @@ import { cn } from "cn";
 import { EmptyState, ErrorState, Panel, Skeleton } from "@/components/page";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n/provider";
@@ -18,6 +19,14 @@ import { truncateAddress } from "@/lib/format";
 
 const PAGE = 20;
 
+/** A role change or a disable / enable waiting for its confirmation. */
+type Pending = { user: AdminUser; role: UserRole } | { user: AdminUser; disabled: boolean };
+const ROLE_TONE: Record<UserRole, string> = {
+  admin: "bg-primary-soft text-primary",
+  operator: "bg-warning/15 text-warning",
+  user: "bg-raised text-muted-foreground",
+};
+
 export function AdminUsers() {
   const { t, format } = useI18n();
   const { data: me } = useMe();
@@ -26,6 +35,8 @@ export function AdminUsers() {
   const [q, setQ] = useState("");
   const [role, setRole] = useState<UserRole | "">("");
   const [page, setPage] = useState(0);
+  // Nothing is sent on the first click (review finding 63): a role change and a disable are confirmed.
+  const [pending, setPending] = useState<Pending | null>(null);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -67,7 +78,7 @@ export function AdminUsers() {
           <option value="" className="bg-popover">
             {t("admin.users.allRoles")}
           </option>
-          {(["user", "admin"] as const).map((r) => (
+          {userRoleEnum.map((r) => (
             <option key={r} value={r} className="bg-popover">
               {t(`admin.users.roles.${r}`)}
             </option>
@@ -116,19 +127,24 @@ export function AdminUsers() {
                 const busy = update.isPending && update.variables?.id === u.id;
                 const actions = (
                   <div className="flex justify-end gap-1.5">
-                    <Button
-                      variant="secondary"
-                      size="xs"
+                    <select
+                      aria-label={t("adminOps.users.role", { name: nameOf(u) })}
+                      value={u.role}
                       disabled={!canManage || self || busy}
-                      onClick={() => update.mutate({ id: u.id, patch: { role: u.role === "admin" ? "user" : "admin" } })}
+                      onChange={(e) => setPending({ user: u, role: e.target.value as UserRole })}
+                      className="h-6 rounded-full bg-raised px-2 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
                     >
-                      {u.role === "admin" ? t("admin.users.makeUser") : t("admin.users.makeAdmin")}
-                    </Button>
+                      {userRoleEnum.map((r) => (
+                        <option key={r} value={r} className="bg-popover">
+                          {t(`admin.users.roles.${r}`)}
+                        </option>
+                      ))}
+                    </select>
                     <Button
                       variant={u.disabled ? "secondary" : "destructive"}
                       size="xs"
                       disabled={!canManage || self || busy}
-                      onClick={() => update.mutate({ id: u.id, patch: { disabled: !u.disabled } })}
+                      onClick={() => setPending({ user: u, disabled: !u.disabled })}
                     >
                       {u.disabled ? t("admin.users.enable") : t("admin.users.disable")}
                     </Button>
@@ -158,7 +174,7 @@ export function AdminUsers() {
                       <span
                         className={cn(
                           "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                          u.role === "admin" ? "bg-primary-soft text-primary" : "bg-raised text-muted-foreground",
+                          ROLE_TONE[u.role],
                         )}
                       >
                         {t(`admin.users.roles.${u.role}`)}
@@ -209,6 +225,43 @@ export function AdminUsers() {
           </div>
         ) : null}
       </Panel>
+      <ConfirmChange
+        pending={pending}
+        onCancel={() => setPending(null)}
+        onConfirm={(change) => {
+          update.mutate({ id: change.user.id, patch: "role" in change ? { role: change.role } : { disabled: change.disabled } });
+          setPending(null);
+        }}
+      />
     </div>
+  );
+}
+
+const nameOf = (u: AdminUser) => u.displayName ?? u.email ?? `#${u.id}`;
+
+function ConfirmChange({ pending, onCancel, onConfirm }: { pending: Pending | null; onCancel: () => void; onConfirm: (change: Pending) => void }) {
+  const { t } = useI18n();
+  let title = "";
+  let body: React.ReactNode = null;
+  if (pending && "role" in pending) {
+    title = t("adminOps.users.roleTitle");
+    body = (
+      <>
+        <p>{t("adminOps.users.roleBody", { name: nameOf(pending.user), from: t(`admin.users.roles.${pending.user.role}`), to: t(`admin.users.roles.${pending.role}`) })}</p>
+        <p className="mt-3 rounded-xl bg-raised p-3 text-xs">{t(`adminOps.users.grants.${pending.role}`)}</p>
+      </>
+    );
+  } else if (pending) {
+    title = t(pending.disabled ? "adminOps.users.disableTitle" : "adminOps.users.enableTitle");
+    body = <p>{t(pending.disabled ? "adminOps.users.disableBody" : "adminOps.users.enableBody", { name: nameOf(pending.user) })}</p>;
+  }
+  return (
+    <Modal open={pending !== null} onOpenChange={(open) => { if (!open) onCancel(); }} title={title}>
+      <div className="text-sm leading-relaxed text-muted-foreground">{body}</div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onCancel}>{t("adminOps.users.cancel")}</Button>
+        <Button type="button" onClick={() => pending && onConfirm(pending)}>{t("adminOps.users.confirm")}</Button>
+      </div>
+    </Modal>
   );
 }

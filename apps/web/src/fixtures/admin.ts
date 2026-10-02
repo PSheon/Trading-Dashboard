@@ -144,7 +144,7 @@ export let adminUsers: AdminUser[] = NAMES.map((name, i) => {
       ? `0x${Math.floor(random() * 2 ** 52).toString(16).padStart(13, "0")}${"0".repeat(27)}`
       : null,
     displayName: name,
-    role: i === 0 || i === 3 ? "admin" : "user",
+    role: i === 0 || i === 3 ? "admin" : i === 5 ? "operator" : "user",
     locale: random() < 0.75 ? "zh-TW" : "en",
     favorites: Math.floor(random() ** 2 * 18),
     telegramEnabled: random() < 0.45,

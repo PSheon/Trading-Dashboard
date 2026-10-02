@@ -3936,6 +3936,7 @@
               "type": "string",
               "enum": [
                 "user",
+                "operator",
                 "admin"
               ]
             }
@@ -4028,6 +4029,7 @@
                                 "type": "string",
                                 "enum": [
                                   "user",
+                                  "operator",
                                   "admin"
                                 ]
                               },
@@ -4206,6 +4208,7 @@
                           "type": "string",
                           "enum": [
                             "user",
+                            "operator",
                             "admin"
                           ]
                         },
@@ -12731,6 +12734,7 @@
                           "type": "string",
                           "enum": [
                             "user",
+                            "operator",
                             "admin"
                           ]
                         },
@@ -12905,6 +12909,7 @@
                           "type": "string",
                           "enum": [
                             "user",
+                            "operator",
                             "admin"
                           ]
                         },
@@ -22239,8 +22244,10 @@
             "type": "string",
             "enum": [
               "user",
+              "operator",
               "admin"
-            ]
+            ],
+            "description": "operator = read-only operations: every *.read grant, no write"
           },
           "disabled": {
             "type": "boolean"

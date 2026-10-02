@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { OPERATOR_PERMISSIONS, PERMISSIONS, ROLE_PERMISSIONS } from "@trading-dashboard/shared/contracts";
 import { hasPermission } from "../src/lib/permissions";
 
 describe("effective permissions", () => {
@@ -7,5 +8,16 @@ describe("effective permissions", () => {
     expect(hasPermission({ permissions: [] }, "admin.access")).toBe(false);
     expect(hasPermission({ permissions: ["users.read"] }, "users.manage")).toBe(false);
     expect(hasPermission({ permissions: ["users.read"] }, "users.read")).toBe(true);
+  });
+
+  it("an operator opens the admin area and reads; every control that writes stays off", () => {
+    const operator = { permissions: ROLE_PERMISSIONS.operator };
+    expect(ROLE_PERMISSIONS.operator).toBe(OPERATOR_PERMISSIONS);
+    for (const read of ["admin.access", "users.read", "settings.read", "copy.read", "audit.read", "jobs.read", "revenue.read"] as const) {
+      expect(hasPermission(operator, read), read).toBe(true);
+    }
+    const writes = PERMISSIONS.filter((p) => !OPERATOR_PERMISSIONS.includes(p));
+    expect(writes).toEqual(["jobs.retry", "settings.write", "users.manage", "leaders.manage", "leaders.import", "rules.manage", "kols.manage", "execution.pause", "execution.resume", "risk.manage"]);
+    for (const write of writes) expect(hasPermission(operator, write), write).toBe(false);
   });
 });

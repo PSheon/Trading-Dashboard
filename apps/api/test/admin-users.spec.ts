@@ -1,8 +1,8 @@
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { AdminUsersRepository, escapeLike } from "../src/admin/admin-users.repository.js";
 import { BadRequestException, ConflictException, NotFoundException, type HttpException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
-import { notificationChannels, userFavorites, users } from "@trading-dashboard/shared/database";
+import { asc, eq } from "drizzle-orm";
+import { adminAuditLogs, notificationChannels, userFavorites, users } from "@trading-dashboard/shared/database";
 import { adminUsersResponseSchema } from "@trading-dashboard/shared/contracts";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,7 +13,7 @@ import { insertUser, truncateAdminTables } from "./admin-test-utils.js";
 import { closeTestDb, getTestDb } from "./db-test-utils.js";
 
 const SERVICE: RequestUser = { kind: "service", permissions: [] };
-const asUser = (row: { id: number; privyUserId: string; role: "user" | "admin" }): RequestUser => ({
+const asUser = (row: { id: number; privyUserId: string; role: "user" | "operator" | "admin" }): RequestUser => ({
   kind: "user",
   id: row.id,
   privyUserId: row.privyUserId,
@@ -158,6 +158,32 @@ describe("admin users — real Postgres", () => {
       const [after] = await db.select().from(users).where(eq(users.id, user.id));
       expect(after.disabledAt).toBeNull();
       expect(invalidateUser.mock.calls).toEqual([[user.id], [user.id], [user.id], [user.id]]);
+    });
+
+    it("makes a user a read-only operator and back; the audit log keeps both roles", async () => {
+      const admin = await insertUser(db, { role: "admin" });
+      const user = await insertUser(db, { email: "ops@x.io" });
+      expect((await service.patch(user.id, { role: "operator" }, asUser(admin))).role).toBe("operator");
+      expect((await service.list({ role: "operator" })).items.map((u) => u.id)).toEqual([user.id]);
+      expect((await service.patch(user.id, { role: "admin" }, asUser(admin))).role).toBe("admin");
+      expect((await service.patch(user.id, { role: "operator" }, asUser(admin))).role).toBe("operator");
+      const audit = await db.select().from(adminAuditLogs).orderBy(asc(adminAuditLogs.id));
+      expect(audit.map((a) => [a.event, (a.beforeJson as { role: string }).role, (a.afterJson as { role: string }).role])).toEqual([
+        ["user.update", "user", "operator"], ["user.update", "operator", "admin"], ["user.update", "admin", "operator"],
+      ]);
+    });
+
+    it("an admin can't make themself an operator, and the last enabled admin can't become one", async () => {
+      const admin = await insertUser(db, { role: "admin" });
+      const self = await httpError(service.patch(admin.id, { role: "operator" }, asUser(admin)));
+      expect(self).toBeInstanceOf(BadRequestException);
+      expect(self.getResponse()).toMatchObject({ code: "self" });
+      const last = await httpError(service.patch(admin.id, { role: "operator" }, SERVICE));
+      expect(last).toBeInstanceOf(ConflictException);
+      expect(last.getResponse()).toMatchObject({ code: "last_admin" });
+      // An operator is not an admin: with one admin and one operator, the admin is still the last one.
+      await insertUser(db, { role: "operator" });
+      expect(await httpError(service.patch(admin.id, { role: "user" }, SERVICE))).toBeInstanceOf(ConflictException);
     });
 
     it("drops the user's cached sign-ins only after a change that went through", async () => {

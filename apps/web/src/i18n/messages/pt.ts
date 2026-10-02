@@ -1230,6 +1230,7 @@ export const pt: Messages = {
       allRoles: "Todas as funções",
       roles: {
         user: "Usuário",
+        operator: "Operador (somente leitura)",
         admin: "Admin",
       },
       total: "{total} usuários",

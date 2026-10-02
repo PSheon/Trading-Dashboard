@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { appSettingsKeyEnum, localeEnum } from "../enums.js";
+import { appSettingsKeyEnum, localeEnum, userRoleEnum } from "../enums.js";
 import { PERMISSIONS } from "../permissions.js";
 
 export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -451,7 +451,7 @@ export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
 // See docs/Stage 2 — 跟單平台前置（探索、Privy、UI 重做）.md
 // ===========================================================================
 
-export const userRoleSchema = z.enum(["user", "admin"]);
+export const userRoleSchema = z.enum(userRoleEnum);
 export const localeSchema = z.enum(localeEnum);
 export type LocaleInput = z.infer<typeof localeSchema>;
 

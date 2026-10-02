@@ -497,6 +497,22 @@ export const en: Messages = {
   },
   /** Admin-only wording added after the settings forms (maintenance, users, system). */
   adminOps: {
+    users: {
+      role: "Role of {name}",
+      roleTitle: "Change role?",
+      roleBody: "Change {name} from “{from}” to “{to}”. It applies to their next request.",
+      grants: {
+        user: "User: no access to the admin area.",
+        operator: "Operator (read-only): can open the admin area and read every page (except the KOL registry). Cannot change settings, users, lists or rules, and cannot send copy stop or resume commands.",
+        admin: "Admin: every permission, including settings, users and roles, risk limits, and copy stop and resume.",
+      },
+      disableTitle: "Disable this account?",
+      disableBody: "{name} is signed out at once and cannot sign in until the account is enabled again. Their data and copies are not deleted.",
+      enableTitle: "Enable this account again?",
+      enableBody: "{name} can sign in again.",
+      confirm: "Confirm",
+      cancel: "Cancel",
+    },
     maintenance: {
       title: "Maintenance mode",
       toggle: "Turn maintenance mode on",
@@ -1802,6 +1818,7 @@ export const en: Messages = {
       allRoles: "All roles",
       roles: {
         user: "User",
+        operator: "Operator (read-only)",
         admin: "Admin",
       },
       total: "{total} users",

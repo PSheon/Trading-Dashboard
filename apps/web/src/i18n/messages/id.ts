@@ -1230,6 +1230,7 @@ export const id: Messages = {
       allRoles: "Semua peran",
       roles: {
         user: "Pengguna",
+        operator: "Operator (hanya baca)",
         admin: "Admin",
       },
       total: "{total} pengguna",

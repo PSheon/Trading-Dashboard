@@ -500,6 +500,22 @@ export const zhTW = {
   },
   /** Admin-only wording added after the settings forms (maintenance, users, system). */
   adminOps: {
+    users: {
+      role: "{name} 的角色",
+      roleTitle: "變更角色？",
+      roleBody: "把 {name} 從「{from}」改為「{to}」。對方的下一個請求就會生效。",
+      grants: {
+        user: "一般使用者：不能進入管理區。",
+        operator: "營運（唯讀）：可以進入管理區並查看所有頁面（KOL 名單除外），不能修改任何設定、使用者、名單、規則，也不能下達跟單停止或恢復命令。",
+        admin: "管理員：擁有全部權限，包括設定、使用者與角色、風控上限、跟單停止與恢復。",
+      },
+      disableTitle: "停用這個帳號？",
+      disableBody: "{name} 會立即被登出，之後無法登入，直到重新啟用。對方的資料與跟單不會被刪除。",
+      enableTitle: "重新啟用這個帳號？",
+      enableBody: "{name} 可以再次登入。",
+      confirm: "確認",
+      cancel: "取消",
+    },
     maintenance: {
       title: "維護模式",
       toggle: "開啟維護模式",
@@ -1806,6 +1822,7 @@ export const zhTW = {
       allRoles: "所有角色",
       roles: {
         user: "使用者",
+        operator: "營運（唯讀）",
         admin: "管理員",
       },
       total: "共 {total} 位使用者",

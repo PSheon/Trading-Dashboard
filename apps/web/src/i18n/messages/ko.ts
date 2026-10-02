@@ -1230,6 +1230,7 @@ export const ko: Messages = {
       allRoles: "모든 역할",
       roles: {
         user: "사용자",
+        operator: "운영자(읽기 전용)",
         admin: "관리자",
       },
       total: "사용자 {total}명",

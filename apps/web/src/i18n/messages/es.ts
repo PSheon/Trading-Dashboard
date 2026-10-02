@@ -1230,6 +1230,7 @@ export const es: Messages = {
       allRoles: "Todos los roles",
       roles: {
         user: "Usuario",
+        operator: "Operador (solo lectura)",
         admin: "Administrador",
       },
       total: "{total} usuarios",

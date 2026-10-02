@@ -109,7 +109,7 @@ function ControlForm({ request, onClose }: { request: ControlRequest; onClose: (
       ) : null}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onClose}>{t("copyAdmin.dialog.cancel")}</Button>
-        <Button type="submit" variant={request.command === "resume" ? "default" : "destructive"} disabled={!armed || control.isPending}>
+        <Button type="submit" disabled={!armed || control.isPending}>
           {control.isPending ? t("copyAdmin.dialog.sending") : t("copyAdmin.dialog.confirm", { command: t(`copyAdmin.commands.${request.command}`) })}
         </Button>
       </div>

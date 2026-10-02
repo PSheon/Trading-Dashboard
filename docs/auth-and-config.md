@@ -81,6 +81,72 @@ Successful administrative mutations are now transactionally audited; see
 [administrative audit](admin-audit.md). Dynamic custom roles remain out of scope. Never
 rely on UI visibility for access.
 
+## Roles (review finding 14)
+
+`users.role` is `user`, `operator` or `admin` (a text column; no migration).
+
+- **user**: no permissions.
+- **operator**: read-only operations. `admin.access`, every `*.read`
+  permission and `alerts.readAll`; nothing that changes state
+  (`OPERATOR_PERMISSIONS` in `packages/shared/src/permissions.ts`: a new
+  `*.read` permission joins it by its name). The KOL registry is behind
+  `kols.manage` even for reads, so an operator does not see it.
+  `test/operator-role.spec.ts` walks every route and fails if a route that is
+  not a GET could be satisfied by the operator's grants; the one exception,
+  `POST /admin/copy/controls`, is decided by its service from the command
+  (`execution.pause` / `execution.resume`) and answers an operator 403.
+- **admin**: every permission.
+
+An admin assigns roles in `/admin/users` (`PATCH /admin/users/:id`,
+`users.manage`). A role change and a disable / enable each open a
+confirmation that says who, from what to what, and what the new role may do;
+nothing is sent on the first click. Self-demotion (to operator or user) and
+self-disable stay refused (400 `self`), and the last enabled admin cannot be
+demoted or disabled (409 `last_admin`); an operator does not count as an
+admin for that rule. Every change is a `user.update` audit event.
+
+## Step-up (MFA) for sensitive permissions: not enforced, and why
+
+The plan was to require a completed Privy MFA challenge for requests that use
+`users.manage`, `settings.write`, `risk.manage` or `execution.resume`, behind a
+setting. It is **not built**, because with the installed packages the api has
+nothing to verify. Read on 2026-10-02 from `@privy-io/node` 0.35.0,
+`@privy-io/react-auth` 3.46.0 and `@privy-io/routes` 0.4.2 in `node_modules`:
+
+- **Access token.** `verifyAccessToken` returns `app_id`, `issuer`,
+  `issued_at`, `expiration`, `session_id`, `user_id` (JWT `aud`, `iss`, `iat`,
+  `exp`, `sid`, `sub`) and nothing else: no `amr`, `acr`, `auth_time` or other
+  claim saying how, or how recently, the person authenticated. (Whether the raw
+  JWT carries a further claim the SDK drops was not checked against a real
+  token.)
+- **User record.** `users()._get(id)` and the identity token give
+  `mfa_methods: [{ type: "sms" | "totp" | "passkey" | "email", verified_at }]`,
+  and the `mfa.enabled` / `mfa.disabled` webhooks report changes. This says the
+  account is *enrolled*. The types do not say that `verified_at` moves on each
+  challenge, and nothing ties it to a session.
+- **The challenge itself.** The browser's `useMfa()` (`init`, `submit`,
+  `promptMfa`) talks to Privy's `/api/v1/mfa/{totp,passwordless_sms,passkeys}/verify`
+  and receives `{ token }`. That token is passed to Privy's embedded-wallet
+  iframe with wallet requests (`MfaSubmitArgs`); Privy checks it there. The
+  server SDK has no method that accepts or verifies it: `ClientAuth` declares
+  types only, and `Users` has no MFA call.
+
+So the api can verify enrollment, not completion. A gate on enrollment alone
+would look like step-up and stop nobody who holds a stolen session token, so it
+was left out. What would make real enforcement possible, any one of:
+
+1. Privy exposing a server-verifiable proof of a recent MFA challenge (a token
+   claim, or an endpoint that verifies the MFA token), then checked in
+   `PermissionGuard` for those permissions.
+2. Orbie's own second factor for admins (a TOTP secret enrolled per admin, a
+   server-issued step-up grant valid for a few minutes, required by
+   `PermissionGuard` for those permissions). Independent of the Privy dashboard.
+3. A passkey (WebAuthn) assertion verified by the api itself, same shape as 2.
+
+Until then the mitigations in force are: the operator role for people who only
+need to read, typed or explicit confirmation on every dangerous admin action,
+the audit log, and per-request re-reading of role and disabled state.
+
 ## Startup validation
 
 `config/runtime-config.ts::validateEnvironment` runs before Nest creates DB,

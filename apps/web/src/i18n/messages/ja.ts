@@ -1230,6 +1230,7 @@ export const ja: Messages = {
       allRoles: "すべての権限",
       roles: {
         user: "ユーザー",
+        operator: "オペレーター（閲覧のみ）",
         admin: "管理者",
       },
       total: "ユーザー {total} 名",

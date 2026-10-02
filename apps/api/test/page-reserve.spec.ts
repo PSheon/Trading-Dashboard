@@ -187,18 +187,17 @@ describe("consumer accounting, caps and the adaptive factor", () => {
     budget.setConsumerCaps({ history: 60 });
     const sent: number[] = [];
     const t0 = Date.now();
-    // 2 minutes may be saved up: 120 weight go now, the rest at 60/min.
-    for (let i = 0; i < 9; i++) void budgetConsumer("history", () => budget.acquire(20)).then(() => sent.push(Date.now() - t0));
+    // One minute may be saved up: 60 weight go now, the rest at 60/min.
+    for (let i = 0; i < 9; i++) void budgetConsumer("history", () => budget.acquire(20)).then(() => sent.push(Date.now() - t0), () => undefined);
     await vi.advanceTimersByTimeAsync(0);
-    expect(sent).toHaveLength(3); // 60 of the main bucket's usable 72 at once, then...
-    await vi.advanceTimersByTimeAsync(10_000);
-    // ...the rest of the saved-up 120 as the main bucket refills, and one
-    // more once the cap's bucket is above zero again (it may go negative
-    // by one call, like the main bucket).
-    expect(sent).toHaveLength(7);
+    expect(sent).toHaveLength(3);
+    // The next call waits until the cap's bucket holds its 20 again: 20 s.
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(sent).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sent).toHaveLength(4);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(sent.length).toBeGreaterThanOrEqual(8);
-    expect(sent.length).toBeLessThanOrEqual(9);
+    expect(sent).toHaveLength(7);
     // Other consumers are not held back by the cap.
     const other: string[] = [];
     void budget.acquire(20).then(() => other.push("other"));

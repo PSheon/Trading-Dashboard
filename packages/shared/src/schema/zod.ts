@@ -402,6 +402,9 @@ export const heartbeatResponseSchema = z.object({
     /** 1 = background jobs run at their full allowance; lower while pages are busy. */
     backgroundFactor: z.number(),
     consumers: z.record(z.number()),
+    /** The weight-per-minute cap each capped consumer is held to now: its
+     * setting, scaled so that all caps fit the effective budget. */
+    caps: z.record(z.number()).optional(),
   }).optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */

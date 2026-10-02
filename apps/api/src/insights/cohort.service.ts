@@ -5,7 +5,7 @@ import { pnlTier } from "../analytics/trade-metrics.js";
 import { AppConfig } from "../config/app-config.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
-import { PAGE_RANK, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
+import { ESSENTIAL_RANK, PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
@@ -28,7 +28,7 @@ export const CANDLES_TTL_MS = 10 * 60_000;
 /** Chart points per history response. */
 const MAX_POINTS = 400;
 /** Behind page loads, level with other background work (like the pool). */
-const COHORT_RANK = UNRANKED_BASE;
+const COHORT_RANK = ESSENTIAL_RANK.cohort;
 /** The perp dex list changes rarely. */
 const DEX_LIST_TTL_MS = 60 * 60_000;
 

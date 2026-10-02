@@ -52,6 +52,7 @@ export class HealthService {
         reserveCapacity: budget.reserveCapacity,
         backgroundFactor: Math.round(budget.backgroundFactor * 100) / 100,
         consumers: budget.consumers,
+        caps: budget.consumerCaps,
       },
       // Age of the boards' and home rows' figures; a failed read must not fail the heartbeat.
       discovery: await this.pool?.freshness().then((f) => ({

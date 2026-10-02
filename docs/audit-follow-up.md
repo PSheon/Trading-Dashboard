@@ -162,3 +162,23 @@ Source: `docs/copydog-visual-diff-2026-10-02.md`. Paul has not set priorities; o
 - Archive backfill (Paul): keep every field of every fill, no address excluded, last 90 days first. Storage becomes typed columns instead of the raw JSON text (lossless; about 190 bytes a row with indexes against about 700, estimate to be measured). Measured 2026-10-02: 84k kept fills an hour for 1,402 tracked addresses; 30 addresses over 500 fills an hour make 75% of rows. Six ingested hours matched the REST-confirmed fills exactly (5,434 of 5,434, no value mismatch).
 - Next streams, one at a time: admin and kill switches (running) → archive storage format and 90-day backfill → remaining review items 34–63 and the earlier findings (site optimisation).
 - Parity decisions (Paul, 2026-10-02, on `docs/copydog-feature-parity-2026-10-02.md`): remove the favorites "跟單中" tab and group rename / reorder from user pages. Unchanged: no news page, no app badges, copy pause / resume / edit stay, the 模擬 badge stays, real execution only after testnet and his explicit approval. Missing CopyDog features are built after the three streams above: portfolio page → explore and trader page → notifications; the copy-and-funds items go into the testnet execution design.
+
+## Incident 2026-10-02 08:30–09:35Z: the worker at 360/min starved snapshots, sweeps and cohorts
+
+What happened on Stage: the worker's budget was lowered from 600 to 360 a minute; the job allowances stayed at their absolute settings (pool performance 240, pool ledgers 100, history 120, backfill 120, cohort 60 = 640). For an hour `/health` showed `pool.performance` 220–240 and `pool.ledgers` 120–140, the whole budget; `lastSnapshotAt` stayed null (the 08:35 run never finished), no sweep ran after 08:31, cohorts had no data (`walletCount 0`), and ledger refreshes failed "after weight 0: Hyperliquid is busy". Back at 600 everything resumed.
+
+Causes, read from the code:
+
+1. **Ranks.** The pool's performance loop ran at rank 999 and its ledger loop and the history job at 1,000; every call without a rank (snapshots, sweeps, backfill, fill storage) got `1,000 + arrival`. The budgeter serves the lowest rank first, so pool and history calls went ahead of all of those whenever they were waiting, which at 360 was always.
+2. **Absolute allowances.** Nothing related the five settings to the budget the process had; 640 does not fit 360.
+3. **The snapshot run never returned** because a background call waits in the budget queue without a limit (only the HTTP request has a timeout, and queue time is excluded from it on purpose), and `snapshotAll` is single-flight: every later 5-minute tick joined the run that was still waiting.
+4. **`pool.ledgers` above its cap** (185 at a cap of 100, also at 600): that cap was not enforced by the budgeter. The loop charged itself what a computation logged when it finished; a computation that failed half way ("Hyperliquid is busy", after several fill lists) logged nothing and was charged 20. The more the budget was contended, the more computations failed, and the more weight went uncounted.
+
+Fixed 2026-10-02 (`request-budgeter.service.ts`, `budget-consumers.spec.ts`; table in [railway-deploy.md](railway-deploy.md)):
+
+- all five allowances are budgeter caps on what is actually sent, one-minute buckets, and together at most 75 % of the effective budget (scaled in proportion, also after a 429);
+- snapshots, sweeps and cohort reads have their own rank, ahead of every other job;
+- their calls fail after 4, 14 and 2 minutes in the queue, so a run ends and reports a failure (`lastSnapshotFailureAt`) instead of blocking the next ones;
+- a page that joined a capped computation is not held by that cap.
+
+Worker budget after the fix: 360 is safe for 20 watched leaders (snapshots and sweeps ≈ 69 a minute, 90 left outside the caps). Its 429 floor (72) covers snapshots and sweeps with nothing to spare; that state lasts minutes.

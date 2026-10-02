@@ -54,11 +54,13 @@ export class SettingsService implements ConsumerCapSource {
     budgeter?.useConsumerCaps(this);
   }
 
-  /** Weight-per-minute caps of the budget consumers the budgeter enforces
-   * itself (the pool and cohort loops pace themselves by their settings). */
+  /** Weight-per-minute caps of the labelled budget consumers. The budgeter
+   * enforces them on what is actually sent and scales them to the budget
+   * the process has; the pool and cohort loops also pace themselves by the
+   * same settings, which a failed computation's calls slipped past. */
   async consumerCaps(): Promise<Record<string, number>> {
-    const { historyWeightPerMinute, backfillWeightPerMinute } = await this.get("discovery");
-    return { history: historyWeightPerMinute, backfill: backfillWeightPerMinute };
+    const { historyWeightPerMinute, backfillWeightPerMinute, poolWeightPerMinute, poolPerformanceWeightPerMinute, cohortWeightPerMinute } = await this.get("discovery");
+    return { history: historyWeightPerMinute, backfill: backfillWeightPerMinute, "pool.ledgers": poolWeightPerMinute, "pool.performance": poolPerformanceWeightPerMinute, cohort: cohortWeightPerMinute };
   }
 
   private readonly applied = new Map<AppliedDiscovery["consumer"], AppliedDiscovery>();

@@ -98,10 +98,33 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  * A job wraps its work in `budgetConsumer(label, …)`; every call made
  * inside is accounted to that label (`introspect().consumers`, on
  * `/health`). Page work is "page" and the live lane "live" unless labelled.
- * `setConsumerCaps` gives a label a weight-per-minute cap, enforced here as
- * a token bucket (two minutes may be saved up): a capped consumer's calls
- * wait while its bucket is empty, whatever the main bucket holds. The caps
- * come from the admin's discovery settings (`refreshCaps`).
+ *
+ * - **Caps.** `setConsumerCaps` gives a label a weight-per-minute cap (the
+ *   admin's discovery settings: the pool's two loops, the cohort loop,
+ *   the history job, the backward backfill), enforced here as a token
+ *   bucket of one minute: a capped consumer's call waits until its bucket
+ *   holds the call's weight (a call heavier than the whole bucket waits for
+ *   a full one, then takes it into debt), whatever the main bucket holds.
+ *   The configured numbers are maxima: together the caps may take at most
+ *   `CAPPED_SHARE` of the *effective* budget, and shrink in proportion when
+ *   they would take more — at a smaller `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN`
+ *   and after a 429 backoff alike. A call at a page rank is never held by
+ *   its consumer's cap (a page that joined a pool computation), only
+ *   charged to it.
+ * - **Essential work.** Snapshots and sweeps of watched leaders and the
+ *   cohort's reads (`ESSENTIAL_RANK`) go ahead of every other background
+ *   job: behind pages, before the pool, history, backfill and anything
+ *   unranked. They are what the product's own figures and alerts rest on,
+ *   and they are small; the rest shares what they leave.
+ * - **Queue deadline.** `budgetConsumer(label, work, { queueMs })` makes a
+ *   call that has waited that long fail (`BudgetWaitError`) instead of
+ *   waiting for ever: a periodic job then ends its run, reports it failed
+ *   and starts again on its next period.
+ *
+ * (Until 2026-10-02 the caps were absolute, only two of them were enforced
+ * here, and the pool's ranks 999 and 1000 went before all unranked work:
+ * with the worker at 360/min the pool took the whole budget for an hour and
+ * the 08:35 snapshot run waited in this queue without end.)
  *
  * `backgroundFactor()` tells adaptive jobs how much of their own allowance
  * to use this minute: 1 while page work is within the reserve's share of
@@ -151,7 +174,9 @@ const RESERVE_REFILL_SPLIT = 1 / 3;
 /** Adaptive jobs never go below this share of their allowance. */
 export const MIN_BACKGROUND_FACTOR = 0.25;
 /** A capped consumer may save up this many minutes of its cap. */
-const CAP_SAVED_MINUTES = 2;
+const CAP_SAVED_MINUTES = 1;
+/** Share of the effective budget the capped consumers may take together. */
+export const CAPPED_SHARE = 0.75;
 /** Share of the rate a process refills at while it is starting up. */
 export const STARTUP_RATE_SHARE = 0.5;
 /** Consumer caps are re-read from settings this often. */
@@ -163,6 +188,10 @@ export const PAGE_RANK = { profile: 0, portfolio: 1, fills: 2, warm: 3 } as cons
 export const INTERACTIVE_MAX_RANK = PAGE_RANK.portfolio;
 /** Rank of a background call that names none: behind every page rank. */
 export const UNRANKED_BASE = 1_000;
+/** Default rank of the calls of essential consumers (by label): behind
+ * pages, ahead of every other background job. The 5-minute snapshots go
+ * first, then the sweeps, then the cohort's reads. */
+export const ESSENTIAL_RANK: Readonly<Record<string, number>> = { snapshots: 100, sweep: 110, cohort: 120 };
 /** Background ranks up to this are on-demand page work (see above). */
 export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
 /** Share of the budget page work may spend, over `PAGE_SHARE_WINDOW_MS`,
@@ -191,17 +220,24 @@ export class PageBusyError extends Error {
   constructor(message = "Hyperliquid page budget is full") { super(message); }
 }
 
-const consumers = new AsyncLocalStorage<string>();
+/** A call gave up waiting for the budget (see `budgetConsumer`'s `queueMs`). */
+export class BudgetWaitError extends Error {
+  override readonly name = "BudgetWaitError";
+  constructor(consumer: string, ms: number) { super(`Hyperliquid budget not available to ${consumer} within ${Math.round(ms / 1000)} s`); }
+}
+
+const consumers = new AsyncLocalStorage<{ label: string; queueMs?: number }>();
 
 /** Runs `work` with every Hyperliquid call inside accounted to `label`
- * (and subject to its cap, if any). Survives `BackgroundJobs.run`, which
- * leaves the request context but not this one. */
-export function budgetConsumer<T>(label: string, work: () => T): T {
-  return consumers.run(label, work);
+ * (and subject to its cap and default rank, if any). `queueMs`: a call
+ * inside that waits longer than this for the budget fails. Survives
+ * `BackgroundJobs.run`, which leaves the request context but not this one. */
+export function budgetConsumer<T>(label: string, work: () => T, options: { queueMs?: number } = {}): T {
+  return consumers.run({ label, queueMs: options.queueMs }, work);
 }
 
 /** The consumer label of the current async context, if any. */
-export const currentBudgetConsumer = () => consumers.getStore();
+export const currentBudgetConsumer = () => consumers.getStore()?.label;
 
 interface Waiter {
   /** Taken from the buckets when the call goes out. */
@@ -339,7 +375,9 @@ export class RequestBudgeterService {
     const toReserve = Math.min(delta * share, Math.max(0, this.reserveCapacity - this.reserve));
     this.reserve += toReserve;
     this.tokens = Math.min(this.mainCapacity, this.tokens + delta - toReserve);
-    for (const [label, cap] of this.caps) {
+    const scale = this.capScale();
+    for (const [label, configured] of this.caps) {
+      const cap = configured * scale;
       const bucket = this.capTokens.get(label) ?? { tokens: cap * CAP_SAVED_MINUTES, at: now };
       bucket.tokens = Math.min(cap * CAP_SAVED_MINUTES, bucket.tokens + ((now - bucket.at) / 60_000) * cap);
       bucket.at = now;
@@ -378,7 +416,7 @@ export class RequestBudgeterService {
   }
 
   private consumerOf(priority: RequestPriority = "background", page = false): string {
-    return consumers.getStore() ?? (priority === "live" ? CONSUMER_LIVE : page ? CONSUMER_PAGE : CONSUMER_OTHER);
+    return consumers.getStore()?.label ?? (priority === "live" ? CONSUMER_LIVE : page ? CONSUMER_PAGE : CONSUMER_OTHER);
   }
 
   // --- consumer caps --------------------------------------------------------
@@ -407,18 +445,36 @@ export class RequestBudgeterService {
       .finally(() => { this.capsReading = undefined; });
   }
 
-  /** Milliseconds until a capped consumer may send again; 0 when it may now. */
-  private capWait(label: string): number {
-    const cap = this.caps.get(label);
+  /** What the configured caps are multiplied by so that together they stay
+   * within `CAPPED_SHARE` of the effective budget (1: they fit). */
+  private capScale(): number {
+    let total = 0;
+    for (const cap of this.caps.values()) total += cap;
+    const room = CAPPED_SHARE * this.effectiveBudgetPerMin;
+    return total > room ? room / total : 1;
+  }
+
+  /** The cap a label is held to now (weight per minute); undefined: none. */
+  consumerCap(label: string): number | undefined {
+    const configured = this.caps.get(label);
+    return configured === undefined ? undefined : configured * this.capScale();
+  }
+
+  /** Milliseconds until a capped consumer may send `weight`; 0 when it may
+   * now. A call heavier than the bucket waits for a full bucket. */
+  private capWait(label: string, weight: number): number {
+    const cap = this.consumerCap(label);
     if (cap === undefined) return 0;
     if (cap <= 0) return Infinity;
-    const bucket = this.capTokens.get(label);
-    if (!bucket || bucket.tokens > 0) return 0;
-    return Math.ceil((-bucket.tokens + 1) / (cap / 60_000));
+    const capacity = cap * CAP_SAVED_MINUTES;
+    const tokens = this.capTokens.get(label)?.tokens ?? capacity;
+    const short = Math.min(weight, capacity) - tokens;
+    // A hair under a full bucket (float refill) is full.
+    return short <= 1e-6 ? 0 : Math.ceil(short / (cap / 60_000));
   }
 
   private chargeCap(label: string, weight: number): void {
-    const cap = this.caps.get(label);
+    const cap = this.consumerCap(label);
     if (cap === undefined) return;
     const bucket = this.capTokens.get(label) ?? { tokens: cap * CAP_SAVED_MINUTES, at: Date.now() };
     bucket.tokens -= weight;
@@ -493,25 +549,30 @@ export class RequestBudgeterService {
       return Promise.reject(new Error("Hyperliquid queue is full"));
     }
     const consumer = this.consumerOf(priority, page);
+    const queueMs = consumers.getStore()?.queueMs;
     return new Promise((resolve, reject) => {
       const seq = this.seq++;
       const queue = this.queues[priority];
-      const defaultRank = priority === "background" ? UNRANKED_BASE + seq : seq;
+      const defaultRank = priority === "background" ? (ESSENTIAL_RANK[consumer] ?? UNRANKED_BASE + seq) : seq;
       const r = rank ?? defaultRank;
       // A page's list call waits only for its known part; everything else
       // waits for its whole (worst-case) weight.
       const gate = priority === "background" && r <= PAGE_RANK.fills ? Math.min(known, weight) : weight;
-      const abort = () => {
+      const leave = (reason: unknown) => {
         const index = queue.indexOf(waiter);
         if (index >= 0) queue.splice(index, 1);
         waiter.cleanup();
-        reject(cancel?.reason ?? new Error("Request cancelled"));
+        reject(reason);
         this.rearm();
       };
+      const abort = () => leave(cancel?.reason ?? new Error("Request cancelled"));
+      // A periodic job's call does not wait past its consumer's deadline.
+      const deadline = queueMs === undefined ? undefined : setTimeout(() => leave(new BudgetWaitError(consumer, queueMs)), queueMs);
       let holding = page;
       if (page) this.holdPage(client, held);
       const waiter: Waiter = { weight, gate, resolve, reject, rank: r, seq, page, interactive, consumer,
         cleanup: () => {
+          clearTimeout(deadline);
           cancel?.removeEventListener("abort", abort);
           if (holding) { holding = false; this.holdPage(client, -held); }
         } };
@@ -640,7 +701,8 @@ export class RequestBudgeterService {
       for (let i = 0; i < lane.length; i++) {
         const a = lane[i];
         if (skipPage && a.page && !a.interactive) continue;
-        const wait = this.capWait(a.consumer);
+        // A page-rank call is charged to its consumer but never held by its cap.
+        const wait = a.page ? 0 : this.capWait(a.consumer, a.weight);
         if (wait > 0) { capped = Math.min(capped, wait); continue; }
         const slot = pick.lane === "background" && a.interactive ? interactive : other;
         const b = lane[slot];
@@ -811,6 +873,8 @@ export class RequestBudgeterService {
     backgroundFactor: number;
     /** Weight in the trailing minute per consumer label. */
     consumers: Record<string, number>;
+    /** The cap each capped consumer is held to now (scaled to the effective budget). */
+    consumerCaps: Record<string, number>;
     lastRateLimitedAt: Date | null;
   } {
     const now = Date.now();
@@ -830,6 +894,7 @@ export class RequestBudgeterService {
       pageWeightLastMinute: this.pageWeightLastMinute(),
       backgroundFactor: this.backgroundFactor(),
       consumers: byConsumer,
+      consumerCaps: Object.fromEntries([...this.caps.keys()].map((label) => [label, Math.round(this.consumerCap(label)!)])),
       lastRateLimitedAt: this.lastRateLimitedAt
         ? new Date(this.lastRateLimitedAt)
         : null,

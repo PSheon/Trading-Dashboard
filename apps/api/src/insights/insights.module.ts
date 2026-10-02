@@ -23,7 +23,7 @@ export class InsightsModule {}
 @Injectable()
 class CohortWorker {
   constructor(private readonly cohorts: CohortService) {}
-  @Cron(CronExpression.EVERY_MINUTE) cohortTick() { return budgetConsumer("cohort", () => this.cohorts.onTick()); }
+  @Cron(CronExpression.EVERY_MINUTE) cohortTick() { return budgetConsumer("cohort", () => this.cohorts.onTick(), { queueMs: 2 * 60_000 }); }
 }
 
 /** The cohort refresh schedule (one tick a minute; none in tests). */

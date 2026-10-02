@@ -16,6 +16,11 @@ import { WatcherService } from "../watcher/watcher.service.js";
 /** §8: feed down this long → Telegram self-alert. */
 const FEED_DOWN_ALERT_MS = 10 * 60_000;
 const RECONCILE_OVERLAP_MS = 60_000;
+/** A snapshot or sweep call that has waited this long for the Hyperliquid
+ * budget fails, so the run ends (and is reported as failed) before its
+ * next period instead of holding every later run behind it. */
+export const SNAPSHOT_QUEUE_MS = 4 * 60_000;
+export const SWEEP_QUEUE_MS = 14 * 60_000;
 
 /**
  * Periodic jobs:
@@ -53,7 +58,7 @@ export class SchedulerService {
   @Cron(CronExpression.EVERY_5_MINUTES)
   async snapshotAll(): Promise<{ written: number; reconciled: number; failed: number }> {
     if (this.jobs.stopping) return { written: 0, reconciled: 0, failed: 0 };
-    this.snapshotFlight ??= budgetConsumer("snapshots", () => this.jobs.run(() => this.takeSnapshots())).finally(() => { this.snapshotFlight = undefined; });
+    this.snapshotFlight ??= budgetConsumer("snapshots", () => this.jobs.run(() => this.takeSnapshots()), { queueMs: SNAPSHOT_QUEUE_MS }).finally(() => { this.snapshotFlight = undefined; });
     return this.snapshotFlight;
   }
   private async takeSnapshots(): Promise<{ written: number; reconciled: number; failed: number }> {
@@ -95,7 +100,7 @@ export class SchedulerService {
     } catch (error) {
       this.logger.error(`Market refresh failed: ${(error as Error).message}`);
     }
-    const result = await budgetConsumer("sweep", () => this.watcher.sweep());
+    const result = await budgetConsumer("sweep", () => this.watcher.sweep(), { queueMs: SWEEP_QUEUE_MS });
     this.logger.log(`Hourly sweep: ${result.addresses} addresses, ${result.inserted} new fills, ${result.failed} failed`);
   }
 
@@ -104,7 +109,7 @@ export class SchedulerService {
   @Cron("0 15,30,45 * * * *")
   async catchUp(): Promise<void> {
     if (this.jobs.stopping) return;
-    await budgetConsumer("sweep", () => this.watcher.sweep());
+    await budgetConsumer("sweep", () => this.watcher.sweep(), { queueMs: SWEEP_QUEUE_MS });
   }
 
   @Cron(CronExpression.EVERY_MINUTE)

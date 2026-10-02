@@ -28,12 +28,12 @@ Everything is in-process (`@nestjs/schedule`); there is no Railway cron service 
 
 | Job | Cadence | What it does | Budget setting |
 | --- | --- | --- | --- |
-| Trade feed + fill sync | continuous (WebSocket), sweep hourly | fills and actions of watched leaders | global `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` |
-| Position / equity snapshots | every 5 min | `position_snapshots`, `equity_snapshots`, reconcile | global |
+| Trade feed + fill sync | continuous (WebSocket), sweep every 15 min | fills and actions of watched leaders | global `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN`; sweeps at essential rank, a call waits at most 14 min |
+| Position / equity snapshots | every 5 min | `position_snapshots`, `equity_snapshots`, reconcile | global; essential rank (ahead of every other job), a call waits at most 4 min |
 | Leaderboard import | `discovery.leaderboardRefreshMinutes` (15) | official leaderboard → `trader_stats` | no info weight |
-| Discovery pool, performance | every minute | rebuild the pool when due; `portfolio` of the most urgent rows (boards, home rows, KOLs and followed traders 4× as often) | `discovery.poolPerformanceWeightPerMinute` |
-| Discovery pool, ledgers | every minute | incremental ledger refreshes of visible rows, then cold builds while no page waits | `discovery.poolWeightPerMinute` |
-| Insight cohorts | every minute | member positions, tier snapshots | `discovery.cohortWeightPerMinute` |
+| Discovery pool, performance | every minute | rebuild the pool when due; `portfolio` of the most urgent rows (boards, home rows, KOLs and followed traders 4× as often) | `discovery.poolPerformanceWeightPerMinute` (budgeter cap) |
+| Discovery pool, ledgers | every minute | incremental ledger refreshes of visible rows, then cold builds while no page waits | `discovery.poolWeightPerMinute` (budgeter cap) |
+| Insight cohorts | every minute | member positions, tier snapshots | `discovery.cohortWeightPerMinute` (budgeter cap); essential rank |
 | Durable fill history | every minute, 2 pages | REST history per address; skips ranges the archive certifies | `discovery.historyWeightPerMinute` (budgeter cap) |
 | **S3 archive ingest** | every minute | new hourly objects forward, then backfill backward; filtered to the tracked set | `S3_ARCHIVE_MAX_BYTES_PER_MINUTE`, `S3_ARCHIVE_MAX_DAILY_USD` (no Hyperliquid weight) |
 | Initial backfill jobs | every 5 s | `backfill_jobs` for newly watched addresses | global |
@@ -103,7 +103,20 @@ No Privy secret on the worker (it mounts no user API). No AWS key on api or web.
 
 ### Budget settings (database, not environment)
 
-The per-job weight caps live in `app_settings` (`discovery`) and are edited in `/admin/settings` (or `PATCH /admin/settings`); the worker reports what it actually applied on `/health/monitor`, and `/health` → `budget.consumers` shows who spent the trailing minute.
+The per-job weight caps live in `app_settings` (`discovery`) and are edited in `/admin/settings` (or `PATCH /admin/settings`); the worker reports what it actually applied on `/health/monitor`, and `/health` → `budget.consumers` shows who spent the trailing minute, `budget.caps` what each job is held to.
+
+**The settings are maxima.** All five are enforced by the budgeter on what is actually sent (one-minute token buckets), and together they may take at most 75 % of the process's *effective* budget; above that they shrink in proportion. So they follow `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` and a 429 backoff without anyone editing them:
+
+| Process budget | performance | ledgers | history | backfill | cohort | Sum | Left for snapshots, sweeps, warm-up, live, pages |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ≥ 854 | 240 | 100 | 120 | 120 | 60 | 640 | budget − 640 |
+| 840 (default, combined) | 236 | 98 | 118 | 118 | 59 | 630 | 210 |
+| 600 (worker) | 169 | 70 | 84 | 84 | 42 | 450 | 150 |
+| 480 | 135 | 56 | 68 | 68 | 34 | 360 | 120 |
+| 360 | 101 | 42 | 51 | 51 | 25 | 270 | 90 |
+| 72 (the 429 floor of 360) | 20 | 8 | 10 | 10 | 5 | 54 | 18 |
+
+Snapshots and sweeps of watched leaders and the cohort's reads go before every other job (`ESSENTIAL_RANK`: after pages, before the pool, history, backfill and unranked work), so they take what they need first: with 20 watched leaders about 16 + 53 a minute, plus the cohort's cap. A worker at 360 therefore runs everything (`budget-consumers.spec.ts`: an hour with every job saturated, every snapshot run inside 30 s, every sweep inside 3 min, no cap exceeded). Held at its 429 floor of 72 the same leaders need 69 of the 72: snapshots and sweeps still complete (sweeps in 14–15 of their 15 minutes, the first after the 429 up to two minutes over) and the pool waits; a real backoff climbs back 10 % of the budget per 20 answered calls, within minutes. The floor of a 600 worker is 120. More watched leaders need proportionally more: about 3.5 a minute each.
 
 | Setting | Code default (2026-10-02) | Dev | What it bounds |
 | --- | --- | --- | --- |
@@ -114,7 +127,7 @@ The per-job weight caps live in `app_settings` (`discovery`) and are edited in `
 | `discovery.backfillWeightPerMinute` | 120 | 120 | backward fill backfill windows (cap enforced by the budgeter) |
 | `discovery.candidatePoolSize` | 1,000 | — | — |
 
-At the default 840/min: jobs 240 + 100 + 60 + 120 + 120 = 640, plus the home warm-up (24 portfolios every 10 min ≈ 48), leader snapshots and sweeps (≈ 60 averaged) ≈ 750 when every job is busy, leaving ≈ 90 plus the page reserve for pages; every job scales down to a quarter of its allowance while page traffic approaches half the budget (`backgroundFactor` on `/health`). The page reserve (60 % of the burst, refilled first; `HYPERLIQUID_PAGE_RESERVE_SHARE` of the rate is its floor) is never spent by jobs. Pool freshness at 240: ≈ 480 visible rows of ≈ 1,140 are read every ≈ 54 min (median age ≈ 27 min), the rest every ≈ 3.6 h (`discovery.*AgeSeconds` on `/health`). The archive ingest spends no Hyperliquid weight.
+At the default 840/min: jobs 630 (see the table), plus the home warm-up (24 portfolios every 10 min ≈ 48), leader snapshots and sweeps (≈ 60 averaged) ≈ 750 when every job is busy, leaving ≈ 90 plus the page reserve for pages; every job scales down to a quarter of its allowance while page traffic approaches half the budget (`backgroundFactor` on `/health`). The page reserve (60 % of the burst, refilled first; `HYPERLIQUID_PAGE_RESERVE_SHARE` of the rate is its floor) is never spent by jobs. Pool freshness at 240: ≈ 480 visible rows of ≈ 1,140 are read every ≈ 54 min (median age ≈ 27 min), the rest every ≈ 3.6 h (`discovery.*AgeSeconds` on `/health`). The archive ingest spends no Hyperliquid weight.
 
 ## Volumes and storage
 

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { DiscoveryController } from "../src/discovery/discovery.controller.js";
 import { DiscoveryRepository } from "../src/discovery/discovery.repository.js";
 import { DiscoveryService } from "../src/discovery/discovery.service.js";
+import { MarketCatalogService } from "../src/hyperliquid/market-catalog.service.js";
 import { TradersService } from "../src/traders/traders.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -22,7 +23,7 @@ describe("watchlist cards (real Postgres)", () => {
       db,
       privy: stubPrivy({}),
       controllers: [DiscoveryController],
-      providers: [DiscoveryRepository, DiscoveryService, { provide: TradersService, useValue: { rawPortfolio: vi.fn() } }],
+      providers: [DiscoveryRepository, DiscoveryService, { provide: TradersService, useValue: { rawPortfolio: vi.fn() } }, { provide: MarketCatalogService, useValue: { isListed: vi.fn(async () => null) } }],
     }));
   });
   afterAll(async () => {

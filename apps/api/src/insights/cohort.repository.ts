@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, lt, lte, notInArray, sql, type SQL } from "drizzle-orm";
 import { cohortMembers, cohortSnapshots, discoveryTraders, kolAvatars, kolTraders, traderStats, type CohortPosition } from "@trading-dashboard/shared/database";
-import { CHAIN_DEFAULT, type CohortTier } from "@trading-dashboard/shared/contracts";
+import { CHAIN_DEFAULT, COHORT_HEADLINE_MIN_COVERAGE, type CohortTier } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -189,12 +189,16 @@ export class CohortRepository {
     return new Map(rows.map((r) => [r.tier, new Date(r.ts)]));
   }
 
-  /** History rows of a tier since `since` (null: all), oldest first. */
+  /** History rows of a tier since `since` (null: all), oldest first. Rows
+   * recorded while less than COHORT_HEADLINE_MIN_COVERAGE of the tier was
+   * fresh (written before that rule existed) are left out: each is the
+   * long share of a few members, not of the tier. */
   history(tier: CohortTier, since: Date | null): Promise<Array<{ ts: Date; longPct: string | null }>> {
     return this.db
       .select({ ts: cohortSnapshots.ts, longPct: cohortSnapshots.longPct })
       .from(cohortSnapshots)
-      .where(and(eq(cohortSnapshots.chain, CHAIN_DEFAULT), eq(cohortSnapshots.tier, tier), since ? gte(cohortSnapshots.ts, since) : undefined))
+      .where(and(eq(cohortSnapshots.chain, CHAIN_DEFAULT), eq(cohortSnapshots.tier, tier), since ? gte(cohortSnapshots.ts, since) : undefined,
+        sql`${cohortSnapshots.walletCount} >= ${COHORT_HEADLINE_MIN_COVERAGE}::numeric * ${cohortSnapshots.memberCount}`))
       .orderBy(asc(cohortSnapshots.ts));
   }
 }

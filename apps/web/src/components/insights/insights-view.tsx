@@ -8,6 +8,7 @@ import { cn } from "cn";
 import { ErrorState, Skeleton } from "@/components/page";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
+import { cohortHeadlineReady } from "@trading-dashboard/shared/contracts";
 import type { CohortDetail, CohortTier, CohortWindow } from "@/lib/contracts";
 import { usdCompact } from "@/lib/format";
 import { useCohort, useCohortHistory } from "@/lib/queries";
@@ -38,6 +39,13 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
   const detail = useCohort(tier);
   const history = useCohortHistory(tier, window);
   const data = detail.data;
+  // The headline (the two split cards, the chart's badge, the per-market
+  // map) is the tier's only once most of its members have a fresh
+  // snapshot. Until then it is withheld, with the same placeholders as
+  // while loading and the "building" line: a figure from the first few
+  // members read differs from the tier's by tens of points. CopyDog's page
+  // has no coverage label, so none is added.
+  const ready = data ? (data.headlineReady ?? cohortHeadlineReady(data.walletCount, data.memberCount)) : false;
   const tierName = t(`trader.pnlTiers.${tier}`);
 
   useEffect(() => {
@@ -68,9 +76,9 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
       ) : (
         <>
           <div className="grid gap-2 md:grid-cols-[1fr_1.04fr]">
-            <HeroCards data={data} />
+            <HeroCards data={ready ? data : undefined} />
           </div>
-          {data && data.walletCount === 0 ? (
+          {data && !ready ? (
             <p className="rounded-xl bg-raised/60 px-4 py-2.5 text-xs text-muted-foreground">{t("insights.cohort.building")}</p>
           ) : null}
           <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
@@ -87,11 +95,11 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
               window={window}
               onWindow={setWindow}
               loading={!history.data}
-              latest={data?.hero.longPct ?? null}
+              latest={ready ? (data?.hero.longPct ?? null) : null}
               emptyHint={t("insights.cohort.chartEmpty", { minutes: 15 })}
             />
             )}
-            <MarketTreemap title={t("insights.cohort.byMarket")} markets={data?.markets} loading={!data} />
+            <MarketTreemap title={t("insights.cohort.byMarket")} markets={ready ? data?.markets : undefined} loading={!ready} />
           </div>
           <section className="overflow-hidden rounded-[12px] border border-border bg-card">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3.5">

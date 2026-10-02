@@ -1348,6 +1348,19 @@ export const cohortMarketSchema = z.object({
 });
 export type CohortMarket = z.infer<typeof cohortMarketSchema>;
 
+/** The share of a tier's members that must have a fresh snapshot before its
+ * headline (the long share, the notional and PnL split, the per-market
+ * split) is shown or recorded. Below it the figure is the positioning of
+ * whichever members happened to be read first, not of the tier: on Stage,
+ * 33 of 150 members gave "6.9 % long" where the full tier was at 41.8 %
+ * (review finding 52). */
+export const COHORT_HEADLINE_MIN_COVERAGE = 0.8;
+
+/** Whether enough of a tier is fresh for its headline figures. */
+export function cohortHeadlineReady(walletCount: number, memberCount: number): boolean {
+  return memberCount > 0 && walletCount / memberCount >= COHORT_HEADLINE_MIN_COVERAGE;
+}
+
 /** GET /insights/cohorts/:tier — the tier's current positioning. */
 export const cohortDetailResponseSchema = z.object({
   tier: cohortTierSchema,
@@ -1355,6 +1368,10 @@ export const cohortDetailResponseSchema = z.object({
   memberCount: z.number().int(),
   /** Members with a fresh snapshot (the wallets below). */
   walletCount: z.number().int(),
+  /** {@link cohortHeadlineReady}: the page withholds the headline while
+   * false. Absent from an api built before the field; the page then
+   * decides from the two counts. */
+  headlineReady: z.boolean().optional(),
   hero: z.object({
     upnlProfit: z.number(),
     upnlLoss: z.number(),

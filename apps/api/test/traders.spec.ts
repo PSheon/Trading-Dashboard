@@ -765,24 +765,39 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   // --- GET /traders/:address/fills -------------------------------------------------
 
   describe("GET /traders/:address/fills", () => {
-    it("reads our fills table for a tracked address: perp and spot (CopyDog's 成交), this address only, newest first", async () => {
+    const t = (m: number) => new Date(Date.UTC(2026, 8, 29, 0, m));
+    const hl = (o: Partial<HlUserFill> & { tid: number; time: number }): HlUserFill => ({
+      coin: "BTC", px: "60000", sz: "0.5", side: "B", dir: "Open Long", startPosition: "0.0", closedPnl: "0", hash: "0x", oid: o.tid, crossed: true, fee: "3", ...o,
+    });
+
+    it("a tracked address's 成交 tab has Hyperliquid's list, spot fills included, merged with our stored fills (review 43)", async () => {
       await db.insert(leaders).values({ address: A });
-      const t = (m: number) => new Date(Date.UTC(2026, 8, 29, 0, m));
+      // What the watcher stored: perp fills only (it never stores spot), one of them newer than Hyperliquid's cached list.
       await db.insert(fills).values([
         { tid: 1n, address: A, coin: "BTC", side: "B", dir: "Open Long", px: "60000", sz: "0.5", fee: "3", closedPnl: "0", ts: t(1), raw: { startPosition: "0.0" } },
         { tid: 2n, address: A, coin: "xyz:TSLA", side: "A", dir: "Open Short", px: "400", sz: "10", fee: "1", closedPnl: null, ts: t(2),
           raw: { startPosition: "-2.5", liquidation: { markPx: 401, method: "market" } } },
-        { tid: 3n, address: A, coin: "@107", side: "B", dir: "Buy", px: "40", sz: "1", fee: "0", closedPnl: "0", ts: t(3), raw: {} },
-        { tid: 4n, address: A, coin: "PURR/USDC", side: "B", dir: "Buy", px: "1", sz: "1", fee: "0", closedPnl: "0", ts: t(4), raw: {} },
+        { tid: 9n, address: A, coin: "ETH", side: "B", dir: "Open Long", px: "4000", sz: "1", fee: "1", closedPnl: "0", ts: t(9), raw: { startPosition: "0.0" } },
         // Counterparty's copy of the same trade.
         { tid: 2n, address: B, coin: "xyz:TSLA", side: "B", dir: "Open Long", px: "400", sz: "10", fee: "1", closedPnl: "0", ts: t(2), raw: {} },
       ]);
+      // Hyperliquid's latest fills of the address: the two perp fills, and two spot fills.
+      info.userFills.mockResolvedValueOnce([
+        hl({ tid: 4, time: t(4).getTime(), coin: "PURR/USDC", dir: "Buy", px: "1", sz: "1", fee: "0", startPosition: undefined }),
+        hl({ tid: 3, time: t(3).getTime(), coin: "@107", dir: "Buy", px: "40", sz: "1", fee: "0", startPosition: undefined }),
+        hl({ tid: 2, time: t(2).getTime(), coin: "xyz:TSLA", side: "A", dir: "Open Short", px: "400", sz: "10", fee: "1", startPosition: "-2.5", liquidation: { markPx: 401, method: "market" } }),
+        hl({ tid: 1, time: t(1).getTime() }),
+      ]);
+      info.userTwapSliceFills.mockResolvedValueOnce([{ twapId: 77, fill: hl({ tid: 5, time: t(5).getTime(), coin: "SOL", dir: "Open Long", px: "200", sz: "2" }) }]);
 
       const all = await controller.fills(A, undefined);
-      expect(all.map((f) => f.tid)).toEqual(["4", "3", "2", "1"]);
-      expect(all[0]).toMatchObject({ coin: "PURR/USDC", dir: "Buy", startPosition: null, liquidation: false });
-      const res = all.slice(2);
-      expect(res[0]).toEqual({
+      // Newest first, one row per trade: the stored ETH fill, the TWAP slice, both spot fills, both perp fills.
+      expect(all.map((f) => f.tid)).toEqual(["9", "5", "4", "3", "2", "1"]);
+      expect(all[0]).toMatchObject({ coin: "ETH", notionalUsd: 4000 });
+      expect(all[1]).toMatchObject({ coin: "SOL", twapId: 77 });
+      expect(all[2]).toMatchObject({ coin: "PURR/USDC", dir: "Buy", startPosition: null, liquidation: false });
+      expect(all[3]).toMatchObject({ coin: "@107", dir: "Buy" });
+      expect(all[4]).toEqual({
         tid: "2",
         coin: "xyz:TSLA",
         side: "sell",
@@ -790,16 +805,46 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         px: 400,
         sz: 10,
         notionalUsd: 4000,
-        closedPnl: null,
+        closedPnl: 0,
         fee: 1,
         ts: t(2),
         twapId: null,
         startPosition: -2.5,
         liquidation: true,
       });
-      expect(res[1]).toMatchObject({ side: "buy", notionalUsd: 30000, closedPnl: 0, startPosition: 0, liquidation: false });
+      expect(all[5]).toMatchObject({ side: "buy", notionalUsd: 30000, closedPnl: 0, startPosition: 0, liquidation: false });
       expect(await controller.fills(A, "1")).toHaveLength(1);
-      expect(info.userFills).not.toHaveBeenCalled();
+      // The same cached read an untracked address makes: once.
+      expect(info.userFills).toHaveBeenCalledTimes(1);
+    });
+
+    it("right after favouriting, with almost nothing stored yet, the tab is as full as before the favourite", async () => {
+      // Untracked: Hyperliquid's list.
+      const before = await controller.fills(UNKNOWN, "200");
+      expect(before).toHaveLength(userFillsFixture.length);
+      // Favourited: the watcher has stored one fill so far.
+      await db.insert(leaders).values({ address: UNKNOWN, source: "favorite" });
+      const newest = userFillsFixture.find((f) => !f.coin.startsWith("@"))!;
+      await db.insert(fills).values({ tid: BigInt(newest.tid), address: UNKNOWN, coin: newest.coin, side: newest.side, dir: newest.dir, px: newest.px, sz: newest.sz, fee: newest.fee, closedPnl: newest.closedPnl, ts: new Date(newest.time), raw: { ...newest } });
+      const after = await controller.fills(UNKNOWN, "200");
+      expect(after).toHaveLength(before.length);
+      expect(after.map((f) => f.tid)).toEqual(before.map((f) => f.tid));
+      expect(after.some((f) => f.coin.startsWith("@"))).toBe(true);
+    });
+
+    it("when Hyperliquid cannot be read, a tracked address still gets its stored fills; an untracked one gets the error", async () => {
+      await db.insert(leaders).values({ address: A });
+      await db.insert(fills).values({ tid: 1n, address: A, coin: "BTC", side: "B", dir: "Open Long", px: "60000", sz: "0.5", fee: "3", closedPnl: "0", ts: t(1), raw: { startPosition: "0.0" } });
+      info.userFills.mockRejectedValue(new Error("Hyperliquid is busy"));
+      try {
+        expect((await controller.fills(A, undefined)).map((f) => f.tid)).toEqual(["1"]);
+        await expect(controller.fills(UNKNOWN, "50")).rejects.toBeDefined();
+        // Tracked with nothing stored yet: nothing to fall back on.
+        await db.delete(fills);
+        await expect(controller.fills(A, "50")).rejects.toBeDefined();
+      } finally {
+        info.userFills.mockImplementation(async (_address: string) => userFillsFixture);
+      }
     });
 
     it("asks Hyperliquid for an untracked address (cached 5 min)", async () => {
@@ -1156,12 +1201,13 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         { ...base, tid: 1n, coin: "BTC", ts: new Date(at(1)), raw: { twapId: null } },
         { ...base, tid: 2n, coin: "CFX", ts: new Date(at(2)), raw: { twapId: 2_256_941, hash: `0x${"0".repeat(64)}` } },
       ]);
+      // Hyperliquid's own lists have neither (an old TWAP, out of its latest page).
+      info.userFills.mockResolvedValueOnce([]);
       const res = await controller.fills(A, undefined);
       expect(res.map((f) => [f.tid, f.twapId])).toEqual([
         ["2", 2_256_941],
         ["1", null],
       ]);
-      expect(info.userTwapSliceFills).not.toHaveBeenCalled();
     });
 
     it("keeps an untracked address's fill lists 5 min and its positions 60 s", async () => {

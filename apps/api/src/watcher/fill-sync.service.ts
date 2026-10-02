@@ -50,6 +50,26 @@ interface RangeRead {
   complete: boolean;
   /** When not complete, the last millisecond the pages hold in full. */
   through: number;
+  /** Milliseconds that alone held a whole page: the first PAGE_SIZE fills
+   * of each were returned, the rest cannot be read through this API. */
+  dense: number[];
+}
+
+/** The earliest fill an endpoint returns, and whether that can be where its
+ * retained history was cut off. Hyperliquid keeps an address's most recent
+ * 10,000 fills per endpoint. `bounded` is false when the read from the
+ * beginning came back short (the endpoint returned everything it has: fewer
+ * fills than one page, far fewer than are retained) and, for ordinary
+ * fills, the first one starts from a flat position: nothing older was
+ * dropped, and that first fill is no limit on the span. */
+interface RetentionProbe { time: number; bounded: boolean }
+
+/** What bounds the verified span from below: the latest first fill among
+ * the endpoints whose history may have been cut (review 45). An endpoint
+ * that is not bounded says nothing: an account whose first TWAP was last
+ * week still has its year of ordinary fills backfilled. */
+export function retainedFrom(probe: { regular: RetentionProbe | null; twap: RetentionProbe | null }): number {
+  return Math.max(probe.regular?.bounded ? probe.regular.time : 0, probe.twap?.bounded ? probe.twap.time : 0);
 }
 
 /** Reads time-ascending pages from `startTime` until a short page. */
@@ -135,7 +155,7 @@ export class FillSyncService {
   private readonly twapSeenAt = new Map<string, number>();
   private backfilling = false;
   /** Each endpoint's retention start, read when this process began an address's backfill. */
-  private readonly retention = new Map<string, { regular: number | null; twap: number | null }>();
+  private readonly retention = new Map<string, { regular: RetentionProbe | null; twap: RetentionProbe | null }>();
 
   constructor(
     private readonly config: AppConfig,
@@ -211,21 +231,37 @@ export class FillSyncService {
     return this.repository.coverage(address);
   }
 
-  private async readRange(address: string, twap: boolean, start: number, end: number | undefined, maxPages: number, rank?: number, priority: RequestPriority = "background"): Promise<RangeRead> {
+  /**
+   * Time-ascending pages of one endpoint from `start`. A page is read from
+   * the last fill's millisecond inclusive, so a millisecond that alone
+   * holds a whole page returns the same page again and cannot be paged
+   * through. Backward backfill stops there (`blocked`). With `passDense`
+   * (the forward cursor) the read steps over that millisecond instead: its
+   * first PAGE_SIZE fills are kept, it is listed in `dense`, and the cursor
+   * goes on, where before it stayed on that millisecond for ever and every
+   * sweep re-read the same page (review 45).
+   */
+  private async readRange(address: string, twap: boolean, start: number, end: number | undefined, maxPages: number, rank?: number, priority: RequestPriority = "background", passDense = false): Promise<RangeRead> {
     const byTid = new Map<number, HlUserFill>();
+    const dense: number[] = [];
     let cursor = Math.max(0, Math.floor(start));
     for (let page = 0; page < maxPages; page++) {
       const batch = twap
         ? (await this.info.userTwapSliceFillsByTime(address, cursor, end, priority, rank)).map(twapSliceToFill)
         : await this.info.userFillsByTime(address, cursor, end, priority, rank);
       for (const fill of batch) byTid.set(fill.tid, fill);
-      if (batch.length < PAGE_SIZE) return { fills: [...byTid.values()], complete: true, through: end ?? Infinity };
+      if (batch.length < PAGE_SIZE) return { fills: [...byTid.values()], complete: true, through: end ?? Infinity, dense };
       const last = batch.reduce((max, fill) => Math.max(max, fill.time), cursor);
-      // A millisecond holding a whole page cannot be paged through.
-      if (last <= cursor) break;
+      if (last <= cursor) {
+        // A millisecond holding a whole page cannot be paged through.
+        if (!passDense) break;
+        dense.push(cursor);
+        cursor += 1;
+        continue;
+      }
       cursor = last;
     }
-    return { fills: [...byTid.values()], complete: false, through: cursor - 1 };
+    return { fills: [...byTid.values()], complete: false, through: cursor - 1, dense };
   }
 
   private async ingest(address: string, reason: SyncReason, batch: HlUserFill[], rank?: number): Promise<{ inserted: number; actions: number }> {
@@ -256,11 +292,18 @@ export class FillSyncService {
       let regular: RangeRead;
       let twap: RangeRead;
       try {
-        regular = await this.readRange(address, false, start, undefined, MAX_PAGES, rank, priority);
-        twap = await this.readRange(address, true, start, undefined, MAX_PAGES, rank, priority);
+        regular = await this.readRange(address, false, start, undefined, MAX_PAGES, rank, priority, true);
+        twap = await this.readRange(address, true, start, undefined, MAX_PAGES, rank, priority, true);
       } catch (error) {
         await this.failed(address);
         throw error;
+      }
+      const dense = [...regular.dense, ...twap.dense];
+      if (dense.length > 0) {
+        // Not silent: the fills past the first page of that millisecond are
+        // not stored. The continuity check below records the position break
+        // they leave, if any, as unexplained.
+        this.logger.warn(`${address}: ${dense.length} millisecond(s) hold more than ${PAGE_SIZE} fills (${dense.map((t) => new Date(t).toISOString()).join(", ")}); the cursor moved past them`);
       }
       if (twap.fills.length > 0) this.twapSeenAt.set(address, Date.now());
       const stored = await this.ingest(address, "sweep", [...regular.fills, ...twap.fills], rank);
@@ -268,6 +311,7 @@ export class FillSyncService {
       const through = Math.min(regular.complete ? horizon : regular.through, twap.complete ? horizon : twap.through);
       if (through > start) {
         await this.repository.extend(address, true, start, through, requestedAt - BACKFILL_LOOKBACK_MS);
+        if (dense.length > 0) await this.repository.patchCoverage(address, { lastError: "dense_millisecond" }).catch(() => undefined);
         await this.checkContinuity(address, false, rank, priority).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
       }
       return { ...stored, complete: regular.complete && twap.complete, through: Math.max(through, start) };
@@ -295,7 +339,7 @@ export class FillSyncService {
     let probe = this.retention.get(address);
     if (!probe) {
       probe = await this.retentionStart(address, rank);
-      const retained = Math.max(probe.regular ?? 0, probe.twap ?? 0);
+      const retained = retainedFrom(probe);
       if (retained > floor) {
         floor = Math.min(retained, end);
         await this.repository.patchCoverage(address, { backfillFloor: new Date(floor) });
@@ -309,11 +353,11 @@ export class FillSyncService {
       // repeated only when one no longer does.
       this.retention.delete(address);
       const spanFrom = (await this.repository.coverage(address))?.verifiedFrom?.getTime() ?? end;
-      const reaches = async (twap: boolean, first: number | null) => first === null || (await this.earliestFill(address, twap, spanFrom, rank)) !== null;
+      // An endpoint that was not bounded returned its whole history: there is nothing to re-check.
+      const reaches = async (twap: boolean, first: RetentionProbe | null) => !first?.bounded || (await this.earliestFill(address, twap, spanFrom, rank)) !== null;
       let retained = 0;
       if (status !== "blocked" && !((await reaches(false, probe.regular)) && (await reaches(true, probe.twap)))) {
-        const now = await this.retentionStart(address, rank);
-        retained = Math.max(now.regular ?? 0, now.twap ?? 0);
+        retained = retainedFrom(await this.retentionStart(address, rank));
       }
       const from = Math.max(retained, spanFrom);
       // Stopped short of the one-year floor because REST holds nothing older.
@@ -357,18 +401,27 @@ export class FillSyncService {
     return { status: "pending", inserted: stored.inserted };
   }
 
-  /** Time of the earliest fill an endpoint still returns up to `end`; null when it returns none. */
-  private async earliestFill(address: string, twap: boolean, end: number | undefined, rank?: number): Promise<number | null> {
+  /** The earliest fill an endpoint still returns up to `end`, read from
+   * the beginning; null when it returns none. A full first page means the
+   * endpoint has more than a page and its start may be where retention cut
+   * it (`bounded`); a short one is the endpoint's whole history. */
+  private async earliestFill(address: string, twap: boolean, end: number | undefined, rank?: number): Promise<RetentionProbe | null> {
     const batch = twap
       ? (await this.info.userTwapSliceFillsByTime(address, 0, end, "background", rank)).map(twapSliceToFill)
       : await this.info.userFillsByTime(address, 0, end, "background", rank);
-    return batch.length === 0 ? null : batch.reduce((min, fill) => Math.min(min, fill.time), Infinity);
+    if (batch.length === 0) return null;
+    const first = batch.reduce((min, fill) => (fill.time < min.time ? fill : min), batch[0]!);
+    // An ordinary fill that starts mid-position has something before it that
+    // this endpoint no longer returns. A TWAP slice often does (a TWAP out
+    // of a position opened by ordinary orders), so there it proves nothing.
+    const midPosition = !twap && first.startPosition !== undefined && Number(first.startPosition) !== 0;
+    return { time: first.time, bounded: batch.length >= PAGE_SIZE || midPosition };
   }
 
   /** Where each endpoint's retained history starts for the address. REST
-   * keeps a moving window per endpoint, so the later of the two bounds
-   * what can be verified. */
-  private async retentionStart(address: string, rank?: number): Promise<{ regular: number | null; twap: number | null }> {
+   * keeps a moving window per endpoint; {@link retainedFrom} turns the two
+   * into the span's lower bound. */
+  private async retentionStart(address: string, rank?: number): Promise<{ regular: RetentionProbe | null; twap: RetentionProbe | null }> {
     return { regular: await this.earliestFill(address, false, undefined, rank), twap: await this.earliestFill(address, true, undefined, rank) };
   }
 

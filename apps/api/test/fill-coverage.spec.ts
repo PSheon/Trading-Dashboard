@@ -231,7 +231,8 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
   it("does not claim a range upstream pruned while the backfill was running", async () => {
     const now = Date.now();
     const retained = now - 20 * DAY;
-    upstream = roundTrips("BTC", 400, retained, now - 2 * HOUR);
+    // More than a page before and after the pruning: an endpoint at its retention limit.
+    upstream = roundTrips("BTC", 1_400, retained, now - 2 * HOUR);
     const sync = service();
     await sync.catchUp(A);
     await sync.backfillStep(A);
@@ -245,6 +246,74 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
     // The span starts where upstream starts now, not at the start read earlier.
     expect((await coverage()).verifiedFrom!.getTime()).toBe(moved);
     expect(new Set(await storedTids())).toEqual(new Set(upstream.map((f) => f.tid)));
+  });
+
+  it("the floor is not the later of the two endpoints' first fills: a recent first TWAP does not cut off a year of ordinary fills (review 45)", async () => {
+    const now = Date.now();
+    // 200 days of ordinary fills from a flat start, fewer than a page: the endpoint returns its whole history.
+    const first = now - 200 * DAY;
+    upstream = roundTrips("BTC", 300, first, now - 2 * HOUR);
+    // The address used a TWAP for the first time last week, out of an open position.
+    const slice = (time: number, start: number): HlTwapSliceFill => ({ twapId: 77, fill: fill("ETH", start, -1, time, { hash: "0x0000" }) });
+    upstreamTwap = [slice(now - 7 * DAY, 5), slice(now - 7 * DAY + 60_000, 4)];
+    const sync = service();
+    await sync.catchUp(A);
+    await sync.backfillStep(A);
+    // Before: the floor jumped to the first TWAP slice (7 days ago) and 193 days of fills were never read.
+    expect((await coverage()).backfillFloor.getTime()).toBeLessThan(first);
+    let status = "pending";
+    for (let step = 0; step < 80 && status === "pending"; step++) ({ status } = await sync.backfillStep(A));
+    expect(status).toBe("complete");
+    const stored = new Set(await storedTids());
+    expect(upstream.filter((f) => !stored.has(f.tid))).toEqual([]);
+    expect((await coverage()).verifiedFrom!.getTime()).toBeLessThanOrEqual(first);
+  });
+
+  it("an endpoint that returns a full page from the beginning still bounds the span, and so does an ordinary first fill that starts mid-position", async () => {
+    const now = Date.now();
+    const retained = now - 12 * DAY;
+    // Exactly at the limit: one full page; older fills may have been dropped.
+    upstream = roundTrips("BTC", PAGE_SIZE / 2 + 50, retained, now - 2 * HOUR);
+    const sync = service();
+    await sync.catchUp(A);
+    await sync.backfillStep(A);
+    expect((await coverage()).backfillFloor.getTime()).toBe(retained);
+
+    await truncateAll(db);
+    await db.insert(leaders).values({ address: A, active: true, tier: "A" });
+    // Few fills, but the first one reduces a position this endpoint never shows being opened.
+    upstream = [fill("BTC", 3, -1, retained), ...roundTrips("ETH", 20, retained + HOUR, now - 2 * HOUR)];
+    const again = service();
+    await again.catchUp(A);
+    await again.backfillStep(A);
+    expect((await coverage()).backfillFloor.getTime()).toBe(retained);
+  });
+
+  it("the forward cursor steps over a millisecond that holds more than a page instead of staying on it for ever (review 45)", async () => {
+    const now = Date.now();
+    const cursor = now - 3 * HOUR;
+    await span(now - DAY, cursor);
+    // One block with 2,300 fills of the address (a sweep through a deep book), then normal trading.
+    const dense = cursor + HOUR;
+    const burst = Array.from({ length: PAGE_SIZE + 300 }, (_, i) => fill("BTC", i, 1, dense));
+    const after = roundTrips("ETH", 3, dense + 60_000, now - 2 * 60_000 - INDEX_LAG_MS);
+    upstream = [...burst, ...after];
+    const sync = service();
+    const result = await sync.catchUp(A);
+    // The first page of that millisecond is stored, the cursor is past it, and what follows is read.
+    expect(result.complete).toBe(true);
+    const row = await coverage();
+    expect(row.verifiedThrough!.getTime()).toBeGreaterThan(dense);
+    expect(row.lastError).toBe("dense_millisecond");
+    const stored = new Set(await storedTids());
+    expect(after.every((f) => stored.has(f.tid))).toBe(true);
+    expect(burst.filter((f) => stored.has(f.tid))).toHaveLength(PAGE_SIZE);
+    // The next sweep starts after it: no more re-reading of the same page.
+    info.userFillsByTime.mockClear();
+    await sync.catchUp(A);
+    expect(info.userFillsByTime.mock.calls.every((call) => (call[1] as number) > dense)).toBe(true);
+    expect(info.userFillsByTime.mock.calls.length).toBeLessThanOrEqual(2);
+    // Backward backfill keeps its own rule: a window it cannot page through is `blocked`, not skipped.
   });
 
   it("retries a window that is too dense with a shorter one and stores nothing from the failed attempt", async () => {
@@ -317,6 +386,48 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
       const result = await service.analytics(A, "all");
       await service.settled();
       expect(result.coverage).toMatchObject({ source: "hyperliquid", fills: 8 });
+    });
+
+    it("a page view mid-backfill is answered from the stored figures: no recompute that could not use the new fills (review 44)", async () => {
+      const now = Date.now();
+      upstream = [...roundTrips("BTC", 20, now - 9 * DAY, now - 2 * DAY), ...roundTrips("ETH", 2, now - 5 * HOUR, now - 2 * HOUR)];
+      const sync = service();
+      await sync.catchUp(A);
+      const service1 = analytics();
+      const first = await service1.analytics(A, "all");
+      await service1.settled();
+      expect(first.coverage.source).toBe("hyperliquid");
+
+      // The backward backfill stores a window: revised_at moves past the figures' time, and it is still pending.
+      await db.update(fillCoverage).set({ backfillFloor: new Date(now - 30 * DAY) });
+      expect((await sync.backfillStep(A)).status).toBe("pending");
+      const row = await coverage();
+      expect(row.backfillStatus).toBe("pending");
+      expect(row.revisedAt!.getTime()).toBeGreaterThan(first.computedAt.getTime());
+
+      // Three page views: the same figures at once, and nothing computed.
+      const compute = vi.spyOn(service1, "compute");
+      traders.latestFills.mockClear();
+      for (let i = 0; i < 3; i++) {
+        const again = await service1.analytics(A, "all");
+        expect(again.computedAt.getTime()).toBe(first.computedAt.getTime());
+        expect(again.refreshing).toBe(false);
+      }
+      expect((await service1.trades(A, { status: "all", limit: 20 } as never)).computedAt.getTime()).toBe(first.computedAt.getTime());
+      expect(compute).not.toHaveBeenCalled();
+      expect(traders.latestFills).not.toHaveBeenCalled();
+      compute.mockRestore();
+
+      // When the backfill ends, the next view recomputes from our fills, once.
+      let status = "pending";
+      for (let step = 0; step < 40 && status === "pending"; step++) ({ status } = await sync.backfillStep(A));
+      expect(status).not.toBe("pending");
+      const after = await service1.analytics(A, "all");
+      await service1.settled();
+      expect(after.computedAt.getTime()).toBeGreaterThan(first.computedAt.getTime());
+      expect(after.coverage.source).toBe("tracked");
+      const settledAt = after.computedAt.getTime();
+      expect((await service1.analytics(A, "all")).computedAt.getTime()).toBe(settledAt);
     });
 
     it("recomputes the figures once backfilled fills land", async () => {

@@ -1,4 +1,4 @@
-import type { CohortDetailResponse, CohortMarket, CohortTier, CohortWallet, CohortWindow, PnlTier } from "@trading-dashboard/shared/contracts";
+import { cohortHeadlineReady, type CohortDetailResponse, type CohortMarket, type CohortTier, type CohortWallet, type CohortWindow, type PnlTier } from "@trading-dashboard/shared/contracts";
 import type { CohortPosition } from "@trading-dashboard/shared/database";
 
 import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
@@ -141,6 +141,7 @@ export function aggregate(tier: CohortTier, members: MemberSnapshot[], freshSinc
     tier,
     memberCount: members.length,
     walletCount: wallets.length,
+    headlineReady: cohortHeadlineReady(wallets.length, members.length),
     hero: {
       upnlProfit,
       upnlLoss,

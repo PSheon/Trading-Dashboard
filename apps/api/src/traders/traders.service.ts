@@ -540,20 +540,37 @@ export class TradersService {
 
   // --- GET /traders/:address/fills -----------------------------------------
 
-  /** Recent fills, perp and spot, newest first, TWAP slices included (with
-   * their `twapId`): ours when the address is tracked, otherwise
-   * Hyperliquid's latest fills and TWAP slices merged. */
+  /**
+   * Recent fills, perp and spot, newest first, TWAP slices included (with
+   * their `twapId`): Hyperliquid's latest fills and TWAP slices merged, as
+   * CopyDog's 成交 tab lists them.
+   *
+   * A tracked address gets the same list, with our stored fills merged in
+   * (by tid). Its tab used to be read from the watcher's table alone, which
+   * holds perp fills only and, right after a favourite, only the last hour:
+   * tracking a trader made its page emptier and dropped its spot fills
+   * (review 43). The stored rows add what the feed has confirmed since
+   * Hyperliquid's list was cached, and when Hyperliquid cannot be read
+   * (busy, timeout) they are the answer on their own, so a tracked trader's
+   * tab still loads where an untracked one's would be 503.
+   */
   async fills(address: string, limit: number): Promise<TraderFill[]> {
-    if (await this.isTracked(address)) {
-      const rows = await this.repository.recentFills(address, limit);
-      return rows.map(dbFillToTraderFill);
+    const stored = (await this.isTracked(address)) ? (await this.repository.recentFills(address, limit)).map(dbFillToTraderFill) : [];
+    let upstream: TraderFill[];
+    try {
+      const [regular, twap] = await this.latestFills(address);
+      upstream = [...regular, ...twap].map(hlFillToTraderFill);
+    } catch (error) {
+      if (stored.length === 0) throw error;
+      this.logger.warn(`Fills of ${address}: Hyperliquid unavailable (${(error as Error).message}); serving ${stored.length} stored fills`);
+      return stored;
     }
-    const [regular, twap] = await this.latestFills(address);
-    // Perp and spot, as CopyDog's 成交 tab lists them.
-    return [...regular, ...twap]
-      .sort((a, b) => b.time - a.time || b.tid - a.tid)
-      .slice(0, limit)
-      .map(hlFillToTraderFill);
+    // One row per trade: Hyperliquid's copy wins (it is the same fill).
+    const byTid = new Map<string, TraderFill>();
+    for (const fill of [...stored, ...upstream]) byTid.set(fill.tid, fill);
+    return [...byTid.values()]
+      .sort((a, b) => b.ts.getTime() - a.ts.getTime() || (BigInt(b.tid) > BigInt(a.tid) ? 1 : BigInt(b.tid) < BigInt(a.tid) ? -1 : 0))
+      .slice(0, limit);
   }
 
   // --- GET /traders/:address/orders ----------------------------------------

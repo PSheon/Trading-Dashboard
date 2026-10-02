@@ -8940,6 +8940,9 @@
                         "walletCount": {
                           "type": "integer"
                         },
+                        "headlineReady": {
+                          "type": "boolean"
+                        },
                         "hero": {
                           "type": "object",
                           "properties": {

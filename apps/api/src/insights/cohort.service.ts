@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
-import { cohortTierSchema, type CohortDetailResponse, type CohortHistoryResponse, type CohortTier, type CohortWindow } from "@trading-dashboard/shared/contracts";
+import { cohortHeadlineReady, cohortTierSchema, type CohortDetailResponse, type CohortHistoryResponse, type CohortTier, type CohortWindow } from "@trading-dashboard/shared/contracts";
 
 import { pnlTier } from "../analytics/trade-metrics.js";
 import { AppConfig } from "../config/app-config.js";
@@ -204,8 +204,10 @@ export class CohortService {
     return new Date(now.getTime() - Math.max(3 * intervalMs, 3_600_000));
   }
 
-  /** One history row per tier whose last row is `intervalMs` old, when it
-   * has fresh wallets. */
+  /** One history row per tier whose last row is `intervalMs` old, once
+   * enough of the tier is fresh for the figure to be the tier's
+   * (`cohortHeadlineReady`). A point from a fifth of the members would
+   * stay on the 倉位傾向 chart for good. */
   async writeSnapshots(intervalMs: number, now = new Date()): Promise<number> {
     this.lastSnapshot ??= await this.repository.lastSnapshotAt();
     let written = 0;
@@ -213,7 +215,7 @@ export class CohortService {
       const last = this.lastSnapshot.get(tier);
       if (last && now.getTime() - last.getTime() < intervalMs - 30_000) continue;
       const detail = aggregate(tier, await this.snapshots(tier), this.freshSince(intervalMs, now));
-      if (detail.walletCount === 0) continue;
+      if (!cohortHeadlineReady(detail.walletCount, detail.memberCount)) continue;
       const h = detail.hero;
       await this.repository.insertSnapshot({
         tier, ts: now, memberCount: detail.memberCount, walletCount: detail.walletCount,

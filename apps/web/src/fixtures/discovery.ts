@@ -85,3 +85,51 @@ export function fixtureCoinBoard(coin: string) {
     pool: fixtureBoard({ market: "crypto", board: "top100", sort: "pnl", window: "all" }).pool, updatedAt: items.length ? leaderboardUpdatedAt : null,
   };
 }
+
+/** GET /insights/cohorts/:tier. 極度盈利 is fully read (150 of 150 members);
+ * `rekt` is a tier the worker has only started on (33 of 150): its headline
+ * is not the tier's yet, and the page withholds it. */
+export function fixtureCohort(tier: string) {
+  const members = 150;
+  const fresh = tier === "rekt" ? 33 : 150;
+  const traders = traderStats.filter((t) => !t.isVault).slice(0, Math.min(fresh, 40));
+  const wallets = traders.map((trader, i) => {
+    const long = i % 4 !== 0;
+    const positionValue = Math.round(trader.accountValue * (1.5 + (i % 5) / 2));
+    return {
+      address: trader.address, displayName: trader.displayName, avatarUrl: null, verified: i % 9 === 0, topAssets: [["BTC", "ETH", "HYPE"][i % 3]!, "SOL"],
+      totalPnl: trader.pnl.allTime, roi: trader.roi.allTime, perpEquity: trader.accountValue, copyScore: 95 - (i % 50),
+      positionValue, leverage: Number((positionValue / Math.max(1, trader.accountValue)).toFixed(2)), sumUpnl: Math.round((long ? 1 : -1) * positionValue * 0.04), biasPct: long ? 100 : 0,
+    };
+  });
+  const coins = ["BTC", "ETH", "HYPE", "SOL", "xyz:SP500"];
+  const markets = coins.map((coin, i) => {
+    const notionalLong = 900_000_000 / (i + 1);
+    const notionalShort = 340_000_000 / (i + 1);
+    return { coin, notionalLong, notionalShort, biasPct: Number(((100 * notionalLong) / (notionalLong + notionalShort)).toFixed(1)), upnl: 12_000_000 / (i + 1), tradersLong: 60 - i * 7, tradersShort: 22 - i * 3, tradersProfit: 50 - i * 6, tradersLoss: 30 - i * 4 };
+  });
+  const notionalLong = markets.reduce((a, m) => a + m.notionalLong, 0);
+  const notionalShort = markets.reduce((a, m) => a + m.notionalShort, 0);
+  return {
+    tier, memberCount: members, walletCount: fresh, headlineReady: fresh / members >= 0.8,
+    hero: {
+      upnlProfit: 68_900_000, upnlLoss: 31_100_000, upnlProfitPct: 68.9, walletsInProfit: Math.round(fresh * 0.6), walletsInLoss: Math.round(fresh * 0.4),
+      // What a fifth of the tier would have said: almost nobody long.
+      notionalLong: tier === "rekt" ? 69_000 : notionalLong, notionalShort: tier === "rekt" ? 931_000 : notionalShort,
+      longPct: tier === "rekt" ? 6.9 : Number(((100 * notionalLong) / (notionalLong + notionalShort)).toFixed(1)),
+    },
+    markets, wallets, updatedAt: leaderboardUpdatedAt,
+  };
+}
+
+/** GET /insights/cohorts/:tier/history: a point every six hours; none for a tier that was never fully read. */
+export function fixtureCohortHistory(tier: string, window: string) {
+  const days = window === "7d" ? 7 : window === "30d" ? 30 : 90;
+  const end = Date.UTC(2026, 9, 2, 12);
+  const points = tier === "rekt" ? 0 : days * 4;
+  return {
+    tier, window,
+    series: Array.from({ length: points }, (_, i) => ({ t: new Date(end - (points - 1 - i) * 6 * 3_600_000), pctLong: Number((62 + 11 * Math.sin(i / 9) + (i / points) * 4).toFixed(1)) })),
+    btc: Array.from({ length: points }, (_, i) => [end - (points - 1 - i) * 6 * 3_600_000, Math.round(84_000 + 6_000 * Math.sin(i / 14))] as [number, number]),
+  };
+}

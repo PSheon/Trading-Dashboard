@@ -207,8 +207,16 @@ export class TradeAnalyticsService {
     if (!row) return this.compute(address, true, { caller });
     // Backfilled fills (or a repaired hole) landed after these figures
     // were computed: they describe a history that has since changed.
-    const revisedAt = (await this.repository.fillCoverage(address))?.revisedAt;
-    if (revisedAt && revisedAt > row.computedAt && await this.traders.isTracked(address)) return this.compute(address, false, { caller });
+    // Only once the backward backfill has ended, though. While it runs,
+    // every window it stores moves `revised_at`, and the computation does
+    // not read our fills yet (`refreshAt` uses the REST read until the
+    // backfill is over): each page view of a watched trader then waited
+    // for a recompute that could not use the new fills, and came back
+    // with the same figures, or 503 busy (review 44). Mid-backfill the row
+    // is served as it is and ages like any other.
+    const coverage = await this.repository.fillCoverage(address);
+    const revisedAt = coverage?.revisedAt;
+    if (revisedAt && revisedAt > row.computedAt && coverage.backfillStatus !== "pending" && await this.traders.isTracked(address)) return this.compute(address, false, { caller });
     if (Date.now() - row.computedAt.getTime() > STALE_MS) this.compute(address, false, { caller }).catch(() => undefined);
     return row;
   }

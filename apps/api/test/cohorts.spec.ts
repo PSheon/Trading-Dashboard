@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { cohortMembers, cohortSnapshots, discoveryTraders, kolTraders, traderStats } from "@trading-dashboard/shared/database";
-import { discoverySettingsSchema, wireCohortDetailSchema, wireCohortHistorySchema } from "@trading-dashboard/shared/contracts";
+import { COHORT_HEADLINE_MIN_COVERAGE, cohortHeadlineReady, discoverySettingsSchema, wireCohortDetailSchema, wireCohortHistorySchema } from "@trading-dashboard/shared/contracts";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -159,6 +159,47 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect(history.btc).toEqual([[1, 84000]]);
     const [snap] = await db.select().from(cohortSnapshots);
     expect(snap).toMatchObject({ tier: "extremely_profitable", walletCount: 2, walletsInProfit: 1, walletsInLoss: 1 });
+  });
+
+  it("withholds the headline until most of the tier is fresh: no history point from a fraction of the members (review 52)", async () => {
+    const now = new Date("2026-09-30T00:00:00Z");
+    const fresh = new Date(now.getTime() - 60_000);
+    const stale = new Date(now.getTime() - 5 * 3_600_000);
+    const member = (i: number, fetchedAt: Date | null, notional: number) => ({
+      address: addr(100 + i), pnlAll: 2e6, roiAll: 1.5, displayName: null, avatarUrl: null, verified: false, copyScore: 80,
+      perpEquity: 10_000, fetchedAt, positions: [{ coin: "BTC", notional, upnl: 0 }],
+    });
+    // Ten members; the two read so far are short, the tier as a whole is long.
+    const partial = [...Array.from({ length: 2 }, (_, i) => member(i, fresh, -50_000)), ...Array.from({ length: 8 }, (_, i) => member(2 + i, i < 4 ? stale : null, 40_000))];
+    const early = aggregate("extremely_profitable", partial, new Date(now.getTime() - 3_600_000));
+    expect(early).toMatchObject({ memberCount: 10, walletCount: 2, headlineReady: false });
+    // What the page would have shown: 0 % long.
+    expect(early.hero.longPct).toBe(0);
+    expect(cohortHeadlineReady(7, 10)).toBe(false);
+    expect(cohortHeadlineReady(8, 10)).toBe(true);
+    expect(cohortHeadlineReady(0, 0)).toBe(false);
+    expect(COHORT_HEADLINE_MIN_COVERAGE).toBe(0.8);
+    const full = aggregate("extremely_profitable", partial.map((m) => ({ ...m, fetchedAt: fresh })), new Date(now.getTime() - 3_600_000));
+    expect(full).toMatchObject({ walletCount: 10, headlineReady: true });
+    expect(full.hero.longPct).toBeCloseTo(76.2, 1);
+
+    // The worker: no history row while the tier is 1 of 2 fresh; one once both are.
+    await seed();
+    await service.build(2);
+    await service.refreshOne((await repository.nextDue(1, new Date()))[0]);
+    // (1 of 2 fresh.)
+    expect(await service.writeSnapshots(15 * 60_000)).toBe(0);
+    expect(await db.select().from(cohortSnapshots)).toHaveLength(0);
+    await service.refreshOne((await repository.nextDue(1, new Date()))[0]);
+    expect(await service.detail("extremely_profitable")).toMatchObject({ walletCount: 2, headlineReady: true });
+    expect(await service.writeSnapshots(15 * 60_000)).toBe(1);
+
+    // A row written before this rule, from 33 of 150 members, is not drawn on the chart.
+    await db.insert(cohortSnapshots).values({ tier: "extremely_profitable", ts: new Date(Date.now() - 3_600_000), memberCount: 150, walletCount: 33,
+      notionalLong: "6.9", notionalShort: "93.1", longPct: "6.9", upnlProfit: "0", upnlLoss: "0", walletsInProfit: 0, walletsInLoss: 0 });
+    const history = await service.history("extremely_profitable", "7d");
+    expect(history.series).toHaveLength(1);
+    expect(history.series[0]!.pctLong).not.toBe(6.9);
   });
 
   it("keeps the last snapshot when a refresh fails", async () => {

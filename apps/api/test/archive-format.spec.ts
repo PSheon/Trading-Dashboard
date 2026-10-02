@@ -5,7 +5,7 @@ import { auditFills, duplicateTids, lifetimeComplete, pnlIdentity, positionBreak
 import { advanceCheckpoint, ARCHIVE_BOUNDARY_MARGIN_MS, certifiedSpan, initialCheckpoint, planRange } from "../src/analytics/history-checkpoint.js";
 import { applyFills, type Trade } from "../src/analytics/trade-reconstruction.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
-import { ARCHIVE_FIRST_HOUR, archiveKey, ArchiveFormatError, BY_BLOCK_FIRST_HOUR, fillStream, parseArchiveLine } from "../src/ingest/archive-format.js";
+import { ARCHIVE_FIRST_HOUR, archiveKey, archiveKeys, backfillFloor, ArchiveFormatError, BY_BLOCK_FIRST_HOUR, fillStream, parseArchiveLine } from "../src/ingest/archive-format.js";
 import { signS3Request } from "../src/ingest/archive-store.js";
 import { decodeLz4Frames, Lz4FormatError, splitLines, XxHash32 } from "../src/ingest/lz4-frame.js";
 import { storedFrame } from "./archive-test-utils.js";
@@ -72,12 +72,30 @@ describe("LZ4 frame decoder", () => {
 });
 
 describe("archive layout and line formats", () => {
-  it("names hourly objects by UTC day and unpadded hour, switching prefix on 2025-07-27", () => {
-    expect(archiveKey(ARCHIVE_FIRST_HOUR)).toBe("node_fills/hourly/20250525/0.lz4");
-    expect(archiveKey(BY_BLOCK_FIRST_HOUR - 3_600_000)).toBe("node_fills/hourly/20250726/23.lz4");
-    expect(archiveKey(BY_BLOCK_FIRST_HOUR)).toBe("node_fills_by_block/hourly/20250727/0.lz4");
+  it("names hourly objects by UTC day and unpadded hour, switching prefix inside 2025-07-27 08:00", () => {
+    // As listed in the bucket on 2026-10-02.
+    expect(archiveKey(ARCHIVE_FIRST_HOUR)).toBe("node_fills/hourly/20250525/14.lz4");
+    expect(archiveKeys(BY_BLOCK_FIRST_HOUR - 3_600_000)).toEqual(["node_fills/hourly/20250727/7.lz4"]);
+    // The hour of the change is split between both prefixes: both are read.
+    expect(archiveKeys(BY_BLOCK_FIRST_HOUR)).toEqual(["node_fills/hourly/20250727/8.lz4", "node_fills_by_block/hourly/20250727/8.lz4"]);
+    expect(archiveKeys(BY_BLOCK_FIRST_HOUR + 3_600_000)).toEqual(["node_fills_by_block/hourly/20250727/9.lz4"]);
+    expect(archiveKey(BY_BLOCK_FIRST_HOUR)).toBe("node_fills_by_block/hourly/20250727/8.lz4");
     expect(archiveKey(HOUR_11)).toBe("node_fills_by_block/hourly/20260925/11.lz4");
     expect(() => archiveKey(HOUR_11 + 1)).toThrow();
+  });
+
+  it("the backfill window is whole UTC days back from now, never before the configured start or the archive's first hour", () => {
+    const now = Date.UTC(2026, 9, 2, 10, 30);
+    const start = Date.UTC(2025, 4, 25);
+    expect(backfillFloor(now, start, 90)).toBe(Date.UTC(2026, 6, 4));
+    // The same all day; one day later the next morning.
+    expect(backfillFloor(Date.UTC(2026, 9, 2, 23, 59), start, 90)).toBe(Date.UTC(2026, 6, 4));
+    expect(backfillFloor(Date.UTC(2026, 9, 3), start, 90)).toBe(Date.UTC(2026, 6, 5));
+    // 90 days never reach the 2025-07-27 format change; a longer window does.
+    expect(backfillFloor(now, start, 90)).toBeGreaterThan(BY_BLOCK_FIRST_HOUR);
+    expect(backfillFloor(now, start, 450)).toBeLessThan(BY_BLOCK_FIRST_HOUR);
+    expect(backfillFloor(now, start, 3650)).toBe(ARCHIVE_FIRST_HOUR);
+    expect(backfillFloor(now, Date.UTC(2026, 8, 1), 90)).toBe(Date.UTC(2026, 8, 1));
   });
 
   const sample = { coin: "BTC", px: "118136.0", sz: "0.00009", side: "B", time: 1753606210273, startPosition: "-1.41864", dir: "Close Short",

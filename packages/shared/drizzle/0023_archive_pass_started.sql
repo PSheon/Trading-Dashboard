@@ -1,0 +1,1 @@
+ALTER TABLE "archive_ingest_state" ADD COLUMN "backfill_pass_started_at" timestamp with time zone;

@@ -230,6 +230,115 @@ describe("archive ingest", () => {
     expect(await span(ADDRESSES.find((address) => address !== heavy)!)).toEqual([H11, H13, "active"]);
   });
 
+  it("keeps every fill of a heavy address by default: nobody is excluded for trading a lot", async () => {
+    await track(ADDRESSES);
+    const heavy = "0xb3e475368ed0fa0ad23c04de0423d48a0758806f";
+    expect(config().value.archive.maxFillsPerAddressHour).toBe(0);
+    await service().tick(NOW);
+    expect(await span(heavy)).toEqual([H11, H13, "active"]);
+    expect(await stored(heavy)).toHaveLength(expected[heavy].length);
+    expect((await repository.coverageCounts(H11)).excluded).toBe(0);
+  });
+
+  describe("the backfill window", () => {
+    const DAY = 24 * HOUR_MS;
+    /** Every hour exists and is empty; the keys asked for are recorded. */
+    const recording = () => {
+      const keys: string[] = [];
+      const store: ArchiveStore = { open: async (key) => {
+        keys.push(key);
+        const body = storedFrame("");
+        return { size: body.length, body: (async function* () { yield body; })(), cancel: async () => undefined };
+      } };
+      return { keys, store };
+    };
+    const far = Date.UTC(2025, 4, 25);
+    const midnight = Math.floor(NOW / DAY) * DAY;
+
+    it("a pass goes back S3_ARCHIVE_BACKFILL_DAYS, not to the archive's first day; a longer window later extends the same spans", async () => {
+      await track(ADDRESSES);
+      const first = recording();
+      await service({ start: far, backfillDays: 1 }, first.store).tick(NOW);
+      // Live hour 12, then 11:00 down to yesterday's midnight.
+      expect(first.keys).toHaveLength(1 + 12 + 24);
+      expect(first.keys.at(-1)).toBe(archiveKey(midnight - DAY));
+      expect(await span(ADDRESSES[0])).toEqual([midnight - DAY, H13, "active"]);
+      const status = await service({ start: far, backfillDays: 1 }, first.store).status(NOW);
+      expect([status.backfillFloor, status.backfillCursorHour, status.addresses.backfilled, status.addresses.pending]).toEqual([new Date(midnight - DAY), null, ADDRESSES.length, 0]);
+      // The floor moves with the calendar: the next day nothing is pending and nothing is read again.
+      const next = recording();
+      expect(await service({ start: far, backfillDays: 1 }, next.store).tick(NOW + 10 * 60_000)).toEqual([]);
+
+      const longer = recording();
+      await service({ start: far, backfillDays: 3 }, longer.store).tick(NOW);
+      expect(longer.keys).toHaveLength(48);
+      expect([longer.keys[0], longer.keys.at(-1)]).toEqual([archiveKey(midnight - DAY - HOUR_MS), archiveKey(midnight - 3 * DAY)]);
+      expect(await span(ADDRESSES[0])).toEqual([midnight - 3 * DAY, H13, "active"]);
+      // 90 days from 2026 never ask for the legacy prefix.
+      expect([...first.keys, ...longer.keys].every((key) => key.startsWith("node_fills_by_block/"))).toBe(true);
+    });
+
+    it("passes are spaced: a joiner, or a longer window, waits for the interval since the last pass began", async () => {
+      const [early, late] = [ADDRESSES[0], ADDRESSES[1]];
+      await track([early]);
+      const options = { start: far, backfillDays: 1, passIntervalHours: 6 };
+      const first = recording();
+      await service(options, first.store).tick(NOW);
+      expect(first.keys).toHaveLength(37);
+      expect((await repository.state()).backfillPassStartedAt).toEqual(new Date(NOW));
+
+      await track([late]);
+      const second = recording();
+      // The joiner's span starts with the next live hour; no pass yet.
+      expect(await service(options, second.store).tick(NOW + HOUR_MS)).toEqual(["ingested"]);
+      expect(await span(late)).toEqual([H13, H13 + HOUR_MS, "active"]);
+      const status = await service(options, second.store).status(NOW + HOUR_MS);
+      expect([status.addresses.backfilled, status.addresses.pending, status.backfillNextPassAt]).toEqual([1, 1, new Date(NOW + 6 * HOUR_MS)]);
+      // Until then it is reported as covered only from where its span starts.
+      expect(await history.archiveSpan(late)).toEqual({ from: H13 + ARCHIVE_BOUNDARY_MARGIN_MS, through: H13 + HOUR_MS - ARCHIVE_BOUNDARY_MARGIN_MS });
+
+      // Six hours after the first pass began: one pass for the joiner, down to the same floor.
+      const later = NOW + 6 * HOUR_MS;
+      const third = recording();
+      await repository.moveCursor(await repository.state(), { liveNextHour: new Date(Math.floor(later / HOUR_MS) * HOUR_MS) });
+      await service(options, third.store).tick(later);
+      expect([third.keys.length, third.keys[0], third.keys.at(-1)]).toEqual([13 + 24, archiveKey(H12), archiveKey(midnight - DAY)]);
+      expect((await span(late))?.[0]).toBe(midnight - DAY);
+      expect((await repository.state()).backfillPassStartedAt).toEqual(new Date(later));
+    });
+
+    it("the hour in which the archive changed format is read from both prefixes; legacy lines keep their shape (no twapId key)", async () => {
+      const BOUNDARY = Date.UTC(2025, 6, 27, 8);
+      const dir = mkdtempSync(join(tmpdir(), "archive-"));
+      temp.push(dir);
+      const address = ADDRESSES[0];
+      const { twapId: _twapId, ...legacy } = { ...expected[address][0], tid: 1, time: BOUNDARY + 60_000 };
+      const block = { ...expected[address][0], tid: 2, time: BOUNDARY + 50 * 60_000 };
+      const write = (key: string, text: string) => {
+        mkdirSync(dirname(join(dir, key)), { recursive: true });
+        writeFileSync(join(dir, key), storedFrame(text));
+      };
+      // The legacy line exactly as the bucket holds it: [address, fill].
+      write("node_fills/hourly/20250727/8.lz4", `${JSON.stringify([address, legacy])}\n`);
+      write("node_fills_by_block/hourly/20250727/8.lz4", `${JSON.stringify({ local_time: "x", block_time: "x", block_number: 1, events: [[address, block]] })}\n`);
+      await track([address]);
+      const now = BOUNDARY + HOUR_MS + 30 * 60_000;
+      const ingest = service({ localDir: dir, start: BOUNDARY, backfill: false });
+      expect(await ingest.tick(now)).toEqual(["ingested"]);
+      const fills = await stored(address);
+      expect(fills.map((fill) => [fill.tid, "twapId" in fill])).toEqual([[1, false], [2, true]]);
+      expect(fills[0]).toEqual(legacy);
+      expect((await repository.state()).lastObjectKey).toBe("node_fills/hourly/20250727/8.lz4 + node_fills_by_block/hourly/20250727/8.lz4");
+
+      // With one of the two missing the hour is not certified.
+      await truncateAll(db);
+      rmSync(join(dir, "node_fills/hourly/20250727/8.lz4"));
+      await track([address]);
+      expect(await service({ localDir: dir, start: BOUNDARY, backfill: false }).tick(now)).toEqual(["missing"]);
+      expect(await span(address)).toEqual([null, null, "active"]);
+    });
+  });
+
   it("a hole in the archive leaves coverage partial instead of claiming it", async () => {
     await track(ADDRESSES);
     const ingest = service({ start: H11 - HOUR_MS });

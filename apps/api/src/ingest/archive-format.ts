@@ -11,29 +11,51 @@ import type { HlUserFill } from "../hyperliquid/types.js";
  * bond-labs/hyperliquid-data (key shape `hourly/<YYYYMMDD>/<H>.lz4`, the
  * 2025-05-25 start and the 2025-07-27 format change).
  *
- * NOT verified first-hand yet (no AWS credentials when this was written):
- * the exact first day, the un-padded hour in the key, and the legacy
- * `node_fills` line shape. `parseArchiveLine` therefore accepts every shape
- * those sources describe and throws on anything else, so a wrong assumption
- * stops the cursor instead of storing wrong fills.
+ * Checked against the bucket on 2026-10-02 (listings, two by-block objects
+ * and one legacy object): the hour is not zero-padded; `node_fills` runs
+ * from 2025-05-25 14:00 to 2025-07-27 08:45 UTC, one `[address, fill]` per
+ * line, without `twapId`; `node_fills_by_block` starts inside that same
+ * hour (`20250727/8.lz4` exists under both prefixes, the by-block one
+ * holding only the rest of the hour). `parseArchiveLine` still accepts
+ * every shape the sources describe and throws on anything else, so a
+ * wrong assumption stops the cursor instead of storing wrong fills.
  */
 export const ARCHIVE_BUCKET = "hl-mainnet-node-data";
 export const ARCHIVE_REGION = "ap-northeast-1";
 export const HOUR_MS = 3_600_000;
 /** First hour of `node_fills` (legacy, one event per line). */
-export const ARCHIVE_FIRST_HOUR = Date.UTC(2025, 4, 25);
-/** First hour of `node_fills_by_block` (one block per line). */
-export const BY_BLOCK_FIRST_HOUR = Date.UTC(2025, 6, 27);
+export const ARCHIVE_FIRST_HOUR = Date.UTC(2025, 4, 25, 14);
+/** The hour in which the node switched to `node_fills_by_block` (one block
+ * per line): its fills are split between the two prefixes. */
+export const BY_BLOCK_FIRST_HOUR = Date.UTC(2025, 6, 27, 8);
 
 export const floorHour = (time: number) => Math.floor(time / HOUR_MS) * HOUR_MS;
 
-/** Object key of the hourly fills file starting at `hour` (UTC, epoch ms). */
-export function archiveKey(hour: number): string {
+const DAY_MS = 24 * HOUR_MS;
+/** The hour a backfill pass goes down to: the start of the UTC day `days`
+ * days before `now`, never before `start` or the archive's first hour. It
+ * moves forward a day at a time, so a span that reached it stays covered. */
+export function backfillFloor(now: number, start: number, days: number): number {
+  return Math.max(start, ARCHIVE_FIRST_HOUR, Math.floor((now - days * DAY_MS) / DAY_MS) * DAY_MS);
+}
+
+function key(prefix: string, hour: number): string {
   if (hour % HOUR_MS !== 0) throw new Error("Archive hours start on the hour");
   const date = new Date(hour);
   const day = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
-  const prefix = hour >= BY_BLOCK_FIRST_HOUR ? "node_fills_by_block" : "node_fills";
   return `${prefix}/hourly/${day}/${date.getUTCHours()}.lz4`;
+}
+
+/** Object key of the hourly fills file starting at `hour` (UTC, epoch ms);
+ * for the format-change hour, the by-block one. */
+export function archiveKey(hour: number): string {
+  return key(hour >= BY_BLOCK_FIRST_HOUR ? "node_fills_by_block" : "node_fills", hour);
+}
+
+/** Every object that holds fills of `hour`: one, except the hour of the
+ * format change, which needs the legacy file and the by-block file. */
+export function archiveKeys(hour: number): string[] {
+  return hour === BY_BLOCK_FIRST_HOUR ? [key("node_fills", hour), key("node_fills_by_block", hour)] : [archiveKey(hour)];
 }
 
 export interface ArchiveFill {

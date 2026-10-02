@@ -98,12 +98,19 @@ function archive(source: Environment) {
      * "regular" (default; fills), "all" (also TWAP slices — only once a
      * reconciliation has shown the archive carries them) or "none". */
     trust: trust(source.S3_ARCHIVE_TRUST),
-    /** false: only the forward cursor runs (no full-archive passes). */
+    /** false: only the forward cursor runs (no backfill passes). */
     backfill: booleanValue("S3_ARCHIVE_BACKFILL_ENABLED", source.S3_ARCHIVE_BACKFILL_ENABLED, true),
+    /** How far back a pass goes: this many UTC days before today, never
+     * before `start`. Raising it later extends every span with a new pass. */
+    backfillDays: integerValue("S3_ARCHIVE_BACKFILL_DAYS", source.S3_ARCHIVE_BACKFILL_DAYS, 90, 1, 3650),
+    /** Least time between the starts of two passes. A pass re-downloads
+     * every hour of the window for the addresses that joined since the
+     * previous one, so this bounds what joiners cost; 0: back to back. */
+    passIntervalHours: integerValue("S3_ARCHIVE_PASS_INTERVAL_HOURS", source.S3_ARCHIVE_PASS_INTERVAL_HOURS, 168, 0, 8760),
     /** Minutes after an hour ends before its object is read. */
     settleMinutes: integerValue("S3_ARCHIVE_SETTLE_MINUTES", source.S3_ARCHIVE_SETTLE_MINUTES, 20, 0, 1440),
     /** More fills than this in one hourly object: the address is excluded. */
-    maxFillsPerAddressHour: integerValue("S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR", source.S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR, 20_000, 1, 10_000_000),
+    maxFillsPerAddressHour: integerValue("S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR", source.S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR, 0, 0, 10_000_000),
   };
 }
 

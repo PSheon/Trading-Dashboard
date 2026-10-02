@@ -23,9 +23,9 @@ export interface ObjectCommit {
   /** Database time when the participant set was read; rows queued later
    * were not filtered for and must not be marked covered. */
   snapshotAt: Date;
-  /** Addresses over the per-hour cap in this object. */
+  /** Addresses over the per-hour cap in this object (none unless a cap is set). */
   excluded: string[];
-  /** Lowest hour of the archive: a pass that reaches it ends. */
+  /** Lowest hour of the backfill window: a pass that reaches it ends. */
   floor: number;
   /** UTC day (YYYY-MM-DD) the bytes are billed to. */
   day: string;
@@ -97,7 +97,7 @@ export class ArchiveIngestRepository {
 
   /** Sets a cursor outside an object commit (first run, new backfill pass).
    * `undefined`: another worker moved the state first. */
-  async moveCursor(state: ArchiveState, patch: Partial<Pick<ArchiveState, "liveNextHour" | "backfillCursorHour">>): Promise<ArchiveState | undefined> {
+  async moveCursor(state: ArchiveState, patch: Partial<Pick<ArchiveState, "liveNextHour" | "backfillCursorHour" | "backfillPassStartedAt">>): Promise<ArchiveState | undefined> {
     return (await this.db.update(archiveIngestState).set({ ...patch, version: state.version + 1 })
       .where(and(mine, eq(archiveIngestState.version, state.version))).returning())[0];
   }

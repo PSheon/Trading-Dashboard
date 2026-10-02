@@ -82,6 +82,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | `S3_ARCHIVE_MAX_BYTES_PER_MINUTE` | `268435456` | `268435456` | |
 | `S3_ARCHIVE_BACKFILL_ENABLED` | `false` | `true` | Stage does not need the full history twice |
 | `S3_ARCHIVE_START` | `2025-05-25` | `2025-05-25` | adjust after the probe |
+| `S3_ARCHIVE_BACKFILL_DAYS` / `S3_ARCHIVE_PASS_INTERVAL_HOURS` | `90` / `168` | `90` / `168` | 90 days = 80 GB = US$9.14 a pass; at most one pass a week |
 | `S3_ARCHIVE_TRUST` | `regular` | `regular` | `all` only after a TWAP reconciliation |
 | `S3_ARCHIVE_SETTLE_MINUTES`, `S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR` | defaults | defaults | |
 

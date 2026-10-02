@@ -427,6 +427,12 @@ export const heartbeatResponseSchema = z.object({
     liveNextHour: z.coerce.date().nullable(),
     /** Next hour of the running backfill pass; null when none runs. */
     backfillCursorHour: z.coerce.date().nullable(),
+    /** The hour passes go down to (`S3_ARCHIVE_BACKFILL_DAYS` before today);
+     * `addresses.backfilled` counts spans that reach it. */
+    backfillFloor: z.coerce.date().optional(),
+    /** When the latest pass began and the earliest start of the next one. */
+    backfillPassStartedAt: z.coerce.date().nullable().optional(),
+    backfillNextPassAt: z.coerce.date().nullable().optional(),
     /** Seconds between now and the end of the newest ingested hour. */
     lagSeconds: z.number().nullable(),
     objects: z.number().int(),

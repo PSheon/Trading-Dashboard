@@ -18,7 +18,7 @@ export function testConfig(): AppConfig {
     alert: { maxActionAgeSeconds: env.alertMaxActionAgeSeconds() },
     archive: { enabled: false, bucket: "hl-mainnet-node-data", region: "ap-northeast-1", localDir: undefined as string | undefined, start: Date.UTC(2025, 4, 25),
       credentials: undefined as { accessKeyId: string; secretAccessKey: string; sessionToken: string | undefined } | undefined,
-      maxDailyUsd: 2, usdPerGb: 0.114, maxBytesPerMinute: 268_435_456, settleMinutes: 20, maxFillsPerAddressHour: 20_000, backfill: true, trust: "regular" as "none" | "regular" | "all" },
+      maxDailyUsd: 2, usdPerGb: 0.114, maxBytesPerMinute: 268_435_456, settleMinutes: 20, maxFillsPerAddressHour: 0, backfill: true, backfillDays: 3650, passIntervalHours: 0, trust: "regular" as "none" | "regular" | "all" },
     copy: { mode: (process.env.COPY_TRADING_MODE === "disabled" ? "disabled" : "paper") as "paper" | "disabled", workerIntervalMs: 2000 },
   }; } };
 }

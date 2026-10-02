@@ -1193,6 +1193,10 @@ export const archiveIngestState = pgTable("archive_ingest_state", {
   liveNextHour: timestamp("live_next_hour", { withTimezone: true }),
   /** Start of the next hour to ingest going backward; null when no pass runs. */
   backfillCursorHour: timestamp("backfill_cursor_hour", { withTimezone: true }),
+  /** When the latest backfill pass began; the next one waits
+   * `S3_ARCHIVE_PASS_INTERVAL_HOURS` from it. Null: none yet, or the last
+   * one stopped at a missing object and may be retried at once. */
+  backfillPassStartedAt: timestamp("backfill_pass_started_at", { withTimezone: true }),
   objects: bigint("objects", { mode: "number" }).notNull().default(0),
   bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
   fillsSeen: bigint("fills_seen", { mode: "number" }).notNull().default(0),

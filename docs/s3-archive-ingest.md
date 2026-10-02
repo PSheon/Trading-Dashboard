@@ -2,7 +2,7 @@
 
 2026-10-01. Fills of the tracked set are read from Hyperliquid's public node archive instead of a node of our own, so trade history is no longer limited by the REST API's retention (about 10,000 fills per account) and the REST weight spent paging history is freed.
 
-**Status: built and tested against a fixture; not running anywhere.** No AWS credentials existed when this was written, so nothing has been downloaded from the bucket. Everything marked *unverified* below must be confirmed with `apps/api/scripts/s3-archive-probe.mjs` before `S3_ARCHIVE_ENABLED=true`.
+**Status: running on local dev since 2026-10-02 (forward cursor only, `S3_ARCHIVE_MAX_DAILY_USD=0.5`); not on Stage.** Probe on 2026-10-02 with real keys confirmed: key shape `node_fills_by_block/hourly/<YYYYMMDD>/<H>.lz4`; `node_fills/hourly` covers 2025-05-25 → 2025-07-27 and by-block starts 2025-07-27; 0.57 GiB/day (2026-02-28), ≈ 31 MB per hourly object now; an hour is published about 5.5 minutes after it ends; fills carry `twapId`. First ingested hour (2026-10-02 02:00Z): 352,300 fills seen, 62,464 kept for 1,368 tracked addresses, US$0.0036. Against the REST-confirmed `fills` of watched leaders for that hour: 1,132 of 1,132 tids present, none extra, 0 mismatches in px / sz / closedPnl. Backfill stays off until the full reconciliation (`manual-reconcile`) has run on archive-origin rows. The *unverified* marks below predate this probe.
 
 ## What the archive is
 

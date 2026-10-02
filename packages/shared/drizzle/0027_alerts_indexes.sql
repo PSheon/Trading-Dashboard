@@ -1,0 +1,2 @@
+CREATE INDEX "alerts_action_user_idx" ON "alerts" USING btree ("action_id","user_id");--> statement-breakpoint
+CREATE INDEX "alerts_cooldown_idx" ON "alerts" USING btree ("address","coin","user_id","rule_id","sent_at");

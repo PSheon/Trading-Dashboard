@@ -4,7 +4,7 @@ import type { AlertRuleKind } from "@trading-dashboard/shared/contracts";
 
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { tradeSideOf } from "../notify/message-template.js";
-import { NotifyService } from "../notify/notify.service.js";
+import { ALERT_MAX_AGE_MS, NotifyService } from "../notify/notify.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { AccountStateService } from "../watcher/account-state.service.js";
@@ -78,6 +78,12 @@ export class RulesService {
       await this.repository.lockActionScope(tx, action);
       const event = await this.repository.actionEvent(tx, action.id);
       if (event?.status === "done") return;
+      // Too old to be a live alert, whichever way it got here (the event,
+      // the outbox replay, a fill found by a late sweep): closed unevaluated.
+      if (Date.now() - action.ts.getTime() > ALERT_MAX_AGE_MS) {
+        if (event) await this.repository.markDone(tx, action.id, "expired");
+        return;
+      }
       const equityUsd = event ? (event.equityUsd === null ? null : Number(event.equityUsd)) : this.accounts.getEquityUsd(action.address);
       await this.evaluateInTransaction(action, tx, equityUsd);
       await this.repository.markDone(tx, action.id);

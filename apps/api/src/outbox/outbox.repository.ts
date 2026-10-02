@@ -4,6 +4,9 @@ import { and, eq, lte, or, sql } from "drizzle-orm";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 
+/** Evaluations read per pass of the outbox drain. */
+export const EVALUATION_BATCH = 200;
+
 /** Durable action claims; scheduling and retry policy belong to OutboxService. */
 @Injectable()
 export class OutboxRepository {
@@ -14,10 +17,16 @@ export class OutboxRepository {
       and(eq(actionOutbox.status, "processing"), lte(actionOutbox.lockedUntil, now)));
   }
 
-  /** Return at most 20 candidates; callers must claim each before evaluating it. */
-  findDue(now: Date) {
+  /** Return at most `limit` candidates, oldest first; callers must claim each before evaluating it. */
+  findDue(now: Date, limit = EVALUATION_BATCH) {
     return this.db.select({ id: actionOutbox.actionId }).from(actionOutbox).where(this.due(now))
-      .orderBy(actionOutbox.actionId).limit(20);
+      .orderBy(actionOutbox.actionId).limit(limit);
+  }
+
+  /** An evaluation that is too old to alert on: closed without evaluating, and it says why. */
+  async markExpired(id: bigint, claimedAttempt: number): Promise<void> {
+    await this.db.update(actionOutbox).set({ status: "done", lockedUntil: null, lastError: "expired" })
+      .where(and(eq(actionOutbox.actionId, id), eq(actionOutbox.status, "processing"), eq(actionOutbox.attempts, claimedAttempt)));
   }
 
   /** Atomically claim a due row; undefined means it is no longer eligible. */

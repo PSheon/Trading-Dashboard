@@ -7,12 +7,29 @@ import { AppConfig } from "../config/app-config.js";
 import { recoverSettingsSection } from "../settings/settings-recovery.js";
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { NotifyRepository, type DeliveryRow } from "./notify.repository.js";
+import { forEachConcurrent } from "../runtime/concurrency.js";
+import { DELIVERY_BATCH, NotifyRepository, type DeliveryRow } from "./notify.repository.js";
 import type { AlertContext } from "./notify.types.js";
 import { renderAlertMessage, renderTestMessage, tradeSideOf } from "./message-template.js";
 import { TelegramApiError, TelegramHttpClient } from "./telegram-http.client.js";
 
 export type { AlertContext, AlertRecipient } from "./notify.types.js";
+
+/** Deliveries sent at once within a drain; the Telegram client's pacing sets the actual rate. */
+export const DELIVERY_CONCURRENCY = 8;
+/** One drain call stops reading new batches after this long (the next call goes on). */
+export const DELIVERY_DRAIN_BUDGET_MS = 30_000;
+/**
+ * An alert is evaluated and sent only while its trade is this recent
+ * (review 51). An action is queued for alerts only when it is at most
+ * `maxActionAgeSeconds` old (120 s; `insertActions`), but the queue is
+ * durable: a row left by a worker that was down, by a restored backup or by
+ * Telegram refusing for a long time used to be evaluated and sent whenever
+ * it was next read, as if the trade had just happened. Ten minutes covers
+ * the retry schedule (five attempts a minute apart) and a restart; past it
+ * the evaluation is closed and the delivery dropped, both marked `expired`.
+ */
+export const ALERT_MAX_AGE_MS = 10 * 60_000;
 
 /** Backoff between attempts for alerts and system messages: 3 retries
  * after the first attempt = 4 attempts in all. */
@@ -94,21 +111,31 @@ export class NotifyService {
     await this.repository.enqueue(ctx, payloadJson, db);
   }
 
-  /** Drain a bounded batch of due intents; each send requires an owned lease. */
+  /**
+   * Drains the due deliveries (of one action, or all of them): batches of
+   * DELIVERY_BATCH, DELIVERY_CONCURRENCY at a time, until nothing is due,
+   * the drain's time budget is spent or the process is stopping. Each send
+   * requires an owned lease, so drains may overlap.
+   *
+   * How fast it goes is Telegram's limit, not a batch size: the client
+   * paces every `sendMessage` (about 25 a second in all, one a second to a
+   * chat), so an action with 200 recipients is delivered in about 8
+   * seconds. It was 20 rows at once and then 20 every 5 seconds (review 49:
+   * 45 seconds for the same 200, and a backlog under load).
+   */
   async deliverAction(actionId?: bigint): Promise<void> {
-    if (this.jobs.stopping) return;
-    const now = new Date();
-    const rows = await this.repository.findDue(now, actionId);
-    for (const row of rows) {
-      if (this.jobs.stopping) break;
-      await this.deliverOne(row.id);
+    const deadline = Date.now() + DELIVERY_DRAIN_BUDGET_MS;
+    while (!this.jobs.stopping) {
+      const rows = await this.repository.findDue(actionId);
+      if (rows.length === 0) return;
+      await forEachConcurrent(rows, DELIVERY_CONCURRENCY, (row) => this.deliverOne(row.id), this.jobs.signal);
+      if (rows.length < DELIVERY_BATCH || Date.now() >= deadline) return;
     }
   }
 
   private async deliverOne(id: bigint): Promise<void> {
-    const now = new Date();
     const leaseToken = randomUUID();
-    const row = await this.repository.claim(id, now, leaseToken, new Date(now.getTime() + 300_000));
+    const row = await this.repository.claim(id, leaseToken, 300_000);
     if (!row) return;
     const retry = { delayMs: 0, permanent: false };
     let status: "sent" | "dry_run" | "failed" = "failed";
@@ -116,7 +143,10 @@ export class NotifyService {
     try {
       const recipient = await this.repository.enabledRecipient(row.userId);
       const payload = notificationDeliveryPayloadSchema.parse(row.payloadJson);
-      if (row.attempts > 5) { retry.permanent = true; reason = "attempt limit"; }
+      // A trade alert is about now. One that waited this long (the worker
+      // was down, Telegram kept refusing) is dropped, not sent as if fresh.
+      if (Date.now() - row.createdAt.getTime() > ALERT_MAX_AGE_MS) { retry.permanent = true; reason = "expired"; }
+      else if (row.attempts > 5) { retry.permanent = true; reason = "attempt limit"; }
       else if (!recipient) { retry.permanent = true; reason = "recipient disabled"; }
       else if (!(await this.deliveryStillAllowed(row, payload, recipient.role))) {
         retry.permanent = true; reason = "alert authorization withdrawn";

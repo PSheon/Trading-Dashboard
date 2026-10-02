@@ -10,6 +10,8 @@ import type { DbTransaction } from "../db/unit-of-work.js";
 import type { AlertContext } from "./notify.types.js";
 
 export type DeliveryRow = typeof notificationOutbox.$inferSelect;
+/** Deliveries read per pass of a drain. */
+export const DELIVERY_BATCH = 100;
 
 /** Durable delivery persistence; services own authorization, retry policy and transactions. */
 @Injectable()
@@ -25,25 +27,29 @@ export class NotifyRepository {
     if (inserted.length) await this.insertAlertRows(ctx, payloadJson, "pending", tx);
   }
 
-  /** Candidates only: each row still needs an atomic claim before sending. */
-  findDue(now: Date, actionId?: bigint) {
-    const due = or(
-      and(eq(notificationOutbox.status, "pending"), lte(notificationOutbox.availableAt, now)),
-      and(eq(notificationOutbox.status, "processing"), lte(notificationOutbox.lockedUntil, now)),
+  /** Due by the database's own clock: a row inserted a moment ago has an
+   * `available_at` with microseconds, which a millisecond JS time taken
+   * right after the commit can still be behind (the first drain then found
+   * nothing and the alert waited for the 5 s poll). */
+  private due() {
+    return or(
+      and(eq(notificationOutbox.status, "pending"), lte(notificationOutbox.availableAt, sql`now()`)),
+      and(eq(notificationOutbox.status, "processing"), lte(notificationOutbox.lockedUntil, sql`now()`)),
     );
+  }
+
+  /** Candidates only, oldest first: each row still needs an atomic claim before sending. */
+  findDue(actionId?: bigint, limit = DELIVERY_BATCH) {
     return this.db.select({ id: notificationOutbox.id }).from(notificationOutbox)
-      .where(and(due, actionId === undefined ? undefined : eq(notificationOutbox.actionId, actionId)))
-      .orderBy(notificationOutbox.id).limit(20);
+      .where(and(this.due(), actionId === undefined ? undefined : eq(notificationOutbox.actionId, actionId)))
+      .orderBy(notificationOutbox.id).limit(limit);
   }
 
   /** Return undefined when another sender already owns the unexpired lease. */
-  async claim(id: bigint, now: Date, leaseToken: string, lockedUntil: Date) {
+  async claim(id: bigint, leaseToken: string, leaseMs: number) {
     const [row] = await this.db.update(notificationOutbox).set({ status: "processing", leaseToken,
-      lockedUntil, attempts: sql`${notificationOutbox.attempts} + 1`,
-    }).where(and(eq(notificationOutbox.id, id), or(
-      and(eq(notificationOutbox.status, "pending"), lte(notificationOutbox.availableAt, now)),
-      and(eq(notificationOutbox.status, "processing"), lte(notificationOutbox.lockedUntil, now)),
-    ))).returning();
+      lockedUntil: sql`now() + make_interval(secs => ${leaseMs / 1000})`, attempts: sql`${notificationOutbox.attempts} + 1`,
+    }).where(and(eq(notificationOutbox.id, id), this.due())).returning();
     return row;
   }
 

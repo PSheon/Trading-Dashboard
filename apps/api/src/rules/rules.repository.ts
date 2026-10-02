@@ -26,8 +26,8 @@ export class RulesRepository {
   }
 
   /** Mark evaluation done in the same transaction that reserved delivery intents. */
-  async markDone(tx: DbTransaction, id: bigint): Promise<void> {
-    await tx.update(actionOutbox).set({ status: "done", lockedUntil: null, lastError: null })
+  async markDone(tx: DbTransaction, id: bigint, note: string | null = null): Promise<void> {
+    await tx.update(actionOutbox).set({ status: "done", lockedUntil: null, lastError: note })
       .where(eq(actionOutbox.actionId, id));
   }
 

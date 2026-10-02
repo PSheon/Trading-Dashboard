@@ -3,7 +3,7 @@ import { Injectable, Logger, Optional, type OnApplicationBootstrap } from "@nest
 import { Interval } from "@nestjs/schedule";
 import { OutboxRepository } from "./outbox.repository.js";
 import { RulesService } from "../rules/rules.service.js";
-import { NotifyService } from "../notify/notify.service.js";
+import { ALERT_MAX_AGE_MS, NotifyService } from "../notify/notify.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 
 /** Recover interrupted action evaluation and drain durable notification deliveries. */
@@ -37,6 +37,9 @@ export class OutboxService implements OnApplicationBootstrap {
       try {
         if (claimed.attempts > 5) throw new Error("attempt limit");
         const action = await this.repository.findAction(id);
+        // A replayed evaluation of an old trade (worker downtime, a restored
+        // backup) is closed, not alerted on.
+        if (action && Date.now() - action.ts.getTime() > ALERT_MAX_AGE_MS) { await this.repository.markExpired(id, claimed.attempts); continue; }
         if (action) await this.rules.evaluateAction(action);
       } catch {
         await this.repository.recordFailure(id, claimed.attempts >= 5 ? "failed" : "pending",

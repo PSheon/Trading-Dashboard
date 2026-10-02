@@ -343,6 +343,13 @@ export const alerts = pgTable(
     // Rows never stamped (a delivery that never finished): the retention job
     // finds them here instead of scanning the table.
     index("alerts_unsent_idx").on(table.id).where(sql`${table.sentAt} is null`),
+    // Delivery: the outcome of one (action, recipient) is written to its rows
+    // (NotifyRepository.recordDelivery), once per message sent.
+    index("alerts_action_user_idx").on(table.actionId, table.userId),
+    // Rule evaluation: each admin's last alert of a rule on this trader and
+    // coin, for the cooldown (RulesRepository.lastSent), on every action of
+    // an imported leader. sent_at is in the index, so the heap is not read.
+    index("alerts_cooldown_idx").on(table.address, table.coin, table.userId, table.ruleId, table.sentAt),
     check("alerts_send_status_check", oneOf(table.sendStatus, sendStatusEnum)),
   ],
 );

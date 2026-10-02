@@ -6,7 +6,7 @@ import { testConfig } from "./config-test-utils.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   actions,
   actionOutbox,
@@ -203,3 +203,136 @@ it("ignores a stale worker failure after another worker reclaims the action", as
     { actionId: action.id, status: "pending", lockedUntil: null, lastError: "evaluation failed" },
   ]);
 });
+
+// --- review round 4, findings 49 and 51 ---------------------------------------------------
+
+/** `count` more users who favorited the trader with alerts on, each with their own chat. */
+async function recipients(count: number): Promise<void> {
+  const { users } = await import("@trading-dashboard/shared/database");
+  const rows = await db.insert(users).values(Array.from({ length: count }, (_, i) => ({ privyUserId: `did:privy:many-${i}-${Date.now()}` }))).returning({ id: users.id });
+  await db.insert(userFavorites).values(rows.map((r) => ({ userId: r.id, address, alertEnabled: true, alertSides: "both" as const })));
+  await db.insert(notificationChannels).values(rows.map((r) => ({ userId: r.id, kind: "telegram" as const, target: `chat-${r.id}`, enabled: true })));
+}
+
+it("an action with 200 recipients is delivered in full by the drain it triggers, not 20 now and 20 every 5 seconds", async () => {
+  await recipients(199);
+  const started = Date.now();
+  await rules().evaluateAction(await create());
+  // One evaluation, one drain: every recipient's message has been handed to Telegram.
+  expect(sendMessage).toHaveBeenCalledTimes(200);
+  expect(new Set(sendMessage.mock.calls.map((c) => (c as unknown as [string])[0])).size).toBe(200);
+  expect(Date.now() - started).toBeLessThan(10_000);
+  const statuses = await db.execute(sql`select status, count(*)::int as n from notification_outbox group by 1`);
+  expect(statuses.rows).toEqual([{ status: "sent", n: 200 }]);
+  expect((await db.execute(sql`select count(*)::int as n from alerts where send_status = 'sent'`)).rows).toEqual([{ n: 200 }]);
+}, 30_000);
+
+it("the background drain empties a backlog of several actions in one pass", async () => {
+  await recipients(59);
+  const sender = notify();
+  for (let i = 0; i < 4; i++) {
+    const action = await create();
+    const { users } = await import("@trading-dashboard/shared/database");
+    for (const user of await db.select({ id: users.id }).from(users)) {
+      await db.transaction((tx) => sender.notifyAlert({ action, traderName: null, recipient: { userId: user.id, telegramChatId: user.id === userId ? "chat" : `chat-${user.id}`, locale: "en" }, favorite: true, rules: [] }, tx));
+    }
+  }
+  // 240 queued (more than two batches); nothing sent yet.
+  expect(sendMessage).not.toHaveBeenCalled();
+  await notify().deliverAction();
+  expect(sendMessage).toHaveBeenCalledTimes(240);
+  expect((await db.execute(sql`select count(*)::int as n from notification_outbox where status <> 'sent'`)).rows).toEqual([{ n: 0 }]);
+}, 30_000);
+
+it("a queued alert is due at once: the drain right after the commit sends it, with no wait for the next poll", async () => {
+  // available_at carries the database's microseconds; a millisecond JS clock read after the commit could be behind it.
+  for (let i = 0; i < 20; i++) {
+    sendMessage.mockClear();
+    const action = await create();
+    await db.transaction((tx) => notify().notifyAlert({ action, traderName: null, recipient: { userId, telegramChatId: "chat", locale: "en" }, favorite: true, rules: [] }, tx));
+    await notify().deliverAction(action.id);
+    expect(sendMessage, `round ${i}`).toHaveBeenCalledTimes(1);
+  }
+});
+
+it("a delivery that waited past the age limit is dropped as expired, not sent as if the trade were fresh", async () => {
+  const { ALERT_MAX_AGE_MS } = await import("../src/notify/notify.service.js");
+  const action = await create();
+  await db.transaction((tx) => notify().notifyAlert({ action, traderName: null, recipient: { userId, telegramChatId: "chat", locale: "en" }, favorite: true, rules: [] }, tx));
+  // Just inside the limit it would still go; the worker was down for longer.
+  await db.update(notificationOutbox).set({ createdAt: new Date(Date.now() - ALERT_MAX_AGE_MS - 1_000), availableAt: new Date(0) });
+  await notify().deliverAction();
+  expect(sendMessage).not.toHaveBeenCalled();
+  expect(await db.select().from(notificationOutbox)).toMatchObject([{ status: "failed", lastError: "expired" }]);
+  expect(await db.select().from(alerts)).toMatchObject([{ sendStatus: "failed", payloadJson: { reason: "expired" } }]);
+
+  // Inside the limit: sent.
+  const fresh = await create();
+  await db.update(notificationCooldowns).set({ reservedAt: new Date(0) });
+  await db.transaction((tx) => notify().notifyAlert({ action: fresh, traderName: null, recipient: { userId, telegramChatId: "chat", locale: "en" }, favorite: true, rules: [] }, tx));
+  await db.update(notificationOutbox).set({ createdAt: new Date(Date.now() - ALERT_MAX_AGE_MS + 60_000) }).where(eq(notificationOutbox.actionId, fresh.id));
+  await notify().deliverAction();
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+});
+
+it("a replayed evaluation of an old action is closed without alerting anyone", async () => {
+  const { ALERT_MAX_AGE_MS } = await import("../src/notify/notify.service.js");
+  // Queued while it was fresh; the worker then stayed down past the limit.
+  const queued = await create();
+  await db.update(actions).set({ ts: new Date(Date.now() - ALERT_MAX_AGE_MS - 60_000) });
+  const [old] = await db.select().from(actions);
+  expect(await db.select().from(actionOutbox)).toMatchObject([{ actionId: queued.id, status: "pending" }]);
+
+  // The outbox replay (a worker that was down, a restored backup).
+  const service = new OutboxService(testConfig(), new OutboxRepository(db), rules(), notify());
+  await service.drain();
+  expect(sendMessage).not.toHaveBeenCalled();
+  expect(await db.select().from(notificationOutbox)).toHaveLength(0);
+  expect(await db.select().from(alerts)).toHaveLength(0);
+  expect(await db.select().from(actionOutbox)).toMatchObject([{ actionId: old.id, status: "done", lastError: "expired" }]);
+
+  // The same through the event path (a fill a late sweep found).
+  await db.update(actionOutbox).set({ status: "pending", lastError: null });
+  await rules().evaluateAction(old);
+  expect(sendMessage).not.toHaveBeenCalled();
+  expect(await db.select().from(actionOutbox)).toMatchObject([{ status: "done", lastError: "expired" }]);
+
+  // A recent action still alerts.
+  await rules().evaluateAction(await create());
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+});
+
+it("the evaluation drain reads 200 actions a pass, oldest first", async () => {
+  const { EVALUATION_BATCH } = await import("../src/outbox/outbox.repository.js");
+  expect(EVALUATION_BATCH).toBe(200);
+  const made = [];
+  for (let i = 0; i < 25; i++) made.push(await create());
+  const due = await new OutboxRepository(db).findDue(new Date(Date.now() + 1_000));
+  // 25 waiting: all of them in one read (it was 20).
+  expect(due.map((r) => r.id)).toEqual(made.map((a) => a.id));
+});
+
+it("end to end with the real Telegram client: 200 recipients are sent in about 8 seconds, never above Telegram's 30 a second", async () => {
+  const { TelegramHttpClient } = await import("../src/notify/telegram-http.client.js");
+  const { AppConfig } = await import("../src/config/app-config.js");
+  const { validateEnvironment } = await import("../src/config/runtime-config.js");
+  const sent: number[] = [];
+  vi.stubGlobal("fetch", vi.fn(async () => { sent.push(Date.now()); return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 }); }));
+  try {
+    await recipients(199);
+    const config = new AppConfig(validateEnvironment({ DATABASE_URL: "postgres://test@localhost/test", TELEGRAM_BOT_TOKEN: "123:token", TELEGRAM_BOT_USERNAME: "orbie_test_bot", TELEGRAM_DRY_RUN: "false" }));
+    const sender = new NotifyService(config, new NotifyRepository(db), new UnitOfWork(db), new TelegramHttpClient(config));
+    const started = Date.now();
+    await rules(sender).evaluateAction(await create());
+    const elapsed = Date.now() - started;
+    expect(sent).toHaveLength(200);
+    // 199 intervals of 40 ms; before, 200 recipients took 45 seconds.
+    expect(elapsed).toBeGreaterThanOrEqual(199 * 40 - 100);
+    expect(elapsed).toBeLessThan(15_000);
+    const peak = Math.max(...sent.map((t, i) => sent.filter((u, j) => j >= i && u < t + 1_000).length));
+    expect(peak).toBeLessThanOrEqual(27);
+    expect((await db.execute(sql`select count(*)::int as n from notification_outbox where status = 'sent'`)).rows).toEqual([{ n: 200 }]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}, 40_000);

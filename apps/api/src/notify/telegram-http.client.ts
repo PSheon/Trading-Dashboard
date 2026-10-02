@@ -3,6 +3,11 @@ import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Optional } from "@nestjs/common";
 
 
+/** Messages a second across all chats (Telegram allows about 30). */
+export const TELEGRAM_MESSAGES_PER_SECOND = 25;
+/** Between two messages to one chat (Telegram allows about one a second). */
+export const TELEGRAM_CHAT_INTERVAL_MS = 1_000;
+
 /** A Bot API call that Telegram answered with `ok: false`, or an HTTP
  * error. `status` is the HTTP status (409 = another getUpdates poller or a
  * webhook, 403 = the user blocked the bot, 429 = rate limited). */
@@ -86,7 +91,42 @@ interface BotApiResponse<T> {
  */
 @Injectable()
 export class TelegramHttpClient {
+  /** Telegram's own limits for a bot, with a margin: about 30 messages a
+   * second in all, and one a second to a single chat. Settable for tests. */
+  pacing = { perSecond: TELEGRAM_MESSAGES_PER_SECOND, chatIntervalMs: TELEGRAM_CHAT_INTERVAL_MS };
+  private nextSendAt = 0;
+  private readonly chatNextAt = new Map<string, number>();
+
   constructor(private readonly config: AppConfig, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
+
+  /**
+   * Waits for this message's turn: the next free slot of the global rate,
+   * and a full interval after the last message to the same chat. Slots are
+   * handed out in call order, so concurrent senders are spread out instead
+   * of bursting. Rejects when the process is stopping.
+   */
+  private async pace(chatId: string): Promise<void> {
+    const now = Date.now();
+    // A slot of the global rate, in call order…
+    const slot = Math.max(now, this.nextSendAt);
+    this.nextSendAt = slot + 1000 / this.pacing.perSecond;
+    // …or later, when this chat had a message less than its interval ago.
+    // That wait is the chat's own: it does not push back the global slots,
+    // so one chat with several messages never holds the others up. (Such a
+    // message then shares its second with the slots already handed out; a
+    // chat adds at most one a second, well inside the margin to 30.)
+    const at = Math.max(slot, this.chatNextAt.get(chatId) ?? 0);
+    this.chatNextAt.set(chatId, at + this.pacing.chatIntervalMs);
+    if (this.chatNextAt.size > 10_000) for (const [chat, next] of this.chatNextAt) if (next <= now) this.chatNextAt.delete(chat);
+    if (at <= now) return;
+    const signal = this.jobs.signal;
+    await new Promise<void>((resolve, reject) => {
+      if (signal.aborted) { reject(signal.reason); return; }
+      const abort = () => { clearTimeout(timer); reject(signal.reason); };
+      const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, at - now);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }
   /** Whether a bot token is configured at all. */
   configured(): boolean {
     return Boolean(this.config.value.telegram.botToken);
@@ -121,8 +161,11 @@ export class TelegramHttpClient {
   }
 
   /** Plain text; Telegram links bare URLs by itself. `keyboard` adds
-   * inline buttons whose presses arrive as `callback_query` updates. */
+   * inline buttons whose presses arrive as `callback_query` updates.
+   * Every message, alert or bot reply, waits for its turn under
+   * Telegram's limits ({@link pace}). */
   async sendMessage(chatId: string, text: string, keyboard?: InlineKeyboard): Promise<void> {
+    await this.pace(chatId);
     await this.call("sendMessage", {
       chat_id: chatId, text, link_preview_options: { is_disabled: true },
       ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),

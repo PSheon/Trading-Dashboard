@@ -40,3 +40,25 @@ before the process records success. A crash in that gap can cause one duplicate
 when a lease is reclaimed. Database uniqueness prevents duplicate intents, not
 that external side-effect ambiguity. No transaction is held across Telegram HTTP.
 Single-replica watcher/poller deployment remains the supported topology.
+
+## Throughput, pacing and age (review findings 49 and 51, 2026-10-03)
+
+- **Drain.** `NotifyService.deliverAction` reads the due deliveries in batches
+  of 100 and sends 8 at a time until none is due (or 30 s have passed; the next
+  call continues). It was 20 rows for the action at once, then 20 every 5 s:
+  45 s for 200 recipients. The evaluation drain reads 200 actions a pass (was 20).
+- **Pacing.** The limit is Telegram's, enforced in one place:
+  `TelegramHttpClient.sendMessage` waits for a slot of 25 messages a second in
+  all (Telegram allows about 30) and at least 1 s after the last message to the
+  same chat. Alerts, system messages and bot replies share it. 200 recipients
+  take about 8 s. A 429 is still honoured through `retry_after`.
+- **Due by the database clock.** A row is due when `available_at <= now()` in
+  Postgres, not against a JS time: a row committed a moment ago could be a few
+  hundred microseconds "in the future" for a millisecond clock, and the drain
+  right after the commit then found nothing.
+- **Age cut-off.** An evaluation whose action is older than 10 minutes
+  (`ALERT_MAX_AGE_MS`) is closed as `expired` without alerting, on the event
+  path and on replay; a delivery queued more than 10 minutes ago is marked
+  failed with reason `expired` and not sent. Actions older than
+  `maxActionAgeSeconds` (120 s) were already never queued; this covers a queue
+  that sat (worker down, a restored backup, long Telegram refusals).

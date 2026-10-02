@@ -12,6 +12,7 @@ import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
+import { amountInput } from "@/lib/amount-input";
 import { rovingFocus } from "@/lib/roving-focus";
 
 type Direction = "same" | "reverse";
@@ -232,7 +233,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             placeholder="0"
             value={amount}
             onChange={(e) => {
-              setAmount(e.target.value.replace(/[^\d.]/g, "").slice(0, 12));
+              setAmount(amountInput(e.target.value, amount).slice(0, 12));
             }}
             onBlur={() => {
               // CopyDog clamps to the whole-dollar balance when focus leaves.

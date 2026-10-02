@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
+import { amountInput } from "@/lib/amount-input";
 import { apiErrorCode } from "@/lib/api";
 import type { CopyOrderView, CopyOverview, CopyPositionView, CopyStrategyView } from "@/lib/contracts";
 import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy } from "@/lib/copy";
@@ -431,7 +432,7 @@ function AmountInput({ id, value, onChange, invalid }: { id: string; value: stri
   return (
     <div className={cn("flex h-12 items-center gap-1 rounded-xl border bg-raised px-4", invalid ? "border-negative" : "border-border-strong")}>
       <span className="text-lg font-semibold text-muted-foreground">$</span>
-      <input id={id} inputMode="decimal" placeholder="0" value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, "").slice(0, 12))} className="num w-full bg-transparent text-lg font-semibold outline-none" />
+      <input id={id} inputMode="decimal" placeholder="0" value={value} onChange={(e) => onChange(amountInput(e.target.value, value).slice(0, 12))} className="num w-full bg-transparent text-lg font-semibold outline-none" />
     </div>
   );
 }

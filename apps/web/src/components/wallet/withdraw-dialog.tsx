@@ -11,6 +11,7 @@ import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import type { WalletSummary } from "@/lib/contracts";
 import { WITHDRAW_FEE_USDC, networkConfig, usdcString } from "@/lib/hyperliquid-network";
+import { amountInput } from "@/lib/amount-input";
 import { signErrorMessage, useWallet, useWithdraw } from "@/lib/wallet";
 import { NetworkBadge } from "./bits";
 
@@ -133,7 +134,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       <input
         id={amountId}
         value={amount}
-        onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+        onChange={(e) => setAmount(amountInput(e.target.value, amount))}
         placeholder="0.00"
         inputMode="decimal"
         autoComplete="off"

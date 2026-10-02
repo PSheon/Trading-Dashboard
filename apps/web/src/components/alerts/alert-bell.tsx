@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeAmount } from "@/lib/amount-input";
 import { readAlertDisplayValues, type AlertSidesInput, type FavoriteAlert } from "@/lib/contracts";
 import { Bell, BellRing, Send } from "lucide-react";
 import Link from "next/link";
@@ -174,7 +175,8 @@ function AlertEditor({ address, alert, onDone }: { address: string; alert: Favor
   const [sides, setSides] = useState<AlertSidesInput>(alert.sides);
   const [minText, setMinText] = useState(alert.minUsd === null ? "" : String(alert.minUsd));
 
-  const minUsd = minText.trim() === "" ? null : Number(minText.replace(/,/g, ""));
+  // "12,5" is 12.5, "1,250.50" is 1250.5; what can't be read is invalid, never guessed.
+  const minUsd = minText.trim() === "" ? null : Number(normalizeAmount(minText.trim()) ?? Number.NaN);
   const minInvalid = minUsd !== null && (!Number.isFinite(minUsd) || minUsd < 0);
   const tg = telegram.data;
   const cannotDeliver = tg !== undefined && (!tg.linked || !tg.enabled);

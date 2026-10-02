@@ -3,7 +3,7 @@ import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import { UnitOfWork } from "../db/unit-of-work.js";
 import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
-import { CopyMarketService } from "./copy-market.service.js";
+import { CopyMarketService, type LeaderEquity } from "./copy-market.service.js";
 import { cloidOf, openNotional } from "./copy-math.js";
 import { CopyOrderPlanner, marketDataGap, strategyValue } from "./copy-planner.service.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
@@ -88,9 +88,11 @@ export class CopyAdoptionRepairService {
     const mids = await this.market.midPrices();
     const assets = await this.market.assetInfo();
     const snapshots = new Map<string, HlClearinghouseStateResponse | null>();
+    const equities = new Map<string, LeaderEquity>();
     for (const address of new Set(candidates.map((o) => o.leaderAddress))) {
       try {
         snapshots.set(address, await this.market.leaderSnapshot(address));
+        equities.set(address, await this.market.leaderEquity(address));
       } catch (error) {
         this.logger.warn(`Leader snapshot for ${address} failed: ${(error as Error).message}`);
         snapshots.set(address, null);
@@ -101,13 +103,14 @@ export class CopyAdoptionRepairService {
       const item: AdoptionRepairItem = { strategyId: rejected.strategyId, coin: rejected.coin, rejectedOrderId: String(rejected.id), rejectedReason: rejected.reason, outcome: "already_repaired" };
       out.push(item);
       const snapshot = snapshots.get(rejected.leaderAddress) ?? null;
-      if (!snapshot) { item.outcome = "leader_unavailable"; continue; }
+      const equityRead = equities.get(rejected.leaderAddress) ?? { state: "failed" };
+      if (!snapshot || equityRead.state === "failed") { item.outcome = "leader_unavailable"; continue; }
       if (marketDataGap(mids, assets, rejected.coin)) { item.outcome = "market_data_unavailable"; continue; }
       const held = snapshot.assetPositions.find((ap) => ap.position.coin === rejected.coin);
       const szi = Number(held?.position.szi ?? 0);
       if (!held || !Number.isFinite(szi) || szi === 0) { item.outcome = "leader_flat"; continue; }
       const leaderPx = Number(held.position.positionValue ?? 0) / Math.abs(szi) || Number(held.position.entryPx ?? 0);
-      const leaderEquity = Number(snapshot.marginSummary.accountValue);
+      const leaderEquity = equityRead.state === "known" ? equityRead.value : null;
 
       await this.uow.run(async (tx) => {
         // Lock order: controls (share), the leader (as activation does), then the strategy.
@@ -128,7 +131,7 @@ export class CopyAdoptionRepairService {
         const equity = strategyValue(strategy, positions, mids).equity;
         const notional = equity === null ? null : openNotional({
           mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: Math.abs(szi) * leaderPx,
-          strategyEquity: equity, leaderEquity: Number.isFinite(leaderEquity) ? leaderEquity : null,
+          strategyEquity: equity, leaderEquity,
         });
         item.side = sign > 0 ? "B" : "A";
         item.notional = notional ?? undefined;

@@ -1,7 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
-import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
+import type { HlAllMidsResponse, HlClearinghouseStateResponse } from "../hyperliquid/types.js";
+import { buildSpotPriceBook, hypePrice, stakedHype, toAccountMode, totalAccountValue, valueSpotBalances, type SpotPriceBook } from "../traders/spot-prices.js";
+import { activePerpDexes, portfolioSeries, summarizeAccount } from "../traders/traders.mappers.js";
+import { TtlCache } from "../traders/ttl-cache.js";
+import { CopyRepository } from "./copy.repository.js";
 
 /** Mid prices are shared by every caller for this long (allMids, weight 2). */
 export const MIDS_TTL_MS = 3_000;
@@ -9,8 +13,15 @@ export const MIDS_TTL_MS = 3_000;
 const MIDS_STALE_OK_MS = 60_000;
 /** Universe and funding (metaAndAssetCtxs, weight 20): hourly. */
 export const ASSETS_TTL_MS = 3_600_000;
-/** Leader account value for ratio sizing (clearinghouseState, weight 2). */
+/** Leader account value for ratio sizing (see `leaderEquity` for the reads). */
 export const LEADER_EQUITY_TTL_MS = 60_000;
+/** Parts of a leader's account value that change slowly or are shared, kept
+ * as long as the trader profile keeps them: the account mode and staked
+ * HYPE (20 weight each), the spot price book (22) and the dex list. */
+const ACCOUNT_MODE_TTL_MS = 10 * 60_000;
+const STAKING_TTL_MS = 10 * 60_000;
+const SPOT_BOOK_TTL_MS = 30_000;
+const DEX_LIST_TTL_MS = 60 * 60_000;
 
 export interface AssetInfo {
   szDecimals: number;
@@ -55,8 +66,12 @@ export class CopyMarketService {
   private assetsInflight: Promise<Map<string, AssetInfo> | null> | null = null;
   readonly equityCache = new Map<string, { at: number; value: number | null }>();
   private readonly equityInflight = new Map<string, Promise<LeaderEquity>>();
+  private readonly abstractionCache = new TtlCache<string>(ACCOUNT_MODE_TTL_MS);
+  private readonly stakingCache = new TtlCache<number>(STAKING_TTL_MS);
+  private readonly spotBookCache = new TtlCache<SpotPriceBook>(SPOT_BOOK_TTL_MS, 1);
+  private readonly dexCache = new TtlCache<string[]>(DEX_LIST_TTL_MS, 1);
 
-  constructor(private readonly info: HyperliquidInfoClient) {}
+  constructor(private readonly info: HyperliquidInfoClient, private readonly repository: CopyRepository) {}
 
   /** allMids, at most one request per {@link MIDS_TTL_MS}. */
   async midPrices(): Promise<Mids | null> {
@@ -109,10 +124,22 @@ export class CopyMarketService {
     this.mids = null;
     this.assets = null;
     this.equityCache.clear();
+    for (const cache of [this.abstractionCache, this.stakingCache, this.spotBookCache, this.dexCache]) cache.clear();
   }
 
-  /** The leader's perp account value, cached {@link LEADER_EQUITY_TTL_MS}.
-   * Only a completed read is cached, so a failure is asked again next pass. */
+  /**
+   * The leader's capital, the denominator of ratio sizing ("if they use 5%
+   * of their balance, you use 5% of yours"), cached
+   * {@link LEADER_EQUITY_TTL_MS}. Only a completed read is cached, so a
+   * failure is asked again next pass.
+   *
+   * It is the account value the trader profile shows (`totalAccountValue`),
+   * not the main dex's `marginSummary.accountValue`: for a unified or
+   * portfolio-margin account that figure is only the margin its perps hold
+   * (read live 2026-10-02: 11.2M on a 22M unified account, 1.78M on a 6.8M
+   * portfolio-margin one; ~0 with no position open), so sizing against it
+   * made every open several times too large or rejected it.
+   */
   async leaderEquity(address: string): Promise<LeaderEquity> {
     const hit = this.equityCache.get(address);
     if (hit && Date.now() - hit.at < LEADER_EQUITY_TTL_MS) return toLeaderEquity(hit.value);
@@ -120,8 +147,7 @@ export class CopyMarketService {
     if (!flight) {
       flight = (async (): Promise<LeaderEquity> => {
         try {
-          const state = await this.info.clearinghouseState(address, undefined, LANE);
-          const value = Number(state.marginSummary.accountValue);
+          const value = await this.readAccountValue(address);
           const ok = Number.isFinite(value) && value > 0 ? value : null;
           this.equityCache.set(address, { at: Date.now(), value: ok });
           return toLeaderEquity(ok);
@@ -137,12 +163,44 @@ export class CopyMarketService {
     return flight;
   }
 
-  /** A fresh snapshot of the leader (adoption at activation). Throws on failure. */
-  async leaderSnapshot(address: string): Promise<HlClearinghouseStateResponse> {
-    const state = await this.info.clearinghouseState(address, undefined, LANE);
-    const value = Number(state.marginSummary.accountValue);
-    if (Number.isFinite(value) && value > 0) this.equityCache.set(address, { at: Date.now(), value });
-    return state;
+  /**
+   * The whole account, by the trader profile's rule: a standard account is
+   * its perp equity on every dex + spot + staked HYPE; a unified or
+   * portfolio-margin account is spot + staked HYPE (its spot balance
+   * already holds the perp collateral and PnL); a vault is its TVL, the
+   * latest whole-account value of `portfolio`. Throws when any read it
+   * needs fails: a partial sum is never used as the capital.
+   */
+  private async readAccountValue(address: string): Promise<number> {
+    if (await this.repository.isVault(address)) {
+      const tvl = portfolioSeries(await this.info.portfolio(address, LANE), "allTime", "all").accountValue.at(-1)?.[1];
+      if (tvl === undefined) throw new Error("vault portfolio has no account value");
+      return tvl;
+    }
+    const [spot, abstraction, staked, book] = await Promise.all([
+      this.info.spotClearinghouseState(address, LANE),
+      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE)),
+      this.stakingCache.get(address, async () => stakedHype(await this.info.delegatorSummary(address, LANE))),
+      this.spotBookCache.get("book", async () => buildSpotPriceBook(
+        await this.info.spotMetaAndAssetCtxs(LANE),
+        // Only outcome tokens need it; without it they count as 0.
+        await this.info.allMids(LANE).catch((): HlAllMidsResponse => ({})),
+      )),
+    ]);
+    const mode = toAccountMode(abstraction, spot.portfolioMarginEnabled ?? false);
+    let perpEquity = 0;
+    if (mode === "standard") {
+      const dexes = await this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(LANE)));
+      perpEquity = summarizeAccount(await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE)))).perpEquity;
+    }
+    return totalAccountValue(mode, perpEquity, valueSpotBalances(spot.balances ?? [], book).spotValue, staked * hypePrice(book));
+  }
+
+  /** A fresh snapshot of the leader's main-dex positions (adoption at
+   * activation). Its margin summary is not the leader's capital; see
+   * {@link leaderEquity}. Throws on failure. */
+  leaderSnapshot(address: string): Promise<HlClearinghouseStateResponse> {
+    return this.info.clearinghouseState(address, undefined, LANE);
   }
 }
 

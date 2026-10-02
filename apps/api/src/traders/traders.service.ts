@@ -28,6 +28,7 @@ import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
 import { SPOT_PRICE_TTL_MS, SpotPriceService } from "./spot-price.service.js";
 import { hypePrice, stakedHype, toAccountMode, totalAccountValue } from "./spot-prices.js";
 import {
+  activePerpDexes,
   dbFillToTraderFill,
   downsample,
   hlFillToTraderFill,
@@ -337,13 +338,7 @@ export class TradersService {
    * hour.
    */
   perpDexes(): Promise<string[]> {
-    return this.dexCache.get("dexes", async () => {
-      const list = await this.info.perpDexs(LANE, PAGE_RANK.profile);
-      const hip3 = list
-        .filter((d): d is NonNullable<typeof d> => d !== null && (d.assetToStreamingOiCap?.length ?? 0) > 0)
-        .map((d) => d.name);
-      return ["", ...hip3];
-    });
+    return this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(LANE, PAGE_RANK.profile)));
   }
 
   isTracked(address: string) { return this.repository.isTracked(address); }

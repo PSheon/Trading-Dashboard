@@ -13,8 +13,11 @@ import {
   leaders,
   paperAccounts,
   adminAuditLogs,
+  traderStats,
   users,
 } from "@trading-dashboard/shared/database";
+import { readFileSync } from "node:fs";
+
 import { and, asc, eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -53,22 +56,43 @@ const OTHER = "0x" + "2f".repeat(20);
 const market = {
   mids: { BTC: 100_000, ETH: 4_000, kPEPE: 0.01 } as Record<string, number>,
   funding: 0.0001,
+  /** The main dex's `marginSummary.accountValue`. */
   leaderEquity: 10_000,
   leaderPositions: [] as { coin: string; szi: string; positionValue: string; entryPx: string }[],
+  /** `userAbstraction`; "default" is a standard account. */
+  abstraction: "default",
+  spotBalances: [] as { coin: string; token: number; total: string; hold: string; entryNtl: string }[],
+  stakedHype: 0,
+  /** Perp equity on HIP-3 dexes, by dex name. */
+  hip3Equity: {} as Record<string, number>,
+  tvl: 0,
 };
+const HYPE_PX = 40;
 const info = {
   allMids: vi.fn(async () => Object.fromEntries(Object.entries(market.mids).map(([k, v]) => [k, String(v)]))),
   metaAndAssetCtxs: vi.fn(async () => [
     { universe: [{ name: "BTC", szDecimals: 5, maxLeverage: 40 }, { name: "ETH", szDecimals: 4, maxLeverage: 25 }, { name: "kPEPE", szDecimals: 0, maxLeverage: 10 }] },
     ["BTC", "ETH", "kPEPE"].map((c) => ({ funding: String(market.funding), markPx: String(market.mids[c]), oraclePx: String(market.mids[c]), openInterest: "1" })),
   ]),
-  clearinghouseState: vi.fn(async () => ({
-    assetPositions: market.leaderPositions.map((p) => ({ position: { ...p, leverage: { type: "cross", value: 5 }, marginUsed: "0", unrealizedPnl: "0" } })),
-    marginSummary: { accountValue: String(market.leaderEquity), totalMarginUsed: "0", totalNtlPos: "0", totalRawUsd: "0" },
-    crossMarginSummary: { accountValue: String(market.leaderEquity), totalMarginUsed: "0", totalNtlPos: "0", totalRawUsd: "0" },
-    withdrawable: "0",
-    time: Date.now() - 5,
-  })),
+  clearinghouseState: vi.fn(async (_address?: string, dex?: string) => {
+    const equity = String(dex ? (market.hip3Equity[dex] ?? 0) : market.leaderEquity);
+    return {
+      assetPositions: dex ? [] : market.leaderPositions.map((p) => ({ position: { ...p, leverage: { type: "cross", value: 5 }, marginUsed: "0", unrealizedPnl: "0" } })),
+      marginSummary: { accountValue: equity, totalMarginUsed: "0", totalNtlPos: "0", totalRawUsd: "0" },
+      crossMarginSummary: { accountValue: equity, totalMarginUsed: "0", totalNtlPos: "0", totalRawUsd: "0" },
+      withdrawable: "0",
+      time: Date.now() - 5,
+    };
+  }),
+  spotClearinghouseState: vi.fn(async () => ({ balances: market.spotBalances, portfolioMarginEnabled: market.abstraction === "portfolioMargin" })),
+  userAbstraction: vi.fn(async () => market.abstraction),
+  delegatorSummary: vi.fn(async () => ({ delegated: String(market.stakedHype), undelegated: "0", totalPendingWithdrawal: "0", nPendingWithdrawals: 0 })),
+  spotMetaAndAssetCtxs: vi.fn(async () => [
+    { tokens: [{ name: "USDC", index: 0 }, { name: "HYPE", index: 150 }], universe: [{ name: "@107", index: 107, tokens: [150, 0], isCanonical: true }] },
+    [{ coin: "@107", markPx: String(HYPE_PX), midPx: String(HYPE_PX) }],
+  ]),
+  perpDexs: vi.fn(async () => [null, ...Object.keys(market.hip3Equity).map((name) => ({ name, assetToStreamingOiCap: [[`${name}:TSLA`, "1"]] }))]),
+  portfolio: vi.fn(async () => [["allTime", { accountValueHistory: [[1, "1"], [2, String(market.tvl)]], pnlHistory: [[1, "0"], [2, "0"]], vlm: "0" }]]),
   meta: vi.fn(async (dex?: string) => ({ universe: dex === "xyz" ? [{ name: "xyz:TSLA", szDecimals: 3, maxLeverage: 10 }] : [] })),
 };
 
@@ -129,6 +153,11 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
     market.funding = 0.0001;
     market.leaderEquity = 10_000;
     market.leaderPositions = [];
+    market.abstraction = "default";
+    market.spotBalances = [];
+    market.stakedHype = 0;
+    market.hip3Equity = {};
+    market.tvl = 0;
     vi.clearAllMocks();
   });
 
@@ -1012,6 +1041,93 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       expect(await signals.drain()).toEqual({ processed: 1, orders: 1 });
       info.clearinghouseState.mockReset();
       expect(await orders(id)).toEqual([expect.objectContaining({ coin: "ETH", status: "rejected", reason: "stale_signal" })]);
+    });
+  });
+
+  describe("ratio sizing divides by the leader's whole account, as the trader profile shows it (review 26)", () => {
+    const usdc = (total: number) => ({ coin: "USDC", token: 0, total: String(total), hold: "0", entryNtl: "0" });
+    /** A leader open of 0.1 BTC = $10,000: 10% of a $100,000 account. */
+    async function copyOneOpen() {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.1, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      return (await orders(id))[0]!;
+    }
+
+    it("standard account: perp equity on every dex + spot + staked HYPE", async () => {
+      market.leaderEquity = 60_000;
+      market.hip3Equity = { xyz: 10_000 };
+      market.spotBalances = [usdc(20_000)];
+      market.stakedHype = 250; // × $40
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 100_000 });
+      // 10% of the leader's account → 10% of the copy's $1,000 → 0.001 BTC (0.00166 against the main dex alone).
+      expect(await copyOneOpen()).toMatchObject({ status: "filled", size: "0.001", reason: null });
+    });
+
+    it("unified account: the spot balance already holds the perp collateral, so the perp summary is neither the capital nor added to it", async () => {
+      market.abstraction = "unifiedAccount";
+      market.leaderEquity = 40_000; // margin its positions hold: part of the 100,000 below
+      market.spotBalances = [usdc(100_000)];
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 100_000 });
+      expect(await copyOneOpen()).toMatchObject({ status: "filled", size: "0.001", reason: null });
+    });
+
+    it("portfolio margin with no position open: a perp account value of 0 is not `leader_equity_unknown`", async () => {
+      market.abstraction = "portfolioMargin";
+      market.leaderEquity = 0;
+      market.spotBalances = [usdc(100_000)];
+      expect(await copyOneOpen()).toMatchObject({ status: "filled", size: "0.001" });
+    });
+
+    it("a vault's capital is its TVL (Hyperliquid's portfolio), not its own balances", async () => {
+      const zero = Object.fromEntries(["accountValue", "pnlDay", "pnlWeek", "pnlMonth", "pnlAllTime", "roiDay", "roiWeek", "roiMonth", "roiAllTime", "volumeDay", "volumeWeek", "volumeMonth", "volumeAllTime"].map((k) => [k, "0"]));
+      await db.insert(traderStats).values({ ...zero, address: LEADER, isVault: true, updatedAt: new Date() } as typeof traderStats.$inferInsert);
+      market.leaderEquity = 25_000;
+      market.tvl = 100_000;
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 100_000 });
+    });
+
+    it("Hyperliquid's own figures (read live 2026-09-29): a unified and a portfolio-margin account come out at its portfolio total, not the perp summary", async () => {
+      const snap = JSON.parse(readFileSync(new URL("./fixtures/spot-valuation-live.json", import.meta.url), "utf8")) as {
+        spotMetaAndAssetCtxs: unknown; allMids: Record<string, string>;
+        accounts: { user: string; abstraction: string; portfolioMarginEnabled: boolean; balances: typeof market.spotBalances; delegatorSummary: unknown; perpEquity: number; hlTotal: number }[];
+      };
+      info.spotMetaAndAssetCtxs.mockResolvedValue(snap.spotMetaAndAssetCtxs as never);
+      info.allMids.mockResolvedValue(snap.allMids);
+      for (const mode of ["unifiedAccount", "portfolioMargin"]) {
+        const account = snap.accounts.find((a) => a.abstraction === mode)!;
+        marketService.resetCaches();
+        market.abstraction = account.abstraction;
+        market.spotBalances = account.balances;
+        market.leaderEquity = account.perpEquity;
+        info.delegatorSummary.mockResolvedValueOnce(account.delegatorSummary as never);
+        const equity = await marketService.leaderEquity(account.user);
+        expect(equity.state).toBe("known");
+        const value = (equity as { value: number }).value;
+        expect(Math.abs(value - account.hlTotal) / account.hlTotal, `${mode}: ours ${value}, Hyperliquid ${account.hlTotal}`).toBeLessThan(0.002);
+        expect(account.perpEquity / account.hlTotal, `${mode}: the perp summary is a fraction of the account`).toBeLessThan(0.6);
+      }
+      info.spotMetaAndAssetCtxs.mockReset();
+      info.allMids.mockReset();
+    });
+
+    it("跟單目前持倉 adopts against the same capital; when it can't be read nothing is created (503)", async () => {
+      market.abstraction = "unifiedAccount";
+      market.leaderEquity = 4_000;
+      market.spotBalances = [usdc(10_000)];
+      market.leaderPositions = [{ coin: "ETH", szi: "5", positionValue: "20000", entryPx: "4100" }];
+      info.spotClearinghouseState.mockRejectedValueOnce(new Error("Request deadline exceeded"));
+      const refused = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(503);
+      expect(refused.body.error.code).toBe("leader_unavailable");
+      expect(await db.select().from(copyStrategies)).toHaveLength(0);
+      // Fixed sizing never needed it.
+      info.spotClearinghouseState.mockRejectedValue(new Error("Request deadline exceeded"));
+      await api("bob-token").post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000, sizingMode: "fixed", perTradeUsd: 200 }).expect(201);
+      info.spotClearinghouseState.mockReset();
+
+      const res = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      // 20,000 × 1,000 / 10,000 = 2,000 → 0.5 ETH (1.25 ETH against the 4,000 perp summary).
+      expect(await orders(res.body.data.id)).toEqual([expect.objectContaining({ leg: "adopt", side: "B", status: "risk_approved", size: "0.5" })]);
     });
   });
 

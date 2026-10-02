@@ -11,6 +11,7 @@ import type {
 import type { RoundTrip } from "../analytics/round-trip.service.js";
 import type {
   HlClearinghouseStateResponse,
+  HlPerpDexsResponse,
   HlPortfolioResponse,
   HlUserFill,
 } from "../hyperliquid/types.js";
@@ -54,6 +55,16 @@ export function toTraderStats(row: TraderStatsRow): TraderStats {
     activity: activityOf(row),
     updatedAt: row.updatedAt,
   };
+}
+
+/** Perp dexes with at least one listed market, the main dex ("") first.
+ * Each is its own clearinghouse: a standard account's perp equity is the
+ * sum over all of them. */
+export function activePerpDexes(list: HlPerpDexsResponse): string[] {
+  const hip3 = list
+    .filter((d): d is NonNullable<typeof d> => d !== null && (d.assetToStreamingOiCap?.length ?? 0) > 0)
+    .map((d) => d.name);
+  return ["", ...hip3];
 }
 
 /** The perp side of an account, summed over dexes. */

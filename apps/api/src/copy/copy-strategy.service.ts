@@ -123,6 +123,14 @@ export class CopyStrategyService {
       throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Market data is unavailable, so the trader's positions can't be copied right now; try again" });
     }
 
+    // Ratio sizing divides by the leader's whole account value. A read of
+    // it that failed is the same case as missing market data: start nothing.
+    const equity = held.length && settings.sizingMode === "ratio" ? await this.market.leaderEquity(req.leader) : null;
+    if (equity?.state === "failed") {
+      throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Couldn't read the trader's account value; try again" });
+    }
+    const leaderEquity = equity?.state === "known" ? equity.value : null;
+
     const { id } = await this.uow.run(async (tx) => {
       const policy = await this.policies.current(tx);
       const limits = policy.limits;
@@ -149,20 +157,19 @@ export class CopyStrategyService {
       await this.repository.catchUp(tx, req.leader, activatedAt);
 
       if (snapshot) {
-        const leaderEquity = Number(snapshot.marginSummary.accountValue);
         for (const ap of held) {
           const szi = Number(ap.position.szi);
           const coin = ap.position.coin;
           const leaderPx = Number(ap.position.positionValue ?? 0) / Math.abs(szi) || Number(ap.position.entryPx ?? 0);
           const leaderSign: 1 | -1 = szi > 0 ? 1 : -1;
           const sign = settings.direction === "same" ? leaderSign : (-leaderSign as 1 | -1);
-          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: Math.abs(szi) * leaderPx, strategyEquity: req.allocationUsd, leaderEquity: Number.isFinite(leaderEquity) ? leaderEquity : null });
+          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: Math.abs(szi) * leaderPx, strategyEquity: req.allocationUsd, leaderEquity });
           await this.planner.place(tx, {
             strategy, settings, policy, controls: { platform: controls.platform, user: controls.user }, mids, assets,
             coin, leg: "adopt", side: sign > 0 ? "B" : "A", notional: notional ?? 0,
             signalPx: leaderPx, signalTime: activatedAt, signalTids: [],
             dedupeKey: `${strategy.id}:adopt:${coin}:v1`,
-            rejectReason: notional === null ? "leader_equity_unknown" : undefined,
+            rejectReason: notional !== null ? undefined : settings.sizingMode === "ratio" ? "leader_equity_unknown" : "no_per_trade_amount",
           });
         }
       }

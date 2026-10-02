@@ -16,6 +16,7 @@ import {
   copyStrategyVersions,
   fills,
   paperAccounts,
+  traderStats,
   users,
   type CopyStrategySettingsJson,
 } from "@trading-dashboard/shared/database";
@@ -254,6 +255,13 @@ export class CopyRepository {
   /** Stops watching a leader nobody copies or favorites any more. */
   unwatchLeaderIfUnused(tx: DbTransaction, address: string): Promise<void> {
     return unwatchLeaderIfUnused(tx, address);
+  }
+
+  /** Whether the imported leaderboard marks `address` as a vault (its
+   * account value is its TVL, not its own balances). */
+  async isVault(address: string): Promise<boolean> {
+    const [row] = await this.db.select({ isVault: traderStats.isVault }).from(traderStats).where(and(eq(traderStats.chain, CHAIN_DEFAULT), eq(traderStats.address, address)));
+    return row?.isVault ?? false;
   }
 
   lockLeader(tx: DbTransaction, address: string) {

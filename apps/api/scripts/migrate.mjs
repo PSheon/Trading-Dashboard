@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -35,4 +37,15 @@ export async function migrateDatabase(url) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try { await migrateDatabase(process.env.DATABASE_URL); }
   catch { console.error('Database migration failed; verify connectivity, permissions and migration compatibility'); process.exitCode = 1; }
+  // The release that carries migration 0021 also moves the stored fills into
+  // the typed table: `all` copies in batches, verifies every row and retires
+  // the raw table, and does nothing once that is done. A release must not
+  // start on a half-converted database, so a failure fails the release.
+  if (!process.exitCode) {
+    const convert = fileURLToPath(new URL('../dist/traders/convert-history-fills.js', import.meta.url));
+    if (existsSync(convert)) {
+      const result = spawnSync(process.execPath, [convert, 'all'], { stdio: 'inherit' });
+      if (result.status !== 0) { console.error('Stored fill conversion failed'); process.exitCode = 1; }
+    }
+  }
 }

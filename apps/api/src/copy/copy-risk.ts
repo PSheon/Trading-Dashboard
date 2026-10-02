@@ -6,6 +6,9 @@
  */
 import { coinDex, coinKey, type CopyRiskLimits, type CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
+import { Dec } from "../common/decimal/dec.js";
+import { usd } from "./copy-math.js";
+
 export interface ControlFlags {
   pauseNewRisk: boolean;
   reduceOnly: boolean;
@@ -23,35 +26,35 @@ export interface RiskInput {
    * rules don't apply (review 39). Every cap still does. */
   adoption?: boolean;
   /** Requested notional, USDC. */
-  notional: number;
+  notional: Dec;
   /** Mid or mark now. */
-  px: number;
+  px: Dec;
   /** Price the signal traded at (leader fill px); null for adoption. */
-  signalPx: number | null;
+  signalPx: Dec | null;
   signalAgeSeconds: number;
   /** Coin's exchange max leverage, when known. */
   coinMaxLeverage: number | null;
   strategy: {
-    allocated: number;
-    equity: number;
+    allocated: Dec;
+    equity: Dec;
     /** Σ|notional| of the strategy's positions at `px`. */
-    exposure: number;
+    exposure: Dec;
     /** Margin already held by approved, unfilled orders. */
-    reservedMargin: number;
+    reservedMargin: Dec;
     /** Notional already held by approved, unfilled orders. */
-    reservedNotional: number;
+    reservedNotional: Dec;
     ordersLastMinute: number;
   };
   user: {
     /** This coin, all of the user's strategies (incl. reserved), absolute notional. */
-    coinExposure: number;
+    coinExposure: Dec;
     /** All coins, all strategies (incl. reserved). */
-    exposure: number;
+    exposure: Dec;
   };
 }
 
 export type RiskDecision =
-  | { ok: true; notional: number; margin: number; leverage: number; notes: string[] }
+  | { ok: true; notional: Dec; margin: Dec; leverage: number; notes: string[] }
   | { ok: false; reason: string };
 
 /** Effective leverage cap: the strategy's own (CopyDog max_leverage), the
@@ -61,8 +64,8 @@ export function effectiveLeverage(limits: CopyRiskLimits, settings: CopyStrategy
 }
 
 /** Strategy exposure cap: CopyDog's max_total_exposure (null shows as allocation × 5 there). */
-export function strategyExposureCap(settings: CopyStrategySettings, allocated: number): number {
-  return settings.maxTotalExposureUsd ?? allocated * 5;
+export function strategyExposureCap(settings: CopyStrategySettings, allocated: Dec): Dec {
+  return settings.maxTotalExposureUsd === null ? allocated.mul(5) : Dec.from(settings.maxTotalExposureUsd);
 }
 
 /** HIP-3 builder-dex market: the same parse as fills and positions use. */
@@ -97,7 +100,7 @@ export function evaluateRisk(input: RiskInput): RiskDecision {
   const { limits, settings, controls } = input;
   const leverage = effectiveLeverage(limits, settings, input.coinMaxLeverage);
   if (!input.increasesRisk) {
-    return { ok: true, notional: input.notional, margin: 0, leverage, notes: [] };
+    return { ok: true, notional: input.notional, margin: Dec.ZERO, leverage, notes: [] };
   }
 
   // Stop state, widest scope first.
@@ -114,35 +117,35 @@ export function evaluateRisk(input: RiskInput): RiskDecision {
 
   // Signal quality.
   if (!input.adoption && input.signalAgeSeconds > limits.maxSignalAgeSeconds) return { ok: false, reason: "stale_signal" };
-  if (!(input.px > 0)) return { ok: false, reason: "no_price" };
-  if (input.signalPx !== null && input.signalPx > 0) {
-    const movedBps = (Math.abs(input.px - input.signalPx) / input.signalPx) * 10_000;
-    if (movedBps > limits.maxSlippageBps) return { ok: false, reason: "price_moved" };
+  if (!input.px.isPositive) return { ok: false, reason: "no_price" };
+  if (input.signalPx !== null && input.signalPx.isPositive) {
+    const movedBps = input.px.sub(input.signalPx).abs().div(input.signalPx).mul(10_000);
+    if (movedBps.gt(limits.maxSlippageBps)) return { ok: false, reason: "price_moved" };
   }
   if (!input.adoption && input.strategy.ordersLastMinute >= limits.maxOrdersPerMinute) return { ok: false, reason: "frequency" };
-  if (!(input.notional > 0)) return { ok: false, reason: "zero_size" };
+  if (!input.notional.isPositive) return { ok: false, reason: "zero_size" };
 
   const notes: string[] = [];
   let notional = input.notional;
-  const clamp = (cap: number, note: string) => {
-    const room = Math.max(0, cap);
-    if (notional > room) {
+  const clamp = (cap: Dec, note: string) => {
+    const room = Dec.max(Dec.ZERO, cap);
+    if (notional.gt(room)) {
       notional = room;
       notes.push(note);
     }
   };
-  clamp(limits.maxOrderNotionalUsd, "max_order");
-  clamp(limits.maxCoinExposureUsd - input.user.coinExposure, "max_coin_exposure");
-  clamp(limits.maxUserExposureUsd - input.user.exposure, "max_user_exposure");
-  const strategyCap = Math.min(strategyExposureCap(settings, input.strategy.allocated), Math.max(0, input.strategy.equity) * leverage);
-  clamp(strategyCap - input.strategy.exposure - input.strategy.reservedNotional, "max_strategy_exposure");
+  clamp(Dec.from(limits.maxOrderNotionalUsd), "max_order");
+  clamp(Dec.from(limits.maxCoinExposureUsd).sub(input.user.coinExposure), "max_coin_exposure");
+  clamp(Dec.from(limits.maxUserExposureUsd).sub(input.user.exposure), "max_user_exposure");
+  const strategyCap = Dec.min(strategyExposureCap(settings, input.strategy.allocated), Dec.max(Dec.ZERO, input.strategy.equity).mul(leverage));
+  clamp(strategyCap.sub(input.strategy.exposure).sub(input.strategy.reservedNotional), "max_strategy_exposure");
   // Available funds: equity not already used as margin by positions or held for orders.
-  const usedMargin = input.strategy.exposure / leverage + input.strategy.reservedMargin;
-  const available = input.strategy.equity - usedMargin;
-  clamp(available * leverage, "available_funds");
+  const usedMargin = input.strategy.exposure.div(leverage).add(input.strategy.reservedMargin);
+  const available = input.strategy.equity.sub(usedMargin);
+  clamp(available.mul(leverage), "available_funds");
 
-  if (notional < limits.minOrderNotionalUsd || notional <= 0) {
+  if (notional.lt(limits.minOrderNotionalUsd) || !notional.isPositive) {
     return { ok: false, reason: notes.length ? `below_min_after_${notes[notes.length - 1]}` : "below_min_notional" };
   }
-  return { ok: true, notional, margin: notional / leverage, leverage, notes };
+  return { ok: true, notional, margin: usd(notional.div(leverage)), leverage, notes };
 }

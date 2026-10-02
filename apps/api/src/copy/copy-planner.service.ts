@@ -1,9 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { coinDex, type CopyLeg, type CopyRiskLimits, type CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
+import { Dec } from "../common/decimal/dec.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import type { AssetMap, Mids } from "./copy-market.service.js";
-import { cloidOf, dec, floorSize } from "./copy-math.js";
+import { cloidOf, dec, floorSize, usd } from "./copy-math.js";
 import { evaluateRisk, symbolRefusal } from "./copy-risk.js";
 import { CopyRepository, type ControlRow, type OrderRow, type PositionRow, type StrategyRow } from "./copy.repository.js";
 
@@ -31,10 +32,10 @@ export interface PlaceOrder {
   leg: CopyLeg;
   side: "B" | "A";
   /** Risk-increasing orders: the requested USDC notional. */
-  notional?: number;
+  notional?: Dec;
   /** Reduce-only orders: the coin size to reduce. */
-  size?: number;
-  signalPx: number;
+  size?: Dec;
+  signalPx: Dec;
   signalTime: Date;
   signalTids: bigint[];
   /** Makes the client order id; unique per order. */
@@ -76,23 +77,24 @@ export class CopyMarketDataUnavailableError extends Error {
 }
 
 /** A strategy's value at current mids: equity is null when an open position has no price. */
-export function strategyValue(strategy: StrategyRow, positions: PositionRow[], mids: Mids | null) {
-  let unrealized = 0;
-  let exposure = 0;
+export function strategyValue(strategy: Pick<StrategyRow, "cash">, positions: Pick<PositionRow, "coin" | "size" | "entryPx">[], mids: Mids | null):
+  { equity: Dec; unrealized: Dec; exposure: Dec } | { equity: null; unrealized: null; exposure: null } {
+  let unrealized = Dec.ZERO;
+  let exposure = Dec.ZERO;
   let priced = true;
   for (const p of positions) {
-    const size = Number(p.size);
-    if (size === 0) continue;
+    const size = Dec.from(p.size);
+    if (size.isZero) continue;
     const px = mids?.px.get(p.coin);
     if (px === undefined) {
       priced = false;
       continue;
     }
-    unrealized += size * (px - Number(p.entryPx));
-    exposure += Math.abs(size) * px;
+    unrealized = unrealized.add(size.mul(px.sub(p.entryPx)));
+    exposure = exposure.add(size.abs().mul(px));
   }
-  const cash = Number(strategy.cash);
-  return priced ? { equity: cash + unrealized, unrealized, exposure } : { equity: null, unrealized: null, exposure: null };
+  const cash = Dec.from(strategy.cash);
+  return priced ? { equity: cash.add(unrealized), unrealized, exposure } : { equity: null, unrealized: null, exposure: null };
 }
 
 /**
@@ -134,12 +136,13 @@ export class CopyOrderPlanner {
     const px = o.mids?.px.get(o.coin) ?? null;
 
     if (!increasesRisk) {
-      const size = asset ? floorSize(o.size ?? 0, asset.szDecimals) : (o.size ?? 0);
-      if (!(size > 0)) return null;
+      const wanted = o.size ?? Dec.ZERO;
+      const size = asset ? floorSize(wanted, asset.szDecimals) : wanted;
+      if (!size.isPositive) return null;
       return this.repository.insertOrder(tx, { ...base, size: dec(size), status: "risk_approved" });
     }
 
-    const reject = (reason: string, size = 0) => this.repository.insertOrder(tx, { ...base, size: dec(size), status: "rejected", reason });
+    const reject = (reason: string, size: Dec = Dec.ZERO) => this.repository.insertOrder(tx, { ...base, size: dec(size), status: "rejected", reason });
     if (o.rejectReason) return reject(o.rejectReason);
     if (o.policy.invalid) return reject("risk_policy_invalid");
     if (o.strategy.status !== "active") return reject(`strategy_${o.strategy.status}`);
@@ -166,21 +169,21 @@ export class CopyOrderPlanner {
     // Exposure nets out pending reduce-only orders (e.g. a flip's close,
     // queued just ahead of its open), so the open isn't capped by exposure
     // that is already being removed.
-    let userExposure = 0;
-    let coinExposure = 0;
-    let strategyExposure = 0;
+    let userExposure = Dec.ZERO;
+    let coinExposure = Dec.ZERO;
+    let strategyExposure = Dec.ZERO;
     let userPriced = true;
     for (const p of userPositions) {
       const ppx = o.mids?.px.get(p.coin);
       if (ppx === undefined) { userPriced = false; continue; }
-      const n = Math.abs(Number(p.size) + (reducing.get(`${p.strategyId}:${p.coin}`) ?? 0)) * ppx;
-      userExposure += n;
-      if (p.coin === o.coin) coinExposure += n;
-      if (p.strategyId === o.strategy.id) strategyExposure += n;
+      const n = Dec.from(p.size).add(reducing.get(`${p.strategyId}:${p.coin}`) ?? Dec.ZERO).abs().mul(ppx);
+      userExposure = userExposure.add(n);
+      if (p.coin === o.coin) coinExposure = coinExposure.add(n);
+      if (p.strategyId === o.strategy.id) strategyExposure = strategyExposure.add(n);
     }
     for (const r of userReserved) {
-      userExposure += Number(r.notional);
-      if (r.coin === o.coin) coinExposure += Number(r.notional);
+      userExposure = userExposure.add(r.notional);
+      if (r.coin === o.coin) coinExposure = coinExposure.add(r.notional);
     }
     if (px === null || value.equity === null || !userPriced) return reject("no_price");
 
@@ -194,27 +197,27 @@ export class CopyOrderPlanner {
       },
       coin: o.coin,
       increasesRisk: true,
-      notional: o.notional ?? 0,
+      notional: o.notional ?? Dec.ZERO,
       px,
       adoption: o.leg === "adopt",
       signalPx: o.leg === "adopt" ? null : o.signalPx,
       signalAgeSeconds: (Date.now() - o.signalTime.getTime()) / 1000,
       coinMaxLeverage: asset?.maxLeverage ?? null,
       strategy: {
-        allocated: Number(o.strategy.allocated),
+        allocated: Dec.from(o.strategy.allocated),
         equity: value.equity,
         exposure: strategyExposure,
-        reservedMargin: reserved.reduce((a, r) => a + Number(r.margin), 0),
-        reservedNotional: reserved.reduce((a, r) => a + Number(r.notional), 0),
+        reservedMargin: Dec.sum(reserved.map((r) => Dec.from(r.margin))),
+        reservedNotional: Dec.sum(reserved.map((r) => Dec.from(r.notional))),
         ordersLastMinute: await this.repository.ordersLastMinute(tx, o.strategy.id),
       },
       user: { coinExposure, exposure: userExposure },
     });
-    if (!decision.ok) return reject(decision.reason, floorSize((o.notional ?? 0) / px, asset.szDecimals));
+    if (!decision.ok) return reject(decision.reason, floorSize((o.notional ?? Dec.ZERO).div(px), asset.szDecimals));
 
-    const size = floorSize(decision.notional / px, asset.szDecimals);
-    const notional = size * px;
-    if (!(size > 0) || notional < o.policy.limits.minOrderNotionalUsd) return reject("below_min_after_rounding", size);
+    const size = floorSize(decision.notional.div(px), asset.szDecimals);
+    const notional = size.mul(px);
+    if (!size.isPositive || notional.lt(o.policy.limits.minOrderNotionalUsd)) return reject("below_min_after_rounding", size);
     const order = await this.repository.insertOrder(tx, {
       ...base,
       size: dec(size),
@@ -227,7 +230,7 @@ export class CopyOrderPlanner {
       userId: o.strategy.userId,
       coin: o.coin,
       notional: dec(notional),
-      margin: dec(notional / decision.leverage),
+      margin: dec(usd(notional.div(decision.leverage))),
     });
     return order;
   }

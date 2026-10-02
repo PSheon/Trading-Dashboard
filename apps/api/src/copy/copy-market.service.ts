@@ -6,6 +6,8 @@ import { buildSpotPriceBook, hypePrice, stakedHype, toAccountMode, totalAccountV
 import { activePerpDexes, portfolioSeries, summarizeAccount } from "../traders/traders.mappers.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 import { coinDex } from "@trading-dashboard/shared/contracts";
+
+import { Dec } from "../common/decimal/dec.js";
 import { CopyRepository } from "./copy.repository.js";
 
 /** Mid prices are shared by every caller for this long (allMids, weight 2). */
@@ -28,8 +30,8 @@ export interface AssetInfo {
   szDecimals: number;
   maxLeverage: number;
   /** Current hourly funding rate. */
-  funding: number;
-  markPx: number;
+  funding: Dec;
+  markPx: Dec;
 }
 
 /** The universe that was read: the main dex, plus each HIP-3 dex a caller
@@ -41,7 +43,8 @@ export class AssetMap extends Map<string, AssetInfo> {
 
 export interface Mids {
   at: Date;
-  px: Map<string, number>;
+  /** Mid by coin, exactly as Hyperliquid sent it. */
+  px: Map<string, Dec>;
   /** HIP-3 dexes whose mids were asked for and could not be read. */
   missingDexes: Set<string>;
 }
@@ -60,15 +63,15 @@ export function hip3DexesOf(coins: Iterable<string>): string[] {
  * at the coin's maximum leverage, i.e. notional ÷ (2 × maxLeverage). The
  * larger-position margin tiers (the lowest starts at $3M notional) are not
  * modelled: the paper caps (order, coin and user exposure) stay far below. */
-export function maintenanceMargin(notional: number, maxLeverage: number): number {
-  return Math.abs(notional) / (2 * Math.max(1, maxLeverage));
+export function maintenanceMargin(notional: Dec, maxLeverage: number): Dec {
+  return notional.abs().div(2 * Math.max(1, maxLeverage));
 }
 
 /** A leader's capital for ratio sizing. `none` is a fact (the account was
  * read and holds nothing); `failed` is a read that did not complete (a
  * Hyperliquid timeout, a starved budget): a transient gap, retried by the
  * caller like missing mids, never a reason to reject. */
-export type LeaderEquity = { state: "known"; value: number } | { state: "none" } | { state: "failed" };
+export type LeaderEquity = { state: "known"; value: Dec } | { state: "none" } | { state: "failed" };
 
 /**
  * Copy trading mirrors a leader's fills, so its reads are time-critical:
@@ -89,7 +92,7 @@ const LANE = "live" as const;
 export class CopyMarketService {
   private readonly logger = new Logger(CopyMarketService.name);
   /** Mids per dex ("" is the main dex), each with its own age. */
-  private readonly midsByDex = new Map<string, { at: number; px: Map<string, number> }>();
+  private readonly midsByDex = new Map<string, { at: number; px: Map<string, Dec> }>();
   private readonly midsInflight = new Map<string, Promise<boolean>>();
   private readonly assetsByDex = new Map<string, { at: number; byCoin: Map<string, AssetInfo> }>();
   private readonly assetsInflight = new Map<string, Promise<boolean>>();
@@ -113,10 +116,10 @@ export class CopyMarketService {
       flight = (async () => {
         try {
           const raw = await this.info.allMids(LANE, undefined, dex || undefined);
-          const px = new Map<string, number>();
+          const px = new Map<string, Dec>();
           for (const [coin, v] of Object.entries(raw)) {
-            const n = Number(v);
-            if (Number.isFinite(n) && n > 0) px.set(coin, n);
+            const mid = Dec.parse(v);
+            if (mid?.isPositive) px.set(coin, mid);
           }
           this.midsByDex.set(dex, { at: Date.now(), px });
           return true;
@@ -169,7 +172,7 @@ export class CopyMarketService {
           const byCoin = new Map<string, AssetInfo>();
           meta.universe.forEach((a, i) => {
             const ctx = ctxs[i];
-            byCoin.set(a.name, { szDecimals: a.szDecimals, maxLeverage: a.maxLeverage, funding: Number(ctx?.funding ?? 0), markPx: Number(ctx?.markPx ?? 0) });
+            byCoin.set(a.name, { szDecimals: a.szDecimals, maxLeverage: a.maxLeverage, funding: Dec.parse(ctx?.funding) ?? Dec.ZERO, markPx: Dec.parse(ctx?.markPx) ?? Dec.ZERO });
           });
           this.assetsByDex.set(dex, { at: Date.now(), byCoin });
           return true;
@@ -299,6 +302,9 @@ export class CopyMarketService {
   }
 }
 
+/** The account value comes from the trader profile's valuation (spot
+ * balances × prices, in floats): it is a ratio's denominator, not a ledger
+ * amount, and enters the decimal arithmetic here at its printed value. */
 function toLeaderEquity(value: number | null): LeaderEquity {
-  return value === null ? { state: "none" } : { state: "known", value };
+  return value === null ? { state: "none" } : { state: "known", value: Dec.from(value) };
 }

@@ -5,6 +5,7 @@ import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import type { RequestUser } from "../common/auth/current-user.js";
 import { hasPermission } from "../common/auth/permissions.js";
 import { parseOr400 } from "../common/http/validation.js";
+import { Dec } from "../common/decimal/dec.js";
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { CopyMarketService, type Mids } from "./copy-market.service.js";
 import { CopyOrderPlanner, type Controls } from "./copy-planner.service.js";
@@ -158,12 +159,12 @@ export class CopyControlService {
     for (const p of positions) {
       if (already.has(`${p.strategyId}:${p.coin}`)) continue;
       const strategy = strategies.find((s) => s.id === p.strategyId)!;
-      const size = Number(p.size);
+      const size = Dec.from(p.size);
       const settings = (await this.repository.settingsOf(tx, strategy.id, strategy.version)) as CopyStrategySettings;
       const order = await this.planner.place(tx, {
         strategy, settings, policy, controls: noControls, mids, assets: null,
-        coin: p.coin, leg: "stop_close", side: size > 0 ? "A" : "B", size: Math.abs(size),
-        signalPx: mids?.px.get(p.coin) ?? Number(p.entryPx), signalTime: new Date(), signalTids: [],
+        coin: p.coin, leg: "stop_close", side: size.isPositive ? "A" : "B", size: size.abs(),
+        signalPx: mids?.px.get(p.coin) ?? Dec.from(p.entryPx), signalTime: new Date(), signalTids: [],
         dedupeKey: `stop:${strategy.id}:${p.coin}:r${strategy.controlRevision}:${Date.now()}`,
       });
       if (order) n += 1;

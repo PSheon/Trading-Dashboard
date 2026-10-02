@@ -29,6 +29,7 @@ import { CopyAdoptionRepairService, adoptionRepairKey } from "../src/copy/copy-a
 import { CopyControlService } from "../src/copy/copy-control.service.js";
 import { CopyExecutionService } from "../src/copy/copy-execution.service.js";
 import { AssetMap, CopyMarketService, type Mids } from "../src/copy/copy-market.service.js";
+import { d } from "../src/common/decimal/dec.js";
 import { cloidOf } from "../src/copy/copy-math.js";
 import { CopyOrderPlanner } from "../src/copy/copy-planner.service.js";
 import { CopyRiskPolicyService } from "../src/copy/copy-risk-policy.service.js";
@@ -963,9 +964,9 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       const [strategy] = await db.select().from(copyStrategies);
       const place = (assets: null | AssetMap, mids: null | Mids) => app.get(UnitOfWork).run(async (tx) => app.get(CopyOrderPlanner).place(tx, {
         strategy: strategy!, settings: await repo.settingsOf(tx, id, 1) as never, policy: await policies.current(tx), controls: { platform: undefined, user: undefined }, mids, assets,
-        coin: "ETH", leg: "adopt", side: "B", notional: 500, signalPx: 4_000, signalTime: new Date(), signalTids: [], dedupeKey: `${id}:adopt:ETH:v1`,
+        coin: "ETH", leg: "adopt", side: "B", notional: d(500), signalPx: d(4_000), signalTime: new Date(), signalTids: [], dedupeKey: `${id}:adopt:ETH:v1`,
       }));
-      await expect(place(null, { at: new Date(), px: new Map([["ETH", 4_000]]), missingDexes: new Set() })).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "asset_info" });
+      await expect(place(null, { at: new Date(), px: new Map([["ETH", d(4_000)]]), missingDexes: new Set() })).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "asset_info" });
       await expect(place(new AssetMap(), null)).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "mids" });
       expect(await orders(id)).toHaveLength(0);
     });
@@ -1095,7 +1096,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       marketService.resetCaches();
       info.clearinghouseState.mockRejectedValueOnce(down());
       expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "failed" });
-      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 10_000 });
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: d(10_000) });
     });
 
     it("fixed sizing needs no leader equity and does not wait; a reduction in the same batch is placed", async () => {
@@ -1142,7 +1143,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       market.hip3Equity = { xyz: 10_000 };
       market.spotBalances = [usdc(20_000)];
       market.stakedHype = 250; // × $40
-      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 100_000 });
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: d(100_000) });
       // 10% of the leader's account → 10% of the copy's $1,000 → 0.001 BTC (0.00166 against the main dex alone).
       expect(await copyOneOpen()).toMatchObject({ status: "filled", size: "0.001", reason: null });
     });
@@ -1151,7 +1152,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       market.abstraction = "unifiedAccount";
       market.leaderEquity = 40_000; // margin its positions hold: part of the 100,000 below
       market.spotBalances = [usdc(100_000)];
-      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 100_000 });
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: d(100_000) });
       expect(await copyOneOpen()).toMatchObject({ status: "filled", size: "0.001", reason: null });
     });
 
@@ -1167,7 +1168,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await db.insert(traderStats).values({ ...zero, address: LEADER, isVault: true, updatedAt: new Date() } as typeof traderStats.$inferInsert);
       market.leaderEquity = 25_000;
       market.tvl = 100_000;
-      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: 100_000 });
+      expect(await marketService.leaderEquity(LEADER)).toEqual({ state: "known", value: d(100_000) });
     });
 
     it("Hyperliquid's own figures (read live 2026-09-29): a unified and a portfolio-margin account come out at its portfolio total, not the perp summary", async () => {
@@ -1186,7 +1187,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
         info.delegatorSummary.mockResolvedValueOnce(account.delegatorSummary as never);
         const equity = await marketService.leaderEquity(account.user);
         expect(equity.state).toBe("known");
-        const value = (equity as { value: number }).value;
+        const value = equity.state === "known" ? equity.value.toNumber() : Number.NaN;
         expect(Math.abs(value - account.hlTotal) / account.hlTotal, `${mode}: ours ${value}, Hyperliquid ${account.hlTotal}`).toBeLessThan(0.002);
         expect(account.perpEquity / account.hlTotal, `${mode}: the perp summary is a fraction of the account`).toBeLessThan(0.6);
       }
@@ -1932,6 +1933,134 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       expect(await execution.accrueFunding()).toBe(0); // once per hour
       const [p] = await db.select().from(copyPositions).where(eq(copyPositions.strategyId, id));
       expect(Number(p!.funding)).toBeCloseTo(qty * 110_000 * 0.0001 * 2, 6);
+    });
+  });
+
+  describe("money is exact: fills, fees and funding reconcile with the ledger to the last digit (review 9)", () => {
+    /** Every identity the books must satisfy, checked by Postgres on its own numerics. Returns the rows that break one. */
+    const broken = async () => (await db.execute(sql`
+      select s.id,
+        -- A stopped strategy keeps its final cash on the row; the release is what moved it to the balance.
+        s.cash = coalesce((select sum(l.amount) from copy_ledger l where l.strategy_id = s.id and l.kind <> 'release'), 0) as cash_is_ledger,
+        (s.status <> 'stopped' or s.cash = -coalesce((select sum(l.amount) from copy_ledger l where l.strategy_id = s.id and l.kind = 'release'), 0)) as release_is_cash,
+        s.allocated = coalesce((select sum(l.amount) from copy_ledger l where l.strategy_id = s.id and l.kind = 'allocate'), 0) as allocated_is_ledger,
+        s.realized_pnl = coalesce((select sum(f.realized_pnl) from copy_paper_fills f where f.strategy_id = s.id), 0) as pnl_is_fills,
+        s.realized_pnl = coalesce((select sum(l.amount) from copy_ledger l where l.strategy_id = s.id and l.kind = 'realized_pnl'), 0) as pnl_is_ledger,
+        s.fees = coalesce((select sum(f.fee + f.builder_fee) from copy_paper_fills f where f.strategy_id = s.id), 0) as fees_is_fills,
+        s.fees = -coalesce((select sum(l.amount) from copy_ledger l where l.strategy_id = s.id and l.kind in ('fee', 'builder_fee')), 0) as fees_is_ledger,
+        s.fees = coalesce((select sum(o.fee + o.builder_fee) from copy_orders o where o.strategy_id = s.id), 0) as fees_is_orders,
+        s.funding = -coalesce((select sum(l.amount) from copy_ledger l where l.strategy_id = s.id and l.kind = 'funding'), 0) as funding_is_ledger,
+        not exists (
+          select 1 from copy_positions p where p.strategy_id = s.id and p.size <> coalesce((
+            select sum(case when f.side = 'B' then f.size else -f.size end) from copy_paper_fills f where f.strategy_id = s.id and f.coin = p.coin), 0)
+        ) as positions_are_fills,
+        not exists (
+          select 1 from copy_orders o where o.strategy_id = s.id and o.status in ('filled', 'partial') and o.filled_size <> (select sum(f.size) from copy_paper_fills f where f.order_id = o.id)
+        ) as orders_are_fills,
+        (s.status <> 'stopped' or s.cash >= 0) as returned_cash_not_negative
+      from copy_strategies s
+    `)).rows.filter((r) => Object.values(r).some((v) => v === false));
+    const accountBroken = async () => (await db.execute(sql`
+      select a.user_id, a.balance, a.starting_balance - coalesce((
+        select sum(l.amount) from copy_ledger l join copy_strategies s on s.id = l.strategy_id where s.user_id = a.user_id and l.kind in ('allocate', 'release')), 0) as expected
+      from paper_accounts a
+    `)).rows.filter((r) => r.balance !== r.expected || Number(r.balance) < 0);
+
+    /** mulberry32: a failure is replayed from its seed. */
+    const rng = (seed: number) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+
+    for (const seed of [1, 7, 20261003]) {
+      it(`a random market (seed ${seed}): opens, partial closes, flips, funding, added funds, a liquidation and a stop leave every book exact`, async () => {
+        await db.insert(appSettings).values({ key: "revenue", value: { builderAddress: null, builderFeeTenthsBps: 7 } });
+        (settings as unknown as { cache: unknown }).cache = undefined;
+        // Awkward rates on purpose: 4.37 bps taker, 3.3 bps slippage, funding with seven decimals.
+        await policies.put({ limits: { takerFeeBps: 4.37, simulatedSlippageBps: 3.3, maxSlippageBps: 5_000, maxOrdersPerMinute: 1_000, maxSignalAgeSeconds: 86_400 }, reason: "property test", expectedVersion: 0 }, admin);
+        market.funding = 0.0000137;
+        const r = rng(seed);
+        const pick = <T,>(list: T[]): T => list[Math.floor(r() * list.length)]!;
+        const ratio = await startCopy({ allocationUsd: 1_234.567891 });
+        const fixed = (await alice.post("/me/copy/strategies", { leader: OTHER, allocationUsd: 987.654321, copyStartMode: "delta", sizingMode: "fixed", perTradeUsd: 133.37, direction: "reverse" }).expect(201)).body.data.id as number;
+        const leaderPos: Record<string, Record<string, number>> = { [LEADER]: { BTC: 0, ETH: 0, kPEPE: 0 }, [OTHER]: { BTC: 0, ETH: 0, kPEPE: 0 } };
+        const lots: Record<string, number> = { BTC: 5, ETH: 4, kPEPE: 0 };
+        let time = Date.now();
+        let oid = 10_000;
+
+        for (let step = 0; step < 40; step++) {
+          // Prices wander, with digits to spare.
+          for (const coin of Object.keys(market.mids)) market.mids[coin] = Number((market.mids[coin]! * (0.97 + r() * 0.06)).toPrecision(5));
+          const leader = pick([LEADER, OTHER]);
+          const coin = pick(["BTC", "ETH", "kPEPE"]);
+          const start = leaderPos[leader]![coin]!;
+          const unit = coin === "BTC" ? 0.37 : coin === "ETH" ? 7.3 : 1_370_000;
+          // Open or add, trim by an odd fraction, close, or flip.
+          const action = start === 0 ? "open" : pick(["add", "trim", "trim", "close", "flip"]);
+          const delta =
+            action === "open" ? (r() < 0.5 ? 1 : -1) * unit * (0.2 + r()) :
+            action === "add" ? Math.sign(start) * unit * r() :
+            action === "trim" ? -start * (0.013 + r() * 0.6) :
+            action === "close" ? -start : -start * (1.2 + r());
+          const sz = Number(Math.abs(delta).toFixed(lots[coin]!));
+          if (sz === 0) continue;
+          const side = delta > 0 ? "B" : "A";
+          time += 1_000;
+          await store([fill({ coin, side, sz, px: market.mids[coin]!, start, time, oid: r() < 0.3 ? oid : ++oid })], leader);
+          leaderPos[leader]![coin] = Number((start + (side === "B" ? sz : -sz)).toFixed(lots[coin]!));
+          await run();
+
+          if (step % 7 === 3) {
+            // An hour boundary passes for every open position.
+            const hour = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
+            await db.update(copyPositions).set({ fundingThrough: new Date(hour.getTime() - 1_800_000 - Math.floor(r() * 3) * 3_600_000) });
+            marketService.resetCaches();
+            await execution.accrueFunding(hour);
+          }
+          if (step === 11) await alice.post(`/me/copy/strategies/${ratio.id}/funds`, { amountUsd: 55.123456 }).expect(200);
+          if (step === 25) {
+            // A crash: whatever is open is marked far against it, then liquidated if it must be.
+            for (const coin of Object.keys(market.mids)) market.mids[coin] = Number((market.mids[coin]! * (r() < 0.5 ? 0.55 : 1.6)).toPrecision(5));
+            marketService.resetCaches();
+            await execution.liquidate();
+          }
+          expect(await broken(), `seed ${seed}, step ${step}`).toEqual([]);
+          expect(await accountBroken(), `seed ${seed}, step ${step}`).toEqual([]);
+        }
+
+        // Stop both: everything closes and the cash goes back, never below zero.
+        for (const id of [ratio.id, fixed]) await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
+        marketService.resetCaches();
+        await execution.drain();
+        expect(await execution.settleStopping()).toBe(2);
+        expect(await broken()).toEqual([]);
+        expect(await accountBroken()).toEqual([]);
+        const [totals] = (await db.execute(sql`
+          select (select count(*)::int from copy_paper_fills) as fills, (select count(*)::int from copy_ledger) as ledger,
+            (select balance from paper_accounts) as balance,
+            (select starting_balance + sum(l.amount) from copy_ledger l, paper_accounts a where l.kind not in ('allocate', 'release') group by starting_balance) as expected`)).rows;
+        // Enough happened for the identities to mean something…
+        expect(Number(totals!.fills)).toBeGreaterThan(15);
+        expect(Number(totals!.ledger)).toBeGreaterThan(40);
+        // …and the whole account is its starting balance plus every PnL, fee, funding and write-off, exactly.
+        expect(totals!.balance).toBe(totals!.expected);
+      });
+    }
+
+    it("the float arithmetic this replaced does not pass the same test: rounding the sum and summing the rounded parts differ", () => {
+      // What the engine did: cash += round8(pnl − fee − builder), ledger rows round8(pnl), round8(−fee), round8(−builder).
+      const round8 = (v: number) => Number(v.toFixed(8));
+      const r = rng(42);
+      let cash = 0;
+      let ledger = 0;
+      let mismatches = 0;
+      for (let i = 0; i < 2_000; i++) {
+        const notional = Number((r() * 5_000).toFixed(6));
+        const pnl = (r() - 0.5) * notional * 0.1;
+        const fee = (notional * 4.37) / 10_000;
+        const builder = (notional * 7) / 100_000;
+        cash = round8(cash + round8(pnl - fee - builder));
+        ledger = round8(ledger + round8(pnl) + round8(-fee) + round8(-builder));
+        if (cash !== ledger) mismatches += 1;
+      }
+      expect(mismatches).toBeGreaterThan(0);
     });
   });
 

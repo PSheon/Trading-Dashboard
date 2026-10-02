@@ -14,12 +14,13 @@ import {
 
 import { AppConfig } from "../config/app-config.js";
 import { parseOr400 } from "../common/http/validation.js";
+import { Dec } from "../common/decimal/dec.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { CopyControlService } from "./copy-control.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
-import { dec, openNotional } from "./copy-math.js";
-import { toCopyOrder, toCopyStrategy } from "./copy.mappers.js";
+import { dec, leaderPositionPx, openNotional } from "./copy-math.js";
+import { toCopyOrder, toCopyStrategy, wire } from "./copy.mappers.js";
 import { CopyOrderPlanner, marketDataGap } from "./copy-planner.service.js";
 import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
@@ -65,18 +66,23 @@ export class CopyStrategyService {
     const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
     const strategies = rows.map((r) => toCopyStrategy(r.strategy, r.settings as CopyStrategySettings, positions, mids, counts.get(r.strategy.id)));
     const live = strategies.filter((s) => s.status !== "stopped");
-    const liveEquity = live.reduce<number | null>((a, s) => (a === null || s.equity === null ? null : a + s.equity), 0);
-    const balance = Number(account.balance);
-    const totalValue = liveEquity === null ? null : balance + liveEquity;
-    const startingBalance = Number(account.startingBalance);
+    // Totals are summed from the stored decimals, not from the display numbers.
+    const liveRows = rows.filter((r) => r.strategy.status !== "stopped").map((r) => r.strategy);
+    const priced = live.every((s) => s.equity !== null);
+    const liveEquity = priced
+      ? Dec.sum(liveRows.map((s) => Dec.from(s.cash).add(Dec.sum(positions.filter((p) => p.strategyId === s.id).map((p) => Dec.from(p.size).mul(mids!.px.get(p.coin)!.sub(p.entryPx)))))))
+      : null;
+    const balance = Dec.from(account.balance);
+    const totalValue = liveEquity === null ? null : balance.add(liveEquity);
+    const startingBalance = Dec.from(account.startingBalance);
     return {
       mode: this.config.value.copy.mode,
       paper: {
-        balance,
-        startingBalance,
-        allocated: live.reduce((a, s) => a + s.allocated, 0),
-        totalValue,
-        totalPnl: totalValue === null ? null : totalValue - startingBalance,
+        balance: wire(balance),
+        startingBalance: wire(startingBalance),
+        allocated: wire(Dec.sum(liveRows.map((s) => Dec.from(s.allocated)))),
+        totalValue: totalValue === null ? null : wire(totalValue),
+        totalPnl: totalValue === null ? null : wire(totalValue.sub(startingBalance)),
       },
       limits: { minAllocationUsd: policy.limits.minAllocationUsd, maxAllocationUsd: policy.limits.maxAllocationUsd, maxStrategies: policy.limits.maxStrategiesPerUser },
       platform: { pauseNewRisk: controls.platform?.pauseNewRisk ?? false, reduceOnly: controls.platform?.reduceOnly ?? false, revision: controls.platform?.revision ?? 0 },
@@ -128,7 +134,7 @@ export class CopyStrategyService {
         throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Couldn't read the trader's positions; try again" });
       }
     }
-    const held = (snapshot?.assetPositions ?? []).filter((ap) => { const szi = Number(ap.position.szi); return Number.isFinite(szi) && szi !== 0; });
+    const held = (snapshot?.assetPositions ?? []).filter((ap) => { const szi = Dec.parse(ap.position.szi); return szi !== null && !szi.isZero; });
     // Markets the policy never copies are refused without data and are not read.
     const adoptable = pricedCoins(limitsNow, held.map((ap) => ap.position.coin)).filter((coin) => symbolRefusal(limitsNow, coin) === null);
     const mids = adoptable.length ? await this.market.midPrices(adoptable) : null;
@@ -167,7 +173,8 @@ export class CopyStrategyService {
       const account = await this.repository.lockPaperAccount(tx, userId, dec(limits.paperStartingBalanceUsd));
       if (await this.repository.findLive(tx, userId, req.leader)) throw conflict("already_copying", "You are already copying this trader");
       if ((await this.repository.countLive(tx, userId)) >= limits.maxStrategiesPerUser) throw conflict("strategy_limit", `At most ${limits.maxStrategiesPerUser} copies`, { limit: limits.maxStrategiesPerUser });
-      if (Number(account.balance) + 1e-9 < req.allocationUsd) throw conflict("insufficient_balance", "Not enough paper balance", { balance: Number(account.balance) });
+      // Exact: a request for the whole balance, to the last decimal, is accepted.
+      if (Dec.from(account.balance).lt(req.allocationUsd)) throw conflict("insufficient_balance", "Not enough paper balance", { balance: wire(account.balance) });
 
       const activatedAt = snapshot ? new Date(snapshot.time) : new Date();
       const amount = dec(req.allocationUsd, 6);
@@ -189,21 +196,21 @@ export class CopyStrategyService {
 
       if (snapshot) {
         for (const ap of held) {
-          const szi = Number(ap.position.szi);
+          const szi = Dec.from(ap.position.szi);
           const coin = ap.position.coin;
-          const leaderPx = Number(ap.position.positionValue ?? 0) / Math.abs(szi) || Number(ap.position.entryPx ?? 0);
-          const leaderSign: 1 | -1 = szi > 0 ? 1 : -1;
+          const leaderPx = leaderPositionPx(ap.position);
+          const leaderSign: 1 | -1 = szi.isPositive ? 1 : -1;
           const sign = settings.direction === "same" ? leaderSign : (-leaderSign as 1 | -1);
-          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: Math.abs(szi) * leaderPx, strategyEquity: req.allocationUsd, leaderEquity });
+          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: szi.abs().mul(leaderPx), strategyEquity: Dec.from(req.allocationUsd), leaderEquity });
           const order = await this.planner.place(tx, {
             strategy, settings, policy, controls: { platform: controls.platform, user: controls.user }, mids, assets,
-            coin, leg: "adopt", side: sign > 0 ? "B" : "A", notional: notional ?? 0,
+            coin, leg: "adopt", side: sign > 0 ? "B" : "A", notional: notional ?? Dec.ZERO,
             signalPx: leaderPx, signalTime: activatedAt, signalTids: [],
             dedupeKey: `${strategy.id}:adopt:${coin}:v1`,
             rejectReason: notional !== null ? undefined : settings.sizingMode === "ratio" ? "leader_equity_unknown" : "no_per_trade_amount",
           });
           const adopted = order?.status === "risk_approved";
-          adoption.push({ coin, adopted, reason: order?.reason ?? null, size: adopted ? Number(order.size) : 0 });
+          adoption.push({ coin, adopted, reason: order?.reason ?? null, size: adopted ? wire(order.size) : 0 });
         }
       }
       return { id: strategy.id };
@@ -237,8 +244,8 @@ export class CopyStrategyService {
       const strategy = await this.owned(tx, userId, strategyId);
       if (strategy.status === "stopped" || strategy.status === "stopping") throw conflict("strategy_stopped", "This copy has stopped");
       const account = await this.repository.lockPaperAccount(tx, userId, dec(policy.limits.paperStartingBalanceUsd));
-      if (Number(account.balance) + 1e-9 < req.amountUsd) throw conflict("insufficient_balance", "Not enough paper balance", { balance: Number(account.balance) });
-      if (Number(strategy.allocated) + req.amountUsd > policy.limits.maxAllocationUsd) throw conflict("above_max_allocation", `Maximum allocation is $${policy.limits.maxAllocationUsd}`);
+      if (Dec.from(account.balance).lt(req.amountUsd)) throw conflict("insufficient_balance", "Not enough paper balance", { balance: wire(account.balance) });
+      if (Dec.from(strategy.allocated).add(req.amountUsd).gt(policy.limits.maxAllocationUsd)) throw conflict("above_max_allocation", `Maximum allocation is $${policy.limits.maxAllocationUsd}`);
       const amount = dec(req.amountUsd, 6);
       await this.repository.adjustPaperBalance(tx, userId, `-${amount}`);
       await this.repository.addToStrategy(tx, strategy.id, { cash: amount, allocated: amount });

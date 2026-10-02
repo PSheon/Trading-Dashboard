@@ -22,6 +22,7 @@ import {
 } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT, type CopyControlCommand, type CopyControlScope, type CopyLeg, type CopyOrderStatus } from "@trading-dashboard/shared/contracts";
 
+import { Dec } from "../common/decimal/dec.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbExecutor, DbTransaction } from "../db/unit-of-work.js";
@@ -40,6 +41,12 @@ export const OPEN_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved"
 /** Orders the executor may still cancel: not handed to an exchange. */
 export const CANCELLABLE_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved"];
 export const CONSUMER = "copy-signals";
+
+/** What is left of an order, signed: buys +, sells −. */
+const signedOpen = (r: { side: "B" | "A"; size: string; filled: string }): Dec => {
+  const open = Dec.from(r.size).sub(r.filled);
+  return r.side === "B" ? open : open.neg();
+};
 
 /**
  * Persistence of copy trading. No method opens its own transaction or
@@ -299,7 +306,7 @@ export class CopyRepository {
           // A position reopened from flat starts a new holding period.
           ...(v.opened ? { openedAt: now, fundingThrough: now, funding: "0", reduceCarry: "0" } : {}),
           // Nothing is left to reduce once it is flat.
-          ...(Number(v.size) === 0 ? { reduceCarry: "0" } : {}),
+          ...(Dec.from(v.size).isZero ? { reduceCarry: "0" } : {}),
         },
       });
   }
@@ -384,24 +391,24 @@ export class CopyRepository {
   }
 
   /** Signed size of not-yet-final orders per coin (buys +, sells −). */
-  async pendingSizes(tx: DbTransaction, strategyId: number): Promise<Map<string, number>> {
+  async pendingSizes(tx: DbTransaction, strategyId: number): Promise<Map<string, Dec>> {
     const rows = await tx.select({ coin: copyOrders.coin, side: copyOrders.side, size: copyOrders.size, filled: copyOrders.filledSize }).from(copyOrders)
       .where(and(eq(copyOrders.strategyId, strategyId), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
-    const out = new Map<string, number>();
-    for (const r of rows) out.set(r.coin, (out.get(r.coin) ?? 0) + (r.side === "B" ? 1 : -1) * (Number(r.size) - Number(r.filled)));
+    const out = new Map<string, Dec>();
+    for (const r of rows) out.set(r.coin, (out.get(r.coin) ?? Dec.ZERO).add(signedOpen(r)));
     return out;
   }
 
   /** Signed size of pending reduce-only orders, keyed `strategyId:coin`: exposure
    * they are about to remove (a flip's close ahead of its open). */
-  async pendingReduceSizes(tx: DbTransaction, strategyIds: number[]): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
+  async pendingReduceSizes(tx: DbTransaction, strategyIds: number[]): Promise<Map<string, Dec>> {
+    const out = new Map<string, Dec>();
     if (strategyIds.length === 0) return out;
     const rows = await tx.select({ strategyId: copyOrders.strategyId, coin: copyOrders.coin, side: copyOrders.side, size: copyOrders.size, filled: copyOrders.filledSize }).from(copyOrders)
       .where(and(inArray(copyOrders.strategyId, strategyIds), eq(copyOrders.reduceOnly, true), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
     for (const r of rows) {
       const key = `${r.strategyId}:${r.coin}`;
-      out.set(key, (out.get(key) ?? 0) + (r.side === "B" ? 1 : -1) * (Number(r.size) - Number(r.filled)));
+      out.set(key, (out.get(key) ?? Dec.ZERO).add(signedOpen(r)));
     }
     return out;
   }
@@ -517,7 +524,7 @@ export class CopyRepository {
   }
 
   async insertLedger(tx: DbTransaction, rows: (typeof copyLedger.$inferInsert)[]): Promise<void> {
-    const nonZero = rows.filter((r) => Number(r.amount) !== 0);
+    const nonZero = rows.filter((r) => !Dec.from(r.amount).isZero);
     if (nonZero.length) await tx.insert(copyLedger).values(nonZero);
   }
 

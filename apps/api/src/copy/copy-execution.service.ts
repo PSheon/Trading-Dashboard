@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
 import { COPY_STUCK_ORDER_ATTEMPTS } from "@trading-dashboard/shared/contracts";
 
+import { Dec, type DecInput } from "../common/decimal/dec.js";
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { NotifyService } from "../notify/notify.service.js";
 import { SettingsService } from "../settings/settings.service.js";
@@ -198,17 +199,17 @@ export class CopyExecutionService {
       const order = await this.repository.lockOrder(tx, orderId);
       if (!strategy || !order || order.status !== "submitting") return false;
       const position = await this.repository.lockPosition(tx, strategy.id, order.coin);
-      const current = Number(position?.size ?? 0);
+      const current = Dec.from(position?.size ?? 0);
       const sign: 1 | -1 = order.side === "B" ? 1 : -1;
-      let size = Number(order.size);
+      let size = Dec.from(order.size);
       if (order.reduceOnly) {
         // Only the strategy's own position, in the opposite direction, and never past zero.
-        if (current === 0 || Math.sign(current) === sign) {
+        if (current.isZero || current.sign === sign) {
           await this.cancel(tx, order, "reduce_only_no_position");
           return false;
         }
-        size = Math.min(size, Math.abs(current));
-      } else if (current !== 0 && Math.sign(current) !== sign) {
+        size = Dec.min(size, current.abs());
+      } else if (!current.isZero && current.sign !== sign) {
         // The close this open follows has not run (it failed, or was
         // cancelled): filling now would be booked as a reduction of the
         // position and leave the copy on the wrong side of the leader.
@@ -219,7 +220,7 @@ export class CopyExecutionService {
         return false;
       }
       const mid = pricing.mids?.px.get(order.coin);
-      await this.book(tx, strategy, order, position, size, mid ?? Number(order.signalPx), mid !== undefined ? "mid" : "signal_px", pricing);
+      await this.book(tx, strategy, order, position, size, mid ?? Dec.from(order.signalPx), mid !== undefined ? "mid" : "signal_px", pricing);
       await this.writeOffIfFlat(tx, strategy.id);
       return true;
     });
@@ -229,38 +230,44 @@ export class CopyExecutionService {
    * Books one simulated fill of `size` at `basePx` moved by the policy's
    * slippage: position, strategy cash and totals, paper fill, ledger, the
    * order's final state and its reservation, all in the caller's
-   * transaction. Returns the cash change.
+   * transaction.
+   *
+   * The realized PnL and the two fees are each quantized once (USD_DP).
+   * Those same three values are what the fill row, the three ledger rows,
+   * the order and the strategy's totals carry, and the cash moves by their
+   * exact sum: cash = Σ ledger, fees = Σ fill fees and realized PnL = Σ fill
+   * PnL hold to the last digit, whatever the order of fills.
    */
-  private async book(tx: DbTransaction, strategy: StrategyRow, order: OrderRow, position: PositionRow | undefined, size: number, basePx: number, source: string, pricing: Pricing): Promise<number> {
-    const current = Number(position?.size ?? 0);
+  private async book(tx: DbTransaction, strategy: StrategyRow, order: OrderRow, position: PositionRow | undefined, size: Dec, basePx: Dec, source: string, pricing: Pricing): Promise<void> {
+    const current = Dec.from(position?.size ?? 0);
     const sign: 1 | -1 = order.side === "B" ? 1 : -1;
     const szDecimals = pricing.assets?.get(order.coin)?.szDecimals ?? 0;
     const px = roundPx(slippedPx(basePx, order.side, pricing.slippageBps), szDecimals);
-    const notional = size * px;
+    const notional = size.mul(px);
     const { fee, builderFee } = fillFees(notional, pricing.takerFeeBps, pricing.builderFeeTenthsBps);
-    const next = applyFill({ size: current, entryPx: Number(position?.entryPx ?? 0) }, sign, size, px);
+    const next = applyFill({ size: current, entryPx: Dec.from(position?.entryPx ?? 0) }, sign, size, px);
+    const realized = next.realizedPnl.toString();
+    const fees = fee.add(builderFee);
 
     await this.repository.savePosition(tx, strategy.id, order.coin, {
-      size: dec(next.size), entryPx: dec(next.entryPx), realizedPnl: dec(next.realizedPnl), opened: current === 0,
+      size: next.size.toString(), entryPx: next.entryPx.toString(), realizedPnl: realized, opened: current.isZero,
     });
-    const cashDelta = next.realizedPnl - fee - builderFee;
-    await this.repository.addToStrategy(tx, strategy.id, { cash: dec(cashDelta), realizedPnl: dec(next.realizedPnl), fees: dec(fee + builderFee) });
+    await this.repository.addToStrategy(tx, strategy.id, { cash: next.realizedPnl.sub(fees).toString(), realizedPnl: realized, fees: fees.toString() });
     await this.repository.insertPaperFill(tx, {
-      orderId: order.id, strategyId: strategy.id, coin: order.coin, side: order.side, size: dec(size), px: dec(px), basePx: dec(basePx),
-      priceSource: source, slippageBps: dec(pricing.slippageBps), fee: dec(fee), builderFee: dec(builderFee), realizedPnl: dec(next.realizedPnl),
+      orderId: order.id, strategyId: strategy.id, coin: order.coin, side: order.side, size: size.toString(), px: px.toString(), basePx: basePx.toString(),
+      priceSource: source, slippageBps: dec(pricing.slippageBps), fee: fee.toString(), builderFee: builderFee.toString(), realizedPnl: realized,
     });
     await this.repository.insertLedger(tx, [
-      { strategyId: strategy.id, userId: strategy.userId, kind: "realized_pnl", amount: dec(next.realizedPnl), coin: order.coin, orderId: order.id },
-      { strategyId: strategy.id, userId: strategy.userId, kind: "fee", amount: dec(-fee), coin: order.coin, orderId: order.id },
-      { strategyId: strategy.id, userId: strategy.userId, kind: "builder_fee", amount: dec(-builderFee), coin: order.coin, orderId: order.id },
+      { strategyId: strategy.id, userId: strategy.userId, kind: "realized_pnl", amount: realized, coin: order.coin, orderId: order.id },
+      { strategyId: strategy.id, userId: strategy.userId, kind: "fee", amount: fee.neg().toString(), coin: order.coin, orderId: order.id },
+      { strategyId: strategy.id, userId: strategy.userId, kind: "builder_fee", amount: builderFee.neg().toString(), coin: order.coin, orderId: order.id },
     ]);
-    const partial = size < Number(order.size) - 1e-12;
+    const partial = size.lt(order.size);
     await this.repository.updateOrder(tx, order.id, {
-      status: partial ? "partial" : "filled", filledSize: dec(size), avgPx: dec(px), fee: dec(fee), builderFee: dec(builderFee),
+      status: partial ? "partial" : "filled", filledSize: size.toString(), avgPx: px.toString(), fee: fee.toString(), builderFee: builderFee.toString(),
       reason: partial ? "reduce_only_clamped" : order.reason,
     });
     await this.repository.settleReservation(tx, order.id, "consumed");
-    return cashDelta;
   }
 
   /**
@@ -269,15 +276,16 @@ export class CopyExecutionService {
    * is written off, so its cash is 0 and what later returns to the paper
    * balance is never negative. Returns the amount written off.
    */
-  private async writeOffIfFlat(tx: DbTransaction, strategyId: number): Promise<number> {
+  private async writeOffIfFlat(tx: DbTransaction, strategyId: number): Promise<Dec> {
     const strategy = await this.repository.lockStrategy(tx, strategyId);
-    if (!strategy) return 0;
-    const cash = Number(strategy.cash);
-    if (!(cash < 0)) return 0;
-    if ((await this.repository.positionsOf([strategyId], tx)).length > 0) return 0;
-    await this.repository.addToStrategy(tx, strategyId, { cash: dec(-cash) });
-    await this.repository.insertLedger(tx, [{ strategyId, userId: strategy.userId, kind: "liquidation", amount: dec(-cash) }]);
-    return -cash;
+    if (!strategy) return Dec.ZERO;
+    const cash = Dec.from(strategy.cash);
+    if (!cash.isNegative) return Dec.ZERO;
+    if ((await this.repository.positionsOf([strategyId], tx)).length > 0) return Dec.ZERO;
+    const shortfall = cash.neg();
+    await this.repository.addToStrategy(tx, strategyId, { cash: shortfall.toString() });
+    await this.repository.insertLedger(tx, [{ strategyId, userId: strategy.userId, kind: "liquidation", amount: shortfall.toString() }]);
+    return shortfall;
   }
 
   /**
@@ -298,8 +306,8 @@ export class CopyExecutionService {
     for (const r of rows) byStrategy.set(r.position.strategyId, [...(byStrategy.get(r.position.strategyId) ?? []), r]);
     let liquidated = 0;
     for (const [strategyId, held] of byStrategy) {
-      const health = accountHealth(Number(held[0]!.cash), held.map((h) => h.position), mids, assets);
-      if (!health || health.equity >= health.maintenance) continue;
+      const health = accountHealth(held[0]!.cash, held.map((h) => h.position), mids, assets);
+      if (!health || health.equity.gte(health.maintenance)) continue;
       try {
         if (await this.liquidateStrategy(strategyId, mids, assets)) liquidated += 1;
       } catch (error) {
@@ -318,22 +326,22 @@ export class CopyExecutionService {
       const strategy = await this.repository.lockStrategy(tx, strategyId);
       if (!strategy || strategy.status === "stopped") return false;
       const positions = await this.repository.positionsOf([strategyId], tx);
-      const health = accountHealth(Number(strategy.cash), positions, mids, assets);
-      if (!health || health.equity >= health.maintenance) return false;
+      const health = accountHealth(strategy.cash, positions, mids, assets);
+      if (!health || health.equity.gte(health.maintenance)) return false;
       const reason = `liquidated:equity ${dec(health.equity, 2)} < maintenance ${dec(health.maintenance, 2)}`;
       const cancelledOrders = await this.repository.cancelPending(tx, [strategyId], "liquidated");
       const at = new Date();
       for (const p of positions) {
         const locked = await this.repository.lockPosition(tx, strategyId, p.coin);
-        const size = Number(locked?.size ?? 0);
-        if (!locked || size === 0) continue;
+        const size = Dec.from(locked?.size ?? 0);
+        if (!locked || size.isZero) continue;
         const mid = mids.px.get(p.coin)!;
         const order = await this.repository.insertOrder(tx, {
           cloid: cloidOf(`liq:${strategyId}:${p.coin}:${at.getTime()}`), strategyId, userId: strategy.userId, strategyVersion: strategy.version, riskPolicyVersion: policy.version,
-          leaderAddress: strategy.leaderAddress, coin: p.coin, leg: "liquidation", side: size > 0 ? "A" : "B", reduceOnly: true, size: dec(Math.abs(size)),
-          signalPx: dec(mid), signalTime: at, signalTids: [], status: "submitting", reason, controlRevisions: { platform: 0, user: 0, strategy: strategy.controlRevision + 1 },
+          leaderAddress: strategy.leaderAddress, coin: p.coin, leg: "liquidation", side: size.isPositive ? "A" : "B", reduceOnly: true, size: size.abs().toString(),
+          signalPx: mid.toString(), signalTime: at, signalTids: [], status: "submitting", reason, controlRevisions: { platform: 0, user: 0, strategy: strategy.controlRevision + 1 },
         });
-        await this.book(tx, strategy, order, locked, Math.abs(size), mid, "liquidation", pricing);
+        await this.book(tx, strategy, order, locked, size.abs(), mid, "liquidation", pricing);
       }
       const writtenOff = await this.writeOffIfFlat(tx, strategyId);
       // Paused: what is left stays in the copy until its owner resumes, adds funds or stops it.
@@ -342,10 +350,10 @@ export class CopyExecutionService {
       });
       await this.repository.insertControlEvent(tx, {
         scope: "strategy", scopeId: strategyId, command: "close_positions", revision: paused.controlRevision, actorUserId: null,
-        reason: `liquidation: equity ${dec(health.equity, 2)} below maintenance margin ${dec(health.maintenance, 2)}${writtenOff > 0 ? `; ${dec(writtenOff, 2)} written off` : ""}`,
+        reason: `liquidation: equity ${dec(health.equity, 2)} below maintenance margin ${dec(health.maintenance, 2)}${writtenOff.isPositive ? `; ${dec(writtenOff, 2)} written off` : ""}`,
         result: { cancelledOrders, closeOrders: positions.length },
       });
-      this.logger.warn(`Strategy ${strategyId} liquidated (${reason}); ${positions.length} positions closed${writtenOff > 0 ? `, ${dec(writtenOff, 2)} written off` : ""}`);
+      this.logger.warn(`Strategy ${strategyId} liquidated (${reason}); ${positions.length} positions closed${writtenOff.isPositive ? `, ${dec(writtenOff, 2)} written off` : ""}`);
       return true;
     });
   }
@@ -370,10 +378,10 @@ export class CopyExecutionService {
         if ((await this.repository.openOrderCount(tx, strategy.id)) > 0) return false;
         // What returns is never negative: a shortfall is written off first.
         const writtenOff = await this.writeOffIfFlat(tx, strategy.id);
-        const cash = Number(strategy.cash) + writtenOff;
+        const cash = Dec.from(strategy.cash).add(writtenOff);
         await this.repository.lockPaperAccount(tx, strategy.userId, "0");
-        await this.repository.adjustPaperBalance(tx, strategy.userId, dec(cash));
-        await this.repository.insertLedger(tx, [{ strategyId: strategy.id, userId: strategy.userId, kind: "release", amount: dec(-cash) }]);
+        await this.repository.adjustPaperBalance(tx, strategy.userId, cash.toString());
+        await this.repository.insertLedger(tx, [{ strategyId: strategy.id, userId: strategy.userId, kind: "release", amount: cash.neg().toString() }]);
         await this.repository.updateStrategy(tx, strategy.id, { status: "stopped", stoppedAt: new Date() });
         await this.repository.unwatchLeaderIfUnused(tx, strategy.leaderAddress);
         return true;
@@ -400,16 +408,18 @@ export class CopyExecutionService {
     let accrued = 0;
     for (const p of due) {
       const asset = assets.get(p.coin);
-      if (!asset || !(asset.markPx > 0)) continue;
+      if (!asset || !asset.markPx.isPositive) continue;
       const hours = fundingHours(p.fundingThrough, hour);
       if (hours === 0) continue;
-      const amount = fundingPayment(Number(p.size), asset.markPx, asset.funding) * hours;
+      // One USDC amount for the position, the strategy and the ledger.
+      const amount = fundingPayment(Dec.from(p.size), asset.markPx, asset.funding, hours).toString();
+      const paid = Dec.from(amount).neg().toString();
       const ok = await this.uow.run(async (tx) => {
         const strategy = await this.repository.lockStrategy(tx, p.strategyId);
         if (!strategy) return false;
-        if (!(await this.repository.accruePositionFunding(tx, p.strategyId, p.coin, dec(amount), hour))) return false;
-        await this.repository.addToStrategy(tx, p.strategyId, { cash: dec(-amount), funding: dec(amount) });
-        await this.repository.insertLedger(tx, [{ strategyId: p.strategyId, userId: strategy.userId, kind: "funding", amount: dec(-amount), coin: p.coin }]);
+        if (!(await this.repository.accruePositionFunding(tx, p.strategyId, p.coin, amount, hour))) return false;
+        await this.repository.addToStrategy(tx, p.strategyId, { cash: paid, funding: amount });
+        await this.repository.insertLedger(tx, [{ strategyId: p.strategyId, userId: strategy.userId, kind: "funding", amount: paid, coin: p.coin }]);
         return true;
       });
       if (ok) accrued += 1;
@@ -421,17 +431,17 @@ export class CopyExecutionService {
 /** A strategy as a cross-margin account at these mids: its equity and the
  * maintenance margin of its positions. Null when a position can't be valued
  * (no mid, or no universe entry for its max leverage). */
-export function accountHealth(cash: number, positions: Pick<PositionRow, "coin" | "size" | "entryPx">[], mids: Mids, assets: AssetMap): { equity: number; maintenance: number } | null {
-  let equity = cash;
-  let maintenance = 0;
+export function accountHealth(cash: DecInput, positions: Pick<PositionRow, "coin" | "size" | "entryPx">[], mids: Mids, assets: AssetMap): { equity: Dec; maintenance: Dec } | null {
+  let equity = Dec.from(cash);
+  let maintenance = Dec.ZERO;
   for (const p of positions) {
-    const size = Number(p.size);
-    if (size === 0) continue;
+    const size = Dec.from(p.size);
+    if (size.isZero) continue;
     const px = mids.px.get(p.coin);
     const asset = assets.get(p.coin);
     if (px === undefined || !asset) return null;
-    equity += size * (px - Number(p.entryPx));
-    maintenance += maintenanceMargin(size * px, asset.maxLeverage);
+    equity = equity.add(size.mul(px.sub(p.entryPx)));
+    maintenance = maintenance.add(maintenanceMargin(size.mul(px), asset.maxLeverage));
   }
   return { equity, maintenance };
 }

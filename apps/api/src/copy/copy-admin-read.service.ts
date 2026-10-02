@@ -13,7 +13,8 @@ import type {
 import { AppConfig } from "../config/app-config.js";
 import { STUCK_ORDER_ATTEMPTS } from "./copy-execution.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
-import { toCopyOrder, toCopyStrategy } from "./copy.mappers.js";
+import { Dec } from "../common/decimal/dec.js";
+import { toCopyOrder, toCopyStrategy, wire } from "./copy.mappers.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 
@@ -104,7 +105,7 @@ export class CopyAdminReadService {
       strategy: { ...toCopyStrategy(row.strategy, row.settings as CopyStrategySettings, positions, mids, counts.get(id)), userId: row.strategy.userId, userEmail: row.userEmail },
       versions: versions.map((v) => ({ version: v.version, settings: v.settings as CopyStrategySettings, createdAt: v.createdAt })),
       orders: orders.map(toCopyOrder),
-      ledger: ledger.map((l) => ({ id: String(l.id), kind: l.kind, amount: Number(l.amount), coin: l.coin, orderId: l.orderId === null ? null : String(l.orderId), createdAt: l.createdAt })),
+      ledger: ledger.map((l) => ({ id: String(l.id), kind: l.kind, amount: wire(l.amount), coin: l.coin, orderId: l.orderId === null ? null : String(l.orderId), createdAt: l.createdAt })),
     };
   }
 
@@ -120,30 +121,37 @@ export class CopyAdminReadService {
     const ids = rows.map((r) => r.strategy.id);
     const positions = await this.repository.positionsOf(ids);
     const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
-    const byUser = new Map<number, AdminCopyExposureResponse["items"][number]>();
+    // Summed as decimals per user; numbers only in the answer.
+    interface Sums { userEmail: string | null; strategies: number; allocated: Dec; equity: Dec | null; exposure: Dec | null; coins: Map<string, { long: Dec; short: Dec }> }
+    const sums = new Map<number, Sums>();
     for (const { strategy, userEmail } of rows) {
-      const control = controls.find((c) => c.scopeId === strategy.userId);
-      const item = byUser.get(strategy.userId) ?? {
-        userId: strategy.userId, userEmail, strategies: 0, allocated: 0, equity: 0 as number | null, exposureUsd: 0 as number | null, coins: [],
-        control: { pauseNewRisk: control?.pauseNewRisk ?? false, reduceOnly: control?.reduceOnly ?? false, revision: control?.revision ?? 0 },
-      };
+      const item = sums.get(strategy.userId) ?? { userEmail, strategies: 0, allocated: Dec.ZERO, equity: Dec.ZERO as Dec | null, exposure: Dec.ZERO as Dec | null, coins: new Map() };
       item.strategies += 1;
-      item.allocated += Number(strategy.allocated);
-      let equity: number | null = Number(strategy.cash);
+      item.allocated = item.allocated.add(strategy.allocated);
+      let equity: Dec | null = Dec.from(strategy.cash);
       for (const p of positions.filter((x) => x.strategyId === strategy.id)) {
         const px = mids?.px.get(p.coin);
-        const size = Number(p.size);
-        if (px === undefined) { equity = null; item.exposureUsd = null; continue; }
-        if (equity !== null) equity += size * (px - Number(p.entryPx));
-        const n = Math.abs(size) * px;
-        if (item.exposureUsd !== null) item.exposureUsd += n;
-        let coin = item.coins.find((c) => c.coin === p.coin);
-        if (!coin) item.coins.push((coin = { coin: p.coin, longUsd: 0, shortUsd: 0, netUsd: 0 }));
-        if (size > 0) coin.longUsd += n; else coin.shortUsd += n;
-        coin.netUsd = coin.longUsd - coin.shortUsd;
+        const size = Dec.from(p.size);
+        if (px === undefined) { equity = null; item.exposure = null; continue; }
+        if (equity !== null) equity = equity.add(size.mul(px.sub(p.entryPx)));
+        const n = size.abs().mul(px);
+        if (item.exposure !== null) item.exposure = item.exposure.add(n);
+        const coin = item.coins.get(p.coin) ?? { long: Dec.ZERO, short: Dec.ZERO };
+        if (size.isPositive) coin.long = coin.long.add(n); else coin.short = coin.short.add(n);
+        item.coins.set(p.coin, coin);
       }
-      item.equity = item.equity === null || equity === null ? null : item.equity + equity;
-      byUser.set(strategy.userId, item);
+      item.equity = item.equity === null || equity === null ? null : item.equity.add(equity);
+      sums.set(strategy.userId, item);
+    }
+    const byUser = new Map<number, AdminCopyExposureResponse["items"][number]>();
+    for (const [userId, item] of sums) {
+      const control = controls.find((c) => c.scopeId === userId);
+      byUser.set(userId, {
+        userId, userEmail: item.userEmail, strategies: item.strategies, allocated: wire(item.allocated),
+        equity: item.equity === null ? null : wire(item.equity), exposureUsd: item.exposure === null ? null : wire(item.exposure),
+        coins: [...item.coins].map(([coin, c]) => ({ coin, longUsd: wire(c.long), shortUsd: wire(c.short), netUsd: wire(c.long.sub(c.short)) })),
+        control: { pauseNewRisk: control?.pauseNewRisk ?? false, reduceOnly: control?.reduceOnly ?? false, revision: control?.revision ?? 0 },
+      });
     }
     return { items: [...byUser.values()].sort((a, b) => (b.exposureUsd ?? 0) - (a.exposureUsd ?? 0)), pricedAt: mids?.at ?? null };
   }

@@ -1,13 +1,15 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
+import { Dec } from "../common/decimal/dec.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { CopyMarketService, type LeaderEquity } from "./copy-market.service.js";
-import { cloidOf, openNotional } from "./copy-math.js";
+import { cloidOf, leaderPositionPx, openNotional } from "./copy-math.js";
 import { CopyOrderPlanner, marketDataGap, strategyValue } from "./copy-planner.service.js";
 import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
+import { wire } from "./copy.mappers.js";
 
 /** Rejection reasons that, before market-data gaps were retried, could mean
  * "the read failed" rather than a fact about the coin. */
@@ -109,9 +111,9 @@ export class CopyAdoptionRepairService {
       if (!snapshot || equityRead.state === "failed") { item.outcome = "leader_unavailable"; continue; }
       if (symbolRefusal(limits, rejected.coin) === null && marketDataGap(mids, assets, rejected.coin)) { item.outcome = "market_data_unavailable"; continue; }
       const held = snapshot.assetPositions.find((ap) => ap.position.coin === rejected.coin);
-      const szi = Number(held?.position.szi ?? 0);
-      if (!held || !Number.isFinite(szi) || szi === 0) { item.outcome = "leader_flat"; continue; }
-      const leaderPx = Number(held.position.positionValue ?? 0) / Math.abs(szi) || Number(held.position.entryPx ?? 0);
+      const szi = Dec.parse(held?.position.szi) ?? Dec.ZERO;
+      if (!held || szi.isZero) { item.outcome = "leader_flat"; continue; }
+      const leaderPx = leaderPositionPx(held.position);
       const leaderEquity = equityRead.state === "known" ? equityRead.value : null;
 
       await this.uow.run(async (tx) => {
@@ -124,29 +126,29 @@ export class CopyAdoptionRepairService {
         if ((await this.repository.unfinishedOutboxCount(tx, strategy.leaderAddress)) > 0) { item.outcome = "leader_trading"; return; }
         const positions = await this.repository.positionsOf([strategy.id], tx);
         const pending = await this.repository.pendingSizes(tx, strategy.id);
-        if (positions.some((p) => p.coin === rejected.coin) || (pending.get(rejected.coin) ?? 0) !== 0) { item.outcome = "already_positioned"; return; }
+        if (positions.some((p) => p.coin === rejected.coin) || !(pending.get(rejected.coin) ?? Dec.ZERO).isZero) { item.outcome = "already_positioned"; return; }
 
         const settings = (await this.repository.settingsOf(tx, strategy.id, strategy.version)) as CopyStrategySettings;
         const policy = await this.policies.current(tx);
-        const leaderSign: 1 | -1 = szi > 0 ? 1 : -1;
+        const leaderSign: 1 | -1 = szi.isPositive ? 1 : -1;
         const sign = settings.direction === "same" ? leaderSign : (-leaderSign as 1 | -1);
         const equity = strategyValue(strategy, positions, mids).equity;
         const notional = equity === null ? null : openNotional({
-          mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: Math.abs(szi) * leaderPx,
+          mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: szi.abs().mul(leaderPx),
           strategyEquity: equity, leaderEquity,
         });
         item.side = sign > 0 ? "B" : "A";
-        item.notional = notional ?? undefined;
+        item.notional = notional === null ? undefined : wire(notional);
         if (options.dryRun) { item.outcome = "would_order"; return; }
         const order = await this.planner.place(tx, {
           strategy, settings, policy, controls: { platform: controls.platform, user: controls.user }, mids, assets,
-          coin: rejected.coin, leg: "adopt", side: item.side, notional: notional ?? 0,
+          coin: rejected.coin, leg: "adopt", side: item.side, notional: notional ?? Dec.ZERO,
           signalPx: mids?.px.get(rejected.coin) ?? leaderPx, signalTime: new Date(), signalTids: [],
           dedupeKey: adoptionRepairKey(strategy.id, rejected.coin),
           rejectReason: notional !== null ? undefined : equity === null ? "no_price" : settings.sizingMode === "ratio" ? "leader_equity_unknown" : "no_per_trade_amount",
         });
         if (!order) return;
-        Object.assign(item, { outcome: "ordered", orderId: String(order.id), orderStatus: order.status, orderReason: order.reason, size: Number(order.size) });
+        Object.assign(item, { outcome: "ordered", orderId: String(order.id), orderStatus: order.status, orderReason: order.reason, size: wire(order.size) });
       });
     }
     return out;

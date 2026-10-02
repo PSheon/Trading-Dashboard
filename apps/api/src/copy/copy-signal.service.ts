@@ -1,10 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
+import { Dec } from "../common/decimal/dec.js";
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { CopyMarketService, type AssetMap, type LeaderEquity, type Mids } from "./copy-market.service.js";
-import { dec, followerSign, legsOf, openNotional, reduceWithCarry, tradeKeyOf, type LeaderFill, type SignalLeg } from "./copy-math.js";
+import { followerSign, legsOf, openNotional, reduceWithCarry, tradeKeyOf, type LeaderFill, type SignalLeg } from "./copy-math.js";
 import { CopyOrderPlanner, marketDataGap, strategyValue, type CopyDataGap } from "./copy-planner.service.js";
 import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
@@ -25,9 +26,9 @@ export interface DrainResult {
   failed?: number;
 }
 
+/** Hyperliquid's decimal strings, taken as they are (no float in between). */
 function toLeaderFill(f: HlUserFill): LeaderFill {
-  const start = f.startPosition === undefined ? null : Number(f.startPosition);
-  return { tid: BigInt(f.tid), coin: f.coin, px: Number(f.px), sz: Number(f.sz), side: f.side, time: f.time, startPosition: start !== null && Number.isFinite(start) ? start : null, tradeKey: tradeKeyOf(f) };
+  return { tid: BigInt(f.tid), coin: f.coin, px: Dec.from(f.px), sz: Dec.from(f.sz), side: f.side, time: f.time, startPosition: Dec.parse(f.startPosition), tradeKey: tradeKeyOf(f) };
 }
 
 type Group = { coin: string; leg: "open" | "close"; sign: 1 | -1; tradeKey: string; legs: SignalLeg[] };
@@ -215,12 +216,14 @@ export class CopySignalService {
         const refs = g.legs.map((l) => ({ tid: l.tid, leg: l.leg }));
         const first = g.legs[0]!;
         const last = g.legs[g.legs.length - 1]!;
-        const sizeSum = g.legs.reduce((a, l) => a + l.size, 0);
-        const signalPx = g.legs.reduce((a, l) => a + l.size * l.px, 0) / sizeSum;
+        const sizeSum = Dec.sum(g.legs.map((l) => l.size));
+        // The leader's own notional of these fills, and its size-weighted price.
+        const leaderNotional = Dec.sum(g.legs.map((l) => l.size.mul(l.px)));
+        const signalPx = leaderNotional.div(sizeSum);
         const fSign = followerSign(g.sign, settings.direction);
         const pending = await this.repository.pendingSizes(tx, strategy.id);
         const [position] = (await this.repository.positionsOf([strategy.id], tx)).filter((p) => p.coin === g.coin);
-        const current = Number(position?.size ?? 0) + (pending.get(g.coin) ?? 0);
+        const current = Dec.from(position?.size ?? 0).add(pending.get(g.coin) ?? Dec.ZERO);
         const dedupeKey = `${strategy.id}:${first.tid}:${g.leg}:v${strategy.version}`;
 
         if (g.leg === "open") {
@@ -229,7 +232,7 @@ export class CopySignalService {
             await this.repository.resolveLegs(tx, strategy.id, refs, "superseded", null);
             continue;
           }
-          if (current !== 0 && Math.sign(current) !== fSign) {
+          if (!current.isZero && current.sign !== fSign) {
             await this.repository.resolveLegs(tx, strategy.id, refs, "opposite_position", null);
             continue;
           }
@@ -254,10 +257,10 @@ export class CopySignalService {
           }
           const positions = await this.repository.positionsOf([strategy.id], tx);
           const value = strategyValue(strategy, positions, ctx.mids);
-          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: sizeSum * signalPx, strategyEquity: value.equity ?? 0, leaderEquity: ctx.leaderEquity.state === "known" ? ctx.leaderEquity.value : null });
+          const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional, strategyEquity: value.equity ?? Dec.ZERO, leaderEquity: ctx.leaderEquity.state === "known" ? ctx.leaderEquity.value : null });
           const order = await this.planner.place(tx, {
             strategy, settings, policy: ctx.policy, controls: { platform: controls.platform, user: controls.user }, mids: ctx.mids, assets: ctx.assets,
-            coin: g.coin, leg: "open", side: fSign > 0 ? "B" : "A", notional: notional ?? 0,
+            coin: g.coin, leg: "open", side: fSign > 0 ? "B" : "A", notional: notional ?? Dec.ZERO,
             signalPx, signalTime: new Date(last.time), signalTids: tids, dedupeKey, tradeKey: g.tradeKey,
             rejectReason:
               ctx.policy.invalid ? "risk_policy_invalid" :
@@ -276,18 +279,19 @@ export class CopySignalService {
         }
 
         // close: reduce the follower's own position by the same fraction(s).
-        if (current === 0 || Math.sign(current) !== fSign) {
+        if (current.isZero || current.sign !== fSign) {
           await this.repository.resolveLegs(tx, strategy.id, refs, "nothing_to_reduce", null);
           continue;
         }
-        const remaining = g.legs.reduce((keep, l) => keep * (1 - (l.leg === "close" ? l.fraction : 0)), 1);
+        const remaining = g.legs.reduce((keep, l) => (l.leg === "close" ? keep.mul(Dec.ONE.sub(l.fraction)) : keep), Dec.ONE);
         // What rounding to the lot size leaves over is carried to the next
         // reduction, never dropped: a leader who trims 1% twenty times ends
         // as reduced here as there.
-        const reduction = reduceWithCarry(Math.abs(current), remaining <= 1e-9 ? 1 : 1 - remaining, Number(position?.reduceCarry ?? 0), ctx.assets?.get(g.coin)?.szDecimals ?? null);
-        if (position) await this.repository.setReduceCarry(tx, strategy.id, g.coin, dec(reduction.carry));
+        const reduction = reduceWithCarry(current.abs(), Dec.ONE.sub(remaining), Dec.from(position?.reduceCarry ?? 0), ctx.assets?.get(g.coin)?.szDecimals ?? null);
+        // The carry is a size the lot rule could not express: kept at full precision.
+        if (position) await this.repository.setReduceCarry(tx, strategy.id, g.coin, reduction.carry.toString());
         const size = reduction.size;
-        if (!(size > 0)) {
+        if (!size.isPositive) {
           await this.repository.resolveLegs(tx, strategy.id, refs, "below_lot_carried", null);
           continue;
         }

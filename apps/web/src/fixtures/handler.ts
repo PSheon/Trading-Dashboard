@@ -253,6 +253,32 @@ function upsertRule(list: AlertRule[], body: unknown, userId: number | null) {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Browser tests make the trader page's requests busy:
+ * `sessionStorage["orbie:fixtures:trader-busy"]` = `"2"` answers each
+ * trader path 503 busy twice before serving it, `"always"` every time;
+ * `":portfolio,analytics"` after either limits it to paths with one of
+ * those parts (`profile` is GET /traders/:address itself).
+ */
+const busyHits = new Map<string, number>();
+function traderBusy(pathname: string, search: string) {
+  let spec: string | null = null;
+  try {
+    spec = sessionStorage.getItem("orbie:fixtures:trader-busy");
+  } catch {
+    // No storage (unit tests): never busy.
+  }
+  if (!spec) return;
+  const [count, parts] = spec.split(":");
+  const tail = pathname.split("/")[3] ?? "profile";
+  if (parts && !parts.split(",").includes(tail)) return;
+  const key = pathname + search;
+  const hits = busyHits.get(key) ?? 0;
+  if (count !== "always" && hits >= Number(count)) return;
+  busyHits.set(key, hits + 1);
+  throw new ApiError(503, "Busy", { code: "busy", retryAfterSeconds: 5 }, 5_000);
+}
+
 export async function fixtureRequest<T>(
   method: string,
   path: string,
@@ -265,6 +291,7 @@ export async function fixtureRequest<T>(
   const search = url.searchParams;
   const signedIn = token !== null;
   const route = `${method} /${parts.map((p, i) => (i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
+  if (route.startsWith("GET /traders/:address")) traderBusy(url.pathname, url.search);
 
   switch (route) {
     case "GET /discover/home":

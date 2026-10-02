@@ -2,7 +2,7 @@
 
 import { useToast } from "@/components/ui/toast";
 import { useT } from "@/i18n/provider";
-import { busyRetry, computingRetry } from "@/lib/query-policy";
+import { computingRetry, TRADER_RETRIES, traderRetry } from "@/lib/query-policy";
 import { traderProfileOptions } from "@/lib/trader-query-options";
 import { queryKeys } from "@/lib/query-keys";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -216,7 +216,7 @@ export function useCopyScore(address: string) {
     queryFn: ({ signal }) => api.get<CopyScoreResponse>(`/traders/${address}/copy-score`, signal),
     staleTime: 5 * 60_000,
     refetchInterval: false,
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 
@@ -265,7 +265,7 @@ export function useTraderProfile(address: string) {
   return useQuery({
     ...traderProfileOptions(address),
     refetchInterval: query => query.state.data?.dataQuality?.partial ? 5_000 : livePoll(address)(),
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 
@@ -276,7 +276,7 @@ export function useTraderActivity(address: string) {
     queryKey: queryKeys.trader.activity(address),
     queryFn: ({ signal }) => api.get<TraderActivityResponse>(`/traders/${address}/activity`, signal),
     refetchInterval: 60_000,
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 
@@ -287,21 +287,25 @@ export function usePortfolio(address: string, window: TraderWindow, market: "all
       api.get<PortfolioResponse>(`/traders/${address}/portfolio?window=${window}&market=${market}`, signal),
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 
 /**
  * A cold address's trade analytics take the api a while (it reads the
  * address's fill history from Hyperliquid): it answers 503 busy until they
- * are stored, and these queries keep asking, every Retry-After, for up to
- * ~10 minutes. The page shows a "computing" state meanwhile.
+ * are stored, and these queries keep asking, with the trader page's
+ * backoff, for up to ~10 minutes. The page shows placeholders only for the
+ * first few answers (`isComputing`), then its settled look, and fills in
+ * when the data arrives.
  */
 export { ANALYTICS_BUSY_RETRIES } from "@/lib/query-policy";
 
-/** Still computing: no data yet and the last answer was busy. */
-export function isComputing(query: { data?: unknown; failureReason: Error | null; isPending: boolean }): boolean {
-  return query.data === undefined && (query.isPending || isBusy(query.failureReason));
+/** Still computing: no data yet, and either the first answer is on its way
+ * or the last few were busy. Past `TRADER_RETRIES` busy answers the request
+ * goes on in the background but the page no longer waits on it. */
+export function isComputing(query: { data?: unknown; failureReason: Error | null; failureCount: number; isPending: boolean }): boolean {
+  return query.data === undefined && query.failureCount <= TRADER_RETRIES && (query.isPending || isBusy(query.failureReason));
 }
 
 /** GET /traders/:address/analytics: win rate, trade count, best / worst,
@@ -345,7 +349,7 @@ export function useTraderOrders(address: string, enabled = true) {
     queryFn: ({ signal }) => api.get<TraderOrdersResponse>(`/traders/${address}/orders`, signal),
     enabled,
     refetchInterval: 30_000,
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 
@@ -356,7 +360,7 @@ export function useTraderTwap(address: string, enabled = true) {
     queryFn: ({ signal }) => api.get<TraderTwapsResponse>(`/traders/${address}/twap`, signal),
     enabled,
     refetchInterval: 60_000,
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 
@@ -368,7 +372,7 @@ export function useTraderTransfers(address: string, enabled = true) {
     queryFn: ({ signal }) => api.get<TraderTransfersResponse>(`/traders/${address}/transfers`, signal),
     enabled,
     refetchInterval: 5 * 60_000,
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 
@@ -377,7 +381,7 @@ export function useTraderFills(address: string, limit = 100) {
     queryKey: queryKeys.trader.fills(address, limit),
     queryFn: ({ signal }) => api.get<TraderFill[]>(`/traders/${address}/fills?limit=${limit}`, signal),
     refetchInterval: livePoll(address),
-    ...busyRetry,
+    ...traderRetry,
   });
 }
 

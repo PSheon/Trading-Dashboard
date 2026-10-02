@@ -574,7 +574,7 @@ export const en: Messages = {
   },
   trader: {
     title: "Trader",
-    loadFailed: "Couldn't load this address",
+    loadFailed: "Couldn't load this trader.",
     accountValue: "Account Value",
     accountPerp: "Perps",
     accountSpot: "Spot",
@@ -600,7 +600,6 @@ export const en: Messages = {
     notTracked: "This address isn't watched yet. Favorite it and we'll start tracking its actions and win rate live.",
     partialProfile: "Some account data is unavailable. Available positions are shown; incomplete totals are not estimated. Retrying automatically.",
     positionsUnavailable: "Position coverage is unavailable or incomplete.",
-    busyRetrying: "Hyperliquid is busy right now. Retrying…",
     twap: "TWAP",
     twapHint: "Slice of TWAP order #{id}",
     bestWorst: "Best & Worst",

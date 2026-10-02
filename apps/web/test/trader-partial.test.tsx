@@ -3,9 +3,9 @@ import { expect, it, vi } from "vitest";
 import { I18nProvider } from "../src/i18n/provider";
 import { en } from "../src/i18n/messages/en";
 import { TraderView } from "../src/components/trader/trader-view";
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }), notFound: () => { throw new Error("notFound"); } }));
 vi.mock("../src/lib/queries", () => ({
-  useTraderProfile: () => ({ isError: true, error: new Error("Profile unavailable"), refetch() {} }),
+  useTraderProfile: () => ({ isError: true, errorUpdateCount: 1, error: new Error("Profile unavailable"), refetch() {} }),
   isComputing: () => false,
   useTraderAnalytics: () => ({ data: undefined }),
   useTraderActivity: () => ({ data: undefined }),
@@ -21,8 +21,12 @@ vi.mock("../src/components/trader/performance", () => ({ KpiTiles: () => null, w
   TRADE_WINDOW: { day: "1d", week: "7d", month: "30d", allTime: "all" },
   PerformanceChart: () => <div>Available performance history</div>,
 }));
-it("keeps independent performance history visible when required profile data fails", () => {
+it("a profile that could not be loaded is CopyDog's one line and its retry, with nothing else on the page", () => {
   const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><TraderView address={`0x${"ab".repeat(20)}`} /></I18nProvider>);
-  expect(html).toContain("Profile unavailable");
-  expect(html).toContain("Available performance history");
+  expect(html).toContain("Couldn&#x27;t load this trader.");
+  expect(html).toMatch(/<button[^>]*>Retry<\/button>/);
+  // No raw error text, no banner, no placeholders and no half page.
+  expect(html).not.toContain("Profile unavailable");
+  expect(html).not.toContain("Available performance history");
+  expect(html).not.toContain("animate-pulse");
 });

@@ -578,7 +578,7 @@ export const zhTW = {
   },
   trader: {
     title: "交易員",
-    loadFailed: "無法載入這個地址",
+    loadFailed: "無法載入此交易員。",
     accountValue: "帳戶價值",
     accountPerp: "永續",
     accountSpot: "現貨",
@@ -604,7 +604,6 @@ export const zhTW = {
     notTracked: "尚未監控這個地址。加入收藏後，系統會開始即時追蹤它的動作與勝率。",
     partialProfile: "部分帳戶資料暫時無法取得。仍顯示可用部位，不估算不完整總額；系統會自動重試。",
     positionsUnavailable: "部位資料暫時無法取得或尚未完整。",
-    busyRetrying: "Hyperliquid 目前忙碌中，正在重試…",
     twap: "TWAP",
     twapHint: "TWAP 訂單 #{id} 的分段成交",
     bestWorst: "最佳與最差",

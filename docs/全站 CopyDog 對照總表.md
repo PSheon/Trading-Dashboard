@@ -235,6 +235,7 @@ T1 = `0xfc52…ee77`（有持倉、掛單）、KOL = `0xbf73…5d58`（大型帳
 | App Store／Google Play 徽章 | 有 | 沒有（Orbie 沒有 App） | Orbie 專有（保留） |
 | 登入視窗（Privy） | Logo、「Log in or sign up」、Email、Google、錢包、Protected by Privy | 相同（Orbie logo） | 一致 |
 | 無效地址的交易員頁 | 照常顯示交易員頁骨架，永遠載入中 | 2026-10-02 起顯示 404 頁（Paul 決定：查無資料一律 404），見「5. 頂端搜尋」 | Orbie 規則 |
+| 交易員頁遇到 503（api 忙碌） | 2026-10-02 無頭瀏覽器注入 503 實測＋bundle：summary／performance 靜默重試 3 次，間隔 5、10、15 秒（上限 20 秒，其他錯誤 1、2、4 秒）；其餘請求只重試 1 次。重試期間沒有橫幅。全部失敗後整頁只剩一行灰字「無法載入此交易員。」與底線主色「重試」；只有次要請求失敗時，區塊顯示空狀態 | 交易員頁所有請求改用同一套退避（`traderRetry`：3 次、5／10／15 秒、不短於 api 的 `Retry-After`、上限 30 秒）；「Hyperliquid 目前忙碌中」橫幅與紅字錯誤卡移除；profile 重試用完後整頁顯示同一行字與「重試」（30 秒輪詢仍會自動再問）；KPI 四格在 portfolio 失敗後顯示「—」不再永遠是骨架；分析資料（冷地址要算幾分鐘）背景持續重試約 10 分鐘，但骨架只顯示到第 3 次忙碌回應為止。**保留差異**：分析載入失敗時左欄顯示「無法載入資料。」，CopyDog 顯示「無已平倉交易」（不把載入失敗說成沒有交易） | 已修（`e2e/trader-busy.spec.ts`、`test/query-policy.test.ts`） |
 | Toast 提示 | Toastify，左下角（手機全寬貼底）、320px、3 秒、最新在上、最多 4 則、點擊關閉、不因 hover 暫停、bounceInLeft；深色 0.92 底、16px 圓角、22px 圖示、× 在右上 | `ToastProvider`／`useToast` 同樣設定（Orbie 配色）；分享複製、跟單驗證／失敗、收藏與群組、提醒、Telegram、錢包對話框改用 toast（`screens-parity-3/_pair-toast-share-copy-1440.png`、`-390.png`） | 已修 |
 
 ### 8. 第三輪補充（2026-10-01，截圖在 `screens-parity-3/`）

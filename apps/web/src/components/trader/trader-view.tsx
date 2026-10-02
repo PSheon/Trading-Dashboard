@@ -4,9 +4,8 @@ import type { TraderWindow } from "@/lib/contracts";
 import { notFound } from "next/navigation";
 import { useState } from "react";
 
-import { ErrorState, Skeleton } from "@/components/page";
+import { Skeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
-import { isBusy } from "@/lib/api";
 import {
   isComputing,
   useCopyScore,
@@ -78,7 +77,6 @@ function TraderLoaded({ address }: { address: string }) {
   // WebSocket, over the REST profile (initial state and fallback).
   const live = useLiveTrader(address, profile.data);
   const lowSample = activity.data?.sample.lowSample ?? false;
-  const busy = [profile, activity, portfolio].some((q) => !q.data && isBusy(q.failureReason));
 
   // Owner's rule: no data for the address is the 404 page (CopyDog draws
   // its trader page with every figure empty). Until the fill history has
@@ -98,14 +96,26 @@ function TraderLoaded({ address }: { address: string }) {
   ) : null;
 
   if (unknown === null && profile.data && !activity.isError) return <TraderLoading />;
+  // CopyDog: the profile's retries are silent; once they run out the page
+  // is this one line and its retry. The poll keeps asking meanwhile, which
+  // puts a query without data back to pending: `errorUpdateCount` keeps the
+  // line up until data arrives, instead of flashing back to placeholders.
+  if (profile.errorUpdateCount > 0 && !live.profile) {
+    return (
+      <div className="pt-8 text-center">
+        <p className="text-muted-foreground">{t("trader.loadFailed")}</p>
+        <button type="button" className="mt-2 rounded text-primary underline outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => profile.refetch()}>
+          {t("common.retry")}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
     {/* Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs). */}
     <div className="md:hidden">
-      {profile.isError && !live.profile ? (
-        <ErrorState message={`${t("trader.loadFailed")} · ${profile.error.message}`} onRetry={() => profile.refetch()} />
-      ) : live.profile ? (
+      {live.profile ? (
         <MobileTrader
           profile={live.profile}
           marks={live.mids}
@@ -122,9 +132,7 @@ function TraderLoaded({ address }: { address: string }) {
     </div>
     <div className="trader-grid -mx-1 md:mx-0">
       <div data-area="profile">
-        {profile.isError && !live.profile ? (
-          <ErrorState message={`${t("trader.loadFailed")} · ${profile.error.message}`} onRetry={() => profile.refetch()} />
-        ) : live.profile ? (
+        {live.profile ? (
           rail
         ) : (
           <Skeleton className="h-[640px] rounded-2xl" />
@@ -135,23 +143,18 @@ function TraderLoaded({ address }: { address: string }) {
         {profile.data?.dataQuality?.partial ? (
           <p role="status" className="text-sm text-warning">{t("trader.partialProfile")} <button type="button" className="underline" onClick={() => profile.refetch()}>{t("common.retry")}</button></p>
         ) : null}
-        {busy ? (
-          <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-warning" />
-            {t("trader.busyRetrying")}
-          </p>
-        ) : null}
         {profile.data ? (
           <KpiTiles
             period={kpiPeriod}
             onPeriod={setKpiPeriod}
             periodPortfolio={kpiPortfolio.data?.window === kpiPeriod ? kpiPortfolio.data : undefined}
             allTime={allTimePerp.data}
+            portfolioFailed={kpiPortfolio.isError || allTimePerp.isError}
             lowSample={lowSample}
             trades={tradesAll.data}
             tradesComputing={isComputing(tradesAll)}
           />
-        ) : profile.isError ? null : (
+        ) : (
           <div className="grid grid-cols-2 gap-1.5 xl:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => (
               <Skeleton key={i} className="h-[128px] rounded-[12px]" />
@@ -181,8 +184,6 @@ function TraderLoaded({ address }: { address: string }) {
             feedOpen={feedOpen}
             onToggleFeed={() => setFeedOpen((open) => !open)}
           />
-        ) : profile.isError ? (
-          <p className="text-sm text-muted-foreground">{t("trader.positionsUnavailable")}</p>
         ) : (
           <Skeleton className="h-64 rounded-2xl" />
         )}

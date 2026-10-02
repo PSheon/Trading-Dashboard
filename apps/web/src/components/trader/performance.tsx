@@ -148,6 +148,7 @@ export function KpiTiles({
   onPeriod,
   periodPortfolio,
   allTime,
+  portfolioFailed = false,
   trades,
   tradesComputing,
   lowSample,
@@ -159,6 +160,8 @@ export function KpiTiles({
   periodPortfolio: PortfolioResponse | undefined;
   /** The all-time portfolio (Sharpe, drawdown and the track record). */
   allTime: PortfolioResponse | undefined;
+  /** The portfolio requests gave up: "—", as CopyDog, instead of a placeholder. */
+  portfolioFailed?: boolean;
   /** GET /traders/:address/analytics?window=all. */
   trades: TraderAnalyticsResponse | undefined;
   /** The api is still reconstructing a cold address's trades. */
@@ -213,7 +216,7 @@ export function KpiTiles({
       <Tile
         label={t("trader.kpi.pnl")}
         action={periodMenu}
-        loading={!periodPortfolio}
+        loading={!periodPortfolio && !portfolioFailed}
         value={pnl === null ? "—" : signedUsd2(pnl)}
         tone={signTone(pnl)}
         muted={lowSample}
@@ -222,7 +225,7 @@ export function KpiTiles({
       />
       <Tile
         label={t("trader.kpi.roi")}
-        loading={!periodPortfolio}
+        loading={!periodPortfolio && !portfolioFailed}
         value={signedPctCd(roi)}
         tone={signTone(roi)}
         muted={lowSample}
@@ -240,7 +243,7 @@ export function KpiTiles({
       />
       <Tile
         label={t("trader.kpi.sharpe")}
-        loading={!allTime}
+        loading={!allTime && !portfolioFailed}
         value={sharpe === null ? "—" : sharpe.toFixed(2)}
         tone={sharpeTone(sharpe)}
         muted={lowSample}

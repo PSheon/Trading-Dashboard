@@ -727,6 +727,9 @@ export async function fixtureRequest<T>(
       requireUser(token);
       return wire(z.array(alertSchema), alertsFor(search.get("address") ?? undefined));
     case "GET /health":
+      return { status: "ok", feedConnected: true, now: new Date().toISOString() } as T;
+    case "GET /admin/system/heartbeat":
+      requireAdmin(token);
       return wire(heartbeatResponseSchema, health());
     case "GET /lists":
       requireUser(token);

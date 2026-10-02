@@ -6,7 +6,7 @@ export const queryKeys = {
   cohortHistory: (tier: string, window: string) => ["cohort-history", tier, window] as const,
   me: ["me"] as const,
   adminSystem: ["admin", "system"] as const,
-  health: ["health"] as const,
+  adminHeartbeat: ["admin", "heartbeat"] as const,
   favorites: ["favorites"] as const,
   favoriteGroups: ["favorite-groups"] as const,
   telegram: ["telegram"] as const,

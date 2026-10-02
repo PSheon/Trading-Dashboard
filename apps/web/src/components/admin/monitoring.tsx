@@ -14,9 +14,10 @@ import { useI18n } from "@/i18n/provider";
 export function AdminMonitoring() {
   const { t, format } = useI18n();
   const query = useQuery({ queryKey: queryKeys.adminSystem, queryFn: ({ signal }) => api.get<AdminSystemOverview>("/admin/system/overview", signal), refetchInterval: 15_000 });
-  // Combined development mode has no independent worker. Its existing local
-  // heartbeat remains available, while split deployments use one coherent sample.
-  const local = useQuery({ queryKey: queryKeys.health, queryFn: ({signal}) => api.get<HeartbeatResponse>("/health", signal), enabled: query.data?.api.role === "combined", refetchInterval: 15_000 });
+  // Combined development mode has no independent worker: its heartbeat comes
+  // from the admin heartbeat route (the public /health no longer carries the
+  // detail), while split deployments use one coherent worker sample.
+  const local = useQuery({ queryKey: queryKeys.adminHeartbeat, queryFn: ({signal}) => api.get<HeartbeatResponse>("/admin/system/heartbeat", signal), enabled: query.data?.api.role === "combined", refetchInterval: 15_000 });
   const heartbeat = query.data?.api.role === "combined" ? local.data : query.data?.worker.sample?.heartbeat;
   return <section className="space-y-4" aria-labelledby="monitoring-title" aria-busy={query.isFetching}>
     <div className="flex flex-wrap items-start justify-between gap-4">

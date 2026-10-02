@@ -46,6 +46,14 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
   archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable() }).optional(),
 });
+/**
+ * GET /health as anyone may read it (review finding 36): whether the site's
+ * data feed is up, and the server's time. The budget, the queues, dry-run,
+ * discovery and archive figures of the full heartbeat are for admins
+ * (GET /admin/system/heartbeat) and the worker's private monitor.
+ */
+export const publicHealthSchema = z.object({ status: z.enum(["ok", "degraded"]), feedConnected: z.boolean(), now: iso });
+export type PublicHealth = z.infer<typeof publicHealthSchema>;
 /** Private worker probe and admin monitoring share an explicit JSON contract. */
 export const runtimeBudgetSchema = z.object({
   requestsLastMinute: z.number(), weightLastMinute: z.number(), effectiveBudgetPerMin: z.number(),
@@ -168,7 +176,7 @@ export interface HttpRouteContract {
 }
 /** One registry drives server output validation, browser validation and route docs. */
 export const httpRouteContracts: HttpRouteContract[] = [
-  { method: "GET", path: "/health", status: 200, auth: "public; raw", raw: true, response: wireHeartbeatSchema },
+  { method: "GET", path: "/health", status: 200, auth: "public; raw", raw: true, response: publicHealthSchema },
   { method: "GET", path: "/health/ready", status: 200, auth: "public; raw", raw: true, response: z.object({ ready: z.literal(true) }) },
   { method: "GET", path: "/actions", status: 200, auth: "public; favorites requires user", response: z.array(wireActionSchema) },
   { method: "GET", path: "/actions/stream", status: 200, auth: "public; favorites requires user; SSE", response: z.never(),
@@ -230,6 +238,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/admin/jobs", status: 200, auth: "jobs.read", response: backfillJobsResponseSchema },
   { method: "POST", path: "/admin/jobs/:id/retry", status: 202, auth: "jobs.retry", response: backfillJobSchema },
   { method: "GET", path: "/admin/system/overview", status: 200, auth: "admin.access", response: adminSystemSchema },
+  { method: "GET", path: "/admin/system/heartbeat", status: 200, auth: "admin.access; 503 when the worker is unreachable", response: wireHeartbeatSchema },
   { method: "GET", path: "/admin/overview", status: 200, auth: "overview.read", response: s.adminOverviewSchema.extend({ generatedAt: iso }) },
   { method: "GET", path: "/admin/revenue", status: 200, auth: "revenue.read", response: s.adminRevenueResponseSchema.extend({ lastSnapshotAt: iso.nullable() }) },
   { method: "GET", path: "/admin/outbox", status: 200, auth: "admin.access", response: z.object({ evaluations: outboxCounts, deliveries: outboxCounts }) },

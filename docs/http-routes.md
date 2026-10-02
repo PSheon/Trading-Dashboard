@@ -65,6 +65,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/admin/jobs` | 200 | jobs.read |
 | POST | `/admin/jobs/:id/retry` | 202 | jobs.retry |
 | GET | `/admin/system/overview` | 200 | admin.access |
+| GET | `/admin/system/heartbeat` | 200 | admin.access; 503 when the worker is unreachable |
 | GET | `/admin/overview` | 200 | overview.read |
 | GET | `/admin/revenue` | 200 | revenue.read |
 | GET | `/admin/outbox` | 200 | admin.access |

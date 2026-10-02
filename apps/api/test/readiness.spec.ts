@@ -66,7 +66,7 @@ it("shares one heartbeat per second between every /health caller", async () => {
   vi.useFakeTimers();
   try {
     const { HealthController } = await import("../src/api/health/health.controller.js");
-    const heartbeat = vi.fn(async () => ({ now: new Date() }));
+    const heartbeat = vi.fn(async () => ({ feedConnected: true, now: new Date() }));
     const controller = new HealthController({ heartbeat } as never);
     await Promise.all(Array.from({ length: 100 }, () => controller.heartbeat()));
     expect(heartbeat).toHaveBeenCalledTimes(1);

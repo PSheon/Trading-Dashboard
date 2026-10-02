@@ -113,7 +113,7 @@ One object is one unit: fills are inserted in batches (idempotent), then cursor,
 
 **Holes and bad data.** A missing object during backfill ends the pass (`missing_object`): the participants' spans stay where they are. A line that does not parse, or a download that fails its checksum, stops the cursor (`parse_error` / `corrupt_object`) until someone looks. Neither is skipped silently.
 
-**`/health`** (worker; the api proxies it) gains `archive`: `liveNextHour`, `backfillCursorHour`, `lagSeconds`, `objects`, `bytes`, `fillsSeen`, `fillsKept`, `spendDayBytes`, `spendDayUsd`, `maxDailyUsd`, `addresses {total, backfilled, pending, excluded}`, `lastObjectKey`, `lastRunAt`, `lastError`. No UI.
+**The heartbeat** (the worker's private `/health`; through the api it is `GET /admin/system/heartbeat` for admins, since the public `/health` only says whether the feed is up) gains `archive`: `liveNextHour`, `backfillCursorHour`, `lagSeconds`, `objects`, `bytes`, `fillsSeen`, `fillsKept`, `spendDayBytes`, `spendDayUsd`, `maxDailyUsd`, `addresses {total, backfilled, pending, excluded}`, `lastObjectKey`, `lastRunAt`, `lastError`. No UI.
 
 ## How REST usage goes down
 
@@ -147,13 +147,13 @@ The saving is proportional to how much of an account's history lies inside the a
 
 1. Create the IAM user; export the keys in a shell.
 2. `pnpm --filter @trading-dashboard/api build && node apps/api/scripts/s3-archive-probe.mjs --sample`. Confirm: key shape, first day of each prefix, sizes, lag, the line shape, whether fills carry `twapId`. Fix `S3_ARCHIVE_START` or the parser if anything differs.
-3. Migrate (`0017`), set the variables on the worker with `S3_ARCHIVE_BACKFILL_ENABLED=false` and a low `S3_ARCHIVE_MAX_DAILY_USD`; watch `/health` for a few hours (lag, `fillsKept`, no `lastError`).
+3. Migrate (`0017`), set the variables on the worker with `S3_ARCHIVE_BACKFILL_ENABLED=false` and a low `S3_ARCHIVE_MAX_DAILY_USD`; watch `/admin/system` (or `GET /admin/system/heartbeat`) for a few hours (lag, `fillsKept`, no `lastError`).
 4. Run the reconciliation. Only when archive-origin fills match REST exactly, enable backfill and raise the cap.
 
 ## Not done
 
 - Nothing verified against the real bucket (see the first table).
 - Funding and ledger events (`misc_events_by_block`) are not ingested; funding still comes from REST.
-- No admin UI (Codex's area); progress is on `/health` only.
+- Admin UI: `/admin/system` shows whether the ingest is enabled, its state, today's spend against the cap, lag and last run; the remaining figures are in `GET /admin/system/heartbeat`.
 - Backfill passes are not batched by a minimum interval; cost control is the daily cap.
 - `analysis_history_fills` has no retention or partitioning; watch its size.

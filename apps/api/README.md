@@ -105,7 +105,7 @@ local dependencies, Git metadata and build output. Set secrets in Railway.
 Run migrations against the intended deployment database before releasing code
 that requires them; the runtime image does not run migrations automatically.
 
-`/health` is a public operational heartbeat, not a database readiness guarantee.
+`/health` is the public status (`status`, `feedConnected`, `now`), not a database readiness guarantee. The full operational heartbeat is `GET /admin/system/heartbeat` (`admin.access`) and the worker's own private `/health`.
 Keep one replica: caches, watcher state and notification coordination currently
 assume one process. Do not scale replicas without distributed ownership.
 

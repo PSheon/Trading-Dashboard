@@ -11,7 +11,7 @@ import { AdminController, PublicSettingsController } from "../admin/admin.contro
 import { ActionsController } from "../api/actions/actions.controller.js";
 import { AlertRulesController } from "../api/alert-rules/alert-rules.controller.js";
 import { AlertsController } from "../api/alerts/alerts.controller.js";
-import { HealthController } from "../api/health/health.controller.js";
+import { AdminHeartbeatController, HealthController } from "../api/health/health.controller.js";
 import { ReadinessController } from "../api/health/readiness.controller.js";
 import { LeadersController } from "../api/leaders/leaders.controller.js";
 import { ListsController } from "../api/lists/lists.controller.js";
@@ -28,4 +28,4 @@ import { CopyController } from "../copy/copy.controller.js";
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
 export const documentationControllers = [AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
-  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, CopyController, AdminCopyController];
+  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, AdminHeartbeatController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, CopyController, AdminCopyController];

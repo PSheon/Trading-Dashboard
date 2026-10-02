@@ -174,3 +174,21 @@ see [admin-settings.md](admin-settings.md) for 428/409 handling and rollout limi
 
 Request validation now runs through class DTOs and a global Nest ValidationPipe;
 unknown input fields fail with 400. See [nest-http-pipeline.md](nest-http-pipeline.md).
+
+## Public status and the admin heartbeat (review finding 36)
+
+`GET /health` (public, raw, cached for a second) answers
+`{ "status": "ok" | "degraded", "feedConnected": boolean, "now": ISO time }`:
+`degraded` when the trade feed is not fully connected, 503 when the api can't
+reach the worker. It carries nothing else. The request budget and its
+consumers, queue depths, `dryRun`, discovery ages, the addresses whose fills
+are missing and the archive ingest's figures were all in it before; they are
+operational detail and now come from:
+
+- `GET /admin/system/heartbeat` (`admin.access`, so admins and read-only
+  operators): the whole heartbeat, enveloped, `no-store`. In the api role it is
+  the worker's. `/admin/system` reads it in combined mode and reads the worker
+  sample of `GET /admin/system/overview` in split deployments.
+- the worker's own `/health` and `/health/monitor`, on its private port.
+
+`/health/ready` is unchanged (`{ "ready": true }` or 503).

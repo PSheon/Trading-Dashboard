@@ -1,4 +1,4 @@
-import { HttpException, Injectable, type CanActivate, type ExecutionContext } from "@nestjs/common";
+import { HttpException, Injectable, Logger, type CanActivate, type ExecutionContext } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { AppConfig } from "../../config/app-config.js";
 import type { RequestUser } from "./current-user.js";
@@ -55,9 +55,32 @@ export class RequestRateLimiter {
   }
 }
 
+const logger = new Logger("RateLimit");
+let lastLimitedLog = 0;
+/**
+ * At most one line per 10 s: whether the limited caller was identified by a
+ * forwarded address or by the socket peer, and the peer's network (never a
+ * whole address). A limit that hits everyone at once shows here as an
+ * untrusted peer: API_TRUSTED_PROXY_CIDRS does not cover the proxy.
+ */
+function noteLimited(request: Request): void {
+  const now = Date.now();
+  if (now - lastLimitedLog < 10_000) return;
+  lastLimitedLog = now;
+  const peer = request.socket.remoteAddress ?? "";
+  logger.warn({
+    event: "rate.limited",
+    route: request.route?.path ?? request.path,
+    identifiedBy: request.ip && request.ip !== peer ? "forwarded" : "peer",
+    forwardedHeader: request.headers["x-forwarded-for"] !== undefined,
+    peerNetwork: peer.includes(".") ? peer.replace(/^::ffff:/i, "").split(".").slice(0, 2).join(".") : peer.split(":").slice(0, 2).join(":"),
+  });
+}
+
 function enforce(context: ExecutionContext, limiter: RequestRateLimiter, key: string, limit: number) {
   const delay = limiter.consume(key, limit);
   if (delay) {
+    noteLimited(context.switchToHttp().getRequest<Request>());
     context.switchToHttp().getResponse<Response>().setHeader("Retry-After", String(delay));
     throw new HttpException({ statusCode: 429, code: "rate_limited", message: "Too many requests" }, 429);
   }

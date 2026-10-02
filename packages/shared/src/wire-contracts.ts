@@ -44,7 +44,8 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   feedDisconnectedSince: iso.nullable(), lastTradeAt: iso.nullable(), lastFillAt: iso.nullable(), lastSnapshotAt: iso.nullable(),
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
-  archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable() }).optional(),
+  archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable(),
+    backfillFloor: iso.optional(), backfillPassStartedAt: iso.nullable().optional(), backfillNextPassAt: iso.nullable().optional() }).optional(),
 });
 /**
  * GET /health as anyone may read it (review finding 36): whether the site's
@@ -256,7 +257,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },
   { method: "GET", path: "/discover/cards", status: 200, auth: "public", response: wireTraderCardsSchema },
   { method: "GET", path: "/me/copy", status: 200, auth: "user", response: wireCopyOverviewSchema },
-  { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
+  { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
   { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "POST", path: "/me/copy/strategies/:id/funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "POST", path: "/me/copy/strategies/:id/commands", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },

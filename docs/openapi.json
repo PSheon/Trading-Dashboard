@@ -2661,6 +2661,12 @@
                                                   "additionalProperties": {
                                                     "type": "number"
                                                   }
+                                                },
+                                                "caps": {
+                                                  "type": "object",
+                                                  "additionalProperties": {
+                                                    "type": "number"
+                                                  }
                                                 }
                                               },
                                               "required": [
@@ -2766,6 +2772,32 @@
                                                   ]
                                                 },
                                                 "backfillCursorHour": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "backfillFloor": {
+                                                  "type": "string",
+                                                  "format": "date-time"
+                                                },
+                                                "backfillPassStartedAt": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "backfillNextPassAt": {
                                                   "anyOf": [
                                                     {
                                                       "type": "string",
@@ -6512,6 +6544,12 @@
                               "additionalProperties": {
                                 "type": "number"
                               }
+                            },
+                            "caps": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "number"
+                              }
                             }
                           },
                           "required": [
@@ -6617,6 +6655,32 @@
                               ]
                             },
                             "backfillCursorHour": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "backfillFloor": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "backfillPassStartedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "backfillNextPassAt": {
                               "anyOf": [
                                 {
                                   "type": "string",
@@ -18381,7 +18445,7 @@
         ],
         "x-required-permissions": [],
         "x-required-roles": [],
-        "description": "Access: user; 409 already_copying / insufficient_balance / copy_paused"
+        "description": "Access: user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused"
       }
     },
     "/me/copy/strategies/{id}": {

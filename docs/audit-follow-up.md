@@ -143,3 +143,13 @@ Source: `docs/copydog-visual-diff-2026-10-02.md`. Paul has not set priorities; o
 - V1. Trader page on a 503: phone stays a full skeleton with no retry. Retry silently like CopyDog.
 - V2. Copy signals arrived 157 s late on 2026-10-01 19:51Z (ZEC, three opens rejected as `stale_signal`); a 155 s cold analytics job held the budget. Fill confirms for followed leaders must not wait behind background work.
 - V3. Visual items 1–10 of the diff file (positions table clipped at 1440, card fill/border, explore heights and icons, insights table alignment/row height/monospace, chart label overlap, default avatar, smooth sparklines, avatar badge, tab title uses the name, percent format in the chart badge).
+
+## Paul's decisions, 2026-10-02
+
+- Stage redeployed at `6097921` (api → worker → web) after his database backup; `/dev` is 404 there.
+- Copy pause / resume / edit stay on user pages; they get full end-to-end tests (web and api).
+- `/explore/all` moves under `/dev`. Search on Enter goes to the trader page like CopyDog; an address with no data shows 404.
+- Font becomes Host Grotesk (CopyDog's), loaded the way Next.js recommends.
+- The remaining review findings are done in the queue's order, all of them; security findings must be closed and verified.
+- Claude completes the About / FAQ / Privacy / Terms content. Builder address and fee wait for his confirmation.
+- `git push origin dev` is authorized without asking.

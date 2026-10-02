@@ -135,6 +135,33 @@ deliveries) continue; stop those with the copy stop commands and
 `alertsEnabled`. A first sign-in creates its user row on a read and is not
 refused either; close sign-ups (`signupsOpen`) alongside if that matters.
 
+## Product limits and deployment switches (review findings 18, 19)
+
+`general.maxFavoritesPerUser` (1–10,000, default `null`) is how many traders a
+user may keep as favorites. `null` means it is not set here and the
+deployment's `MAX_FAVORITES_PER_USER` (default 100) applies; a number wins over
+the environment, at once. Lowering it removes nothing; it only stops additions
+(409 `favorite_limit` with the limit in force). The General card has the input;
+empty saves `null`.
+
+The Discovery card now has inputs for the three weight caps that could only be
+set through the API: `poolPerformanceWeightPerMinute`,
+`historyWeightPerMinute` and `backfillWeightPerMinute` (0–600 each; 0 pauses
+that work).
+
+Some things are deliberately not settings. They are read from each process's
+environment at start and shown, read-only, on `/admin/system` ("Deployment
+switches"), the api's next to the worker's because the two are separate
+processes: `APP_ROLE`, `COPY_TRADING_MODE`, `HYPERLIQUID_NETWORK`,
+`TELEGRAM_DRY_RUN`, whether the S3 archive ingest is enabled and its
+`S3_ARCHIVE_MAX_DAILY_USD`, and the `MAX_FAVORITES_PER_USER` default. Below
+them: the archive ingest's state (not enabled, running, today's cap reached,
+last run failed, unknown) with today's spend (UTC) against the cap, its lag and
+last run, from the worker's heartbeat. The values come from
+`GET /admin/system/overview` (`api.switches`, `worker.sample.switches`); no URL,
+bucket, key or token is included. A worker that predates this reports no
+switches and the column says "not reported".
+
 ## Discovery pool settings and the KOL registry (Stage 3)
 
 `discovery` gained these fields: `candidatePoolSize` (default 1,000: the

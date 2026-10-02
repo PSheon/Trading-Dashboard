@@ -130,8 +130,8 @@ Paul 2026-10-01：這一批排進優化；**後台（admin）改由 Claude 接�
 | C（已做，2026-10-02：`SettingsRelay`，見 [admin-settings.md](admin-settings.md)） | 16：設定最多 30 秒才生效，不能當緊急開關 | 中 | 設定變更透過現有 PG LISTEN/NOTIFY 讓各行程立即失效快取；開關類欄位讀取不走快取 | 無 |
 | D（部分完成，2026-10-02：唯讀營運角色與角色／停用確認已做；MFA step-up **未做**，Privy 伺服器端無法驗證 MFA 完成，缺口與選項見 [auth-and-config.md](auth-and-config.md)） | 14：管理員沒有二次驗證、單一角色擁有全部權限 | 高（真實資金前） | 新增唯讀營運角色；敏感權限（`users.manage`、`settings.write`、`risk.manage`、`execution.resume`）要求 Privy MFA 並在伺服器端驗證。需先確認 Privy 後台的 MFA 設定 | 測試網實單之前 |
 | E（已做，2026-10-02：`general.maintenance`＋`MaintenanceGuard`，見 [admin-settings.md](admin-settings.md)） | 17：沒有維護模式 | 中 | `general.maintenance` 設定＋guard（唯讀或維護頁），後台可切換 | C 之後 |
-| F | 19：營運開關後台看不到 | 低–中 | 系統頁唯讀顯示 `TELEGRAM_DRY_RUN`、`COPY_TRADING_MODE`、`HYPERLIQUID_NETWORK`、S3 抓取狀態與當日花費／上限 | 無 |
-| G | 18、20：`MAX_FAVORITES_PER_USER` 與保留期應為後台設定 | 低 | 移入 settings（保留期預設：快照 90 天、稽核 1 年、佇列 30 天） | 第 3 項（保留與分割）一起做 |
+| F（已做，2026-10-02：系統頁「部署開關」） | 19：營運開關後台看不到 | 低–中 | 系統頁唯讀顯示 `TELEGRAM_DRY_RUN`、`COPY_TRADING_MODE`、`HYPERLIQUID_NETWORK`、S3 抓取狀態與當日花費／上限 | 無 |
+| G（18 已做，2026-10-02：`general.maxFavoritesPerUser`；20 保留期未做，仍隨第 3 項） | 18、20：`MAX_FAVORITES_PER_USER` 與保留期應為後台設定 | 低 | 移入 settings（保留期預設：快照 90 天、稽核 1 年、佇列 30 天） | 第 3 項（保留與分割）一起做 |
 
 第一輪第 1、4、5 項中原本標「交 Codex」的後台檔案（`admin/revenue.service.ts`、`admin-system.service.ts`、`docs/admin-*.md`、`admin/dto`）也改由 Claude 處理。Sentry 暫不加（Paul）；第 8 項只做 logger 保留 stack 與 `/health`／後台的心跳、積壓警示。
 

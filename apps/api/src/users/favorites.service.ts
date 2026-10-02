@@ -99,8 +99,10 @@ export class FavoritesService {
   async add(userId: number, address: string): Promise<Favorite> {
     await this.uow.run(async (tx) => {
       await this.repository.lockUser(tx, userId);
-      if (!await this.repository.findOwned(tx, userId, address) && await this.repository.countOwned(tx, userId) >= this.config.value.limits.favoritesPerUser) {
-        throw new ConflictException({ statusCode: 409, code: "favorite_limit", limit: this.config.value.limits.favoritesPerUser, message: "Favorite trader limit reached" });
+      // The admin's setting; MAX_FAVORITES_PER_USER while it is unset (review finding 18).
+      const limit = (await this.settings.get("general")).maxFavoritesPerUser ?? this.config.value.limits.favoritesPerUser;
+      if (!await this.repository.findOwned(tx, userId, address) && await this.repository.countOwned(tx, userId) >= limit) {
+        throw new ConflictException({ statusCode: 409, code: "favorite_limit", limit, message: "Favorite trader limit reached" });
       }
       return this.repository.addAndWatch(tx, userId, address);
     });

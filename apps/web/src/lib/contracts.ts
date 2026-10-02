@@ -44,6 +44,7 @@ export type AdminCopyOrdersView = Domain.WireAdminCopyOrders;
 export type AdminCopyExposureView = Domain.WireAdminCopyExposure;
 export type AdminCopyRiskView = Domain.WireAdminCopyRisk;
 export type AdminCopyControlView = Domain.WireAdminCopyControl;
+export type OperationalSwitches = Domain.OperationalSwitches;
 export type Favorite = JsonWire<Domain.Favorite>;
 export type TelegramStatus = JsonWire<Domain.TelegramStatus>;
 export type TelegramLinkResponse = JsonWire<Domain.TelegramLinkResponse>;

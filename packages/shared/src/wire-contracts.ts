@@ -52,14 +52,31 @@ export const runtimeBudgetSchema = z.object({
   configuredBudgetPerMin: z.number(), burstCapacity: z.number(), tokensAvailable: z.number(),
   lastRateLimitedAt: iso.nullable(), queued: z.object({ live: z.number(), background: z.number() }),
 });
+/** The deployment switches a process was started with (review finding 19):
+ * read-only facts from its environment, shown to admins. Changing one means
+ * changing the environment and restarting, not a setting. */
+export const operationalSwitchesSchema = z.object({
+  appRole: z.enum(["api", "worker", "combined"]),
+  copyTradingMode: s.copyTradingModeSchema,
+  hyperliquidNetwork: z.enum(["mainnet", "testnet"]),
+  telegramDryRun: z.boolean(),
+  archiveEnabled: z.boolean(),
+  archiveMaxDailyUsd: z.number(),
+  maxFavoritesPerUserDefault: z.number().int(),
+});
+export type OperationalSwitches = z.infer<typeof operationalSwitchesSchema>;
 export const workerMonitorSchema = z.object({
   state: z.enum(["active", "standby", "stopping"]), instanceId: z.string().min(1), sampledAt: iso,
   settings: z.array(appliedDiscoverySchema).optional(),
+  /** Optional while older workers roll out. */
+  switches: operationalSwitchesSchema.optional(),
   uptimeSeconds: z.number().nonnegative(), budget: runtimeBudgetSchema.nullable(), heartbeat: wireHeartbeatSchema.nullable(),
 }).refine(v => v.state !== "active" || (v.budget !== null && v.heartbeat !== null), "Active worker requires telemetry");
 export const adminSystemSchema = z.object({
   sampledAt: iso,
-  api: z.object({ state: z.literal("active"), role: z.enum(["api", "worker", "combined"]), uptimeSeconds: z.number(), budget: runtimeBudgetSchema }),
+  api: z.object({ state: z.literal("active"), role: z.enum(["api", "worker", "combined"]), uptimeSeconds: z.number(), budget: runtimeBudgetSchema,
+    /** Optional while older APIs roll out. */
+    switches: operationalSwitchesSchema.optional() }),
   worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({

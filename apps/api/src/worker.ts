@@ -13,6 +13,7 @@ import { acquireWorkerLease } from "./runtime/worker-lease.js";
 import { BackgroundJobs } from "./runtime/background-jobs.service.js";
 import { StructuredLogger } from "./runtime/structured-logger.js";
 import { HealthService } from "./api/health/health.service.js";
+import { operationalSwitches } from "./runtime/operational-switches.js";
 
 const envFile = resolve(import.meta.dirname, "../../../.env");
 if (process.env.NODE_ENV !== "test" && existsSync(envFile)) process.loadEnvFile(envFile);
@@ -41,6 +42,7 @@ const server = createServer(async (req, res) => {
       const heartbeat = ready && !stopping ? await app?.get(HealthService).heartbeat() : null;
       res.end(JSON.stringify({ state, instanceId, sampledAt: new Date().toISOString(), uptimeSeconds: Math.floor(process.uptime()),
         settings: ready && !stopping ? app?.get(SettingsService).appliedDiscovery() ?? [] : [],
+        switches: operationalSwitches(config),
         budget: budgeter ? { ...budgeter.introspect(), queued: budgeter.queued() } : null, heartbeat: heartbeat ?? null })); return;
     }
     if (req.url === "/health/live") {

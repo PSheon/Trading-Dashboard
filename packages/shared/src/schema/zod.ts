@@ -1414,6 +1414,10 @@ export const generalSettingsSchema = z.object({
   /** The copy panel's CTA; nothing is executed in Stage 2 regardless. */
   copyTradingEnabled: z.boolean().default(false),
   maintenance: maintenanceSettingsSchema.default({ enabled: false, message: { "zh-TW": "", en: "" }, endsAt: null }),
+  /** Favorites a user may keep (review finding 18). null = not set here: the
+   * deployment's MAX_FAVORITES_PER_USER applies. Lowering it removes nothing;
+   * it only stops additions. */
+  maxFavoritesPerUser: z.number().int().min(1).max(10_000).nullable().default(null),
 });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 

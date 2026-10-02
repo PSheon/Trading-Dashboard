@@ -86,6 +86,28 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   const alice = as("alice-token");
   const bob = as("bob-token");
 
+  it("the favorites limit is the admin's setting, and MAX_FAVORITES_PER_USER only while that is unset (review finding 18)", async () => {
+    const THIRD = "0x" + "ef".repeat(20);
+    vi.stubEnv("MAX_FAVORITES_PER_USER", "1");
+    try {
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      // Unset: the deployment default applies.
+      expect((await alice.put(`/me/favorites/${OTHER}`).expect(409)).body.error).toMatchObject({ code: "favorite_limit", details: { limit: 1 } });
+      // Set: the setting wins over the environment, at once.
+      await settings.patch({ general: { maxFavoritesPerUser: 2 } }, null);
+      await alice.put(`/me/favorites/${OTHER}`).expect(200);
+      expect((await alice.put(`/me/favorites/${THIRD}`).expect(409)).body.error).toMatchObject({ code: "favorite_limit", details: { limit: 2 } });
+      // Lowering it removes nothing and still lets an existing favorite be re-put.
+      await settings.patch({ general: { maxFavoritesPerUser: 1 } }, null);
+      await alice.put(`/me/favorites/${ADDR}`).expect(200);
+      expect(await db.select().from(userFavorites)).toHaveLength(2);
+      // Cleared again: back to the environment.
+      vi.stubEnv("MAX_FAVORITES_PER_USER", "3");
+      await settings.patch({ general: { maxFavoritesPerUser: null } }, null);
+      await alice.put(`/me/favorites/${THIRD}`).expect(200);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it("serializes favorite quota checks, preserves idempotency and rejects before backfill", async () => {
     vi.stubEnv("MAX_FAVORITES_PER_USER", "1");
     try {

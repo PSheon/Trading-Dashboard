@@ -312,6 +312,18 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
         checked={value.copyTradingEnabled}
         onChange={(copyTradingEnabled) => set({ copyTradingEnabled })}
       />
+      <div className="grid max-w-xs gap-2">
+        <Label htmlFor="max-favorites">{t("adminOps.settings.maxFavorites")}</Label>
+        <Input
+          id="max-favorites"
+          type="number"
+          min={1}
+          max={10000}
+          value={value.maxFavoritesPerUser ?? ""}
+          onChange={(e) => set({ maxFavoritesPerUser: e.target.value === "" ? null : Number(e.target.value) })}
+        />
+        <p className="text-xs text-muted-foreground">{t("adminOps.settings.maxFavoritesHint")}</p>
+      </div>
       <div className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">{t("adminOps.maintenance.title")}</h3>
@@ -518,6 +530,15 @@ function DiscoveryForm({ value: incoming, revision: incomingRevision }: { value:
           <Input id="pool-weight" type="number" min={0} max={600} value={value.poolWeightPerMinute} onChange={e => set({ poolWeightPerMinute: Number(e.target.value) })} /></div>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">{t("settingsOps.poolHint")}</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {([["poolPerformanceWeightPerMinute", "performanceWeight"], ["historyWeightPerMinute", "historyWeight"], ["backfillWeightPerMinute", "backfillWeight"]] as const).map(([field, label]) => (
+          <div key={field} className="grid content-start gap-2">
+            <Label htmlFor={field}>{t(`adminOps.settings.${label}`)}</Label>
+            <Input id={field} type="number" min={0} max={600} value={value[field]} onChange={e => set({ [field]: Number(e.target.value) })} />
+          </div>
+        ))}
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">{t("adminOps.settings.weightsHint")}</p>
       {(["cryptoBoards", "stockBoards"] as const).map(key => <div key={key} className="grid gap-2">
         <Label htmlFor={key}>{t(`settingsOps.${key}`)}</Label>
         <Input id={key} value={boardsInput[key]} onChange={e => { setBoardsInput({ ...boardsInput, [key]: e.target.value }); set({ [key]: [...new Set(e.target.value.split(",").map(v => v.trim()).filter(Boolean))] }); }} />

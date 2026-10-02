@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
+import { OperationalSwitchesPanel } from "./operational-switches";
 import { WorkerHeartbeat } from "./worker-heartbeat";
 import type { HeartbeatResponse } from "@/lib/contracts";
 import type { AdminSystemOverview } from "@/lib/contracts";
@@ -27,6 +28,7 @@ export function AdminMonitoring() {
     </div>
     {query.isError && <p role="alert" className="rounded-lg bg-warning/10 p-3 text-sm text-warning">{t(query.data ? "monitoring.cached" : "monitoring.unavailable")}</p>}
     {query.data ? <MonitoringDetails data={query.data} /> : !query.isError && <Skeleton className="h-72" />}
+    {query.data && <OperationalSwitchesPanel api={query.data.api.switches} worker={query.data.worker.sample?.switches} archive={heartbeat?.archive} />}
     {heartbeat && <WorkerHeartbeat data={heartbeat} />}
   </section>;
 }

@@ -34,6 +34,8 @@ class GeneralPatchDto {
   @Optional() @IsBoolean() declare signupsOpen?: boolean;
   @ApiPropertyOptional({ type: Boolean })
   @Optional() @IsBoolean() declare copyTradingEnabled?: boolean;
+  @ApiPropertyOptional({ type: "integer", nullable: true, minimum: 1, maximum: 10000, description: "Favorites a user may keep; null uses the deployment's MAX_FAVORITES_PER_USER" })
+  @Nullable() @IsInt() @Min(1) @Max(10000) declare maxFavoritesPerUser?: number | null;
   @ApiPropertyOptional({ type: () => MaintenanceDto, description: "The whole value when changed: enabled, message and endsAt" })
   @Optional() @IsObject() @Type(() => MaintenanceDto) @ValidateNested() declare maintenance?: MaintenanceDto;
 }

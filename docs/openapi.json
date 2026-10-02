@@ -2255,6 +2255,57 @@
                                 "queued"
                               ],
                               "additionalProperties": false
+                            },
+                            "switches": {
+                              "type": "object",
+                              "properties": {
+                                "appRole": {
+                                  "type": "string",
+                                  "enum": [
+                                    "api",
+                                    "worker",
+                                    "combined"
+                                  ]
+                                },
+                                "copyTradingMode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "disabled",
+                                    "paper",
+                                    "testnet",
+                                    "live"
+                                  ]
+                                },
+                                "hyperliquidNetwork": {
+                                  "type": "string",
+                                  "enum": [
+                                    "mainnet",
+                                    "testnet"
+                                  ]
+                                },
+                                "telegramDryRun": {
+                                  "type": "boolean"
+                                },
+                                "archiveEnabled": {
+                                  "type": "boolean"
+                                },
+                                "archiveMaxDailyUsd": {
+                                  "type": "number"
+                                },
+                                "maxFavoritesPerUserDefault": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "appRole",
+                                "copyTradingMode",
+                                "hyperliquidNetwork",
+                                "telegramDryRun",
+                                "archiveEnabled",
+                                "archiveMaxDailyUsd",
+                                "maxFavoritesPerUserDefault"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -2347,6 +2398,57 @@
                                         ],
                                         "additionalProperties": false
                                       }
+                                    },
+                                    "switches": {
+                                      "type": "object",
+                                      "properties": {
+                                        "appRole": {
+                                          "type": "string",
+                                          "enum": [
+                                            "api",
+                                            "worker",
+                                            "combined"
+                                          ]
+                                        },
+                                        "copyTradingMode": {
+                                          "type": "string",
+                                          "enum": [
+                                            "disabled",
+                                            "paper",
+                                            "testnet",
+                                            "live"
+                                          ]
+                                        },
+                                        "hyperliquidNetwork": {
+                                          "type": "string",
+                                          "enum": [
+                                            "mainnet",
+                                            "testnet"
+                                          ]
+                                        },
+                                        "telegramDryRun": {
+                                          "type": "boolean"
+                                        },
+                                        "archiveEnabled": {
+                                          "type": "boolean"
+                                        },
+                                        "archiveMaxDailyUsd": {
+                                          "type": "number"
+                                        },
+                                        "maxFavoritesPerUserDefault": {
+                                          "type": "integer"
+                                        }
+                                      },
+                                      "required": [
+                                        "appRole",
+                                        "copyTradingMode",
+                                        "hyperliquidNetwork",
+                                        "telegramDryRun",
+                                        "archiveEnabled",
+                                        "archiveMaxDailyUsd",
+                                        "maxFavoritesPerUserDefault"
+                                      ],
+                                      "additionalProperties": false
                                     },
                                     "uptimeSeconds": {
                                       "type": "number",
@@ -3203,6 +3305,19 @@
                                 },
                                 "endsAt": null
                               }
+                            },
+                            "maxFavoritesPerUser": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 10000
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null
                             }
                           },
                           "additionalProperties": false
@@ -3631,6 +3746,19 @@
                                 },
                                 "endsAt": null
                               }
+                            },
+                            "maxFavoritesPerUser": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 10000
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null
                             }
                           },
                           "additionalProperties": false
@@ -22010,6 +22138,15 @@
           },
           "copyTradingEnabled": {
             "type": "boolean"
+          },
+          "maxFavoritesPerUser": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "Favorites a user may keep; null uses the deployment's MAX_FAVORITES_PER_USER"
           },
           "maintenance": {
             "description": "The whole value when changed: enabled, message and endsAt",

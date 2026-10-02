@@ -49,7 +49,8 @@ export default async function globalSetup(config: FullConfig) {
   for (const path of paths) {
     const response = await fetch(new URL(path, baseURL), { headers: { cookie: "locale=en" }, signal: AbortSignal.timeout(300_000) });
     await response.arrayBuffer();
-    if (response.status >= 500) throw new Error(`Warming ${path} answered ${response.status}`);
+    // The lab's crash page answers 500 on purpose (e2e/error-boundary.spec.ts).
+    if (response.status >= 500 && path !== "/dev/crash") throw new Error(`Warming ${path} answered ${response.status}`);
   }
   console.log(`Compiled ${paths.length} routes in ${Math.round((Date.now() - started) / 1000)} s`);
 }

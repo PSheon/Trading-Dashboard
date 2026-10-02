@@ -80,7 +80,7 @@ These providers handle information under their own privacy policies.
 
 ## 5. International transfers
 
-Our servers and service providers may be located outside your country or region, including in the United States and other regions where our service providers operate. By using the Service you understand that your information may be transferred to and processed in those places.
+Our servers and service providers may be located outside your country or region. Our website, API and database are hosted in Singapore; some of our service providers (for example Privy and Telegram) process information in the United States and other regions where they operate. By using the Service you understand that your information may be transferred to and processed in those places.
 
 ## 6. Retention
 

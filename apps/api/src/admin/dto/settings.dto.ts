@@ -36,6 +36,8 @@ class GeneralPatchDto {
   @Optional() @IsBoolean() declare copyTradingEnabled?: boolean;
   @ApiPropertyOptional({ type: "integer", nullable: true, minimum: 1, maximum: 10000, description: "Favorites a user may keep; null uses the deployment's MAX_FAVORITES_PER_USER" })
   @Nullable() @IsInt() @Min(1) @Max(10000) declare maxFavoritesPerUser?: number | null;
+  @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 100000, description: "Addresses watched for users' favorites and copies, across all users" })
+  @Optional() @IsInt() @Min(1) @Max(100000) declare maxWatchedAddresses?: number;
   @ApiPropertyOptional({ type: () => MaintenanceDto, description: "The whole value when changed: enabled, message and endsAt" })
   @Optional() @IsObject() @Type(() => MaintenanceDto) @ValidateNested() declare maintenance?: MaintenanceDto;
 }

@@ -52,6 +52,11 @@ it.each([
   [PatchAdminSettingsDto, { general: null }], [PatchAdminSettingsDto, { general: { signupsOpen: "false" } }],
   [PatchAdminSettingsDto, { expectedRevisions: { bogus: "0".repeat(64) } }],
   [UpsertRuleDto, { scope: "address", kind: "R1", paramsJson: {}, cooldownS: 0, tiers: [] }],
+  // Ids are int4 in the database: out of range is a 400 here, not a 500 there (review finding 37).
+  [UpsertRuleDto, { id: 2147483648, scope: "address", kind: "R9", paramsJson: {}, cooldownS: 0, tiers: [] }],
+  [UpsertRuleDto, { id: 0, scope: "address", kind: "R9", paramsJson: {}, cooldownS: 0, tiers: [] }],
+  [AlertsQueryDto, { ruleId: "99999999999" }], [AlertsQueryDto, { ruleId: "-1" }], [AlertsQueryDto, { ruleId: "1.5" }],
+  [PatchAdminSettingsDto, { general: { maxWatchedAddresses: 0 } }], [PatchAdminSettingsDto, { general: { maxWatchedAddresses: null } }],
   [ImportListDto, { fileName: "a", rows: [null] }],
   [ActionIdParamsDto, { id: "9223372036854775808" }], [AddressParamsDto, { address: "nope" }],
   [UserIdParamsDto, { id: "1oops" }], [ResumeHeaderDto, { lastEventId: "0" }],

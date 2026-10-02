@@ -40,9 +40,11 @@ export class FavoritesRepository {
   async updateAlert(tx: DbTransaction, userId: number, address: string, patch: Partial<typeof userFavorites.$inferInsert>) {
     await tx.update(userFavorites).set(patch).where(this.owned(userId, address));
   }
-  async addAndWatch(tx: DbTransaction, userId: number, address: string) {
+  /** `watchLimit`: the site-wide cap on user-watched addresses; throws
+   * WatchCapacityError (and the caller's transaction rolls back) at it. */
+  async addAndWatch(tx: DbTransaction, userId: number, address: string, watchLimit?: number) {
     await tx.insert(userFavorites).values({ userId, chain: CHAIN_DEFAULT, address }).onConflictDoNothing();
-    const created = await watchLeader(tx, address, "favorite");
+    const created = await watchLeader(tx, address, "favorite", watchLimit);
     if (created) await enqueueBackfills(tx, [address], "favorite");
     return created;
   }

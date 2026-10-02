@@ -248,8 +248,8 @@ export class CopyRepository {
   /** A copied address must be watched, or no fills arrive. Imported rows
    * are never re-sourced or switched; see {@link watchLeader}. Returns true
    * when the leader row was created. */
-  watchLeader(tx: DbTransaction, address: string): Promise<boolean> {
-    return watchLeader(tx, address, "copy");
+  watchLeader(tx: DbTransaction, address: string, limit?: number): Promise<boolean> {
+    return watchLeader(tx, address, "copy", limit);
   }
 
   /** Stops watching a leader nobody copies or favorites any more. */

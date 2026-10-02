@@ -324,6 +324,21 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
         />
         <p className="text-xs text-muted-foreground">{t("adminOps.settings.maxFavoritesHint")}</p>
       </div>
+      <div className="grid max-w-xs gap-2">
+        <Label htmlFor="max-watched">{t("adminOps.settings.maxWatched")}</Label>
+        <Input
+          id="max-watched"
+          type="number"
+          min={1}
+          max={100000}
+          value={value.maxWatchedAddresses}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (Number.isInteger(next) && next >= 1) set({ maxWatchedAddresses: next });
+          }}
+        />
+        <p className="max-w-prose text-xs text-muted-foreground">{t("adminOps.settings.maxWatchedHint")}</p>
+      </div>
       <div className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">{t("adminOps.maintenance.title")}</h3>

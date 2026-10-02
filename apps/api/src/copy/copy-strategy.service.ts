@@ -1,3 +1,4 @@
+import { WatchCapacityError } from "../watcher/leader-watch.js";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import {
   addCopyFundsRequestSchema,
@@ -161,7 +162,15 @@ export class CopyStrategyService {
       await this.repository.adjustPaperBalance(tx, userId, `-${amount}`);
       await this.repository.insertLedger(tx, [{ strategyId: strategy.id, userId, kind: "allocate", amount }]);
       // Watched so its fills arrive (the watcher picks it up on its next refresh).
-      await this.repository.watchLeader(tx, req.leader);
+      // …within the site-wide cap on watched addresses (review finding 34):
+      // at the cap, a leader nobody watches yet can't be copied, and the
+      // whole start is rolled back.
+      try {
+        await this.repository.watchLeader(tx, req.leader, (await this.site.get("general")).maxWatchedAddresses);
+      } catch (error) {
+        if (error instanceof WatchCapacityError) throw conflict("watch_capacity", "The site can't watch more traders right now", { limit: error.limit });
+        throw error;
+      }
       await this.repository.catchUp(tx, req.leader, activatedAt);
 
       if (snapshot) {

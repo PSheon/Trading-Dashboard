@@ -203,6 +203,7 @@ export const zhTW = {
     "fields": {
         "maintenance": "維護模式",
         "maxFavoritesPerUser": "收藏上限",
+        "maxWatchedAddresses": "監看地址上限",
         "poolPerformanceWeightPerMinute": "績效讀取 weight／分鐘",
         "historyWeightPerMinute": "歷史成交 weight／分鐘",
         "backfillWeightPerMinute": "回補 weight／分鐘",
@@ -534,6 +535,8 @@ export const zhTW = {
     },
     settings: {
       maxFavorites: "每位使用者可收藏的交易員數",
+      maxWatched: "全站為使用者監看的地址數",
+      maxWatchedHint: "worker 因使用者收藏或跟單而監看的地址總數上限（匯入的 leader 不計）。達到上限後，收藏或跟單一個尚未被監看的地址會被拒絕。每個監看地址都會耗用 Hyperliquid 額度；調低不會移除既有項目。",
       maxFavoritesHint: "留空則使用部署預設值（MAX_FAVORITES_PER_USER，見系統頁）。調低不會移除既有收藏，只會阻止新增。",
       performanceWeight: "績效讀取 weight／分鐘",
       historyWeight: "歷史成交工作 weight／分鐘",

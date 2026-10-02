@@ -12,8 +12,18 @@ import { loadTraderName } from "@/lib/share-card-data";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
+/** The path segment decoded; "" (never an address) when it is not valid
+ * percent-encoding, which `decodeURIComponent` answers by throwing. */
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return "";
+  }
+}
+
 export async function generateMetadata({ params }: PageProps<"/trader/[address]">): Promise<Metadata> {
-  const address = decodeURIComponent((await params).address);
+  const address = decodedSegment((await params).address);
   const locale = await getLocale();
   const messages = getMessages(locale);
   if (!ADDRESS.test(address)) return {}; // a 404 takes its title from not-found.tsx
@@ -28,7 +38,7 @@ export async function generateMetadata({ params }: PageProps<"/trader/[address]"
  * typed here, as CopyDog's does) is the 404. An address with nothing on
  * Hyperliquid becomes the 404 once the page has asked (TraderView). */
 export default async function TraderPage({ params }: PageProps<"/trader/[address]">) {
-  const address = decodeURIComponent((await params).address);
+  const address = decodedSegment((await params).address);
   if (!ADDRESS.test(address)) notFound();
   return <TraderView address={address} />;
 }

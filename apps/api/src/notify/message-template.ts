@@ -70,6 +70,35 @@ export function actionLabel(action: Pick<ActionRow, "kind" | "side">, locale: Lo
   }
 }
 
+/** The longest trader name a message carries. */
+export const DISPLAY_NAME_MAX = 40;
+
+/**
+ * A trader's display name as it may appear in a Telegram message (review
+ * finding 35). The name is someone else's text — a leaderboard name anyone
+ * can set — and Telegram turns anything link-shaped in a plain message into
+ * a tappable link sent by the official bot. So: control, formatting and
+ * invisible characters are removed, whitespace is one space, the length is
+ * capped, and the characters that make text a link, a mention, a command
+ * or a hashtag are swapped for look-alikes that don't ("example.com" →
+ * "example․com", "@name" → "＠name"). Empty when nothing is left.
+ */
+export function safeDisplayName(value: string): string {
+  const clean = value
+    // Control, format (zero-width, bidi overrides), surrogates, private use.
+    .replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const chars = [...clean];
+  const capped = chars.length > DISPLAY_NAME_MAX ? `${chars.slice(0, DISPLAY_NAME_MAX - 1).join("").trimEnd()}…` : clean;
+  return capped
+    .replace(/:\/\//g, ":∕∕")
+    .replace(/\./g, "․")
+    .replace(/@/g, "＠")
+    .replace(/#/g, "＃")
+    .replace(/\//g, "∕");
+}
+
 export function formatUsd(value: number): string {
   return `$${value.toLocaleString("en-US", { maximumFractionDigits: value >= 1000 ? 0 : 2 })}`;
 }
@@ -100,9 +129,8 @@ export function renderAlertMessage(params: {
   const { locale, action } = params;
   const side = tradeSideOf(action);
   const zh = locale === "zh-TW";
-  const who = params.traderName
-    ? `${params.traderName} · ${shortAddress(action.address)}`
-    : shortAddress(action.address);
+  const name = params.traderName ? safeDisplayName(params.traderName) : "";
+  const who = name ? `${name} · ${shortAddress(action.address)}` : shortAddress(action.address);
   const lines = [
     `${side === "buy" ? "🟢" : "🔴"} ${SIDE_WORD[zh ? "zh-TW" : "en"][side]} · ${actionLabel(action, locale)} ${action.coin}`,
     who,

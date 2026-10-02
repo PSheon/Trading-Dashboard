@@ -200,6 +200,7 @@ export const en: Messages = {
     "fields": {
         "maintenance": "Maintenance mode",
         "maxFavoritesPerUser": "Favorites limit",
+        "maxWatchedAddresses": "Watched addresses limit",
         "poolPerformanceWeightPerMinute": "Performance weight per minute",
         "historyWeightPerMinute": "Fill-history weight per minute",
         "backfillWeightPerMinute": "Backfill weight per minute",
@@ -531,6 +532,8 @@ export const en: Messages = {
     },
     settings: {
       maxFavorites: "Favorites each user may keep",
+      maxWatched: "Addresses watched for all users",
+      maxWatchedHint: "The most addresses the worker watches because a user favorites or copies them (imported leaders are not counted). At the limit, a favorite or copy of an address nobody watches yet is refused. Each watched address costs Hyperliquid budget; lowering this removes nothing.",
       maxFavoritesHint: "Empty uses the deployment default (MAX_FAVORITES_PER_USER, shown on the System page). Lowering it removes nothing; it only stops additions.",
       performanceWeight: "Performance reads: weight per minute",
       historyWeight: "Fill-history job: weight per minute",

@@ -15,7 +15,7 @@ Retry-After through the normal error envelope. Counters have at most
 limits. A restart resets counters; multiple replicas require a shared limiter
 or an edge policy before scaling.
 
-The favorites limit is the admin setting `general.maxFavoritesPerUser`; while that is unset, MAX_FAVORITES_PER_USER (default 100) applies. Additions lock the persisted user row
+Across all users, at most `general.maxWatchedAddresses` (default 100) addresses are watched for favorites and copies; at that cap a new address is refused with `409 watch_capacity`. The favorites limit is the admin setting `general.maxFavoritesPerUser`; while that is unset, MAX_FAVORITES_PER_USER (default 100) applies. Additions lock the persisted user row
 and count favorites in the same transaction as insertion and watch activation.
 Retries of existing favorites remain idempotent at the limit. Rejections create
 no leader or backfill. Lowering a limit does not remove existing favorites;

@@ -3350,6 +3350,12 @@
                                 }
                               ],
                               "default": null
+                            },
+                            "maxWatchedAddresses": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100000,
+                              "default": 100
                             }
                           },
                           "additionalProperties": false
@@ -3791,6 +3797,12 @@
                                 }
                               ],
                               "default": null
+                            },
+                            "maxWatchedAddresses": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100000,
+                              "default": 100
                             }
                           },
                           "additionalProperties": false
@@ -6080,6 +6092,8 @@
             "required": false,
             "in": "query",
             "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
               "type": "integer"
             }
           },
@@ -22306,6 +22320,12 @@
             "maximum": 10000,
             "description": "Favorites a user may keep; null uses the deployment's MAX_FAVORITES_PER_USER"
           },
+          "maxWatchedAddresses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "description": "Addresses watched for users' favorites and copies, across all users"
+          },
           "maintenance": {
             "description": "The whole value when changed: enabled, message and endsAt",
             "allOf": [
@@ -22554,7 +22574,9 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
           },
           "scope": {
             "type": "string",

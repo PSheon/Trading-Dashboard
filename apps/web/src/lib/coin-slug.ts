@@ -11,7 +11,13 @@ export function coinSlug(coin: string): string {
 /** The Hyperliquid coin a slug names ("xyz-TSLA" → "xyz:TSLA"); null when
  * it can't be one. */
 export function coinFromSlug(slug: string): string | null {
-  const value = decodeURIComponent(slug);
+  let value: string;
+  try {
+    value = decodeURIComponent(slug);
+  } catch {
+    // "%E0%A4%A": not valid percent-encoding, so not a coin.
+    return null;
+  }
   const dex = /^([a-z0-9]{1,12})[-:]([A-Za-z0-9]{1,20})$/.exec(value);
   if (dex) return `${dex[1]}:${dex[2]}`;
   return /^[A-Za-z0-9]{1,20}$/.test(value) ? value : null;

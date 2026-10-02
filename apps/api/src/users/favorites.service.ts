@@ -1,3 +1,4 @@
+import { WatchCapacityError } from "../watcher/leader-watch.js";
 import { AppConfig } from "../config/app-config.js";
 import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
@@ -97,15 +98,22 @@ export class FavoritesService {
 
   /** Idempotent. `address` must already be validated and lowercased. */
   async add(userId: number, address: string): Promise<Favorite> {
-    await this.uow.run(async (tx) => {
-      await this.repository.lockUser(tx, userId);
-      // The admin's setting; MAX_FAVORITES_PER_USER while it is unset (review finding 18).
-      const limit = (await this.settings.get("general")).maxFavoritesPerUser ?? this.config.value.limits.favoritesPerUser;
-      if (!await this.repository.findOwned(tx, userId, address) && await this.repository.countOwned(tx, userId) >= limit) {
-        throw new ConflictException({ statusCode: 409, code: "favorite_limit", limit, message: "Favorite trader limit reached" });
-      }
-      return this.repository.addAndWatch(tx, userId, address);
-    });
+    try {
+      await this.uow.run(async (tx) => {
+        await this.repository.lockUser(tx, userId);
+        const general = await this.settings.get("general");
+        // The admin's setting; MAX_FAVORITES_PER_USER while it is unset (review finding 18).
+        const limit = general.maxFavoritesPerUser ?? this.config.value.limits.favoritesPerUser;
+        if (!await this.repository.findOwned(tx, userId, address) && await this.repository.countOwned(tx, userId) >= limit) {
+          throw new ConflictException({ statusCode: 409, code: "favorite_limit", limit, message: "Favorite trader limit reached" });
+        }
+        return this.repository.addAndWatch(tx, userId, address, general.maxWatchedAddresses);
+      });
+    } catch (error) {
+      // The site-wide cap (review finding 34): nothing was saved.
+      if (error instanceof WatchCapacityError) throw new ConflictException({ statusCode: 409, code: "watch_capacity", limit: error.limit, message: "The site can't watch more traders right now" });
+      throw error;
+    }
 
     this.events?.emit(FAVORITES_CHANGED_EVENT, { userId } satisfies FavoritesChangedEvent);
     const [favorite] = await this.list(userId, address);

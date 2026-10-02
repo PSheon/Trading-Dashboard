@@ -225,6 +225,19 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       expect(again.body.error.code).toBe("already_copying");
     });
 
+    it("a copy of a leader nobody watches yet is refused at the site's watch cap, and nothing is taken (review finding 34)", async () => {
+      await settings.patch({ general: { maxWatchedAddresses: 1 } }, null);
+      await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000, copyStartMode: "delta" }).expect(201);
+      const refused = await alice.post("/me/copy/strategies", { leader: OTHER, allocationUsd: 1_000, copyStartMode: "delta" }).expect(409);
+      expect(refused.body.error).toMatchObject({ code: "watch_capacity", details: { limit: 1 } });
+      // Rolled back whole: no strategy, no leader row, the balance untouched.
+      expect(await db.select().from(leaders).where(eq(leaders.address, OTHER))).toHaveLength(0);
+      const { data: overview } = (await alice.get("/me/copy").expect(200)).body;
+      expect(overview.strategies).toHaveLength(1);
+      await settings.patch({ general: { maxWatchedAddresses: 100 } }, null);
+      await alice.post("/me/copy/strategies", { leader: OTHER, allocationUsd: 1_000, copyStartMode: "delta" }).expect(201);
+    });
+
     it("enforces CopyDog's $100 minimum, the paper balance and 6-decimal amounts", async () => {
       expect((await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 50, copyStartMode: "delta" }).expect(409)).body.error.code).toBe("below_min_allocation");
       await alice.get("/me/copy").expect(200);

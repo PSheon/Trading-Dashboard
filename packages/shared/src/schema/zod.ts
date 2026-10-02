@@ -261,7 +261,7 @@ export type ActionsStreamQuery = z.infer<typeof actionsStreamQuerySchema>;
 
 /** GET /alerts — D5 log (filterable by rule/address/coin) */
 export const alertsQuerySchema = z.object({
-  ruleId: z.coerce.number().int().optional(),
+  ruleId: z.coerce.number().int().min(1).max(2_147_483_647).optional(),
   address: addressSchema.transform((v) => v.toLowerCase()).optional(),
   coin: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -270,7 +270,7 @@ export type AlertsQuery = z.infer<typeof alertsQuerySchema>;
 
 /** POST/PATCH /alert-rules — D5 rule editor */
 export const upsertAlertRuleRequestSchema = z.object({
-  id: z.number().int().optional(),
+  id: z.number().int().min(1).max(2_147_483_647).optional(),
   scope: alertRuleScopeSchema,
   kind: alertRuleKindSchema,
   paramsJson: z.record(z.string(), z.unknown()),
@@ -1427,6 +1427,13 @@ export const generalSettingsSchema = z.object({
    * deployment's MAX_FAVORITES_PER_USER applies. Lowering it removes nothing;
    * it only stops additions. */
   maxFavoritesPerUser: z.number().int().min(1).max(10_000).nullable().default(null),
+  /** Addresses watched because a user favorites or copies them, across all
+   * users (review finding 34): each one costs the worker snapshots and
+   * sweeps, and the per-user limits alone let a few accounts take the whole
+   * Hyperliquid budget. At the cap a favorite or copy of an address nobody
+   * watches yet is refused; addresses already watched, and the admin's
+   * imported leaders, are not affected. Lowering it stops additions only. */
+  maxWatchedAddresses: z.number().int().min(1).max(100_000).default(100),
 });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 

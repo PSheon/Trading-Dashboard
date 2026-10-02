@@ -149,6 +149,17 @@ the environment, at once. Lowering it removes nothing; it only stops additions
 (409 `favorite_limit` with the limit in force). The General card has the input;
 empty saves `null`.
 
+`general.maxWatchedAddresses` (1–100,000, default `100`) is how many addresses the
+worker watches because a user favorites or copies them, across all users
+(review finding 34). Each watched address costs snapshots and sweeps from the
+worker's Hyperliquid budget (about 3.5 weight a minute), and the per-user limits
+alone let a few accounts take all of it. At the cap, `PUT /me/favorites/:address`
+and `POST /me/copy/strategies` answer `409 watch_capacity` for an address nobody
+watches yet, and save nothing; an address already watched, and the admin's
+imported leaders, are not counted or refused. Lowering it removes nothing. Set it
+to what the worker's budget can carry (see the budget table in
+[railway-deploy.md](railway-deploy.md)).
+
 The Discovery card now has inputs for the three weight caps that could only be
 set through the API: `poolPerformanceWeightPerMinute`,
 `historyWeightPerMinute` and `backfillWeightPerMinute` (0–600 each; 0 pauses

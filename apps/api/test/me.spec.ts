@@ -108,6 +108,33 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
     } finally { vi.unstubAllEnvs(); }
   });
 
+  it("the site watches at most general.maxWatchedAddresses for its users; an address already watched still passes (review finding 34)", async () => {
+    const THIRD = "0x" + "ef".repeat(20);
+    await settings.patch({ general: { maxWatchedAddresses: 2 } }, null);
+    await alice.put(`/me/favorites/${ADDR}`).expect(200);
+    await bob.put(`/me/favorites/${OTHER}`).expect(200);
+    // A third address would be one more to watch: refused, nothing saved.
+    expect((await bob.put(`/me/favorites/${THIRD}`).expect(409)).body.error).toMatchObject({ code: "watch_capacity", details: { limit: 2 } });
+    expect(await db.select().from(userFavorites)).toHaveLength(2);
+    expect(await db.select().from(leaders)).toHaveLength(2);
+    expect(await db.select().from(backfillJobs)).toHaveLength(2);
+    // An address someone already watches costs nothing more.
+    await bob.put(`/me/favorites/${ADDR}`).expect(200);
+    // An imported leader is the admin's and is not counted or refused.
+    await db.insert(leaders).values({ chain: "hyperliquid", address: THIRD, active: true, source: "import" });
+    await alice.put(`/me/favorites/${THIRD}`).expect(200);
+    // Room again once an address is no longer watched.
+    await bob.delete(`/me/favorites/${OTHER}`).expect(204);
+    await bob.put(`/me/favorites/${"0x" + "12".repeat(20)}`).expect(200);
+    // Two additions racing for the last place: one wins.
+    await bob.delete(`/me/favorites/${"0x" + "12".repeat(20)}`).expect(204);
+    const racing = await Promise.all([alice.put(`/me/favorites/${"0x" + "34".repeat(20)}`), bob.put(`/me/favorites/${"0x" + "56".repeat(20)}`)]);
+    expect(racing.map((r) => r.status).sort()).toEqual([200, 409]);
+    // Raising the setting takes effect at once.
+    await settings.patch({ general: { maxWatchedAddresses: 10 } }, null);
+    await bob.put(`/me/favorites/${"0x" + "56".repeat(20)}`).expect(200);
+  });
+
   it("serializes favorite quota checks, preserves idempotency and rejects before backfill", async () => {
     vi.stubEnv("MAX_FAVORITES_PER_USER", "1");
     try {

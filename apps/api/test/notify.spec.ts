@@ -14,7 +14,7 @@ import {
 import { readAlertDisplayValues } from "@trading-dashboard/shared/contracts";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { renderAlertMessage, tradeSideOf } from "../src/notify/message-template.js";
+import { DISPLAY_NAME_MAX, renderAlertMessage, safeDisplayName, tradeSideOf } from "../src/notify/message-template.js";
 import { NotifyService, type AlertContext } from "../src/notify/notify.service.js";
 import { TelegramApiError, type TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
@@ -40,6 +40,30 @@ describe("alert display contract", () => {
 
 describe("message template", () => {
   const base = { address: ADDRESS, coin: "BTC", notionalUsd: "1250000", avgPx: "60123.5" };
+
+  it("a trader's display name can't become a link, a mention or a wall of text in a message (review finding 35)", () => {
+    expect(safeDisplayName("Machi is ugly dog")).toBe("Machi is ugly dog");
+    expect(safeDisplayName("  韦小宝.eth  ")).toBe("韦小宝․eth");
+    // Nothing Telegram would turn into something tappable survives as typed.
+    for (const hostile of ["https://evil.example/claim", "evil.example", "t.me/evil_bot", "@official_support", "/start", "#airdrop", "claim at evil.io now"]) {
+      const safe = safeDisplayName(hostile);
+      expect(safe, hostile).not.toMatch(/[./@#]/);
+      expect(safe.length, hostile).toBeGreaterThan(0);
+    }
+    // Control, zero-width and direction-override characters go; whitespace is one space.
+    expect(safeDisplayName("a\u202Eb\u200Bc\n\n\td\u0000e")).toBe("a b c d e");
+    expect([...safeDisplayName("x".repeat(500))]).toHaveLength(DISPLAY_NAME_MAX);
+    expect(safeDisplayName("x".repeat(500)).endsWith("…")).toBe(true);
+    expect(safeDisplayName("\u200B\u202E ")).toBe("");
+
+    const text = renderAlertMessage({ locale: "en", traderName: "free money: https://evil.example @admin " + "A".repeat(200), action: { ...base, kind: "open", side: "long" }, dashboardUrl: `https://app.orbie.fun/trader/${ADDRESS}` });
+    const who = text.split("\n")[1];
+    expect(who).not.toContain("https://");
+    expect(who).not.toContain("@");
+    expect(who.length).toBeLessThan(DISPLAY_NAME_MAX + 20);
+    // A name that is nothing but invisible characters falls back to the address alone.
+    expect(renderAlertMessage({ locale: "en", traderName: "\u200B", action: { ...base, kind: "open", side: "long" }, dashboardUrl: "https://app.orbie.fun/x" }).split("\n")[1]).not.toContain("·");
+  });
 
   it("buy = opening/adding/flipping into a long or closing a short; sell = the mirror", () => {
     expect(tradeSideOf({ kind: "open", side: "long" })).toBe("buy");

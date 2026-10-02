@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { registerDecorator } from "class-validator";
-import { IsBoolean, IsInt, Min, IsIn, IsArray, IsObject } from "class-validator";
+import { IsBoolean, IsInt, Min, Max, IsIn, IsArray, IsObject } from "class-validator";
 import { Optional, Nullable } from "../../../common/decorators/input.decorator.js";
 import type * as c from "@trading-dashboard/shared/contracts";
 
@@ -16,8 +16,9 @@ function IsThresholdParams(): PropertyDecorator {
   });
 }
 export class UpsertRuleDto {
-  @ApiPropertyOptional({ type: "integer" })
-  @Optional() @IsInt() declare id?: number;
+  // A positive int4, or the request is a 400 rather than a database error.
+  @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 2147483647 })
+  @Optional() @IsInt() @Min(1) @Max(2147483647) declare id?: number;
   @ApiProperty({ type: String, enum: ["address", "group"] })
   @IsIn(["address", "group"]) declare scope: c.AlertRuleScope;
   @ApiProperty({ type: String, enum: ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"] })

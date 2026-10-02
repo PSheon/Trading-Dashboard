@@ -15,9 +15,7 @@ import {
   copyStrategies,
   copyStrategyVersions,
   fills,
-  leaders,
   paperAccounts,
-  userFavorites,
   users,
   type CopyStrategySettingsJson,
 } from "@trading-dashboard/shared/database";
@@ -27,6 +25,7 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbExecutor, DbTransaction } from "../db/unit-of-work.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
+import { unwatchLeaderIfUnused, watchLeader } from "../watcher/leader-watch.js";
 import { LIVE_STRATEGY_STATUSES, catchUpCopySignals, lockCopyLeader } from "./copy-outbox.js";
 
 export type StrategyRow = typeof copyStrategies.$inferSelect;
@@ -245,22 +244,16 @@ export class CopyRepository {
 
   // --- leaders (watch list) ----------------------------------------------------------
 
-  /** A copied address must be watched, or no fills arrive. Imported and
-   * favorite-sourced rows are only reactivated, never re-sourced. Returns
-   * true when the leader row was created. */
-  async watchLeader(tx: DbTransaction, address: string): Promise<boolean> {
-    const inserted = await tx.insert(leaders).values({ chain: CHAIN_DEFAULT, address, active: true, source: "copy" })
-      .onConflictDoNothing({ target: [leaders.chain, leaders.address] }).returning({ address: leaders.address });
-    if (inserted.length) return true;
-    await tx.update(leaders).set({ active: true }).where(and(eq(leaders.chain, CHAIN_DEFAULT), eq(leaders.address, address), inArray(leaders.source, ["copy", "favorite"]), eq(leaders.active, false)));
-    return false;
+  /** A copied address must be watched, or no fills arrive. Imported rows
+   * are never re-sourced or switched; see {@link watchLeader}. Returns true
+   * when the leader row was created. */
+  watchLeader(tx: DbTransaction, address: string): Promise<boolean> {
+    return watchLeader(tx, address, "copy");
   }
 
-  /** Stops watching a copy-sourced leader nobody copies or favorites any more. */
-  async unwatchLeaderIfUnused(tx: DbTransaction, address: string): Promise<void> {
-    await tx.update(leaders).set({ active: false }).where(and(eq(leaders.chain, CHAIN_DEFAULT), eq(leaders.address, address), eq(leaders.source, "copy"),
-      sql`not exists (select 1 from ${copyStrategies} where ${copyStrategies.chain} = ${CHAIN_DEFAULT} and ${copyStrategies.leaderAddress} = ${address} and ${copyStrategies.status} <> 'stopped')`,
-      sql`not exists (select 1 from ${userFavorites} where ${userFavorites.chain} = ${CHAIN_DEFAULT} and ${userFavorites.address} = ${address})`));
+  /** Stops watching a leader nobody copies or favorites any more. */
+  unwatchLeaderIfUnused(tx: DbTransaction, address: string): Promise<void> {
+    return unwatchLeaderIfUnused(tx, address);
   }
 
   lockLeader(tx: DbTransaction, address: string) {

@@ -242,6 +242,67 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
     });
   });
 
+  describe("the watch list follows favorites and copies together (review 25)", () => {
+    const favorites = () => app.get(FavoritesRepository);
+    const leaderRow = async (address = LEADER) => (await db.select().from(leaders).where(eq(leaders.address, address)))[0];
+    async function bobId(): Promise<number> {
+      await api("bob-token").get("/me/copy").expect(200);
+      const [u] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:bob"));
+      return u!.id;
+    }
+    async function stopCopy(id: number) {
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
+      await run();
+      expect(await execution.settleStopping()).toBe(1);
+    }
+
+    it("favoriting a leader whose last copy stopped watches it again", async () => {
+      const { id } = await startCopy();
+      await stopCopy(id);
+      expect(await leaderRow()).toMatchObject({ source: "copy", active: false });
+      const bob = await bobId();
+      const created = await db.transaction((tx) => favorites().addAndWatch(tx as never, bob, LEADER));
+      expect(created).toBe(false);
+      expect(await leaderRow()).toMatchObject({ source: "copy", active: true });
+    });
+
+    it("a copy-sourced leader someone also favorites is unwatched when the favorite goes after the copy", async () => {
+      const { id } = await startCopy();
+      const bob = await bobId();
+      await db.transaction((tx) => favorites().addAndWatch(tx as never, bob, LEADER));
+      await stopCopy(id);
+      expect(await leaderRow()).toMatchObject({ source: "copy", active: true }); // still favorited
+      await db.transaction((tx) => favorites().removeAndUnwatch(tx as never, bob, LEADER));
+      expect(await leaderRow()).toMatchObject({ source: "copy", active: false });
+    });
+
+    it("a favorite-sourced leader someone also copies is unwatched when the copy stops after the favorite went", async () => {
+      const bob = await bobId();
+      await db.transaction((tx) => favorites().addAndWatch(tx as never, bob, LEADER));
+      const { id } = await startCopy();
+      await db.transaction((tx) => favorites().removeAndUnwatch(tx as never, bob, LEADER));
+      expect(await leaderRow()).toMatchObject({ source: "favorite", active: true }); // still copied
+      await stopCopy(id);
+      expect(await leaderRow()).toMatchObject({ source: "favorite", active: false });
+      // And a new copy of it is watched again.
+      await startCopy();
+      expect(await leaderRow()).toMatchObject({ source: "favorite", active: true });
+    });
+
+    it("an imported leader is the admin's: neither path switches it", async () => {
+      await db.insert(leaders).values([{ address: LEADER, source: "import", active: false }, { address: OTHER, source: "import", active: true }]);
+      const bob = await bobId();
+      await db.transaction((tx) => favorites().addAndWatch(tx as never, bob, LEADER));
+      await startCopy();
+      expect(await leaderRow()).toMatchObject({ source: "import", active: false });
+      await db.transaction(async (tx) => {
+        await favorites().addAndWatch(tx as never, bob, OTHER);
+        await favorites().removeAndUnwatch(tx as never, bob, OTHER);
+      });
+      expect(await leaderRow(OTHER)).toMatchObject({ source: "import", active: true });
+    });
+  });
+
   describe("canonical signals", () => {
     it("copies a verified open with ratio sizing, fills at mid + slippage and reserves margin in the same transaction", async () => {
       const { id, activatedAt } = await startCopy();

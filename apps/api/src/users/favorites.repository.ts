@@ -1,11 +1,12 @@
 import { enqueueBackfills } from "../jobs/backfill-jobs.repository.js";
 import { Inject, Injectable } from "@nestjs/common";
-import { and, count, desc, eq, sql } from "drizzle-orm";
-import { copyStrategies, leaders, notificationChannels, traderStats, userFavorites, users } from "@trading-dashboard/shared/database";
+import { and, count, desc, eq } from "drizzle-orm";
+import { notificationChannels, traderStats, userFavorites, users } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { unwatchLeaderIfUnused, watchLeader } from "../watcher/leader-watch.js";
 export type FavoriteUpdate = Partial<typeof userFavorites.$inferInsert>;
 
 /** Owned favorites and transactional alert/watch-state persistence. */
@@ -40,22 +41,14 @@ export class FavoritesRepository {
     await tx.update(userFavorites).set(patch).where(this.owned(userId, address));
   }
   async addAndWatch(tx: DbTransaction, userId: number, address: string) {
-    const chain = CHAIN_DEFAULT;
-    await tx.insert(userFavorites).values({ userId, chain, address }).onConflictDoNothing();
-    const inserted = await tx.insert(leaders).values({ chain, address, active: true, source: "favorite" })
-      .onConflictDoNothing({ target: [leaders.chain, leaders.address] }).returning({ address: leaders.address });
-    if (inserted.length) { await enqueueBackfills(tx, [address], "favorite"); return true; }
-    await tx.update(leaders).set({ active: true }).where(and(eq(leaders.chain, chain), eq(leaders.address, address), eq(leaders.source, "favorite"), eq(leaders.active, false)));
-    return false;
+    await tx.insert(userFavorites).values({ userId, chain: CHAIN_DEFAULT, address }).onConflictDoNothing();
+    const created = await watchLeader(tx, address, "favorite");
+    if (created) await enqueueBackfills(tx, [address], "favorite");
+    return created;
   }
   async removeAndUnwatch(tx: DbTransaction, userId: number, address: string) {
-    const chain = CHAIN_DEFAULT;
     const removed = await tx.delete(userFavorites).where(this.owned(userId, address)).returning({ address: userFavorites.address });
-    await tx.select({ address: leaders.address }).from(leaders).where(and(eq(leaders.chain, chain), eq(leaders.address, address))).for("update");
-    await tx.update(leaders).set({ active: false }).where(and(eq(leaders.chain, chain), eq(leaders.address, address), eq(leaders.source, "favorite"),
-      sql`not exists (select 1 from ${userFavorites} where ${userFavorites.chain} = ${chain} and ${userFavorites.address} = ${address})`,
-      // A leader someone is copying stays watched: its fills are copy signals.
-      sql`not exists (select 1 from ${copyStrategies} where ${copyStrategies.chain} = ${chain} and ${copyStrategies.leaderAddress} = ${address} and ${copyStrategies.status} <> 'stopped')`));
+    await unwatchLeaderIfUnused(tx, address);
     return removed.length > 0;
   }
 }

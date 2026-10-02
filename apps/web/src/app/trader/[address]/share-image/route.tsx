@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { clientAddress, imageRetryAfter } from "@/lib/client-address";
 import { ADDRESS_RE, loadShareCard, SHARE_REVALIDATE_S } from "@/lib/share-card-data";
 import { renderShareCard } from "@/lib/share-card-image";
 import { isShareFormat, isSharePeriod } from "@/lib/share-card";
@@ -17,7 +18,12 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/trader/[addr
   if (!ADDRESS_RE.test(address) || !isSharePeriod(period) || !isShareFormat(format)) {
     return new Response("Bad request", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
-  const data = await loadShareCard(address, period);
+  // The card is built from api reads made here: they count against the
+  // caller, and one caller can't ask for cards without end.
+  const client = clientAddress(request.headers);
+  const wait = imageRetryAfter(client);
+  if (wait) return new Response("Too many requests", { status: 429, headers: { "Retry-After": String(wait), "Cache-Control": "no-store" } });
+  const data = await loadShareCard(address, period, { client });
   return renderShareCard(data, format, {
     headers: { "Cache-Control": `public, max-age=${SHARE_REVALIDATE_S}, stale-while-revalidate=${SHARE_REVALIDATE_S}` },
   });

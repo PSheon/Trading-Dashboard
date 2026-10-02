@@ -1,6 +1,6 @@
-import { isIP } from "node:net";
 import type { NextRequest } from "next/server";
 
+import { clientAddress } from "@/lib/client-address";
 import { readBody } from "@/lib/forward-body";
 
 /**
@@ -106,8 +106,9 @@ async function forward(
   const lastEventId = request.headers.get("last-event-id");
   if (lastEventId && /^\d{1,19}$/.test(lastEventId)) headers.set("Last-Event-ID", lastEventId);
   // The browser's address, for the api's per-client limits (it counts this
-  // forwarder as one trusted proxy hop).
-  const client = clientAddress(request);
+  // forwarder as one trusted proxy hop). Always overwritten: a client's own
+  // X-Forwarded-For never reaches the api.
+  const client = clientAddress(request.headers);
   if (client) headers.set("X-Forwarded-For", client);
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
@@ -235,15 +236,6 @@ function relay(body: ReadableStream<Uint8Array>, upstreamAbort: AbortController,
       await reader.cancel(reason).catch(() => undefined);
     },
   });
-}
-
-/** The browser's address as this server received it: the last
- * X-Forwarded-For entry (the one the platform in front of us, e.g. Vercel,
- * wrote), if it is an IP address. */
-function clientAddress(request: NextRequest): string | undefined {
-  const entries = (request.headers.get("x-forwarded-for") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
-  const last = entries.at(-1);
-  return last && isIP(last) ? last : undefined;
 }
 
 export const GET = forward;

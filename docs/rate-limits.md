@@ -49,6 +49,70 @@ through a shared per-category overflow bucket (10x the limit) rather than
 refusing them. `/health` and `/health/ready` have their own per-client bucket
 (120/min) and answer from a one-second cache. No production proxy setting or edge policy was changed by this source update.
 
+## Railway (Stage): web → api over the private network
+
+Path: browser → Railway edge → `web` (Next) → private network → `api`.
+The `web` service reaches `api` at its `*.railway.internal` name, so the
+api's socket peer is the web service's private address, an IPv6 address in
+`fd12::/16` that changes with every deployment. With nothing set, the api
+trusts no forwarded address and every visitor is that one peer: one read
+window (300/min) for all anonymous visitors, one set of 8 live-feed streams,
+one Hyperliquid page-budget share, one slot set for cold analytics.
+
+Set on the **api** service:
+
+| Variable | Value | Why |
+| --- | --- | --- |
+| `API_TRUSTED_PROXY_CIDRS` | `fd12::/16` | Only a peer on the private network (the web service) may name the client. A request through the api's own public domain arrives from Railway's edge, which is not in this range, so its forwarded header is ignored. |
+| `STREAM_TRUSTED_PROXY_HOPS` | `1` | The web forwarder replaces `X-Forwarded-For` with a single entry, so the client is one hop before the peer. |
+
+Set on the **web** service:
+
+| Variable | Value | Why |
+| --- | --- | --- |
+| `CLIENT_IP_HEADER` | `x-real-ip` | Railway's edge reports the visitor's address in `X-Real-IP` (its documented request headers have no `X-Forwarded-For`). Unset, the forwarder takes the last `X-Forwarded-For` entry, which on Railway may be whatever the client sent. |
+
+What the code does with them: `/api/hl/*` and the server-side reads behind
+the trader page's title, its link-preview image and the share card all send
+`X-Forwarded-For: <that address>` and nothing else from the client's
+forwarding headers. The image routes also keep their own window of 30
+images per client and minute (429 with `Retry-After`), since each uncached
+card is four api reads.
+
+Before relying on it, confirm two facts that the code cannot see:
+
+1. The private range. In a shell on the web service
+   (`railway ssh --service web --environment staging`):
+   `node -e "require('dns').lookup('api.railway.internal',{all:true},(e,a)=>console.log(a))"`.
+   Only `fd12:…` addresses → the value above is complete. If a `10.…`
+   address is listed too (newer environments resolve both families), add
+   that IPv4 range to `API_TRUSTED_PROXY_CIDRS`, comma-separated.
+2. That the edge overwrites `X-Real-IP`. It is the last step of the test
+   below.
+
+Test from two client addresses (two networks, e.g. a laptop and a phone on
+mobile data; call them A and B), after setting the variables and
+redeploying both services:
+
+1. A, 310 anonymous reads within a minute:
+   `for i in $(seq 1 310); do curl -s -o /dev/null -w "%{http_code}\n" https://<web>/api/hl/discover/home; done | sort | uniq -c`
+   → 300 × `200`, then `429` with `Retry-After`.
+2. B, during the same minute: `curl -i https://<web>/api/hl/discover/home`
+   → `200`. Before the change B gets `429` too.
+3. A opens 9 live-feed streams
+   (`curl -N https://<web>/api/hl/actions/stream &` nine times): the ninth
+   is `429`; B can still open one.
+4. Spoofing, from A while it is limited:
+   `curl -i -H "X-Real-IP: 198.51.100.1" -H "X-Forwarded-For: 198.51.100.1" https://<web>/api/hl/discover/home`
+   → still `429`. A `200` here means the edge passes a client's header
+   through and `CLIENT_IP_HEADER` names the wrong header: unset the api
+   variables again until that is resolved.
+5. The api's own public domain, if it has one, from A with
+   `-H "X-Forwarded-For: 198.51.100.1"`: the limit does not move to the
+   spoofed address (the edge is not a trusted peer).
+6. Images: A requests `https://<web>/trader/<address>/share-image` 31 times
+   in a minute → the 31st is `429`; B gets `200`.
+
 The approach follows DonutMe's verified-user tracker and adapter-resolved IP
 boundary, adapted to Express and this single-process runtime. References:
 [Nest rate limiting](https://docs.nestjs.com/security/rate-limiting) and

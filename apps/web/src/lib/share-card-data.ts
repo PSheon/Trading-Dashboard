@@ -26,12 +26,17 @@ export function apiTarget(apiUrl: string | undefined, path: string): URL | null 
   return target.origin === base.origin ? target : null;
 }
 
-async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: string, timeoutMs = TIMEOUT_MS): Promise<T | null> {
+/** Who this server is asking for: apps/api counts the read against that
+ * address (its rate limit and Hyperliquid page budget), not against this
+ * server, whose one bucket every visitor would otherwise share. */
+const onBehalfOf = (client: string | undefined): Record<string, string> => (client ? { "X-Forwarded-For": client } : {});
+
+async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: string, timeoutMs = TIMEOUT_MS, client?: string): Promise<T | null> {
   const url = apiTarget(apiUrl, path);
   if (!url) return null;
   try {
     const res = await fetchImpl(url, {
-      headers: { Accept: "application/json", "x-api-contract": "1" },
+      headers: { Accept: "application/json", "x-api-contract": "1", ...onBehalfOf(client) },
       signal: AbortSignal.timeout(timeoutMs),
       next: { revalidate: SHARE_REVALIDATE_S },
     } as RequestInit);
@@ -45,12 +50,12 @@ async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: st
 
 /** A cached KOL avatar (an api path) as a data URI the renderer can embed;
  * PNG and JPEG only, at most 1 MB. Absolute URLs are not fetched. */
-async function avatarDataUri(fetchImpl: Fetch, apiUrl: string | undefined, path: string | null | undefined): Promise<string | null> {
+async function avatarDataUri(fetchImpl: Fetch, apiUrl: string | undefined, path: string | null | undefined, client?: string): Promise<string | null> {
   if (!path) return null;
   const url = apiTarget(apiUrl, path);
   if (!url) return null;
   try {
-    const res = await fetchImpl(url, { signal: AbortSignal.timeout(TIMEOUT_MS), next: { revalidate: SHARE_REVALIDATE_S } } as RequestInit);
+    const res = await fetchImpl(url, { headers: onBehalfOf(client), signal: AbortSignal.timeout(TIMEOUT_MS), next: { revalidate: SHARE_REVALIDATE_S } } as RequestInit);
     const type = res.headers.get("content-type")?.split(";")[0].trim();
     if (!res.ok || (type !== "image/png" && type !== "image/jpeg")) return null;
     const bytes = Buffer.from(await res.arrayBuffer());
@@ -66,10 +71,10 @@ async function avatarDataUri(fetchImpl: Fetch, apiUrl: string | undefined, path:
  * Hyperliquid. null when there is none or the api is slow. */
 export async function loadTraderName(
   address: string,
-  { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch }: { apiUrl?: string; fetchImpl?: Fetch } = {},
+  { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch, client }: { apiUrl?: string; fetchImpl?: Fetch; client?: string } = {},
 ): Promise<string | null> {
   const lower = address.toLowerCase();
-  const found = await getJson<{ items: Array<{ address: string; displayName: string | null }> }>(fetchImpl, apiUrl, `/discover/search?q=${lower}&limit=1`, 2_000);
+  const found = await getJson<{ items: Array<{ address: string; displayName: string | null }> }>(fetchImpl, apiUrl, `/discover/search?q=${lower}&limit=1`, 2_000, client);
   return found?.items.find((item) => item.address.toLowerCase() === lower)?.displayName?.trim() || null;
 }
 
@@ -88,20 +93,21 @@ interface AnalyticsLike {
 /** Everything the card shows, read from apps/api server-side: profile
  * (name, KOL avatar), the period's perp portfolio (PnL, ROI, the line) and
  * its trade analytics (win rate; all-time when the period has none). Any
- * part that fails is left empty, so the card still renders. */
+ * part that fails is left empty, so the card still renders. `client`: the
+ * address of whoever asked for the card (see `onBehalfOf`). */
 export async function loadShareCard(
   address: string,
   period: TraderWindow,
-  { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch }: { apiUrl?: string; fetchImpl?: Fetch } = {},
+  { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch, client }: { apiUrl?: string; fetchImpl?: Fetch; client?: string } = {},
 ): Promise<ShareCardData> {
   const a = address.toLowerCase();
   const [profile, portfolio, analytics, allTime] = await Promise.all([
-    getJson<ProfileLike>(fetchImpl, apiUrl, `/traders/${a}`),
-    getJson<PortfolioLike>(fetchImpl, apiUrl, `/traders/${a}/portfolio?window=${period}&market=perp`),
-    getJson<AnalyticsLike>(fetchImpl, apiUrl, `/traders/${a}/analytics?window=${TRADE_WINDOW[period]}`),
-    period === "allTime" ? Promise.resolve(null) : getJson<AnalyticsLike>(fetchImpl, apiUrl, `/traders/${a}/analytics?window=all`),
+    getJson<ProfileLike>(fetchImpl, apiUrl, `/traders/${a}`, TIMEOUT_MS, client),
+    getJson<PortfolioLike>(fetchImpl, apiUrl, `/traders/${a}/portfolio?window=${period}&market=perp`, TIMEOUT_MS, client),
+    getJson<AnalyticsLike>(fetchImpl, apiUrl, `/traders/${a}/analytics?window=${TRADE_WINDOW[period]}`, TIMEOUT_MS, client),
+    period === "allTime" ? Promise.resolve(null) : getJson<AnalyticsLike>(fetchImpl, apiUrl, `/traders/${a}/analytics?window=all`, TIMEOUT_MS, client),
   ]);
-  const avatar = await avatarDataUri(fetchImpl, apiUrl, profile?.kol?.avatarUrl);
+  const avatar = await avatarDataUri(fetchImpl, apiUrl, profile?.kol?.avatarUrl, client);
   return shareCardData({
     address: a,
     profile,

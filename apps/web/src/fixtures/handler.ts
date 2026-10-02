@@ -518,6 +518,8 @@ export async function fixtureRequest<T>(
       return wire(copyOverviewResponseSchema, fixtureCopyOverview());
     case "POST /me/copy/strategies":
       requireUser(token);
+      // As the api: no new copy while the admin's switch is off.
+      if (!adminSettings.general.copyTradingEnabled) throw new ApiError(403, "Copy trading is not open", { code: "copy_not_open" });
       return wire(copyStrategySchema, fixtureStartCopy(body as Record<string, unknown>));
     case "PATCH /me/copy/strategies/:id":
       requireUser(token);

@@ -35,6 +35,8 @@ const DAY = 86400_000;
 /** Starts from the schema defaults, then the values a demo admin would set. */
 export let adminSettings: AdminSettings = adminSettingsSchema.parse({
   general: {
+    // The demo admin has opened copying (off by default; see the copy panel).
+    copyTradingEnabled: true,
     announcement: {
       enabled: true,
       text: {

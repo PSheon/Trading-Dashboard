@@ -1596,6 +1596,9 @@
                               "poolWeightPerMinute": {
                                 "type": "number"
                               },
+                              "poolPerformanceWeightPerMinute": {
+                                "type": "number"
+                              },
                               "leaderboardRefreshMinutes": {
                                 "type": "number"
                               }
@@ -2325,6 +2328,9 @@
                                           "poolWeightPerMinute": {
                                             "type": "number"
                                           },
+                                          "poolPerformanceWeightPerMinute": {
+                                            "type": "number"
+                                          },
                                           "leaderboardRefreshMinutes": {
                                             "type": "number"
                                           }
@@ -2526,6 +2532,89 @@
                                               "required": [
                                                 "live",
                                                 "background"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "budget": {
+                                              "type": "object",
+                                              "properties": {
+                                                "effectivePerMin": {
+                                                  "type": "number"
+                                                },
+                                                "pageWeightLastMinute": {
+                                                  "type": "number"
+                                                },
+                                                "reserveTokens": {
+                                                  "type": "number"
+                                                },
+                                                "reserveCapacity": {
+                                                  "type": "number"
+                                                },
+                                                "backgroundFactor": {
+                                                  "type": "number"
+                                                },
+                                                "consumers": {
+                                                  "type": "object",
+                                                  "additionalProperties": {
+                                                    "type": "number"
+                                                  }
+                                                }
+                                              },
+                                              "required": [
+                                                "effectivePerMin",
+                                                "pageWeightLastMinute",
+                                                "reserveTokens",
+                                                "reserveCapacity",
+                                                "backgroundFactor",
+                                                "consumers"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "discovery": {
+                                              "type": "object",
+                                              "properties": {
+                                                "visibleRows": {
+                                                  "type": "integer"
+                                                },
+                                                "medianVisibleAgeSeconds": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "oldestVisibleAgeSeconds": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "poolRows": {
+                                                  "type": "integer"
+                                                },
+                                                "poolReady": {
+                                                  "type": "integer"
+                                                },
+                                                "medianPoolAgeSeconds": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "oldestPoolAgeSeconds": {
+                                                  "type": [
+                                                    "number",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "visibleRows",
+                                                "medianVisibleAgeSeconds",
+                                                "oldestVisibleAgeSeconds",
+                                                "poolRows",
+                                                "poolReady",
+                                                "medianPoolAgeSeconds",
+                                                "oldestPoolAgeSeconds"
                                               ],
                                               "additionalProperties": false
                                             },
@@ -3133,7 +3222,25 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
+                              "default": 100
+                            },
+                            "poolPerformanceWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
                               "default": 240
+                            },
+                            "historyWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 120
+                            },
+                            "backfillWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 120
                             },
                             "cryptoBoards": {
                               "type": "array",
@@ -3185,7 +3292,7 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
-                              "default": 200
+                              "default": 60
                             }
                           },
                           "additionalProperties": false
@@ -3492,7 +3599,25 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
+                              "default": 100
+                            },
+                            "poolPerformanceWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
                               "default": 240
+                            },
+                            "historyWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 120
+                            },
+                            "backfillWeightPerMinute": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 600,
+                              "default": 120
                             },
                             "cryptoBoards": {
                               "type": "array",
@@ -3544,7 +3669,7 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
-                              "default": 200
+                              "default": 60
                             }
                           },
                           "additionalProperties": false
@@ -5996,6 +6121,89 @@
                       "required": [
                         "live",
                         "background"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "budget": {
+                      "type": "object",
+                      "properties": {
+                        "effectivePerMin": {
+                          "type": "number"
+                        },
+                        "pageWeightLastMinute": {
+                          "type": "number"
+                        },
+                        "reserveTokens": {
+                          "type": "number"
+                        },
+                        "reserveCapacity": {
+                          "type": "number"
+                        },
+                        "backgroundFactor": {
+                          "type": "number"
+                        },
+                        "consumers": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "required": [
+                        "effectivePerMin",
+                        "pageWeightLastMinute",
+                        "reserveTokens",
+                        "reserveCapacity",
+                        "backgroundFactor",
+                        "consumers"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "discovery": {
+                      "type": "object",
+                      "properties": {
+                        "visibleRows": {
+                          "type": "integer"
+                        },
+                        "medianVisibleAgeSeconds": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "oldestVisibleAgeSeconds": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "poolRows": {
+                          "type": "integer"
+                        },
+                        "poolReady": {
+                          "type": "integer"
+                        },
+                        "medianPoolAgeSeconds": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "oldestPoolAgeSeconds": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "visibleRows",
+                        "medianVisibleAgeSeconds",
+                        "oldestVisibleAgeSeconds",
+                        "poolRows",
+                        "poolReady",
+                        "medianPoolAgeSeconds",
+                        "oldestPoolAgeSeconds"
                       ],
                       "additionalProperties": false
                     },
@@ -19221,6 +19429,21 @@
             "maximum": 5000
           },
           "poolWeightPerMinute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600
+          },
+          "poolPerformanceWeightPerMinute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600
+          },
+          "historyWeightPerMinute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600
+          },
+          "backfillWeightPerMinute": {
             "type": "integer",
             "minimum": 0,
             "maximum": 600

@@ -72,7 +72,10 @@ function noteLimited(request: Request): void {
     event: "rate.limited",
     route: request.route?.path ?? request.path,
     identifiedBy: request.ip && request.ip !== peer ? "forwarded" : "peer",
-    forwardedHeader: request.headers["x-forwarded-for"] !== undefined,
+    forwardedEntries: String(request.headers["x-forwarded-for"] ?? "").split(",").filter((v) => v.trim()).length,
+    // The start of the address the limit was keyed on: enough to tell a
+    // visitor from an edge or private address, not enough to identify one.
+    keyedNetwork: (request.ip ?? "").includes(".") ? (request.ip ?? "").replace(/^::ffff:/i, "").split(".")[0] : (request.ip ?? "").split(":").slice(0, 2).join(":"),
     peerNetwork: peer.includes(".") ? peer.replace(/^::ffff:/i, "").split(".").slice(0, 2).join(".") : peer.split(":").slice(0, 2).join(":"),
   });
 }

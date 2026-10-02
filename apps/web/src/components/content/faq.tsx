@@ -1,5 +1,4 @@
-import { ChevronDown } from "lucide-react";
-
+import { FaqAccordion } from "@/components/content/faq-accordion";
 import { InlineText, MarkdownBlocks } from "@/components/content/markdown";
 import type { Block } from "@/lib/markdown";
 
@@ -41,33 +40,21 @@ export function faqSections(blocks: Block[]): Section[] {
 }
 
 /**
- * CopyDog's 常見問題 (`/help`): a centred title and one column of questions
- * that open in place, the first one open. Orbie's `##` groups only order
- * the questions (CopyDog shows one plain list, so no group labels). Plain
- * <details>: works without JavaScript and with find-in-page. Sizes are
- * CopyDog's `.faq-item`: 672px column, 20px/600 question with 20px above
- * and below, 18px chevron, 16px/1.7 answer with 20px under it.
+ * CopyDog's 常見問題 (`/help`): a centred title and one 672px column of
+ * questions that open in place (FaqAccordion). Orbie's `##` groups only
+ * order the questions (CopyDog shows one plain list, so no group labels).
+ * The text is rendered here, on the server, and handed to the accordion.
  */
 export function FaqList({ sections }: { sections: Section[] }) {
   const questions = sections.flatMap((section) => section.questions);
   return (
     <div className="mx-auto w-full max-w-[672px]">
-          <div className="border-t border-border">
-            {questions.map((q, index) => {
-              const open = index === 0;
-              return (
-                <details key={q.question} open={open} className="group border-b border-border">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-[20px] leading-[30px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-                    <span>
-                      <InlineText text={q.question} />
-                    </span>
-                    <ChevronDown aria-hidden className="size-[18px] shrink-0 text-subtle-foreground transition-transform group-open:rotate-180" />
-                  </summary>
-                  <MarkdownBlocks blocks={q.answer} className="-mt-3 pb-5 text-base leading-[27.2px] text-muted-foreground [&_p]:my-0 [&_p+p]:mt-3" />
-                </details>
-              );
-            })}
-          </div>
+      <FaqAccordion
+        items={questions.map((q) => ({
+          question: <InlineText text={q.question} />,
+          answer: <MarkdownBlocks blocks={q.answer} className="-mt-3 pb-5 text-base leading-[27.2px] text-muted-foreground [&_p]:my-0 [&_p+p]:mt-3" />,
+        }))}
+      />
     </div>
   );
 }

@@ -45,6 +45,22 @@ export const id: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "Temukan trader paling menguntungkan di Hyperliquid: posisi, eksekusi, kurva ekuitas, aksi langsung, dan peringatan.",
+    homeTitle: "Copy Trading Hyperliquid",
+    notFound: "Halaman tidak ditemukan",
+    app: "Salin trader terbaik Hyperliquid. Temukan papan peringkat, analisis performa, dan salin strategi terbaik secara otomatis.",
+    appShort: "Salin Trader Terbaik",
+    pages: {
+      home: "Salin trader Hyperliquid paling menguntungkan secara otomatis. Lihat siapa yang menang di kripto dan saham, salin dengan satu klik, dan pantau PnL mereka secara langsung.",
+      explore: "Jelajahi setiap trader Hyperliquid yang untung berdasarkan PnL, ROI, skor salin, dan nilai akun. Saring menurut koin, gaya trading, dan rentang waktu.",
+      coins: "Trader Hyperliquid paling menguntungkan di setiap pasar (BTC, ETH, SOL, HYPE, dan perpetual saham), diperingkat hanya berdasarkan PnL terealisasi pada koin tersebut.",
+      insights: "Posisi smart money di Hyperliquid: apakah dompet paling menguntungkan condong long atau short di setiap pasar, dan bagaimana perubahannya.",
+      about: "{app} adalah platform copy trading untuk Hyperliquid. Apa yang kami lacak, bagaimana angka dihasilkan, dan untuk siapa.",
+      help: "Cara kerja copy trading Hyperliquid di {app}: mode alokasi, biaya, peringatan, dan cara menghentikan salinan.",
+      privacy: "Kebijakan Privasi {app}, platform copy trading Hyperliquid.",
+      terms: "Ketentuan Layanan {app}, platform copy trading Hyperliquid.",
+      deleteAccount: "Cara menghapus akun {app} Anda dan apa saja yang dihapus.",
+      trader: "{name} di Hyperliquid: posisi langsung, riwayat trading yang direkonstruksi, performa per pasar, dan copy trading satu klik di {app}.",
+    },
   },
   nav: {
     closeMenu: "Tutup menu",

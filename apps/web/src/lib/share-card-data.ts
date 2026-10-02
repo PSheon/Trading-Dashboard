@@ -88,6 +88,24 @@ export function loadCoinBoard(
   return getJson<Pick<CoinBoardResponse, "items" | "stats" | "pool">>(fetchImpl, apiUrl, `/discover/coins/${encodeURIComponent(coin)}`, 3_000, client);
 }
 
+/** What the sitemap lists besides the fixed pages: every market on the coin
+ * index and the traders on the public boards (database reads, no
+ * Hyperliquid call). Empty when the api is unset or failing: the sitemap
+ * then has the fixed pages only. */
+export async function loadSitemapData({ apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch }: { apiUrl?: string; fetchImpl?: Fetch } = {}): Promise<{ coins: string[]; traders: string[] }> {
+  const board = (query: string) => getJson<{ items: Array<{ address: string }> }>(fetchImpl, apiUrl, `/discover/boards?${query}`, TIMEOUT_MS);
+  const [index, ...boards] = await Promise.all([
+    getJson<{ items: Array<{ coin: string }> }>(fetchImpl, apiUrl, "/discover/coins", TIMEOUT_MS),
+    board("board=kol&market=crypto&sort=copyScore&window=all"),
+    board("board=top100&market=crypto&sort=copyScore&window=all"),
+    board("board=top100&market=crypto&sort=pnl&window=all"),
+    board("board=top100&market=stocks&sort=pnl&window=all"),
+  ]);
+  const traders = new Set<string>();
+  for (const b of boards) for (const item of b?.items ?? []) if (ADDRESS_RE.test(item.address)) traders.add(item.address.toLowerCase());
+  return { coins: [...new Set((index?.items ?? []).map((item) => item.coin))], traders: [...traders] };
+}
+
 interface ProfileLike {
   displayName?: string | null;
   kol?: { displayName: string | null; avatarUrl: string | null } | null;

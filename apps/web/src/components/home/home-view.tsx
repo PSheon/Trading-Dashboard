@@ -56,9 +56,11 @@ export function HomeView() {
 
   return (
     <div className="flex flex-col gap-6 md:gap-[34px]">
-      {/* Phones: CopyDog's compact two-line title with 登入 beside it. */}
+      {/* Phones: CopyDog's compact two-line title with 登入 beside it. The
+          page's one <h1> is the desktop hero's; this is the same level-1
+          heading where that one is not displayed. */}
       <div className="flex items-center justify-between gap-3 md:hidden">
-        <h1 className="text-[1.75rem] leading-[1.15] font-bold tracking-tight whitespace-pre-line">{t("home.heroTitleMobile")}</h1>
+        <p role="heading" aria-level={1} className="text-[1.75rem] leading-[1.15] font-bold tracking-tight whitespace-pre-line">{t("home.heroTitleMobile")}</p>
         <AuthButton />
       </div>
 

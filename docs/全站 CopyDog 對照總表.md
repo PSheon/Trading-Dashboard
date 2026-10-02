@@ -258,3 +258,20 @@ T1 = `0xfc52…ee77`（有持倉、掛單）、KOL = `0xbf73…5d58`（大型帳
 | 無障礙（axe） | — | 見 `docs/accessibility.md`（對比、ARIA、標題層級、地標名稱、連結底線） | 已修 |
 | 內建錢包地址未入庫 | — | 建立錢包後重新抓 /me 與 /me/wallet；api 缺地址時每 15 秒重查（`use-wallet-backfill.ts`、`auth.service.ts`） | 已修（Orbie 專有） |
 | Orbie 專有功能的去留（新規則：CopyDog 沒有的不加，要加放 /dev） | — | CSV 匯出、分層選單、「看得到的數字」、評分方法、計算機說明圖示、跟單面板提示文字、常見問題分組標籤、無效地址頁皆已移除或移到 `/dev`；保留：模擬標章（揭露）、分享卡網址頁尾／無 App 徽章（Orbie 沒有 App）、隱私／條款草稿提示（docs/content 的內容）；`/explore/all` 已移到 `/dev/explore/all`（2026-10-02） | 已修 |
+
+### 9. SEO 與站台檔案（2026-10-02，無頭瀏覽器未登入觀察 copydog.xyz）
+
+| 項目 | CopyDog | Orbie | 狀態 |
+| --- | --- | --- | --- |
+| 分頁標題 | 「頁面 \| Copydog」；首頁「Hyperliquid Copy Trading \| Copydog」；交易員「名稱 · Hyperliquid \| Copydog」 | 「頁面 \| Orbie」；首頁「Hyperliquid 跟單交易 \| Orbie」；交易員相同結構 | 已修 |
+| 每頁描述 | 首頁、探索、市場、各幣種、關於、常見問題、隱私、條款、刪除帳號、交易員各有描述（英文）；收藏／投資組合／設定用預設 | 同一批頁面各有描述，走語系檔（11 種語言） | 已修 |
+| canonical、og:url | 每頁指向自己 | 相同（`lib/seo.ts`） | 已修 |
+| robots meta | 公開頁 `index, follow, max-image-preview:large, max-snippet:-1`；收藏／投資組合／設定 `noindex, follow` | 相同；`/admin`、`/dev` 為 `noindex, nofollow` | 已修 |
+| robots.txt | `User-agent: *` 允許 `/`，禁止 api、admin、設定、投資組合、收藏等；另有 AI 爬蟲的允許／禁止區塊；附 sitemap | `*` 規則與 sitemap 相同結構，禁止 `/api/`、`/admin`、`/dev`、`/settings`、`/portfolio`、`/favorites`；AI 爬蟲區塊是 CopyDog 自己的政策，未照抄 | 已修（AI 爬蟲政策待 Paul 決定） |
+| sitemap.xml | 固定頁＋150 個市場＋768 位交易員＋新聞 | 固定頁＋幣種索引的每個市場＋公開榜單上的交易員（由 api 讀取；api 不通時只有固定頁）；無新聞 | 已修 |
+| manifest | `/manifest.json`：名稱、standalone、192／512 圖示 | `/manifest.webmanifest`（Next 慣例路徑）：同樣欄位，圖示 `/icon-192.png`、`/icon-512.png` | 已修 |
+| JSON-LD | 每頁 Organization＋WebSite＋SoftwareApplication；關於頁加 WebPage；常見問題加 FAQPage | 相同結構，內容為 Orbie 自己的 | 已修 |
+| `<h1>` | 首頁、市場、洞察、關於、常見問題各一個；探索、交易員、收藏等沒有 | 每頁恰好一個（手機與桌面版面並存的頁面，手機那個改為 `role="heading"`） | 已修（比 CopyDog 嚴格） |
+| 404 | HTTP 200，標題「頁面未找到 \| Copydog」 | HTTP 404，標題「找不到頁面 \| Orbie」，`noindex` | 已修 |
+| 常見問題 | 17 個問題，`button[aria-expanded]`，第一題展開、一次只開一題、答案留在 DOM | 相同行為（`faq-accordion.tsx`），內容為 `docs/content/faq.*.md` 的 43 題 | 已修 |
+

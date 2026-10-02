@@ -396,7 +396,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                   <User className="size-5" />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-base leading-6 font-semibold">{t("settings.signInTitle")}</p>
+                  <p role="heading" aria-level={1} className="text-base leading-6 font-semibold">{t("settings.signInTitle")}</p>
                   <p className="mt-[3px] text-xs leading-[18px] text-muted-foreground">{t("settings.signInBody")}</p>
                 </div>
               </div>

@@ -45,6 +45,22 @@ export const zhCN: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "发现 Hyperliquid 最赚钱的交易员：持仓、成交、权益走势、实时动作与提醒。",
+    homeTitle: "Hyperliquid 跟单交易",
+    notFound: "找不到页面",
+    app: "跟单 Hyperliquid 上的顶尖交易员：探索排行榜、分析业绩，并自动复制最好的策略。",
+    appShort: "跟单顶尖交易员",
+    pages: {
+      home: "自动跟单 Hyperliquid 上最赚钱的交易员。看看谁在加密货币与股票上获利，一键跟单，实时追踪他们的盈亏。",
+      explore: "按盈亏、收益率、复制评分与账户价值浏览 Hyperliquid 上每一位盈利的交易员，并按币种、交易风格与时间范围筛选。",
+      coins: "每个市场最赚钱的 Hyperliquid 交易者——BTC、ETH、SOL、HYPE 与股票永续合约——只按该币种的已实现盈亏排名。",
+      insights: "Hyperliquid 聪明钱的多空配置：最赚钱的钱包目前在各市场偏多还是偏空，以及这一倾向如何变化。",
+      about: "{app} 是 Hyperliquid 的跟单交易平台。我们追踪什么、数字如何得出、适合谁使用。",
+      help: "{app} 的 Hyperliquid 跟单如何运作：分配模式、费用、提醒，以及如何停止跟单。",
+      privacy: "{app}（Hyperliquid 跟单交易平台）的隐私政策。",
+      terms: "{app}（Hyperliquid 跟单交易平台）的使用条款。",
+      deleteAccount: "如何删除你的 {app} 账号，以及删除后会移除哪些数据。",
+      trader: "{name} 在 Hyperliquid 上的实时持仓、还原的交易记录、各市场表现，以及在 {app} 上一键跟单。",
+    },
   },
   nav: {
     closeMenu: "关闭菜单",

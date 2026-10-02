@@ -6,7 +6,9 @@ import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
 import { OG_LOCALES } from "@/i18n/config";
 import { getLocale, getMessages } from "@/i18n/server";
+import { JsonLd } from "@/components/json-ld";
 import { APP_NAME, APP_URL } from "@/lib/config";
+import { siteJsonLd } from "@/lib/seo";
 
 /** CopyDog's text face: the variable file (300–800), Latin only; CJK falls
  * through to the system stack in globals.css. Self-hosted at build time, with
@@ -34,11 +36,13 @@ const geistMono = Geist_Mono({
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getLocale();
   const messages = getMessages(locale);
-  const title = `${APP_NAME} — ${messages.meta.tagline}`;
+  // CopyDog's shape: "<page> | <site>", and the home page's own title as
+  // the default.
+  const title = `${messages.meta.homeTitle} | ${APP_NAME}`;
   return {
     metadataBase: new URL(APP_URL),
     applicationName: APP_NAME,
-    title: { default: title, template: `%s · ${APP_NAME}` },
+    title: { default: title, template: `%s | ${APP_NAME}` },
     description: messages.meta.description,
     openGraph: {
       type: "website",
@@ -71,6 +75,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       className={`dark ${hostGrotesk.variable} ${fredoka.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
+        <JsonLd data={siteJsonLd(messages)} />
         <AppProviders locale={locale} messages={messages}>
           <AppShell>{children}</AppShell>
         </AppProviders>

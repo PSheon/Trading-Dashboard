@@ -45,6 +45,22 @@ export const ko: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "Hyperliquid에서 가장 수익이 높은 트레이더를 찾아보세요: 포지션, 체결, 자산 곡선, 실시간 동작과 알림.",
+    homeTitle: "Hyperliquid 카피 트레이딩",
+    notFound: "페이지를 찾을 수 없습니다",
+    app: "Hyperliquid 최고의 트레이더를 카피하세요. 리더보드를 탐색하고, 성과를 분석하고, 최고의 전략을 자동으로 카피합니다.",
+    appShort: "최고의 트레이더 카피",
+    pages: {
+      home: "Hyperliquid에서 가장 수익이 높은 트레이더를 자동으로 카피하세요. 암호화폐와 주식에서 누가 수익을 내는지 확인하고, 클릭 한 번으로 카피하고, 손익을 실시간으로 추적하세요.",
+      explore: "Hyperliquid의 수익을 낸 모든 트레이더를 손익, ROI, 카피 점수, 계정 가치로 살펴보세요. 코인, 거래 스타일, 기간으로 필터링할 수 있습니다.",
+      coins: "각 마켓(BTC, ETH, SOL, HYPE, 주식 무기한)에서 가장 수익이 높은 Hyperliquid 트레이더를 해당 코인의 실현 손익만으로 순위화했습니다.",
+      insights: "Hyperliquid 스마트 머니의 포지션: 가장 수익이 높은 지갑들이 각 마켓에서 롱과 숏 중 어디로 기울어 있는지, 그리고 그 변화.",
+      about: "{app}는 Hyperliquid 카피 트레이딩 플랫폼입니다. 무엇을 추적하고, 수치를 어떻게 산출하며, 누구를 위한 것인지.",
+      help: "{app}에서 Hyperliquid 카피 트레이딩이 작동하는 방식: 배분 모드, 수수료, 알림, 카피 중지 방법.",
+      privacy: "Hyperliquid 카피 트레이딩 플랫폼 {app}의 개인정보 처리방침.",
+      terms: "Hyperliquid 카피 트레이딩 플랫폼 {app}의 이용약관.",
+      deleteAccount: "{app} 계정을 삭제하는 방법과 삭제 시 제거되는 데이터.",
+      trader: "{name}의 Hyperliquid 실시간 포지션, 복원한 거래 내역, 마켓별 성과, 그리고 {app}에서의 원클릭 카피 트레이딩.",
+    },
   },
   nav: {
     closeMenu: "메뉴 닫기",

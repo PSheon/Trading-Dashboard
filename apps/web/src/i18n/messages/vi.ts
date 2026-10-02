@@ -45,6 +45,22 @@ export const vi: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "Tìm những trader lãi nhiều nhất trên Hyperliquid: vị thế, khớp lệnh, đường vốn, hành động trực tiếp và cảnh báo.",
+    homeTitle: "Sao chép giao dịch Hyperliquid",
+    notFound: "Không tìm thấy trang",
+    app: "Sao chép những trader hàng đầu trên Hyperliquid. Khám phá bảng xếp hạng, phân tích hiệu suất và tự động sao chép các chiến lược tốt nhất.",
+    appShort: "Sao chép trader hàng đầu",
+    pages: {
+      home: "Tự động sao chép những trader có lợi nhuận cao nhất trên Hyperliquid. Xem ai đang thắng ở crypto và cổ phiếu, sao chép chỉ với một cú nhấp và theo dõi PnL của họ theo thời gian thực.",
+      explore: "Duyệt mọi trader có lãi trên Hyperliquid theo PnL, ROI, điểm sao chép và giá trị tài khoản. Lọc theo coin, phong cách giao dịch và khung thời gian.",
+      coins: "Những trader Hyperliquid có lợi nhuận cao nhất ở từng thị trường (BTC, ETH, SOL, HYPE và hợp đồng vĩnh cửu cổ phiếu), xếp hạng chỉ theo PnL đã thực hiện trên coin đó.",
+      insights: "Dòng tiền thông minh trên Hyperliquid đang ở vị thế nào: các ví có lợi nhuận cao nhất nghiêng về long hay short ở từng thị trường và điều đó đã thay đổi ra sao.",
+      about: "{app} là nền tảng sao chép giao dịch cho Hyperliquid. Chúng tôi theo dõi gì, các con số được tính như thế nào và dành cho ai.",
+      help: "Cách sao chép giao dịch Hyperliquid hoạt động trên {app}: chế độ phân bổ, phí, cảnh báo và cách dừng một lệnh sao chép.",
+      privacy: "Chính sách quyền riêng tư của {app}, nền tảng sao chép giao dịch Hyperliquid.",
+      terms: "Điều khoản dịch vụ của {app}, nền tảng sao chép giao dịch Hyperliquid.",
+      deleteAccount: "Cách xóa tài khoản {app} của bạn và những gì sẽ bị xóa.",
+      trader: "{name} trên Hyperliquid: vị thế trực tiếp, lịch sử giao dịch được dựng lại, hiệu suất theo từng thị trường và sao chép giao dịch một cú nhấp trên {app}.",
+    },
   },
   nav: {
     closeMenu: "Đóng menu",

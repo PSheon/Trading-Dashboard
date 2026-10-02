@@ -1,13 +1,8 @@
-import type { Metadata } from "next";
-
 import { LegalDocument } from "@/components/content/legal-document";
 import { getLocale } from "@/i18n/server";
-import { contentBlocks, splitTitle } from "@/lib/content";
-import { inlineText } from "@/lib/markdown";
+import { contentSeo } from "@/lib/seo";
 
-export async function generateMetadata(): Promise<Metadata> {
-  return { title: inlineText(splitTitle(contentBlocks("privacy", await getLocale())).title) };
-}
+export const generateMetadata = contentSeo("privacy", "/privacy", (m) => m.meta.pages.privacy);
 
 /** CopyDog's /privacy. Text: docs/content/privacy.*.md (copied by content:sync). */
 export default async function PrivacyPage() {

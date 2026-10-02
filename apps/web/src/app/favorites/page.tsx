@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 
 import { FavoritesView } from "@/components/favorites/favorites-view";
-import { titled } from "@/i18n/server";
+import { seo } from "@/lib/seo";
 
-export const generateMetadata = titled((m) => m.favorites.title);
+export const generateMetadata = seo("/favorites", (m) => ({ title: m.favorites.title, index: false }));
 
 export default function FavoritesPage() {
   // useSearchParams (?tab=, ?view=) needs a Suspense boundary.

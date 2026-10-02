@@ -673,6 +673,22 @@ export const en: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "Find Hyperliquid's most profitable traders: positions, fills, equity curves, live actions and alerts.",
+    homeTitle: "Hyperliquid Copy Trading",
+    notFound: "Page not found",
+    app: "Copy trade top Hyperliquid traders. Discover leaderboards, analyze performance, and automatically copy the best strategies.",
+    appShort: "Copy Top Traders",
+    pages: {
+      home: "Copy the most profitable Hyperliquid traders automatically. See who is winning in crypto and stocks, copy them in one click, and follow their PnL live.",
+      explore: "Browse every profitable Hyperliquid trader by PnL, ROI, copy score and account value. Filter by coin, trading style and timeframe.",
+      coins: "The most profitable Hyperliquid traders in each market — BTC, ETH, SOL, HYPE and the stock perps — ranked by realized PnL on that coin alone.",
+      insights: "How Hyperliquid's smart money is positioned: whether the most profitable wallets lean long or short in each market, and how that has moved.",
+      about: "{app} is a copy trading platform for Hyperliquid. What we track, how the numbers are produced, and who it is for.",
+      help: "How Hyperliquid copy trading works on {app}: allocation modes, fees, alerts, and how to stop a copy.",
+      privacy: "Privacy Policy for {app}, the Hyperliquid copy trading platform.",
+      terms: "Terms of Service for {app}, the Hyperliquid copy trading platform.",
+      deleteAccount: "How to delete your {app} account, and what is removed when you do.",
+      trader: "{name} on Hyperliquid: live positions, reconstructed trade history, per-market performance and one-click copy trading on {app}.",
+    },
   },
   nav: {
     closeMenu: "Close menu",

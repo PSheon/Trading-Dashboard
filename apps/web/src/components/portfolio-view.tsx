@@ -266,7 +266,7 @@ function PhoneHeader() {
   const { t } = useI18n();
   return (
       <header className="flex items-center justify-between px-5 pt-4">
-        <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("portfolio.title")}</h1>
+        <p role="heading" aria-level={1} className="text-[1.75rem] font-extrabold tracking-tight">{t("portfolio.title")}</p>
         <div className="flex items-center gap-1">
           <Link
             href="/settings?view=notifications"

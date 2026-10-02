@@ -95,7 +95,7 @@ function SignedOut() {
       </div>
       <div className="md:hidden">
         <div className="-mt-[7px] flex items-center justify-between">
-          <h1 className="text-[28px] leading-[1.15] font-bold tracking-[-0.5px]">{t("favorites.title")}</h1>
+          <p role="heading" aria-level={1} className="text-[28px] leading-[1.15] font-bold tracking-[-0.5px]">{t("favorites.title")}</p>
           <div role="tablist" aria-label={t("favorites.title")} className="flex rounded-full bg-raised p-1">
             {(["saved", "alerts"] as const).map((key) => {
               const Icon = key === "saved" ? Star : Bell;

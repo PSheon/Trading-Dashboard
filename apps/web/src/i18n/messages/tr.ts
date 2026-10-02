@@ -45,6 +45,22 @@ export const tr: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "Hyperliquid'in en kârlı trader'larını bulun: pozisyonlar, gerçekleşmeler, özsermaye eğrileri, canlı hareketler ve uyarılar.",
+    homeTitle: "Hyperliquid Kopya Ticaret",
+    notFound: "Sayfa bulunamadı",
+    app: "Hyperliquid'in en iyi trader'larını kopyalayın. Sıralamaları keşfedin, performansı analiz edin ve en iyi stratejileri otomatik olarak kopyalayın.",
+    appShort: "En iyi trader'ları kopyala",
+    pages: {
+      home: "Hyperliquid'in en kârlı trader'larını otomatik olarak kopyalayın. Kripto ve hisselerde kimin kazandığını görün, tek tıkla kopyalayın ve PnL'lerini canlı takip edin.",
+      explore: "Hyperliquid'deki tüm kârlı trader'ları PnL, ROI, kopya puanı ve hesap değerine göre inceleyin. Coin, işlem tarzı ve zaman aralığına göre filtreleyin.",
+      coins: "Her piyasada (BTC, ETH, SOL, HYPE ve hisse vadelileri) en kârlı Hyperliquid trader'ları, yalnızca o coin'deki gerçekleşen PnL'ye göre sıralanır.",
+      insights: "Hyperliquid'de akıllı paranın konumu: en kârlı cüzdanların her piyasada long mu short mu ağırlıklı olduğu ve bunun nasıl değiştiği.",
+      about: "{app}, Hyperliquid için bir kopya ticaret platformudur. Neyi takip ediyoruz, rakamlar nasıl üretiliyor ve kimler için.",
+      help: "{app} üzerinde Hyperliquid kopya ticareti nasıl çalışır: dağıtım modları, ücretler, uyarılar ve bir kopyanın nasıl durdurulacağı.",
+      privacy: "Hyperliquid kopya ticaret platformu {app} için Gizlilik Politikası.",
+      terms: "Hyperliquid kopya ticaret platformu {app} için Hizmet Şartları.",
+      deleteAccount: "{app} hesabınızı nasıl silersiniz ve silindiğinde neler kaldırılır.",
+      trader: "{name} Hyperliquid'de: canlı pozisyonlar, yeniden oluşturulmuş işlem geçmişi, piyasa bazında performans ve {app} üzerinde tek tıkla kopya ticaret.",
+    },
   },
   nav: {
     closeMenu: "Menüyü kapat",

@@ -17,6 +17,7 @@ const SAMPLE: Record<string, string> = {
   "[coin]": "BTC",
   "[id]": "2",
   "[[...preview]]": "",
+  "[...missing]": "no-such-page",
 };
 
 /** Every `page.tsx` under src/app as a URL path, dynamic segments filled in. */

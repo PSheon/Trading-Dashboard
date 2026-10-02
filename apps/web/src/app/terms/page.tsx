@@ -1,13 +1,8 @@
-import type { Metadata } from "next";
-
 import { LegalDocument } from "@/components/content/legal-document";
 import { getLocale } from "@/i18n/server";
-import { contentBlocks, splitTitle } from "@/lib/content";
-import { inlineText } from "@/lib/markdown";
+import { contentSeo } from "@/lib/seo";
 
-export async function generateMetadata(): Promise<Metadata> {
-  return { title: inlineText(splitTitle(contentBlocks("terms", await getLocale())).title) };
-}
+export const generateMetadata = contentSeo("terms", "/terms", (m) => m.meta.pages.terms);
 
 /** CopyDog's /terms. Text: docs/content/terms.*.md (copied by content:sync). */
 export default async function TermsPage() {

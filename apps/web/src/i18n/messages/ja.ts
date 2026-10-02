@@ -45,6 +45,22 @@ export const ja: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "Hyperliquid で最も稼ぐトレーダーを見つけよう：ポジション、約定、資産推移、リアルタイムの動き、アラート。",
+    homeTitle: "Hyperliquid コピートレード",
+    notFound: "ページが見つかりません",
+    app: "Hyperliquid のトップトレーダーをコピー。ランキングを見つけ、成績を分析し、最良の戦略を自動でコピーします。",
+    appShort: "トップトレーダーをコピー",
+    pages: {
+      home: "Hyperliquid で最も利益を上げているトレーダーを自動でコピー。暗号資産と株式で誰が勝っているかを確認し、ワンクリックでコピーして損益をリアルタイムで追跡できます。",
+      explore: "Hyperliquid の利益を出しているすべてのトレーダーを、損益・ROI・コピースコア・口座価値で閲覧。銘柄、取引スタイル、期間で絞り込めます。",
+      coins: "各マーケット（BTC、ETH、SOL、HYPE、株式パーペチュアル）で最も利益を上げている Hyperliquid トレーダーを、その銘柄の実現損益だけで順位付け。",
+      insights: "Hyperliquid のスマートマネーのポジション：最も利益を上げているウォレットが各マーケットでロングとショートのどちらに傾いているか、その推移。",
+      about: "{app} は Hyperliquid のコピートレードプラットフォームです。何を追跡し、数値をどう算出し、誰に向いているか。",
+      help: "{app} での Hyperliquid コピートレードの仕組み：配分モード、手数料、アラート、コピーの停止方法。",
+      privacy: "Hyperliquid コピートレードプラットフォーム {app} のプライバシーポリシー。",
+      terms: "Hyperliquid コピートレードプラットフォーム {app} の利用規約。",
+      deleteAccount: "{app} アカウントの削除方法と、削除されるデータについて。",
+      trader: "{name} の Hyperliquid でのライブポジション、復元した取引履歴、マーケット別の成績、そして {app} でのワンクリックコピー。",
+    },
   },
   nav: {
     closeMenu: "メニューを閉じる",

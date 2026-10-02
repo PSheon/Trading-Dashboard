@@ -676,6 +676,22 @@ export const zhTW = {
   meta: {
     tagline: "orbit the best traders",
     description: "探索 Hyperliquid 最會賺的交易員：持倉、成交、權益走勢、即時動作與警報。",
+    homeTitle: "Hyperliquid 跟單交易",
+    notFound: "找不到頁面",
+    app: "跟單 Hyperliquid 上的頂尖交易員：探索排行榜、分析績效，並自動複製最好的策略。",
+    appShort: "跟單頂尖交易員",
+    pages: {
+      home: "自動跟單 Hyperliquid 上最賺錢的交易員。看看誰在加密貨幣與股票上獲利，一鍵跟單，即時追蹤他們的損益。",
+      explore: "依損益、投報率、複製評分與帳戶價值瀏覽 Hyperliquid 上每一位獲利的交易員，並以幣種、交易風格與時間範圍篩選。",
+      coins: "每個市場最賺錢的 Hyperliquid 交易者——BTC、ETH、SOL、HYPE 與股票永續合約——只依該幣種的已實現損益排名。",
+      insights: "Hyperliquid 聰明錢的多空配置：最賺錢的錢包目前在各市場偏多還是偏空，以及這個傾向如何變化。",
+      about: "{app} 是 Hyperliquid 的跟單交易平台。我們追蹤什麼、數字怎麼算出來、適合誰使用。",
+      help: "{app} 的 Hyperliquid 跟單如何運作：分配模式、費用、提醒，以及如何停止跟單。",
+      privacy: "{app}（Hyperliquid 跟單交易平台）的隱私政策。",
+      terms: "{app}（Hyperliquid 跟單交易平台）的使用條款。",
+      deleteAccount: "如何刪除你的 {app} 帳號，以及刪除後會移除哪些資料。",
+      trader: "{name} 在 Hyperliquid 上的即時持倉、還原的交易紀錄、各市場表現，以及在 {app} 上一鍵跟單。",
+    },
   },
   nav: {
     closeMenu: "關閉選單",

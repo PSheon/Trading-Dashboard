@@ -122,7 +122,7 @@ export function BoardsView() {
       <h1 className="sr-only hidden md:block">{t("discover.title")}</h1>
       {/* Phones: title, filter sheet and layout toggle (CopyDog's mobile header). */}
       <div className="flex items-center justify-between md:hidden">
-        <h1 className="text-[1.75rem] font-extrabold tracking-tight">{t("discover.title")}</h1>
+        <p role="heading" aria-level={1} className="text-[1.75rem] font-extrabold tracking-tight">{t("discover.title")}</p>
         <div className="flex items-center gap-2">
           <button
             type="button"

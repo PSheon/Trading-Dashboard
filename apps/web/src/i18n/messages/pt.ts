@@ -45,6 +45,22 @@ export const pt: Messages = {
   meta: {
     tagline: "orbit the best traders",
     description: "Encontre os traders mais lucrativos da Hyperliquid: posições, execuções, curvas de patrimônio, ações ao vivo e alertas.",
+    homeTitle: "Copy trading na Hyperliquid",
+    notFound: "Página não encontrada",
+    app: "Copie os melhores traders da Hyperliquid. Descubra rankings, analise o desempenho e copie automaticamente as melhores estratégias.",
+    appShort: "Copie os melhores traders",
+    pages: {
+      home: "Copie automaticamente os traders mais lucrativos da Hyperliquid. Veja quem está ganhando em cripto e ações, copie com um clique e acompanhe o PnL ao vivo.",
+      explore: "Explore todos os traders lucrativos da Hyperliquid por PnL, ROI, pontuação de cópia e valor da conta. Filtre por moeda, estilo de trading e período.",
+      coins: "Os traders mais lucrativos da Hyperliquid em cada mercado (BTC, ETH, SOL, HYPE e os perpétuos de ações), classificados apenas pelo PnL realizado naquela moeda.",
+      insights: "Como o dinheiro inteligente da Hyperliquid está posicionado: se as carteiras mais lucrativas estão compradas ou vendidas em cada mercado e como isso mudou.",
+      about: "{app} é uma plataforma de copy trading para a Hyperliquid. O que acompanhamos, como os números são produzidos e para quem é.",
+      help: "Como o copy trading da Hyperliquid funciona na {app}: modos de alocação, taxas, alertas e como parar uma cópia.",
+      privacy: "Política de Privacidade da {app}, a plataforma de copy trading da Hyperliquid.",
+      terms: "Termos de Serviço da {app}, a plataforma de copy trading da Hyperliquid.",
+      deleteAccount: "Como excluir sua conta {app} e o que é removido ao fazer isso.",
+      trader: "{name} na Hyperliquid: posições ao vivo, histórico de trades reconstruído, desempenho por mercado e copy trading com um clique na {app}.",
+    },
   },
   nav: {
     closeMenu: "Fechar menu",

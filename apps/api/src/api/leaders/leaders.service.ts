@@ -17,19 +17,36 @@ import type {
 } from "@trading-dashboard/shared/contracts";
 import { LeadersRepository } from "./leaders.repository.js";
 import { RoundTripService } from "../../analytics/round-trip.service.js";
+import { TtlCache } from "../../traders/ttl-cache.js";
 import type { AlertsScope } from "../../common/auth/alerts-scope.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** GET /leaders reads this much action history per leader: the 30-day
+ * figures need trips closed in the last 30 days, and a trip opened up to
+ * 60 days before that is still whole. Average hold time is over the same
+ * window. Without a bound every call loaded every leader's whole history. */
+export const LEADERS_HISTORY_DAYS = 90;
+/** The public list is the same for everyone: computed at most this often,
+ * and by one computation at a time however many requests wait. */
+export const LEADERS_CACHE_TTL_MS = 30_000;
 const EQUITY_CURVE_WINDOW_DAYS = 30;
 
 /** D2 Leaders table + D3 Leader detail + A3 manual leader management. */
 @Injectable()
 export class LeadersService {
+  /** The public list per filter (at most 3 tiers × 3 `active` values). */
+  private readonly publicList = new TtlCache<PublicLeaderSummary[]>(LEADERS_CACHE_TTL_MS, 16);
+
   constructor(
     private readonly uow: UnitOfWork,
     private readonly repository: LeadersRepository,
     private readonly roundTrip: RoundTripService,
   ) {}
+
+  /** Drops the cached public list (tests; after an edit). */
+  clearCache(): void {
+    this.publicList.clear();
+  }
 
   /** `view: "admin"` (callers with `leaders.manage`) lists every leader
    * with notes and source; `"public"` only imported ones, projected. */
@@ -37,7 +54,15 @@ export class LeadersService {
   findAll(query: LeadersQuery, view?: "public"): Promise<PublicLeaderSummary[]>;
   findAll(query: LeadersQuery, view?: "public" | "admin"): Promise<LeaderSummary[] | PublicLeaderSummary[]>;
   async findAll(query: LeadersQuery, view: "public" | "admin" = "public"): Promise<LeaderSummary[] | PublicLeaderSummary[]> {
+    // Admins see their own edits at once; the public route, which anyone
+    // can call in a loop, shares one cached answer.
+    if (view === "admin") return this.summarize(query, view);
+    return this.publicList.get(`${query.tier ?? ""}:${query.active ?? ""}`, () => this.summarize(query, view) as Promise<PublicLeaderSummary[]>);
+  }
+
+  private async summarize(query: LeadersQuery, view: "public" | "admin"): Promise<LeaderSummary[] | PublicLeaderSummary[]> {
     const rows = view === "admin" ? await this.repository.findListed(query) : await this.repository.findListedPublic(query);
+    const since = new Date(Date.now() - LEADERS_HISTORY_DAYS * DAY_MS);
 
     const result: Array<LeaderSummary | PublicLeaderSummary> = [];
     const now = Date.now();
@@ -47,7 +72,7 @@ export class LeadersService {
       const addresses = batch.map(row => row.address);
       const [metadata, trips] = await Promise.all([
         this.repository.summaryMetadata(addresses),
-        this.roundTrip.reconstructRoundTripsMany(addresses),
+        this.roundTrip.reconstructRoundTripsMany(addresses, undefined, since),
       ]);
       const byAddress = new Map<string, typeof trips>();
       for (const trip of trips) {
@@ -156,12 +181,16 @@ export class LeadersService {
    * cycle and filters on `active=true` there, so there's nothing else to
    * wire up here for that half of the acceptance criterion. */
   async update(chain: string, address: string, patch: PatchLeaderRequest, actor: AuditActor = null): Promise<Leader> {
-    return this.uow.run(async (tx) => {
+    const leader = await this.uow.run(async (tx) => {
       const before = await this.repository.lockOne(tx, chain, address);
       if (!before) throw new NotFoundException(`No leader ${chain}/${address}`);
       const updated = await this.repository.update(tx, chain, address, patch);
       await recordAdminAudit(tx, actor, "leader.update", `${chain}/${address}`, before, updated);
       return updated as unknown as Leader;
     });
+    // An edit shows on the public list at once (in this process; another
+    // instance, and an import, show within LEADERS_CACHE_TTL_MS).
+    this.clearCache();
+    return leader;
   }
 }

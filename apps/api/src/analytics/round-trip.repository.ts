@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import { actions, fills } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
@@ -13,9 +13,12 @@ export type ActionRow = typeof actions.$inferSelect;
 export class RoundTripRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
-  async history(addresses: string[], coin?: string): Promise<ActionRow[]> {
+  /** `since`: only actions from then on (a list of many addresses must
+   * bound what it loads); omitted, the whole history. */
+  async history(addresses: string[], coin?: string, since?: Date): Promise<ActionRow[]> {
     const conditions = [eq(actions.chain, CHAIN_DEFAULT), inArray(actions.address, addresses)];
     if (coin) conditions.push(eq(actions.coin, coin));
+    if (since) conditions.push(gte(actions.ts, since));
 
     const rows = await this.db
       .select()

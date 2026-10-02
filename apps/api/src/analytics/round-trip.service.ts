@@ -46,10 +46,12 @@ export class RoundTripService {
     return this.reconstructRoundTripsMany([address], coin);
   }
 
-  /** Batch callers must bound the address window; fills remain keyed by address + tid. */
-  async reconstructRoundTripsMany(addresses: string[], coin?: string): Promise<RoundTrip[]> {
+  /** Batch callers must bound the address window; fills remain keyed by
+   * address + tid. `since` bounds the history read: a round trip opened
+   * before it is skipped, like one opened before our records began. */
+  async reconstructRoundTripsMany(addresses: string[], coin?: string, since?: Date): Promise<RoundTrip[]> {
     if (addresses.length === 0) return [];
-    const rows = await this.repository.history(addresses, coin);
+    const rows = await this.repository.history(addresses, coin, since);
 
     const byCoin = new Map<string, ActionRow[]>();
     for (const row of rows) {

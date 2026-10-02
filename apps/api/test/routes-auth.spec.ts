@@ -80,6 +80,7 @@ describe("route access on the existing controllers", () => {
     await truncateAll(db);
     await new RulesSeedService(testConfig(), new RulesSeedRepository(db)).seedDefaultRules();
     auth.clearCache();
+    app.get(LeadersService).clearCache();
   });
 
   afterAll(async () => {

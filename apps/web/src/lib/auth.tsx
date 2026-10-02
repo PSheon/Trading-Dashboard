@@ -24,6 +24,7 @@ import { PRIVY_APP_ID } from "@/lib/config";
 import { api, sessionKey, setAccessTokenGetter } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
 import { readLocalStorage, useLocalStorage } from "@/lib/use-local-storage";
+import { useIdentityRefetch } from "@/lib/use-identity-refetch";
 import { useWalletBackfill } from "@/lib/use-wallet-backfill";
 
 /**
@@ -93,8 +94,9 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
   // Registered during render (idempotent) rather than in an effect: child
   // queries subscribe in their own effects, which run before ours, and the
   // first /me request must already carry the token.
-  // Until Privy is ready, a browser with a saved Privy session makes its
-  // requests wait for the token; one without goes ahead as anonymous at once.
+  // Until Privy is ready, a browser with a saved Privy session makes the
+  // requests that need the caller wait for the token (public reads go out
+  // at once, see lib/api.ts); one without goes ahead as anonymous at once.
   const scope = ready
     ? authenticated && user?.id ? user.id : "anonymous"
     : hasSavedPrivySession() ? "loading" : "anonymous";
@@ -202,10 +204,12 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
 // --- side effects shared by every mode ------------------------------------------
 
 /** The keyed session boundary resets state on identity changes. Adopt the
- * saved locale; have the api store a freshly created embedded wallet. */
+ * saved locale; have the api store a freshly created embedded wallet;
+ * refetch what was read before the visitor was known. */
 function AuthEffects() {
   const { data: me } = useMe();
-  const { wallet } = useAuth();
+  const { wallet, status } = useAuth();
+  useIdentityRefetch(status);
   const { locale, setLocale } = useI18n();
   const adoptedFor = useRef<number | null>(null);
   useWalletBackfill(wallet?.address ?? null);

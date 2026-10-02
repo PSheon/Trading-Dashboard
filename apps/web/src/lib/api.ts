@@ -75,15 +75,46 @@ let sessionController = new AbortController();
 let identityKnown: Promise<void> = Promise.resolve();
 let resolveIdentity: (() => void) | null = null;
 
+/** Whether a public read went out without a token while the provider was
+ * still starting (see `currentToken`). */
+let anonymousReads = false;
+
+/** GET routes the api serves to anyone (its `@Public()` controllers). A
+ * signed-in caller only adds per-user fields to them (a favorite flag). */
+const PUBLIC_READS = ["/traders", "/discover", "/insights", "/actions", "/leaders", "/settings", "/health", "/trader-search", "/kols"];
+
+function isPublicRead(method: string, path: string): boolean {
+  if (method !== "GET") return false;
+  const [pathname, query = ""] = path.split("?");
+  // The favorites feed is the caller's own: it needs the token.
+  if (/(?:^|&)scope=favorites(?:&|$)/.test(query)) return false;
+  return PUBLIC_READS.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+/**
+ * True once after public reads were sent anonymously during start-up. The
+ * auth provider asks when the visitor turns out to be signed in and
+ * refetches, so the per-user fields those answers lack arrive.
+ */
+export function takeAnonymousReads(): boolean {
+  const taken = anonymousReads;
+  anonymousReads = false;
+  return taken;
+}
+
 /**
  * Registered by the auth provider (Privy's `getAccessToken`, or the fixture
  * login) during render. The getter itself returns null when signed out.
  *
- * `scope` is "loading" while the provider is still starting: requests made
- * then wait until it knows who the visitor is and go out once, with the right
- * token. So the first answer ("anonymous" or a user) keeps them, and keeps the
- * session. Only a real change afterwards (sign-in, sign-out, account switch)
- * cancels in-flight requests and starts a new session.
+ * `scope` is "loading" while the provider is still starting. Requests that
+ * need the caller (anything under /me or /admin, every write) wait until it
+ * knows who the visitor is and go out once, with the right token. Public
+ * reads do not wait: a provider that is slow, or never loads, must not keep
+ * public pages on their placeholders. They go out at once without a token
+ * (`takeAnonymousReads`). The first answer ("anonymous" or a user) keeps
+ * every request and the session. Only a real change afterwards (sign-in,
+ * sign-out, account switch) cancels in-flight requests and starts a new
+ * session.
  */
 export function setAccessTokenGetter(getter: AccessTokenGetter | null, scope: string | null = null) {
   accessTokenGetter = getter;
@@ -113,8 +144,14 @@ export function sessionKey(): string {
   return String(sessionGeneration);
 }
 
-async function currentToken(): Promise<string | null> {
-  if (identityScope === "loading") await identityKnown;
+async function currentToken(publicRead = false): Promise<string | null> {
+  if (identityScope === "loading") {
+    if (publicRead) {
+      anonymousReads = true;
+      return null;
+    }
+    await identityKnown;
+  }
   if (!accessTokenGetter) return null;
   try {
     return await accessTokenGetter();
@@ -125,7 +162,7 @@ async function currentToken(): Promise<string | null> {
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<JsonWire<T>> {
   const requestSignal = signal ? AbortSignal.any([signal, sessionController.signal]) : sessionController.signal;
-  const token = await currentToken();
+  const token = await currentToken(isPublicRead(method, path));
   requestSignal.throwIfAborted();
 
   // Fixture mode: answered in-process. The env var is read inline (not via
@@ -207,7 +244,7 @@ async function errorFromResponse(res: Response): Promise<ApiError> {
  */
 export async function openEventStream(path: string, options: { signal: AbortSignal; lastEventId?: string }): Promise<Response> {
   const signal = AbortSignal.any([options.signal, sessionController.signal]);
-  const token = await currentToken();
+  const token = await currentToken(isPublicRead("GET", path));
   signal.throwIfAborted();
   const headers: Record<string, string> = { Accept: "text/event-stream", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
   if (token) headers.Authorization = `Bearer ${token}`;

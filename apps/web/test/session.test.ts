@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { api, sessionKey, setAccessTokenGetter } from "../src/lib/api";
+import { api, sessionKey, setAccessTokenGetter, takeAnonymousReads } from "../src/lib/api";
 
 afterEach(() => { vi.unstubAllGlobals(); setAccessTokenGetter(null); });
 
@@ -82,6 +82,46 @@ it("holds a loading session's request until the visitor is known, then sends it 
   const init = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1];
   expect((init.headers as Record<string, string>).Authorization).toBe("Bearer alice-token");
   expect(sessionKey()).toBe(key);
+});
+
+it("a public read does not wait for the identity provider: it goes out at once, without a token (review 30)", async () => {
+  // A saved session whose provider never becomes ready (blocked, offline).
+  const getter = vi.fn(() => new Promise<string>(() => undefined));
+  setAccessTokenGetter(getter, "loading");
+  takeAnonymousReads();
+  const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetcher);
+  for (const path of ["/discover/home", "/traders/0x0000000000000000000000000000000000000000", "/traders?limit=20", "/insights/crowd", "/actions?scope=all&limit=20", "/settings"]) {
+    await api.get(path).catch(() => undefined); // the stub's body is not a valid answer; only the request matters
+  }
+  expect(fetcher).toHaveBeenCalledTimes(6);
+  for (const call of fetcher.mock.calls as unknown as [string, RequestInit][]) {
+    expect((call[1].headers as Record<string, string>).Authorization).toBeUndefined();
+  }
+  expect(getter).not.toHaveBeenCalled();
+  // Reported once, so the provider can refetch when the visitor is signed in.
+  expect(takeAnonymousReads()).toBe(true);
+  expect(takeAnonymousReads()).toBe(false);
+});
+
+it("what needs the caller still waits while the provider is loading: /me, admin, the favorites feed and every write", async () => {
+  setAccessTokenGetter(async () => "alice-token", "loading");
+  takeAnonymousReads();
+  const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetcher);
+  const pending = [
+    api.get("/me"), api.get("/me/favorites"), api.get("/admin/overview"), api.get("/actions?limit=20&scope=favorites"),
+    api.get("/settingsx"), api.post("/traders/0x0000000000000000000000000000000000000000/anything"),
+  ].map((p) => p.catch(() => undefined));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(takeAnonymousReads()).toBe(false);
+  setAccessTokenGetter(async () => "alice-token", "alice");
+  await Promise.all(pending);
+  expect(fetcher).toHaveBeenCalledTimes(6);
+  for (const call of fetcher.mock.calls as unknown as [string, RequestInit][]) {
+    expect((call[1].headers as Record<string, string>).Authorization).toBe("Bearer alice-token");
+  }
 });
 
 it("changes the session key only on a real identity change", () => {

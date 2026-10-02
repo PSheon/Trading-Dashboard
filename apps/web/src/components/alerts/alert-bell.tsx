@@ -135,7 +135,7 @@ export function AlertHistory({ address }: { address: string }) {
     <section className="mt-4 border-t border-border pt-3" aria-label={t("alerts.recent")}>
       <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{t("alerts.recent")}</h4>
       {alerts.isError && !alerts.data ? (
-        <p className="text-xs text-negative">{alerts.error.message}</p>
+        <p className="text-xs text-negative">{t("common.error")}</p>
       ) : !alerts.data ? (
         <p className="text-xs text-subtle-foreground">{t("common.loading")}</p>
       ) : rows.length === 0 ? (

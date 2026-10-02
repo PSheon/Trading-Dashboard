@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 
-import { Skeleton } from "@/components/page";
+import { ErrorState, Skeleton } from "@/components/page";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/provider";
 import type { CohortDetail, CohortTier, CohortWindow } from "@/lib/contracts";
@@ -74,6 +74,12 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
             <p className="rounded-xl bg-raised/60 px-4 py-2.5 text-xs text-muted-foreground">{t("insights.cohort.building")}</p>
           ) : null}
           <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
+            {history.errorUpdateCount > 0 && !history.data ? (
+              // Not a placeholder without end: the history could not be read.
+              <section className="flex min-h-[300px] items-center justify-center rounded-[12px] border border-border bg-card">
+                <ErrorState onRetry={() => void history.refetch()} />
+              </section>
+            ) : (
             <PositioningChart
               title={t("insights.cohort.positioning", { name: tierName })}
               series={history.data?.series ?? []}
@@ -84,6 +90,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
               latest={data?.hero.longPct ?? null}
               emptyHint={t("insights.cohort.chartEmpty", { minutes: 15 })}
             />
+            )}
             <MarketTreemap title={t("insights.cohort.byMarket")} markets={data?.markets} loading={!data} />
           </div>
           <section className="overflow-hidden rounded-[12px] border border-border bg-card">

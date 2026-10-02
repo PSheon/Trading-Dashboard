@@ -5,13 +5,13 @@ import { cn } from "cn";
 
 import { coinDex, coinLabel } from "@/lib/format";
 
-/** Hyperliquid's own market icons (the exchange's app serves one SVG per
- * perp, HIP-3 markets included: /coins/xyz:TSLA.svg). */
 /** Hyperliquid draws these dark on a transparent ground; on Orbie's navy
  * they sit on a white disc, as CopyDog shows them. */
 const LIGHT_DISC = new Set(["ETH", "NEAR"]);
 
-export const coinIconUrl = (coin: string) => `https://app.hyperliquid.xyz/coins/${encodeURIComponent(coin).replace(/%3A/gi, ":")}.svg`;
+/** Hyperliquid's own market icon (one SVG per perp, HIP-3 markets
+ * included), through this site's cached route: nothing is hot-linked. */
+export const coinIconUrl = (coin: string) => `/api/coin-icon/${encodeURIComponent(coin)}`;
 
 /**
  * A market's icon: Hyperliquid's own SVG for the coin, and when it has none

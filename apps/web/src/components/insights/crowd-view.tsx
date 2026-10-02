@@ -26,7 +26,7 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
   if (crowd.isError && !crowd.data) {
     return (
       <Panel>
-        <ErrorState message={crowd.error.message} onRetry={() => crowd.refetch()} />
+        <ErrorState onRetry={() => crowd.refetch()} />
       </Panel>
     );
   }

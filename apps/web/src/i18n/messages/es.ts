@@ -100,6 +100,11 @@ export const es: Messages = {
     announcement: "Anuncio",
   },
   common: {
+    errors: {
+      rateLimited: "Demasiadas solicitudes. Inténtalo de nuevo en un momento.",
+      busy: "El servicio está ocupado. Inténtalo de nuevo en un momento.",
+      failed: "No se pudo completar. Inténtalo de nuevo.",
+    },
     loading: "Cargando…",
     error: "Error al cargar",
     retry: "Reintentar",

@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { cn } from "cn";
 
 import { Tooltip } from "@/components/ui/tooltip";
+import { TIME_ZONE } from "@/i18n/config";
+import { TraderName } from "@/components/traders/trader-name";
 import { useI18n } from "@/i18n/provider";
 import { agoShort, boardPnl, boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
@@ -15,7 +17,7 @@ const traderHref = (address: string) => `/trader/${address}`;
 
 /** CopyDog's last-trade chip reads "Oct 1, 01:44" in every language. */
 function lastTradeStamp(at: string): string {
-  return new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  return new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: TIME_ZONE });
 }
 
 /** Explore grid card (CopyDog's hl-card): identity and coins, last trade,
@@ -137,7 +139,10 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
         </span>
       </div>
       <span className="flex min-w-0 items-center gap-1 md:hidden">
-        <span className="truncate text-base font-semibold">{boardName(trader)}</span>
+        {/* A phone card is 116px wide: a short address does not fit, and
+            cutting it again read "0x9871…0…". TraderName cuts an address
+            once, in the middle, and always shows its end. */}
+        <TraderName trader={trader} className="text-base font-semibold" />
         {trader.verified ? <VerifiedTick className="size-[11px]" /> : null}
       </span>
       <BoardSparkline values={trader.sparkline} height={26} className="md:hidden" plain />

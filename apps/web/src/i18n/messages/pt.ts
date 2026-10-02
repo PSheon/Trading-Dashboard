@@ -100,6 +100,11 @@ export const pt: Messages = {
     announcement: "Aviso",
   },
   common: {
+    errors: {
+      rateLimited: "Muitas solicitações. Tente novamente em instantes.",
+      busy: "O serviço está ocupado. Tente novamente em instantes.",
+      failed: "Não foi possível concluir. Tente novamente.",
+    },
     loading: "Carregando…",
     error: "Falha ao carregar",
     retry: "Tentar de novo",

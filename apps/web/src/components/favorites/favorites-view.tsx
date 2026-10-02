@@ -205,6 +205,9 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
         <SavedTab favorites={favorites.data} groups={groups.data ?? []} view={view} />
       ) : tab === "alerts" ? (
         <AlertsTab favorites={favorites.data} />
+      ) : feed.query.errorUpdateCount > 0 && !feed.query.data ? (
+        // Not a placeholder without end: the feed could not be read.
+        <ErrorState message={t("favorites.error")} onRetry={() => feed.query.refetch()} />
       ) : (
         <FeedTab rows={feedRows} loading={!feed.query.data} highlight={feed.highlight} favorites={list} hasFavorites={list.length > 0} />
       )}

@@ -9,7 +9,8 @@ import { cn } from "cn";
 import { AlertBell } from "@/components/alerts/alert-bell";
 import { OrbieMark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
-import { Skeleton } from "@/components/page";
+import { ErrorState, Skeleton } from "@/components/page";
+import { useModalFocus } from "@/lib/use-modal-focus";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
@@ -128,6 +129,8 @@ export function MobileTrader({
   window,
   onWindow,
   loading,
+  failed = false,
+  onRetry,
   copyScore,
 }: {
   profile: TraderProfileResponse;
@@ -139,6 +142,9 @@ export function MobileTrader({
   window: TraderWindow;
   onWindow: (w: TraderWindow) => void;
   loading: boolean;
+  /** The portfolio could not be read: a line and a retry in the chart's place. */
+  failed?: boolean;
+  onRetry?: () => void;
   /** CopyDog's hero shows the copy score under the chart header. */
   copyScore: number | null;
 }) {
@@ -147,6 +153,7 @@ export function MobileTrader({
   const [tab, setTab] = useState<MobileTab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
   const [sheet, setSheet] = useState(false);
+  const sheetRef = useModalFocus<HTMLDivElement>(sheet, () => setSheet(false));
   const { status: authStatus, login } = useAuth();
   const copying = useCopyOf(profile.address) !== undefined;
   const trades = useTraderAnalytics(profile.address, "all");
@@ -183,7 +190,7 @@ export function MobileTrader({
               label={t("trader.chart.pnlLabel")}
               options={[["pnl", t("trader.mobile.pnl")], ["roi", t("trader.mobile.roi")]]}
             />
-            {loading && !portfolio ? (
+            {loading && !portfolio && !failed ? (
               <Skeleton className="h-9 w-44" />
             ) : (
               <div className={cn("num text-[34px] leading-[1.05] font-bold tracking-[-1px]", headline === null ? "" : headline >= 0 ? "text-positive" : "text-negative")}>
@@ -226,6 +233,8 @@ export function MobileTrader({
             formatAxisTime={(ts) => format.axisDate(ts, span)}
             ariaLabel={t("trader.chart.pnlLabel")}
           />
+        ) : failed ? (
+          <div className="flex h-[180px] items-center justify-center"><ErrorState onRetry={onRetry} /></div>
         ) : loading ? (
           <Skeleton className="h-[180px]" />
         ) : (
@@ -319,7 +328,7 @@ export function MobileTrader({
       </div>
 
       {sheet ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/60 md:hidden" role="dialog" aria-modal="true" aria-label={t("trader.copyTrade")} onClick={() => setSheet(false)}>
+        <div ref={sheetRef} className="fixed inset-0 z-50 flex items-end bg-black/60 md:hidden" role="dialog" aria-modal="true" aria-label={t("trader.copyTrade")} onClick={() => setSheet(false)}>
           <div className="relative max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-background p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"

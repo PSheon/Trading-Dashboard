@@ -44,7 +44,7 @@ export function DepositDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t("wallet.depositTitle")} badge={<NetworkBadge network={summary?.network} />}>
       {wallet.isError && !summary ? (
-        <ErrorState message={wallet.error.message} onRetry={() => wallet.refetch()} />
+        <ErrorState onRetry={() => wallet.refetch()} />
       ) : !summary || !network ? (
         <div className="flex flex-col items-center gap-4">
           <Skeleton className="h-12 w-full" />

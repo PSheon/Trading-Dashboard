@@ -7,6 +7,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/provider";
+import { useModalFocus } from "@/lib/use-modal-focus";
 import { FAVORITE_GROUP_NAME_MAX, type FavoriteGroup } from "@/lib/contracts";
 import { useCreateFavoriteGroup, useDeleteFavoriteGroup, useToggleGroupMember } from "@/lib/favorite-groups";
 
@@ -66,7 +67,7 @@ export function GroupChips({ groups, counts, total, active, onSelect }: {
               onClick={() => setConfirm(g)}
               aria-label={`${t("favorites.groups.delete")} ${g.name}`}
               title={t("favorites.groups.delete")}
-              className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-border-strong text-muted-foreground opacity-0 outline-none transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 hover:bg-negative hover:text-white focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-border-strong text-muted-foreground opacity-0 outline-none transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 hover:bg-negative hover:text-primary-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="size-2.5" strokeWidth={3} />
             </button>
@@ -140,17 +141,14 @@ function Chip({ active, onClick, count, children }: { active: boolean; onClick: 
   );
 }
 
-/** A centred dialog over a dimmed page; Escape and the backdrop close it. */
+/** A centred dialog over a dimmed page; Escape and the backdrop close it,
+ * and focus stays inside while it is open (lib/use-modal-focus). */
 export function Dialog({ title, onClose, children, className }: { title: string; onClose: () => void; children: React.ReactNode; className?: string }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const ref = useModalFocus<HTMLDivElement>(true, onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" aria-label={title} className="absolute inset-0 bg-black/60" onClick={onClose} tabIndex={-1} />
-      <div role="dialog" aria-modal="true" aria-label={title} className={cn("relative w-full max-w-sm rounded-2xl border border-border-strong bg-popover p-6 shadow-2xl", className)}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cn("relative w-full max-w-sm rounded-2xl border border-border-strong bg-popover p-6 shadow-2xl", className)}>
         <h2 className="mb-2 text-lg font-bold">{title}</h2>
         {children}
       </div>

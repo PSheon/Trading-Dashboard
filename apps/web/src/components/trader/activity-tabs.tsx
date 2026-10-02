@@ -129,7 +129,7 @@ export function ActivityTabs({
         {tab === "orders" ? <OrdersTab address={profile.address} /> : null}
         {tab === "fills" ? (
           fills.isError && !fills.data ? (
-            <ErrorState message={fills.error.message} onRetry={() => fills.refetch()} />
+            <ErrorState onRetry={() => fills.refetch()} />
           ) : !fillRows ? (
             <Loading />
           ) : (

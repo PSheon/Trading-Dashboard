@@ -1,3 +1,4 @@
+import { TIME_ZONE } from "@/i18n/config";
 /**
  * Number and time formats of CopyDog's trader-page trade views (its JS
  * bundle), used by Orbie's win-rate tile, rail trade sections and the 表現 /
@@ -77,10 +78,12 @@ export function winRateTone(value: number | null | undefined): "positive" | "war
   return value >= 0.5 ? "positive" : value >= 0.35 ? "warning" : "negative";
 }
 
-/** "Sep 19, 06:52" (en-US, 24 h, local time). */
+/** "Sep 19, 06:52" (en-US, 24 h), in the site's one time zone — the same
+ * zone every other time on the page is written in (lib/format), so a trade
+ * table and the chart beside it never disagree by the viewer's offset. */
 export function shortTime(value: string | number | Date | null | undefined): string {
   if (!value) return "-";
-  return new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  return new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: TIME_ZONE });
 }
 
 /** "20d 17h", "21h 12m", "55m", "19s". */
@@ -143,8 +146,8 @@ export function signedPct2(value: number | null | undefined): string {
 export function feedTime(value: string | number | Date | null | undefined): string {
   if (!value) return "";
   const d = new Date(value);
-  const day = d.toLocaleString("en-US", { month: "short", day: "numeric" });
-  const time = d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).replace(" ", "");
+  const day = d.toLocaleString("en-US", { month: "short", day: "numeric", timeZone: TIME_ZONE });
+  const time = d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: TIME_ZONE }).replace(" ", "");
   return `${day} ${time}`;
 }
 

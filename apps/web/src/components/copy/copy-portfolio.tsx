@@ -408,7 +408,7 @@ function StopDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView
           <Button variant="secondary" size="lg" className="border border-border-strong" onClick={onClose}>{t("portfolio.copy.stop.cancel")}</Button>
           <Button
             size="lg"
-            className="bg-negative text-white hover:bg-negative/90"
+            className="bg-negative text-primary-foreground hover:bg-negative/90"
             disabled={command.isPending}
             onClick={async () => {
               setError(null);

@@ -37,7 +37,7 @@ export function WalletHistoryList({ className }: { className?: string }) {
   const history = useWalletHistory();
 
   if (history.isError && !history.data) {
-    return <ErrorState message={history.error.message} onRetry={() => history.refetch()} />;
+    return <ErrorState onRetry={() => history.refetch()} />;
   }
   if (!history.data) {
     return (

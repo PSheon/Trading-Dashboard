@@ -728,6 +728,11 @@ export const en: Messages = {
     announcement: "Announcement",
   },
   common: {
+    errors: {
+      rateLimited: "Too many requests. Try again in a moment.",
+      busy: "The service is busy. Try again in a moment.",
+      failed: "That didn't work. Please try again.",
+    },
     loading: "Loading…",
     error: "Failed to load",
     retry: "Retry",

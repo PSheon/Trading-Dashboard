@@ -100,6 +100,11 @@ export const id: Messages = {
     announcement: "Pengumuman",
   },
   common: {
+    errors: {
+      rateLimited: "Terlalu banyak permintaan. Coba lagi sebentar lagi.",
+      busy: "Layanan sedang sibuk. Coba lagi sebentar lagi.",
+      failed: "Tidak berhasil. Silakan coba lagi.",
+    },
     loading: "Memuat…",
     error: "Gagal memuat",
     retry: "Coba lagi",

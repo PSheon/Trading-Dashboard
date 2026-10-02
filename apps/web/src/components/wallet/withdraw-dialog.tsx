@@ -47,7 +47,7 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t("wallet.withdrawTitle")} badge={<NetworkBadge network={summary?.network} />}>
       {wallet.isError && !summary ? (
-        <ErrorState message={wallet.error.message} onRetry={() => wallet.refetch()} />
+        <ErrorState onRetry={() => wallet.refetch()} />
       ) : !summary ? (
         <div className="flex flex-col gap-4">
           <Skeleton className="h-4 w-20" />

@@ -70,6 +70,10 @@ function TraderLoaded({ address }: { address: string }) {
   // WebSocket, over the REST profile (initial state and fallback).
   const live = useLiveTrader(address, profile.data);
   const copyScore = useCopyScore(address);
+  // A failed read with nothing to show. The poll puts such a query back to
+  // "pending" each time it asks again, so `isError` alone would alternate
+  // between a placeholder and "no data"; the count stays until data arrives.
+  const portfolioFailed = portfolio.errorUpdateCount > 0 && !portfolio.data;
 
   // Owner's rule: no data for the address is the 404 page (CopyDog draws
   // its trader page with every figure empty). Until the fill history has
@@ -106,6 +110,8 @@ function TraderLoaded({ address }: { address: string }) {
         window={window}
         onWindow={setWindow}
         loading={portfolio.isPending}
+        failed={portfolioFailed}
+        onRetry={() => void portfolio.refetch()}
         copyScore={copyScore.data?.copyScore ?? null}
       />
     ) : (
@@ -201,6 +207,8 @@ function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePe
           address={address}
           portfolio={portfolio.data}
           loading={portfolio.isPending}
+          failed={portfolio.errorUpdateCount > 0 && !portfolio.data}
+          onRetry={() => void portfolio.refetch()}
           window={window}
           onWindow={onWindow}
           mode={mode}

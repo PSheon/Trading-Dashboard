@@ -100,6 +100,11 @@ export const ja: Messages = {
     announcement: "お知らせ",
   },
   common: {
+    errors: {
+      rateLimited: "リクエストが多すぎます。しばらくしてからもう一度お試しください。",
+      busy: "サービスが混み合っています。しばらくしてからもう一度お試しください。",
+      failed: "処理に失敗しました。もう一度お試しください。",
+    },
     loading: "読み込み中…",
     error: "読み込みに失敗しました",
     retry: "再試行",

@@ -22,6 +22,7 @@ import { boardCoinLabel, boardPnl, boardRoi, boardUsd } from "@/lib/board-format
 import type { BoardMarket, BoardSort, BoardTrader, BoardWindow, TradingStyle } from "@/lib/contracts";
 import { useBoard, useSiteSettings } from "@/lib/queries";
 import { useIsDesktop } from "@/lib/use-is-desktop";
+import { useModalFocus } from "@/lib/use-modal-focus";
 import { useNow } from "@/lib/use-now";
 
 const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
@@ -517,8 +518,9 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
       : []),
     { key: "style", label: t("discover.styles"), value: draft.style, options: STYLES.map((s) => ({ value: s, label: t(`discover.style.${s}`) })) },
   ];
+  const focusRef = useModalFocus<HTMLDivElement>(true, onClose);
   return (
-    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label={t("discover.filters")}>
+    <div ref={focusRef} className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label={t("discover.filters")}>
       <button type="button" aria-label={t("discover.close")} className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-3xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)]">
         <span className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-border-strong" aria-hidden />

@@ -7,7 +7,7 @@ import { cn } from "cn";
 
 import { OrbieMark, Wordmark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
-import { Skeleton } from "@/components/page";
+import { ErrorState, Skeleton } from "@/components/page";
 import { RoiPill } from "@/components/traders/bits";
 import {
   DropdownMenu,
@@ -306,6 +306,8 @@ export function PerformanceChart({
   address,
   portfolio,
   loading,
+  failed = false,
+  onRetry,
   window,
   onWindow,
   mode,
@@ -322,6 +324,10 @@ export function PerformanceChart({
   address: string;
   portfolio: PortfolioResponse | undefined;
   loading: boolean;
+  /** The portfolio could not be read (and there is none to show): a line
+   * and a retry, not "no data" and not a placeholder that never ends. */
+  failed?: boolean;
+  onRetry?: () => void;
   window: TraderWindow;
   onWindow: (w: TraderWindow) => void;
   mode: ChartMode;
@@ -451,7 +457,7 @@ export function PerformanceChart({
                         : "text-primary",
                   )}
                 >
-                  {loading && !portfolio ? <Skeleton className="h-8 w-48" /> : headline}
+                  {loading && !portfolio && !failed ? <Skeleton className="h-8 w-48" /> : headline}
                 </div>
                 {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} label={`${Math.abs(pnlPct * 100).toFixed(2)}%`} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" muted={muted} /> : null}
                 {usdPnl !== null ? (
@@ -484,6 +490,8 @@ export function PerformanceChart({
                   </span>
                 }
               />
+            ) : failed ? (
+              <div className="flex h-[300px] items-center justify-center"><ErrorState onRetry={onRetry} /></div>
             ) : loading ? (
               <Skeleton className="h-[300px]" />
             ) : (

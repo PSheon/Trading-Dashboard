@@ -1,5 +1,6 @@
 "use client";
 
+import { apiErrorKey } from "@/lib/api-error-text";
 import { queryKeys } from "@/lib/query-keys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -58,7 +59,7 @@ export function useCreateTelegramLink() {
       return link;
     },
     onError: (error) =>
-      toast.error(error.code === "rate_limited" ? t("settings.rateLimited") : error.code === "telegram_not_configured" ? t("settings.unavailable") : error.message),
+      toast.error(error.code === "rate_limited" ? t("settings.rateLimited") : error.code === "telegram_not_configured" ? t("settings.unavailable") : t(apiErrorKey(error))),
   });
 }
 
@@ -70,7 +71,7 @@ export function useUnlinkTelegram() {
   return useMutation<void, ApiError>({
     mutationFn: () => api.delete<void>("/me/telegram"),
     onSuccess: () => toast.success(t("settings.unlinked")),
-    onError: (error) => toast.error(error.message),
+    onError: (error) => toast.error(t(apiErrorKey(error))),
     onSettled: () => queryClient.invalidateQueries({ queryKey: TELEGRAM_KEY }),
   });
 }
@@ -94,7 +95,7 @@ export function useSetFavoriteAlert() {
     onError: (error) => {
       if (error.code === "telegram_not_linked") toast.error(t("alerts.notLinked"));
       else if (error.code === "alert_limit") toast.info(t("alerts.limit", { limit: typeof error.details.limit === "number" ? error.details.limit : 3 }));
-      else toast.error(error.message);
+      else toast.error(t(apiErrorKey(error)));
     },
     onSuccess: (saved) => {
       queryClient.setQueryData<Favorite[]>(queryKeys.favorites, (list) =>

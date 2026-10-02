@@ -11,6 +11,7 @@ import type { DiscoverSearchResponse } from "@/lib/contracts";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { useDiscoverSearch } from "@/lib/queries";
 import { useIsDesktop } from "@/lib/use-is-desktop";
+import { useModalFocus } from "@/lib/use-modal-focus";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** Keystrokes settle this long before a search request goes out. */
@@ -94,13 +95,17 @@ export function AddressSearch({ compact = false, buttonClassName }: {
   // CopyDog lights no row until ↑/↓ or the pointer picks one.
   const [active, setActive] = useState(-1);
   const [recent, setRecent] = useState<Recent[]>([]);
-  const rootRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
   const query = useDebounced(value.trim(), DEBOUNCE_MS);
   const search = useDiscoverSearch(query);
   // The long placeholder doesn't fit a phone's top bar.
   const wide = useIsDesktop();
+  // The phone search covers the screen: focus stays in it while it is open.
+  const rootRef = useModalFocus<HTMLFormElement>(wide === false && open, () => {
+    setOpen(false);
+    inputRef.current?.blur();
+  });
 
   const trimmed = value.trim();
   const results: Result[] = trimmed && search.data ? search.data.items : [];
@@ -121,7 +126,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
-  }, [open]);
+  }, [open, rootRef]);
 
   function remember(row: Result | Recent | { address: string; direct: true } | undefined, address: string) {
     const entry: Recent = row && !("direct" in row)
@@ -153,7 +158,11 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     // CopyDog: Enter opens the row ↑/↓ lit; with none lit it opens the
     // trader page for the typed text as it stands (a page that finds no
     // trader is the 404).
-    const pick = showList && active >= 0 ? listRows[active] : undefined;
+    // …but only a row of the list for what is typed now: while the search
+    // for the latest keystrokes is still out, the rows on screen answer an
+    // earlier query, and Enter must not open one of those.
+    const current = showRecent || settled || (active === 0 && listRows[0] && "direct" in listRows[0]);
+    const pick = showList && active >= 0 && current ? listRows[active] : undefined;
     if (pick) return go(pick.address, pick);
     if (ADDRESS.test(q)) return go(q);
     setValue("");
@@ -184,10 +193,19 @@ export function AddressSearch({ compact = false, buttonClassName }: {
     setOpen(false);
     inputRef.current?.blur();
   };
+  // …and focus returns to the search button (which the overlay replaced)
+  // when it closes.
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wasOverlay = useRef(false);
+  useEffect(() => {
+    if (wasOverlay.current && !overlay) buttonRef.current?.focus({ preventScroll: true });
+    wasOverlay.current = overlay;
+  }, [overlay]);
 
   if (compact && !overlay) {
     return (
       <button
+        ref={buttonRef}
         type="button"
         aria-label={t("topbar.searchLabel")}
         onClick={() => setOpen(true)}

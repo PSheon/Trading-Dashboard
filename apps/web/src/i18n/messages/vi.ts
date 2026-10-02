@@ -100,6 +100,11 @@ export const vi: Messages = {
     announcement: "Thông báo",
   },
   common: {
+    errors: {
+      rateLimited: "Quá nhiều yêu cầu. Vui lòng thử lại sau giây lát.",
+      busy: "Dịch vụ đang bận. Vui lòng thử lại sau giây lát.",
+      failed: "Thao tác không thành công. Vui lòng thử lại.",
+    },
     loading: "Đang tải…",
     error: "Không tải được",
     retry: "Thử lại",

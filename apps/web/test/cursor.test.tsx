@@ -23,12 +23,11 @@ describe("cursor: pointer on interactive elements", () => {
     expect(css).toMatch(/button:disabled,\s*\[aria-disabled="true"\],[\s\S]*?\{\s*cursor: not-allowed;\s*\}/);
   });
 
-  it("renders the controls the rule targets: segmented options as role=radio buttons, FAQ questions as summaries", () => {
+  it("renders the controls the rule targets: segmented options as role=radio buttons, FAQ questions as buttons", () => {
     const wrap = (node: React.ReactNode) => renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}>{node}</I18nProvider>);
     const segmented = wrap(<Segmented value="a" onChange={() => {}} label="x" options={[{ value: "a", label: "A" }, { value: "b", label: "B" }]} />);
     expect(segmented.match(/<button[^>]*role="radio"/g)).toHaveLength(2);
     const faq = wrap(<FaqList sections={[{ title: null, questions: [{ question: "Q", answer: [{ type: "paragraph", text: "A" }] }] }]} />);
-    expect(faq).toContain("<summary");
-    expect(faq).toContain("cursor-pointer");
+    expect(faq).toMatch(/<button type="button" aria-expanded="true"/);
   });
 });

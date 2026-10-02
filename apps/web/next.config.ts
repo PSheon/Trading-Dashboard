@@ -42,7 +42,12 @@ const nextConfig: NextConfig = {
       { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" },
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       ...(process.env.NODE_ENV === "production" ? [{ key: "Strict-Transport-Security", value: "max-age=15552000" }] : []),
-    ] }];
+    ] }, {
+      // Market icons are Hyperliquid's SVG files served from this origin
+      // (app/api/coin-icon): opened directly, one runs nothing.
+      source: "/api/coin-icon/:coin",
+      headers: [{ key: "Content-Security-Policy", value: "default-src 'none'; style-src 'unsafe-inline'; sandbox" }],
+    }];
   },
   webpack(config) {
     if (!fixtures) config.resolve.alias["@/fixtures/handler"] = resolve(import.meta.dirname, "src/fixtures/disabled.ts");

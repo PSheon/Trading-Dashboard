@@ -731,6 +731,11 @@ export const zhTW = {
     announcement: "公告",
   },
   common: {
+    errors: {
+      rateLimited: "操作太頻繁，請稍後再試。",
+      busy: "服務忙碌中，請稍後再試。",
+      failed: "操作失敗，請再試一次。",
+    },
     loading: "載入中…",
     error: "載入失敗",
     retry: "重試",

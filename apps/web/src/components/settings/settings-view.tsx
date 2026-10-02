@@ -18,7 +18,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+import { useIsDesktop } from "@/lib/use-is-desktop";
+import { useModalFocus } from "@/lib/use-modal-focus";
 import { cn } from "cn";
 
 import { Wordmark } from "@/components/brand/logo";
@@ -234,18 +237,18 @@ function FundsSummary() {
 
 // --- desktop -------------------------------------------------------------------
 
-function useQueryParam<T extends string>(key: string, allowed: readonly T[], fallback: T): [T, (value: T) => void] {
+function useQueryParam<T extends string>(key: string, allowed: readonly T[], fallback: T): [T, (value: T, how?: "push" | "replace") => void] {
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const raw = params.get(key);
   const value = allowed.includes(raw as T) ? (raw as T) : fallback;
-  const set = (next: T) => {
+  const set = (next: T, how: "push" | "replace" = "push") => {
     const qs = new URLSearchParams(params.toString());
     if (next === fallback) qs.delete(key);
     else qs.set(key, next);
     const query = qs.toString();
-    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router[how](query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
   return [value, set];
 }
@@ -362,13 +365,32 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
     "root",
   );
 
+  // A sub-view opened from the list is one history entry, and ← takes that
+  // entry back rather than adding a third: otherwise × (which goes back)
+  // returned to the sub-view just left, and the two buttons looped. A
+  // sub-view opened by its URL has no entry of ours: ← replaces it.
+  const opened = useRef(0);
+  const open = (next: PhoneView) => {
+    opened.current += 1;
+    setView(next);
+  };
+  const back = () => {
+    if (opened.current > 0) {
+      opened.current -= 1;
+      router.back();
+    } else setView("root", "replace");
+  };
   const close = () => {
     if (typeof window !== "undefined" && window.history.length > 1) router.back();
     else router.push("/portfolio");
   };
+  // The panel covers the whole screen on a phone (it is not shown on
+  // desktop): focus stays in it, and Escape is × on the list, ← in a sub-view.
+  const phone = useIsDesktop() === false;
+  const focusRef = useModalFocus<HTMLDivElement>(phone, () => (view === "root" ? close() : back()));
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-background px-5 pt-4 pb-[calc(32px+env(safe-area-inset-bottom))]">
+    <div ref={focusRef} role="dialog" aria-modal="true" aria-label={t("settings.title")} className="fixed inset-0 z-50 overflow-y-auto bg-background px-5 pt-4 pb-[calc(32px+env(safe-area-inset-bottom))]">
       {view === "root" ? (
         <>
           <button
@@ -382,7 +404,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
           {signedIn ? (
             <button
               type="button"
-              onClick={() => setView("account")}
+              onClick={() => open("account")}
               className="mt-6 flex w-full items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Avatar initial={initial} size={52} />
@@ -408,9 +430,9 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
 
           <p className="mt-[22px] text-xs leading-[18px] font-semibold tracking-[0.6px] text-muted-foreground uppercase">{t("settings.general")}</p>
           <div className="mt-1">
-            {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => setView("notifications")} /> : null}
-            <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => setView("language")} />
-            {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => setView("history")} /> : null}
+            {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => open("notifications")} /> : null}
+            <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => open("language")} />
+            {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => open("history")} /> : null}
           </div>
 
           <div className="mt-6 flex items-center gap-4 rounded-[20px] bg-card p-5">
@@ -451,7 +473,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setView("root")}
+              onClick={back}
               aria-label={t("settings.back")}
               className="flex size-10 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >

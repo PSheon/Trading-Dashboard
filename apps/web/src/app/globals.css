@@ -553,3 +553,14 @@
     background-color: var(--primary-soft);
   }
 }
+
+/* iOS zooms the page when a field under 16px takes focus, and does not zoom
+   back. On touch screens every text field is 16px; fields that size their
+   own text (the copy amount, set inline) are left alone. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([style*="font-size"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

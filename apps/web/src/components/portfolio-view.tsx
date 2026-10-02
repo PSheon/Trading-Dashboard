@@ -225,7 +225,7 @@ function DesktopPortfolio() {
             <TotalValue wallet={wallet} className="text-[2.5rem] leading-tight" />
           </button>
           {open && wallet.data ? <Breakdown summary={wallet.data} /> : null}
-          {wallet.isError && !wallet.data ? <ErrorState message={wallet.error.message} onRetry={() => wallet.refetch()} /> : null}
+          {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
           <FundButtons className="mt-1" />
         </section>
         {copy.data ? <PaperAccountCard overview={copy.data} className="w-[340px]" /> : null}
@@ -233,7 +233,7 @@ function DesktopPortfolio() {
       {copy.data ? (
         <CopyingSection overview={copy.data} phone={false} />
       ) : copy.isError ? (
-        <ErrorState message={copy.error.message} onRetry={() => copy.refetch()} />
+        <ErrorState onRetry={() => copy.refetch()} />
       ) : (
         <Skeleton className="h-40 w-full" />
       )}
@@ -374,7 +374,7 @@ function PhoneTab({ tab, copy }: { tab: Tab; copy: ReturnType<typeof useCopyOver
   const { t } = useI18n();
   const leaders = useLeaders(copy.data?.strategies ?? []);
   if (!copy.data) {
-    return copy.isError ? <ErrorState message={copy.error.message} onRetry={() => copy.refetch()} /> : <Skeleton className="h-40 w-full" />;
+    return copy.isError ? <ErrorState onRetry={() => copy.refetch()} /> : <Skeleton className="h-40 w-full" />;
   }
   const has = copy.data.strategies.length > 0;
   if (tab === "copying") {

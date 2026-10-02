@@ -61,7 +61,12 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   useEffect(() => () => clearTimeout(startedTimer.current), []);
 
   const signedIn = status === "signedIn";
+  // A signed-in user's balance is unknown until /me/copy has answered (and
+  // stays unknown if it failed): the panel then shows "—", not 0.00, and
+  // does not judge or clamp what was typed against a balance of zero.
+  const balanceKnown = !signedIn || overview.data !== undefined;
   const balance = overview.data?.paper.balance ?? 0;
+  const balanceText = balanceKnown ? balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
   const min = overview.data?.limits.minAllocationUsd ?? DEFAULT_MIN;
   const value = Number.parseFloat(amount);
   const pct = balance > 0 ? Math.min(100, Math.round(((Number.isFinite(value) ? value : 0) / balance) * 100)) : 0;
@@ -101,7 +106,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     closed ? t("trader.copy.errors.disabled") :
     !amount || !(value > 0) ? t("trader.copy.enterAmount") :
     value < min ? t("trader.copy.minToCopy", { min: format.num(min) }) :
-    value > balance ? t("trader.copy.notEnoughBalance") :
+    balanceKnown && value > balance ? t("trader.copy.notEnoughBalance") :
     t("trader.copy.startCopying", { amount: format.num(value, value % 1 ? 2 : 0) });
 
   function setFromPct(p: number) {
@@ -116,6 +121,11 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     if (closed) return toast.error(t("trader.copy.errors.disabled"));
     if (!amount || !(value > 0)) return toast.error(t("trader.copy.enterAmount"));
     if (value < min) return toast.error(t("trader.copy.errors.minAllocation", { min: format.num(min) }));
+    if (!balanceKnown) {
+      // The balance never loaded: ask again rather than start blind.
+      void overview.refetch?.();
+      return toast.error(t("trader.copy.errors.failed"));
+    }
     if (value > balance) return toast.error(t("trader.copy.errors.exceedsBalance"));
     try {
       await start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" });
@@ -157,7 +167,8 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             className={cn(
               "flex min-h-[52px] items-center justify-center gap-1.5 rounded-full px-4 py-2 text-base leading-6 font-semibold outline-none transition-[color,background-color,opacity] hover:opacity-[0.88] focus-visible:ring-2 focus-visible:ring-ring",
               active && d === "same" && "bg-primary text-primary-foreground",
-              active && d === "reverse" && "bg-negative text-white",
+              // Dark on the red, as on the orange: white on it is 3.4:1.
+              active && d === "reverse" && "bg-negative text-primary-foreground",
               !active && "text-foreground",
             )}
           >
@@ -246,7 +257,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             }}
             onBlur={() => {
               // CopyDog clamps to the whole-dollar balance when focus leaves.
-              if (amount && Number.isFinite(value)) setAmount(String(Math.min(Math.floor(value), Math.floor(balance))));
+              if (amount && Number.isFinite(value) && balanceKnown) setAmount(String(Math.min(Math.floor(value), Math.floor(balance))));
             }}
             className="num min-w-[1ch] bg-transparent p-0 leading-none font-bold outline-none placeholder:text-foreground"
             style={{ width: `${Math.max(1, (amount || "0").length)}ch`, fontSize: amountPx, height: Math.round(amountPx * 1.328) }}
@@ -289,7 +300,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
             <span className="text-sm font-bold">USDC</span>
             <PaperBadge />
             <span className="ml-auto text-sm">
-              <b className="num">{format.num(balance, 2)}</b> <span className="text-muted-foreground">{t("portfolio.copy.paperBalance")}</span>
+              <b className="num">{balanceKnown ? format.num(balance, 2) : "—"}</b> <span className="text-muted-foreground">{t("portfolio.copy.paperBalance")}</span>
             </span>
           </div>
           <div role="group" aria-label={t("trader.copy.amount")} className="grid grid-cols-3 gap-1">
@@ -315,7 +326,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
               {t("trader.copy.balance")}
               <PaperBadge />
             </span>
-            <span className="num font-semibold">{balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
+            <span className="num font-semibold">{balanceText} USDC</span>
           </div>
           <div className="mt-4 flex items-center gap-3">
             <input

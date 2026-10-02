@@ -100,6 +100,11 @@ export const tr: Messages = {
     announcement: "Duyuru",
   },
   common: {
+    errors: {
+      rateLimited: "Çok fazla istek. Birazdan tekrar deneyin.",
+      busy: "Hizmet meşgul. Birazdan tekrar deneyin.",
+      failed: "İşlem başarısız oldu. Lütfen tekrar deneyin.",
+    },
     loading: "Yükleniyor…",
     error: "Yüklenemedi",
     retry: "Tekrar dene",

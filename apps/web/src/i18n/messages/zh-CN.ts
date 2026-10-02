@@ -100,6 +100,11 @@ export const zhCN: Messages = {
     announcement: "公告",
   },
   common: {
+    errors: {
+      rateLimited: "操作太频繁，请稍后再试。",
+      busy: "服务繁忙，请稍后再试。",
+      failed: "操作失败，请再试一次。",
+    },
     loading: "加载中…",
     error: "加载失败",
     retry: "重试",

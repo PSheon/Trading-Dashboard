@@ -350,7 +350,11 @@ export function deriveLiveProfile(profile: TraderProfileResponse, state: LiveTra
   const spotBalances = liveSpotBalances(profile.spotBalances, state.spot, state.mids);
   const spotValue = spotBalances.reduce((s, b) => s + b.value, 0);
   const accountMode = toAccountMode(state.abstraction, profile.accountMode);
-  const accountValue = perpEquity === null || profile.stakedValue === null ? null : (accountMode === "standard" ? perpEquity : 0) + spotValue + profile.stakedValue;
+  // A vault's value is its TVL (it includes what a parent holds in child
+  // vaults), which only the api's whole-account read knows: keep it.
+  const accountValue = profile.isVault
+    ? profile.accountValue
+    : perpEquity === null || profile.stakedValue === null ? null : (accountMode === "standard" ? perpEquity : 0) + spotValue + profile.stakedValue;
 
   let longNotional = 0;
   let shortNotional = 0;

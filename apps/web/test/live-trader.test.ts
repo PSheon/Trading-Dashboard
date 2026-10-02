@@ -189,6 +189,13 @@ describe("deriveLiveProfile", () => {
     const state = reduce([{ type: "webData3", data: { userState: { abstraction: "disabled" } } }]);
     expect(deriveLiveProfile(pm, state).accountMode).toBe("portfolioMargin");
   });
+
+  it("keeps a vault's TVL: the socket only sees the parent's own perp equity", () => {
+    const vault = { ...profile, isVault: true, accountValue: 183_000_000 };
+    const live = deriveLiveProfile(vault, reduce([chState("", "1500", []), chState("xyz", "60", [])]));
+    expect(live.perpEquity).toBe(1560);
+    expect(live.accountValue).toBe(183_000_000);
+  });
 });
 
 describe("spotPrice", () => {

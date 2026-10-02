@@ -2,7 +2,7 @@
 
 import { ChevronLeft, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { TraderAvatar } from "@/components/discover/board-bits";
@@ -10,6 +10,7 @@ import { useT } from "@/i18n/provider";
 import type { DiscoverSearchResponse } from "@/lib/contracts";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { useDiscoverSearch } from "@/lib/queries";
+import { useIsDesktop } from "@/lib/use-is-desktop";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** Keystrokes settle this long before a search request goes out. */
@@ -99,15 +100,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
   const query = useDebounced(value.trim(), DEBOUNCE_MS);
   const search = useDiscoverSearch(query);
   // The long placeholder doesn't fit a phone's top bar.
-  const wide = useSyncExternalStore<boolean | undefined>(
-    (onChange) => {
-      const mq = window.matchMedia("(min-width: 768px)");
-      mq.addEventListener("change", onChange);
-      return () => mq.removeEventListener("change", onChange);
-    },
-    () => window.matchMedia("(min-width: 768px)").matches,
-    () => undefined,
-  );
+  const wide = useIsDesktop();
 
   const trimmed = value.trim();
   const results: Result[] = trimmed && search.data ? search.data.items : [];

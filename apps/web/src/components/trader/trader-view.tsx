@@ -15,6 +15,7 @@ import {
   useTraderProfile,
 } from "@/lib/queries";
 import { traderIsUnknown } from "@/lib/trader-presence";
+import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useLiveTrader } from "@/lib/use-live-trader";
 import { ActivityTabs } from "./activity-tabs";
 import { CopyPanel } from "./copy-panel";
@@ -39,6 +40,7 @@ export function TraderView({ address }: { address: string }) {
 function TraderLoading() {
   return (
     <>
+      {/* Both outlines, one shown by CSS: the width is not known yet. */}
       <div className="md:hidden"><Skeleton className="h-[640px] rounded-2xl" /></div>
       <div className="trader-grid -mx-1 md:mx-0">
         <div data-area="profile"><Skeleton className="h-[640px] rounded-2xl" /></div>
@@ -51,49 +53,29 @@ function TraderLoading() {
 
 function TraderLoaded({ address }: { address: string }) {
   const { t } = useI18n();
+  // Only the layout on screen is mounted: the desktop page's rail, KPI
+  // tiles and tables have their own reads (fills ×2000 every 30 s, a second
+  // and third portfolio), which a phone used to make from a hidden copy.
+  const desktop = useIsDesktop();
   const [window, setWindow] = useState<TraderWindow>("allTime");
-  const [mode, setMode] = useState<ChartMode>("pnl");
-  const [unit, setUnit] = useState<ChartUnit>("usd");
   const [market, setMarket] = useState<Market>("perp");
-  // CopyDog's 即時動態: the pulse in the tab bar swaps the copy panel for it.
-  const [feedOpen, setFeedOpen] = useState(false);
 
   // The profile is the cheap first paint; activity (sample size, which
   // mutes the KPI tiles) costs the api fill lists and loads alongside it.
   const profile = useTraderProfile(address);
   const activity = useTraderActivity(address);
   const portfolio = usePortfolio(address, window, market);
-  const allTime = usePortfolio(address, "allTime", market);
-  // Round trips for any address, all-time (the rail, the tabs and the
-  // win-rate tile). A cold address computes on the api for a while (503
-  // busy, retried).
-  const tradesAll = useTraderAnalytics(address, "all");
-  // The KPI tiles, as CopyDog's: 表現 / ROI follow their own All / 30D / 7D
-  // period (perp), Sharpe, drawdown and win rate are all-time.
-  const [kpiPeriod, setKpiPeriod] = useState<KpiPeriod>("allTime");
-  const kpiPortfolio = usePortfolio(address, kpiPeriod, "perp");
   const allTimePerp = usePortfolio(address, "allTime", "perp");
   // Positions, account value, fills and marks straight from Hyperliquid's
   // WebSocket, over the REST profile (initial state and fallback).
   const live = useLiveTrader(address, profile.data);
-  const lowSample = activity.data?.sample.lowSample ?? false;
+  const copyScore = useCopyScore(address);
 
   // Owner's rule: no data for the address is the 404 page (CopyDog draws
   // its trader page with every figure empty). Until the fill history has
   // answered for a blank profile, the page keeps its loading look.
   const unknown = traderIsUnknown(profile.data, activity.data);
   if (unknown) notFound();
-
-  const copyScore = useCopyScore(address);
-  const rail = live.profile ? (
-    <ProfileCard
-      profile={live.profile}
-      allTimeVolume={allTime.data?.volume ?? null}
-      trades={tradesAll.data}
-      tradesComputing={isComputing(tradesAll)}
-      copyScore={copyScore.data?.copyScore ?? null}
-    />
-  ) : null;
 
   if (unknown === null && profile.data && !activity.isError) return <TraderLoading />;
   // CopyDog: the profile's retries are silent; once they run out the page
@@ -111,34 +93,88 @@ function TraderLoaded({ address }: { address: string }) {
     );
   }
 
+  // The width is known once the page has hydrated; nothing has loaded by then.
+  if (desktop === undefined) return <TraderLoading />;
+  if (!desktop) {
+    // Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs).
+    return live.profile ? (
+      <MobileTrader
+        profile={live.profile}
+        marks={live.mids}
+        portfolio={portfolio.data}
+        allTime={allTimePerp.data}
+        window={window}
+        onWindow={setWindow}
+        loading={portfolio.isPending}
+        copyScore={copyScore.data?.copyScore ?? null}
+      />
+    ) : (
+      <Skeleton className="h-[640px] rounded-2xl" />
+    );
+  }
   return (
-    <>
-    {/* Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs). */}
-    <div className="md:hidden">
-      {live.profile ? (
-        <MobileTrader
-          profile={live.profile}
-          marks={live.mids}
-          portfolio={portfolio.data}
-          allTime={allTimePerp.data}
-          window={window}
-          onWindow={setWindow}
-          loading={portfolio.isPending}
-          copyScore={copyScore.data?.copyScore ?? null}
-        />
-      ) : (
-        <Skeleton className="h-[640px] rounded-2xl" />
-      )}
-    </div>
+    <DesktopTrader
+      address={address}
+      profile={profile}
+      live={live}
+      lowSample={activity.data?.sample.lowSample ?? false}
+      portfolio={portfolio}
+      allTimePerp={allTimePerp}
+      copyScore={copyScore.data?.copyScore ?? null}
+      window={window}
+      onWindow={setWindow}
+      market={market}
+      onMarket={setMarket}
+    />
+  );
+}
+
+/** The desktop page: profile rail | KPIs + chart + tabs | copy panel. Its
+ * own reads live here, so they start only when this layout is shown. */
+function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePerp, copyScore, window, onWindow, market, onMarket }: {
+  address: string;
+  profile: ReturnType<typeof useTraderProfile>;
+  live: ReturnType<typeof useLiveTrader>;
+  lowSample: boolean;
+  portfolio: ReturnType<typeof usePortfolio>;
+  allTimePerp: ReturnType<typeof usePortfolio>;
+  copyScore: number | null;
+  window: TraderWindow;
+  onWindow: (window: TraderWindow) => void;
+  market: Market;
+  onMarket: (market: Market) => void;
+}) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<ChartMode>("pnl");
+  const [unit, setUnit] = useState<ChartUnit>("usd");
+  // CopyDog's 即時動態: the pulse in the tab bar swaps the copy panel for it.
+  const [feedOpen, setFeedOpen] = useState(false);
+  // The rail's all-time volume follows the chart's market.
+  const allTime = usePortfolio(address, "allTime", market);
+  // Round trips for any address, all-time (the rail, the tabs and the
+  // win-rate tile). A cold address computes on the api for a while (503
+  // busy, retried).
+  const tradesAll = useTraderAnalytics(address, "all");
+  // The KPI tiles, as CopyDog's: 表現 / ROI follow their own All / 30D / 7D
+  // period (perp), Sharpe, drawdown and win rate are all-time.
+  const [kpiPeriod, setKpiPeriod] = useState<KpiPeriod>("allTime");
+  const kpiPortfolio = usePortfolio(address, kpiPeriod, "perp");
+
+  return (
     <div className="trader-grid -mx-1 md:mx-0">
       <div data-area="profile">
         {live.profile ? (
-          rail
+          <ProfileCard
+            profile={live.profile}
+            allTimeVolume={allTime.data?.volume ?? null}
+            trades={tradesAll.data}
+            tradesComputing={isComputing(tradesAll)}
+            copyScore={copyScore}
+          />
         ) : (
           <Skeleton className="h-[640px] rounded-2xl" />
         )}
       </div>
-
       <div data-area="main" className="flex min-w-0 flex-col gap-1.5">
         {profile.data?.dataQuality?.partial ? (
           <p role="status" className="text-sm text-warning">{t("trader.partialProfile")} <button type="button" className="underline" onClick={() => profile.refetch()}>{t("common.retry")}</button></p>
@@ -166,13 +202,13 @@ function TraderLoaded({ address }: { address: string }) {
           portfolio={portfolio.data}
           loading={portfolio.isPending}
           window={window}
-          onWindow={setWindow}
+          onWindow={onWindow}
           mode={mode}
           onMode={setMode}
           unit={unit}
           onUnit={setUnit}
           market={market}
-          onMarket={setMarket}
+          onMarket={onMarket}
           muted={lowSample}
           roi={windowRoi(portfolio.data)}
         />
@@ -193,6 +229,5 @@ function TraderLoaded({ address }: { address: string }) {
         {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel address={address} />}
       </div>
     </div>
-    </>
   );
 }

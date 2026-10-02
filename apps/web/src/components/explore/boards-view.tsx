@@ -21,6 +21,7 @@ import { useI18n } from "@/i18n/provider";
 import { boardCoinLabel, boardPnl, boardRoi, boardUsd } from "@/lib/board-format";
 import type { BoardMarket, BoardSort, BoardTrader, BoardWindow, TradingStyle } from "@/lib/contracts";
 import { useBoard, useSiteSettings } from "@/lib/queries";
+import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useNow } from "@/lib/use-now";
 
 const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
@@ -65,6 +66,7 @@ export function BoardsView() {
   // "auto": grid on desktop, CopyDog's dense list on phones.
   const [view, setView] = useState<View>(pick(params.get("view"), ["auto", "grid", "list"] as const, "auto"));
   const [sheet, setSheet] = useState(false);
+  const desktop = useIsDesktop();
 
   const r = rules(market, board, window);
   const effectiveSort: BoardSort = r.sorts.includes(sort) ? sort : "pnl";
@@ -206,21 +208,25 @@ export function BoardsView() {
         />
       ) : (
         <div className={cn("transition-opacity", query.isPlaceholderData && "opacity-60")} aria-busy={query.isFetching}>
-          {view !== "list" ? (
+          {/* One layout per trader, not two with one hidden: "auto" is the
+              cards on desktop and the rows on a phone; the list view is the
+              rows on a phone and the table on desktop. (Until the width is
+              known — never with data in practice — CSS picks, as before.) */}
+          {view === "grid" || (view === "auto" && desktop !== false) ? (
             <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
               {items.map((trader) => (
                 <BoardCard key={trader.address} trader={trader} pnlLabel={pnlLabel} roiLabel={roiLabel} roiHint={roiHint} now={now} />
               ))}
             </div>
           ) : null}
-          {view !== "grid" ? (
+          {view !== "grid" && desktop !== true ? (
             <ul className={cn("divide-y divide-border md:hidden")}>
               {items.map((trader) => (
                 <BoardMobileRow key={trader.address} trader={trader} />
               ))}
             </ul>
           ) : null}
-          {view === "list" ? (
+          {view === "list" && desktop !== false ? (
             <BoardTable
               items={items}
               sorts={r.sorts}

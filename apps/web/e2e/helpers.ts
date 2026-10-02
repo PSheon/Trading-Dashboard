@@ -8,8 +8,8 @@ export async function signIn(page: Page) {
   await page.getByRole("button", { name: /^(Demo login|Sign In)$/ }).filter({ visible: true }).first().click();
 }
 
-/** Explore renders the grid cards and the phone list together and hides
- * one of them, so the first trader link in the DOM is not always visible. */
+/** The first trader link on screen (explore mounts one layout per width;
+ * other pages may still carry a hidden one). */
 export function firstTraderLink(page: Page) {
   return page.locator('a[href^="/trader/"]').filter({ visible: true }).first();
 }

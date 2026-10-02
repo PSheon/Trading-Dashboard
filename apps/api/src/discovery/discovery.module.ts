@@ -2,6 +2,7 @@ import { Injectable, Module } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
+import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { TradersModule } from "../traders/traders.module.js";
 import { AdminKolController, CopyScoreController, DiscoveryController, KolAvatarController } from "./discovery.controller.js";
 import { DiscoveryPoolService } from "./discovery-pool.service.js";
@@ -26,7 +27,10 @@ export class DiscoveryModule {}
 @Injectable()
 class DiscoveryWorker {
   constructor(private readonly pool: DiscoveryPoolService, private readonly avatars: KolAvatarService) {}
-  @Cron(CronExpression.EVERY_MINUTE) poolTick() { return this.pool.onTick(); }
+  /** Two independent loops: performance figures (`portfolio`) and trade
+   * ledgers; each labelled for the budget's accounting and caps. */
+  @Cron(CronExpression.EVERY_MINUTE) performanceTick() { return budgetConsumer("pool.performance", () => this.pool.onPerformanceTick()); }
+  @Cron(CronExpression.EVERY_MINUTE) ledgerTick() { return budgetConsumer("pool.ledgers", () => this.pool.onLedgerTick()); }
   /** One KOL avatar fetch at most every 30 s (no Hyperliquid weight). */
   @Cron(CronExpression.EVERY_30_SECONDS) avatarTick() { return this.avatars.onTick(); }
 }

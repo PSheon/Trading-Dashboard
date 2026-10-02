@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, isNull, like, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
-import { discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
+import { copyStrategies, discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -9,6 +9,9 @@ import type { DbTransaction } from "../db/unit-of-work.js";
 
 export type DiscoveryRow = typeof discoveryTraders.$inferSelect;
 export type DiscoveryFigures = Partial<Omit<typeof discoveryTraders.$inferInsert, "chain" | "address" | "poolRank" | "inPool">>;
+
+/** What the pool loops order their work by. */
+export type PoolQueueRow = Pick<DiscoveryRow, "address" | "poolRank" | "portfolioAt" | "tradesAt" | "attemptedAt" | "performanceAttemptedAt" | "lastError">;
 
 /** A pool row with the KOL entry and leaderboard name it is shown with. */
 export interface BoardSourceRow extends DiscoveryRow {
@@ -32,6 +35,8 @@ export interface CardIdentityRow {
   pnlAllTime: string | null;
   roiAllTime: string | null;
   pnlMonth: string | null;
+  /** When the leaderboard row was imported: the time behind its figures. */
+  statsUpdatedAt: Date | null;
   kolName: string | null;
   kolXHandle: string | null;
   kolVerified: boolean | null;
@@ -108,6 +113,33 @@ export class DiscoveryRepository {
     return { added, removed: removed.length };
   }
 
+  /** Every pool row's timestamps: the loops order their queues in memory
+   * (≈ 1,200 rows, once a tick). */
+  queueRows(): Promise<PoolQueueRow[]> {
+    return this.db
+      .select({
+        address: discoveryTraders.address,
+        poolRank: discoveryTraders.poolRank,
+        portfolioAt: discoveryTraders.portfolioAt,
+        tradesAt: discoveryTraders.tradesAt,
+        attemptedAt: discoveryTraders.attemptedAt,
+        performanceAttemptedAt: discoveryTraders.performanceAttemptedAt,
+        lastError: discoveryTraders.lastError,
+      })
+      .from(discoveryTraders)
+      .where(and(mine, eq(discoveryTraders.inPool, true)));
+  }
+
+  /** Addresses someone favorited or copies (a live copy strategy). */
+  async followedAddresses(): Promise<Set<string>> {
+    const [favorites, copied] = await Promise.all([
+      this.db.selectDistinct({ address: userFavorites.address }).from(userFavorites).where(eq(userFavorites.chain, CHAIN_DEFAULT)),
+      this.db.selectDistinct({ address: copyStrategies.leaderAddress }).from(copyStrategies)
+        .where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), sql`${copyStrategies.status} <> 'stopped'`)),
+    ]);
+    return new Set([...favorites, ...copied].map((r) => r.address));
+  }
+
   /** Never attempted rows (best pool rank first): the quick first pass
    * that gives every row its portfolio figures before any trade ledger. */
   async nextUnseen(limit: number): Promise<string[]> {
@@ -171,9 +203,9 @@ export class DiscoveryRepository {
     return row?.last ? new Date(row.last) : null;
   }
 
-  async analyticsState(address: string): Promise<{ classification: Record<string, unknown>; coverageFrom: Date | null } | undefined> {
+  async analyticsState(address: string): Promise<{ classification: Record<string, unknown>; coverageFrom: Date | null; computedAt: Date } | undefined> {
     const [row] = await this.db
-      .select({ classification: traderAnalytics.classification, coverageFrom: traderAnalytics.coverageFrom })
+      .select({ classification: traderAnalytics.classification, coverageFrom: traderAnalytics.coverageFrom, computedAt: traderAnalytics.computedAt })
       .from(traderAnalytics)
       .where(and(eq(traderAnalytics.chain, CHAIN_DEFAULT), eq(traderAnalytics.address, address)))
       .limit(1);
@@ -224,6 +256,7 @@ export class DiscoveryRepository {
           pnlAllTime: traderStats.pnlAllTime,
           roiAllTime: traderStats.roiAllTime,
           pnlMonth: traderStats.pnlMonth,
+          statsUpdatedAt: traderStats.updatedAt,
         })
         .from(traderStats)
         .where(and(eq(traderStats.chain, CHAIN_DEFAULT), inArray(traderStats.address, addresses))),
@@ -240,7 +273,7 @@ export class DiscoveryRepository {
         .where(and(eq(kolTraders.chain, CHAIN_DEFAULT), inArray(kolTraders.address, addresses))),
     ]);
     const byAddress = new Map<string, CardIdentityRow>();
-    const empty = (address: string): CardIdentityRow => ({ address, displayName: null, accountValue: null, pnlAllTime: null, roiAllTime: null, pnlMonth: null, kolName: null, kolXHandle: null, kolVerified: null, kolAvatarEtag: null });
+    const empty = (address: string): CardIdentityRow => ({ address, displayName: null, accountValue: null, pnlAllTime: null, roiAllTime: null, pnlMonth: null, statsUpdatedAt: null, kolName: null, kolXHandle: null, kolVerified: null, kolAvatarEtag: null });
     for (const s of stats) byAddress.set(s.address, { ...empty(s.address), ...s });
     for (const k of kols) byAddress.set(k.address, { ...(byAddress.get(k.address) ?? empty(k.address)), ...k });
     return [...byAddress.values()];

@@ -13,8 +13,8 @@ import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { buildBoard, toCandidate, boardKind, effectiveSort, effectiveWindow } from "../src/discovery/boards.js";
 import { isStockCoin, portfolioNumbers } from "../src/discovery/discovery-figures.js";
 import { AdminKolController, CopyScoreController, DiscoveryController } from "../src/discovery/discovery.controller.js";
-import { DiscoveryPoolService } from "../src/discovery/discovery-pool.service.js";
-import { DiscoveryRepository } from "../src/discovery/discovery.repository.js";
+import { DiscoveryPoolService, LEDGER_RANK } from "../src/discovery/discovery-pool.service.js";
+import { DiscoveryRepository, type PoolQueueRow } from "../src/discovery/discovery.repository.js";
 import { DiscoveryService } from "../src/discovery/discovery.service.js";
 import { parseKolCsv } from "../src/discovery/kol-csv.js";
 import { KolRepository } from "../src/discovery/kol.repository.js";
@@ -108,7 +108,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
   const db = getTestDb();
   const repository = new DiscoveryRepository(db);
   const kols = new KolService(new KolRepository(db), new UnitOfWork(db));
-  const discoverySettings = { candidatePoolSize: 3, poolWeightPerMinute: 100, homeMarkets: ["BTC", "xyz:TSLA"], cryptoBoards: ["BTC"], stockBoards: ["xyz:TSLA"] };
+  const discoverySettings = { candidatePoolSize: 3, poolWeightPerMinute: 100, poolPerformanceWeightPerMinute: 240, homeMarkets: ["BTC", "xyz:TSLA"], cryptoBoards: ["BTC"], stockBoards: ["xyz:TSLA"] };
   const settings = { get: vi.fn(async () => discoverySettings), getAll: vi.fn(async () => ({ discovery: discoverySettings })), acknowledgeDiscovery: vi.fn() } as unknown as SettingsService;
   const ingest = { lastImportAt: vi.fn(async () => new Date("2026-09-30T00:00:00Z")) } as unknown as LeaderboardIngestService;
   const info = { portfolio: vi.fn(async () => PORTFOLIO) };
@@ -211,23 +211,40 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     expect((await db.select({ a: discoveryTraders.address }).from(discoveryTraders)).map((r) => r.a).sort()).toEqual([addr(1), addr(2), addr(4)]);
   });
 
-  it("gives new rows their portfolio first, then refreshes the trade ledger, within the minute's allowance", async () => {
+  it("the performance loop reads new rows first, stamps the read time, and never waits on a ledger build", async () => {
     await db.insert(traderStats).values([stat(addr(1), 900), stat(addr(2), 800), stat(addr(3), 700)]);
     await pool.build(3);
-    await pool.tick(Date.now());
-    // A fresh tick has a sliver of allowance: one portfolio-only refresh (20).
-    expect(info.portfolio).toHaveBeenCalledTimes(1);
+    const before = Date.now();
+    // One minute of allowance (240): every new row's portfolio, no ledger.
+    await pool.performanceTick(Date.now() + 60_000);
+    expect(info.portfolio).toHaveBeenCalledTimes(3);
     expect(analytics.compute).not.toHaveBeenCalled();
     let [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(1)));
-    expect(row.portfolioAt).not.toBeNull();
+    expect(row.portfolioAt!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(row.portfolioAt!.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(row.performanceAttemptedAt).not.toBeNull();
+    expect(row.attemptedAt).toBeNull();
     expect(row.tradesAt).toBeNull();
     expect(row.copyScore).toEqual(expect.any(Number));
-    expect(await repository.nextUnseen(3)).toEqual([addr(2), addr(3)]);
+    expect(pool.log.at(-1)).toMatchObject({ kind: "portfolio", weight: 20, calls: 1, ok: true });
 
-    await pool.refreshOne(addr(1));
-    expect(analytics.compute).toHaveBeenCalledWith(addr(1), false, expect.objectContaining({ funding: false }));
-    expect(pool.log.at(-1)).toMatchObject({ address: addr(1), kind: "cold", weight: 200, ok: true });
+    // The ledger loop builds rows without a ledger (visible ones first).
+    await pool.ledgerTick(Date.now() + 60_000);
+    expect(analytics.compute).toHaveBeenCalledTimes(1);
+    expect(analytics.compute).toHaveBeenCalledWith(addr(1), false, expect.objectContaining({ funding: false, rank: LEDGER_RANK }));
+    expect(pool.log.at(-1)).toMatchObject({ address: addr(1), kind: "cold", weight: 180, ok: true });
     [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(1)));
+    // The ledger figures carry the ledger's own computation time.
+    const [state] = await db.select({ computedAt: traderAnalytics.computedAt }).from(traderAnalytics).where(eq(traderAnalytics.address, addr(1)));
+    expect(row.tradesAt).toEqual(state.computedAt);
+    analytics.compute.mockClear();
+    info.portfolio.mockClear();
+    pool.log.length = 0;
+
+    await pool.refreshOne(addr(2));
+    expect(analytics.compute).toHaveBeenCalledWith(addr(2), false, expect.objectContaining({ funding: false }));
+    expect(pool.log.at(-1)).toMatchObject({ address: addr(2), kind: "cold", weight: 180, ok: true });
+    [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(2)));
     expect(Number(row.pnlAll)).toBeCloseTo(407153.71, 1);
     expect(row.sparkline.length).toBeGreaterThan(10);
     expect(row.sparkline.at(-1)).toBeCloseTo(407153.71, 1);
@@ -236,9 +253,49 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     expect(row.lastTradeAt?.toISOString()).toBe("2026-09-25T00:00:00.000Z");
     expect(row.coinStats.BTC).toEqual({ pnl: 800, volume: 80_000, trades: 2, wins: 1 });
     expect(row.coinStats.ETH).toEqual({ pnl: 0, volume: 5_000, trades: 0, wins: 0 });
-    // Full refreshes: no ledger first; a row attempted within the backoff waits.
-    expect((await repository.nextBatch(3, 15 * 60_000)).map((q) => q.address)).toEqual([addr(2), addr(3)]);
-    expect((await repository.nextBatch(3, 0, new Date(Date.now() + 1000))).map((q) => q.address)).toEqual([addr(2), addr(3), addr(1)]);
+  });
+
+  it("orders the performance queue by the age of the figures, visible rows four times as urgent, failures backing off", () => {
+    const now = Date.UTC(2026, 9, 2, 12);
+    const h = 3_600_000;
+    const row = (n: number, portfolioAgeH: number | null, extra: Partial<PoolQueueRow> = {}): PoolQueueRow => ({
+      address: addr(n), poolRank: n, tradesAt: null, attemptedAt: null, lastError: null,
+      portfolioAt: portfolioAgeH === null ? null : new Date(now - portfolioAgeH * h), performanceAttemptedAt: null, ...extra,
+    });
+    const rows = [
+      row(1, 2), // hidden, 2 h
+      row(2, 1), // visible, 1 h → urgency 4 h
+      row(3, 5), // hidden, 5 h
+      row(4, null), // never read: first
+      row(5, 0.5), // visible, 30 min → 2 h
+      row(6, 3, { lastError: "429", performanceAttemptedAt: new Date(now - 5 * 60_000) }), // failed 5 min ago: waits
+      row(7, 3, { lastError: "429", performanceAttemptedAt: new Date(now - 20 * 60_000) }), // failed 20 min ago: retried
+    ];
+    const visible = new Set([addr(2), addr(5)]);
+    expect(pool.performanceQueue(rows, visible, now)).toEqual([addr(4), addr(3), addr(2), addr(7), addr(1), addr(5)]);
+    // Ledger queues: visible stale ledgers first, then hidden; builds for rows without one.
+    const ledgers = [
+      row(1, 1, { tradesAt: new Date(now - 2 * h) }),
+      row(2, 1, { tradesAt: new Date(now - 3 * h) }),
+      row(3, 1, { tradesAt: new Date(now - 10 * 60_000) }), // fresh enough
+      row(4, 1),
+      row(5, 1, { tradesAt: new Date(now - 9 * h) }),
+      row(6, 1, { attemptedAt: new Date(now - 60_000) }), // just tried
+    ];
+    expect(pool.ledgerQueues(ledgers, visible, now)).toEqual({ refresh: [addr(5), addr(2), addr(1)], build: [addr(4)] });
+  });
+
+  it("reports how fresh the visible rows and the pool are", async () => {
+    await db.insert(traderStats).values([stat(addr(1), 900), stat(addr(2), 800), stat(addr(3), 700)]);
+    await kols.upsert({ address: addr(2), displayName: "Two" }, null);
+    await pool.build(3);
+    const now = Date.now();
+    await db.update(discoveryTraders).set({ portfolioAt: new Date(now - 30 * 60_000) }).where(eq(discoveryTraders.address, addr(1)));
+    await db.update(discoveryTraders).set({ portfolioAt: new Date(now - 3 * 3_600_000) }).where(eq(discoveryTraders.address, addr(2)));
+    const f = await pool.freshness(now);
+    // The KOL is visible even without boards wired in this test.
+    expect(f.visible).toEqual({ rows: 1, medianAgeSeconds: 3 * 3600, oldestAgeSeconds: 3 * 3600 });
+    expect(f.pool).toEqual({ rows: 3, ready: 2, medianAgeSeconds: 3 * 3600, oldestAgeSeconds: 3 * 3600 });
   });
 
   it("keeps the previous figures and records the error when a refresh fails", async () => {
@@ -246,11 +303,13 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     await pool.build(1);
     await pool.refreshOne(addr(1));
     info.portfolio.mockRejectedValueOnce(new Error("Hyperliquid info request failed: 429"));
-    const result = await pool.refreshOne(addr(1));
+    const result = await pool.refreshPerformance(addr(1));
     expect(result.ok).toBe(false);
     const [row] = await db.select().from(discoveryTraders);
     expect(row.lastError).toMatch(/429/);
     expect(row.copyScore).toEqual(expect.any(Number));
+    // A failed row backs off; the queue skips it for RETRY_BACKOFF_MS.
+    expect(pool.performanceQueue(await repository.queueRows(), new Set())).toEqual([]);
   });
 
   describe("HTTP", () => {
@@ -277,8 +336,10 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     });
 
     async function seedPool() {
+      // A row with ledger figures carries the ledger's read time, as the job stores it.
       const row = (n: number, figures: Partial<typeof discoveryTraders.$inferInsert>) => ({
-        address: addr(n), poolRank: n, portfolioAt: new Date(), accountValue: "1000", sparkline: [0, 1, 2, 3], sparkline30d: [0, 1], ...figures,
+        address: addr(n), poolRank: n, portfolioAt: new Date(), accountValue: "1000", sparkline: [0, 1, 2, 3], sparkline30d: [0, 1],
+        ...(figures.coinStats ? { tradesAt: new Date() } : {}), ...figures,
       });
       await db.insert(traderStats).values([stat(addr(1), 1), stat(addr(2), 1), stat(addr(3), 1), stat(addr(4), 1, { accountValue: "0" })]);
       await db.insert(discoveryTraders).values([
@@ -300,7 +361,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       };
       const top = await get("");
       expect(top.items.map((t) => t.address)).toEqual([addr(1), addr(2)]); // no figures / no account value left out
-      expect(top).toMatchObject({ sort: "copyScore", window: "all", pool: { total: 4, ready: 3, tradesReady: 0 } });
+      expect(top).toMatchObject({ sort: "copyScore", window: "all", pool: { total: 4, ready: 3, tradesReady: 2 } });
       // No cached avatar yet → null (the web draws its generated one) …
       expect(top.items[1]).toMatchObject({ displayName: "KOL Two", kol: true, verified: true, avatarUrl: null, pnl: 900 });
       // … and the api's own versioned URL once the drip job has cached it.
@@ -345,6 +406,8 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       const old = new Date("2026-09-01T00:00:00Z");
       const recent = new Date("2026-09-29T00:00:00Z");
       await db.update(discoveryTraders).set({ portfolioAt: recent, tradesAt: old }).where(eq(discoveryTraders.address, addr(1)));
+      // A row whose coin figures lack a ledger time counts as missing.
+      await db.update(discoveryTraders).set({ tradesAt: null }).where(eq(discoveryTraders.address, addr(2)));
       const candidates = (await repository.boardRows()).map(toCandidate);
       const query = { market: "crypto" as const, board: "BTC", sort: "pnl" as const, window: "all" as const };
       const coin = buildBoard(candidates, query, { total: 4, ready: 3 });
@@ -374,7 +437,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
         { coin: "BTC", market: "crypto", traders: 2, profit: 370 },
         { coin: "xyz:TSLA", market: "stocks", traders: 1, profit: 40 },
       ]);
-      expect(index.pool).toEqual({ total: 4, ready: 3, tradesReady: 0 });
+      expect(index.pool).toEqual({ total: 4, ready: 3, tradesReady: 2 });
 
       const btc = wireCoinBoardSchema.parse((await request(server).get("/discover/coins/BTC").expect(200)).body.data);
       expect(btc).toMatchObject({ coin: "BTC", market: "crypto", stats: { traders: 2, profit: 370, volume: 1700, trades: 4 } });

@@ -1,0 +1,1 @@
+ALTER TABLE "discovery_traders" ADD COLUMN "performance_attempted_at" timestamp with time zone;

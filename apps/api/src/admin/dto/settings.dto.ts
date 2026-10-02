@@ -44,6 +44,12 @@ class DiscoveryPatchDto {
   @Optional() @IsInt() @Min(50) @Max(5000) declare candidatePoolSize?: number;
   @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
   @Optional() @IsInt() @Min(0) @Max(600) declare poolWeightPerMinute?: number;
+  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
+  @Optional() @IsInt() @Min(0) @Max(600) declare poolPerformanceWeightPerMinute?: number;
+  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
+  @Optional() @IsInt() @Min(0) @Max(600) declare historyWeightPerMinute?: number;
+  @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })
+  @Optional() @IsInt() @Min(0) @Max(600) declare backfillWeightPerMinute?: number;
   @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", pattern: BOARD_COIN.source } })
   @Optional() @IsArray() @ArrayMaxSize(16) @Matches(BOARD_COIN, { each: true }) declare cryptoBoards?: string[];
   @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", pattern: BOARD_COIN.source } })

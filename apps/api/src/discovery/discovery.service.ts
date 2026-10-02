@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type {
   BoardQuery,
   BoardResponse,
+  BoardSort,
   BoardTrader,
   CoinBoardResponse,
   CoinIndexResponse,
@@ -138,6 +139,28 @@ export class DiscoveryService {
     const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
     return { featured, crypto, stocks, markets, calculator, updatedAt, pool, rankingScope: "candidate_pool",
       freshness: boardFreshness([...featured, ...crypto, ...stocks, ...markets.flatMap(m => m.items), ...calculator]) };
+  }
+
+  /**
+   * The traders the site shows performance figures for: every board's top
+   * 100 in every sort and window (crypto and stocks top 100, the KOL
+   * board, every configured coin board) and the home rows. The pool's
+   * performance loop refreshes these first.
+   */
+  async visibleAddresses(): Promise<Set<string>> {
+    const [{ candidates, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
+    const shown = new Set<string>();
+    const add = (query: BoardQuery) => {
+      for (const t of buildBoard(candidates, query, pool).items) shown.add(t.address);
+    };
+    const sorts: BoardSort[] = ["copyScore", "pnl", "roi", "accountValue"];
+    for (const board of ["top100", "kol"] as const) for (const sort of sorts) for (const window of ["all", "30d"] as const) add({ market: "crypto", board, sort, window });
+    for (const sort of sorts) add({ market: "stocks", board: "top100", sort, window: "all" });
+    for (const coin of discovery.cryptoBoards) for (const sort of sorts) add({ market: "crypto", board: coin, sort, window: "all" });
+    for (const coin of discovery.stockBoards) for (const sort of sorts) add({ market: "stocks", board: coin, sort, window: "all" });
+    const home = await this.home();
+    for (const t of [...home.featured, ...home.crypto, ...home.stocks, ...home.calculator, ...home.markets.flatMap((m) => m.items)]) shown.add(t.address);
+    return shown;
   }
 
   /**

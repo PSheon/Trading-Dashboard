@@ -74,7 +74,12 @@ export const adminSystemSchema = z.object({
 });
 export type AdminSystemOverview = z.infer<typeof adminSystemSchema>;
 export const wireBoardFreshnessSchema = s.boardFreshnessSchema.extend({ oldestUpdatedAt: iso.nullable(), newestUpdatedAt: iso.nullable() });
-export const wireBoardTraderSchema = s.boardTraderSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable(), tradesFrom: iso.nullable().optional() });
+/** A figure is never shown without the time of the Hyperliquid read
+ * behind it: a card whose `metricsUpdatedAt` is missing has its PnL, ROI
+ * and copy score blanked (shown "—"), whatever the api sent. */
+const withoutUnstampedFigures = <T extends { metricsUpdatedAt?: string | null; pnl: number | null; roi: number | null; copyScore: number | null }>(t: T): T =>
+  t.metricsUpdatedAt ? t : { ...t, pnl: null, roi: null, copyScore: null };
+export const wireBoardTraderSchema = s.boardTraderSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable(), tradesFrom: iso.nullable().optional() }).transform(withoutUnstampedFigures);
 export const wireBoardSchema = s.boardResponseSchema.extend({ freshness: wireBoardFreshnessSchema.optional(), items: z.array(wireBoardTraderSchema), updatedAt: iso.nullable() });
 export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
   freshness: wireBoardFreshnessSchema.optional(),
@@ -86,7 +91,7 @@ export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso
 export const wireCoinIndexSchema = s.coinIndexResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireCoinBoardSchema = s.coinBoardResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireDiscoverSearchSchema = s.discoverSearchResponseSchema;
-export const wireTraderCardSchema = s.traderCardSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable(), tradesFrom: iso.nullable().optional() });
+export const wireTraderCardSchema = s.traderCardSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable(), tradesFrom: iso.nullable().optional() }).transform(withoutUnstampedFigures);
 export const wireTraderCardsSchema = s.traderCardsResponseSchema.extend({ items: z.array(wireTraderCardSchema) });
 export const wireCohortDetailSchema = s.cohortDetailResponseSchema.extend({ updatedAt: iso.nullable() });
 export const wireCohortHistorySchema = s.cohortHistoryResponseSchema.extend({ series: z.array(z.object({ t: iso, pctLong: z.number() })) });

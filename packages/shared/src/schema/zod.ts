@@ -392,6 +392,28 @@ export const heartbeatResponseSchema = z.object({
   requestsLastMinute: z.number().int(),
   weightLastMinute: z.number(),
   queuedRequests: z.object({ live: z.number().int(), background: z.number().int() }),
+  /** Who spends the Hyperliquid budget (trailing minute, per consumer
+   * label) and how much the page reserve holds. Additive. */
+  budget: z.object({
+    effectivePerMin: z.number(),
+    pageWeightLastMinute: z.number(),
+    reserveTokens: z.number(),
+    reserveCapacity: z.number(),
+    /** 1 = background jobs run at their full allowance; lower while pages are busy. */
+    backgroundFactor: z.number(),
+    consumers: z.record(z.number()),
+  }).optional(),
+  /** Age of the discovery pool's stored performance figures: the rows the
+   * boards and home rows show (`visible`) and the whole pool. Additive. */
+  discovery: z.object({
+    visibleRows: z.number().int(),
+    medianVisibleAgeSeconds: z.number().nullable(),
+    oldestVisibleAgeSeconds: z.number().nullable(),
+    poolRows: z.number().int(),
+    poolReady: z.number().int(),
+    medianPoolAgeSeconds: z.number().nullable(),
+    oldestPoolAgeSeconds: z.number().nullable(),
+  }).optional(),
   /** Watched addresses trading on the feed whose fills the info API doesn't
    * return; their fills and actions are missing until it does. */
   fillsUnavailable: z.array(
@@ -1399,9 +1421,22 @@ export const discoverySettingsSchema = z.object({
   /** Discovery pool: the official leaderboard's top N (by all-time PnL)
    * among non-vault accounts that traded in 30 days, plus every KOL. */
   candidatePoolSize: z.number().int().min(50).max(5000).default(1000),
-  /** Hyperliquid weight per minute the pool refresh may spend (shared with
-   * page traffic under the global budget; it always yields to pages). */
-  poolWeightPerMinute: z.number().int().min(0).max(600).default(240),
+  /** Hyperliquid weight per minute the pool's trade-ledger loop (cold
+   * builds and incremental refreshes of `trader_trades`) may spend; shared
+   * with page traffic under the global budget, it always yields to pages
+   * and scales down while pages are busy. 0 pauses it. */
+  poolWeightPerMinute: z.number().int().min(0).max(600).default(100),
+  /** Hyperliquid weight per minute the pool's performance loop (one
+   * `portfolio` read of 20 per row: PnL, ROI, Sharpe, drawdown, copy score,
+   * sparklines) may spend, independently of the ledger loop. Rows the
+   * boards and home rows show, KOLs and followed traders are refreshed
+   * four times as often as the rest. 240 → 12 rows a minute. */
+  poolPerformanceWeightPerMinute: z.number().int().min(0).max(600).default(240),
+  /** Cap on the durable fill-history job's Hyperliquid weight per minute
+   * (enforced by the budgeter as a token bucket). */
+  historyWeightPerMinute: z.number().int().min(0).max(600).default(120),
+  /** Cap on the watcher's backward fill backfill (one window a minute). */
+  backfillWeightPerMinute: z.number().int().min(0).max(600).default(120),
   /** Explore / home coin boards, in order (Hyperliquid coin names). */
   cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"]),
   stockBoards: z.array(boardCoinSchema).max(16)
@@ -1411,7 +1446,7 @@ export const discoverySettingsSchema = z.object({
   /** … refreshed this often (each member, and one history row per tier) … */
   cohortRefreshMinutes: z.number().int().min(5).max(240).default(15),
   /** … within this much Hyperliquid weight per minute (yields to pages). */
-  cohortWeightPerMinute: z.number().int().min(0).max(600).default(200),
+  cohortWeightPerMinute: z.number().int().min(0).max(600).default(60),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 

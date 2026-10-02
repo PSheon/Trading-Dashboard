@@ -3,7 +3,7 @@ import { z } from "zod";
 export const appliedDiscoverySchema = z.object({
   consumer: z.enum(["pool", "leaderboard"]), revision: z.string().regex(/^[a-f0-9]{64}$/),
   checkedAt: z.string().datetime({ offset: true }), recovered: z.boolean(),
-  candidatePoolSize: z.number(), poolWeightPerMinute: z.number(), leaderboardRefreshMinutes: z.number(),
+  candidatePoolSize: z.number(), poolWeightPerMinute: z.number(), poolPerformanceWeightPerMinute: z.number().optional(), leaderboardRefreshMinutes: z.number(),
 });
 export type AppliedDiscovery = z.infer<typeof appliedDiscoverySchema>;
 export const settingsRuntimeSchema = z.object({

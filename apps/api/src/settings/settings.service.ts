@@ -16,6 +16,8 @@ import {
 import { SettingsRepository } from "./settings.repository.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { Optional } from "@nestjs/common";
+import { RequestBudgeterService, type ConsumerCapSource } from "../hyperliquid/request-budgeter.service.js";
 
 const CACHE_TTL_MS = 30_000;
 
@@ -26,20 +28,31 @@ const CACHE_TTL_MS = 30_000;
  * switches fail closed; other fields recover individually. Cached per process for 30 s; `patch` invalidates the cache after commit.
  */
 @Injectable()
-export class SettingsService {
+export class SettingsService implements ConsumerCapSource {
   private readonly logger = new Logger(SettingsService.name);
   private cache: { value: AdminSettingsSnapshot; expiresAt: number } | undefined;
   private revision = 0;
   private inflight: Promise<AdminSettingsSnapshot> | undefined;
 
-  constructor(private readonly repository: SettingsRepository, private readonly uow: UnitOfWork) {}
+  constructor(private readonly repository: SettingsRepository, private readonly uow: UnitOfWork,
+    @Optional() budgeter?: RequestBudgeterService) {
+    // The budgeter enforces the per-job weight caps the admin sets here.
+    budgeter?.useConsumerCaps(this);
+  }
+
+  /** Weight-per-minute caps of the budget consumers the budgeter enforces
+   * itself (the pool and cohort loops pace themselves by their settings). */
+  async consumerCaps(): Promise<Record<string, number>> {
+    const { historyWeightPerMinute, backfillWeightPerMinute } = await this.get("discovery");
+    return { history: historyWeightPerMinute, backfill: backfillWeightPerMinute };
+  }
 
   private readonly applied = new Map<AppliedDiscovery["consumer"], AppliedDiscovery>();
   /** Called by the consumer after accepting this exact snapshot, never by reads/saves. */
   acknowledgeDiscovery(consumer: AppliedDiscovery["consumer"], snapshot: AdminSettingsSnapshot): void {
-    const { candidatePoolSize, poolWeightPerMinute, leaderboardRefreshMinutes } = snapshot.discovery;
+    const { candidatePoolSize, poolWeightPerMinute, poolPerformanceWeightPerMinute, leaderboardRefreshMinutes } = snapshot.discovery;
     this.applied.set(consumer, { consumer, revision: snapshot.revisions.discovery, checkedAt: new Date().toISOString(),
-      recovered: snapshot.invalidSections.includes("discovery"), candidatePoolSize, poolWeightPerMinute, leaderboardRefreshMinutes });
+      recovered: snapshot.invalidSections.includes("discovery"), candidatePoolSize, poolWeightPerMinute, poolPerformanceWeightPerMinute, leaderboardRefreshMinutes });
   }
   appliedDiscovery(): AppliedDiscovery[] { return [...this.applied.values()].map(row => ({ ...row })); }
 

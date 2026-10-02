@@ -67,11 +67,18 @@ merging only the saved section into the query cache is deferred.
 
 ## Discovery pool settings and the KOL registry (Stage 3)
 
-`discovery` gained four fields: `candidatePoolSize` (default 1,000: the
+`discovery` gained these fields: `candidatePoolSize` (default 1,000: the
 official leaderboard's top N by all-time PnL among non-vault accounts with
-30-day volume, plus every KOL), `poolWeightPerMinute` (default 240: the
-Hyperliquid weight the pool refresh may spend per minute; 0 pauses it),
-and `cryptoBoards` / `stockBoards` (the explore tabs and home market tiles,
+30-day volume, plus every KOL), `poolPerformanceWeightPerMinute` (default
+240: the Hyperliquid weight the pool's performance loop — one `portfolio`
+read per row for PnL, ROI, Sharpe, drawdown, copy score and sparklines —
+may spend per minute; rows on the boards, home rows, KOLs and followed
+traders are read four times as often as the rest), `poolWeightPerMinute`
+(default 100: the pool's trade-ledger loop — cold builds and incremental
+refreshes; 0 pauses it), `historyWeightPerMinute` and
+`backfillWeightPerMinute` (default 120 each: caps the budgeter enforces on
+the durable fill-history job and the backward fill backfill), `cohortWeightPerMinute`
+(default 60), and `cryptoBoards` / `stockBoards` (the explore tabs and home market tiles,
 Hyperliquid coin names such as `BTC` or `xyz:TSLA`). `homeMarkets` now
 lists the home page's per-market rows. The board lists are public in
 `GET /settings`.

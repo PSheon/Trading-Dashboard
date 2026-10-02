@@ -58,7 +58,9 @@ export function scoreOf(n: ReturnType<typeof portfolioNumbers>, accountValue: nu
 }
 
 /**
- * The pool's portfolio figures from one `portfolio` read (20 weight):
+ * The pool's portfolio figures from one `portfolio` read (20 weight),
+ * stamped `portfolioAt` with `now`: the time of the Hyperliquid read (the
+ * boards' `metricsUpdatedAt`).
  * perp all-time and 30-day PnL and ROI (CopyDog's ROI), the whole
  * account's all-time Sharpe, drawdown, sample count and span (the copy
  * score's inputs), and the perp PnL sparklines (CopyDog's `sparkline` ends
@@ -88,7 +90,8 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 /**
  * The pool's trade figures from the stored ledger: per-coin realized PnL,
  * volume, trades and wins; the five most-traded coins by volume; the last
- * fill; the ledger's style (median hold) and coverage start.
+ * fill; the ledger's style (median hold) and coverage start. `now` is the
+ * ledger's computation time (the coin boards' `metricsUpdatedAt`).
  */
 export function tradeFigures(
   coins: CoinAggregate[],

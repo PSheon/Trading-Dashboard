@@ -134,6 +134,13 @@
       "when": 1790838051340,
       "tag": "0018_fill_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790913120422,
+      "tag": "0019_discovery_performance_attempt",
+      "breakpoints": true
     }
   ]
 }

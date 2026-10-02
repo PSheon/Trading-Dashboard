@@ -652,8 +652,13 @@ export const discoveryTraders = pgTable(
     sparkline30d: jsonb("sparkline_30d").$type<number[]>().notNull().default([]),
     portfolioAt: timestamp("portfolio_at", { withTimezone: true }),
     tradesAt: timestamp("trades_at", { withTimezone: true }),
-    /** Last refresh attempt, successful or not: the job's queue order. */
+    /** Last trade-ledger refresh attempt, successful or not: the ledger
+     * loop's queue order and retry backoff. */
     attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+    /** Last performance (`portfolio`) refresh attempt, successful or not:
+     * the performance loop's retry backoff. `portfolioAt` is the time of
+     * the Hyperliquid read behind the stored figures. */
+    performanceAttemptedAt: timestamp("performance_attempted_at", { withTimezone: true }),
     lastError: text("last_error"),
   },
   (table) => [

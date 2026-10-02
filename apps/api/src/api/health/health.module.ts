@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { DiscoveryModule } from "../../discovery/discovery.module.js";
 import { ArchiveIngestModule } from "../../ingest/archive-ingest.module.js";
 import { HyperliquidModule } from "../../hyperliquid/hyperliquid.module.js";
 import { SchedulerModule } from "../../scheduler/scheduler.module.js";
@@ -9,7 +10,7 @@ import { HealthController } from "./health.controller.js";
 import { HealthService } from "./health.service.js";
 
 @Module({
-  imports: [HyperliquidModule, WatcherModule, SchedulerModule, ArchiveIngestModule],
+  imports: [HyperliquidModule, WatcherModule, SchedulerModule, ArchiveIngestModule, DiscoveryModule],
   controllers: [HealthController, ReadinessController],
   providers: [HealthService],
 })

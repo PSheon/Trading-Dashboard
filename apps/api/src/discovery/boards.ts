@@ -187,6 +187,8 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
   const kol = identity?.kolVerified !== null && identity?.kolVerified !== undefined;
   return {
     address,
+    // The leaderboard's figures are as old as its import.
+    metricsUpdatedAt: identity?.pnlAllTime != null ? identity.statsUpdatedAt : null,
     displayName: (kol ? identity!.kolName : null) ?? identity?.displayName ?? row?.leaderboardName ?? null,
     avatarUrl: kol ? kolAvatarPath(address, identity!.kolAvatarEtag) : null,
     xHandle: kol ? identity!.kolXHandle : null,

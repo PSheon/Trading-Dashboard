@@ -75,7 +75,8 @@ const ACCOUNT_REUSE_MS = 10_000;
 
 /**
  * - `confirm`: after the fast path alerted on feed trades, store their fills
- *   and check its actions (background lane).
+ *   and check its actions (background lane; live for a copied leader, see
+ *   `FillSyncService.lane`).
  * - `live`: store an address's fills at live priority and alert on them
  *   (the pre-fast-path route; kept for callers that need it).
  * - `sweep`: the hourly safety net, and catch-up after a feed outage.
@@ -168,6 +169,27 @@ export class FillSyncService {
     return this.chained(address, () => this.run(address, reason, startTime, expectTids, rank));
   }
 
+  /**
+   * The budget lane and rank of one read in an address's sync chain.
+   *
+   * Stored fills of a copied leader are copy signals, and an open older
+   * than the risk policy's maxSignalAgeSeconds (120 s) is refused as
+   * `stale_signal`. In the background lane a confirm queues, unranked,
+   * behind every pool, cohort, sweep and backfill call waiting for its
+   * worst-case weight (2026-10-01 19:51Z: a copied leader's ZEC fills were
+   * stored 157 s late and three opens were rejected). So every read in a
+   * copied leader's chain goes in the live lane: the confirm, and the
+   * sweep, reconcile and continuity reads the confirm would otherwise wait
+   * behind (one sync per address at a time). They rank by arrival time,
+   * after the watcher's fast-path calls, which rank by an earlier time.
+   * History backfill stays in the background lane.
+   */
+  private async lane(address: string, reason: SyncReason, rank?: number): Promise<{ priority: RequestPriority; rank: number | undefined }> {
+    if (reason === "live") return { priority: "live", rank };
+    if (reason !== "backfill" && (await this.repository.isCopied(address))) return { priority: "live", rank: Date.now() };
+    return { priority: "background", rank };
+  }
+
   private chained<T>(address: string, work: () => Promise<T>): Promise<T> {
     const previous = this.chains.get(address) ?? Promise.resolve();
     const next = this.jobs.run(() => previous.catch(() => undefined).then(work));
@@ -189,13 +211,13 @@ export class FillSyncService {
     return this.repository.coverage(address);
   }
 
-  private async readRange(address: string, twap: boolean, start: number, end: number | undefined, maxPages: number, rank?: number): Promise<RangeRead> {
+  private async readRange(address: string, twap: boolean, start: number, end: number | undefined, maxPages: number, rank?: number, priority: RequestPriority = "background"): Promise<RangeRead> {
     const byTid = new Map<number, HlUserFill>();
     let cursor = Math.max(0, Math.floor(start));
     for (let page = 0; page < maxPages; page++) {
       const batch = twap
-        ? (await this.info.userTwapSliceFillsByTime(address, cursor, end, "background", rank)).map(twapSliceToFill)
-        : await this.info.userFillsByTime(address, cursor, end, "background", rank);
+        ? (await this.info.userTwapSliceFillsByTime(address, cursor, end, priority, rank)).map(twapSliceToFill)
+        : await this.info.userFillsByTime(address, cursor, end, priority, rank);
       for (const fill of batch) byTid.set(fill.tid, fill);
       if (batch.length < PAGE_SIZE) return { fills: [...byTid.values()], complete: true, through: end ?? Infinity };
       const last = batch.reduce((max, fill) => Math.max(max, fill.time), cursor);
@@ -224,17 +246,18 @@ export class FillSyncService {
    * cursor where it was, so the next call resumes there and no fill is
    * skipped. Runs in the address's sync chain.
    */
-  catchUp(address: string, rank?: number): Promise<CatchUpResult> {
+  catchUp(address: string, callerRank?: number): Promise<CatchUpResult> {
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     return this.chained(address, async () => {
+      const { priority, rank } = await this.lane(address, "sweep", callerRank);
       const state = await this.repository.coverage(address);
       const requestedAt = Date.now();
       const start = state?.verifiedThrough?.getTime() ?? requestedAt - INITIAL_LOOKBACK_MS;
       let regular: RangeRead;
       let twap: RangeRead;
       try {
-        regular = await this.readRange(address, false, start, undefined, MAX_PAGES, rank);
-        twap = await this.readRange(address, true, start, undefined, MAX_PAGES, rank);
+        regular = await this.readRange(address, false, start, undefined, MAX_PAGES, rank, priority);
+        twap = await this.readRange(address, true, start, undefined, MAX_PAGES, rank, priority);
       } catch (error) {
         await this.failed(address);
         throw error;
@@ -245,7 +268,7 @@ export class FillSyncService {
       const through = Math.min(regular.complete ? horizon : regular.through, twap.complete ? horizon : twap.through);
       if (through > start) {
         await this.repository.extend(address, true, start, through, requestedAt - BACKFILL_LOOKBACK_MS);
-        await this.checkContinuity(address, false, rank).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
+        await this.checkContinuity(address, false, rank, priority).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${error.message}`));
       }
       return { ...stored, complete: regular.complete && twap.complete, through: Math.max(through, start) };
     });
@@ -371,7 +394,7 @@ export class FillSyncService {
    * is stored. A break that a completed re-read does not close is recorded
    * as unexplained (upstream has no fill there) and not retried.
    */
-  async checkContinuity(address: string, full = false, rank?: number): Promise<{ breaks: number; repaired: number; unexplained: number }> {
+  async checkContinuity(address: string, full = false, rank?: number, priority: RequestPriority = "background"): Promise<{ breaks: number; repaired: number; unexplained: number }> {
     const state = await this.repository.coverage(address);
     if (!state?.verifiedFrom || !state.verifiedThrough) return { breaks: 0, repaired: 0, unexplained: 0 };
     const from = full || !state.checkedThrough || state.checkedThrough < state.verifiedFrom ? state.verifiedFrom : state.checkedThrough;
@@ -385,8 +408,8 @@ export class FillSyncService {
     let inserted = 0;
     const reread = new Set<number>();
     for (const hole of found.slice(0, MAX_REPAIRS_PER_CHECK)) {
-      const regular = await this.readRange(address, false, hole.after, hole.time, BACKFILL_STEP_PAGES, rank);
-      const twap = await this.readRange(address, true, hole.after, hole.time, BACKFILL_STEP_PAGES, rank);
+      const regular = await this.readRange(address, false, hole.after, hole.time, BACKFILL_STEP_PAGES, rank, priority);
+      const twap = await this.readRange(address, true, hole.after, hole.time, BACKFILL_STEP_PAGES, rank, priority);
       inserted += (await this.ingest(address, "backfill", [...regular.fills, ...twap.fills], rank)).inserted;
       reread.add(hole.tid);
     }
@@ -408,9 +431,9 @@ export class FillSyncService {
     reason: SyncReason,
     startTime: number,
     expectTids: Iterable<bigint>,
-    rank?: number,
+    callerRank?: number,
   ): Promise<SyncResult> {
-    const priority: RequestPriority = reason === "live" ? "live" : "background";
+    const { priority, rank } = await this.lane(address, reason, callerRank);
     const expected = [...expectTids];
     const fetchedTids = new Set<bigint>();
     let latestFillTime: number | null = null;

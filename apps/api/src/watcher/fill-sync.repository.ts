@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
-import { actions, fillCoverage, fills, leaders, type FillCoverageBreak } from "@trading-dashboard/shared/database";
+import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { actions, copyStrategies, fillCoverage, fills, leaders, type FillCoverageBreak } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -10,7 +10,7 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 import type { ActionDraft } from "./action-classifier.js";
 import { actionsCovering, chunks, draftToRow, insertActions, lockActions, storedFills } from "./action-store.js";
 import { toFillRow } from "./fill-row.js";
-import { enqueueCopySignals, lockCopyLeader } from "../copy/copy-outbox.js";
+import { LIVE_STRATEGY_STATUSES, enqueueCopySignals, lockCopyLeader } from "../copy/copy-outbox.js";
 
 export type { ActionRow } from "./action-store.js";
 export type FillCoverageRow = typeof fillCoverage.$inferSelect;
@@ -20,6 +20,13 @@ const covered = (address: string) => and(eq(fillCoverage.chain, CHAIN_DEFAULT), 
 @Injectable()
 export class FillSyncRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+
+  /** Whether a live copy follows `address`: its stored fills become copy signals. */
+  async isCopied(address: string): Promise<boolean> {
+    const [row] = await this.db.select({ id: copyStrategies.id }).from(copyStrategies)
+      .where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).limit(1);
+    return row !== undefined;
+  }
 
   async recentTwap(address: string, cutoff: Date) {
     const [row] = await this.db

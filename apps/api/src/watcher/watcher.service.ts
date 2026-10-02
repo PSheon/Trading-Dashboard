@@ -47,7 +47,9 @@ interface Expected {
  * Slow path: a few seconds later, in the background lane, one
  * `userFillsByTime` per address (coalesced, at least 15 s apart) stores the
  * real fills, corrects any action the fast path got wrong, and turns fills
- * the feed missed into actions.
+ * the feed missed into actions. For an address someone copies the stored
+ * fills are the copy signals, so its slow path uses the live lane
+ * (`FillSyncService.lane`).
  *
  * Nothing is lost if the feed is, or the process: a sweep reads each
  * address from its verified cursor in `fill_coverage`, which only a

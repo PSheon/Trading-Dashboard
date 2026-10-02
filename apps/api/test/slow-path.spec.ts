@@ -5,7 +5,7 @@ import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
 import { AccountStateRepository } from "../src/watcher/account-state.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { actions, fills } from "@trading-dashboard/shared/database";
+import { actions, copySignalOutbox, copyStrategies, fills } from "@trading-dashboard/shared/database";
 import { asc } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,7 +17,7 @@ import { FeedActionsService } from "../src/watcher/feed-actions.service.js";
 import { FillSyncService } from "../src/watcher/fill-sync.service.js";
 import type { TradeFeedService } from "../src/watcher/trade-feed.service.js";
 import { WatcherService } from "../src/watcher/watcher.service.js";
-import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 import { FakeExchange } from "./fast-path-fixtures.js";
 
 const A = "0x510w";
@@ -93,6 +93,52 @@ describe("Slow path: FillSyncService after the fast path — real Postgres, fake
     expect(sync.getFastPathStats()).toEqual({ verified: 1, corrected: 0 });
     expect(emitted).toHaveLength(1);
     expect(corrected).toEqual([]); // a confirmed action is not an update
+  });
+
+  describe("a copied leader (its stored fills are copy signals with a 120 s deadline)", () => {
+    const lanes = (mock: ReturnType<typeof vi.fn>) => mock.mock.calls.map((c) => c[3]);
+    async function copy(status: "active" | "paused" | "stopping" | "stopped") {
+      const user = await insertUser(db);
+      await db.insert(copyStrategies).values({ userId: user.id, leaderAddress: A, allocated: "1000", cash: "1000", activatedAt: new Date(Date.now() - 60_000), status });
+    }
+
+    it("confirms in the live lane, after the fast path's own calls, and its fills become signals at once", async () => {
+      await copy("active");
+      const t = Date.now() - 5_000;
+      const open = exchange.order("BTC", "B", ["0.3", "0.7"], t);
+      const before = Date.now();
+      const result = await sync.sync(A, "confirm", t - 10_000, tidsOf(open.fills));
+      expect(result).toMatchObject({ inserted: 2, missingTids: [] });
+      expect(lanes(info.userFillsByTime)).toEqual(["live"]);
+      // Ranked by arrival: behind a fast-path call, whose rank is an earlier time (or 0).
+      expect(info.userFillsByTime.mock.calls[0]![4]).toBeGreaterThanOrEqual(before);
+      expect(await db.select().from(copySignalOutbox)).toHaveLength(2);
+    });
+
+    it("the reads its confirm would queue behind in the same chain are live too: sweep, reconcile, TWAP slices and the cursor catch-up", async () => {
+      await copy("paused");
+      const t = Date.now() - 5_000;
+      const open = exchange.order("BTC", "B", ["1"], t);
+      twap.add(open.fills[0]!.tid);
+      await sync.sync(A, "reconcile", t - 10_000);
+      await sync.sync(A, "sweep", t - 10_000);
+      await sync.catchUp(A);
+      expect(new Set(lanes(info.userFillsByTime))).toEqual(new Set(["live"]));
+      expect(new Set(lanes(info.userTwapSliceFillsByTime))).toEqual(new Set(["live"]));
+      expect(info.userTwapSliceFillsByTime).toHaveBeenCalled();
+    });
+
+    it("history backfill stays in the background lane, and so does everything once the copy has stopped", async () => {
+      await copy("active");
+      await sync.sync(A, "backfill", 0);
+      expect(lanes(info.userFillsByTime)).toEqual(["background"]);
+
+      await db.update(copyStrategies).set({ status: "stopped" });
+      info.userFillsByTime.mockClear();
+      await sync.sync(A, "confirm", Date.now() - 10_000);
+      await sync.catchUp(A);
+      expect(new Set(lanes(info.userFillsByTime))).toEqual(new Set(["background"]));
+    });
   });
 
   it("corrects an action the book got wrong, in place and without a second alert", async () => {

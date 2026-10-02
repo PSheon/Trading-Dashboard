@@ -21,9 +21,11 @@ import { currentRequestAnswered, currentRequestClient } from "../runtime/request
  * path needs, (b) a `userFillsByTime` per address that traded, a few seconds
  * later, to store its fills, (c) the 5-minute snapshots, (d) the hourly
  * sweep, (e) A5 backfill, (f) the discovery pool, cohort and history jobs
- * and (g) page loads. Only (a) is latency-sensitive, so it runs in the
- * `live` lane; everything else is `background`. The default rate is PRD
- * §8's 70% of 1200.
+ * and (g) page loads. (a) is latency-sensitive, and so are copy trading's
+ * reads: its mids and leader account values, and (b), (d) for an address
+ * someone copies (its fills are copy signals, refused when stale). Those
+ * run in the `live` lane; everything else is `background`. The default
+ * rate is PRD §8's 70% of 1200.
  *
  * ## Design
  *

@@ -55,3 +55,33 @@ export function fixtureHome() {
     freshness: { oldestUpdatedAt: leaderboardUpdatedAt, newestUpdatedAt: leaderboardUpdatedAt, missingTimestamps: 0 },
   };
 }
+
+/** Hyperliquid markets the fixtures know that no fixture trader has traded:
+ * a real market with no data yet (the page's 「尚無市場資料」 state). Any other
+ * name outside the boards is not a market (the 404). */
+export const FIXTURE_UNTRADED_MARKETS = ["MEGA", "xyz:AAPL"];
+
+/** GET /discover/coins: every board coin, by summed profit. */
+export function fixtureCoinIndex() {
+  const items = [...CRYPTO, ...STOCKS].map((coin) => {
+    const board = fixtureCoinBoard(coin);
+    return { coin, market: board.market, traders: board.stats.traders, profit: board.stats.profit };
+  }).filter((row) => row.traders > 0).sort((a, b) => b.profit - a.profit);
+  return { items, pool: fixtureBoard({ market: "crypto", board: "top100", sort: "pnl", window: "all" }).pool, updatedAt: leaderboardUpdatedAt };
+}
+
+/** GET /discover/coins/:coin: the traders whose fixture card lists the coin. */
+export function fixtureCoinBoard(coin: string) {
+  const market = STOCKS.includes(coin) || coin.includes(":") ? ("stocks" as const) : ("crypto" as const);
+  const known = CRYPTO.includes(coin) || STOCKS.includes(coin);
+  const source = known ? fixtureBoard({ market, board: coin, sort: "pnl", window: "all" }) : null;
+  const items = (source?.items ?? []).filter((trader) => (trader.pnl ?? 0) > 0).slice(0, 40).map((trader, index) => ({
+    address: trader.address, displayName: trader.displayName, avatarUrl: trader.avatarUrl, xHandle: trader.xHandle, verified: trader.verified, kol: trader.kol,
+    pnl: Math.round((trader.pnl ?? 0) / 10), winRate: 0.4 + (index % 6) / 10, trades: 3 + (index % 40), volume: Math.round(Math.abs(trader.pnl ?? 0) * 3),
+  }));
+  const stats = { traders: items.length, profit: items.reduce((a, t) => a + t.pnl, 0), volume: items.reduce((a, t) => a + t.volume, 0), trades: items.reduce((a, t) => a + t.trades, 0) };
+  return {
+    coin, market, stats, items, listed: known || FIXTURE_UNTRADED_MARKETS.includes(coin),
+    pool: fixtureBoard({ market: "crypto", board: "top100", sort: "pnl", window: "all" }).pool, updatedAt: items.length ? leaderboardUpdatedAt : null,
+  };
+}

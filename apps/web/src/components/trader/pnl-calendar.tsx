@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
+import { TIME_ZONE } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { CALENDAR_OVERALL_SHADE, calendarShade, pnlCalendar, type CalendarCell } from "@/lib/pnl-calendar";
 import { usePortfolio } from "@/lib/queries";
@@ -42,7 +43,7 @@ export function PnlCalendarView({ address, unit }: { address: string; unit: Cale
   const data = portfolio.data?.window === "allTime" && portfolio.data.market === "all" ? portfolio.data : undefined;
   const calendar = useMemo(() => (data ? pnlCalendar(data.pnl, data.accountValue) : null), [data]);
   const monthNames = useMemo(
-    () => Array.from({ length: 12 }, (_, m) => new Date(2000, m, 1).toLocaleDateString(locale, { month: "short" })),
+    () => Array.from({ length: 12 }, (_, m) => new Date(Date.UTC(2000, m, 15)).toLocaleDateString(locale, { month: "short", timeZone: TIME_ZONE })),
     [locale],
   );
   const pct = unit === "pct";

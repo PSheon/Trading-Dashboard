@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Wrench } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { TIME_ZONE_LABEL } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { MAINTENANCE_EVENT } from "@/lib/api";
 import { useSiteSettings } from "@/lib/queries";
@@ -43,7 +44,7 @@ export function MaintenanceBanner() {
           <strong className="font-semibold">{t("maintenance.title")}</strong>
           <span className="mx-1.5 text-subtle-foreground">·</span>
           {text}
-          {ahead ? <span className="ml-1.5 text-muted-foreground">{t("maintenance.endsAt", { time: format.dateTime(maintenance.endsAt!) })}</span> : null}
+          {ahead ? <span className="ml-1.5 text-muted-foreground">{t("maintenance.endsAt", { time: `${format.dateTime(maintenance.endsAt!)} ${TIME_ZONE_LABEL}` })}</span> : null}
         </p>
       </div>
     </div>

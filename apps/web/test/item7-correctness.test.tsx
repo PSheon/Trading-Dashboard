@@ -77,9 +77,8 @@ describe("what a failed api call says", () => {
 });
 
 describe("times", () => {
-  it("a trade's time is written in the site's zone, whatever the viewer's", () => {
-    // 2026-09-19 06:52 in Taipei.
-    expect(shortTime("2026-09-18T22:52:00Z")).toBe("Sep 19, 06:52");
+  it("a trade's time is written in UTC, whatever the viewer's zone", () => {
+    expect(shortTime("2026-09-18T22:52:00Z")).toBe("Sep 18, 22:52");
   });
 });
 

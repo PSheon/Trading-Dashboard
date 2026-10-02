@@ -98,10 +98,13 @@ export function CoinIndexView() {
 export function CoinBoardView({ coin }: { coin: string }) {
   const { t } = useI18n();
   const query = useCoinBoard(coin);
-  // A market nobody in the pool has traded is the 404 page (the server
+  // A name that is not a Hyperliquid market is the 404 page (the server
   // decides this first when it can reach the api; see app/coins/[coin]).
   if (coinIsUnknown(query.data) === true) notFound();
   const label = coinLabel(coin);
+  // A real market nobody in the pool has traded: CopyDog's page has the
+  // heading, one line 「尚無市場資料。」 and no totals or table.
+  const noData = query.data !== undefined && query.data.items.length === 0;
   const stats = query.data?.stats;
   return (
     <Column>
@@ -115,6 +118,10 @@ export function CoinBoardView({ coin }: { coin: string }) {
       <h1 className="mt-4 text-[26px] leading-[1.25] font-bold tracking-[-0.65px]">{t("coins.title", { coin: label })}</h1>
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] text-muted-foreground">{t("coins.body", { coin: label })}</p>
 
+      {noData ? (
+        <p data-testid="coin-no-data" className="mt-8 text-sm leading-[1.5] text-muted-foreground">{t("coins.noData")}</p>
+      ) : (
+      <>
       <dl className="mt-8 flex flex-wrap gap-x-8 gap-y-6">
         {(
           [
@@ -134,8 +141,6 @@ export function CoinBoardView({ coin }: { coin: string }) {
       <div className="mt-8">
         {query.isError && !query.data ? (
           <ErrorState onRetry={() => void query.refetch()} />
-        ) : query.data && query.data.items.length === 0 ? (
-          <EmptyState title={t("coins.empty", { coin: label })} body={t("coins.emptyBody")} />
         ) : (
           // Phones scroll the table sideways, as CopyDog's does.
           <div className="-mx-5 overflow-x-auto px-5 md:mx-0 md:px-0">
@@ -180,6 +185,8 @@ export function CoinBoardView({ coin }: { coin: string }) {
           </div>
         )}
       </div>
+      </>
+      )}
     </Column>
   );
 }

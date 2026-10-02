@@ -715,7 +715,7 @@ export const es: Messages = {
     exposureEmptyBody: "Cuando copies traders, aquí se suman por moneda tus posiciones long y short de todas las copias.",
     signInTitle: "Inicia sesión para ver tu portafolio",
     signInBody: "Sigue tus operaciones copiadas, gestiona posiciones y controla el rendimiento",
-    signInTitlePhone: "Inicia sesión para ver tu cartera",
+    signInTitlePhone: "Inicia sesión para ver tu portafolio",
     signInBodyPhone: "Aquí están los traders que copias, tus posiciones y tu saldo.",
     notifications: "Notificaciones",
     settings: "Ajustes",
@@ -1019,7 +1019,7 @@ export const es: Messages = {
   settings: {
     title: "Ajustes",
     signInTitle: "Inicia sesión para ver los ajustes",
-    signInBody: "Gestiona tu cuenta, la facturación y los servicios conectados",
+    signInBody: "Gestiona tu cuenta y los servicios conectados",
     menu: {
       account: "Cuenta",
       funds: "Depósitos y retiros",
@@ -1405,6 +1405,7 @@ export const es: Messages = {
     colVolume: "Volumen",
     empty: "Ningún trader ha ganado dinero con {coin} todavía",
     emptyIndex: "Todavía no hay datos de mercado",
+    noData: "Aún no hay datos de mercado.",
     emptyBody: "El pool de descubrimiento aún está completando los historiales de operaciones. Vuelve pronto.",
   },
   deleteAccount: {

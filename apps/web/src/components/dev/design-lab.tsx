@@ -94,7 +94,7 @@ function LabHome({ base }: { base: string }) {
   return (
     <div className={styles.home}>
       <section className={styles.intro}>
-        <div><span className={styles.financeEyebrow}>{en ? "A CLEARER VIEW OF YOUR NEXT MOVE" : "讓下一步，更有把握。"}</span><h1>{en ? "Discover traders" : "探索交易者"}</h1><p>{en ? "Compare performance. Find a strategy that fits." : "比較績效與交易風格，找到適合你的策略。"}</p></div>
+        <div><span className={styles.financeEyebrow}>{en ? "A CLEARER VIEW OF YOUR NEXT MOVE" : "讓下一步，更有把握。"}</span><h1>{en ? "Discover traders" : "探索交易員"}</h1><p>{en ? "Compare performance. Find a strategy that fits." : "比較績效與交易風格，找到適合你的策略。"}</p></div>
         <Link href={`${base}/favorites`} className={styles.cta}><Bookmark size={16} />{en ? "My watchlist" : "我的收藏"}</Link>
       </section>
       <section className={styles.markets}>

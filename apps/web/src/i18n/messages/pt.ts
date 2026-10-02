@@ -1019,7 +1019,7 @@ export const pt: Messages = {
   settings: {
     title: "Configurações",
     signInTitle: "Entre para ver as configurações",
-    signInBody: "Gerencie sua conta, cobrança e serviços conectados",
+    signInBody: "Gerencie sua conta e os serviços conectados",
     menu: {
       account: "Conta",
       funds: "Depósitos e saques",
@@ -1405,6 +1405,7 @@ export const pt: Messages = {
     colVolume: "Volume",
     empty: "Nenhum trader lucrou com {coin} ainda",
     emptyIndex: "Ainda não há dados de mercado",
+    noData: "Ainda não há dados de mercado.",
     emptyBody: "O pool de descoberta ainda está preenchendo os históricos de operações. Volte em breve.",
   },
   deleteAccount: {

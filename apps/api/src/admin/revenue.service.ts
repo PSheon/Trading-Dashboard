@@ -13,7 +13,7 @@ import { parseReferral } from "./referral.js";
 import {
   dailyRevenue,
   rangeStartDay,
-  taipeiDayStart,
+  utcDayStart,
   type RevenueRange,
 } from "./revenue-daily.js";
 
@@ -29,7 +29,7 @@ const SNAPSHOT_RANK = 0;
  * Platform revenue (Stage 2 §6 收入): an hourly snapshot of the platform
  * address's cumulative builder fees and referral rebates from Hyperliquid's
  * `referral` info request into `revenue_snapshots`, and the admin revenue
- * report built from them (daily = increase between adjacent Taipei days).
+ * report built from them (daily = increase between adjacent UTC days).
  */
 @Injectable()
 export class RevenueService implements OnApplicationBootstrap {
@@ -132,7 +132,7 @@ export class RevenueService implements OnApplicationBootstrap {
     };
   }
 
-  /** Builder + referral earned in the last 30 Taipei days (admin overview). */
+  /** Builder + referral earned in the last 30 UTC days (admin overview). */
   async earned30dUsd(now = new Date()): Promise<number> {
     const { builderAddress } = await this.settings.get("revenue");
     if (!builderAddress) return 0;
@@ -142,7 +142,7 @@ export class RevenueService implements OnApplicationBootstrap {
 
   private async earned(address: string, range: RevenueRange, now: Date) {
     const fromDay = rangeStartDay(range, now);
-    const points = await this.repository.pointsSince(address, fromDay === null ? null : taipeiDayStart(fromDay));
+    const points = await this.repository.pointsSince(address, fromDay === null ? null : utcDayStart(fromDay));
     return dailyRevenue(points, fromDay);
   }
 }

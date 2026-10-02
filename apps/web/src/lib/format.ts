@@ -3,7 +3,7 @@ import { TIME_ZONE, numberLocale, type Locale } from "@/i18n/config";
 /**
  * Locale-aware number/currency/percent/time formatting, all through `Intl`
  * with the active locale. Compact figures use CopyDog's K / M / B in every
- * locale ("$17.4M", never "1740萬"). Times are always Asia/Taipei. Use `useFormat()` in components; this
+ * locale ("$17.4M", never "1740萬"). Times are always UTC (TIME_ZONE). Use `useFormat()` in components; this
  * factory exists so the formatters are built once per locale.
  */
 

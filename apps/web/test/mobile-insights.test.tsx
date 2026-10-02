@@ -46,9 +46,9 @@ const render = (p = profile(), a: TraderAnalyticsResponse | null = analytics) =>
   renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><MobileInsights profile={p} trades={a ?? undefined} computing={false} /></I18nProvider>);
 
 describe("phone 洞察, CopyDog's layout", () => {
-  it("shows 總覽, 持倉佈局, 最佳與最差, 最常交易 and 交易者檔案 in CopyDog's order", () => {
+  it("shows 總覽, 持倉佈局, 最佳與最差, 最常交易 and 交易員檔案 in CopyDog's order", () => {
     const html = render();
-    const order = ["總覽", "持倉佈局", "帳戶構成", "持倉構成", "最佳與最差", "最常交易", "交易者檔案"].map((s) => html.indexOf(s));
+    const order = ["總覽", "持倉佈局", "帳戶構成", "持倉構成", "最佳與最差", "最常交易", "交易員檔案"].map((s) => html.indexOf(s));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const s of ["已實現損益", "+$16.09M", "$2.79B", "1070", "平均持倉時間", "10h 19m"]) expect(html).toContain(s);
@@ -112,6 +112,6 @@ describe("phone 洞察, CopyDog's layout", () => {
     const html = render({ ...profile(), positions: [], longNotional: 0, shortNotional: 0 }, null);
     expect(html).toContain("無曝險");
     expect(html).not.toContain("總覽");
-    expect(html).not.toContain("交易者檔案");
+    expect(html).not.toContain("交易員檔案");
   });
 });

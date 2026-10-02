@@ -84,8 +84,8 @@ export async function loadTraderName(
 export function loadCoinBoard(
   coin: string,
   { apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch, client }: { apiUrl?: string; fetchImpl?: Fetch; client?: string } = {},
-): Promise<Pick<CoinBoardResponse, "items" | "stats" | "pool"> | null> {
-  return getJson<Pick<CoinBoardResponse, "items" | "stats" | "pool">>(fetchImpl, apiUrl, `/discover/coins/${encodeURIComponent(coin)}`, 3_000, client);
+): Promise<Pick<CoinBoardResponse, "items" | "stats" | "pool" | "listed"> | null> {
+  return getJson<Pick<CoinBoardResponse, "items" | "stats" | "pool" | "listed">>(fetchImpl, apiUrl, `/discover/coins/${encodeURIComponent(coin)}`, 3_000, client);
 }
 
 /** What the sitemap lists besides the fixed pages: every market on the coin

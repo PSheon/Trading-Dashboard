@@ -1346,7 +1346,7 @@ export const en: Messages = {
     exposureEmptyBody: "Once you copy traders, your long and short positions across all copies are summed by coin here.",
     signInTitle: "Sign in to view your portfolio",
     signInBody: "Track your copy trades, manage positions, and monitor performance",
-    signInTitlePhone: "Log in to see your portfolio",
+    signInTitlePhone: "Sign in to view your portfolio",
     signInBodyPhone: "The traders you copy, your positions and your balance live here.",
     notifications: "Notifications",
     settings: "Settings",
@@ -1650,7 +1650,7 @@ export const en: Messages = {
   settings: {
     title: "Settings",
     signInTitle: "Sign in to view settings",
-    signInBody: "Manage your account, billing, and connected services",
+    signInBody: "Manage your account and connected services",
     menu: {
       account: "Account",
       funds: "Deposits & Withdrawal",
@@ -1767,7 +1767,7 @@ export const en: Messages = {
     recent: "Recent alerts",
     turnOn: "Turn on alerts",
     edit: "Alert settings",
-    loginToAlert: "Log in to set alerts",
+    loginToAlert: "Sign in to set alerts",
     enabled: "Alerts on",
     sides: "Side",
     sideBuy: "Buy",
@@ -1792,7 +1792,7 @@ export const en: Messages = {
     subtitle: "Site settings, users, revenue, lists and system status.",
     forbiddenTitle: "403 · Not allowed",
     forbidden: "Only admins can open the admin area. If you should have access, ask an existing admin.",
-    signInTitle: "Log in first",
+    signInTitle: "Sign in first",
     kols: {
       addTitle: "Add a KOL",
       editTitle: "Edit KOL",
@@ -1912,7 +1912,7 @@ export const en: Messages = {
         announcementZh: "Text (Traditional Chinese)",
         announcementEn: "Text (English)",
         signupsOpen: "Open to new sign-ups",
-        signupsHint: "When closed, existing users can still log in.",
+        signupsHint: "When closed, existing users can still sign in.",
         copyTrading: "Enable the copy button",
         copyTradingHint: "Nothing is executed in this stage; enabling only previews the active button.",
       },
@@ -2036,6 +2036,7 @@ export const en: Messages = {
     colVolume: "Volume",
     empty: "No trader has made money on {coin} yet",
     emptyIndex: "No market data yet",
+    noData: "No market data yet.",
     emptyBody: "The discovery pool is still filling in trade histories. Check back soon.",
   },
   deleteAccount: {
@@ -2065,7 +2066,7 @@ export const en: Messages = {
     label: "Notifications",
   },
   auth: {
-    loginToFavorite: "Log in to add favorites",
+    loginToFavorite: "Sign in to add favorites",
   },
   notFound: {
     title: "404",

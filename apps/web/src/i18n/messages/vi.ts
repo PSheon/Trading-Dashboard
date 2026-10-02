@@ -79,7 +79,7 @@ export const vi: Messages = {
   },
   topbar: {
     search: "Tìm địa chỉ trader Hyperliquid...",
-    searchShort: "Tìm nhà giao dịch",
+    searchShort: "Tìm trader",
     searchLabel: "Tìm theo tên, tài khoản X hoặc địa chỉ",
     searchClear: "Xóa tìm kiếm",
     searchResults: "Kết quả tìm kiếm",
@@ -175,7 +175,7 @@ export const vi: Messages = {
     calculatorMissingRoi: "Không có ROI",
     calculatorMissingCurve: "Không đủ dữ liệu để minh họa đường cong",
     heroTitle: "Sao chép những trader crypto & cổ phiếu giỏi nhất",
-    heroTitleMobile: "Sao chép\nnhà giao dịch giỏi nhất",
+    heroTitleMobile: "Sao chép\ntrader giỏi nhất",
     heroBrowse: "Khám phá",
     ifInvested: "Nếu bạn đã đầu tư",
     youWouldHave: "Hôm nay bạn sẽ có",
@@ -716,7 +716,7 @@ export const vi: Messages = {
     signInTitle: "Đăng nhập để xem danh mục của bạn",
     signInBody: "Theo dõi các lệnh sao chép, quản lý vị thế và giám sát hiệu suất",
     signInTitlePhone: "Đăng nhập để xem danh mục",
-    signInBodyPhone: "Các nhà giao dịch bạn sao chép, vị thế và số dư đều ở đây.",
+    signInBodyPhone: "Các trader bạn sao chép, vị thế và số dư đều ở đây.",
     notifications: "Thông báo",
     settings: "Cài đặt",
     copy: {
@@ -874,8 +874,8 @@ export const vi: Messages = {
     removeFailed: "Không thể xoá khỏi danh sách yêu thích",
     phoneAlertsBody: "Nhận thông báo ngay khi trader bạn lưu giao dịch.",
     phoneAlertsTitle: "Đăng nhập để đặt cảnh báo",
-    phoneSavedBody: "Theo dõi nhà giao dịch và nhận cảnh báo ngay khi họ giao dịch.",
-    phoneSavedTitle: "Đăng nhập để lưu nhà giao dịch",
+    phoneSavedBody: "Theo dõi trader và nhận cảnh báo ngay khi họ giao dịch.",
+    phoneSavedTitle: "Đăng nhập để lưu trader",
     title: "Đã lưu",
     signInTitle: "Đăng nhập để xem các trader đã lưu",
     signInBody: "Lưu những trader yêu thích và theo dõi hiệu suất của họ theo thời gian thực",
@@ -1019,7 +1019,7 @@ export const vi: Messages = {
   settings: {
     title: "Cài đặt",
     signInTitle: "Đăng nhập để xem cài đặt",
-    signInBody: "Quản lý tài khoản, thanh toán và các dịch vụ đã kết nối",
+    signInBody: "Quản lý tài khoản và các dịch vụ đã kết nối",
     menu: {
       account: "Tài khoản",
       funds: "Nạp & Rút",
@@ -1405,6 +1405,7 @@ export const vi: Messages = {
     colVolume: "Khối lượng",
     empty: "Chưa có trader nào có lãi với {coin}",
     emptyIndex: "Chưa có dữ liệu thị trường",
+    noData: "Chưa có dữ liệu thị trường.",
     emptyBody: "Kho dữ liệu khám phá vẫn đang bổ sung lịch sử giao dịch. Hãy quay lại sau.",
   },
   deleteAccount: {

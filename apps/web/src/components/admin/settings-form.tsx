@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
+import { TIME_ZONE_LABEL } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { api, type ApiError } from "@/lib/api";
 
@@ -206,15 +207,16 @@ function FormCard<S extends Section>({
   );
 }
 
-/** An ISO instant as the value of a datetime-local input (the admin's own time zone), and back. */
-function toLocalInput(iso: string | null): string {
+/** An ISO instant as the value of a datetime-local input and back. The field
+ * is read and written in UTC, like every time on the site; its label says so. */
+export function toUtcInput(iso: string | null): string {
   if (!iso) return "";
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "";
-  return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return at.toISOString().slice(0, 16);
 }
-function fromLocalInput(value: string): string | null {
-  const at = value ? new Date(value) : null;
+export function fromUtcInput(value: string): string | null {
+  const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value) ? new Date(`${value}Z`) : null;
   return at && !Number.isNaN(at.getTime()) ? at.toISOString() : null;
 }
 
@@ -366,12 +368,12 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
           ))}
         </div>
         <div className="grid gap-2 md:max-w-xs">
-          <Label htmlFor="maintenance-ends">{t("adminOps.maintenance.endsAt")}</Label>
+          <Label htmlFor="maintenance-ends">{t("adminOps.maintenance.endsAt")} ({TIME_ZONE_LABEL})</Label>
           <Input
             id="maintenance-ends"
             type="datetime-local"
-            value={toLocalInput(value.maintenance.endsAt)}
-            onChange={(e) => setMaintenance({ endsAt: fromLocalInput(e.target.value) })}
+            value={toUtcInput(value.maintenance.endsAt)}
+            onChange={(e) => setMaintenance({ endsAt: fromUtcInput(e.target.value) })}
           />
           <span className="text-xs text-muted-foreground">{t("adminOps.maintenance.endsAtHint")}</span>
         </div>

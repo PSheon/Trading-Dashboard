@@ -14,7 +14,7 @@ export const id: Messages = {
   /** The site-wide maintenance notice (general.maintenance). */
   maintenance: {
     title: "Sedang dalam pemeliharaan",
-    body: "Anda tetap bisa menjelajah; perubahan tidak dapat disimpan sampai pemeliharaan selesai.",
+    body: "Kamu tetap bisa menjelajah; perubahan tidak dapat disimpan sampai pemeliharaan selesai.",
     endsAt: "Perkiraan kembali sekitar {time}",
   },
   adminOps: en.adminOps,
@@ -23,7 +23,7 @@ export const id: Messages = {
     searchTitle: "Trader yang cocok",
     searchHint: "Mencari nama KOL dan papan peringkat, akun X, serta alamat yang terdaftar, termasuk KOL tanpa metrik papan peringkat. Filter performa di bawah tidak membatasi hasil ini. Label sumber tidak memverifikasi identitas.",
     queryLength: "Masukkan 2–64 karakter; akun X boleh diawali @.",
-    noMatches: "Tidak ada trader terdaftar yang cocok. Anda tetap bisa menempelkan alamat dompet lengkap untuk membuka halaman trader.",
+    noMatches: "Tidak ada trader terdaftar yang cocok. Kamu tetap bisa menempelkan alamat dompet lengkap untuk membuka halaman trader.",
     registry: "Daftar KOL",
     leaderboard: "Papan peringkat resmi",
     noStats: "Belum ada metrik papan peringkat",
@@ -58,7 +58,7 @@ export const id: Messages = {
       help: "Cara kerja copy trading Hyperliquid di {app}: mode alokasi, biaya, peringatan, dan cara menghentikan salinan.",
       privacy: "Kebijakan Privasi {app}, platform copy trading Hyperliquid.",
       terms: "Ketentuan Layanan {app}, platform copy trading Hyperliquid.",
-      deleteAccount: "Cara menghapus akun {app} Anda dan apa saja yang dihapus.",
+      deleteAccount: "Cara menghapus akun {app}-mu dan apa saja yang dihapus.",
       trader: "{name} di Hyperliquid: posisi langsung, riwayat trading yang direkonstruksi, performa per pasar, dan copy trading satu klik di {app}.",
     },
   },
@@ -772,7 +772,7 @@ export const id: Messages = {
         off: "Nonaktif",
         orders: "Order simulasi",
         noOrders: "Belum ada aktivitas copy",
-        noOrdersDesc: "Copy trade Anda akan muncul di sini setelah dieksekusi.",
+        noOrdersDesc: "Copy trade-mu akan muncul di sini setelah dieksekusi.",
         positions: "Posisi",
         fees: "Biaya",
         funding: "Funding",
@@ -872,7 +872,7 @@ export const id: Messages = {
   favorites: {
     addFailed: "Gagal menambahkan ke favorit",
     removeFailed: "Gagal menghapus dari favorit",
-    phoneAlertsBody: "Dapatkan notifikasi begitu trader tersimpan Anda bergerak.",
+    phoneAlertsBody: "Dapatkan notifikasi begitu trader tersimpanmu bergerak.",
     phoneAlertsTitle: "Masuk untuk mengatur peringatan",
     phoneSavedBody: "Pantau trader dan dapatkan notifikasi begitu mereka bertransaksi.",
     phoneSavedTitle: "Masuk untuk menyimpan trader",
@@ -1019,7 +1019,7 @@ export const id: Messages = {
   settings: {
     title: "Pengaturan",
     signInTitle: "Masuk untuk melihat pengaturan",
-    signInBody: "Kelola akun, penagihan, dan layanan yang terhubung",
+    signInBody: "Kelola akun dan layanan yang terhubung",
     menu: {
       account: "Akun",
       funds: "Deposit & Penarikan",
@@ -1405,6 +1405,7 @@ export const id: Messages = {
     colVolume: "Volume",
     empty: "Belum ada trader yang untung di {coin}",
     emptyIndex: "Belum ada data pasar",
+    noData: "Belum ada data pasar.",
     emptyBody: "Kumpulan data jelajah masih mengisi riwayat transaksi. Cek lagi sebentar lagi.",
   },
   deleteAccount: {

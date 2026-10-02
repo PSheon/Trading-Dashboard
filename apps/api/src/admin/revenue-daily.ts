@@ -1,21 +1,20 @@
 import { maxUnits, toUnits, unitsToNumber, type Units } from "./decimal.js";
 
-/** Asia/Taipei is UTC+8 all year (no DST), so a Taipei day starts at 16:00 UTC. */
-const TAIPEI_OFFSET_MS = 8 * 3_600_000;
 const DAY_MS = 86_400_000;
 
 export type RevenueRange = "7d" | "30d" | "90d" | "all";
 
 const RANGE_DAYS: Record<Exclude<RevenueRange, "all">, number> = { "7d": 7, "30d": 30, "90d": 90 };
 
-/** "YYYY-MM-DD" of the Asia/Taipei calendar day containing `at`. */
-export function taipeiDay(at: Date): string {
-  return new Date(at.getTime() + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
+/** "YYYY-MM-DD" of the UTC calendar day containing `at`. Days are UTC, like
+ * every time the site shows (owner, 2026-10-02; they were Asia/Taipei). */
+export function utcDay(at: Date): string {
+  return at.toISOString().slice(0, 10);
 }
 
-/** The instant a Taipei day ("YYYY-MM-DD") starts. */
-export function taipeiDayStart(day: string): Date {
-  return new Date(Date.parse(`${day}T00:00:00Z`) - TAIPEI_OFFSET_MS);
+/** The instant a UTC day ("YYYY-MM-DD") starts. */
+export function utcDayStart(day: string): Date {
+  return new Date(Date.parse(`${day}T00:00:00Z`));
 }
 
 function addDays(day: string, days: number): string {
@@ -23,12 +22,12 @@ function addDays(day: string, days: number): string {
 }
 
 /**
- * First Taipei day in the range, or null for "all". "7d" is today and the 6
+ * First UTC day in the range, or null for "all". "7d" is today and the 6
  * days before it, and so on.
  */
 export function rangeStartDay(range: RevenueRange, now: Date): string | null {
   if (range === "all") return null;
-  return addDays(taipeiDay(now), -(RANGE_DAYS[range] - 1));
+  return addDays(utcDay(now), -(RANGE_DAYS[range] - 1));
 }
 
 /** One snapshot's cumulative series. Amounts as decimal strings. */
@@ -45,7 +44,7 @@ export interface DailyRevenue {
 }
 
 /**
- * Revenue earned per Asia/Taipei day from cumulative snapshots.
+ * Revenue earned per UTC day from cumulative snapshots.
  *
  * For each day with snapshots: the day's last snapshot minus the last
  * snapshot before that day, per series, clamped at 0. Builder and referral
@@ -76,7 +75,7 @@ export function dailyRevenue(
 
   const lastOfDay = new Map<string, { builder: Units; referral: Units }>();
   for (const point of points) {
-    lastOfDay.set(taipeiDay(point.takenAt), {
+    lastOfDay.set(utcDay(point.takenAt), {
       builder: toUnits(point.builder),
       referral: toUnits(point.referral),
     });
@@ -84,8 +83,8 @@ export function dailyRevenue(
 
   const first = points[0];
   let previous = { builder: toUnits(first.builder), referral: toUnits(first.referral) };
-  const firstDay = taipeiDay(first.takenAt);
-  const lastDay = taipeiDay(points[points.length - 1].takenAt);
+  const firstDay = utcDay(first.takenAt);
+  const lastDay = utcDay(points[points.length - 1].takenAt);
 
   for (let day = firstDay; day <= lastDay; day = addDays(day, 1)) {
     const end = lastOfDay.get(day);

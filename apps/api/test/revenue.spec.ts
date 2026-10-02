@@ -14,8 +14,8 @@ import { parseReferral } from "../src/admin/referral.js";
 import {
   dailyRevenue,
   rangeStartDay,
-  taipeiDay,
-  taipeiDayStart,
+  utcDay,
+  utcDayStart,
   type RevenuePoint,
 } from "../src/admin/revenue-daily.js";
 import { RevenueService } from "../src/admin/revenue.service.js";
@@ -133,19 +133,20 @@ describe("HyperliquidInfoClient.referral (mocked HTTP)", () => {
   });
 });
 
-describe("dailyRevenue (Asia/Taipei days)", () => {
+describe("dailyRevenue (UTC days)", () => {
   const p = (iso: string, builder: string, referral: string): RevenuePoint => ({
     takenAt: new Date(iso),
     builder,
     referral,
   });
 
-  it("splits days at 16:00 UTC", () => {
-    expect(taipeiDay(new Date("2026-09-01T15:59:59.999Z"))).toBe("2026-09-01");
-    expect(taipeiDay(new Date("2026-09-01T16:00:00Z"))).toBe("2026-09-02");
-    expect(taipeiDayStart("2026-09-02").toISOString()).toBe("2026-09-01T16:00:00.000Z");
-    expect(rangeStartDay("7d", new Date("2026-09-29T15:59:00Z"))).toBe("2026-09-23");
-    expect(rangeStartDay("7d", new Date("2026-09-29T16:00:00Z"))).toBe("2026-09-24");
+  it("splits days at 00:00 UTC, not at Taipei midnight", () => {
+    expect(utcDay(new Date("2026-09-01T23:59:59.999Z"))).toBe("2026-09-01");
+    expect(utcDay(new Date("2026-09-01T16:00:00Z"))).toBe("2026-09-01");
+    expect(utcDay(new Date("2026-09-02T00:00:00Z"))).toBe("2026-09-02");
+    expect(utcDayStart("2026-09-02").toISOString()).toBe("2026-09-02T00:00:00.000Z");
+    expect(rangeStartDay("7d", new Date("2026-09-29T23:59:00Z"))).toBe("2026-09-23");
+    expect(rangeStartDay("7d", new Date("2026-09-30T00:00:00Z"))).toBe("2026-09-24");
     expect(rangeStartDay("all", new Date())).toBeNull();
   });
 
@@ -153,8 +154,8 @@ describe("dailyRevenue (Asia/Taipei days)", () => {
     const points = [
       p("2026-09-01T02:00:00Z", "10", "5"), // first ever: baseline
       p("2026-09-01T09:00:00Z", "11", "5"),
-      p("2026-09-01T15:59:59Z", "12", "5"), // last of 09-01
-      p("2026-09-01T16:00:00Z", "13", "6"), // first of 09-02
+      p("2026-09-01T23:59:59Z", "12", "5"), // last of 09-01
+      p("2026-09-02T00:00:00Z", "13", "6"), // first of 09-02
       p("2026-09-02T10:00:00Z", "15", "8"), // last of 09-02
       // 09-03: no snapshot
       p("2026-09-04T01:00:00Z", "15.25", "9.1"),
@@ -344,14 +345,14 @@ describe("RevenueService — real Postgres", () => {
       expect(await service.earned30dUsd(new Date("2026-09-29T12:00:00Z"))).toBe(0);
     });
 
-    it("reports totals from the latest snapshot and daily earnings per Taipei day", async () => {
+    it("reports totals from the latest snapshot and daily earnings per UTC day", async () => {
       await settings.patch({ revenue: { builderAddress: ZERO } }, null);
-      const now = new Date("2026-09-29T12:00:00Z"); // Taipei 09-29 20:00
+      const now = new Date("2026-09-29T12:00:00Z");
       // Before the 7-day range (09-23 … 09-29): the baseline.
       await insert("2026-09-10T00:00:00Z", { builderRewards: "1", referralRewards: "1", unclaimedRewards: "2" });
-      await insert("2026-09-22T15:00:00Z", { builderRewards: "2", referralRewards: "3", unclaimedRewards: "5" });
-      // 09-23 (Taipei): the first in-range day, earned 1 builder.
-      await insert("2026-09-22T16:00:00Z", { builderRewards: "3", referralRewards: "3", unclaimedRewards: "6" });
+      await insert("2026-09-22T23:00:00Z", { builderRewards: "2", referralRewards: "3", unclaimedRewards: "5" });
+      // 09-23 (UTC): the first in-range day, earned 1 builder.
+      await insert("2026-09-23T00:00:00Z", { builderRewards: "3", referralRewards: "3", unclaimedRewards: "6" });
       // 09-25: a claim — unclaimed → claimed, nothing earned.
       await insert("2026-09-25T00:00:00Z", { builderRewards: "3", referralRewards: "3", claimedRewards: "6" });
       // 09-29: two snapshots; the last one counts. Earned 0.5 builder, 2 referral.

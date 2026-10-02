@@ -25,9 +25,12 @@ export async function generateMetadata({ params }: PageProps<"/coins/[coin]">): 
 }
 
 /** CopyDog's `/hyperliquid/coins/BTC` (`/coins/xyz-TSLA` for HIP-3). A slug
- * that can't be a coin, or a coin none of the pool's traders has traded, is
- * a real 404 (decided here, before the response starts); when the api can't
- * say, the page renders and decides once its own read answers. */
+ * that can't be a coin, or a name that is not a Hyperliquid market (main dex
+ * or HIP-3, as the api's catalog knows it), is a real 404, decided here
+ * before the response starts. A real market none of the pool's traders has
+ * traded is the page with its 「尚無市場資料」 empty state (200), as on CopyDog.
+ * When the api can't say, the page renders and decides once its own read
+ * answers. */
 export default async function CoinPage({ params }: PageProps<"/coins/[coin]">) {
   const coin = coinFromSlug((await params).coin);
   if (!coin || (await unknownMarket(coin))) notFound();

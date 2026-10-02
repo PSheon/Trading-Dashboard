@@ -13,6 +13,7 @@ import type {
   DiscoverSearchResponse,
 } from "@trading-dashboard/shared/contracts";
 
+import { MarketCatalogService } from "../hyperliquid/market-catalog.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TradersService } from "../traders/traders.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
@@ -52,6 +53,7 @@ export class DiscoveryService {
     private readonly repository: DiscoveryRepository,
     private readonly settings: SettingsService,
     private readonly traders: TradersService,
+    private readonly markets: MarketCatalogService,
   ) {}
 
   private snapshot(): Promise<Snapshot> {
@@ -81,11 +83,18 @@ export class DiscoveryService {
     return { items: coinIndex(candidates), pool, updatedAt };
   }
 
-  /** One coin's leaderboard from the pool snapshot. An unknown coin is an
-   * empty board, not an error (the pool may not have reached it yet). */
+  /** One coin's leaderboard from the pool snapshot. A coin nobody in the
+   * pool made money on is an empty board, not an error; `listed` says
+   * whether the name is a Hyperliquid perp market at all (main dex or
+   * HIP-3), so the page can tell "a real market with no data yet" (200)
+   * from "no such market" (404). A coin with rows is listed by definition;
+   * otherwise the cached catalog answers, and null means it is not known
+   * yet. */
   async coin(coin: string): Promise<CoinBoardResponse> {
     const { candidates, pool } = await this.snapshot();
-    return { ...coinBoard(candidates, coin), pool };
+    const board = coinBoard(candidates, coin);
+    const listed = board.items.length > 0 ? true : await this.markets.isListed(coin);
+    return { ...board, listed, pool };
   }
 
   /**

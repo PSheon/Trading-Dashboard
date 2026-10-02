@@ -15548,7 +15548,7 @@
     },
     "/discover/coins/{coin}": {
       "get": {
-        "description": "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals.\n\nAccess: public",
+        "description": "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals. `listed` says whether the name is a Hyperliquid perp market at all (false: the page is a 404; null: not known right now).\n\nAccess: public",
         "operationId": "DiscoveryController_coin",
         "parameters": [
           {
@@ -15691,6 +15691,13 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "listed": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ],
+                          "default": null
                         },
                         "pool": {
                           "type": "object",

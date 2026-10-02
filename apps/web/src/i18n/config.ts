@@ -60,8 +60,11 @@ export const LOCALE_COOKIE = "locale";
 /** One year; the choice is a preference, not a session. */
 export const LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
-/** §11 決策紀錄 "時區": the DB is UTC, every time is shown in Taipei. */
-export const TIME_ZONE = "Asia/Taipei";
+/** Every time on the site is written in UTC, whatever the viewer's own zone
+ * (owner, 2026-10-02: 「改統一UTC0」; it replaces Asia/Taipei). Where a time
+ * carries a zone label, the label is `TIME_ZONE_LABEL`. */
+export const TIME_ZONE = "UTC";
+export const TIME_ZONE_LABEL = "UTC";
 
 export function isLocale(value: unknown): value is Locale {
   return typeof value === "string" && (LOCALES as readonly string[]).includes(value);

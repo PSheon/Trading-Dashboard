@@ -192,7 +192,10 @@ export function useCoinBoard(coin: string) {
     queryKey: queryKeys.discover.coin(coin),
     queryFn: ({ signal }) => api.get<CoinBoardResponse>(`/discover/coins/${encodeURIComponent(coin)}`, signal),
     staleTime: 30_000,
-    refetchInterval: 5 * 60_000,
+    // An empty board whose market the api could not look up yet (`listed`
+    // null: its catalog read was still running) asks again soon, so "no such
+    // market" becomes the 404 without a reload.
+    refetchInterval: (query) => (query.state.data && query.state.data.items.length === 0 && query.state.data.listed == null ? 5_000 : 5 * 60_000),
   });
 }
 

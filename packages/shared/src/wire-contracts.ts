@@ -115,7 +115,8 @@ export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
 });
 export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso });
 export const wireCoinIndexSchema = s.coinIndexResponseSchema.extend({ updatedAt: iso.nullable() });
-export const wireCoinBoardSchema = s.coinBoardResponseSchema.extend({ updatedAt: iso.nullable() });
+/** `listed` is absent from an api built before the field existed; that reads as "not known". */
+export const wireCoinBoardSchema = s.coinBoardResponseSchema.extend({ updatedAt: iso.nullable(), listed: z.boolean().nullable().default(null) });
 export const wireDiscoverSearchSchema = s.discoverSearchResponseSchema;
 export const wireTraderCardSchema = s.traderCardSchema.extend({ metricsUpdatedAt: iso.nullable().optional(), lastTradeAt: iso.nullable(), tradesFrom: iso.nullable().optional() }).transform(withoutUnstampedFigures);
 export const wireTraderCardsSchema = s.traderCardsResponseSchema.extend({ items: z.array(wireTraderCardSchema) });

@@ -19,7 +19,8 @@
  *   A year's return is the year's PnL ÷ the year's peak net deposits.
  * - A month without a point is left blank; a month whose value (PnL or
  *   return, whichever the $ / % toggle shows) is 0 or null shows "—".
- * - Months are the viewer's local calendar months, as on CopyDog.
+ * - Months are UTC calendar months, like every other time on the site
+ *   (CopyDog uses the viewer's local months).
  */
 
 export type SeriesPoint = readonly [number, number];
@@ -56,17 +57,17 @@ export function calendarRoi(pnl: number, peakNetDeposits: number | null): number
 }
 
 export type MonthOf = (ms: number) => { year: number; month: number };
-const localMonth: MonthOf = (ms) => {
+const utcMonth: MonthOf = (ms) => {
   const d = new Date(ms);
-  return { year: d.getFullYear(), month: d.getMonth() };
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
 };
 
 /** The calendar of a cumulative PnL series and its account values; null
- * without points. `monthOf` defaults to the local time zone. */
+ * without points. `monthOf` defaults to UTC months. */
 export function pnlCalendar(
   pnl: readonly SeriesPoint[] | undefined,
   accountValue: readonly SeriesPoint[] | undefined,
-  monthOf: MonthOf = localMonth,
+  monthOf: MonthOf = utcMonth,
 ): PnlCalendar | null {
   if (!pnl || pnl.length === 0) return null;
   const points = [...pnl].sort((a, b) => a[0] - b[0]);

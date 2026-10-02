@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { expectAccessible, expectNoSidewaysScroll, shot, signIn } from "./helpers";
 
+// The viewer's own zone must not matter: every time on the site is UTC.
+test.use({ timezoneId: "Asia/Taipei" });
+
 test.beforeEach(async ({ context, baseURL }) => {
   await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
 });
@@ -20,8 +23,10 @@ for (const width of [1440, 390]) {
     await toggle.click();
     await general.getByLabel("Notice text (English, optional)").fill("Database upgrade in progress.");
     const ends = new Date(Date.now() + 2 * 3_600_000);
-    const local = new Date(ends.getTime() - ends.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-    await general.getByLabel("Expected end (optional, shown to visitors)").fill(local);
+    // The field is typed in UTC and says so.
+    const utc = ends.toISOString().slice(0, 16);
+    await expect(general.getByText("Expected end (optional, shown to visitors) (UTC)", { exact: true })).toBeVisible();
+    await general.getByLabel("Expected end (optional, shown to visitors)").fill(utc);
     await general.getByRole("button", { name: "Save section", exact: true }).click();
     // Nothing is saved until the confirmation.
     const dialog = page.getByRole("dialog", { name: "Turn maintenance mode on?" });
@@ -37,6 +42,8 @@ for (const width of [1440, 390]) {
     await expect(notice).toBeVisible();
     await expect(notice).toContainText("Database upgrade in progress.");
     await expect(notice).toContainText("Expected back around");
+    // The same UTC clock time comes back, labelled, in a browser set to Taipei.
+    await expect(notice).toContainText(`${utc.slice(11)} UTC`);
     await expect(general.getByText("Maintenance mode is on", { exact: true })).toBeVisible();
     await expectNoSidewaysScroll(page);
     await expectAccessible(page);

@@ -21,6 +21,7 @@ import { KolRepository } from "../src/discovery/kol.repository.js";
 import { KolService } from "../src/discovery/kol.service.js";
 import { DEFAULT_KOL_FILE } from "../src/discovery/seed-kols.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
+import { MarketCatalogService } from "../src/hyperliquid/market-catalog.service.js";
 import type { HlPortfolioResponse } from "../src/hyperliquid/types.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import type { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
@@ -317,13 +318,16 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     let auth: AuthService;
     const privy = stubPrivy({ "admin-token": { privyUserId: "did:privy:admin" }, "user-token": { privyUserId: "did:privy:user" } });
     const traders = { rawPortfolio: vi.fn(async () => D70C.portfolio) };
+    // Hyperliquid's universe as the catalog would have read it.
+    const listedMarkets = new Set(["BTC", "ETH", "MEGA", "xyz:TSLA", "xyz:GOLD"]);
+    const catalog = { isListed: vi.fn(async (coin: string): Promise<boolean | null> => listedMarkets.has(coin)) };
 
     beforeAll(async () => {
       ({ app, auth } = await createAuthedApp({
         db,
         privy,
         controllers: [DiscoveryController, CopyScoreController, AdminKolController],
-        providers: [DiscoveryRepository, DiscoveryService, KolRepository, KolService, { provide: TradersService, useValue: traders }],
+        providers: [DiscoveryRepository, DiscoveryService, KolRepository, KolService, { provide: TradersService, useValue: traders }, { provide: MarketCatalogService, useValue: catalog }],
       }));
     });
     afterAll(async () => {
@@ -452,9 +456,28 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(tsla.items.map((t) => [t.address, t.winRate])).toEqual([[addr(2), 0.5]]);
 
       const gold = wireCoinBoardSchema.parse((await request(server).get("/discover/coins/xyz:GOLD").expect(200)).body.data);
-      expect(gold).toMatchObject({ market: "stocks", items: [], stats: { traders: 0, profit: 0, volume: 0, trades: 0 } });
+      expect(gold).toMatchObject({ market: "stocks", items: [], listed: true, stats: { traders: 0, profit: 0, volume: 0, trades: 0 } });
       await request(server).get("/discover/coins/..%2Fx").expect(400);
       await request(server).get("/discover/coins/BTC-USD").expect(400);
+    });
+
+    it("says whether a coin with no rows is a Hyperliquid market at all: a real one is an empty board, an unknown name is not listed", async () => {
+      await seedPool();
+      const server = app.getHttpServer();
+      const board = async (coin: string) => wireCoinBoardSchema.parse((await request(server).get(`/discover/coins/${coin}`).expect(200)).body.data);
+      // Rows in the pool: listed without asking the catalog.
+      catalog.isListed.mockClear();
+      expect((await board("BTC")).listed).toBe(true);
+      expect(catalog.isListed).not.toHaveBeenCalled();
+      // A real market none of the pool's traders made money on (main dex and HIP-3).
+      expect(await board("MEGA")).toMatchObject({ coin: "MEGA", listed: true, items: [], stats: { traders: 0 } });
+      expect(await board("xyz:GOLD")).toMatchObject({ listed: true, items: [] });
+      // Not a Hyperliquid market.
+      expect(await board("NOPE123")).toMatchObject({ coin: "NOPE123", listed: false, items: [] });
+      expect(await board("xyz:NOPE")).toMatchObject({ listed: false, items: [] });
+      // The catalog has not been read yet: not known, never "no".
+      catalog.isListed.mockResolvedValueOnce(null);
+      expect((await board("MEGA")).listed).toBeNull();
     });
 
     it("finds traders by KOL name, X handle, leaderboard name or address prefix, by PnL", async () => {

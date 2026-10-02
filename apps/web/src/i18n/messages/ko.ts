@@ -1019,7 +1019,7 @@ export const ko: Messages = {
   settings: {
     title: "설정",
     signInTitle: "설정을 보려면 로그인하세요",
-    signInBody: "계정, 결제, 연결된 서비스를 관리하세요",
+    signInBody: "계정과 연결된 서비스를 관리하세요",
     menu: {
       account: "계정",
       funds: "입출금",
@@ -1405,6 +1405,7 @@ export const ko: Messages = {
     colVolume: "거래량",
     empty: "아직 {coin}에서 수익을 낸 트레이더가 없습니다",
     emptyIndex: "아직 마켓 데이터가 없습니다",
+    noData: "아직 시장 데이터가 없습니다.",
     emptyBody: "탐색 풀의 거래 내역을 아직 채우는 중입니다. 잠시 후 다시 확인해 주세요.",
   },
   deleteAccount: {

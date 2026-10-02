@@ -169,7 +169,7 @@ const SIZE_TONE: Partial<Record<SizeTier, string>> = { apex: "text-warning" };
  * PnL, volume, total trades, average hold, all-time closed trades), 持倉佈局
  * (leverage, margin usage with the distance to liquidation, direction bias,
  * then the account-composition and position-mix donuts), 最佳與最差, 最常交易
- * (by trade count), and 交易者檔案 (style, profitability, account size).
+ * (by trade count), and 交易員檔案 (style, profitability, account size).
  * A figure without a value is left out, as on CopyDog.
  */
 export function MobileInsights({

@@ -182,3 +182,11 @@ Fixed 2026-10-02 (`request-budgeter.service.ts`, `budget-consumers.spec.ts`; tab
 - a page that joined a capped computation is not held by that cap.
 
 Worker budget after the fix: 360 is safe for 20 watched leaders (snapshots and sweeps ≈ 69 a minute, 90 left outside the caps). Its 429 floor (72) covers snapshots and sweeps with nothing to spare; that state lasts minutes.
+
+## Decisions and work, 2026-10-02 night
+
+Paul's decisions, done in `dev` (one commit each; details in the commit messages):
+
+- **Wording.** One form of address (你, never 您) and one word for trader (交易員 / 交易员) at every width in zh-TW and zh-CN; settings no longer mentions 帳單 in any language. Other languages: id says kamu (not Anda), tr says siz and trader on phones too, vi says trader, es says portafolio, en says "Sign in". `test/owner-decisions.test.tsx` holds the rule.
+- **Coin pages.** `/coins/<name>` is a 404 only when the name is not a Hyperliquid perp market (main dex or HIP-3). `GET /discover/coins/:coin` carries `listed` (true / false / null = not known), from `MarketCatalogService` (`perpDexs` + one `meta` per dex, hourly, last good list kept). A real market nobody in the pool has traded is the page with 「尚無市場資料。」 and HTTP 200, as on CopyDog. This replaces the rule of 202d580.
+- **Times.** Every time is UTC on every page and width (`TIME_ZONE = "UTC"`; it was Asia/Taipei), including the PnL calendar's months, the insights chart, the admin maintenance end time (typed in UTC, labelled) and the admin revenue days (were Taipei days).

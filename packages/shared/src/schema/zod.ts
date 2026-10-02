@@ -1643,7 +1643,7 @@ export const adminRevenueResponseSchema = z.object({
   }),
   /** Earned within the range. */
   rangeUsd: z.object({ builder: z.number(), referral: z.number() }),
-  /** Per day (Asia/Taipei), earned that day. */
+  /** Per day (UTC), earned that day. */
   daily: z.array(
     z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), builder: z.number(), referral: z.number() }),
   ),
@@ -1835,6 +1835,10 @@ export const coinBoardResponseSchema = z.object({
     trades: z.number().int(),
   }),
   items: z.array(coinTraderSchema),
+  /** Whether the name is a Hyperliquid perp market (main dex or HIP-3):
+   * false is "no such market" (the page answers 404), true with no items
+   * is a real market without data yet, null is "not known right now". */
+  listed: z.boolean().nullable(),
   pool: discoveryPoolSchema,
   updatedAt: z.coerce.date().nullable(),
 });

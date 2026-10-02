@@ -26,7 +26,8 @@ import { KolAvatarService } from "./kol-avatar.service.js";
 import { KolService } from "./kol.service.js";
 
 /** Explore boards and home rows (Stage 3). Public; served from the
- * discovery pool table, no Hyperliquid calls. */
+ * discovery pool table. No Hyperliquid call per request: the coin page's
+ * `listed` reads the market catalog, which is refreshed about once an hour. */
 @Public()
 @Controller("discover")
 export class DiscoveryController {
@@ -50,7 +51,7 @@ export class DiscoveryController {
     return this.discovery.coins();
   }
 
-  @ApiDoc("Coin leaderboard", "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals.")
+  @ApiDoc("Coin leaderboard", "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals. `listed` says whether the name is a Hyperliquid perp market at all (false: the page is a 404; null: not known right now).")
   @Get("coins/:coin")
   coin(@Param() params: CoinParamsDto): Promise<CoinBoardResponse> {
     return this.discovery.coin(params.coin);

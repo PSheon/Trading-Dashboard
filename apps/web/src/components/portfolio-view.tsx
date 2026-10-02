@@ -21,7 +21,7 @@ type Tab = "copying" | "insights" | "exposure";
 
 /**
  * 投資組合, as on CopyDog (`/hyperliquid/portfolio`):
- * - signed out: 登入以查看您的投資組合 and 登入;
+ * - signed out: 登入以查看你的投資組合 and 登入;
  * - desktop: the 總價值 card (＋儲值 / ↑提款) and, beside it, the 模擬 paper
  *   account; below, CopyDog's copy list (empty: 你尚未跟單任何交易員 +
  *   尋找交易員). A row opens that copy (`?copy=<id>`): summary, pause /

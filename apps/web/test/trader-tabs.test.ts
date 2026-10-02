@@ -61,6 +61,7 @@ describe("CopyDog's number formats", () => {
   });
 
   it("the live feed's time stamp", () => {
-    expect(feedTime(new Date(2026, 8, 27, 21, 32))).toBe("Sep 27 9:32PM");
+    // 05:32 the next morning in Taipei: the stamp is the UTC clock.
+    expect(feedTime(new Date(Date.UTC(2026, 8, 27, 21, 32)))).toBe("Sep 27 9:32PM");
   });
 });

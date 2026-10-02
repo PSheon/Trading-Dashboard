@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
+import { TIME_ZONE } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import type { CohortWindow } from "@/lib/contracts";
 import { sentiment } from "./sentiment";
@@ -75,8 +76,8 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
   }, []);
 
   const points = useMemo(() => series.map((p) => ({ x: Date.parse(p.t), y: p.pctLong })), [series]);
-  const day = useMemo(() => new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }), [locale]);
-  const stamp = useMemo(() => new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }), [locale]);
+  const day = useMemo(() => new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", timeZone: TIME_ZONE }), [locale]);
+  const stamp = useMemo(() => new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TIME_ZONE }), [locale]);
 
   const geo = useMemo(() => {
     if (points.length < 2) return null;

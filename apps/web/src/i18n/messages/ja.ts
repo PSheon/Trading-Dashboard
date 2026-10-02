@@ -1019,7 +1019,7 @@ export const ja: Messages = {
   settings: {
     title: "設定",
     signInTitle: "設定を表示するにはログインしてください",
-    signInBody: "アカウント、請求、連携サービスを管理します",
+    signInBody: "アカウントと連携サービスを管理します",
     menu: {
       account: "アカウント",
       funds: "入出金",
@@ -1405,6 +1405,7 @@ export const ja: Messages = {
     colVolume: "取引高",
     empty: "{coin} で利益を出したトレーダーはまだいません",
     emptyIndex: "マーケットデータはまだありません",
+    noData: "市場データはまだありません。",
     emptyBody: "探索プールの取引履歴を補完中です。しばらくしてからご確認ください。",
   },
   deleteAccount: {

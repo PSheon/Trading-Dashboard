@@ -27,6 +27,8 @@ import {
   boardQuerySchema,
   discoverSearchQuerySchema,
   discoverSearchResponseSchema,
+  coinBoardResponseSchema,
+  coinIndexResponseSchema,
   boardResponseSchema,
   homeBoardsResponseSchema,
   adminOverviewSchema,
@@ -127,7 +129,7 @@ import {
   setAdminUsers,
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
-import { fixtureBoard, fixtureHome, fixtureSearch } from "./discovery";
+import { fixtureBoard, fixtureCoinBoard, fixtureCoinIndex, fixtureHome, fixtureSearch } from "./discovery";
 import { fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
 import { fixtureAdminCopyControl, fixtureAdminCopyExposure, fixtureAdminCopyOrders, fixtureAdminCopyOverview, fixtureAdminCopyPutRisk, fixtureAdminCopyRisk, fixtureAdminCopyStrategies, fixtureAdminCopyStrategy } from "./admin-copy";
 import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
@@ -301,7 +303,11 @@ export async function fixtureRequest<T>(
   const route = `${method} /${parts.map((p, i) => (i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
   if (route.startsWith("GET /traders/:address")) traderBusy(url.pathname, url.search);
 
+  if (parts[0] === "discover" && parts[1] === "coins" && method === "GET" && parts.length === 3) return wire(coinBoardResponseSchema, fixtureCoinBoard(decodeURIComponent(parts[2])));
+
   switch (route) {
+    case "GET /discover/coins":
+      return wire(coinIndexResponseSchema, fixtureCoinIndex());
     case "GET /discover/home":
       return wire(homeBoardsResponseSchema, fixtureHome());
     case "GET /discover/boards":

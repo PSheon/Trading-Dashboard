@@ -1,3 +1,4 @@
+import { adminSettingsSchema } from "@trading-dashboard/shared/contracts";
 import * as schema from "@trading-dashboard/shared/database";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
@@ -66,6 +67,15 @@ export async function storedFills(db: TestDb, only?: string): Promise<Array<Stor
     for (const row of await store.read(address)) rows.push({ ...row, address, tid: row.fill.tid });
   }
   return rows;
+}
+
+/** Opens copy trading (`general.copyTradingEnabled`, off until an admin
+ * turns it on) by writing the stored setting, without the audit entry a
+ * save through the service makes. The caller drops the service's cache. */
+export async function openCopyTrading(db: TestDb, open = true): Promise<void> {
+  // The whole section: a stored row without its other switches reads as damaged.
+  const value = { ...adminSettingsSchema.shape.general.parse({}), copyTradingEnabled: open };
+  await db.insert(schema.appSettings).values({ key: "general", value }).onConflictDoUpdate({ target: schema.appSettings.key, set: { value } });
 }
 
 let userSeq = 0;

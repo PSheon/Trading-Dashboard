@@ -30,7 +30,8 @@ import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.clien
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
-import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { SettingsService } from "../src/settings/settings.service.js";
+import { closeTestDb, getTestDb, insertUser, openCopyTrading, truncateAll } from "./db-test-utils.js";
 
 const READ_ONLY = "copy-read-only-service-token-0123456789";
 const LEADER = "0x" + "1e".repeat(20);
@@ -108,6 +109,9 @@ describe("/admin/copy — the copy-trading admin API", () => {
     await truncateAll(db);
     auth.clearCache();
     market.resetCaches();
+    // Copying is open here (the setting is off until an admin turns it on).
+    await openCopyTrading(db);
+    app.get(SettingsService).invalidate();
     adminId = (await insertUser(db, { privyUserId: "did:privy:copy-admin", email: "ops@example.com", role: "admin" })).id;
     aliceId = (await insertUser(db, { privyUserId: "did:privy:copy-alice", email: "alice@example.com" })).id;
   });

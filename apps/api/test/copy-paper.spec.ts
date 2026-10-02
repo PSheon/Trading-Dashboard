@@ -45,7 +45,7 @@ import { FavoritesRepository } from "../src/users/favorites.repository.js";
 import { AccountRepository } from "../src/users/account.repository.js";
 import { AccountDeletionService } from "../src/users/account-deletion.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
-import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, openCopyTrading, truncateAll } from "./db-test-utils.js";
 
 const SERVICE_TOKEN = "service-token-for-copy-tests-0123456789";
 const LEADER = "0x" + "1e".repeat(20);
@@ -147,7 +147,9 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
   beforeEach(async () => {
     await truncateAll(db);
     auth.clearCache();
-    (settings as unknown as { cache: unknown }).cache = undefined;
+    // Copying is open in these tests (the setting is off until an admin turns it on).
+    await openCopyTrading(db);
+    settings.invalidate();
     marketService.resetCaches();
     market.mids = { BTC: 100_000, ETH: 4_000, kPEPE: 0.01 };
     market.funding = 0.0001;
@@ -243,6 +245,48 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       // A fill from before the snapshot is never copied.
       await store([fill({ coin: "ETH", side: "A", sz: 1, px: 4_000, start: -4, time: res.body.data.activatedAt ? new Date(res.body.data.activatedAt).getTime() - 1 : 0 })]);
       expect(await db.select().from(copySignalOutbox)).toHaveLength(0);
+    });
+  });
+
+  describe("general.copyTradingEnabled: whether a new copy may start", () => {
+    const open = async (enabled: boolean) => { await openCopyTrading(db, enabled); settings.invalidate(); };
+
+    it("off: starting a copy is refused with 403 copy_not_open and nothing is created", async () => {
+      await open(false);
+      await alice.get("/me/copy").expect(200);
+      const refused = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000, copyStartMode: "delta" }).expect(403);
+      expect(refused.body.error).toMatchObject({ code: "copy_not_open" });
+      expect(await db.select().from(copyStrategies)).toHaveLength(0);
+      expect(await db.select().from(leaders).where(eq(leaders.address, LEADER))).toHaveLength(0);
+      expect((await alice.get("/me/copy").expect(200)).body.data.paper).toMatchObject({ balance: 10_000, allocated: 0 });
+      // The public settings tell the web before anyone tries.
+      expect((await settings.getPublic()).copyTradingEnabled).toBe(false);
+
+      // On again: the same request starts the copy.
+      await open(true);
+      await startCopy();
+      expect(await db.select().from(copyStrategies)).toHaveLength(1);
+    });
+
+    it("off: a copy already running keeps following its leader, and can still be paused, resumed, edited and stopped", async () => {
+      const { id, activatedAt } = await startCopy();
+      await open(false);
+
+      // The leader opens 1 BTC at 100,000 on a 10,000 account: the copy follows in ratio.
+      await store([fill({ side: "B", sz: 1, px: 100_000, start: 0, time: activatedAt + 10 })]);
+      expect(await run()).toMatchObject({ filled: 1 });
+      expect(await position(id)).toBeGreaterThan(0);
+      expect((await orders(id))[0]).toMatchObject({ status: "filled" });
+
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "pause" }).expect(200);
+      expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: "paused" });
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "resume" }).expect(200);
+      expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: "active" });
+      await alice.patch(`/me/copy/strategies/${id}`, { maxLeverage: 3 }).expect(200);
+      // But a second, new copy is refused while it is off.
+      expect((await alice.post("/me/copy/strategies", { leader: OTHER, allocationUsd: 500, copyStartMode: "delta" }).expect(403)).body.error.code).toBe("copy_not_open");
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
+      expect(["stopping", "stopped"]).toContain((await db.select().from(copyStrategies))[0].status);
     });
   });
 

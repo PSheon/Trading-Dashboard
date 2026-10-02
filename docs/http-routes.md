@@ -83,7 +83,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | DELETE | `/admin/kols/:address` | 204 | kols.manage |
 | GET | `/discover/cards` | 200 | public |
 | GET | `/me/copy` | 200 | user |
-| POST | `/me/copy/strategies` | 201 | user; 409 already_copying / insufficient_balance / copy_paused |
+| POST | `/me/copy/strategies` | 201 | user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused |
 | PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/commands` | 200 | user (owner) |

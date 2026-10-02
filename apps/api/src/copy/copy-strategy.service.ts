@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import {
   addCopyFundsRequestSchema,
   createCopyStrategyRequestSchema,
@@ -14,6 +14,7 @@ import { AppConfig } from "../config/app-config.js";
 import { parseOr400 } from "../common/http/validation.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
+import { SettingsService } from "../settings/settings.service.js";
 import { CopyControlService } from "./copy-control.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
 import { dec, openNotional } from "./copy-math.js";
@@ -42,6 +43,7 @@ export class CopyStrategyService {
     private readonly planner: CopyOrderPlanner,
     private readonly policies: CopyRiskPolicyService,
     private readonly controls: CopyControlService,
+    private readonly site: SettingsService,
   ) {}
 
   private requireEnabled(): void {
@@ -87,13 +89,19 @@ export class CopyStrategyService {
    * on by default) the leader is read first and the activation cursor is
    * that snapshot's time: the positions it shows are adopted, and only fills
    * after it are copied, so nothing is counted twice. With `delta` the
-   * cursor is now. 409: already_copying, insufficient_balance,
+   * cursor is now. 403 copy_not_open while the admin's
+   * `general.copyTradingEnabled` is off: no new copy starts; copies already
+   * running, and their pause, resume, edit and stop, are untouched (the
+   * admin copy commands are what stops those). 409: already_copying, insufficient_balance,
    * copy_paused (platform or user stop), strategy_limit. 503
    * leader_unavailable when the leader, the mids or the universe can't be
    * read while there are positions to adopt: nothing is created.
    */
   async create(userId: number, input: unknown): Promise<CopyStrategy> {
     this.requireEnabled();
+    if (!(await this.site.get("general")).copyTradingEnabled) {
+      throw new ForbiddenException({ statusCode: 403, code: "copy_not_open", message: "Copy trading is not open" });
+    }
     const req = parseOr400(createCopyStrategyRequestSchema, input);
     if (req.sizingMode === "fixed" && req.perTradeUsd === null) throw new BadRequestException({ statusCode: 400, code: "per_trade_required", message: "Fixed sizing needs an amount per trade" });
     const settings: CopyStrategySettings = {

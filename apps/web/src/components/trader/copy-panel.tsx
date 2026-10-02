@@ -12,6 +12,7 @@ import { useI18n } from "@/i18n/provider";
 import { apiErrorCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
+import { useSiteSettings } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
 import { rovingFocus } from "@/lib/roving-focus";
 
@@ -35,6 +36,10 @@ let measureContext: CanvasRenderingContext2D | null = null;
  * balance is the user's paper account (模擬), never the wallet. CopyDog's other copy fields (sizing mode, amount per
  * trade, max allocation) live in the portfolio's 編輯設定, as on CopyDog.
  *
+ * While the admin's copy-trading switch is off (`copyTradingEnabled` in the
+ * public settings) no new copy can start: the CTA is disabled and says so;
+ * a copy this user already runs shows as usual.
+ *
  * `sheet` is the phone version: the amount is typed on CopyDog's keypad with
  * 25% / 50% / 75% / 最大 presets and a USDC row instead of the slider.
  */
@@ -45,6 +50,8 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   const overview = useCopyOverview();
   const existing = useCopyOf(address);
   const start = useStartCopy();
+  // Only a loaded "off" closes the panel; the api refuses in any case.
+  const closed = useSiteSettings().data?.copyTradingEnabled === false;
   const [direction, setDirection] = useState<Direction>("same");
   const [amount, setAmount] = useState("");
   const [more, setMore] = useState(false);
@@ -91,6 +98,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   }, [amount]);
 
   const label =
+    closed ? t("trader.copy.errors.disabled") :
     !amount || !(value > 0) ? t("trader.copy.enterAmount") :
     value < min ? t("trader.copy.minToCopy", { min: format.num(min) }) :
     value > balance ? t("trader.copy.notEnoughBalance") :
@@ -105,6 +113,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
       login();
       return;
     }
+    if (closed) return toast.error(t("trader.copy.errors.disabled"));
     if (!amount || !(value > 0)) return toast.error(t("trader.copy.enterAmount"));
     if (value < min) return toast.error(t("trader.copy.errors.minAllocation", { min: format.num(min) }));
     if (value > balance) return toast.error(t("trader.copy.errors.exceedsBalance"));
@@ -125,7 +134,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
         code === "copy_paused" ? t("trader.copy.errors.paused") :
         code === "strategy_limit" ? t("trader.copy.errors.limit", { limit: limit?.maxStrategies ?? 0 }) :
         code === "leader_unavailable" ? t("trader.copy.errors.leaderUnavailable") :
-        code === "copy_disabled" ? t("trader.copy.errors.disabled") :
+        code === "copy_disabled" || code === "copy_not_open" ? t("trader.copy.errors.disabled") :
         t("trader.copy.errors.failed"),
       );
     }
@@ -370,7 +379,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
         <button
           type="button"
           onClick={submit}
-          disabled={start.isPending || started}
+          disabled={start.isPending || started || closed}
           className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-base font-semibold text-primary-foreground outline-none transition-[opacity,transform] focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-80 md:hover:-translate-y-px md:disabled:translate-y-0"
         >
           {started ? (

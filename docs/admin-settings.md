@@ -81,12 +81,17 @@ Privy user first signs in), `notifications.alertsEnabled` (checked by
 `NotifyService` before each delivery), `general.maintenance` (below), the
 public `GET /settings`, and every other settings field.
 
-`general.copyTradingEnabled` is published in `GET /settings` and gates nothing
-in the api or the worker: it predates paper copy and no code path reads it. The
-copy kill switches are the stop commands on `/admin/copy`
-([admin-copy.md](admin-copy.md)), which are read from their rows inside the
-transaction that creates an order and again before submission, with no cache at
-all. `COPY_TRADING_MODE` is the deployment's capability, not a setting.
+`general.copyTradingEnabled` (default off) decides whether a NEW copy may start
+(Paul, 2026-10-02). Off: `POST /me/copy/strategies` answers 403
+`copy_not_open` and creates nothing, and the trader page's copy panel, which
+reads the switch from `GET /settings`, disables its call to action with the
+existing "copy trading is not open" wording. Copies already running are not
+touched: they keep following their leader and can be paused, resumed, edited
+and stopped. Stopping those is what the stop commands on `/admin/copy`
+([admin-copy.md](admin-copy.md)) are for; they are read from their rows inside
+the transaction that creates an order and again before submission, with no
+cache at all. `COPY_TRADING_MODE` is the deployment's capability, not a setting.
+The switch must be turned on in each environment before copying is offered.
 
 The browser reads `GET /settings` once a minute and when the tab regains focus,
 so what a visitor sees (announcement, maintenance notice) follows a save by at

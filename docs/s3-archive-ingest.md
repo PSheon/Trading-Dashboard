@@ -151,6 +151,24 @@ Archive-origin rows are ≈ 8 bytes larger than REST rows (more `cloid`s), so pl
 
 **Query plans** (address with 66,174 fills; before → after): all fills in time order: index scan on `(chain, address, time)` 58 ms → index scan on `(account_id, time)` + three memoized dictionary joins 114 ms; one day: 0.26 ms → 0.83 ms; newest 2,000: 0.33 ms → 2.8 ms; key probe (ON CONFLICT): index-only in both, 0.2 ms; the repair script's distinct-tid count: 101 ms (it never named `chain`, so the index was scanned whole) → 14 ms.
 
+### Converting existing rows
+
+Migration 0021 only creates the new tables; 0022 drops the raw table if it is empty (a new database) and otherwise leaves it. Rows are moved by a command, not by the migration, because drizzle runs migrations in one transaction:
+
+```
+pnpm --filter @trading-dashboard/api history:convert copy     # online, batches of 5,000, own cursor, restartable
+pnpm --filter @trading-dashboard/api history:convert verify   # every row: rebuilt fill == raw JSON
+pnpm --filter @trading-dashboard/api history:convert finish   # with the previous release stopped: lock, copy late rows, verify all, rename raw table
+pnpm --filter @trading-dashboard/api history:convert drop     # later: drop the retired raw table
+```
+
+- `copy` reads the raw table in key order, 5,000 rows per transaction together with its cursor (`analysis_history_fills_conversion`), and only reads the raw table: the previous release keeps working. Interrupted, it continues at the cursor.
+- `finish` takes a SHARE lock on the raw table (writers wait, readers do not), copies rows written since `copy` passed their key (an anti-join), compares every row and renames the table to `analysis_history_fills_retired` only if the comparison is exact. The rename is the fence: a process of the previous release fails loudly instead of writing fills the new layout would never see.
+- The new release reads `history_fills` only and refuses (`HistoryNotConvertedError`) while a table named `analysis_history_fills` exists, so it cannot serve or store history around unconverted rows.
+- Dropping is a separate command so the raw rows stay as a fallback until someone decides they are not needed.
+
+Measured on the scratch copy (5.89 M rows, this laptop): copy 642 s (≈ 9,200 rows/s; interrupted once at 940,000 rows and resumed), verify 99 s, finish 151 s (catch-up of 3,000 late rows + verify + rename). Disk: the new table adds 1.23 GB next to the 3.9 GB raw table until `drop`.
+
 ## How REST usage goes down
 
 - The durable history job (`AnalysisHistoryService`) asks the archive what it certifies for the address — the ingested hours minus 5 minutes at each end, because files rotate on the node's clock, not block time — and plans its REST range around it: it reads `[0, span.from − 1]`, jumps over the span without a request, then reads `[span.through, now]`. Ranges meet the span exactly, so there is no gap; overlap rows collapse on the tid key.

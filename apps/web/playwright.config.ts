@@ -4,6 +4,8 @@ if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Inv
 const baseURL = `http://127.0.0.1:${port}`;
 export default defineConfig({
   testDir: "./e2e",
+  // Runs after the web server is up: compiles every route once.
+  globalSetup: "./e2e/global-setup.ts",
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
@@ -15,6 +17,6 @@ export default defineConfig({
     url: baseURL,
     reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
     timeout: 120000,
-    env: { NEXT_TEST_MODE: "1", NEXT_PUBLIC_API_FIXTURES: "1", NEXT_PUBLIC_PRIVY_APP_ID: "", NEXT_API_URL: "" },
+    env: { NODE_OPTIONS: `--max-old-space-size=${process.env.PLAYWRIGHT_SERVER_HEAP_MB ?? 4096}`, NEXT_TEST_MODE: "1", NEXT_PUBLIC_API_FIXTURES: "1", NEXT_PUBLIC_PRIVY_APP_ID: "", NEXT_API_URL: "" },
   },
 });

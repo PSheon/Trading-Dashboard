@@ -17,9 +17,22 @@ if (process.env.NEXT_TEST_MODE !== "1" && existsSync(rootEnv)) {
 }
 
 const fixtures = process.env.NEXT_PUBLIC_API_FIXTURES === "1";
+/** The Playwright fixture server (playwright.config.ts). */
+const testServer = process.env.NEXT_TEST_MODE === "1";
 
 const nextConfig: NextConfig = {
-  distDir: process.env.NEXT_TEST_MODE === "1" ? ".next-e2e" : ".next",
+  distDir: testServer ? ".next-e2e" : ".next",
+  // The test server compiles each route once (e2e/global-setup.ts) and keeps
+  // it: by default a dev server drops routes idle for a minute and a browser
+  // test then waits for the compile again.
+  // A dev server that nears its heap limit restarts itself, and comes back
+  // with nothing compiled: in a test run that only turns one slow moment
+  // into a string of aborted navigations, so it is off there, and webpack
+  // trades some compile speed for a lower peak.
+  ...(testServer ? {
+    onDemandEntries: { maxInactiveAge: 60 * 60 * 1000, pagesBufferLength: 200 },
+    experimental: { devMemoryThresholdRestart: false, webpackMemoryOptimizations: true },
+  } : {}),
   poweredByHeader: false,
   headers() {
     return [{ source: "/:path*", headers: [
@@ -33,6 +46,10 @@ const nextConfig: NextConfig = {
   },
   webpack(config) {
     if (!fixtures) config.resolve.alias["@/fixtures/handler"] = resolve(import.meta.dirname, "src/fixtures/disabled.ts");
+    // The test server has no Privy app id and never renders Privy; without
+    // this its dependency graph is still compiled into every route (see
+    // src/lib/privy-stub.ts).
+    if (testServer && !process.env.NEXT_PUBLIC_PRIVY_APP_ID) config.resolve.alias["@privy-io/react-auth$"] = resolve(import.meta.dirname, "src/lib/privy-stub.ts");
     return config;
   },
   // Without fixture mode, the fixture handler (and the sample JSON it

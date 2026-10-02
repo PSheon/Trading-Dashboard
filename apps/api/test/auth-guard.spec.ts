@@ -235,6 +235,19 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(rules.every((r) => r.userId === null)).toBe(true);
     });
 
+    it("a new account starts in the language the request names; one that already exists keeps its own (review 29)", async () => {
+      await get("/t/protected", "alice-token").set("Accept-Language", "en").expect(200);
+      await get("/t/protected", "newbie-token").set("Accept-Language", "ja-JP,ja;q=0.9,en;q=0.8").expect(200);
+      await get("/t/protected", "boss-token").set("Accept-Language", "xx,*;q=0.5").expect(200);
+      const locales = async () => Object.fromEntries((await db.select().from(users)).map((u) => [u.email, u.locale]));
+      expect(await locales()).toEqual({ "alice@example.com": "en", "newbie@example.com": "ja", "boss@example.com": "zh-TW" });
+
+      // Later requests in another language, cached or not, change nothing.
+      auth.clearCache();
+      await get("/t/protected", "alice-token").set("Accept-Language", "ko").expect(200);
+      expect((await locales())["alice@example.com"]).toBe("en");
+    });
+
     it("a returning user: last_login_at bumps, profile is not re-fetched", async () => {
       await get("/t/protected", "alice-token").expect(200);
       const [first] = await db.select().from(users);

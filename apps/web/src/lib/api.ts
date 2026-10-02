@@ -1,3 +1,4 @@
+import { LOCALE_COOKIE, isLocale } from "@/i18n/config";
 import { API_CONTRACT_HEADER, API_CONTRACT_VERSION, errorEnvelopeSchema, successEnvelopeSchema, findHttpContract, type JsonWire } from "@/lib/contracts";
 
 /**
@@ -46,6 +47,22 @@ export function apiErrorCode(error: unknown): string | undefined {
  * call in time; it is worth retrying after `retryAfterMs`. */
 export function isBusy(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 503 && error.code === "busy";
+}
+
+/**
+ * The language the page is shown in (the `locale` cookie the language menu
+ * writes, else the document's `lang`), sent as `Accept-Language`. The api
+ * creates a new account in that language; without it every new account got
+ * the column default and the first sign-in switched the page to it.
+ */
+function pageLocale(): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const cookie = document.cookie.split("; ").find((c) => c.startsWith(`${LOCALE_COOKIE}=`))?.slice(LOCALE_COOKIE.length + 1);
+  let chosen: string | undefined;
+  try { chosen = cookie === undefined ? undefined : decodeURIComponent(cookie); } catch { chosen = undefined; }
+  if (isLocale(chosen)) return chosen;
+  const lang = document.documentElement.lang;
+  return isLocale(lang) ? lang : undefined;
 }
 
 export type AccessTokenGetter = () => Promise<string | null>;
@@ -126,6 +143,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const headers: Record<string, string> = { Accept: "application/json", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
+  const locale = pageLocale();
+  if (locale) headers["Accept-Language"] = locale;
 
   const res = await fetch(`${API_BASE}${path}`, {
     method,

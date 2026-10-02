@@ -14,6 +14,7 @@ import { AuthService, type AuthOutcome } from "./auth.service.js";
 import { ROLES_KEY, type RequestUser } from "./current-user.js";
 import { PERMISSIONS_KEY } from "./permissions.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
+import { preferredLocale } from "./request-locale.js";
 
 function bearerToken(request: Request): string | undefined {
   const header = request.headers["authorization"];
@@ -56,7 +57,7 @@ export class AuthGuard implements CanActivate {
     let outcome: AuthOutcome = { status: "invalid" };
     if (token) {
       try {
-        outcome = await this.auth.authenticate(token);
+        outcome = await this.auth.authenticate(token, { locale: preferredLocale(request.headers["accept-language"]) });
       } catch (error) {
         // Only infrastructure failures get here (e.g. the database is down
         // while signing a user in). Public data stays reachable.

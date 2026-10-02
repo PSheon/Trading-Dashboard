@@ -31,7 +31,7 @@ export class AuthRepository {
   }
 
   /** Return undefined when another first sign-in won the unique Privy DID insert. */
-  async createIfAbsent(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress" | "role"> & { embeddedWalletAddress?: string | null }) {
+  async createIfAbsent(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress" | "role"> & { embeddedWalletAddress?: string | null; locale?: AuthUserRow["locale"] }) {
     // Concurrent first sign-ins share one identity; the loser reads the winner.
     const [row] = await this.db.insert(users).values(input)
       .onConflictDoNothing({ target: users.privyUserId }).returning();

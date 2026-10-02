@@ -2,6 +2,7 @@ import { AppConfig } from "../../config/app-config.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { Locale } from "@trading-dashboard/shared/contracts";
 
 import { AuthRepository, type AuthUserRow as UserRow } from "./auth.repository.js";
 import { SettingsService } from "../../settings/settings.service.js";
@@ -89,8 +90,10 @@ export class AuthService {
     private readonly settings: SettingsService,
   ) {}
 
-  /** Database errors propagate; token problems never do. */
-  async authenticate(token: string): Promise<AuthOutcome> {
+  /** Database errors propagate; token problems never do. `hints.locale` is
+   * the language the caller's page is shown in: a user row created by this
+   * call starts with it; an existing row's language is never changed. */
+  async authenticate(token: string, hints: { locale?: Locale } = {}): Promise<AuthOutcome> {
     const serviceToken = this.config.value.auth.serviceToken;
     if (serviceToken && tokensMatch(token, serviceToken)) {
       return { status: "user", user: { kind: "service", permissions: this.config.value.auth.permissions } };
@@ -117,7 +120,7 @@ export class AuthService {
     }
     if (verified.expiresAt.getTime() <= now) return { status: "invalid" };
 
-    const result = await this.signIn(verified.privyUserId);
+    const result = await this.signIn(verified.privyUserId, hints.locale);
     const outcome: CachedOutcome =
       result.status === "ok"
         ? {
@@ -185,8 +188,11 @@ export class AuthService {
    * AUTH_ADMIN_EMAILS address gets in. The new row is admin when its
    * email is in that list. Nothing else is created with it: alerts are set
    * per favorite, and admins are alerted on the default rules themselves.
+   * The new row's language is `locale` when given (the language the person
+   * signed up in), else the column default; the web adopts the account's
+   * language on sign-in, so the default would switch the page under them.
    */
-  async signIn(privyUserId: string): Promise<SignInResult> {
+  async signIn(privyUserId: string, locale?: Locale): Promise<SignInResult> {
     const existing = await this.repository.touchEnabledUser(privyUserId);
     if (existing) return { status: "ok", user: await this.refreshMissingProfile(existing) };
 
@@ -206,6 +212,7 @@ export class AuthService {
       walletAddress: profile?.walletAddress ?? null,
       embeddedWalletAddress: profile?.embeddedWalletAddress ?? null,
       role: bootstrapAdmin ? "admin" : "user",
+      ...(locale ? { locale } : {}),
     });
     if (created) {
       this.logger.log(`New user ${created.id}${bootstrapAdmin ? " — bootstrap admin" : ""}`);

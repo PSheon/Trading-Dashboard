@@ -50,6 +50,11 @@ export const CONSUMER = "copy-signals";
 export class CopyRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
+  /** The pool, for a read that takes an executor outside any transaction. */
+  get reader(): DbExecutor {
+    return this.db;
+  }
+
   // --- risk policy ------------------------------------------------------------
 
   async latestPolicy(ex: DbExecutor = this.db) {
@@ -234,7 +239,7 @@ export class CopyRepository {
       inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).orderBy(asc(copyStrategies.id));
   }
 
-  liveStrategyIdsOfUser(tx: DbTransaction, userId: number | null) {
+  liveStrategyIdsOfUser(tx: DbExecutor, userId: number | null) {
     const where = [inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]), userId === null ? undefined : eq(copyStrategies.userId, userId)].filter(Boolean);
     return tx.select({ id: copyStrategies.id, userId: copyStrategies.userId }).from(copyStrategies).where(and(...where)).orderBy(asc(copyStrategies.id));
   }
@@ -292,9 +297,37 @@ export class CopyRepository {
         set: {
           size: v.size, entryPx: v.entryPx, realizedPnl: sql`${copyPositions.realizedPnl} + ${v.realizedPnl}::numeric`, updatedAt: now,
           // A position reopened from flat starts a new holding period.
-          ...(v.opened ? { openedAt: now, fundingThrough: now, funding: "0" } : {}),
+          ...(v.opened ? { openedAt: now, fundingThrough: now, funding: "0", reduceCarry: "0" } : {}),
+          // Nothing is left to reduce once it is flat.
+          ...(Number(v.size) === 0 ? { reduceCarry: "0" } : {}),
         },
       });
+  }
+
+  /** The size owed to later reductions (see copy-math `reduceWithCarry`). */
+  async setReduceCarry(tx: DbTransaction, strategyId: number, coin: string, carry: string): Promise<void> {
+    await tx.update(copyPositions).set({ reduceCarry: carry }).where(and(eq(copyPositions.strategyId, strategyId), eq(copyPositions.coin, coin)));
+  }
+
+  /** Every open position of a live strategy, with the strategy's cash: what the liquidation check values. */
+  openPositionsOfLive() {
+    return this.db.select({ position: copyPositions, cash: copyStrategies.cash, userId: copyStrategies.userId }).from(copyPositions)
+      .innerJoin(copyStrategies, eq(copyStrategies.id, copyPositions.strategyId))
+      .where(and(ne(copyPositions.size, "0"), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).orderBy(asc(copyPositions.strategyId), asc(copyPositions.coin));
+  }
+
+  /** Coins of the open positions of `strategyIds` (which dexes to price). */
+  async positionCoins(strategyIds: number[], ex: DbExecutor = this.db): Promise<string[]> {
+    if (strategyIds.length === 0) return [];
+    const rows = await ex.selectDistinct({ coin: copyPositions.coin }).from(copyPositions).where(and(inArray(copyPositions.strategyId, strategyIds), ne(copyPositions.size, "0")));
+    return rows.map((r) => r.coin);
+  }
+
+  /** Coins of the given orders. */
+  async orderCoins(ids: bigint[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.selectDistinct({ coin: copyOrders.coin }).from(copyOrders).where(inArray(copyOrders.id, ids));
+    return rows.map((r) => r.coin);
   }
 
   /** Open positions whose funding hasn't been accrued through `hour`. */
@@ -319,10 +352,35 @@ export class CopyRepository {
     await tx.insert(copyReservations).values(values);
   }
 
+  /** Orders the per-minute cap counts: what the strategy placed in reaction
+   * to the leader in the last minute. Adoption legs (the start of a copy)
+   * and liquidations are not reactions and are neither capped nor counted. */
   async ordersLastMinute(tx: DbTransaction, strategyId: number): Promise<number> {
     const [row] = await tx.select({ n: count() }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId),
-      gte(copyOrders.createdAt, new Date(Date.now() - 60_000)), ne(copyOrders.status, "rejected")));
+      gte(copyOrders.createdAt, new Date(Date.now() - 60_000)), ne(copyOrders.status, "rejected"), notInArray(copyOrders.leg, ["adopt", "liquidation"])));
     return Number(row?.n ?? 0);
+  }
+
+  /** Whether this strategy already has an open order for the leader trade
+   * `tradeKey` that was not refused: fixed sizing spends its per-trade
+   * amount once per leader trade (review 40). */
+  async tradeAlreadyOrdered(tx: DbTransaction, strategyId: number, tradeKey: string): Promise<boolean> {
+    const [row] = await tx.select({ id: copyOrders.id }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId), eq(copyOrders.tradeKey, tradeKey),
+      eq(copyOrders.leg, "open"), notInArray(copyOrders.status, ["rejected", "cancelled"]))).limit(1);
+    return row !== undefined;
+  }
+
+  /** A failed execution attempt of an order: counted, with its error. Returns the new count. */
+  async recordOrderFailure(orderId: bigint, error: string): Promise<number> {
+    const [row] = await this.db.update(copyOrders).set({ attempts: sql`${copyOrders.attempts} + 1`, lastError: error.slice(0, 500), updatedAt: new Date() })
+      .where(eq(copyOrders.id, orderId)).returning({ attempts: copyOrders.attempts });
+    return row?.attempts ?? 0;
+  }
+
+  /** Orders still open whose execution has failed at least `minAttempts` times, oldest first. */
+  stuckOrders(minAttempts: number, limit = 50) {
+    return this.db.select().from(copyOrders).where(and(inArray(copyOrders.status, OPEN_ORDER_STATUSES), gte(copyOrders.attempts, minAttempts)))
+      .orderBy(asc(copyOrders.id)).limit(limit);
   }
 
   /** Signed size of not-yet-final orders per coin (buys +, sells −). */

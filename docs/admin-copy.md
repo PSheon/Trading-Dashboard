@@ -35,7 +35,13 @@ events can be filtered on `/admin/audit`.
   marked "behind" over 60 s or when any signal has failed); orders by status
   over 24 h; the latest rejections and cancellations with their reasons in
   words; the latest orders; the latest commands with who, why and what they
-  cancelled or closed.
+  cancelled or closed. **Orders that keep failing**: an order whose
+  execution has thrown five times or more (`overview.stuckOrders`), with its
+  last error, its attempts and its strategy. It is retried every 30 s and
+  holds that strategy's later orders (an open must not run ahead of its
+  failed close); the operator's system chat gets one message at the fifth
+  failure. The panel is absent while nothing is stuck. Signals that failed
+  eight times are the backlog's "failed" count.
 - **Strategies** (`/admin/copy/strategies`, `/admin/copy/strategies/:id`):
   the list by status, and one strategy's positions, settings versions,
   orders and ledger.

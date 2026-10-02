@@ -28,7 +28,7 @@ import { CopyAdminReadService } from "../src/copy/copy-admin-read.service.js";
 import { CopyAdoptionRepairService, adoptionRepairKey } from "../src/copy/copy-adoption-repair.service.js";
 import { CopyControlService } from "../src/copy/copy-control.service.js";
 import { CopyExecutionService } from "../src/copy/copy-execution.service.js";
-import { CopyMarketService, type AssetInfo } from "../src/copy/copy-market.service.js";
+import { AssetMap, CopyMarketService, type Mids } from "../src/copy/copy-market.service.js";
 import { cloidOf } from "../src/copy/copy-math.js";
 import { CopyOrderPlanner } from "../src/copy/copy-planner.service.js";
 import { CopyRiskPolicyService } from "../src/copy/copy-risk-policy.service.js";
@@ -38,6 +38,7 @@ import { CopyController } from "../src/copy/copy.controller.js";
 import { CopyRepository } from "../src/copy/copy.repository.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
+import { NotifyService } from "../src/notify/notify.service.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
@@ -65,19 +66,38 @@ const market = {
   stakedHype: 0,
   /** Perp equity on HIP-3 dexes, by dex name. */
   hip3Equity: {} as Record<string, number>,
+  /** Mids of HIP-3 dexes, by dex name; a dex set to null fails its read. */
+  hip3Mids: {} as Record<string, Record<string, number> | null>,
+  /** The leader's positions on HIP-3 dexes, by dex name. */
+  hip3Positions: {} as Record<string, { coin: string; szi: string; positionValue: string; entryPx: string }[]>,
   tvl: 0,
 };
+const HIP3_UNIVERSE: Record<string, { name: string; szDecimals: number; maxLeverage: number }[]> = { xyz: [{ name: "xyz:TSLA", szDecimals: 3, maxLeverage: 10 }] };
+const asPositions = (list: { coin: string; szi: string; positionValue: string; entryPx: string }[]) =>
+  list.map((p) => ({ position: { ...p, leverage: { type: "cross", value: 5 }, marginUsed: "0", unrealizedPnl: "0" } }));
 const HYPE_PX = 40;
 const info = {
-  allMids: vi.fn(async () => Object.fromEntries(Object.entries(market.mids).map(([k, v]) => [k, String(v)]))),
-  metaAndAssetCtxs: vi.fn(async () => [
-    { universe: [{ name: "BTC", szDecimals: 5, maxLeverage: 40 }, { name: "ETH", szDecimals: 4, maxLeverage: 25 }, { name: "kPEPE", szDecimals: 0, maxLeverage: 10 }] },
-    ["BTC", "ETH", "kPEPE"].map((c) => ({ funding: String(market.funding), markPx: String(market.mids[c]), oraclePx: String(market.mids[c]), openInterest: "1" })),
-  ]),
+  allMids: vi.fn(async (_priority?: string, _rank?: number, dex?: string) => {
+    const mids = dex ? market.hip3Mids[dex] : market.mids;
+    if (!mids) throw new Error(`Hyperliquid info request failed: 500 (${dex})`);
+    return Object.fromEntries(Object.entries(mids).map(([k, v]) => [k, String(v)]));
+  }),
+  metaAndAssetCtxs: vi.fn(async (_priority?: string, _rank?: number, dex?: string) => {
+    if (dex) {
+      const universe = HIP3_UNIVERSE[dex] ?? [];
+      const mids = market.hip3Mids[dex];
+      if (!mids) throw new Error(`Hyperliquid info request failed: 500 (${dex})`);
+      return [{ universe }, universe.map((a) => ({ funding: String(market.funding), markPx: String(mids[a.name]), oraclePx: String(mids[a.name]), openInterest: "1" }))];
+    }
+    return [
+      { universe: [{ name: "BTC", szDecimals: 5, maxLeverage: 40 }, { name: "ETH", szDecimals: 4, maxLeverage: 25 }, { name: "kPEPE", szDecimals: 0, maxLeverage: 10 }] },
+      ["BTC", "ETH", "kPEPE"].map((c) => ({ funding: String(market.funding), markPx: String(market.mids[c]), oraclePx: String(market.mids[c]), openInterest: "1" })),
+    ];
+  }),
   clearinghouseState: vi.fn(async (_address?: string, dex?: string) => {
     const equity = String(dex ? (market.hip3Equity[dex] ?? 0) : market.leaderEquity);
     return {
-      assetPositions: dex ? [] : market.leaderPositions.map((p) => ({ position: { ...p, leverage: { type: "cross", value: 5 }, marginUsed: "0", unrealizedPnl: "0" } })),
+      assetPositions: asPositions(dex ? (market.hip3Positions[dex] ?? []) : market.leaderPositions),
       marginSummary: { accountValue: equity, totalMarginUsed: "0", totalNtlPos: "0", totalRawUsd: "0" },
       crossMarginSummary: { accountValue: equity, totalMarginUsed: "0", totalNtlPos: "0", totalRawUsd: "0" },
       withdrawable: "0",
@@ -91,20 +111,23 @@ const info = {
     { tokens: [{ name: "USDC", index: 0 }, { name: "HYPE", index: 150 }], universe: [{ name: "@107", index: 107, tokens: [150, 0], isCanonical: true }] },
     [{ coin: "@107", markPx: String(HYPE_PX), midPx: String(HYPE_PX) }],
   ]),
-  perpDexs: vi.fn(async () => [null, ...Object.keys(market.hip3Equity).map((name) => ({ name, assetToStreamingOiCap: [[`${name}:TSLA`, "1"]] }))]),
+  perpDexs: vi.fn(async () => [null, ...[...new Set([...Object.keys(market.hip3Equity), ...Object.keys(market.hip3Positions), ...Object.keys(market.hip3Mids)])].map((name) => ({ name, assetToStreamingOiCap: [[`${name}:TSLA`, "1"]] }))]),
   portfolio: vi.fn(async () => [["allTime", { accountValueHistory: [[1, "1"], [2, String(market.tvl)]], pnlHistory: [[1, "0"], [2, "0"]], vlm: "0" }]]),
   meta: vi.fn(async (dex?: string) => ({ universe: dex === "xyz" ? [{ name: "xyz:TSLA", szDecimals: 3, maxLeverage: 10 }] : [] })),
 };
 
 let tidSeq = 1_000n;
 /** A verified leader fill as Hyperliquid returns it. */
-function fill(o: { coin?: string; side: "B" | "A"; sz: number; px: number; start: number; time: number; tid?: bigint }): HlUserFill {
+function fill(o: { coin?: string; side: "B" | "A"; sz: number; px: number; start: number; time: number; tid?: bigint; oid?: number; twapId?: number }): HlUserFill {
   const tid = o.tid ?? ++tidSeq;
   return {
     coin: o.coin ?? "BTC", px: String(o.px), sz: String(o.sz), side: o.side, time: o.time, startPosition: String(o.start),
-    dir: "Open Long", closedPnl: "0", hash: "0x" + tid.toString(16).padStart(64, "0"), oid: Number(tid), crossed: true, fee: "0", tid: Number(tid),
+    dir: "Open Long", closedPnl: "0", hash: "0x" + tid.toString(16).padStart(64, "0"), oid: o.oid ?? Number(tid), crossed: true, fee: "0", tid: Number(tid),
+    ...(o.twapId === undefined ? {} : { twapId: o.twapId }),
   } as HlUserFill;
 }
+/** The operator's system chat, stubbed. */
+const notify = { sendSystemMessage: vi.fn(async (_text: string) => {}) };
 
 describe("paper copy trading — real services, real Postgres, stubbed Hyperliquid", () => {
   const db = getTestDb();
@@ -133,6 +156,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
         CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
         { provide: HyperliquidInfoClient, useValue: info },
+        { provide: NotifyService, useValue: notify },
       ],
     }));
     signals = app.get(CopySignalService);
@@ -159,6 +183,8 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
     market.spotBalances = [];
     market.stakedHype = 0;
     market.hip3Equity = {};
+    market.hip3Mids = {};
+    market.hip3Positions = {};
     market.tvl = 0;
     vi.clearAllMocks();
   });
@@ -935,12 +961,12 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       const { id } = await startCopy();
       const repo = app.get(CopyRepository);
       const [strategy] = await db.select().from(copyStrategies);
-      const place = (assets: null | Map<string, AssetInfo>, mids: null | { at: Date; px: Map<string, number> }) => app.get(UnitOfWork).run(async (tx) => app.get(CopyOrderPlanner).place(tx, {
+      const place = (assets: null | AssetMap, mids: null | Mids) => app.get(UnitOfWork).run(async (tx) => app.get(CopyOrderPlanner).place(tx, {
         strategy: strategy!, settings: await repo.settingsOf(tx, id, 1) as never, policy: await policies.current(tx), controls: { platform: undefined, user: undefined }, mids, assets,
         coin: "ETH", leg: "adopt", side: "B", notional: 500, signalPx: 4_000, signalTime: new Date(), signalTids: [], dedupeKey: `${id}:adopt:ETH:v1`,
       }));
-      await expect(place(null, { at: new Date(), px: new Map([["ETH", 4_000]]) })).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "asset_info" });
-      await expect(place(new Map(), null)).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "mids" });
+      await expect(place(null, { at: new Date(), px: new Map([["ETH", 4_000]]), missingDexes: new Set() })).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "asset_info" });
+      await expect(place(new AssetMap(), null)).rejects.toMatchObject({ name: "CopyMarketDataUnavailableError", gap: "mids" });
       expect(await orders(id)).toHaveLength(0);
     });
 
@@ -1280,7 +1306,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
       const repo = app.get(CopyRepository);
       const spy = vi.spyOn(repo, "claimLeg").mockRejectedValueOnce(new Error("db blip"));
-      expect(await signals.drain()).toEqual({ processed: 0, orders: 0 });
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0, failed: 1 });
       spy.mockRestore();
       const [row] = await db.select().from(copySignalOutbox);
       expect(row).toMatchObject({ status: "pending", attempts: 1, lastError: "db blip" });
@@ -1381,6 +1407,497 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await db.update(copyOrders).set({ signalTime: new Date(Date.now() - 600_000), updatedAt: new Date(Date.now() - 600_000) });
       await execution.drain();
       expect((await orders(id))[0]).toMatchObject({ status: "cancelled", reason: "stale_signal_before_fill" });
+      expect(await position(id)).toBe(0);
+    });
+  });
+
+  describe("funding is paid at every hour boundary a position is held across (review 38)", () => {
+    const HOUR = 3_600_000;
+    async function longBtc() {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      return { id, qty: await position(id) };
+    }
+    const funding = async (id: number) => Number((await db.select().from(copyPositions).where(eq(copyPositions.strategyId, id)))[0]!.funding);
+
+    it("a position opened at half past pays at the next full hour, not an hour later", async () => {
+      const { id, qty } = await longBtc();
+      const hour = new Date(Math.floor(Date.now() / HOUR) * HOUR);
+      // Opened 30 minutes before the boundary.
+      await db.update(copyPositions).set({ fundingThrough: new Date(hour.getTime() - 30 * 60_000) });
+      expect(await execution.accrueFunding(new Date(hour.getTime() + 5_000))).toBe(1);
+      expect(await funding(id)).toBeCloseTo(qty * 100_000 * 0.0001, 8);
+      // Once per boundary.
+      expect(await execution.accrueFunding(new Date(hour.getTime() + 59 * 60_000))).toBe(0);
+      expect(await execution.accrueFunding(new Date(hour.getTime() + HOUR + 1))).toBe(1);
+      expect(await funding(id)).toBeCloseTo(qty * 100_000 * 0.0001 * 2, 8);
+      // The strategy's cash and ledger carry the same two payments.
+      const [s] = await db.select().from(copyStrategies);
+      expect(Number(s!.funding)).toBeCloseTo(qty * 100_000 * 0.0001 * 2, 8);
+      const paid = (await db.select().from(copyLedger).where(eq(copyLedger.kind, "funding"))).reduce((a, l) => a + Number(l.amount), 0);
+      expect(paid).toBeCloseTo(-qty * 100_000 * 0.0001 * 2, 8);
+    });
+
+    it("held across N boundaries pays N, also after downtime; opened exactly on the hour it pays from the next one", async () => {
+      const { id, qty } = await longBtc();
+      const hour = new Date(Math.floor(Date.now() / HOUR) * HOUR);
+      // Opened 2 h 20 min before `hour`: three boundaries crossed.
+      await db.update(copyPositions).set({ fundingThrough: new Date(hour.getTime() - 2 * HOUR - 20 * 60_000) });
+      expect(await execution.accrueFunding(hour)).toBe(1);
+      expect(await funding(id)).toBeCloseTo(qty * 100_000 * 0.0001 * 3, 8);
+
+      await db.update(copyPositions).set({ fundingThrough: hour, funding: "0" });
+      expect(await execution.accrueFunding(new Date(hour.getTime() + 10))).toBe(0);
+      expect(await funding(id)).toBe(0);
+    });
+  });
+
+  describe("adoption is not cut by the per-minute cap or the signal age (review 39)", () => {
+    const three = [
+      { coin: "BTC", szi: "0.02", positionValue: "2000", entryPx: "100000" },
+      { coin: "ETH", szi: "-0.5", positionValue: "2000", entryPx: "4000" },
+      { coin: "kPEPE", szi: "100000", positionValue: "1000", entryPx: "0.01" },
+    ];
+
+    it("adopts every position of the leader although the cap allows one order a minute, and the answer lists them", async () => {
+      await policies.put({ limits: { maxOrdersPerMinute: 1 }, reason: "one a minute", expectedVersion: 0 }, admin);
+      market.leaderPositions = three;
+      const res = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      const id = res.body.data.id as number;
+      // ratio 1,000 / 10,000: 200, 200 and 100 USDC.
+      expect(res.body.data.adoption).toEqual([
+        { coin: "BTC", adopted: true, reason: null, size: 0.002 },
+        { coin: "ETH", adopted: true, reason: null, size: 0.05 },
+        { coin: "kPEPE", adopted: true, reason: null, size: 10_000 },
+      ]);
+      expect((await orders(id)).map((o) => [o.coin, o.status])).toEqual([["BTC", "risk_approved"], ["ETH", "risk_approved"], ["kPEPE", "risk_approved"]]);
+      await run();
+      expect([await position(id, "BTC"), await position(id, "ETH"), await position(id, "kPEPE")]).toEqual([0.002, -0.05, 10_000]);
+
+      // The adoption does not use up the minute: the leader's next trade is still copied.
+      await store([fill({ coin: "ETH", side: "A", sz: 0.5, px: 4_000, start: -0.5, time: Date.now() })]);
+      await run();
+      const last = (await orders(id)).at(-1)!;
+      expect(last).toMatchObject({ leg: "open", coin: "ETH", status: "filled" });
+      // …and the cap still applies to what follows it.
+      await store([fill({ coin: "BTC", side: "B", sz: 0.02, px: 100_000, start: 0.02, time: Date.now() })]);
+      await run();
+      expect((await orders(id)).at(-1)).toMatchObject({ leg: "open", coin: "BTC", status: "rejected", reason: "frequency" });
+    });
+
+    it("an adoption order the executor reaches late is still filled, at the mid then", async () => {
+      market.leaderPositions = [three[0]!];
+      const res = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      const id = res.body.data.id as number;
+      // The worker was down for an hour (the policy's signal age is 120 s).
+      await db.update(copyOrders).set({ signalTime: new Date(Date.now() - 3_600_000) });
+      market.mids.BTC = 101_000;
+      expect(await run()).toMatchObject({ filled: 1, cancelled: 0 });
+      expect((await orders(id))[0]).toMatchObject({ leg: "adopt", status: "filled", avgPx: "101050" });
+
+      // The same for one left `submitting` by a crash.
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
+      await run();
+      await execution.settleStopping();
+      const second = (await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201)).body.data.id as number;
+      const [adopt] = await orders(second);
+      await execution.submit(adopt!.id);
+      await db.update(copyOrders).set({ signalTime: new Date(Date.now() - 3_600_000), updatedAt: new Date(Date.now() - 60_000) }).where(eq(copyOrders.id, adopt!.id));
+      await run();
+      expect((await orders(second))[0]).toMatchObject({ leg: "adopt", status: "filled" });
+    });
+
+    it("says what was not adopted and why: a blocked coin, a position too small, a builder-dex market the policy does not copy", async () => {
+      await policies.put({ limits: { blockedCoins: ["ETH"] }, reason: "no eth", expectedVersion: 0 }, admin);
+      market.leaderPositions = [three[0]!, three[1]!, { coin: "kPEPE", szi: "5000", positionValue: "50", entryPx: "0.01" }];
+      market.hip3Positions = { xyz: [{ coin: "xyz:TSLA", szi: "10", positionValue: "4000", entryPx: "400" }] };
+      const res = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      expect(res.body.data.adoption).toEqual([
+        { coin: "BTC", adopted: true, reason: null, size: 0.002 },
+        { coin: "ETH", adopted: false, reason: "symbol_blocked", size: 0 },
+        { coin: "kPEPE", adopted: false, reason: "below_min_notional", size: 0 },
+        { coin: "xyz:TSLA", adopted: false, reason: "symbol_not_allowed", size: 0 },
+      ]);
+      // Nothing was read from the builder dex for a market that is not copied.
+      expect(info.allMids.mock.calls.every((c) => c[2] === undefined)).toBe(true);
+      expect(info.metaAndAssetCtxs.mock.calls.every((c) => c[2] === undefined)).toBe(true);
+      // A copy that starts without 跟單目前持倉 has no adoption list.
+      const delta = await api("bob-token").post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000, copyStartMode: "delta" }).expect(201);
+      expect(delta.body.data.adoption).toBeUndefined();
+    });
+  });
+
+  describe("fixed sizing spends its amount once per leader trade (review 40)", () => {
+    const fixed = () => startCopy({ sizingMode: "fixed", perTradeUsd: 200 });
+    const ethOrders = async (id: number) => (await orders(id)).filter((o) => o.leg === "open").map((o) => [o.size, o.status, o.tradeKey]);
+
+    it("partial fills of one leader order arriving in separate passes are one trade", async () => {
+      const { id, activatedAt } = await fixed();
+      await store([fill({ coin: "ETH", side: "B", sz: 2, px: 4_000, start: 0, time: activatedAt + 1_000, oid: 77 })]);
+      await run();
+      await store([fill({ coin: "ETH", side: "B", sz: 3, px: 4_000, start: 2, time: activatedAt + 2_000, oid: 77 })]);
+      await run();
+      await store([fill({ coin: "ETH", side: "B", sz: 5, px: 4_000, start: 5, time: activatedAt + 3_000, oid: 77 })]);
+      await run();
+      // 200 USDC once: 0.05 ETH, not 0.15.
+      expect(await ethOrders(id)).toEqual([["0.05", "filled", "oid:77"]]);
+      expect(await position(id, "ETH")).toBeCloseTo(0.05);
+      const legs = await db.select().from(copySignalLegs).where(eq(copySignalLegs.strategyId, id)).orderBy(asc(copySignalLegs.tid));
+      expect(legs.map((l) => l.outcome)).toEqual(["ordered", "same_trade", "same_trade"]);
+    });
+
+    it("the same fills in one pass are one trade too: the size does not depend on batching", async () => {
+      const { id, activatedAt } = await fixed();
+      await store([
+        fill({ coin: "ETH", side: "B", sz: 2, px: 4_000, start: 0, time: activatedAt + 1_000, oid: 77 }),
+        fill({ coin: "ETH", side: "B", sz: 3, px: 4_000, start: 2, time: activatedAt + 2_000, oid: 77 }),
+        fill({ coin: "ETH", side: "B", sz: 5, px: 4_000, start: 5, time: activatedAt + 3_000, oid: 77 }),
+      ]);
+      await run();
+      expect(await ethOrders(id)).toEqual([["0.05", "filled", "oid:77"]]);
+    });
+
+    it("two leader orders are two trades, in one pass or in two", async () => {
+      const { id, activatedAt } = await fixed();
+      await store([
+        fill({ coin: "ETH", side: "B", sz: 2, px: 4_000, start: 0, time: activatedAt + 1_000, oid: 77 }),
+        fill({ coin: "ETH", side: "B", sz: 3, px: 4_000, start: 2, time: activatedAt + 2_000, oid: 78 }),
+      ]);
+      await run();
+      expect(await ethOrders(id)).toEqual([["0.05", "filled", "oid:77"], ["0.05", "filled", "oid:78"]]);
+      await store([fill({ coin: "ETH", side: "B", sz: 1, px: 4_000, start: 5, time: activatedAt + 3_000, oid: 79 })]);
+      await run();
+      expect(await position(id, "ETH")).toBeCloseTo(0.15);
+    });
+
+    it("every slice of one TWAP is one trade, whatever order id each slice has", async () => {
+      const { id, activatedAt } = await fixed();
+      for (let i = 0; i < 4; i++) {
+        await store([fill({ coin: "ETH", side: "B", sz: 1, px: 4_000, start: i, time: activatedAt + 1_000 * (i + 1), oid: 500 + i, twapId: 9 })]);
+        await run();
+      }
+      expect(await ethOrders(id)).toEqual([["0.05", "filled", "twap:9"]]);
+    });
+
+    it("a trade whose first order was refused may still be taken by a later fill of it", async () => {
+      const { id, activatedAt } = await fixed();
+      // The mid has moved 2% from the leader's price: refused.
+      await store([fill({ coin: "ETH", side: "B", sz: 2, px: 3_920, start: 0, time: activatedAt + 1_000, oid: 77 })]);
+      await run();
+      await store([fill({ coin: "ETH", side: "B", sz: 2, px: 4_000, start: 2, time: activatedAt + 2_000, oid: 77 })]);
+      await run();
+      expect(await ethOrders(id)).toEqual([["0.05", "rejected", "oid:77"], ["0.05", "filled", "oid:77"]]);
+    });
+
+    it("ratio sizing is unchanged: every fill is scaled, and consecutive fills still make one order", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([
+        fill({ side: "B", sz: 0.03, px: 100_000, start: 0, time: activatedAt + 1_000, oid: 77 }),
+        fill({ side: "B", sz: 0.02, px: 100_000, start: 0.03, time: activatedAt + 1_001, oid: 78 }),
+      ]);
+      await run();
+      await store([fill({ side: "B", sz: 0.01, px: 100_000, start: 0.05, time: activatedAt + 2_000, oid: 78 })]);
+      await run();
+      // 5,000 × 1/10 = 500 USDC in one order, then 1,000 × (equity after fees)/10,000 ≈ 99.9 USDC for the later fill of order 78.
+      expect((await orders(id)).map((o) => [o.size, o.status])).toEqual([["0.005", "filled"], ["0.00099", "filled"]]);
+    });
+  });
+
+  describe("liquidation: a copy can lose what was allocated to it and no more (review 41)", () => {
+    /** 1,000 allocated; the leader's 90,000 USDC long is copied up to the strategy's exposure cap: 0.05 BTC at 100,050. */
+    async function leveraged() {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.9, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      expect(await position(id)).toBe(0.05);
+      return { id, activatedAt };
+    }
+    const strategy = async (id: number) => (await db.select().from(copyStrategies).where(eq(copyStrategies.id, id)))[0]!;
+    const ledgerSum = async (id: number) => (await db.select().from(copyLedger).where(eq(copyLedger.strategyId, id))).reduce((a, l) => a + Number(l.amount), 0);
+
+    it("does nothing while equity covers the maintenance margin, and nothing without a price", async () => {
+      const { id } = await leveraged();
+      // BTC max leverage 40: maintenance = notional / 80. At 85,000: equity ≈ 245, maintenance ≈ 53.
+      market.mids.BTC = 85_000;
+      marketService.resetCaches();
+      expect(await execution.liquidate()).toBe(0);
+      delete market.mids.BTC;
+      marketService.resetCaches();
+      expect(await execution.liquidate()).toBe(0);
+      expect(await position(id)).toBe(0.05);
+      expect((await strategy(id)).status).toBe("active");
+    });
+
+    it("closes every position once equity is below Hyperliquid's maintenance margin, records it and pauses the copy", async () => {
+      const { id } = await leveraged();
+      // At 81,000: equity = 997.74875 − 952.5 = 45.25 < maintenance 0.05 × 81,000 / 80 = 50.625.
+      market.mids.BTC = 81_000;
+      marketService.resetCaches();
+      expect(await execution.liquidate()).toBe(1);
+      expect(await execution.liquidate()).toBe(0);
+      expect(await position(id)).toBe(0);
+      const list = await orders(id);
+      const liq = list.at(-1)!;
+      expect(liq).toMatchObject({ leg: "liquidation", side: "A", reduceOnly: true, status: "filled", size: "0.05", filledSize: "0.05", avgPx: "80960" });
+      expect(liq.reason).toBe("liquidated:equity 45.25 < maintenance 50.63");
+      const s = await strategy(id);
+      // Sold 0.05 at 80,960 (mid less 5 bps, 5 significant figures): realized −954.5, fee 1.8216.
+      expect(Number(s.realizedPnl)).toBeCloseTo(-954.5, 6);
+      expect(Number(s.cash)).toBeCloseTo(1_000 - 2.251125 - 954.5 - 1.8216, 6);
+      expect(Number(s.cash)).toBeGreaterThan(0);
+      expect(s).toMatchObject({ status: "paused", pauseNewRisk: true });
+      expect(await ledgerSum(id)).toBeCloseTo(Number(s.cash), 8);
+      const [event] = await db.select().from(copyControlEvents).where(eq(copyControlEvents.scope, "strategy"));
+      expect(event).toMatchObject({ scopeId: id, command: "close_positions", actorUserId: null, result: { cancelledOrders: 0, closeOrders: 1 } });
+      expect(event!.reason).toMatch(/^liquidation: equity 45\.25 below maintenance margin 50\.63$/);
+      // What the owner sees.
+      const { data } = (await alice.get("/me/copy").expect(200)).body;
+      expect(data.strategies[0]).toMatchObject({ status: "paused", positions: [], pauseNewRisk: true });
+      expect(data.strategies[0].roiPct).toBeGreaterThan(-100);
+      const shown = (await alice.get(`/me/copy/strategies/${id}/orders`).expect(200)).body.data.items[0];
+      expect(shown).toMatchObject({ leg: "liquidation", status: "filled" });
+    });
+
+    it("a gap through zero: the loss beyond the equity is written off, cash ends at 0 and the paper balance is never charged", async () => {
+      // Room for a second market: the same 0.05 BTC, under an 8,000 USDC exposure cap.
+      const { id, activatedAt } = await startCopy({ maxTotalExposureUsd: 8_000 });
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      expect(await position(id)).toBe(0.05);
+      // An open the leader made is approved and still waiting when the market gaps:
+      // it is cancelled, not filled into a liquidated copy.
+      await store([fill({ coin: "ETH", side: "B", sz: 1, px: 4_000, start: 0, time: Date.now() })]);
+      marketService.resetCaches();
+      await signals.drain();
+      expect((await orders(id)).at(-1)).toMatchObject({ coin: "ETH", status: "risk_approved" });
+      // At 70,000 the position has lost 1,502.5 of a 997.75 equity.
+      market.mids.BTC = 70_000;
+      marketService.resetCaches();
+      expect(await execution.liquidate()).toBe(1);
+      const s = await strategy(id);
+      expect(Number(s.cash)).toBe(0);
+      const ledger = await db.select().from(copyLedger).where(eq(copyLedger.strategyId, id));
+      const writeOff = ledger.filter((l) => l.kind === "liquidation");
+      expect(writeOff).toHaveLength(1);
+      expect(Number(writeOff[0]!.amount)).toBeGreaterThan(500);
+      expect(await ledgerSum(id)).toBeCloseTo(0, 8);
+      expect((await orders(id)).filter((o) => o.status === "cancelled").map((o) => [o.coin, o.reason])).toEqual([["ETH", "liquidated"]]);
+      const { data } = (await alice.get("/me/copy").expect(200)).body;
+      // −100 %, never below; the rest of the paper account is untouched.
+      expect(data.strategies[0]).toMatchObject({ cash: 0, equity: 0, totalPnl: -1_000, roiPct: -100 });
+      expect(data.paper).toMatchObject({ balance: 9_000, totalValue: 9_000 });
+
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop" }).expect(200);
+      await run();
+      expect(await execution.settleStopping()).toBe(1);
+      const [account] = await db.select().from(paperAccounts);
+      expect(Number(account!.balance)).toBe(9_000);
+    });
+
+    it("without a liquidation tick in between, a close that leaves the copy flat below zero is written off as well", async () => {
+      const { id, activatedAt } = await leveraged();
+      market.mids.BTC = 70_000;
+      await store([fill({ side: "A", sz: 0.9, px: 70_000, start: 0.9, time: activatedAt + 5_000 })]);
+      await run();
+      expect(await position(id)).toBe(0);
+      const s = await strategy(id);
+      expect(Number(s.cash)).toBe(0);
+      expect(await ledgerSum(id)).toBeCloseTo(0, 8);
+      // Still active: it was the leader who closed.
+      expect(s.status).toBe("active");
+    });
+
+    it("positions that hedge each other are valued together: one losing leg does not liquidate a healthy account", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.4, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await store([fill({ coin: "ETH", side: "A", sz: 10, px: 4_000, start: 0, time: activatedAt + 1_001 })]);
+      await run();
+      // BTC −25 %, ETH −25 %: the short gains what the long loses.
+      market.mids.BTC = 75_000;
+      market.mids.ETH = 3_000;
+      marketService.resetCaches();
+      expect(await execution.liquidate()).toBe(0);
+      expect(await position(id)).toBeGreaterThan(0);
+    });
+  });
+
+  describe("small proportional reductions are carried, not rounded away (review 42)", () => {
+    it("a leader who trims 0.1 % four times is followed once a whole lot is owed, and a full close clears the rest", async () => {
+      const { id, activatedAt } = await startCopy({ sizingMode: "fixed", perTradeUsd: 200 });
+      await store([fill({ coin: "ETH", side: "B", sz: 10, px: 4_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      expect(await position(id, "ETH")).toBe(0.05);
+      // ETH trades in lots of 0.0001: 0.1 % of 0.05 is half a lot.
+      let leader = 10;
+      for (let i = 0; i < 4; i++) {
+        const sz = Number((leader * 0.001).toFixed(6));
+        await store([fill({ coin: "ETH", side: "A", sz, px: 4_000, start: leader, time: activatedAt + 2_000 + i })]);
+        leader -= sz;
+        await run();
+      }
+      const closes = (await orders(id)).filter((o) => o.leg === "close");
+      expect(closes.map((o) => [o.size, o.status])).toEqual([["0.0001", "filled"]]);
+      expect(await position(id, "ETH")).toBeCloseTo(0.0499, 10);
+      const legs = await db.select().from(copySignalLegs).where(and(eq(copySignalLegs.strategyId, id), eq(copySignalLegs.leg, "close"))).orderBy(asc(copySignalLegs.fillTime));
+      expect(legs.map((l) => l.outcome)).toEqual(["below_lot_carried", "below_lot_carried", "ordered", "below_lot_carried"]);
+      const [p] = await db.select().from(copyPositions).where(eq(copyPositions.strategyId, id));
+      expect(Number(p!.reduceCarry)).toBeGreaterThan(0);
+      expect(Number(p!.reduceCarry)).toBeLessThan(0.0001);
+      // The follower is within one lot of 0.05 × 0.999⁴.
+      expect(Math.abs(Number(p!.size) - Number(p!.reduceCarry) - 0.05 * 0.999 ** 4)).toBeLessThan(1e-9);
+
+      await store([fill({ coin: "ETH", side: "A", sz: leader, px: 4_000, start: leader, time: activatedAt + 9_000 })]);
+      await run();
+      expect(await position(id, "ETH")).toBe(0);
+      const [flat] = await db.select().from(copyPositions).where(eq(copyPositions.strategyId, id));
+      expect(Number(flat!.reduceCarry)).toBe(0);
+    });
+  });
+
+  describe("one failing outbox row does not fail its batch (review 42)", () => {
+    it("the rows of other leaders and the other rows of the same leader complete; only the bad row is counted as failed", async () => {
+      const a = await startCopy();
+      const b = (await alice.post("/me/copy/strategies", { leader: OTHER, allocationUsd: 1_000, copyStartMode: "delta" }).expect(201)).body.data.id as number;
+      const bad = fill({ coin: "ETH", side: "B", sz: 5, px: 4_000, start: 0, time: a.activatedAt + 2_000 });
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: a.activatedAt + 1_000 }), bad]);
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: Date.now() })], OTHER);
+      const repo = app.get(CopyRepository);
+      const claim = repo.claimLeg.bind(repo);
+      const spy = vi.spyOn(repo, "claimLeg").mockImplementation(async (tx, v) => {
+        if (v.tid === BigInt(bad.tid)) throw new Error("poisoned row");
+        return claim(tx, v);
+      });
+      const result = await signals.drain();
+      spy.mockRestore();
+      expect(result).toEqual({ processed: 2, orders: 2, failed: 1 });
+      const rows = await db.select().from(copySignalOutbox).orderBy(asc(copySignalOutbox.id));
+      expect(rows.map((r) => [r.address, r.status, r.attempts])).toEqual([[LEADER, "done", 0], [LEADER, "pending", 1], [OTHER, "done", 0]]);
+      expect(rows[1]!.lastError).toBe("poisoned row");
+      expect((await orders(a.id)).map((o) => o.coin)).toEqual(["BTC"]);
+      expect((await orders(b)).map((o) => o.coin)).toEqual(["BTC"]);
+      // The bad row is retried on its own schedule and parked as failed after its attempts, where /admin/copy shows it.
+      await db.update(copySignalOutbox).set({ attempts: 7, availableAt: new Date(0) }).where(eq(copySignalOutbox.id, rows[1]!.id));
+      const again = vi.spyOn(repo, "claimLeg").mockRejectedValue(new Error("poisoned row"));
+      expect(await signals.drain()).toEqual({ processed: 0, orders: 0, failed: 1 });
+      again.mockRestore();
+      expect((await db.select().from(copySignalOutbox).where(eq(copySignalOutbox.id, rows[1]!.id)))[0]).toMatchObject({ status: "failed", attempts: 8 });
+      expect((await reads.overview()).outbox).toMatchObject({ pending: 0, failed: 1 });
+    });
+  });
+
+  describe("allowHip3: builder-dex markets are priced from their own dex (review 42)", () => {
+    const allow = () => policies.put({ limits: { allowHip3: true }, reason: "hip3 on", expectedVersion: 0 }, admin);
+
+    it("off (the default): a builder-dex open is refused as symbol_not_allowed and its dex is never read", async () => {
+      market.hip3Mids = { xyz: { "xyz:TSLA": 400 } };
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ coin: "xyz:TSLA", side: "B", sz: 10, px: 400, start: 0, time: activatedAt + 1_000 })]);
+      expect(await run()).toMatchObject({ processed: 1, orders: 1 });
+      expect((await orders(id))[0]).toMatchObject({ coin: "xyz:TSLA", status: "rejected", reason: "symbol_not_allowed" });
+      expect(info.allMids.mock.calls.every((c) => c[2] === undefined)).toBe(true);
+      expect(info.metaAndAssetCtxs.mock.calls.every((c) => c[2] === undefined)).toBe(true);
+    });
+
+    it("on: the open is sized with the dex's mid and lot size, filled, funded and valued", async () => {
+      await allow();
+      market.hip3Mids = { xyz: { "xyz:TSLA": 400 } };
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ coin: "xyz:TSLA", side: "B", sz: 10.12345, px: 400, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      // 4,049.38 × 1,000 / 10,000 = 404.938 USDC → 1.012 TSLA (3 decimals), filled at 400.2.
+      expect((await orders(id))[0]).toMatchObject({ coin: "xyz:TSLA", status: "filled", size: "1.012", avgPx: "400.2" });
+      expect(await position(id, "xyz:TSLA")).toBe(1.012);
+      expect(info.allMids.mock.calls.some((c) => c[2] === "xyz")).toBe(true);
+      expect(info.metaAndAssetCtxs.mock.calls.some((c) => c[2] === "xyz")).toBe(true);
+
+      market.hip3Mids = { xyz: { "xyz:TSLA": 410 } };
+      marketService.resetCaches();
+      const shown = (await alice.get("/me/copy").expect(200)).body.data.strategies[0];
+      expect(shown.positions[0]).toMatchObject({ coin: "xyz:TSLA", markPx: 410 });
+      expect(shown.positions[0].unrealizedPnl).toBeCloseTo(1.012 * (410 - 400.2), 6);
+
+      const hour = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
+      await db.update(copyPositions).set({ fundingThrough: new Date(hour.getTime() - 60_000) });
+      expect(await execution.accrueFunding(hour)).toBe(1);
+
+      // The leader closes: reduced through the same dex's lot size.
+      await store([fill({ coin: "xyz:TSLA", side: "A", sz: 10.12345, px: 410, start: 10.12345, time: activatedAt + 5_000 })]);
+      await run();
+      expect(await position(id, "xyz:TSLA")).toBe(0);
+    });
+
+    it("on: a builder dex that can't be read is a gap (the open waits), not a rejection", async () => {
+      await allow();
+      market.hip3Mids = { xyz: null };
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ coin: "xyz:TSLA", side: "B", sz: 10, px: 400, start: 0, time: Date.now() })]);
+      void activatedAt;
+      expect(await run()).toMatchObject({ processed: 0, orders: 0, deferred: 1 });
+      expect(await orders(id)).toHaveLength(0);
+      expect((await db.select().from(copySignalOutbox))[0]).toMatchObject({ status: "pending", lastError: "market_data_unavailable:mids" });
+      // A main-dex open in the same pass is not held up by it.
+      await store([fill({ side: "B", sz: 0.1, px: 100_000, start: 0, time: Date.now() })]);
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      expect(await run()).toMatchObject({ processed: 1, orders: 1, deferred: 1 });
+      market.hip3Mids = { xyz: { "xyz:TSLA": 400 } };
+      await db.update(copySignalOutbox).set({ availableAt: new Date(0) });
+      expect(await run()).toMatchObject({ processed: 1, orders: 1 });
+      expect((await orders(id)).map((o) => [o.coin, o.status])).toEqual([["BTC", "filled"], ["xyz:TSLA", "filled"]]);
+    });
+
+    it("on: the leader's builder-dex positions are adopted at the start", async () => {
+      await allow();
+      market.hip3Mids = { xyz: { "xyz:TSLA": 400 } };
+      market.hip3Positions = { xyz: [{ coin: "xyz:TSLA", szi: "-10", positionValue: "4000", entryPx: "390" }] };
+      market.leaderPositions = [{ coin: "BTC", szi: "0.02", positionValue: "2000", entryPx: "100000" }];
+      // Equity on the builder dex counts towards the leader's capital, as on the profile.
+      market.hip3Equity = { xyz: 0 };
+      const res = await alice.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 1_000 }).expect(201);
+      expect(res.body.data.adoption).toEqual([
+        { coin: "BTC", adopted: true, reason: null, size: 0.002 },
+        { coin: "xyz:TSLA", adopted: true, reason: null, size: 1 },
+      ]);
+      await run();
+      expect(await position(res.body.data.id, "xyz:TSLA")).toBe(-1);
+    });
+  });
+
+  describe("an order whose execution keeps failing is reported, not silent", () => {
+    it("counts each failure, tells the operator once at the fifth, lists it in /admin/copy until it goes through, and keeps the strategy's later orders behind it", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.1, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await run();
+      // The leader closes, then opens ETH; the close cannot be booked.
+      await store([fill({ side: "A", sz: 0.1, px: 100_000, start: 0.1, time: activatedAt + 2_000 })]);
+      await store([fill({ coin: "ETH", side: "B", sz: 1, px: 4_000, start: 0, time: activatedAt + 3_000 })]);
+      await signals.drain();
+      const repo = app.get(CopyRepository);
+      const spy = vi.spyOn(repo, "savePosition").mockRejectedValue(new Error("numeric field overflow"));
+      try {
+      for (let attempt = 1; attempt <= 6; attempt++) {
+        marketService.resetCaches();
+        await execution.drain();
+        const [close] = (await orders(id)).filter((o) => o.leg === "close");
+        expect(close).toMatchObject({ status: "submitting", attempts: attempt, lastError: "numeric field overflow" });
+        expect(notify.sendSystemMessage).toHaveBeenCalledTimes(attempt >= 5 ? 1 : 0);
+        expect(((await reads.overview()).stuckOrders ?? []).map((o) => o.id)).toEqual(attempt >= 5 ? [String(close!.id)] : []);
+        // The retry comes after the recovery delay.
+        await db.update(copyOrders).set({ updatedAt: new Date(Date.now() - 60_000) }).where(eq(copyOrders.id, close!.id));
+      }
+      expect(notify.sendSystemMessage.mock.calls[0]![0]).toMatch(/Copy order \d+ \(strategy \d+\) has failed 5 times: numeric field overflow/);
+      const stuck = (await reads.overview()).stuckOrders![0]!;
+      expect(stuck).toMatchObject({ strategyId: id, coin: "BTC", leg: "close", reduceOnly: true, attempts: 6, lastError: "numeric field overflow" });
+      // The ETH open of the same strategy has not run ahead of the close.
+      expect((await orders(id)).find((o) => o.coin === "ETH")).toMatchObject({ status: "risk_approved" });
+      expect(await position(id, "ETH")).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+      marketService.resetCaches();
+      await execution.drain();
+      expect((await orders(id)).filter((o) => o.leg === "close")[0]).toMatchObject({ status: "filled" });
+      expect((await reads.overview()).stuckOrders).toEqual([]);
       expect(await position(id)).toBe(0);
     });
   });

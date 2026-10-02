@@ -4,6 +4,7 @@ import {
   addCopyFundsRequestSchema,
   createCopyStrategyRequestSchema,
   patchCopyStrategyRequestSchema,
+  type CopyAdoption,
   type CopyOrdersResponse,
   type CopyOverviewResponse,
   type CopyStrategy,
@@ -14,13 +15,13 @@ import {
 import { AppConfig } from "../config/app-config.js";
 import { parseOr400 } from "../common/http/validation.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
-import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { CopyControlService } from "./copy-control.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
 import { dec, openNotional } from "./copy-math.js";
 import { toCopyOrder, toCopyStrategy } from "./copy.mappers.js";
 import { CopyOrderPlanner, marketDataGap } from "./copy-planner.service.js";
+import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 
@@ -61,7 +62,7 @@ export class CopyStrategyService {
     const rows = await this.repository.strategiesOfUser(userId);
     const ids = rows.map((r) => r.strategy.id);
     const [positions, counts] = await Promise.all([this.repository.positionsOf(ids), this.repository.orderCounts(ids)]);
-    const mids = positions.length ? await this.market.midPrices() : null;
+    const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
     const strategies = rows.map((r) => toCopyStrategy(r.strategy, r.settings as CopyStrategySettings, positions, mids, counts.get(r.strategy.id)));
     const live = strategies.filter((s) => s.status !== "stopped");
     const liveEquity = live.reduce<number | null>((a, s) => (a === null || s.equity === null ? null : a + s.equity), 0);
@@ -97,6 +98,14 @@ export class CopyStrategyService {
    * copy_paused (platform or user stop), strategy_limit. 503
    * leader_unavailable when the leader, the mids or the universe can't be
    * read while there are positions to adopt: nothing is created.
+   *
+   * Adoption is not cut short (review 39): its legs have no signal age and
+   * are not counted by the per-minute order cap, so a leader with fifty
+   * positions is adopted whole, within the exposure and funds caps. The
+   * leader's builder-dex (HIP-3) positions are read as well: adopted when
+   * the policy's `allowHip3` is on, listed as `symbol_not_allowed` when it
+   * is off. The answer's `adoption` lists every position the leader held
+   * and whether it was adopted, with the reason when not.
    */
   async create(userId: number, input: unknown): Promise<CopyStrategy> {
     this.requireEnabled();
@@ -109,7 +118,8 @@ export class CopyStrategyService {
       direction: req.direction, sizingMode: req.sizingMode, perTradeUsd: req.perTradeUsd,
       maxTotalExposureUsd: req.maxTotalExposureUsd, maxLeverage: req.maxLeverage, copyStartMode: req.copyStartMode,
     };
-    let snapshot: HlClearinghouseStateResponse | null = null;
+    const limitsNow = (await this.policies.current()).limits;
+    let snapshot: Awaited<ReturnType<CopyMarketService["leaderSnapshot"]>> | null = null;
     if (req.copyStartMode === "adopt") {
       try {
         snapshot = await this.market.leaderSnapshot(req.leader);
@@ -119,14 +129,16 @@ export class CopyStrategyService {
       }
     }
     const held = (snapshot?.assetPositions ?? []).filter((ap) => { const szi = Number(ap.position.szi); return Number.isFinite(szi) && szi !== 0; });
-    const mids = held.length ? await this.market.midPrices() : null;
-    const assets = held.length ? await this.market.assetInfo() : null;
+    // Markets the policy never copies are refused without data and are not read.
+    const adoptable = pricedCoins(limitsNow, held.map((ap) => ap.position.coin)).filter((coin) => symbolRefusal(limitsNow, coin) === null);
+    const mids = adoptable.length ? await this.market.midPrices(adoptable) : null;
+    const assets = adoptable.length ? await this.market.assetInfo(adoptable) : null;
     // Adoption is all-or-nothing on market data: without mids or the
     // universe no adoption order can be sized, and a copy that started
     // without the leader's positions would stay wrong until the leader
     // trades again. Nothing is created; the person retries (the web shows
     // this code as a toast).
-    const gap = held.map((ap) => marketDataGap(mids, assets, ap.position.coin)).find((g) => g !== null);
+    const gap = adoptable.map((coin) => marketDataGap(mids, assets, coin)).find((g) => g !== null);
     if (gap) {
       this.logger.warn(`Copy of ${req.leader} not started: ${gap} unavailable for adoption`);
       throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Market data is unavailable, so the trader's positions can't be copied right now; try again" });
@@ -134,13 +146,15 @@ export class CopyStrategyService {
 
     // Ratio sizing divides by the leader's whole account value. A read of
     // it that failed is the same case as missing market data: start nothing.
-    const equity = held.length && settings.sizingMode === "ratio" ? await this.market.leaderEquity(req.leader) : null;
+    const equity = adoptable.length && settings.sizingMode === "ratio" ? await this.market.leaderEquity(req.leader) : null;
     if (equity?.state === "failed") {
       throw new ServiceUnavailableException({ statusCode: 503, code: "leader_unavailable", message: "Couldn't read the trader's account value; try again" });
     }
     const leaderEquity = equity?.state === "known" ? equity.value : null;
 
+    const adoption: CopyAdoption[] = [];
     const { id } = await this.uow.run(async (tx) => {
+      adoption.length = 0;
       const policy = await this.policies.current(tx);
       const limits = policy.limits;
       const controls = await this.repository.readControls(userId, "share", tx);
@@ -181,18 +195,21 @@ export class CopyStrategyService {
           const leaderSign: 1 | -1 = szi > 0 ? 1 : -1;
           const sign = settings.direction === "same" ? leaderSign : (-leaderSign as 1 | -1);
           const notional = openNotional({ mode: settings.sizingMode, perTradeUsd: settings.perTradeUsd, leaderNotional: Math.abs(szi) * leaderPx, strategyEquity: req.allocationUsd, leaderEquity });
-          await this.planner.place(tx, {
+          const order = await this.planner.place(tx, {
             strategy, settings, policy, controls: { platform: controls.platform, user: controls.user }, mids, assets,
             coin, leg: "adopt", side: sign > 0 ? "B" : "A", notional: notional ?? 0,
             signalPx: leaderPx, signalTime: activatedAt, signalTids: [],
             dedupeKey: `${strategy.id}:adopt:${coin}:v1`,
             rejectReason: notional !== null ? undefined : settings.sizingMode === "ratio" ? "leader_equity_unknown" : "no_per_trade_amount",
           });
+          const adopted = order?.status === "risk_approved";
+          adoption.push({ coin, adopted, reason: order?.reason ?? null, size: adopted ? Number(order.size) : 0 });
         }
       }
       return { id: strategy.id };
     });
-    return this.one(userId, id);
+    const created = await this.one(userId, id);
+    return snapshot ? { ...created, adoption } : created;
   }
 
   /** PATCH /me/copy/strategies/:id — CopyDog's 跟單交易設定: a new version. */
@@ -253,7 +270,7 @@ export class CopyStrategyService {
     const row = await this.repository.strategyWithSettings(strategyId);
     if (!row || row.strategy.userId !== userId) throw new NotFoundException("Copy not found");
     const positions = await this.repository.positionsOf([strategyId]);
-    const mids = positions.length ? await this.market.midPrices() : null;
+    const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
     const counts = await this.repository.orderCounts([strategyId]);
     return toCopyStrategy(row.strategy, row.settings as CopyStrategySettings, positions, mids, counts.get(strategyId));
   }

@@ -652,6 +652,7 @@ export const vi: Messages = {
         maxAllocation: "Tối đa ${max} mỗi bản sao",
         paused: "Sao chép mới đang tạm dừng",
         leaderUnavailable: "Không đọc được vị thế của trader. Hãy thử lại.",
+        adoptionPartial: "Đã sao chép {adopted}/{total} vị thế đang mở. Chưa sao chép: {coins}",
         limit: "Bạn chỉ có thể sao chép tối đa {limit} trader cùng lúc",
         disabled: "Sao chép giao dịch đang tắt trên môi trường này",
       },
@@ -834,6 +835,7 @@ export const vi: Messages = {
           close: "Giảm",
           adopt: "Tiếp nhận",
           stop_close: "Đóng khi dừng",
+          liquidation: "Thanh lý",
         },
         statusName: {
           intent: "Đang tạo",

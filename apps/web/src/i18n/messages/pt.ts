@@ -652,6 +652,7 @@ export const pt: Messages = {
         maxAllocation: "No máximo ${max} por cópia",
         paused: "Novas cópias estão pausadas",
         leaderUnavailable: "Não foi possível ler as posições do trader. Tente novamente.",
+        adoptionPartial: "{adopted} de {total} posições abertas foram copiadas. Não copiadas: {coins}",
         limit: "Você pode copiar no máximo {limit} traders ao mesmo tempo",
         disabled: "O copy trading está desativado neste ambiente",
       },
@@ -834,6 +835,7 @@ export const pt: Messages = {
           close: "Redução",
           adopt: "Adotada",
           stop_close: "Fechamento por parada",
+          liquidation: "Liquidação",
         },
         statusName: {
           intent: "Criando",

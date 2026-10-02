@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
 import { useSiteSettings } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
+import { coinLabel } from "@/lib/format";
 import { rovingFocus } from "@/lib/roving-focus";
 
 type Direction = "same" | "reverse";
@@ -128,7 +129,14 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     }
     if (value > balance) return toast.error(t("trader.copy.errors.exceedsBalance"));
     try {
-      await start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" });
+      const created = await start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" });
+      // 跟單目前持倉: say which of the trader's positions were left out (a
+      // market that is not copied, a position too small, a cap).
+      const adoption = created.adoption ?? [];
+      const skipped = adoption.filter((a) => !a.adopted);
+      if (skipped.length > 0) {
+        toast.info(t("trader.copy.errors.adoptionPartial", { adopted: adoption.length - skipped.length, total: adoption.length, coins: skipped.map((a) => coinLabel(a.coin)).join(", ") }));
+      }
       setStarted(true);
       setAmount("");
       startedTimer.current = setTimeout(() => setStarted(false), 2000);

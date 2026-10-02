@@ -56,3 +56,23 @@ it("a copy that is already running shows as usual while new copies are closed", 
   copy.existing = undefined;
   copy.enabled = true;
 });
+
+it("the start of a copy can say which of the trader's positions were not copied, in every language", async () => {
+  const { catalogs } = await import("../src/i18n/messages");
+  const { LOCALES } = await import("../src/i18n/config");
+  for (const locale of LOCALES) {
+    const text = catalogs[locale].trader.copy.errors.adoptionPartial;
+    for (const slot of ["{adopted}", "{total}", "{coins}"]) expect(text, locale).toContain(slot);
+    expect(catalogs[locale].portfolio.copy.order.leg.liquidation.length, locale).toBeGreaterThan(2);
+  }
+  // The fixture answers a start with 跟單目前持倉 as the api does: one adopted, one left out.
+  const { fixtureStartCopy } = await import("../src/fixtures/copy");
+  const { copyStrategySchema } = await import("@trading-dashboard/shared/contracts");
+  const created = copyStrategySchema.parse(JSON.parse(JSON.stringify(fixtureStartCopy({ leader: `0x${"cd".repeat(20)}`, allocationUsd: 500 }))));
+  expect(created.adoption).toEqual([
+    { coin: "BTC", adopted: true, reason: null, size: expect.any(Number) },
+    { coin: "xyz:TSLA", adopted: false, reason: "symbol_not_allowed", size: 0 },
+  ]);
+  const delta = copyStrategySchema.parse(JSON.parse(JSON.stringify(fixtureStartCopy({ leader: `0x${"ce".repeat(20)}`, allocationUsd: 500, copyStartMode: "delta" }))));
+  expect(delta.adoption).toBeUndefined();
+});

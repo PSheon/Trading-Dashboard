@@ -5,6 +5,7 @@ import type { HlAllMidsResponse, HlClearinghouseStateResponse } from "../hyperli
 import { buildSpotPriceBook, hypePrice, stakedHype, toAccountMode, totalAccountValue, valueSpotBalances, type SpotPriceBook } from "../traders/spot-prices.js";
 import { activePerpDexes, portfolioSeries, summarizeAccount } from "../traders/traders.mappers.js";
 import { TtlCache } from "../traders/ttl-cache.js";
+import { coinDex } from "@trading-dashboard/shared/contracts";
 import { CopyRepository } from "./copy.repository.js";
 
 /** Mid prices are shared by every caller for this long (allMids, weight 2). */
@@ -31,9 +32,36 @@ export interface AssetInfo {
   markPx: number;
 }
 
+/** The universe that was read: the main dex, plus each HIP-3 dex a caller
+ * asked for. `missingDexes` are dexes that were asked for and could not be
+ * read (a transient gap for their coins, not "the coin does not exist"). */
+export class AssetMap extends Map<string, AssetInfo> {
+  readonly missingDexes = new Set<string>();
+}
+
 export interface Mids {
   at: Date;
   px: Map<string, number>;
+  /** HIP-3 dexes whose mids were asked for and could not be read. */
+  missingDexes: Set<string>;
+}
+
+/** The HIP-3 dexes among `coins` ("xyz" for "xyz:TSLA"); never the main dex. */
+export function hip3DexesOf(coins: Iterable<string>): string[] {
+  const out = new Set<string>();
+  for (const coin of coins) {
+    const dex = coinDex(coin);
+    if (dex) out.add(dex);
+  }
+  return [...out].sort();
+}
+
+/** Hyperliquid's maintenance margin for a position: half the initial margin
+ * at the coin's maximum leverage, i.e. notional ÷ (2 × maxLeverage). The
+ * larger-position margin tiers (the lowest starts at $3M notional) are not
+ * modelled: the paper caps (order, coin and user exposure) stay far below. */
+export function maintenanceMargin(notional: number, maxLeverage: number): number {
+  return Math.abs(notional) / (2 * Math.max(1, maxLeverage));
 }
 
 /** A leader's capital for ratio sizing. `none` is a fact (the account was
@@ -60,10 +88,11 @@ const LANE = "live" as const;
 @Injectable()
 export class CopyMarketService {
   private readonly logger = new Logger(CopyMarketService.name);
-  private mids: Mids | null = null;
-  private midsInflight: Promise<Mids | null> | null = null;
-  private assets: { at: number; byCoin: Map<string, AssetInfo> } | null = null;
-  private assetsInflight: Promise<Map<string, AssetInfo> | null> | null = null;
+  /** Mids per dex ("" is the main dex), each with its own age. */
+  private readonly midsByDex = new Map<string, { at: number; px: Map<string, number> }>();
+  private readonly midsInflight = new Map<string, Promise<boolean>>();
+  private readonly assetsByDex = new Map<string, { at: number; byCoin: Map<string, AssetInfo> }>();
+  private readonly assetsInflight = new Map<string, Promise<boolean>>();
   readonly equityCache = new Map<string, { at: number; value: number | null }>();
   private readonly equityInflight = new Map<string, Promise<LeaderEquity>>();
   private readonly abstractionCache = new TtlCache<string>(ACCOUNT_MODE_TTL_MS);
@@ -73,56 +102,112 @@ export class CopyMarketService {
 
   constructor(private readonly info: HyperliquidInfoClient, private readonly repository: CopyRepository) {}
 
-  /** allMids, at most one request per {@link MIDS_TTL_MS}. */
-  async midPrices(): Promise<Mids | null> {
-    if (this.mids && Date.now() - this.mids.at.getTime() < MIDS_TTL_MS) return this.mids;
-    this.midsInflight ??= (async () => {
-      try {
-        const raw = await this.info.allMids(LANE);
-        const px = new Map<string, number>();
-        for (const [coin, v] of Object.entries(raw)) {
-          const n = Number(v);
-          if (Number.isFinite(n) && n > 0) px.set(coin, n);
+  /** One dex's mids, at most one request per {@link MIDS_TTL_MS}. True when
+   * usable mids are held afterwards (fresh, or a failed read with a copy no
+   * older than {@link MIDS_STALE_OK_MS}). */
+  private loadMids(dex: string): Promise<boolean> {
+    const held = this.midsByDex.get(dex);
+    if (held && Date.now() - held.at < MIDS_TTL_MS) return Promise.resolve(true);
+    let flight = this.midsInflight.get(dex);
+    if (!flight) {
+      flight = (async () => {
+        try {
+          const raw = await this.info.allMids(LANE, undefined, dex || undefined);
+          const px = new Map<string, number>();
+          for (const [coin, v] of Object.entries(raw)) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) px.set(coin, n);
+          }
+          this.midsByDex.set(dex, { at: Date.now(), px });
+          return true;
+        } catch (error) {
+          this.logger.warn(`allMids${dex ? ` (${dex})` : ""} failed: ${(error as Error).message}`);
+          const stale = this.midsByDex.get(dex);
+          return stale !== undefined && Date.now() - stale.at < MIDS_STALE_OK_MS;
+        } finally {
+          this.midsInflight.delete(dex);
         }
-        this.mids = { at: new Date(), px };
-        return this.mids;
-      } catch (error) {
-        this.logger.warn(`allMids failed: ${(error as Error).message}`);
-        return this.mids && Date.now() - this.mids.at.getTime() < MIDS_STALE_OK_MS ? this.mids : null;
-      } finally {
-        this.midsInflight = null;
-      }
-    })();
-    return this.midsInflight;
+      })();
+      this.midsInflight.set(dex, flight);
+    }
+    return flight;
   }
 
-  /** Main-dex universe with funding, at most hourly. */
-  async assetInfo(): Promise<Map<string, AssetInfo> | null> {
-    if (this.assets && Date.now() - this.assets.at < ASSETS_TTL_MS) return this.assets.byCoin;
-    this.assetsInflight ??= (async () => {
-      try {
-        const [meta, ctxs] = await this.info.metaAndAssetCtxs(LANE);
-        const byCoin = new Map<string, AssetInfo>();
-        meta.universe.forEach((a, i) => {
-          const ctx = ctxs[i];
-          byCoin.set(a.name, { szDecimals: a.szDecimals, maxLeverage: a.maxLeverage, funding: Number(ctx?.funding ?? 0), markPx: Number(ctx?.markPx ?? 0) });
-        });
-        this.assets = { at: Date.now(), byCoin };
-        return byCoin;
-      } catch (error) {
-        this.logger.warn(`metaAndAssetCtxs failed: ${(error as Error).message}`);
-        return this.assets?.byCoin ?? null;
-      } finally {
-        this.assetsInflight = null;
-      }
-    })();
-    return this.assetsInflight;
+  /**
+   * Mid prices: the main dex always, plus the HIP-3 dex of every coin in
+   * `coins` ("xyz:TSLA" reads the `xyz` dex; weight 2 each, cached like the
+   * main one). Null when the main dex can't be read; a HIP-3 dex that can't
+   * be read is listed in `missingDexes` and its coins have no price.
+   */
+  async midPrices(coins: Iterable<string> = []): Promise<Mids | null> {
+    const dexes = hip3DexesOf(coins);
+    const [main, ...rest] = await Promise.all(["", ...dexes].map((dex) => this.loadMids(dex)));
+    if (!main) return null;
+    const mainMids = this.midsByDex.get("")!;
+    if (dexes.length === 0) return { at: new Date(mainMids.at), px: mainMids.px, missingDexes: new Set() };
+    const px = new Map(mainMids.px);
+    const missingDexes = new Set<string>();
+    let at = mainMids.at;
+    dexes.forEach((dex, i) => {
+      const held = this.midsByDex.get(dex);
+      if (!rest[i] || !held) { missingDexes.add(dex); return; }
+      at = Math.min(at, held.at);
+      for (const [coin, value] of held.px) px.set(coin, value);
+    });
+    return { at: new Date(at), px, missingDexes };
+  }
+
+  /** One dex's universe with funding, at most hourly; a failed read keeps the last one. */
+  private loadAssets(dex: string): Promise<boolean> {
+    const held = this.assetsByDex.get(dex);
+    if (held && Date.now() - held.at < ASSETS_TTL_MS) return Promise.resolve(true);
+    let flight = this.assetsInflight.get(dex);
+    if (!flight) {
+      flight = (async () => {
+        try {
+          const [meta, ctxs] = await this.info.metaAndAssetCtxs(LANE, undefined, dex || undefined);
+          const byCoin = new Map<string, AssetInfo>();
+          meta.universe.forEach((a, i) => {
+            const ctx = ctxs[i];
+            byCoin.set(a.name, { szDecimals: a.szDecimals, maxLeverage: a.maxLeverage, funding: Number(ctx?.funding ?? 0), markPx: Number(ctx?.markPx ?? 0) });
+          });
+          this.assetsByDex.set(dex, { at: Date.now(), byCoin });
+          return true;
+        } catch (error) {
+          this.logger.warn(`metaAndAssetCtxs${dex ? ` (${dex})` : ""} failed: ${(error as Error).message}`);
+          return this.assetsByDex.has(dex);
+        } finally {
+          this.assetsInflight.delete(dex);
+        }
+      })();
+      this.assetsInflight.set(dex, flight);
+    }
+    return flight;
+  }
+
+  /**
+   * The universe (size decimals, max leverage, funding, mark): the main dex
+   * always, plus the HIP-3 dex of every coin in `coins` (weight 20 each, at
+   * most hourly). Null when the main dex was never read; a HIP-3 dex that
+   * was never read is listed in `missingDexes`.
+   */
+  async assetInfo(coins: Iterable<string> = []): Promise<AssetMap | null> {
+    const dexes = hip3DexesOf(coins);
+    const [main, ...rest] = await Promise.all(["", ...dexes].map((dex) => this.loadAssets(dex)));
+    if (!main) return null;
+    const out = new AssetMap(this.assetsByDex.get("")!.byCoin);
+    dexes.forEach((dex, i) => {
+      const held = this.assetsByDex.get(dex);
+      if (!rest[i] || !held) { out.missingDexes.add(dex); return; }
+      for (const [coin, value] of held.byCoin) out.set(coin, value);
+    });
+    return out;
   }
 
   /** Drops every cache (tests, and a new listing). */
   resetCaches(): void {
-    this.mids = null;
-    this.assets = null;
+    this.midsByDex.clear();
+    this.assetsByDex.clear();
     this.equityCache.clear();
     for (const cache of [this.abstractionCache, this.stakingCache, this.spotBookCache, this.dexCache]) cache.clear();
   }
@@ -196,11 +281,21 @@ export class CopyMarketService {
     return totalAccountValue(mode, perpEquity, valueSpotBalances(spot.balances ?? [], book).spotValue, staked * hypePrice(book));
   }
 
-  /** A fresh snapshot of the leader's main-dex positions (adoption at
-   * activation). Its margin summary is not the leader's capital; see
-   * {@link leaderEquity}. Throws on failure. */
-  leaderSnapshot(address: string): Promise<HlClearinghouseStateResponse> {
-    return this.info.clearinghouseState(address, undefined, LANE);
+  /**
+   * A fresh snapshot of the leader's open positions (adoption at
+   * activation) on the main dex and every builder dex (one
+   * `clearinghouseState` each, weight 2; HIP-3 positions are not in the
+   * main dex's answer). Builder dexes are read whether or not the policy
+   * copies them, so the start of a copy can say which positions were left
+   * out. `time` is the earliest of the reads, so a fill between two of
+   * them is still after the activation cursor. Its margin summary is not the
+   * leader's capital; see {@link leaderEquity}. Throws when any read fails:
+   * a partial list is never adopted as the whole.
+   */
+  async leaderSnapshot(address: string): Promise<{ time: number; assetPositions: HlClearinghouseStateResponse["assetPositions"] }> {
+    const dexes = await this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(LANE)));
+    const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE)));
+    return { time: Math.min(...states.map((s) => s.time)), assetPositions: states.flatMap((s) => s.assetPositions) };
   }
 }
 

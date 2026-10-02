@@ -47,6 +47,12 @@ describe("order reason codes", () => {
     expect(copyReasonText("strategy_pause", t)).toBe("Cancelled by the Strategy-level “Pause new risk”");
     expect(copyReasonText("strategy_stop", t)).toBe("Cancelled by the Strategy-level “Close all positions”");
   });
+  it("reads a liquidation and the orders it cancelled", () => {
+    expect(copyReasonText("liquidated:equity 45.25 < maintenance 50.63", t)).toBe("Liquidated (equity 45.25 < maintenance 50.63)");
+    expect(copyReasonText("liquidated", t)).toBe("Cancelled: the strategy was liquidated");
+    expect(copyReasonText("liquidated:equity 45.25 < maintenance 50.63", translator(zhTW))).toBe("強制平倉（equity 45.25 < maintenance 50.63）");
+  });
+
   it("shows a code it does not know as it is, and nothing as a dash", () => {
     expect(copyReasonText("exchange_said_no", t)).toBe("exchange_said_no");
     expect(copyReasonText(null, t)).toBe("—");
@@ -146,5 +152,28 @@ describe("the command confirmation", () => {
     const failed = await mount(<ControlDialog request={request} onClose={() => {}} />);
     expect(document.querySelector('[role="alert"]')!.textContent).toBe("The command was not sent: Service unavailable");
     await failed.unmount();
+  });
+});
+
+describe("orders that keep failing (/admin/copy)", () => {
+  it("the fixture's overview carries one, with the contract's shape", async () => {
+    const { adminCopyOverviewSchema, COPY_STUCK_ORDER_ATTEMPTS } = await import("@trading-dashboard/shared/contracts");
+    const { fixtureAdminCopyOverview } = await import("@/fixtures/admin-copy");
+    const overview = adminCopyOverviewSchema.parse(JSON.parse(JSON.stringify(fixtureAdminCopyOverview())));
+    expect(overview.stuckOrders).toHaveLength(1);
+    expect(overview.stuckOrders![0]).toMatchObject({ id: "9041", coin: "ETH", leg: "close", reduceOnly: true, lastError: "numeric field overflow" });
+    expect(overview.stuckOrders![0]!.attempts).toBeGreaterThanOrEqual(COPY_STUCK_ORDER_ATTEMPTS);
+    // An older api without the field is still a valid overview.
+    const { stuckOrders: _gone, ...old } = JSON.parse(JSON.stringify(fixtureAdminCopyOverview()));
+    void _gone;
+    expect(adminCopyOverviewSchema.parse(old).stuckOrders).toBeUndefined();
+  });
+
+  it("has wording in the source catalog and in English", () => {
+    for (const messages of [en, zhTW]) {
+      expect(messages.copyAdmin.stuck.title.length).toBeGreaterThan(3);
+      expect(messages.copyAdmin.stuck.hint).toContain("{attempts}");
+      expect(messages.copyAdmin.leg.liquidation.length).toBeGreaterThan(3);
+    }
   });
 });

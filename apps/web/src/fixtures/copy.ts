@@ -13,7 +13,7 @@ import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 type Position = { coin: string; size: number; entryPx: number; openedAt: Date; realizedPnl: number; funding: number };
 type Order = {
-  id: string; coin: string; leg: "open" | "close" | "adopt" | "stop_close"; side: "B" | "A"; size: number; px: number | null;
+  id: string; coin: string; leg: "open" | "close" | "adopt" | "stop_close" | "liquidation"; side: "B" | "A"; size: number; px: number | null;
   status: "filled" | "rejected" | "cancelled" | "risk_approved"; reason: string | null; at: Date; fee: number;
 };
 type Strategy = {
@@ -141,7 +141,8 @@ export function fixtureStartCopy(body: Record<string, unknown>) {
   };
   strategies.unshift(s);
   balance -= amount;
-  return view(s);
+  // 跟單目前持倉: the trader's BTC is adopted; a builder-dex position is not copied.
+  return adopt ? { ...view(s), adoption: [{ coin: "BTC", adopted: true, reason: null, size: Math.abs(positions[0]!.size) }, { coin: "xyz:TSLA", adopted: false, reason: "symbol_not_allowed", size: 0 }] } : view(s);
 }
 
 /** As the api: a new version; a stopped copy is 409, fixed sizing needs its amount. */

@@ -12,7 +12,8 @@ const FUNDING_CHECK_MS = 60_000;
 /**
  * Drives paper copy trading: every COPY_WORKER_INTERVAL_MS (default 2 s)
  * the signal consumer drains the execution outbox, the executor fills
- * approved orders, stopping strategies settle, and once a minute hourly
+ * approved orders, strategies below their maintenance margin are
+ * liquidated, stopping strategies settle, and once a minute hourly
  * funding is checked. One tick at a time. Not started under NODE_ENV=test,
  * APP_ROLE=api or COPY_TRADING_MODE=disabled. On restart the consumer resumes from its
  * checkpoint (pending outbox rows) and the executor from orders left
@@ -55,6 +56,7 @@ export class CopyWorkerService implements OnApplicationBootstrap, OnModuleDestro
           if (r.processed === 0) break;
         }
         await this.execution.drain();
+        await this.execution.liquidate();
         await this.execution.settleStopping();
         if (Date.now() - this.lastFundingCheck > FUNDING_CHECK_MS) {
           this.lastFundingCheck = Date.now();

@@ -50,6 +50,13 @@ for (const width of [1440, 390]) {
       const backlog = page.getByRole("region", { name: "Signal backlog and lag" });
       await expect(backlog.getByText("Healthy", { exact: true })).toBeVisible();
       await expect(backlog.getByText("#48211", { exact: true })).toBeVisible();
+      // An order the executor cannot book is on the page, with its error and how often it failed.
+      const stuck = page.getByTestId("copy-stuck-orders");
+      await expect(stuck.getByRole("heading", { name: "Orders that keep failing", exact: true })).toBeVisible();
+      await expect(stuck).toContainText("Order #9041 · ETH · reduce · reduce-only");
+      await expect(stuck).toContainText("numeric field overflow");
+      await expect(stuck).toContainText("Failed attempts: 7");
+      await expect(stuck.getByRole("link", { name: "Strategy #4" })).toHaveAttribute("href", "/admin/copy/strategies/4");
       const failures = page.getByRole("region", { name: "Recent rejections and cancellations" });
       await expect(failures.getByText("Signal was too old", { exact: true }).filter({ visible: true }).first()).toBeVisible();
       await expect(failures.getByText("Coin is on the blocked list", { exact: true }).filter({ visible: true }).first()).toBeVisible();

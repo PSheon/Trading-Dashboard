@@ -11,6 +11,7 @@ import type {
 } from "@trading-dashboard/shared/contracts";
 
 import { AppConfig } from "../config/app-config.js";
+import { STUCK_ORDER_ATTEMPTS } from "./copy-execution.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
 import { toCopyOrder, toCopyStrategy } from "./copy.mappers.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
@@ -32,7 +33,7 @@ export class CopyAdminReadService {
 
   /** Platform stop state, counts, outbox health, last 24 h of orders and recent commands. */
   async overview(): Promise<AdminCopyOverview> {
-    const [controls, byStatus, orders, outbox, checkpoint, policy, events] = await Promise.all([
+    const [controls, byStatus, orders, outbox, checkpoint, policy, events, stuck] = await Promise.all([
       this.repository.readControls(0),
       this.repository.strategiesByStatus(),
       this.repository.ordersByStatusSince(new Date(Date.now() - 86_400_000)),
@@ -40,6 +41,7 @@ export class CopyAdminReadService {
       this.repository.checkpoint(),
       this.policies.current(),
       this.repository.recentControlEvents(30),
+      this.repository.stuckOrders(STUCK_ORDER_ATTEMPTS),
     ]);
     const pending = outbox.find((r) => r.status === "pending");
     const failed = outbox.find((r) => r.status === "failed");
@@ -66,6 +68,10 @@ export class CopyAdminReadService {
         result: { cancelledOrders: Number(event.result.cancelledOrders ?? 0), closeOrders: Number(event.result.closeOrders ?? 0) },
         createdAt: event.createdAt,
       })),
+      stuckOrders: stuck.map((o) => ({
+        id: String(o.id), strategyId: o.strategyId, userId: o.userId, coin: o.coin, leg: o.leg, reduceOnly: o.reduceOnly,
+        attempts: o.attempts, lastError: o.lastError, since: o.createdAt,
+      })),
     };
   }
 
@@ -73,7 +79,7 @@ export class CopyAdminReadService {
     const rows = await this.repository.allStrategies({ ...filter, limit: Math.min(filter.limit ?? 200, 500) });
     const ids = rows.map((r) => r.strategy.id);
     const [positions, counts] = await Promise.all([this.repository.positionsOf(ids), this.repository.orderCounts(ids)]);
-    const mids = positions.length ? await this.market.midPrices() : null;
+    const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
     return {
       items: rows.map((r) => ({
         ...toCopyStrategy(r.strategy, r.settings as CopyStrategySettings, positions, mids, counts.get(r.strategy.id)),
@@ -93,7 +99,7 @@ export class CopyAdminReadService {
       this.repository.ordersOfStrategy(id, 200),
       this.repository.ledgerOf(id, 200),
     ]);
-    const mids = positions.length ? await this.market.midPrices() : null;
+    const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
     return {
       strategy: { ...toCopyStrategy(row.strategy, row.settings as CopyStrategySettings, positions, mids, counts.get(id)), userId: row.strategy.userId, userEmail: row.userEmail },
       versions: versions.map((v) => ({ version: v.version, settings: v.settings as CopyStrategySettings, createdAt: v.createdAt })),
@@ -113,7 +119,7 @@ export class CopyAdminReadService {
     const [rows, controls] = await Promise.all([this.repository.liveStrategies(), this.repository.userControls()]);
     const ids = rows.map((r) => r.strategy.id);
     const positions = await this.repository.positionsOf(ids);
-    const mids = positions.length ? await this.market.midPrices() : null;
+    const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
     const byUser = new Map<number, AdminCopyExposureResponse["items"][number]>();
     for (const { strategy, userEmail } of rows) {
       const control = controls.find((c) => c.scopeId === strategy.userId);

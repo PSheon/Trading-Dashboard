@@ -185,6 +185,8 @@ for (const width of [1440, 390]) {
         await page.getByRole("textbox", { name: "Amount to copy (USDC)" }).filter({ visible: true }).fill("500");
       }
       await action(page, "Start copying $500").click();
+      // 跟單目前持倉: the answer says which of the trader's positions were not copied.
+      await expect(page.getByText("Copied 1 of 2 open positions. Not copied: TSLA")).toBeVisible({ timeout: 20000 });
       const manage = page.getByRole("link", { name: "Copying · Manage" }).filter({ visible: true });
       await expect(manage).toBeVisible({ timeout: 20000 });
       await manage.click();

@@ -290,6 +290,7 @@ export const zhTW = {
       close: "減倉",
       adopt: "同步持倉",
       stop_close: "停止平倉",
+      liquidation: "強制平倉",
     },
     cols: {
       time: "時間",
@@ -340,6 +341,16 @@ export const zhTW = {
       exposureSub: "已投入 {allocated}",
       policy: "風控政策",
       policySub: "查看與編輯上限",
+    },
+    stuck: {
+      title: "持續失敗的訂單",
+      hint: "以下訂單在執行器記帳時已失敗 {attempts} 次以上。每 30 秒重試一次；成功之前，同一策略後面的訂單都會等它。系統已通知營運人員一次。",
+      order: "訂單",
+      strategy: "策略",
+      attempts: "失敗次數",
+      error: "最後錯誤",
+      since: "建立時間",
+      reduceOnly: "只減倉",
     },
     backlog: {
       title: "信號積壓與延遲",
@@ -487,6 +498,8 @@ export const zhTW = {
       superseded: "已被同幣種較新的成交取代",
       reduce_only_no_position: "只減倉訂單送出時已無部位",
       reduce_only_clamped: "已依實際部位縮小",
+      liquidated: "已取消：策略被強制平倉",
+      liquidation: "強制平倉（{detail}）",
       belowMinAfter: "受「{cap}」限制後低於最小下單金額",
       caps: {
         max_order: "單筆上限",
@@ -1323,6 +1336,7 @@ export const zhTW = {
         maxAllocation: "單一跟單最多 ${max}",
         paused: "目前暫停新的跟單",
         leaderUnavailable: "無法讀取交易員的持倉，請稍後再試",
+        adoptionPartial: "已跟單 {adopted}／{total} 個持倉，未跟單：{coins}",
         limit: "最多可同時跟單 {limit} 位交易員",
         disabled: "此環境未開啟跟單",
       },
@@ -1505,6 +1519,7 @@ export const zhTW = {
           close: "減倉",
           adopt: "同步持倉",
           stop_close: "停止平倉",
+          liquidation: "強制平倉",
         },
         statusName: {
           intent: "建立中",

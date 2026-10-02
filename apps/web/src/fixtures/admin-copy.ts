@@ -52,7 +52,7 @@ const strategies: Strategy[] = [
     positions: [], versions: [settings()], createdAt: new Date(NOW - 20 * DAY) },
 ];
 
-interface Order { id: number; strategyId: number; coin: string; leg: "open" | "close" | "adopt" | "stop_close"; side: "B" | "A"; size: number; px: number; status: CopyOrderStatus; reason: string | null; at: Date }
+interface Order { id: number; strategyId: number; coin: string; leg: "open" | "close" | "adopt" | "stop_close" | "liquidation"; side: "B" | "A"; size: number; px: number; status: CopyOrderStatus; reason: string | null; at: Date }
 let nextOrder = 9_100;
 const orders: Order[] = [];
 const addOrder = (o: Omit<Order, "id">) => { orders.push({ id: nextOrder++, ...o }); };
@@ -134,6 +134,8 @@ export function fixtureAdminCopyOverview() {
     outbox: { pending: 2, failed: 0, checkpoint: "48211", oldestPendingAt: new Date(Date.now() - 4_000) },
     riskPolicyVersion: policies.at(-1)!.version,
     events: [...events].sort((a, b) => b.id - a.id).map((e) => ({ ...e, id: String(e.id), actorUserId: 1, actorEmail: "demo@example.com" })),
+    // One close that the executor cannot book: reported, and holding its strategy's later orders.
+    stuckOrders: [{ id: "9041", strategyId: 4, userId: 3, coin: "ETH", leg: "close", reduceOnly: true, attempts: 7, lastError: "numeric field overflow", since: new Date(NOW - 12 * 60_000) }],
   };
 }
 

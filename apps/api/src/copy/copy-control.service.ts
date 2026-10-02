@@ -66,7 +66,7 @@ export class CopyControlService {
     const needed = req.command === "resume" ? "execution.resume" : "execution.pause";
     if (!hasPermission(actor, needed)) throw new ForbiddenException(`Requires ${needed}`);
     const target: Target = req.scope === "platform" ? { scope: "platform", scopeId: 0 } : { scope: "user", scopeId: req.userId };
-    const mids = req.command === "close_positions" ? await this.market.midPrices() : null;
+    const mids = req.command === "close_positions" ? await this.market.midPrices(await this.repository.positionCoins((await this.repository.liveStrategyIdsOfUser(this.repository.reader, req.scope === "user" ? req.userId : null)).map((s) => s.id))) : null;
     const actorUserId = actor.kind === "user" ? actor.id : null;
 
     return this.uow.run(async (tx) => {
@@ -108,7 +108,7 @@ export class CopyControlService {
 
   /** The owner's command on one of their strategies (404 for anyone else's). */
   async strategyCommand(userId: number, strategyId: number, command: CopyStrategyCommand): Promise<void> {
-    const mids = command === "close_positions" || command === "stop" ? await this.market.midPrices() : null;
+    const mids = command === "close_positions" || command === "stop" ? await this.market.midPrices(await this.repository.positionCoins([strategyId])) : null;
     await this.uow.run(async (tx) => {
       const strategy = await this.repository.lockStrategy(tx, strategyId);
       if (!strategy || strategy.userId !== userId) throw new NotFoundException("Copy not found");

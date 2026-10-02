@@ -2,10 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import { UnitOfWork } from "../db/unit-of-work.js";
-import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
 import { CopyMarketService, type LeaderEquity } from "./copy-market.service.js";
 import { cloidOf, openNotional } from "./copy-math.js";
 import { CopyOrderPlanner, marketDataGap, strategyValue } from "./copy-planner.service.js";
+import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 
@@ -85,9 +85,11 @@ export class CopyAdoptionRepairService {
     if (candidates.length === 0) return out;
 
     // Upstream reads happen before the transaction, never inside it.
-    const mids = await this.market.midPrices();
-    const assets = await this.market.assetInfo();
-    const snapshots = new Map<string, HlClearinghouseStateResponse | null>();
+    const limits = (await this.policies.current()).limits;
+    const coins = pricedCoins(limits, candidates.map((o) => o.coin));
+    const mids = await this.market.midPrices(coins);
+    const assets = await this.market.assetInfo(coins);
+    const snapshots = new Map<string, Awaited<ReturnType<CopyMarketService["leaderSnapshot"]>> | null>();
     const equities = new Map<string, LeaderEquity>();
     for (const address of new Set(candidates.map((o) => o.leaderAddress))) {
       try {
@@ -105,7 +107,7 @@ export class CopyAdoptionRepairService {
       const snapshot = snapshots.get(rejected.leaderAddress) ?? null;
       const equityRead = equities.get(rejected.leaderAddress) ?? { state: "failed" };
       if (!snapshot || equityRead.state === "failed") { item.outcome = "leader_unavailable"; continue; }
-      if (marketDataGap(mids, assets, rejected.coin)) { item.outcome = "market_data_unavailable"; continue; }
+      if (symbolRefusal(limits, rejected.coin) === null && marketDataGap(mids, assets, rejected.coin)) { item.outcome = "market_data_unavailable"; continue; }
       const held = snapshot.assetPositions.find((ap) => ap.position.coin === rejected.coin);
       const szi = Number(held?.position.szi ?? 0);
       if (!held || !Number.isFinite(szi) || szi === 0) { item.outcome = "leader_flat"; continue; }

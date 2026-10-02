@@ -18,6 +18,10 @@ export interface RiskInput {
   coin: string;
   /** Risk-increasing (open / adopt) or reduce-only (close / stop_close). */
   increasesRisk: boolean;
+  /** An adoption leg (the leader's position at the start of a copy, or its
+   * repair): not a reaction to a fill, so the signal-age and per-minute
+   * rules don't apply (review 39). Every cap still does. */
+  adoption?: boolean;
   /** Requested notional, USDC. */
   notional: number;
   /** Mid or mark now. */
@@ -66,6 +70,22 @@ export function isHip3(coin: string): boolean {
   return coinDex(coin) !== "";
 }
 
+/** Why the policy never lets `coin` take new risk, whatever the market
+ * data says: a HIP-3 market while `allowHip3` is off, or a blocked coin.
+ * Decided before any price is needed. */
+export function symbolRefusal(limits: CopyRiskLimits, coin: string): "symbol_not_allowed" | "symbol_blocked" | null {
+  if (isHip3(coin) && !limits.allowHip3) return "symbol_not_allowed";
+  if (limits.blockedCoins.some((c) => coinKey(c) === coinKey(coin))) return "symbol_blocked";
+  return null;
+}
+
+/** The coins of `coins` whose market data is worth reading: everything on
+ * the main dex, and HIP-3 markets only while the policy allows them (each
+ * builder dex costs its own requests). */
+export function pricedCoins(limits: CopyRiskLimits, coins: Iterable<string>): string[] {
+  return [...new Set(coins)].filter((coin) => !isHip3(coin) || limits.allowHip3);
+}
+
 /**
  * Decide one order. Reductions are only refused by the kill of the whole
  * copy (never by caps, age, price or frequency): refusing to reduce would
@@ -89,17 +109,17 @@ export function evaluateRisk(input: RiskInput): RiskDecision {
   if (controls.strategy.reduceOnly) return { ok: false, reason: "strategy_reduce_only" };
 
   // Symbol / dex.
-  if (isHip3(input.coin) && !limits.allowHip3) return { ok: false, reason: "symbol_not_allowed" };
-  if (limits.blockedCoins.some((c) => coinKey(c) === coinKey(input.coin))) return { ok: false, reason: "symbol_blocked" };
+  const refused = symbolRefusal(limits, input.coin);
+  if (refused) return { ok: false, reason: refused };
 
   // Signal quality.
-  if (input.signalAgeSeconds > limits.maxSignalAgeSeconds) return { ok: false, reason: "stale_signal" };
+  if (!input.adoption && input.signalAgeSeconds > limits.maxSignalAgeSeconds) return { ok: false, reason: "stale_signal" };
   if (!(input.px > 0)) return { ok: false, reason: "no_price" };
   if (input.signalPx !== null && input.signalPx > 0) {
     const movedBps = (Math.abs(input.px - input.signalPx) / input.signalPx) * 10_000;
     if (movedBps > limits.maxSlippageBps) return { ok: false, reason: "price_moved" };
   }
-  if (input.strategy.ordersLastMinute >= limits.maxOrdersPerMinute) return { ok: false, reason: "frequency" };
+  if (!input.adoption && input.strategy.ordersLastMinute >= limits.maxOrdersPerMinute) return { ok: false, reason: "frequency" };
   if (!(input.notional > 0)) return { ok: false, reason: "zero_size" };
 
   const notes: string[] = [];

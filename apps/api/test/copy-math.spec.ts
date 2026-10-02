@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_COPY_RISK_LIMITS, adminCopyControlRequestSchema, coinKey, copyRiskLimitsSchema, createCopyStrategyRequestSchema, type CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
-import { applyFill, cloidOf, dec, fillFees, floorSize, fundingPayment, legsOf, openNotional, reduceSize, roundPx, slippedPx, type LeaderFill } from "../src/copy/copy-math.js";
-import { evaluateRisk, type RiskInput } from "../src/copy/copy-risk.js";
+import { accountHealth } from "../src/copy/copy-execution.service.js";
+import { AssetMap, hip3DexesOf, maintenanceMargin, type Mids } from "../src/copy/copy-market.service.js";
+import { applyFill, cloidOf, dec, fillFees, floorSize, fundingHours, fundingPayment, legsOf, openNotional, reduceSize, reduceWithCarry, roundPx, slippedPx, tradeKeyOf, type LeaderFill } from "../src/copy/copy-math.js";
+import { marketDataGap } from "../src/copy/copy-planner.service.js";
+import { evaluateRisk, pricedCoins, symbolRefusal, type RiskInput } from "../src/copy/copy-risk.js";
 
-const fill = (o: Partial<LeaderFill>): LeaderFill => ({ tid: 1n, coin: "BTC", px: 100, sz: 1, side: "B", time: 1, startPosition: 0, ...o });
+const fill = (o: Partial<LeaderFill>): LeaderFill => ({ tid: 1n, coin: "BTC", px: 100, sz: 1, side: "B", time: 1, startPosition: 0, tradeKey: "oid:1", ...o });
 
 describe("canonical legs of a verified fill", () => {
   it("opens, adds, reduces and closes from the fill's own startPosition", () => {
@@ -177,5 +180,111 @@ describe("contract normalization (security review)", () => {
     expect(copyRiskLimitsSchema.safeParse({ blockedCoins: ["BTC;DROP"] }).success).toBe(false);
     expect(copyRiskLimitsSchema.parse({ blockedCoins: ["kPEPE", "KPEPE", "kpepe"] }).blockedCoins).toEqual(["kpepe"]);
     expect(coinKey(" xyz:TSLA ")).toBe(coinKey("XYZ:tsla"));
+  });
+});
+
+describe("review round 4, the copy engine's remaining rules", () => {
+  it("funding: one payment per hour boundary held across, the first one included (38)", () => {
+    const at = (iso: string) => new Date(`2026-10-02T${iso}Z`);
+    expect(fundingHours(at("10:30:00"), at("11:00:00"))).toBe(1);
+    expect(fundingHours(at("10:59:59.999"), at("11:00:00"))).toBe(1);
+    expect(fundingHours(at("10:30:00"), at("13:00:00"))).toBe(3);
+    // Accrued through 11:00 (or opened exactly then): nothing more at 11:00, one at 12:00.
+    expect(fundingHours(at("11:00:00"), at("11:00:00"))).toBe(0);
+    expect(fundingHours(at("11:00:00"), at("12:00:00"))).toBe(1);
+    expect(fundingHours(at("12:00:00"), at("11:00:00"))).toBe(0);
+  });
+
+  it("adoption has no signal age and no per-minute cap, and keeps every other cap (39)", () => {
+    const late = { signalAgeSeconds: 3_600, strategy: { ...risk().strategy, ordersLastMinute: 500 } };
+    expect(evaluateRisk(risk(late))).toEqual({ ok: false, reason: "stale_signal" });
+    expect(evaluateRisk(risk({ ...late, signalAgeSeconds: 1 }))).toEqual({ ok: false, reason: "frequency" });
+    expect(evaluateRisk(risk({ ...late, adoption: true, signalPx: null }))).toMatchObject({ ok: true });
+    // Still stopped by a pause, a blocked coin and the exposure caps.
+    expect(evaluateRisk(risk({ ...late, adoption: true, controls: { ...risk().controls, user: { pauseNewRisk: true, reduceOnly: false } } }))).toEqual({ ok: false, reason: "user_paused" });
+    expect(evaluateRisk(risk({ ...late, adoption: true, limits: { ...DEFAULT_COPY_RISK_LIMITS, blockedCoins: ["BTC"] } }))).toEqual({ ok: false, reason: "symbol_blocked" });
+    expect(evaluateRisk(risk({ ...late, adoption: true, user: { coinExposure: 0, exposure: DEFAULT_COPY_RISK_LIMITS.maxUserExposureUsd } }))).toMatchObject({ ok: false, reason: "below_min_after_max_user_exposure" });
+  });
+
+  it("the unit of fixed sizing is the leader's trade: one order id, or one TWAP (40)", () => {
+    expect(tradeKeyOf({ oid: 77 })).toBe("oid:77");
+    expect(tradeKeyOf({ oid: 77, twapId: null })).toBe("oid:77");
+    expect(tradeKeyOf({ oid: 77, twapId: 9 })).toBe("twap:9");
+    expect(tradeKeyOf({ oid: 78, twapId: 9 })).toBe("twap:9");
+    expect(legsOf(fill({ tradeKey: "twap:9" }))![0]!.tradeKey).toBe("twap:9");
+    const flip = legsOf(fill({ startPosition: 2, side: "A", sz: 3, tradeKey: "oid:5" }))!;
+    expect(flip.map((l) => l.tradeKey)).toEqual(["oid:5", "oid:5"]);
+  });
+
+  it("Hyperliquid's maintenance margin is half the initial margin at the coin's max leverage (41)", () => {
+    expect(maintenanceMargin(10_000, 40)).toBe(125);
+    expect(maintenanceMargin(-10_000, 20)).toBe(250);
+    expect(maintenanceMargin(10_000, 3)).toBeCloseTo(1_666.6667, 3);
+    const mids: Mids = { at: new Date(), px: new Map([["BTC", 81_000], ["ETH", 3_000]]), missingDexes: new Set() };
+    const assets = new AssetMap([["BTC", { szDecimals: 5, maxLeverage: 40, funding: 0, markPx: 81_000 }], ["ETH", { szDecimals: 4, maxLeverage: 25, funding: 0, markPx: 3_000 }]]);
+    // Long 0.05 BTC from 100,050 with 997.75 cash: equity 45.25 against 50.625 required.
+    expect(accountHealth(997.75, [{ coin: "BTC", size: "0.05", entryPx: "100050" }], mids, assets)).toEqual({ equity: expect.closeTo(45.25, 8), maintenance: 50.625 });
+    // A short that gains is part of the same account.
+    const hedged = accountHealth(997.75, [{ coin: "BTC", size: "0.05", entryPx: "100050" }, { coin: "ETH", size: "-1", entryPx: "4000" }], mids, assets)!;
+    expect(hedged.equity).toBeCloseTo(1_045.25, 8);
+    expect(hedged.maintenance).toBeCloseTo(50.625 + 60, 8);
+    // No price or no universe entry: not valued, never liquidated on a guess.
+    expect(accountHealth(1_000, [{ coin: "SOL", size: "1", entryPx: "200" }], mids, assets)).toBeNull();
+    expect(accountHealth(1_000, [], mids, assets)).toEqual({ equity: 1_000, maintenance: 0 });
+  });
+
+  it("a reduction below one lot is carried into the next one (42)", () => {
+    // 0.1 % of 0.05 ETH is half a lot (4 decimals).
+    expect(reduceWithCarry(0.05, 0.001, 0, 4)).toEqual({ size: 0, carry: expect.closeTo(0.00005, 12) });
+    const second = reduceWithCarry(0.05, 0.001, 0.00005, 4);
+    expect(second.size).toBe(0);
+    expect(second.carry).toBeCloseTo(0.00009995, 12);
+    const third = reduceWithCarry(0.05, 0.001, second.carry, 4);
+    expect(third.size).toBe(0.0001);
+    expect(third.carry).toBeCloseTo(0.00004985, 10);
+    // A full close takes everything and owes nothing.
+    expect(reduceWithCarry(0.0499, 1, third.carry, 4)).toEqual({ size: 0.0499, carry: 0 });
+    // Without the lot size nothing is rounded.
+    expect(reduceWithCarry(0.05, 0.001, 0, null)).toEqual({ size: expect.closeTo(0.00005, 12), carry: 0 });
+    expect(reduceWithCarry(0, 0.5, 0, 4)).toEqual({ size: 0, carry: 0 });
+  });
+
+  it("twenty 1 % trims leave the follower within one lot of the leader's fraction, whatever the lot size (42)", () => {
+    for (const [start, szDecimals] of [[0.05, 4], [0.00123, 5], [137, 0], [2.5, 1]] as const) {
+      let size: number = start;
+      let carry = 0;
+      for (let i = 0; i < 20; i++) {
+        const r = reduceWithCarry(size, 0.01, carry, szDecimals);
+        size = Number((size - r.size).toFixed(8));
+        carry = r.carry;
+      }
+      const lot = 10 ** -szDecimals;
+      expect(Math.abs(size - carry - start * 0.99 ** 20)).toBeLessThan(1e-7);
+      expect(carry).toBeLessThan(lot);
+      // Rounding each trim down on its own would have moved nothing for these sizes.
+      if (floorSize(start * 0.01, szDecimals) === 0) expect(size).toBeLessThan(start);
+    }
+  });
+
+  it("a builder-dex market: refused without data while the policy does not copy it, a gap while its dex can't be read (42)", () => {
+    const off = DEFAULT_COPY_RISK_LIMITS;
+    const on = { ...off, allowHip3: true };
+    expect(symbolRefusal(off, "xyz:TSLA")).toBe("symbol_not_allowed");
+    expect(symbolRefusal(on, "xyz:TSLA")).toBeNull();
+    expect(symbolRefusal({ ...on, blockedCoins: ["XYZ:tsla"] }, "xyz:TSLA")).toBe("symbol_blocked");
+    expect(pricedCoins(off, ["BTC", "xyz:TSLA", "BTC"])).toEqual(["BTC"]);
+    expect(pricedCoins(on, ["BTC", "xyz:TSLA"])).toEqual(["BTC", "xyz:TSLA"]);
+    expect(hip3DexesOf(["BTC", "xyz:TSLA", "flx:GOLD", "xyz:NVDA"])).toEqual(["flx", "xyz"]);
+
+    const mids = (missing: string[] = []): Mids => ({ at: new Date(), px: new Map(), missingDexes: new Set(missing) });
+    const assets = (missing: string[] = []) => { const a = new AssetMap(); for (const d of missing) a.missingDexes.add(d); return a; };
+    expect(marketDataGap(null, assets(), "xyz:TSLA")).toBe("mids");
+    expect(marketDataGap(mids(["xyz"]), assets(), "xyz:TSLA")).toBe("mids");
+    expect(marketDataGap(mids(), assets(["xyz"]), "xyz:TSLA")).toBe("asset_info");
+    expect(marketDataGap(mids(), null, "xyz:TSLA")).toBe("asset_info");
+    expect(marketDataGap(mids(), assets(), "xyz:TSLA")).toBeNull();
+    // One dex being down is not a gap for the others.
+    expect(marketDataGap(mids(["xyz"]), assets(["xyz"]), "BTC")).toBeNull();
+    expect(marketDataGap(mids(["xyz"]), assets(["xyz"]), "flx:GOLD")).toBeNull();
   });
 });

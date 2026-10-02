@@ -45,7 +45,7 @@ export const copyStrategyStatusEnum = ["active", "paused", "stopping", "stopped"
 /** Order state machine. `submitted` and `unknown` are reserved for testnet/live (an exchange round trip). */
 export const copyOrderStatusEnum = ["intent", "risk_approved", "submitting", "submitted", "unknown", "partial", "filled", "rejected", "cancelled"] as const;
 /** open: risk-increasing leg of a leader fill; close: reduce-only leg; adopt: mirror of a position held at activation; stop_close: from a close_positions / stop command. */
-export const copyLegEnum = ["open", "close", "adopt", "stop_close"] as const;
+export const copyLegEnum = ["open", "close", "adopt", "stop_close", "liquidation"] as const;
 export const copyControlCommandEnum = ["pause_new_risk", "cancel_pending", "reduce_only", "close_positions", "resume"] as const;
 export const copyControlScopeEnum = ["platform", "user", "strategy"] as const;
 export type CopyTradingMode = (typeof copyTradingModeEnum)[number];

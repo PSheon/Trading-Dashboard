@@ -652,6 +652,7 @@ export const id: Messages = {
         maxAllocation: "Maksimal ${max} per salinan",
         paused: "Salinan baru sedang dijeda",
         leaderUnavailable: "Tidak dapat membaca posisi trader. Coba lagi.",
+        adoptionPartial: "{adopted} dari {total} posisi terbuka disalin. Tidak disalin: {coins}",
         limit: "Kamu hanya bisa menyalin maksimal {limit} trader sekaligus",
         disabled: "Copy trading tidak aktif di lingkungan ini",
       },
@@ -834,6 +835,7 @@ export const id: Messages = {
           close: "Kurangi",
           adopt: "Diadopsi",
           stop_close: "Tutup saat berhenti",
+          liquidation: "Likuidasi",
         },
         statusName: {
           intent: "Membuat",

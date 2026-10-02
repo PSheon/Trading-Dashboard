@@ -652,6 +652,7 @@ export const zhCN: Messages = {
         maxAllocation: "单一跟单最多 ${max}",
         paused: "目前暂停新的跟单",
         leaderUnavailable: "无法读取交易员的持仓，请稍后再试",
+        adoptionPartial: "已跟单 {adopted}／{total} 个持仓，未跟单：{coins}",
         limit: "最多可同时跟单 {limit} 位交易员",
         disabled: "此环境未开启跟单",
       },
@@ -834,6 +835,7 @@ export const zhCN: Messages = {
           close: "减仓",
           adopt: "同步持仓",
           stop_close: "停止平仓",
+          liquidation: "强制平仓",
         },
         statusName: {
           intent: "创建中",

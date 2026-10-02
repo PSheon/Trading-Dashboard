@@ -1094,11 +1094,19 @@ export const copyOrders = pgTable("copy_orders", {
   avgPx: numeric("avg_px"),
   fee: numeric("fee").notNull().default("0"),
   builderFee: numeric("builder_fee").notNull().default("0"),
+  /** The leader trade an open belongs to: `oid:<order id>` or `twap:<id>`.
+   * Fixed sizing spends its per-trade amount once per key (review 40). */
+  tradeKey: text("trade_key"),
+  /** Failed execution attempts (a fill that threw), and the last error:
+   * an order that keeps failing is alerted on and listed in /admin/copy. */
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("copy_orders_strategy_idx").on(table.strategyId, table.createdAt.desc()),
   index("copy_orders_status_idx").on(table.status, table.id),
+  index("copy_orders_trade_key_idx").on(table.strategyId, table.tradeKey).where(sql`${table.tradeKey} is not null`),
 ]);
 
 /** Margin held for an order between approval and fill, made in the same
@@ -1143,6 +1151,11 @@ export const copyPositions = pgTable("copy_positions", {
   entryPx: numeric("entry_px").notNull(),
   realizedPnl: numeric("realized_pnl").notNull().default("0"),
   funding: numeric("funding").notNull().default("0"),
+  /** Size the leader's reductions called for that was below the coin's lot
+   * size and has not been traded yet (review 42): it is added to the next
+   * reduction instead of being rounded away. Always less than one lot's
+   * worth of drift per reduction; cleared when the position closes. */
+  reduceCarry: numeric("reduce_carry").notNull().default("0"),
   openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
   /** Funding is accrued per whole hour up to here (idempotent per hour). */
   fundingThrough: timestamp("funding_through", { withTimezone: true }).notNull().defaultNow(),
@@ -1154,7 +1167,9 @@ export const copyLedger = pgTable("copy_ledger", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
   strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
   userId: integer("user_id").notNull(),
-  kind: text("kind").$type<"allocate" | "realized_pnl" | "fee" | "builder_fee" | "funding" | "release">().notNull(),
+  /** `liquidation` is the loss beyond the strategy's equity that a
+   * liquidation writes off (cash is brought back to 0, never below). */
+  kind: text("kind").$type<"allocate" | "realized_pnl" | "fee" | "builder_fee" | "funding" | "release" | "liquidation">().notNull(),
   amount: numeric("amount").notNull(),
   coin: text("coin"),
   orderId: bigint("order_id", { mode: "bigint" }),

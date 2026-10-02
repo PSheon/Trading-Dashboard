@@ -18252,6 +18252,36 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "adoption": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "coin": {
+                                      "type": "string"
+                                    },
+                                    "adopted": {
+                                      "type": "boolean"
+                                    },
+                                    "reason": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "size": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "coin",
+                                    "adopted",
+                                    "reason",
+                                    "size"
+                                  ],
+                                  "additionalProperties": false
+                                }
                               }
                             },
                             "required": [
@@ -18609,6 +18639,36 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "adoption": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "adopted": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "size": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "adopted",
+                              "reason",
+                              "size"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -18953,6 +19013,36 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "adoption": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "adopted": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "size": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "adopted",
+                              "reason",
+                              "size"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -19297,6 +19387,36 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "adoption": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "adopted": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "size": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "adopted",
+                              "reason",
+                              "size"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -19641,6 +19761,36 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "adoption": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "adopted": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "size": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "adopted",
+                              "reason",
+                              "size"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -19781,7 +19931,8 @@
                                   "open",
                                   "close",
                                   "adopt",
-                                  "stop_close"
+                                  "stop_close",
+                                  "liquidation"
                                 ]
                               },
                               "side": {
@@ -20155,6 +20306,64 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "stuckOrders": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "leg": {
+                                "type": "string",
+                                "enum": [
+                                  "open",
+                                  "close",
+                                  "adopt",
+                                  "stop_close",
+                                  "liquidation"
+                                ]
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "attempts": {
+                                "type": "integer"
+                              },
+                              "lastError": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "since": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "strategyId",
+                              "userId",
+                              "coin",
+                              "leg",
+                              "reduceOnly",
+                              "attempts",
+                              "lastError",
+                              "since"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -20505,6 +20714,36 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "adoption": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "coin": {
+                                      "type": "string"
+                                    },
+                                    "adopted": {
+                                      "type": "boolean"
+                                    },
+                                    "reason": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "size": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "coin",
+                                    "adopted",
+                                    "reason",
+                                    "size"
+                                  ],
+                                  "additionalProperties": false
+                                }
                               },
                               "userId": {
                                 "type": "integer"
@@ -20864,6 +21103,36 @@
                                 }
                               ]
                             },
+                            "adoption": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "coin": {
+                                    "type": "string"
+                                  },
+                                  "adopted": {
+                                    "type": "boolean"
+                                  },
+                                  "reason": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "size": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "coin",
+                                  "adopted",
+                                  "reason",
+                                  "size"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
                             "userId": {
                               "type": "integer"
                             },
@@ -21023,7 +21292,8 @@
                                   "open",
                                   "close",
                                   "adopt",
-                                  "stop_close"
+                                  "stop_close",
+                                  "liquidation"
                                 ]
                               },
                               "side": {
@@ -21331,7 +21601,8 @@
                                   "open",
                                   "close",
                                   "adopt",
-                                  "stop_close"
+                                  "stop_close",
+                                  "liquidation"
                                 ]
                               },
                               "side": {

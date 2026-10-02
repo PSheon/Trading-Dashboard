@@ -652,6 +652,7 @@ export const tr: Messages = {
         maxAllocation: "Kopya başına en fazla ${max}",
         paused: "Yeni kopyalar duraklatıldı",
         leaderUnavailable: "Trader'ın pozisyonları okunamadı. Tekrar deneyin.",
+        adoptionPartial: "{total} açık pozisyondan {adopted} tanesi kopyalandı. Kopyalanmayanlar: {coins}",
         limit: "Aynı anda en fazla {limit} trader kopyalayabilirsiniz",
         disabled: "Bu ortamda kopya işlem kapalı",
       },
@@ -834,6 +835,7 @@ export const tr: Messages = {
           close: "Azaltma",
           adopt: "Devralındı",
           stop_close: "Durdurma kapanışı",
+          liquidation: "Likidasyon",
         },
         statusName: {
           intent: "Oluşturuluyor",

@@ -652,6 +652,7 @@ export const ko: Messages = {
         maxAllocation: "카피당 최대 ${max}",
         paused: "신규 카피가 일시중지되었습니다",
         leaderUnavailable: "트레이더의 포지션을 불러오지 못했습니다. 다시 시도하세요.",
+        adoptionPartial: "보유 포지션 {total}개 중 {adopted}개를 카피했습니다. 카피되지 않음: {coins}",
         limit: "최대 {limit}명의 트레이더를 동시에 카피할 수 있습니다",
         disabled: "이 환경에서는 카피 트레이딩이 꺼져 있습니다",
       },
@@ -834,6 +835,7 @@ export const ko: Messages = {
           close: "축소",
           adopt: "동기화",
           stop_close: "중지 청산",
+          liquidation: "강제 청산",
         },
         statusName: {
           intent: "생성 중",

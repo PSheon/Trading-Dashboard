@@ -3,9 +3,10 @@ import type { CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
-import { CopyMarketService, type AssetInfo, type LeaderEquity, type Mids } from "./copy-market.service.js";
-import { followerSign, legsOf, openNotional, reduceSize, type LeaderFill, type SignalLeg } from "./copy-math.js";
+import { CopyMarketService, type AssetMap, type LeaderEquity, type Mids } from "./copy-market.service.js";
+import { dec, followerSign, legsOf, openNotional, reduceWithCarry, tradeKeyOf, type LeaderFill, type SignalLeg } from "./copy-math.js";
 import { CopyOrderPlanner, marketDataGap, strategyValue, type CopyDataGap } from "./copy-planner.service.js";
+import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OutboxRow } from "./copy.repository.js";
 
@@ -20,23 +21,27 @@ export interface DrainResult {
   orders: number;
   /** Rows kept pending because an open couldn't be priced yet. */
   deferred?: number;
+  /** Rows whose processing threw this pass (retried with backoff, then parked as `failed`). */
+  failed?: number;
 }
 
 function toLeaderFill(f: HlUserFill): LeaderFill {
   const start = f.startPosition === undefined ? null : Number(f.startPosition);
-  return { tid: BigInt(f.tid), coin: f.coin, px: Number(f.px), sz: Number(f.sz), side: f.side, time: f.time, startPosition: start !== null && Number.isFinite(start) ? start : null };
+  return { tid: BigInt(f.tid), coin: f.coin, px: Number(f.px), sz: Number(f.sz), side: f.side, time: f.time, startPosition: start !== null && Number.isFinite(start) ? start : null, tradeKey: tradeKeyOf(f) };
 }
 
-type Group = { coin: string; leg: "open" | "close"; sign: 1 | -1; legs: SignalLeg[] };
+type Group = { coin: string; leg: "open" | "close"; sign: 1 | -1; tradeKey: string; legs: SignalLeg[] };
 
 /** Consecutive legs of one coin, kind and side form one order (the fills of
- * one leader order usually arrive together); anything in between splits them. */
-function groupLegs(legs: SignalLeg[]): Group[] {
+ * one leader order usually arrive together); anything in between splits
+ * them. With `perTrade` (fixed sizing) opens are also split by leader trade,
+ * so two leader orders are two trades however they were batched. */
+function groupLegs(legs: SignalLeg[], perTrade: boolean): Group[] {
   const out: Group[] = [];
   for (const l of legs) {
     const last = out[out.length - 1];
-    if (last && last.coin === l.coin && last.leg === l.leg && last.sign === l.sign) last.legs.push(l);
-    else out.push({ coin: l.coin, leg: l.leg, sign: l.sign, legs: [l] });
+    if (last && last.coin === l.coin && last.leg === l.leg && last.sign === l.sign && (!perTrade || l.leg !== "open" || last.tradeKey === l.tradeKey)) last.legs.push(l);
+    else out.push({ coin: l.coin, leg: l.leg, sign: l.sign, tradeKey: l.tradeKey, legs: [l] });
   }
   return out;
 }
@@ -64,6 +69,19 @@ function groupLegs(legs: SignalLeg[]): Group[] {
  * so the next pass decides it with real prices. The wait is bounded by the
  * policy's maxSignalAgeSeconds: an open older than that is rejected as
  * `stale_signal`, with or without data.
+ *
+ * Sizing unit (review 40). Ratio sizing scales every leader fill, so it does
+ * not matter how fills are grouped. Fixed sizing ("amount per trade") spends
+ * its amount once per leader trade: all fills of one order (`oid`) or one
+ * TWAP (`twapId`) are one trade, whether they arrive in one pass or over
+ * hours. The first fill of a trade places the order; its later fills are
+ * resolved `same_trade`.
+ *
+ * Failure isolation (review 42). Each leader's rows are one transaction. If
+ * it throws, that leader's rows are tried again one at a time, so a single
+ * bad row is the only one counted as failed (retried with backoff, parked
+ * as `failed` after MAX_SIGNAL_ATTEMPTS and listed in /admin/copy); every
+ * other row of the batch, of this leader and of the others, still completes.
  */
 @Injectable()
 export class CopySignalService {
@@ -80,52 +98,85 @@ export class CopySignalService {
   async drain(limit = SIGNAL_BATCH): Promise<DrainResult> {
     const pending = await this.repository.pendingOutbox(limit);
     if (pending.length === 0) return { processed: 0, orders: 0 };
-    const addresses = [...new Set(pending.map((r) => r.address))];
-    // Upstream reads happen before the transaction, never inside it.
-    const live = await this.repository.liveStrategiesOf(addresses);
-    const mids = live.length ? await this.market.midPrices() : null;
-    const assets = live.length ? await this.market.assetInfo() : null;
+    const byAddress = new Map<string, OutboxRow[]>();
+    for (const row of pending) byAddress.set(row.address, [...(byAddress.get(row.address) ?? []), row]);
+    // Upstream reads happen before the transactions, never inside them.
+    const live = await this.repository.liveStrategiesOf([...byAddress.keys()]);
+    let mids: Mids | null = null;
+    let assets: AssetMap | null = null;
+    if (live.length) {
+      // Which dexes to price: the coins of these fills and of the positions
+      // they may reduce; HIP-3 dexes only while the policy copies them.
+      const limits = (await this.policies.current()).limits;
+      const coins = new Set(await this.repository.positionCoins(live.map((s) => s.id)));
+      for (const [address, rows] of byAddress) for (const f of await this.repository.leaderFills(this.repository.reader, address, rows.map((r) => r.tid))) coins.add(f.coin);
+      const priced = pricedCoins(limits, coins);
+      mids = await this.market.midPrices(priced);
+      assets = await this.market.assetInfo(priced);
+    }
     const leaderEquity = new Map<string, LeaderEquity>();
     for (const a of new Set(live.map((s) => s.leaderAddress))) leaderEquity.set(a, await this.market.leaderEquity(a));
 
-    const ids = pending.map((r) => r.id);
-    try {
-      return await this.uow.run(async (tx) => {
-        const claimed = await this.repository.claimOutbox(tx, ids);
-        if (claimed.length === 0) return { processed: 0, orders: 0 };
-        const policy = await this.policies.current(tx);
-        let orders = 0;
-        /** Outbox rows that stay pending, with the read they wait for. */
-        const waiting = new Map<bigint, string>();
-        const byAddress = new Map<string, OutboxRow[]>();
-        for (const row of claimed) byAddress.set(row.address, [...(byAddress.get(row.address) ?? []), row]);
-        for (const [address, rows] of byAddress) {
-          const r = await this.processLeader(tx, address, rows, { mids, assets, policy, leaderEquity: leaderEquity.get(address) ?? { state: "failed" } });
-          orders += r.orders;
-          for (const row of rows) if (r.deferred.has(row.tid)) waiting.set(row.id, r.deferred.get(row.tid)!);
+    const total = { processed: 0, orders: 0, deferred: 0, failed: 0 };
+    const add = (r: { processed: number; orders: number; deferred: number }) => { total.processed += r.processed; total.orders += r.orders; total.deferred += r.deferred; };
+    for (const [address, rows] of byAddress) {
+      const ctx = { mids, assets, leaderEquity: leaderEquity.get(address) ?? ({ state: "failed" } as LeaderEquity) };
+      try {
+        add(await this.processRows(address, rows, ctx));
+        continue;
+      } catch (error) {
+        if (rows.length === 1) {
+          await this.fail(rows[0]!, error);
+          total.failed += 1;
+          continue;
         }
-        const done = claimed.filter((r) => !waiting.has(r.id)).map((r) => r.id);
-        await this.repository.markOutboxDone(tx, done);
-        for (const gap of new Set(waiting.values())) {
-          await this.repository.deferOutbox(tx, [...waiting].filter(([, g]) => g === gap).map(([id]) => id), `market_data_unavailable:${gap}`);
+        this.logger.warn(`Copy signals of ${address} failed as a group (${(error as Error).message}); retrying its ${rows.length} rows one at a time`);
+      }
+      // Find the row that fails: each row on its own, in arrival order.
+      for (const row of rows) {
+        try {
+          add(await this.processRows(address, [row], ctx));
+        } catch (error) {
+          await this.fail(row, error);
+          total.failed += 1;
         }
-        await this.repository.advanceCheckpoint(tx, done.length);
-        if (waiting.size) this.logger.warn(`${waiting.size} copy signals wait for market data (${[...new Set(waiting.values())].join(", ")})`);
-        return waiting.size ? { processed: done.length, orders, deferred: waiting.size } : { processed: done.length, orders };
-      });
-    } catch (error) {
-      const message = (error as Error).message;
-      this.logger.error(`Copy signal batch failed (${ids.length} rows): ${message}`);
-      await this.repository.failOutbox(ids, message, MAX_SIGNAL_ATTEMPTS);
-      return { processed: 0, orders: 0 };
+      }
     }
+    return { processed: total.processed, orders: total.orders, ...(total.deferred ? { deferred: total.deferred } : {}), ...(total.failed ? { failed: total.failed } : {}) };
+  }
+
+  private async fail(row: OutboxRow, error: unknown): Promise<void> {
+    const message = (error as Error).message;
+    this.logger.error(`Copy signal ${row.id} (${row.address}, tid ${row.tid}) failed: ${message}`);
+    await this.repository.failOutbox([row.id], message, MAX_SIGNAL_ATTEMPTS);
+  }
+
+  /** One leader's rows in one transaction: claim, decide, mark done or deferred, advance the checkpoint. */
+  private processRows(address: string, rows: OutboxRow[], ctx: { mids: Mids | null; assets: AssetMap | null; leaderEquity: LeaderEquity }): Promise<{ processed: number; orders: number; deferred: number }> {
+    return this.uow.run(async (tx) => {
+      const claimed = await this.repository.claimOutbox(tx, rows.map((r) => r.id));
+      if (claimed.length === 0) return { processed: 0, orders: 0, deferred: 0 };
+      const policy = await this.policies.current(tx);
+      const r = await this.processLeader(tx, address, claimed, { ...ctx, policy });
+      /** Outbox rows that stay pending, with the read they wait for. */
+      const waiting = new Map<bigint, string>();
+      for (const row of claimed) if (r.deferred.has(row.tid)) waiting.set(row.id, r.deferred.get(row.tid)!);
+      const done = claimed.filter((row) => !waiting.has(row.id)).map((row) => row.id);
+      await this.repository.markOutboxDone(tx, done);
+      for (const gap of new Set(waiting.values())) {
+        await this.repository.deferOutbox(tx, [...waiting].filter(([, g]) => g === gap).map(([id]) => id), `market_data_unavailable:${gap}`);
+      }
+      await this.repository.advanceCheckpoint(tx, done.length);
+      if (waiting.size) this.logger.warn(`${waiting.size} copy signals of ${address} wait for market data (${[...new Set(waiting.values())].join(", ")})`);
+      return { processed: done.length, orders: r.orders, deferred: waiting.size };
+    });
   }
 
   private async processLeader(
     tx: DbTransaction,
     address: string,
     rows: OutboxRow[],
-    ctx: { mids: Mids | null; assets: Map<string, AssetInfo> | null; policy: PolicyRead; leaderEquity: LeaderEquity },
+    ctx: { mids: Mids | null; assets: AssetMap | null; policy: PolicyRead; leaderEquity: LeaderEquity },
   ): Promise<{ orders: number; deferred: Map<bigint, string> }> {
     /** Fill tids with an open that waits for market data, and for which read. */
     const deferred = new Map<bigint, string>();
@@ -159,7 +210,7 @@ export class CopySignalService {
       }
 
       const passTids = [...new Set(legs.map((l) => l.tid))];
-      for (const g of groupLegs(legs)) {
+      for (const g of groupLegs(legs, settings.sizingMode === "fixed")) {
         const tids = g.legs.map((l) => l.tid);
         const refs = g.legs.map((l) => ({ tid: l.tid, leg: l.leg }));
         const first = g.legs[0]!;
@@ -182,10 +233,17 @@ export class CopySignalService {
             await this.repository.resolveLegs(tx, strategy.id, refs, "opposite_position", null);
             continue;
           }
+          // Fixed sizing: this leader trade already has its order (an earlier
+          // fill of the same order or TWAP placed it).
+          if (settings.sizingMode === "fixed" && (await this.repository.tradeAlreadyOrdered(tx, strategy.id, g.tradeKey))) {
+            await this.repository.resolveLegs(tx, strategy.id, refs, "same_trade", null);
+            continue;
+          }
           const age = (Date.now() - last.time) / 1000;
           // Ratio sizing divides by the leader's account value: a read of it
           // that failed is a gap like the mids, not "the leader has nothing".
-          const gap: CopyDataGap | null = strategy.status === "active" && !ctx.policy.invalid
+          // A market the policy never copies waits for nothing: it is refused.
+          const gap: CopyDataGap | null = strategy.status === "active" && !ctx.policy.invalid && symbolRefusal(ctx.policy.limits, g.coin) === null
             ? (marketDataGap(ctx.mids, ctx.assets, g.coin) ?? (settings.sizingMode === "ratio" && ctx.leaderEquity.state === "failed" ? "leader_equity" : null))
             : null;
           if (gap && age <= ctx.policy.limits.maxSignalAgeSeconds) {
@@ -200,7 +258,7 @@ export class CopySignalService {
           const order = await this.planner.place(tx, {
             strategy, settings, policy: ctx.policy, controls: { platform: controls.platform, user: controls.user }, mids: ctx.mids, assets: ctx.assets,
             coin: g.coin, leg: "open", side: fSign > 0 ? "B" : "A", notional: notional ?? 0,
-            signalPx, signalTime: new Date(last.time), signalTids: tids, dedupeKey,
+            signalPx, signalTime: new Date(last.time), signalTids: tids, dedupeKey, tradeKey: g.tradeKey,
             rejectReason:
               ctx.policy.invalid ? "risk_policy_invalid" :
               // The planner refuses a copy that isn't active, with that reason.
@@ -223,7 +281,16 @@ export class CopySignalService {
           continue;
         }
         const remaining = g.legs.reduce((keep, l) => keep * (1 - (l.leg === "close" ? l.fraction : 0)), 1);
-        const size = remaining <= 1e-9 ? Math.abs(current) : reduceSize(Math.abs(current), 1 - remaining);
+        // What rounding to the lot size leaves over is carried to the next
+        // reduction, never dropped: a leader who trims 1% twenty times ends
+        // as reduced here as there.
+        const reduction = reduceWithCarry(Math.abs(current), remaining <= 1e-9 ? 1 : 1 - remaining, Number(position?.reduceCarry ?? 0), ctx.assets?.get(g.coin)?.szDecimals ?? null);
+        if (position) await this.repository.setReduceCarry(tx, strategy.id, g.coin, dec(reduction.carry));
+        const size = reduction.size;
+        if (!(size > 0)) {
+          await this.repository.resolveLegs(tx, strategy.id, refs, "below_lot_carried", null);
+          continue;
+        }
         const order = await this.planner.place(tx, {
           strategy, settings, policy: ctx.policy, controls: { platform: controls.platform, user: controls.user }, mids: ctx.mids, assets: ctx.assets,
           coin: g.coin, leg: "close", side: fSign > 0 ? "A" : "B", size,

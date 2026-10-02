@@ -329,14 +329,18 @@ export class HyperliquidInfoClient {
 
   /** Mid prices for every main-dex perp and spot pair ("@107", "#123"
    * outcomes), used for alert scoring (N3) and outcome-token values. */
-  /** Main-dex perp universe (sizes, leverage) with each asset's mark, mid,
-   * oracle price and current hourly funding rate. Weight 20. */
-  metaAndAssetCtxs(priority: RequestPriority = "background", rank?: number): Promise<HlMetaAndAssetCtxsResponse> {
-    return this.post<HlMetaAndAssetCtxsResponse>({ type: "metaAndAssetCtxs" }, WEIGHT_META_AND_ASSET_CTXS, priority, rank);
+  /** One dex's perp universe (sizes, leverage) with each asset's mark, mid,
+   * oracle price and current hourly funding rate. Weight 20. `dex` selects
+   * a HIP-3 dex (its coins come back prefixed, "xyz:TSLA"); omitted means
+   * the main dex. */
+  metaAndAssetCtxs(priority: RequestPriority = "background", rank?: number, dex?: string): Promise<HlMetaAndAssetCtxsResponse> {
+    return this.post<HlMetaAndAssetCtxsResponse>(dex ? { type: "metaAndAssetCtxs", dex } : { type: "metaAndAssetCtxs" }, WEIGHT_META_AND_ASSET_CTXS, priority, rank);
   }
 
-  allMids(priority: RequestPriority = "background", rank?: number): Promise<HlAllMidsResponse> {
-    return this.post<HlAllMidsResponse>({ type: "allMids" }, WEIGHT_ALL_MIDS, priority, rank);
+  /** Mid prices of one dex: the main dex (perps and spot pairs) when `dex`
+   * is omitted, else that HIP-3 dex's markets ("xyz:TSLA"). Weight 2. */
+  allMids(priority: RequestPriority = "background", rank?: number, dex?: string): Promise<HlAllMidsResponse> {
+    return this.post<HlAllMidsResponse>(dex ? { type: "allMids", dex } : { type: "allMids" }, WEIGHT_ALL_MIDS, priority, rank);
   }
 
   /** Spot balances (and, in unified / portfolio-margin accounts, all

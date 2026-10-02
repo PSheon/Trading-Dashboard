@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { AuthModule } from "../common/auth/auth.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
+import { NotifyModule } from "../notify/notify.module.js";
 import { CopyAdminReadService } from "./copy-admin-read.service.js";
 import { CopyAdoptionRepairService } from "./copy-adoption-repair.service.js";
 import { CopyControlService } from "./copy-control.service.js";
@@ -23,7 +24,8 @@ import { CopyRepository } from "./copy.repository.js";
  * CopyAdminReadService.
  */
 @Module({
-  imports: [AuthModule, HyperliquidModule],
+  // NotifyModule: the operator's system message when an order keeps failing.
+  imports: [AuthModule, HyperliquidModule, NotifyModule],
   controllers: [CopyController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,

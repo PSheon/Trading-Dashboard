@@ -206,8 +206,8 @@ export type HlInfoRequestBody =
       startTime: number;
       endTime?: number;
     }
-  | { type: "allMids" }
-  | { type: "metaAndAssetCtxs" }
+  | { type: "allMids"; dex?: string }
+  | { type: "metaAndAssetCtxs"; dex?: string }
   | { type: "spotClearinghouseState"; user: string }
   | { type: "spotMetaAndAssetCtxs" }
   | { type: "userAbstraction"; user: string }

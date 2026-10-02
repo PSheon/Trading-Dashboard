@@ -287,6 +287,7 @@ export const en: Messages = {
       close: "reduce",
       adopt: "adopt",
       stop_close: "stop close",
+      liquidation: "liquidation",
     },
     cols: {
       time: "Time",
@@ -337,6 +338,16 @@ export const en: Messages = {
       exposureSub: "{allocated} allocated",
       policy: "Risk policy",
       policySub: "View and edit limits",
+    },
+    stuck: {
+      title: "Orders that keep failing",
+      hint: "Each of these has failed {attempts} times or more when the executor tried to book it. It is retried every 30 seconds and holds the later orders of its strategy until it goes through; the operator was messaged once.",
+      order: "Order",
+      strategy: "Strategy",
+      attempts: "Failed attempts",
+      error: "Last error",
+      since: "Created",
+      reduceOnly: "reduce-only",
     },
     backlog: {
       title: "Signal backlog and lag",
@@ -484,6 +495,8 @@ export const en: Messages = {
       superseded: "Replaced by a newer fill of the same coin",
       reduce_only_no_position: "No position left when the reduce-only order was submitted",
       reduce_only_clamped: "Reduced to the actual position",
+      liquidated: "Cancelled: the strategy was liquidated",
+      liquidation: "Liquidated ({detail})",
       belowMinAfter: "Under the minimum order after the {cap} cap",
       caps: {
         max_order: "per-order",
@@ -1319,6 +1332,7 @@ export const en: Messages = {
         maxAllocation: "At most ${max} per copy",
         paused: "New copies are paused",
         leaderUnavailable: "Couldn't read the trader's positions. Try again.",
+        adoptionPartial: "Copied {adopted} of {total} open positions. Not copied: {coins}",
         limit: "You can copy at most {limit} traders at once",
         disabled: "Copy trading is off on this deployment",
       },
@@ -1501,6 +1515,7 @@ export const en: Messages = {
           close: "Reduce",
           adopt: "Adopted",
           stop_close: "Stop close",
+          liquidation: "Liquidation",
         },
         statusName: {
           intent: "Creating",

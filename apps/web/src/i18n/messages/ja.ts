@@ -652,6 +652,7 @@ export const ja: Messages = {
         maxAllocation: "1件のコピーにつき最大${max}",
         paused: "新規コピーは一時停止中です",
         leaderUnavailable: "トレーダーのポジションを取得できませんでした。もう一度お試しください。",
+        adoptionPartial: "保有ポジション{total}件のうち{adopted}件をコピーしました。未コピー：{coins}",
         limit: "同時にコピーできるトレーダーは最大{limit}人です",
         disabled: "この環境ではコピートレードが無効です",
       },
@@ -834,6 +835,7 @@ export const ja: Messages = {
           close: "縮小",
           adopt: "既存同期",
           stop_close: "停止決済",
+          liquidation: "強制決済",
         },
         statusName: {
           intent: "作成中",

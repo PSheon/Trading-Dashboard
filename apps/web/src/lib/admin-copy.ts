@@ -118,7 +118,7 @@ export const CONTROL_CONFIRM_WORD: Record<CopyControlCommand, string> = {
 const REASONS = [
   "platform_paused", "platform_reduce_only", "user_paused", "user_reduce_only", "strategy_paused", "strategy_reduce_only",
   "symbol_not_allowed", "symbol_blocked", "stale_signal", "no_price", "price_moved", "frequency", "zero_size", "below_min_notional",
-  "leader_equity_unknown", "no_asset_info", "no_per_trade_amount", "nothing_to_reduce", "superseded", "reduce_only_no_position", "reduce_only_clamped",
+  "leader_equity_unknown", "no_asset_info", "no_per_trade_amount", "nothing_to_reduce", "superseded", "reduce_only_no_position", "reduce_only_clamped", "liquidated",
 ] as const;
 const CAPS = ["max_order", "max_coin_exposure", "max_user_exposure", "max_strategy_exposure", "available_funds"] as const;
 const SCOPES = ["platform", "user", "strategy"] as const;
@@ -135,6 +135,8 @@ export function copyReasonText(code: string | null, t: Translate): string {
   if ((REASONS as readonly string[]).includes(code)) return t(`copyAdmin.reasons.${code}` as MessageKey);
   const cap = CAPS.find((c) => code === `below_min_after_${c}`);
   if (cap) return t("copyAdmin.reasons.belowMinAfter", { cap: t(`copyAdmin.reasons.caps.${cap}`) });
+  // "liquidated:equity 45.25 < maintenance 50.63": the figures stay as the api wrote them.
+  if (code.startsWith("liquidated:")) return t("copyAdmin.reasons.liquidation", { detail: code.slice("liquidated:".length) });
   for (const scope of SCOPES) {
     if (!code.startsWith(`${scope}_`)) continue;
     const rest = code.slice(scope.length + 1);

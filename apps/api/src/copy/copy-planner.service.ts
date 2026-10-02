@@ -1,10 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import type { CopyLeg, CopyRiskLimits, CopyStrategySettings } from "@trading-dashboard/shared/contracts";
+import { coinDex, type CopyLeg, type CopyRiskLimits, type CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 
 import type { DbTransaction } from "../db/unit-of-work.js";
-import type { AssetInfo, Mids } from "./copy-market.service.js";
+import type { AssetMap, Mids } from "./copy-market.service.js";
 import { cloidOf, dec, floorSize } from "./copy-math.js";
-import { evaluateRisk, isHip3 } from "./copy-risk.js";
+import { evaluateRisk, symbolRefusal } from "./copy-risk.js";
 import { CopyRepository, type ControlRow, type OrderRow, type PositionRow, type StrategyRow } from "./copy.repository.js";
 
 export interface PolicyInForce {
@@ -26,7 +26,7 @@ export interface PlaceOrder {
   policy: PolicyInForce;
   controls: Controls;
   mids: Mids | null;
-  assets: Map<string, AssetInfo> | null;
+  assets: AssetMap | null;
   coin: string;
   leg: CopyLeg;
   side: "B" | "A";
@@ -41,18 +41,25 @@ export interface PlaceOrder {
   dedupeKey: string;
   /** A pre-risk refusal (e.g. unknown leader equity): recorded as a rejected order. */
   rejectReason?: string;
+  /** The leader trade an open belongs to (copy-math `tradeKeyOf`). */
+  tradeKey?: string;
 }
 
 /** An upstream read an open may be waiting for. */
 export type CopyDataGap = "mids" | "asset_info" | "leader_equity";
 
 /** Which upstream read a risk-increasing order of `coin` is missing, if any.
- * `null` maps mean the read failed (Hyperliquid timeout, budget starvation):
- * a transient gap, not a fact about the coin. HIP-3 markets are not in the
- * main-dex universe, so they never wait for it. */
-export function marketDataGap(mids: Mids | null, assets: Map<string, AssetInfo> | null, coin: string): "mids" | "asset_info" | null {
+ * `null` maps mean the main dex's read failed (Hyperliquid timeout, budget
+ * starvation); a HIP-3 market needs its own dex's mids and universe, and a
+ * dex listed in `missingDexes` could not be read. Either is a transient
+ * gap, not a fact about the coin. Callers ask this only for a coin the
+ * policy allows (`symbolRefusal`): a HIP-3 market that is not allowed is
+ * never read at all, and is refused without data. */
+export function marketDataGap(mids: Mids | null, assets: AssetMap | null, coin: string): "mids" | "asset_info" | null {
   if (mids === null) return "mids";
-  if (assets === null && !isHip3(coin)) return "asset_info";
+  const dex = coinDex(coin);
+  if (dex && mids.missingDexes.has(dex)) return "mids";
+  if (assets === null || (dex && assets.missingDexes.has(dex))) return "asset_info";
   return null;
 }
 
@@ -104,7 +111,7 @@ export class CopyOrderPlanner {
   constructor(private readonly repository: CopyRepository) {}
 
   async place(tx: DbTransaction, o: PlaceOrder): Promise<OrderRow | null> {
-    const increasesRisk = !(o.leg === "close" || o.leg === "stop_close");
+    const increasesRisk = !(o.leg === "close" || o.leg === "stop_close" || o.leg === "liquidation");
     const revisions = { platform: o.controls.platform?.revision ?? 0, user: o.controls.user?.revision ?? 0, strategy: o.strategy.controlRevision };
     const base = {
       cloid: cloidOf(o.dedupeKey),
@@ -121,6 +128,7 @@ export class CopyOrderPlanner {
       signalTime: o.signalTime,
       signalTids: o.signalTids,
       controlRevisions: revisions,
+      tradeKey: o.tradeKey ?? null,
     };
     const asset = o.assets?.get(o.coin);
     const px = o.mids?.px.get(o.coin) ?? null;
@@ -135,12 +143,16 @@ export class CopyOrderPlanner {
     if (o.rejectReason) return reject(o.rejectReason);
     if (o.policy.invalid) return reject("risk_policy_invalid");
     if (o.strategy.status !== "active") return reject(`strategy_${o.strategy.status}`);
+    // A market the policy never copies needs no data to be refused (a HIP-3
+    // market while allowHip3 is off is not even read).
+    const refused = symbolRefusal(o.policy.limits, o.coin);
+    if (refused) return reject(refused);
     // Data that failed to load is retried by the caller, never rejected.
     // Below this line `no_asset_info` and `no_price` are facts: the universe
     // and the mids were read and do not have this coin.
     const gap = marketDataGap(o.mids, o.assets, o.coin);
     if (gap) throw new CopyMarketDataUnavailableError(gap, o.coin);
-    if (!asset && !isHip3(o.coin)) return reject("no_asset_info");
+    if (!asset) return reject("no_asset_info");
 
     // One connection per transaction: these reads run one after another.
     const positions = await this.repository.positionsOf([o.strategy.id], tx);
@@ -184,6 +196,7 @@ export class CopyOrderPlanner {
       increasesRisk: true,
       notional: o.notional ?? 0,
       px,
+      adoption: o.leg === "adopt",
       signalPx: o.leg === "adopt" ? null : o.signalPx,
       signalAgeSeconds: (Date.now() - o.signalTime.getTime()) / 1000,
       coinMaxLeverage: asset?.maxLeverage ?? null,
@@ -197,9 +210,9 @@ export class CopyOrderPlanner {
       },
       user: { coinExposure, exposure: userExposure },
     });
-    if (!decision.ok) return reject(decision.reason, asset ? floorSize((o.notional ?? 0) / px, asset.szDecimals) : 0);
+    if (!decision.ok) return reject(decision.reason, floorSize((o.notional ?? 0) / px, asset.szDecimals));
 
-    const size = asset ? floorSize(decision.notional / px, asset.szDecimals) : decision.notional / px;
+    const size = floorSize(decision.notional / px, asset.szDecimals);
     const notional = size * px;
     if (!(size > 0) || notional < o.policy.limits.minOrderNotionalUsd) return reject("below_min_after_rounding", size);
     const order = await this.repository.insertOrder(tx, {

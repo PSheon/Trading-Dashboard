@@ -21,6 +21,19 @@ export interface LeaderFill {
   time: number;
   /** Signed leader position right before this fill; null when Hyperliquid didn't send it. */
   startPosition: number | null;
+  /** The leader trade this fill is a part of; see {@link tradeKeyOf}. */
+  tradeKey: string;
+}
+
+/**
+ * The leader trade a fill belongs to: every slice of one TWAP shares
+ * `twap:<id>`, every partial fill of one order shares `oid:<order id>`.
+ * This is the unit of fixed sizing ("amount per trade"): a strategy spends
+ * its per-trade amount once per key, however many fills the trade arrives
+ * in and however the consumer happens to batch them.
+ */
+export function tradeKeyOf(fill: { oid: number; twapId?: number | null }): string {
+  return fill.twapId !== undefined && fill.twapId !== null ? `twap:${fill.twapId}` : `oid:${fill.oid}`;
 }
 
 /**
@@ -30,8 +43,8 @@ export interface LeaderFill {
  * A flip (long → short or back) is two legs: a full close of the old side and an open of the new.
  */
 export type SignalLeg =
-  | { tid: bigint; coin: string; time: number; px: number; leg: "open"; sign: 1 | -1; size: number }
-  | { tid: bigint; coin: string; time: number; px: number; leg: "close"; sign: 1 | -1; size: number; fraction: number };
+  | { tid: bigint; coin: string; time: number; px: number; tradeKey: string; leg: "open"; sign: 1 | -1; size: number }
+  | { tid: bigint; coin: string; time: number; px: number; tradeKey: string; leg: "close"; sign: 1 | -1; size: number; fraction: number };
 
 const EPS = 1e-12;
 const signOf = (x: number): 1 | -1 | 0 => (x > EPS ? 1 : x < -EPS ? -1 : 0);
@@ -46,7 +59,7 @@ export function legsOf(fill: LeaderFill): SignalLeg[] | null {
   const end = start + delta;
   const s0 = signOf(start);
   const s1 = signOf(end);
-  const base = { tid: fill.tid, coin: fill.coin, time: fill.time, px: fill.px };
+  const base = { tid: fill.tid, coin: fill.coin, time: fill.time, px: fill.px, tradeKey: fill.tradeKey };
   if (fill.sz <= EPS) return [];
   if (s0 === 0) return [{ ...base, leg: "open", sign: signOf(delta) as 1 | -1, size: fill.sz }];
   if (s1 === s0) {
@@ -88,6 +101,24 @@ export function openNotional(args: {
 export function reduceSize(followerAbsSize: number, fraction: number): number {
   if (!(followerAbsSize > 0) || !(fraction > 0)) return 0;
   return fraction >= 1 - 1e-9 ? followerAbsSize : followerAbsSize * fraction;
+}
+
+/**
+ * A proportional reduction that keeps what rounding would lose (review 42).
+ * `carry` is the size earlier reductions called for that was below one lot
+ * and so was not traded: the follower's position is that much larger than
+ * the leader's fractions say. This reduction is owed the carry plus
+ * `fraction` of the rest; `size` is what one order can do (whole lots) and
+ * the remainder becomes the new carry. A full close takes everything.
+ * Without `szDecimals` (the universe could not be read) nothing is rounded.
+ */
+export function reduceWithCarry(followerAbsSize: number, fraction: number, carry: number, szDecimals: number | null): { size: number; carry: number } {
+  if (!(followerAbsSize > 0) || !(fraction > 0)) return { size: 0, carry: Math.max(0, Math.min(carry, followerAbsSize)) };
+  if (fraction >= 1 - 1e-9) return { size: followerAbsSize, carry: 0 };
+  const owed = Math.min(followerAbsSize, Math.max(0, carry));
+  const want = Math.min(followerAbsSize, owed + (followerAbsSize - owed) * fraction);
+  const size = szDecimals === null ? want : floorSize(want, szDecimals);
+  return { size, carry: Math.max(0, want - size) };
 }
 
 /** Round a size down to the asset's `szDecimals` (Hyperliquid rejects more). */
@@ -145,6 +176,17 @@ export function fillFees(notional: number, takerFeeBps: number, builderFeeTenths
  * longs pay shorts when the rate is positive, as on Hyperliquid. */
 export function fundingPayment(size: number, px: number, hourlyRate: number): number {
   return size * px * hourlyRate;
+}
+
+const HOUR_MS = 3_600_000;
+/**
+ * Hourly funding payments a position owes at `hour` (a whole hour): one for
+ * every hour boundary after `fundingThrough` up to and including `hour`.
+ * A position opened at 10:30 pays at 11:00 (review 38: counting whole
+ * elapsed hours skipped that first boundary of every holding period).
+ */
+export function fundingHours(fundingThrough: Date, hour: Date): number {
+  return Math.max(0, Math.floor(hour.getTime() / HOUR_MS) - Math.floor(fundingThrough.getTime() / HOUR_MS));
 }
 
 /** Deterministic client order id from the dedupe key (Hyperliquid's cloid

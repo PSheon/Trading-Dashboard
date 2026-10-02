@@ -168,6 +168,19 @@ export const copyPositionSchema = z.object({
 });
 export type CopyPosition = z.infer<typeof copyPositionSchema>;
 
+/** One of the leader's positions at the start of a copy. `adopted` means an
+ * order was approved for it (it fills on the worker's next pass); otherwise
+ * `reason` is the refusal, the same text an order's `reason` carries
+ * (`symbol_not_allowed`, `below_min_notional`, `symbol_blocked`, …). */
+export const copyAdoptionSchema = z.object({
+  coin: z.string(),
+  adopted: z.boolean(),
+  reason: z.string().nullable(),
+  /** Coin size ordered (0 when not adopted). */
+  size: z.number(),
+});
+export type CopyAdoption = z.infer<typeof copyAdoptionSchema>;
+
 export const copyStrategySchema = z.object({
   id: z.number().int(),
   mode: z.literal("paper"),
@@ -195,6 +208,9 @@ export const copyStrategySchema = z.object({
   activatedAt: z.coerce.date(),
   createdAt: z.coerce.date(),
   stoppedAt: z.coerce.date().nullable(),
+  /** Only on the answer to starting a copy with 跟單目前持倉: every position
+   * the leader held, and whether it was adopted (review 39). */
+  adoption: z.array(copyAdoptionSchema).optional(),
 });
 export type CopyStrategy = z.infer<typeof copyStrategySchema>;
 
@@ -286,6 +302,10 @@ export const adminCopyControlResponseSchema = z.object({
 });
 export type AdminCopyControlResponse = z.infer<typeof adminCopyControlResponseSchema>;
 
+/** Failed execution attempts after which an order is reported to the
+ * operator and listed in /admin/copy. */
+export const COPY_STUCK_ORDER_ATTEMPTS = 5;
+
 export const adminCopyOverviewSchema = z.object({
   mode: copyTradingModeSchema,
   platform: copyControlStateSchema.extend({ updatedAt: z.coerce.date().nullable() }),
@@ -300,6 +320,13 @@ export const adminCopyOverviewSchema = z.object({
   }),
   riskPolicyVersion: z.number().int(),
   events: z.array(copyControlEventSchema),
+  /** Orders whose execution keeps failing (attempts ≥ the alert threshold):
+   * each one holds its strategy's later orders until it goes through.
+   * Optional while older APIs roll out. */
+  stuckOrders: z.array(z.object({
+    id: z.string(), strategyId: z.number().int(), userId: z.number().int(), coin: z.string(), leg: copyLegSchema,
+    reduceOnly: z.boolean(), attempts: z.number().int(), lastError: z.string().nullable(), since: z.coerce.date(),
+  })).optional(),
 });
 export type AdminCopyOverview = z.infer<typeof adminCopyOverviewSchema>;
 

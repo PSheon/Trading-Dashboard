@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useState } from "react";
 import { Activity, Layers, ShieldCheck, Users, Wallet } from "lucide-react";
 import { cn } from "cn";
-import { copyOrderStatusEnum, copyStrategyStatusEnum, type CopyControlCommand } from "@trading-dashboard/shared/contracts";
+import { COPY_STUCK_ORDER_ATTEMPTS as STUCK_ORDER_ATTEMPTS, copyOrderStatusEnum, copyStrategyStatusEnum, type CopyControlCommand } from "@trading-dashboard/shared/contracts";
 
 import { KpiCard } from "@/components/admin/overview";
 import { ErrorState, Panel, SectionHeader, Skeleton } from "@/components/page";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
+import { coinLabel } from "@/lib/format";
 import { signalLagSeconds, useAdminCopyExposure, useAdminCopyOrders, useAdminCopyOverview } from "@/lib/admin-copy";
 import { useNow } from "@/lib/use-now";
 import { ControlDialog, type ControlRequest } from "./control-dialog";
@@ -98,6 +99,31 @@ export function AdminCopyOverview() {
             </dl>
           </Panel>
         </div>
+
+        {(d.stuckOrders?.length ?? 0) > 0 ? (
+          <Panel className="border-negative/40 p-5" aria-labelledby="copy-stuck-title" data-testid="copy-stuck-orders">
+            <div className="mb-1 flex items-center gap-2">
+              <h2 id="copy-stuck-title" className="text-[0.9375rem] font-bold">{t("copyAdmin.stuck.title")}</h2>
+              <Chip tone="bad">{format.num(d.stuckOrders!.length, 0)}</Chip>
+            </div>
+            <p className="mb-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">{t("copyAdmin.stuck.hint", { attempts: STUCK_ORDER_ATTEMPTS })}</p>
+            <ul className="divide-y divide-border text-sm">
+              {d.stuckOrders!.map((o) => (
+                <li key={o.id} className="grid gap-x-6 gap-y-1 py-2.5 sm:grid-cols-[auto_1fr_auto]">
+                  <span className="num font-semibold">
+                    {t("copyAdmin.stuck.order")} #{o.id} · {coinLabel(o.coin)} · {t(`copyAdmin.leg.${o.leg}`)}{o.reduceOnly ? ` · ${t("copyAdmin.stuck.reduceOnly")}` : ""}
+                  </span>
+                  <span className="min-w-0 break-words text-muted-foreground">{t("copyAdmin.stuck.error")}: {o.lastError ?? "—"}</span>
+                  <span className="num text-muted-foreground">
+                    <Link href={`/admin/copy/strategies/${o.strategyId}`} className="underline decoration-border underline-offset-4">{t("copyAdmin.stuck.strategy")} #{o.strategyId}</Link>
+                    {" · "}{t("copyAdmin.stuck.attempts")}: <span className="font-semibold text-negative">{o.attempts}</span>
+                    {" · "}{t("copyAdmin.stuck.since")} {format.dateTime(o.since)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        ) : null}
 
         <section aria-labelledby="copy-failures-title">
           <SectionHeader title={<span id="copy-failures-title">{t("copyAdmin.failures.title")}</span>}

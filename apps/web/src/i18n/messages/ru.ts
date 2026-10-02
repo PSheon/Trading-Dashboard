@@ -652,6 +652,7 @@ export const ru: Messages = {
         maxAllocation: "Не более ${max} на одну копию",
         paused: "Новые копии приостановлены",
         leaderUnavailable: "Не удалось получить позиции трейдера. Попробуйте ещё раз.",
+        adoptionPartial: "Скопировано позиций: {adopted} из {total}. Не скопированы: {coins}",
         limit: "Одновременно можно копировать не более {limit} трейдеров",
         disabled: "Копитрейдинг отключён в этой среде",
       },
@@ -834,6 +835,7 @@ export const ru: Messages = {
           close: "Сокращение",
           adopt: "Перенесено",
           stop_close: "Закрытие при остановке",
+          liquidation: "Ликвидация",
         },
         statusName: {
           intent: "Создаётся",

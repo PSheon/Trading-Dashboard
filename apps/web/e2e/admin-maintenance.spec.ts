@@ -44,7 +44,8 @@ for (const width of [1440, 390]) {
 
     // Site-wide: the notice is on a public page too (client-side navigation keeps the fixture state).
     await page.getByRole("link", { name: "Home" }).filter({ visible: true }).first().click();
-    await expect(page).toHaveURL(/\/$/);
+    // The dev server may still be compiling the home page.
+    await expect(page).toHaveURL(/\/$/, { timeout: 20000 });
     await expect(notice).toBeVisible();
     await expectNoSidewaysScroll(page);
     await shot(page, `maintenance-home-${width}`);

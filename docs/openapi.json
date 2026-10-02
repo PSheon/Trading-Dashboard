@@ -3152,6 +3152,57 @@
                             "copyTradingEnabled": {
                               "type": "boolean",
                               "default": false
+                            },
+                            "maintenance": {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "message": {
+                                  "type": "object",
+                                  "properties": {
+                                    "zh-TW": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    },
+                                    "en": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    }
+                                  },
+                                  "required": [
+                                    "zh-TW",
+                                    "en"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "endsAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "message",
+                                "endsAt"
+                              ],
+                              "additionalProperties": false,
+                              "default": {
+                                "enabled": false,
+                                "message": {
+                                  "zh-TW": "",
+                                  "en": ""
+                                },
+                                "endsAt": null
+                              }
                             }
                           },
                           "additionalProperties": false
@@ -3529,6 +3580,57 @@
                             "copyTradingEnabled": {
                               "type": "boolean",
                               "default": false
+                            },
+                            "maintenance": {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "message": {
+                                  "type": "object",
+                                  "properties": {
+                                    "zh-TW": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    },
+                                    "en": {
+                                      "type": "string",
+                                      "maxLength": 280
+                                    }
+                                  },
+                                  "required": [
+                                    "zh-TW",
+                                    "en"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "endsAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "message",
+                                "endsAt"
+                              ],
+                              "additionalProperties": false,
+                              "default": {
+                                "enabled": false,
+                                "message": {
+                                  "zh-TW": "",
+                                  "en": ""
+                                },
+                                "endsAt": null
+                              }
                             }
                           },
                           "additionalProperties": false
@@ -4618,6 +4720,49 @@
                         },
                         "copyTradingEnabled": {
                           "type": "boolean"
+                        },
+                        "maintenance": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "message": {
+                              "type": "object",
+                              "properties": {
+                                "zh-TW": {
+                                  "type": "string",
+                                  "maxLength": 280
+                                },
+                                "en": {
+                                  "type": "string",
+                                  "maxLength": 280
+                                }
+                              },
+                              "required": [
+                                "zh-TW",
+                                "en"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "endsAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "enabled",
+                            "message",
+                            "endsAt"
+                          ],
+                          "additionalProperties": false
                         },
                         "featuredAddresses": {
                           "type": "array",
@@ -21819,6 +21964,36 @@
         ],
         "additionalProperties": false
       },
+      "MaintenanceDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Shown to visitors; empty strings show the web's own wording",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LocalizedTextDto"
+              }
+            ]
+          },
+          "endsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Expected end, shown to visitors. Informational: writes stay refused until maintenance is switched off"
+          }
+        },
+        "required": [
+          "enabled",
+          "message",
+          "endsAt"
+        ],
+        "additionalProperties": false
+      },
       "GeneralPatchDto": {
         "type": "object",
         "properties": {
@@ -21830,6 +22005,14 @@
           },
           "copyTradingEnabled": {
             "type": "boolean"
+          },
+          "maintenance": {
+            "description": "The whole value when changed: enabled, message and endsAt",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MaintenanceDto"
+              }
+            ]
           }
         },
         "additionalProperties": false,

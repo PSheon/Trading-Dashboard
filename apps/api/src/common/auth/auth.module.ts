@@ -6,13 +6,14 @@ import { Module } from "@nestjs/common";
 
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
+import { MaintenanceGuard } from "./maintenance.guard.js";
 import { PRIVY_VERIFIER, SdkPrivyVerifier } from "./privy-verifier.js";
 
 /** Caller resolution for the global AuthGuard. Tests replace
  * PRIVY_VERIFIER with a stub. */
 @Module({
-  providers: [AuthRepository, RequestRateLimiter, IngressRateGuard, CallerRateGuard, AuthService, AuthGuard, PermissionGuard, { provide: PRIVY_VERIFIER, useClass: SdkPrivyVerifier }],
-  exports: [IngressRateGuard, CallerRateGuard, AuthService, AuthGuard, PermissionGuard, PRIVY_VERIFIER],
+  providers: [AuthRepository, RequestRateLimiter, IngressRateGuard, CallerRateGuard, AuthService, AuthGuard, MaintenanceGuard, PermissionGuard, { provide: PRIVY_VERIFIER, useClass: SdkPrivyVerifier }],
+  exports: [IngressRateGuard, CallerRateGuard, AuthService, AuthGuard, MaintenanceGuard, PermissionGuard, PRIVY_VERIFIER],
 })
 export class AuthModule {}
 
@@ -20,6 +21,8 @@ export class AuthModule {}
 export const AUTH_GUARD_PROVIDERS = [
   { provide: APP_GUARD, useExisting: IngressRateGuard },
   { provide: APP_GUARD, useExisting: AuthGuard },
+  // Needs the caller AuthGuard resolved: admins are exempt.
+  { provide: APP_GUARD, useExisting: MaintenanceGuard },
   { provide: APP_GUARD, useExisting: PermissionGuard },
   { provide: APP_GUARD, useExisting: CallerRateGuard },
 ];

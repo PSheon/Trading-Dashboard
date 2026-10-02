@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsString, IsBoolean, IsInt, Min, Max, MaxLength, MinLength, IsIn, Matches, IsArray, ArrayMaxSize, IsObject, ValidateNested, IsNotEmptyObject, IsDefined } from "class-validator";
+import { IsString, IsBoolean, IsInt, Min, Max, MaxLength, MinLength, IsIn, Matches, IsArray, ArrayMaxSize, IsObject, ValidateNested, IsNotEmptyObject, IsDefined, IsISO8601 } from "class-validator";
 import { Type } from "class-transformer";
 import { Optional, Nullable, ToLowerCase } from "../../common/decorators/input.decorator.js";
 import type * as c from "@trading-dashboard/shared/contracts";
@@ -19,6 +19,14 @@ class AnnouncementDto {
   @ApiProperty({ type: () => LocalizedTextDto })
   @IsDefined() @IsObject() @Type(() => LocalizedTextDto) @ValidateNested() declare text: LocalizedTextDto;
 }
+class MaintenanceDto {
+  @ApiProperty({ type: Boolean })
+  @IsBoolean() declare enabled: boolean;
+  @ApiProperty({ type: () => LocalizedTextDto, description: "Shown to visitors; empty strings show the web's own wording" })
+  @IsDefined() @IsObject() @Type(() => LocalizedTextDto) @ValidateNested() declare message: LocalizedTextDto;
+  @ApiProperty({ type: String, format: "date-time", nullable: true, description: "Expected end, shown to visitors. Informational: writes stay refused until maintenance is switched off" })
+  @IsDefined() @Nullable() @IsISO8601({ strict: true }) declare endsAt: string | null;
+}
 class GeneralPatchDto {
   @ApiPropertyOptional({ type: () => AnnouncementDto })
   @Optional() @IsObject() @Type(() => AnnouncementDto) @ValidateNested() declare announcement?: AnnouncementDto;
@@ -26,6 +34,8 @@ class GeneralPatchDto {
   @Optional() @IsBoolean() declare signupsOpen?: boolean;
   @ApiPropertyOptional({ type: Boolean })
   @Optional() @IsBoolean() declare copyTradingEnabled?: boolean;
+  @ApiPropertyOptional({ type: () => MaintenanceDto, description: "The whole value when changed: enabled, message and endsAt" })
+  @Optional() @IsObject() @Type(() => MaintenanceDto) @ValidateNested() declare maintenance?: MaintenanceDto;
 }
 class DiscoveryPatchDto {
   @ApiPropertyOptional({ type: "array", maxItems: 12, items: { type: "string", pattern: "^0x[0-9a-fA-F]{40}$" } })

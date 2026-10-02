@@ -11,6 +11,13 @@ export const ru: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "Идут технические работы",
+    body: "Вы можете продолжать просмотр, но изменения нельзя сохранить до их окончания.",
+    endsAt: "Ожидаемое время восстановления: {time}",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "Подходящие трейдеры",

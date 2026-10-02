@@ -208,8 +208,18 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   return validateData<T>(method, path, envelope.data.data);
 }
 
+/** Dispatched on `window` when the api refuses a write with 503
+ * `maintenance`; the maintenance banner re-reads the settings on it. */
+export const MAINTENANCE_EVENT = "orbie:maintenance";
+
 /** A non-2xx answer as an ApiError, from either error body shape. */
 async function errorFromResponse(res: Response): Promise<ApiError> {
+  const error = await readError(res);
+  if (error.status === 503 && error.code === "maintenance" && typeof window !== "undefined") window.dispatchEvent(new Event(MAINTENANCE_EVENT));
+  return error;
+}
+
+async function readError(res: Response): Promise<ApiError> {
   const text = await res.text().catch(() => "");
   let message = text || res.statusText;
   let details: Record<string, unknown> = {};

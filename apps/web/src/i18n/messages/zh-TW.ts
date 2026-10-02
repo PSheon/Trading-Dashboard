@@ -492,6 +492,31 @@ export const zhTW = {
       cancelledBy: "被{scope}層的「{command}」取消",
     },
   },
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "網站維護中",
+    body: "你仍可以瀏覽，但維護結束前無法儲存任何變更。",
+    endsAt: "預計 {time} 恢復",
+  },
+  /** Admin-only wording added after the settings forms (maintenance, users, system). */
+  adminOps: {
+    maintenance: {
+      title: "維護模式",
+      toggle: "開啟維護模式",
+      hint: "開啟後 api 會以 503 拒絕所有寫入（管理員與健康檢查除外），讀取照常，全站顯示維護公告。儲存後立即生效；worker 的背景工作不受影響。",
+      messageZh: "公告內容（繁體中文，選填）",
+      messageEn: "公告內容（English，選填）",
+      endsAt: "預計結束時間（選填，僅供顯示）",
+      endsAtHint: "時間到了不會自動關閉，需由管理員關閉維護模式。",
+      confirmOnTitle: "開啟維護模式？",
+      confirmOffTitle: "關閉維護模式？",
+      confirmOn: "一般使用者的所有寫入（收藏、設定、跟單操作）會立即被拒絕，直到你關閉維護模式。讀取不受影響。",
+      confirmOff: "所有使用者會立即恢復寫入。",
+      confirm: "確認並儲存",
+      cancel: "取消",
+      active: "維護模式開啟中",
+    },
+  },
   jobs: {
     "title": "回補工作中心",
     "hint": "查看新匯入或收藏交易者的初次歷史回補，每 5 秒更新。功能上線前已收錄的交易者不會自動補建工作。",

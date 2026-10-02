@@ -11,6 +11,13 @@ export const ja: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "メンテナンス中です",
+    body: "閲覧は引き続き可能ですが、終了するまで変更は保存できません。",
+    endsAt: "{time} 頃に復旧予定",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "一致するトレーダー",

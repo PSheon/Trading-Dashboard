@@ -9,6 +9,7 @@ import { useT } from "@/i18n/provider";
 import { useIsAdmin } from "@/lib/auth";
 import { APP_NAME } from "@/lib/config";
 import { AnnouncementBanner } from "./announcement-banner";
+import { MaintenanceBanner } from "./maintenance-banner";
 import { AccountControls } from "./account-controls";
 import { AddressSearch } from "./address-search";
 import { PhoneMenu } from "./phone-menu";
@@ -121,6 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           "md:pt-[81px] md:pb-0 md:pl-[76px]",
         )}
       >
+        <MaintenanceBanner />
         <AnnouncementBanner />
         {/* CopyDog's .hl-page: 32px around with 16px on the right; its
             trader page sits 8px from the frame. */}

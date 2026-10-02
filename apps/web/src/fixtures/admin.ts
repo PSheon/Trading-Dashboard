@@ -73,6 +73,7 @@ export function publicSettings(): PublicSettings {
     announcement: general.announcement,
     signupsOpen: general.signupsOpen,
     copyTradingEnabled: general.copyTradingEnabled,
+    maintenance: general.maintenance,
     featuredAddresses: discovery.featuredAddresses,
     homeMarkets: discovery.homeMarkets,
     hideVaults: discovery.hideVaults,

@@ -23,6 +23,7 @@ import { cn } from "cn";
 import { ErrorState, Panel, Skeleton } from "@/components/page";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
@@ -111,6 +112,7 @@ function FormCard<S extends Section>({
   original,
   revision,
   onSaved,
+  confirm,
   children,
 }: {
   id: string;
@@ -120,6 +122,8 @@ function FormCard<S extends Section>({
   original: AdminSettings[S];
   revision: string;
   onSaved: (value: AdminSettings[S], revision: string) => void;
+  /** A change that must be confirmed before it is sent (maintenance on / off): the dialog's title and text. */
+  confirm?: (value: AdminSettings[S], original: AdminSettings[S]) => { title: string; body: string } | null;
   children: React.ReactNode;
 }) {
   const { t } = useI18n();
@@ -136,10 +140,15 @@ function FormCard<S extends Section>({
   });
   const canSave = usePermission("settings.write");
   const [clientError, setClientError] = useState<string>();
+  const [asking, setAsking] = useState<{ title: string; body: string } | null>(null);
   const dirty = JSON.stringify(value) !== JSON.stringify(original);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    send(false);
+  }
+
+  function send(confirmed: boolean) {
     if (!canSave) return;
     const parsed = SCHEMAS[section].safeParse(value);
     if (!parsed.success) {
@@ -149,6 +158,12 @@ function FormCard<S extends Section>({
       return;
     }
     setClientError(undefined);
+    const question = confirmed ? null : confirm?.(parsed.data as AdminSettings[S], original) ?? null;
+    if (question) {
+      setAsking(question);
+      return;
+    }
+    setAsking(null);
     const patch = Object.fromEntries(Object.entries(parsed.data).filter(([key, field]) =>
       JSON.stringify(field) !== JSON.stringify((original as Record<string, unknown>)[key]),
     )) as Partial<AdminSettings[S]>;
@@ -180,8 +195,27 @@ function FormCard<S extends Section>({
           </Button>
         </div>
       </form>
+      <Modal open={asking !== null} onOpenChange={(open) => { if (!open) setAsking(null); }} title={asking?.title ?? ""}>
+        <p className="text-sm leading-relaxed text-muted-foreground">{asking?.body}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={() => setAsking(null)}>{t("adminOps.maintenance.cancel")}</Button>
+          <Button type="button" variant="destructive" onClick={() => send(true)}>{t("adminOps.maintenance.confirm")}</Button>
+        </div>
+      </Modal>
     </Panel>
   );
+}
+
+/** An ISO instant as the value of a datetime-local input (the admin's own time zone), and back. */
+function toLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+function fromLocalInput(value: string): string | null {
+  const at = value ? new Date(value) : null;
+  return at && !Number.isNaN(at.getTime()) ? at.toISOString() : null;
 }
 
 function Toggle({
@@ -229,9 +263,16 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
   const set = (patch: Partial<AdminSettings["general"]>) => setValue((v) => ({ ...v, ...patch }));
   const setAnnouncement = (patch: Partial<AdminSettings["general"]["announcement"]>) =>
     set({ announcement: { ...value.announcement, ...patch } });
+  const setMaintenance = (patch: Partial<AdminSettings["general"]["maintenance"]>) =>
+    set({ maintenance: { ...value.maintenance, ...patch } });
+  // Switching maintenance on or off is confirmed; editing its text is not.
+  const confirm = (next: AdminSettings["general"], before: AdminSettings["general"]) =>
+    next.maintenance.enabled === before.maintenance.enabled ? null
+      : next.maintenance.enabled ? { title: t("adminOps.maintenance.confirmOnTitle"), body: t("adminOps.maintenance.confirmOn") }
+      : { title: t("adminOps.maintenance.confirmOffTitle"), body: t("adminOps.maintenance.confirmOff") };
 
   return (
-    <FormCard id="general" title={t("admin.settings.general.title")} section="general" value={value} original={original} revision={revision} onSaved={accept}>
+    <FormCard id="general" title={t("admin.settings.general.title")} section="general" value={value} original={original} revision={revision} onSaved={accept} confirm={confirm}>
       <div className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
         <Toggle
           label={t("admin.settings.general.announcement")}
@@ -271,6 +312,43 @@ function GeneralForm({ value: incoming, revision: incomingRevision }: { value: A
         checked={value.copyTradingEnabled}
         onChange={(copyTradingEnabled) => set({ copyTradingEnabled })}
       />
+      <div className="flex flex-col gap-3 rounded-xl bg-raised/50 p-4">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">{t("adminOps.maintenance.title")}</h3>
+          {original.maintenance.enabled ? <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">{t("adminOps.maintenance.active")}</span> : null}
+        </div>
+        <Toggle
+          label={t("adminOps.maintenance.toggle")}
+          hint={t("adminOps.maintenance.hint")}
+          checked={value.maintenance.enabled}
+          onChange={(enabled) => setMaintenance({ enabled })}
+        />
+        <div className="grid gap-3 md:grid-cols-2">
+          {(["zh-TW", "en"] as const).map((l) => (
+            <div key={l} className="grid gap-2">
+              <Label htmlFor={`maintenance-${l}`}>{t(l === "zh-TW" ? "adminOps.maintenance.messageZh" : "adminOps.maintenance.messageEn")}</Label>
+              <Textarea
+                id={`maintenance-${l}`}
+                rows={2}
+                maxLength={280}
+                value={value.maintenance.message[l]}
+                onChange={(e) => setMaintenance({ message: { ...value.maintenance.message, [l]: e.target.value } })}
+                className="font-sans text-sm"
+              />
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-2 md:max-w-xs">
+          <Label htmlFor="maintenance-ends">{t("adminOps.maintenance.endsAt")}</Label>
+          <Input
+            id="maintenance-ends"
+            type="datetime-local"
+            value={toLocalInput(value.maintenance.endsAt)}
+            onChange={(e) => setMaintenance({ endsAt: fromLocalInput(e.target.value) })}
+          />
+          <span className="text-xs text-muted-foreground">{t("adminOps.maintenance.endsAtHint")}</span>
+        </div>
+      </div>
     </FormCard>
   );
 }

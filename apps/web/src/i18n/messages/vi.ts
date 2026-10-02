@@ -11,6 +11,13 @@ export const vi: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "Đang bảo trì",
+    body: "Bạn vẫn có thể xem, nhưng không thể lưu thay đổi cho đến khi bảo trì kết thúc.",
+    endsAt: "Dự kiến hoạt động lại khoảng {time}",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "Trader phù hợp",

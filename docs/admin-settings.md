@@ -97,6 +97,44 @@ snapshots out of order and temporarily show older values in clean sections. Dirt
 drafts keep their baseline and stale writes are still rejected by server revisions;
 merging only the saved section into the query cache is deferred.
 
+## Maintenance mode (review finding 17)
+
+`general.maintenance` is `{ enabled, message: { "zh-TW", en }, endsAt }`
+(default off, empty message, no end). It is patched as one whole value, like
+the announcement. No migration: it lives in the `general` jsonb row.
+
+While `enabled`:
+
+- **The api refuses writes.** `MaintenanceGuard` (global, after `AuthGuard`)
+  answers every request that is not GET / HEAD / OPTIONS with 503 and error
+  code `maintenance`, before the handler runs. `Retry-After` is sent while
+  `endsAt` is still ahead (seconds, at most a day).
+- **Exempt:** a caller with `admin.access` (an admin, or a service token
+  granted it), so admins can keep working and can switch maintenance off, and
+  everything under `/health`.
+- **Reads keep working**, for everyone.
+- **The web shows a notice on every page** (`MaintenanceBanner`, above the
+  announcement, not dismissible): the admin's text in the page's language
+  (zh-TW for zh-TW, the English text for the other ten), or the catalog's own
+  wording when the text is empty, plus the expected end while it is ahead.
+  The banner comes from `GET /settings`, re-read every minute, on focus, and
+  at once when a write is refused with `maintenance`.
+
+`endsAt` is information for visitors. Nothing switches off at that time:
+writes stay refused until an admin turns maintenance off.
+
+It takes effect in every api process as soon as it is saved (the mechanism
+above; `test/maintenance.spec.ts` switches it on from a second pool and the
+app refuses the next write within a second). The save is a `settings.update`
+audit event with the old and new `general` section. In `/admin/settings` the
+toggle is in the General card; saving a change of `enabled` asks for
+confirmation first.
+
+Not covered: the worker's own writes (ingest, copy execution, alert
+deliveries) continue; stop those with the copy stop commands and
+`alertsEnabled`. A first sign-in creates its user row on a read and is not
+refused either; close sign-ups (`signupsOpen`) alongside if that matters.
+
 ## Discovery pool settings and the KOL registry (Stage 3)
 
 `discovery` gained these fields: `candidatePoolSize` (default 1,000: the

@@ -129,7 +129,7 @@ Paul 2026-10-01：這一批排進優化；**後台（admin）改由 Claude 接�
 | B（已做，2026-10-02：`/admin/copy`，見 [admin-copy.md](admin-copy.md)） | 15：跟單沒有後台介面 | 高（測試網前） | 後台路由與頁面：跟單總覽、策略與模擬訂單、每人曝險、全站／單一使用者的四種停止與恢復（需填原因、樂觀鎖）、風控上限表單；依 Stage 4 文件「給 Codex：跟單管理介面」 | AppModule 拆分之後 |
 | C（已做，2026-10-02：`SettingsRelay`，見 [admin-settings.md](admin-settings.md)） | 16：設定最多 30 秒才生效，不能當緊急開關 | 中 | 設定變更透過現有 PG LISTEN/NOTIFY 讓各行程立即失效快取；開關類欄位讀取不走快取 | 無 |
 | D | 14：管理員沒有二次驗證、單一角色擁有全部權限 | 高（真實資金前） | 新增唯讀營運角色；敏感權限（`users.manage`、`settings.write`、`risk.manage`、`execution.resume`）要求 Privy MFA 並在伺服器端驗證。需先確認 Privy 後台的 MFA 設定 | 測試網實單之前 |
-| E | 17：沒有維護模式 | 中 | `general.maintenance` 設定＋guard（唯讀或維護頁），後台可切換 | C 之後 |
+| E（已做，2026-10-02：`general.maintenance`＋`MaintenanceGuard`，見 [admin-settings.md](admin-settings.md)） | 17：沒有維護模式 | 中 | `general.maintenance` 設定＋guard（唯讀或維護頁），後台可切換 | C 之後 |
 | F | 19：營運開關後台看不到 | 低–中 | 系統頁唯讀顯示 `TELEGRAM_DRY_RUN`、`COPY_TRADING_MODE`、`HYPERLIQUID_NETWORK`、S3 抓取狀態與當日花費／上限 | 無 |
 | G | 18、20：`MAX_FAVORITES_PER_USER` 與保留期應為後台設定 | 低 | 移入 settings（保留期預設：快照 90 天、稽核 1 年、佇列 30 天） | 第 3 項（保留與分割）一起做 |
 

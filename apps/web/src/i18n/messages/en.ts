@@ -489,6 +489,31 @@ export const en: Messages = {
       cancelledBy: "Cancelled by the {scope}-level “{command}”",
     },
   },
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "Maintenance in progress",
+    body: "You can keep browsing; changes can't be saved until it is over.",
+    endsAt: "Expected back around {time}",
+  },
+  /** Admin-only wording added after the settings forms (maintenance, users, system). */
+  adminOps: {
+    maintenance: {
+      title: "Maintenance mode",
+      toggle: "Turn maintenance mode on",
+      hint: "While on, the api refuses every write with 503 (admins and health checks excepted), reads keep working and every page shows the notice. Applies as soon as it is saved; the worker's background jobs are not affected.",
+      messageZh: "Notice text (繁體中文, optional)",
+      messageEn: "Notice text (English, optional)",
+      endsAt: "Expected end (optional, shown to visitors)",
+      endsAtHint: "Nothing switches off at that time; an admin has to turn maintenance mode off.",
+      confirmOnTitle: "Turn maintenance mode on?",
+      confirmOffTitle: "Turn maintenance mode off?",
+      confirmOn: "Every write by ordinary users (favorites, settings, copy actions) is refused at once, until you turn maintenance mode off. Reads are not affected.",
+      confirmOff: "Writes resume for everyone at once.",
+      confirm: "Confirm and save",
+      cancel: "Cancel",
+      active: "Maintenance mode is on",
+    },
+  },
   jobs: {
     "title": "Backfill jobs",
     "hint": "Initial history for newly imported or favorited traders. Existing traders from before this feature are not retroactively queued. Refreshes every 5 seconds.",

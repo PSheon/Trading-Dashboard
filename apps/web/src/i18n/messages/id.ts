@@ -11,6 +11,13 @@ export const id: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "Sedang dalam pemeliharaan",
+    body: "Anda tetap bisa menjelajah; perubahan tidak dapat disimpan sampai pemeliharaan selesai.",
+    endsAt: "Perkiraan kembali sekitar {time}",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "Trader yang cocok",

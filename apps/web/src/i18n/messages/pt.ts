@@ -11,6 +11,13 @@ export const pt: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "Manutenção em andamento",
+    body: "Você pode continuar navegando; as alterações não podem ser salvas até que termine.",
+    endsAt: "Retorno previsto por volta de {time}",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "Traders correspondentes",

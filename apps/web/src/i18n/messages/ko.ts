@@ -11,6 +11,13 @@ export const ko: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "점검 중입니다",
+    body: "계속 둘러볼 수 있지만, 점검이 끝날 때까지 변경 사항을 저장할 수 없습니다.",
+    endsAt: "{time}경 복구 예정",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "일치하는 트레이더",

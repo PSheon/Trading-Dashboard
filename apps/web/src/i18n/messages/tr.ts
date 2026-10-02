@@ -11,6 +11,13 @@ export const tr: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "Bakım çalışması sürüyor",
+    body: "Gezinmeye devam edebilirsiniz; bakım bitene kadar değişiklikler kaydedilemez.",
+    endsAt: "Tahmini dönüş: {time}",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "Eşleşen trader'lar",

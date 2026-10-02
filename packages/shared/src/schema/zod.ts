@@ -1387,6 +1387,21 @@ export const localizedTextSchema = z.object({
   en: z.string().max(280),
 });
 
+/**
+ * Maintenance mode (review finding 17). While `enabled` the api refuses
+ * writes with 503 `maintenance` (admins and the health routes excepted),
+ * reads keep working and the web shows a notice on every page. `endsAt` is
+ * when the work is expected to end, shown to visitors; it switches nothing
+ * off by itself: writes stay refused until an admin turns maintenance off.
+ * An empty `message` shows the web's own wording.
+ */
+export const maintenanceSettingsSchema = z.object({
+  enabled: z.boolean(),
+  message: localizedTextSchema,
+  endsAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type MaintenanceSettings = z.infer<typeof maintenanceSettingsSchema>;
+
 /** One schema per `app_settings.key`; `.default()`s are the values before
  * an admin saves anything. */
 export const generalSettingsSchema = z.object({
@@ -1398,6 +1413,7 @@ export const generalSettingsSchema = z.object({
   signupsOpen: z.boolean().default(true),
   /** The copy panel's CTA; nothing is executed in Stage 2 regardless. */
   copyTradingEnabled: z.boolean().default(false),
+  maintenance: maintenanceSettingsSchema.default({ enabled: false, message: { "zh-TW": "", en: "" }, endsAt: null }),
 });
 export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
 
@@ -1492,6 +1508,7 @@ export type AdminSettingsSnapshot = z.infer<typeof adminSettingsSnapshotSchema>;
 export const patchAdminSettingsRequestSchema = z.object({
   general: generalSettingsSchema.partial().extend({
     announcement: z.object({ enabled: z.boolean(), text: localizedTextSchema.strict() }).strict().optional(),
+    maintenance: maintenanceSettingsSchema.extend({ message: localizedTextSchema.strict() }).strict().optional(),
   }).strict().optional(),
   discovery: discoverySettingsSchema.partial().strict().optional(),
   notifications: notificationSettingsSchema.partial().strict().optional(),
@@ -1513,6 +1530,8 @@ export const publicSettingsSchema = z.object({
   announcement: generalSettingsSchema.shape.announcement,
   signupsOpen: z.boolean(),
   copyTradingEnabled: z.boolean(),
+  /** Optional while older APIs roll out; absent means not in maintenance. */
+  maintenance: maintenanceSettingsSchema.optional(),
   featuredAddresses: z.array(z.string()),
   homeMarkets: z.array(z.string()),
   /** Coin boards on explore and home (optional while older APIs roll out). */

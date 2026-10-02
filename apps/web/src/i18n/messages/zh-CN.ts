@@ -11,6 +11,13 @@ export const zhCN: Messages = {
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
   copyAdmin: en.copyAdmin,
+  /** The site-wide maintenance notice (general.maintenance). */
+  maintenance: {
+    title: "网站维护中",
+    body: "你仍可以浏览，但维护结束前无法保存任何更改。",
+    endsAt: "预计 {time} 恢复",
+  },
+  adminOps: en.adminOps,
   jobs: en.jobs,
   research: {
     searchTitle: "匹配的交易员",

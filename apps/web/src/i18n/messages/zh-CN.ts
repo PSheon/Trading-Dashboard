@@ -10,6 +10,7 @@ export const zhCN: Messages = {
   sources: en.sources,
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
+  copyAdmin: en.copyAdmin,
   jobs: en.jobs,
   research: {
     searchTitle: "匹配的交易员",

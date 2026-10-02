@@ -373,6 +373,8 @@ dev 可以合併後執行 `pnpm db:generate`，會產生下列建表（測試資
 
 ## 給 Codex：跟單管理介面
 
+> 2026-10-02：後台已由 Claude 完成（controller `apps/api/src/admin/admin-copy.controller.ts`、頁面 `/admin/copy`），路由、頁面與測試見 [admin-copy.md](admin-copy.md)。以下保留為服務介面的說明。
+
 資料層已完成，後台 controller 與頁面由 Codex 做。服務都從 `CopyModule`（`apps/api/src/copy/copy.module.ts`）export，匯入 `CopyModule` 即可注入。
 
 ### 權限（`packages/shared/src/permissions.ts`，admin 角色預設全部擁有）

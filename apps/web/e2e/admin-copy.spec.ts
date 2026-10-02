@@ -1,0 +1,208 @@
+import { expect, test, type Page } from "@playwright/test";
+import { expectAccessible, expectNoSidewaysScroll, shot, signIn } from "./helpers";
+
+/**
+ * The copy-trading admin against the fixture account (an admin). Its state
+ * lives in the page, so after the first load every step is a client-side
+ * navigation through the admin's own links.
+ */
+test.beforeEach(async ({ context, baseURL }) => {
+  await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
+});
+
+const section = (page: Page, name: string) => page.getByRole("navigation", { name: "Copy trading" }).getByRole("link", { name, exact: true });
+/** Radix fades the dialog in; a scan mid-fade reads blended colours. */
+const settled = (page: Page) => page.getByRole("dialog").evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+const armStale = (page: Page, kind: "control" | "risk") => page.evaluate((k) => sessionStorage.setItem("orbie:fixtures:admin-copy-stale", k), kind);
+
+async function open(page: Page, width: number) {
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto("/admin/copy");
+  await signIn(page);
+  await expect(page.getByRole("heading", { name: "Platform stop state", exact: true })).toBeVisible({ timeout: 20000 });
+}
+
+/** Fills the confirmation and sends it. */
+async function confirm(page: Page, command: string, word: string, reason: string) {
+  const dialog = page.getByRole("dialog", { name: command });
+  const send = dialog.getByRole("button", { name: `Confirm: ${command}`, exact: true });
+  await expect(send).toBeDisabled();
+  await dialog.getByLabel(/^Reason/).fill(reason);
+  await expect(send).toBeDisabled();
+  await dialog.getByLabel(`Type ${word} to confirm`).fill(word.toLowerCase());
+  await expect(send).toBeEnabled();
+  await send.click();
+  return dialog;
+}
+
+for (const width of [1440, 390]) {
+  test.describe(`copy admin at ${width}px`, () => {
+    test("overview: state, backlog and orders with reasons; a platform pause needs a reason and the typed word", async ({ page }) => {
+      test.setTimeout(90000);
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await open(page, width);
+      const platform = page.getByRole("region", { name: "Platform stop state" });
+      await expect(platform.getByText("Paper", { exact: true })).toBeVisible();
+      await expect(platform.getByText("Running", { exact: true })).toBeVisible();
+      await expect(platform.getByText(/^revision 4/)).toBeVisible();
+      // Backlog and lag, and the reasons of refused orders in words.
+      const backlog = page.getByRole("region", { name: "Signal backlog and lag" });
+      await expect(backlog.getByText("Healthy", { exact: true })).toBeVisible();
+      await expect(backlog.getByText("#48211", { exact: true })).toBeVisible();
+      const failures = page.getByRole("region", { name: "Recent rejections and cancellations" });
+      await expect(failures.getByText("Signal was too old", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expect(failures.getByText("Coin is on the blocked list", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expect(failures.getByText("Under the minimum order after the strategy exposure cap", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expect(failures.getByText("Strategy stopped before submission", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-overview-${width}`);
+
+      await platform.getByRole("button", { name: "Pause new risk", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Pause new risk" });
+      await expect(dialog).toContainText("All users (platform)");
+      await settled(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-dialog-${width}`);
+      await confirm(page, "Pause new risk", "PAUSE", "Drill: stale mids from Hyperliquid");
+      await expect(dialog).toHaveCount(0);
+      await expect(platform.getByText("New risk paused", { exact: true })).toBeVisible();
+      await expect(platform.getByText(/^revision 5/)).toBeVisible();
+      await expect(platform.getByRole("button", { name: "Pause new risk", exact: true })).toBeDisabled();
+      await expect(page.getByRole("region", { name: "Recent stop and resume commands" }).getByText("Drill: stale mids from Hyperliquid", { exact: true }).filter({ visible: true })).toBeVisible();
+      expect(errors).toEqual([]);
+    });
+
+    test("a command that lost to another one says so, shows the newer revision and can be sent again", async ({ page }) => {
+      test.setTimeout(90000);
+      await open(page, width);
+      const platform = page.getByRole("region", { name: "Platform stop state" });
+      await armStale(page, "control");
+      await platform.getByRole("button", { name: "Close all positions", exact: true }).click();
+      const dialog = await confirm(page, "Close all positions", "CLOSE ALL", "Kill switch test");
+      await expect(dialog.getByRole("alert")).toContainText("Another command changed this stop state");
+      // The page behind reloaded: the other operator's reduce-only, revision 5.
+      await expect(dialog.getByText("5", { exact: true })).toBeVisible();
+      await dialog.getByRole("button", { name: "Confirm: Close all positions", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(platform.getByText("New risk paused", { exact: true })).toBeVisible();
+      await expect(platform.getByText("Reduce-only", { exact: true }).first()).toBeVisible();
+      await expect(platform.getByText(/^revision 6/)).toBeVisible();
+      // Every open position of the four live copies got its close.
+      const commands = page.getByRole("region", { name: "Recent stop and resume commands" });
+      await expect(commands.getByText("Kill switch test", { exact: true }).filter({ visible: true })).toBeVisible();
+      if (width >= 640) await expect(commands.getByText("0 cancelled · 6 closes", { exact: true })).toBeVisible();
+
+      await platform.getByRole("button", { name: "Resume", exact: true }).click();
+      await confirm(page, "Resume", "RESUME", "Test over");
+      await expect(platform.getByText("Running", { exact: true })).toBeVisible();
+    });
+
+    test("user exposure: one user's stop state is changed without touching the platform's", async ({ page }) => {
+      test.setTimeout(90000);
+      await open(page, width);
+      await section(page, "User exposure").click();
+      await expect(page).toHaveURL(/\/admin\/copy\/users$/);
+      const sam = page.getByRole("region", { name: "degen_sam@example.com" });
+      const anonymous = page.getByRole("region", { name: "#12" });
+      await expect(sam.getByText("Running", { exact: true })).toBeVisible();
+      await expect(anonymous.getByText("Reduce-only", { exact: true }).first()).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-users-${width}`);
+
+      await sam.getByRole("button", { name: "Pause new risk", exact: true }).click();
+      await expect(page.getByRole("dialog", { name: "Pause new risk" })).toContainText("degen_sam@example.com");
+      await confirm(page, "Pause new risk", "PAUSE", "Exposure review");
+      await expect(sam.getByText("New risk paused", { exact: true })).toBeVisible();
+      await expect(sam.getByText("r1", { exact: true })).toBeVisible();
+
+      await anonymous.getByRole("button", { name: "Resume", exact: true }).click();
+      await confirm(page, "Resume", "RESUME", "Review done");
+      await expect(anonymous.getByText("Running", { exact: true })).toBeVisible();
+
+      await section(page, "Overview").click();
+      await expect(page.getByRole("region", { name: "Platform stop state" }).getByText("Running", { exact: true })).toBeVisible();
+    });
+
+    test("strategies, one strategy's detail and the order list", async ({ page }) => {
+      test.setTimeout(90000);
+      await open(page, width);
+      await section(page, "Strategies").click();
+      await expect(page.getByText("5 strategies", { exact: true })).toBeVisible();
+      await page.getByRole("combobox", { name: "Strategy status" }).selectOption("stopped");
+      await expect(page.getByText("1 strategies", { exact: true })).toBeVisible();
+      await page.getByRole("combobox", { name: "Strategy status" }).selectOption("");
+      await expectNoSidewaysScroll(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-strategies-${width}`);
+
+      await page.getByRole("link", { name: "#2", exact: true }).click();
+      // The dev server may still be compiling the detail route.
+      await expect(page).toHaveURL(/\/admin\/copy\/strategies\/2$/, { timeout: 20000 });
+      await expect(page.getByRole("heading", { name: "Strategy #2", exact: true })).toBeVisible({ timeout: 20000 });
+      await expect(page.getByText("Settings v2", { exact: true })).toBeVisible();
+      await expect(page.getByText("Strategy stopped before submission", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-strategy-${width}`);
+
+      await section(page, "Paper orders").click();
+      await expect(page.getByText("13 orders", { exact: true })).toBeVisible({ timeout: 20000 });
+      await page.getByRole("combobox", { name: "Order status" }).selectOption("failed");
+      await expect(page).toHaveURL(/status=failed/);
+      await expect(page.getByText("5 orders", { exact: true })).toBeVisible();
+      await expect(page.getByText("User is reduce-only", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-orders-${width}`);
+    });
+
+    test("risk limits: an impossible policy can't be saved; a save needs a reason and becomes the next version", async ({ page }) => {
+      test.setTimeout(90000);
+      await open(page, width);
+      await section(page, "Risk limits").click();
+      await expect(page.getByRole("heading", { name: "Platform risk limits", exact: true })).toBeVisible({ timeout: 20000 });
+      await expect(page.getByText("Current v2", { exact: true })).toBeVisible();
+      const save = page.getByRole("button", { name: "Save as v3", exact: true });
+      await expect(save).toBeDisabled();
+      await expectNoSidewaysScroll(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-risk-${width}`);
+
+      const leverage = page.getByLabel("Max leverage (×)");
+      await expect(leverage).toHaveValue("8");
+      await leverage.fill("5");
+      await expect(save).toBeDisabled();
+      await page.getByLabel("Reason for this change (required)").fill("Tighter before testnet");
+      await expect(save).toBeEnabled();
+      // Minimum above maximum: refused in the form, as the api refuses it.
+      await page.getByLabel("Minimum allocation (USDC)").fill("200000");
+      await expect(page.getByText("Must not exceed maxAllocationUsd")).toBeVisible();
+      await expect(save).toBeDisabled();
+      await page.getByLabel("Minimum allocation (USDC)").fill("100");
+      await leverage.fill("");
+      await expect(save).toBeDisabled();
+      await leverage.fill("5");
+
+      // Someone else saved v3 first: nothing of ours is saved until we reload.
+      await armStale(page, "risk");
+      await save.click();
+      await expect(page.getByRole("alert").filter({ hasText: "Someone else saved a newer policy" })).toBeVisible();
+      await page.getByRole("button", { name: "Reload", exact: true }).click();
+      await expect(page.getByText("Current v3", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Max leverage (×)")).toHaveValue("8");
+
+      await page.getByLabel("Max leverage (×)").fill("5");
+      await page.getByLabel("Reason for this change (required)").fill("Tighter before testnet");
+      await page.getByRole("button", { name: "Save as v4", exact: true }).click();
+      await expect(page.getByRole("status")).toContainText("Saved as v4");
+      await expect(page.getByText("Current v4", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Max leverage (×)")).toHaveValue("5");
+      const history = page.getByRole("table");
+      await expect(history.getByText("v4 · current", { exact: true })).toBeVisible();
+      await expect(history.getByText("Tighter before testnet", { exact: true })).toBeVisible();
+    });
+  });
+}

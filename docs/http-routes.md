@@ -87,4 +87,12 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/commands` | 200 | user (owner) |
 | GET | `/me/copy/strategies/:id/orders` | 200 | user (owner) |
+| GET | `/admin/copy/overview` | 200 | copy.read |
+| GET | `/admin/copy/strategies` | 200 | copy.read |
+| GET | `/admin/copy/strategies/:id` | 200 | copy.read |
+| GET | `/admin/copy/orders` | 200 | copy.read |
+| GET | `/admin/copy/exposure` | 200 | copy.read |
+| GET | `/admin/copy/risk` | 200 | copy.read |
+| POST | `/admin/copy/controls` | 201 | copy.read + execution.pause (resume: execution.resume); 409 stale_revision |
+| PUT | `/admin/copy/risk` | 200 | risk.manage; 409 stale_version |
 | GET | `/kols/:address/avatar` | 200 | public; image bytes, 304 on If-None-Match |

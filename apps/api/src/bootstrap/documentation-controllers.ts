@@ -1,3 +1,4 @@
+import { AdminCopyController } from "../admin/admin-copy.controller.js";
 import { AdminSourcesController } from "../admin/admin-sources.controller.js";
 import { AdminTraderController } from "../admin/admin-trader.controller.js";
 import { FavoriteGroupsController } from "../users/favorite-groups.controller.js";
@@ -27,4 +28,4 @@ import { CopyController } from "../copy/copy.controller.js";
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
 export const documentationControllers = [AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
-  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, CopyController];
+  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, CopyController, AdminCopyController];

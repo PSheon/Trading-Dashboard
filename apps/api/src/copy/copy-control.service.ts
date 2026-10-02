@@ -52,7 +52,7 @@ export class CopyControlService {
   ) {}
 
   /**
-   * A platform- or user-level command (for the admin API Codex builds).
+   * A platform- or user-level command (the admin API: AdminCopyController).
    * `input` is parsed here with adminCopyControlRequestSchema (a
    * discriminated union: platform has no userId, user requires one); the
    * parsed target is the only one authorized and acted on. Needs

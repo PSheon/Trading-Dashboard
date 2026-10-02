@@ -10,6 +10,7 @@ export const tr: Messages = {
   sources: en.sources,
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
+  copyAdmin: en.copyAdmin,
   jobs: en.jobs,
   research: {
     searchTitle: "Eşleşen trader'lar",

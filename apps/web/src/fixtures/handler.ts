@@ -64,6 +64,13 @@ import {
   telegramLinkResponseSchema,
   walletHistoryResponseSchema,
   walletResponseSchema,
+  adminCopyControlResponseSchema,
+  adminCopyExposureResponseSchema,
+  adminCopyOrdersResponseSchema,
+  adminCopyOverviewSchema,
+  adminCopyRiskResponseSchema,
+  adminCopyStrategiesResponseSchema,
+  adminCopyStrategyDetailSchema,
   copyOverviewResponseSchema,
   copyStrategySchema,
   copyOrdersResponseSchema,
@@ -122,6 +129,7 @@ import {
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
 import { fixtureBoard, fixtureHome, fixtureSearch } from "./discovery";
 import { fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
+import { fixtureAdminCopyControl, fixtureAdminCopyExposure, fixtureAdminCopyOrders, fixtureAdminCopyOverview, fixtureAdminCopyPutRisk, fixtureAdminCopyRisk, fixtureAdminCopyStrategies, fixtureAdminCopyStrategy } from "./admin-copy";
 import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
 
 // Mutable demo state (per browser tab).
@@ -564,6 +572,30 @@ export async function fixtureRequest<T>(
     case "DELETE /admin/kols/:address":requireAdmin(token);removeKol(addressSchema.parse(parts[2]).toLowerCase());return undefined as T;
     case "POST /admin/kols/import/preview":requireAdmin(token);return wire(kolPreviewSchema,previewKols(body));
     case "POST /admin/kols/import":requireAdmin(token);return wire(kolImportResponseSchema,importKols(body));
+    case "GET /admin/copy/overview":
+      requireAdmin(token);
+      return wire(adminCopyOverviewSchema, fixtureAdminCopyOverview());
+    case "GET /admin/copy/strategies":
+      requireAdmin(token);
+      return wire(adminCopyStrategiesResponseSchema, fixtureAdminCopyStrategies(search));
+    case "GET /admin/copy/strategies/:id":
+      requireAdmin(token);
+      return wire(adminCopyStrategyDetailSchema, fixtureAdminCopyStrategy(Number(parts[3])));
+    case "GET /admin/copy/orders":
+      requireAdmin(token);
+      return wire(adminCopyOrdersResponseSchema, fixtureAdminCopyOrders(search));
+    case "GET /admin/copy/exposure":
+      requireAdmin(token);
+      return wire(adminCopyExposureResponseSchema, fixtureAdminCopyExposure());
+    case "GET /admin/copy/risk":
+      requireAdmin(token);
+      return wire(adminCopyRiskResponseSchema, fixtureAdminCopyRisk());
+    case "POST /admin/copy/controls":
+      requireAdmin(token);
+      return wire(adminCopyControlResponseSchema, fixtureAdminCopyControl(body));
+    case "PUT /admin/copy/risk":
+      requireAdmin(token);
+      return wire(adminCopyRiskResponseSchema, fixtureAdminCopyPutRisk(body));
     case "GET /admin/data-sources": {
       requireAdmin(token);const at=new Date().toISOString();
       return wire(adminSourcesSchema,{sampledAt:at,items:[{id:'leaderboard',count:150,latestAt:at},{id:'discovery',count:80,latestAt:at},{id:'kol',count:5,latestAt:at},{id:'watched',count:10,latestAt:null},{id:'favorites',count:favorites.size,latestAt:at},{id:'imports',count:leaderLists.length,latestAt:leaderLists[0]?.importedAt.toISOString()??null}]});

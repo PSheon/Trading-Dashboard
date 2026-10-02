@@ -62,7 +62,7 @@ export class CopyRiskPolicyService {
   }
 
   /**
-   * Saves a whole new version (for the admin API Codex builds). `input` is
+   * Saves a whole new version (the admin API: AdminCopyController). `input` is
    * parsed here with putCopyRiskRequestSchema (strict, bounded, cross-field
    * checks). Every blocked coin is resolved to Hyperliquid's own spelling
    * from the live universe (case-insensitive via coinKey); an unknown name

@@ -10,6 +10,7 @@ export const ko: Messages = {
   sources: en.sources,
   adminTrader: en.adminTrader,
   settingsOps: en.settingsOps,
+  copyAdmin: en.copyAdmin,
   jobs: en.jobs,
   research: {
     searchTitle: "일치하는 트레이더",

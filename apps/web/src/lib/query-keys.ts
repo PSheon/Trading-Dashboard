@@ -68,5 +68,15 @@ export const queryKeys = {
     rules: ["admin", "rules"] as const,
     settings: ["admin", "settings"] as const,
     kols: ["admin", "kols"] as const,
+    /** Every copy command and policy save invalidates `all`. */
+    copy: {
+      all: ["admin", "copy"] as const,
+      overview: ["admin", "copy", "overview"] as const,
+      exposure: ["admin", "copy", "exposure"] as const,
+      risk: ["admin", "copy", "risk"] as const,
+      strategies: (qs: string) => ["admin", "copy", "strategies", qs] as const,
+      strategy: (id: number) => ["admin", "copy", "strategy", id] as const,
+      orders: (qs: string) => ["admin", "copy", "orders", qs] as const,
+    },
   },
 };

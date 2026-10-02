@@ -17,7 +17,7 @@ import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
 
 /**
- * Read models for the copy admin pages (built by Codex on top of this
+ * Read models for the copy admin pages (AdminCopyController is built on this
  * service; every method needs `copy.read` at the route). Database reads plus
  * at most one allMids (weight 2, shared 3 s cache) to value positions.
  */

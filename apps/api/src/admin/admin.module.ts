@@ -1,3 +1,5 @@
+import { AdminCopyController } from "./admin-copy.controller.js";
+import { CopyModule } from "../copy/copy.module.js";
 import { AdminSourcesController } from "./admin-sources.controller.js";
 import { AdminSourcesRepository } from "./admin-sources.repository.js";
 import { AdminTraderController } from "./admin-trader.controller.js";
@@ -24,15 +26,15 @@ import { AdminController, PublicSettingsController } from "./admin.controller.js
 import { RevenueService } from "./revenue.service.js";
 
 /**
- * `/admin/*` (settings, users, overview, revenue) and the public
+ * `/admin/*` (settings, users, overview, revenue, copy trading) and the public
  * `GET /settings`. Owns the hourly revenue snapshot (`@Cron` on
  * RevenueService; ScheduleModule is registered once by SchedulerModule).
  * SettingsModule and DbModule are global; AuthModule gives AuthService, so
  * role and disable changes apply at once (`invalidateUser`).
  */
 @Module({
-  imports: [BackfillJobsModule, AuthModule, HyperliquidModule],
-  controllers: [AdminSourcesController, AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
+  imports: [BackfillJobsModule, AuthModule, HyperliquidModule, CopyModule],
+  controllers: [AdminCopyController, AdminSourcesController, AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
   providers: [AdminSourcesRepository, AdminTraderRepository, AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
   exports: [RevenueService],
 })

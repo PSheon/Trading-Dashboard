@@ -17,9 +17,10 @@ import { CopyRepository } from "./copy.repository.js";
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
- * signal consumer, the paper executor and its worker. The admin API is not
- * here: CopyControlService.apply, CopyRiskPolicyService.get/put and
- * CopyAdminReadService are exported for it.
+ * signal consumer, the paper executor and its worker. The admin API
+ * (/admin/copy, AdminCopyController in AdminModule) uses the exported
+ * CopyControlService.apply, CopyRiskPolicyService.get/put and
+ * CopyAdminReadService.
  */
 @Module({
   imports: [AuthModule, HyperliquidModule],

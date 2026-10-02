@@ -35,3 +35,20 @@ export async function wcag(page: Page) {
   });
   return new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
 }
+
+/** A full-page screenshot for the person reviewing the run, in
+ * E2E_SCREENSHOT_DIR (default /tmp) as `orbie-<name>.png`. */
+export async function shot(page: Page, name: string) {
+  await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR ?? "/tmp"}/orbie-${name}.png`, fullPage: true });
+}
+
+/** The page fits its viewport: nothing scrolls sideways. */
+export async function expectNoSidewaysScroll(page: Page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+}
+
+/** No WCAG 2.1 A/AA violations on the settled page. */
+export async function expectAccessible(page: Page) {
+  const audit = await (await wcag(page)).analyze();
+  expect(audit.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
+}

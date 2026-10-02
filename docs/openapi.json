@@ -19259,6 +19259,2459 @@
         "x-required-roles": [],
         "description": "Access: user (owner)"
       }
+    },
+    "/admin/copy/overview": {
+      "get": {
+        "operationId": "AdminCopyController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "disabled",
+                            "paper",
+                            "testnet",
+                            "live"
+                          ]
+                        },
+                        "platform": {
+                          "type": "object",
+                          "properties": {
+                            "pauseNewRisk": {
+                              "type": "boolean"
+                            },
+                            "reduceOnly": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            },
+                            "updatedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "pauseNewRisk",
+                            "reduceOnly",
+                            "revision",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "strategies": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          },
+                          "propertyNames": {
+                            "enum": [
+                              "active",
+                              "paused",
+                              "stopping",
+                              "stopped"
+                            ]
+                          }
+                        },
+                        "orders24h": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          },
+                          "propertyNames": {
+                            "enum": [
+                              "intent",
+                              "risk_approved",
+                              "submitting",
+                              "submitted",
+                              "unknown",
+                              "partial",
+                              "filled",
+                              "rejected",
+                              "cancelled"
+                            ]
+                          }
+                        },
+                        "outbox": {
+                          "type": "object",
+                          "properties": {
+                            "pending": {
+                              "type": "integer"
+                            },
+                            "failed": {
+                              "type": "integer"
+                            },
+                            "checkpoint": {
+                              "type": "string"
+                            },
+                            "oldestPendingAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "pending",
+                            "failed",
+                            "checkpoint",
+                            "oldestPendingAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "riskPolicyVersion": {
+                          "type": "integer"
+                        },
+                        "events": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string",
+                                "enum": [
+                                  "platform",
+                                  "user",
+                                  "strategy"
+                                ]
+                              },
+                              "scopeId": {
+                                "type": "integer"
+                              },
+                              "command": {
+                                "type": "string",
+                                "enum": [
+                                  "pause_new_risk",
+                                  "cancel_pending",
+                                  "reduce_only",
+                                  "close_positions",
+                                  "resume"
+                                ]
+                              },
+                              "revision": {
+                                "type": "integer"
+                              },
+                              "actorUserId": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "actorEmail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "result": {
+                                "type": "object",
+                                "properties": {
+                                  "cancelledOrders": {
+                                    "type": "integer"
+                                  },
+                                  "closeOrders": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "required": [
+                                  "cancelledOrders",
+                                  "closeOrders"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "scope",
+                              "scopeId",
+                              "command",
+                              "revision",
+                              "actorUserId",
+                              "actorEmail",
+                              "reason",
+                              "result",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "platform",
+                        "strategies",
+                        "orders24h",
+                        "outbox",
+                        "riskPolicyVersion",
+                        "events"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Copy trading overview: mode, platform stop state, counts, signal backlog, recent commands",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/strategies": {
+      "get": {
+        "operationId": "AdminCopyController_strategies",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "paused",
+                "stopping",
+                "stopped"
+              ]
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "mode": {
+                                "type": "string",
+                                "const": "paper"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "paused",
+                                  "stopping",
+                                  "stopped"
+                                ]
+                              },
+                              "version": {
+                                "type": "integer"
+                              },
+                              "settings": {
+                                "type": "object",
+                                "properties": {
+                                  "direction": {
+                                    "type": "string",
+                                    "enum": [
+                                      "same",
+                                      "reverse"
+                                    ]
+                                  },
+                                  "sizingMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ratio",
+                                      "fixed"
+                                    ]
+                                  },
+                                  "perTradeUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxTotalExposureUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxLeverage": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 1,
+                                        "maximum": 50
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "copyStartMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "adopt",
+                                      "delta"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "direction",
+                                  "sizingMode",
+                                  "perTradeUsd",
+                                  "maxTotalExposureUsd",
+                                  "maxLeverage",
+                                  "copyStartMode"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "allocated": {
+                                "type": "number"
+                              },
+                              "cash": {
+                                "type": "number"
+                              },
+                              "equity": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "fees": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "totalPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "roiPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "exposureUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pauseNewRisk": {
+                                "type": "boolean"
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "tradesCopied": {
+                                "type": "integer"
+                              },
+                              "pendingOrders": {
+                                "type": "integer"
+                              },
+                              "positions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "coin": {
+                                      "type": "string"
+                                    },
+                                    "size": {
+                                      "type": "number"
+                                    },
+                                    "entryPx": {
+                                      "type": "number"
+                                    },
+                                    "markPx": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "notionalUsd": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "unrealizedPnl": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "realizedPnl": {
+                                      "type": "number"
+                                    },
+                                    "funding": {
+                                      "type": "number"
+                                    },
+                                    "openedAt": {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    }
+                                  },
+                                  "required": [
+                                    "coin",
+                                    "size",
+                                    "entryPx",
+                                    "markPx",
+                                    "notionalUsd",
+                                    "unrealizedPnl",
+                                    "realizedPnl",
+                                    "funding",
+                                    "openedAt"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "activatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "stoppedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "userEmail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "mode",
+                              "leaderAddress",
+                              "status",
+                              "version",
+                              "settings",
+                              "allocated",
+                              "cash",
+                              "equity",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "fees",
+                              "funding",
+                              "totalPnl",
+                              "roiPct",
+                              "exposureUsd",
+                              "pauseNewRisk",
+                              "reduceOnly",
+                              "tradesCopied",
+                              "pendingOrders",
+                              "positions",
+                              "activatedAt",
+                              "createdAt",
+                              "stoppedAt",
+                              "userId",
+                              "userEmail"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List copy strategies",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/strategies/{id}": {
+      "get": {
+        "operationId": "AdminCopyController_strategy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "strategy": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "paper"
+                            },
+                            "leaderAddress": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "active",
+                                "paused",
+                                "stopping",
+                                "stopped"
+                              ]
+                            },
+                            "version": {
+                              "type": "integer"
+                            },
+                            "settings": {
+                              "type": "object",
+                              "properties": {
+                                "direction": {
+                                  "type": "string",
+                                  "enum": [
+                                    "same",
+                                    "reverse"
+                                  ]
+                                },
+                                "sizingMode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ratio",
+                                    "fixed"
+                                  ]
+                                },
+                                "perTradeUsd": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "exclusiveMinimum": 0
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "maxTotalExposureUsd": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "exclusiveMinimum": 0
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "maxLeverage": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 1,
+                                      "maximum": 50
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "copyStartMode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "adopt",
+                                    "delta"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "direction",
+                                "sizingMode",
+                                "perTradeUsd",
+                                "maxTotalExposureUsd",
+                                "maxLeverage",
+                                "copyStartMode"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "allocated": {
+                              "type": "number"
+                            },
+                            "cash": {
+                              "type": "number"
+                            },
+                            "equity": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "unrealizedPnl": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "realizedPnl": {
+                              "type": "number"
+                            },
+                            "fees": {
+                              "type": "number"
+                            },
+                            "funding": {
+                              "type": "number"
+                            },
+                            "totalPnl": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "roiPct": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "exposureUsd": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "pauseNewRisk": {
+                              "type": "boolean"
+                            },
+                            "reduceOnly": {
+                              "type": "boolean"
+                            },
+                            "tradesCopied": {
+                              "type": "integer"
+                            },
+                            "pendingOrders": {
+                              "type": "integer"
+                            },
+                            "positions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "coin": {
+                                    "type": "string"
+                                  },
+                                  "size": {
+                                    "type": "number"
+                                  },
+                                  "entryPx": {
+                                    "type": "number"
+                                  },
+                                  "markPx": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "notionalUsd": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "unrealizedPnl": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "realizedPnl": {
+                                    "type": "number"
+                                  },
+                                  "funding": {
+                                    "type": "number"
+                                  },
+                                  "openedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                },
+                                "required": [
+                                  "coin",
+                                  "size",
+                                  "entryPx",
+                                  "markPx",
+                                  "notionalUsd",
+                                  "unrealizedPnl",
+                                  "realizedPnl",
+                                  "funding",
+                                  "openedAt"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "activatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "stoppedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "userId": {
+                              "type": "integer"
+                            },
+                            "userEmail": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "mode",
+                            "leaderAddress",
+                            "status",
+                            "version",
+                            "settings",
+                            "allocated",
+                            "cash",
+                            "equity",
+                            "unrealizedPnl",
+                            "realizedPnl",
+                            "fees",
+                            "funding",
+                            "totalPnl",
+                            "roiPct",
+                            "exposureUsd",
+                            "pauseNewRisk",
+                            "reduceOnly",
+                            "tradesCopied",
+                            "pendingOrders",
+                            "positions",
+                            "activatedAt",
+                            "createdAt",
+                            "stoppedAt",
+                            "userId",
+                            "userEmail"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "versions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "version": {
+                                "type": "integer"
+                              },
+                              "settings": {
+                                "type": "object",
+                                "properties": {
+                                  "direction": {
+                                    "type": "string",
+                                    "enum": [
+                                      "same",
+                                      "reverse"
+                                    ]
+                                  },
+                                  "sizingMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ratio",
+                                      "fixed"
+                                    ]
+                                  },
+                                  "perTradeUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxTotalExposureUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxLeverage": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 1,
+                                        "maximum": 50
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "copyStartMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "adopt",
+                                      "delta"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "direction",
+                                  "sizingMode",
+                                  "perTradeUsd",
+                                  "maxTotalExposureUsd",
+                                  "maxLeverage",
+                                  "copyStartMode"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "version",
+                              "settings",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "orders": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "cloid": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "leg": {
+                                "type": "string",
+                                "enum": [
+                                  "open",
+                                  "close",
+                                  "adopt",
+                                  "stop_close"
+                                ]
+                              },
+                              "side": {
+                                "type": "string",
+                                "enum": [
+                                  "B",
+                                  "A"
+                                ]
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "signalPx": {
+                                "type": "number"
+                              },
+                              "signalTime": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "intent",
+                                  "risk_approved",
+                                  "submitting",
+                                  "submitted",
+                                  "unknown",
+                                  "partial",
+                                  "filled",
+                                  "rejected",
+                                  "cancelled"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "filledSize": {
+                                "type": "number"
+                              },
+                              "avgPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "fee": {
+                                "type": "number"
+                              },
+                              "builderFee": {
+                                "type": "number"
+                              },
+                              "strategyVersion": {
+                                "type": "integer"
+                              },
+                              "riskPolicyVersion": {
+                                "type": "integer"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "cloid",
+                              "strategyId",
+                              "userId",
+                              "leaderAddress",
+                              "coin",
+                              "leg",
+                              "side",
+                              "reduceOnly",
+                              "size",
+                              "signalPx",
+                              "signalTime",
+                              "status",
+                              "reason",
+                              "filledSize",
+                              "avgPx",
+                              "fee",
+                              "builderFee",
+                              "strategyVersion",
+                              "riskPolicyVersion",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "ledger": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "number"
+                              },
+                              "coin": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "orderId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "kind",
+                              "amount",
+                              "coin",
+                              "orderId",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "strategy",
+                        "versions",
+                        "orders",
+                        "ledger"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "One copy strategy: settings versions, orders, ledger",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/orders": {
+      "get": {
+        "operationId": "AdminCopyController_orders",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Comma-separated; `rejected,cancelled` lists the failures with their reason codes",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "intent",
+                  "risk_approved",
+                  "submitting",
+                  "submitted",
+                  "unknown",
+                  "partial",
+                  "filled",
+                  "rejected",
+                  "cancelled"
+                ]
+              }
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "strategyId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "cloid": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "leg": {
+                                "type": "string",
+                                "enum": [
+                                  "open",
+                                  "close",
+                                  "adopt",
+                                  "stop_close"
+                                ]
+                              },
+                              "side": {
+                                "type": "string",
+                                "enum": [
+                                  "B",
+                                  "A"
+                                ]
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "signalPx": {
+                                "type": "number"
+                              },
+                              "signalTime": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "intent",
+                                  "risk_approved",
+                                  "submitting",
+                                  "submitted",
+                                  "unknown",
+                                  "partial",
+                                  "filled",
+                                  "rejected",
+                                  "cancelled"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "filledSize": {
+                                "type": "number"
+                              },
+                              "avgPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "fee": {
+                                "type": "number"
+                              },
+                              "builderFee": {
+                                "type": "number"
+                              },
+                              "strategyVersion": {
+                                "type": "integer"
+                              },
+                              "riskPolicyVersion": {
+                                "type": "integer"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "userEmail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "cloid",
+                              "strategyId",
+                              "userId",
+                              "leaderAddress",
+                              "coin",
+                              "leg",
+                              "side",
+                              "reduceOnly",
+                              "size",
+                              "signalPx",
+                              "signalTime",
+                              "status",
+                              "reason",
+                              "filledSize",
+                              "avgPx",
+                              "fee",
+                              "builderFee",
+                              "strategyVersion",
+                              "riskPolicyVersion",
+                              "createdAt",
+                              "updatedAt",
+                              "userEmail"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List copy orders, newest first",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/exposure": {
+      "get": {
+        "operationId": "AdminCopyController_exposure",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "userEmail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "strategies": {
+                                "type": "integer"
+                              },
+                              "allocated": {
+                                "type": "number"
+                              },
+                              "equity": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "exposureUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "coins": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "coin": {
+                                      "type": "string"
+                                    },
+                                    "longUsd": {
+                                      "type": "number"
+                                    },
+                                    "shortUsd": {
+                                      "type": "number"
+                                    },
+                                    "netUsd": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "coin",
+                                    "longUsd",
+                                    "shortUsd",
+                                    "netUsd"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "control": {
+                                "type": "object",
+                                "properties": {
+                                  "pauseNewRisk": {
+                                    "type": "boolean"
+                                  },
+                                  "reduceOnly": {
+                                    "type": "boolean"
+                                  },
+                                  "revision": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "required": [
+                                  "pauseNewRisk",
+                                  "reduceOnly",
+                                  "revision"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "userId",
+                              "userEmail",
+                              "strategies",
+                              "allocated",
+                              "equity",
+                              "exposureUsd",
+                              "coins",
+                              "control"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pricedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "pricedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Per-user exposure and stop state",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/risk": {
+      "get": {
+        "operationId": "AdminCopyController_risk",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "integer"
+                        },
+                        "limits": {
+                          "type": "object",
+                          "properties": {
+                            "paperStartingBalanceUsd": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 10000000,
+                              "default": 10000
+                            },
+                            "minAllocationUsd": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1000000,
+                              "default": 100
+                            },
+                            "maxAllocationUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 10000000,
+                              "default": 100000
+                            },
+                            "maxStrategiesPerUser": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100,
+                              "default": 10
+                            },
+                            "maxLeverage": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 50,
+                              "default": 10
+                            },
+                            "maxOrderNotionalUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 10000000,
+                              "default": 50000
+                            },
+                            "minOrderNotionalUsd": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 100000,
+                              "default": 10
+                            },
+                            "maxCoinExposureUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 100000000,
+                              "default": 100000
+                            },
+                            "maxUserExposureUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 100000000,
+                              "default": 250000
+                            },
+                            "maxSlippageBps": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 10000,
+                              "default": 50
+                            },
+                            "simulatedSlippageBps": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1000,
+                              "default": 5
+                            },
+                            "takerFeeBps": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "default": 4.5
+                            },
+                            "maxSignalAgeSeconds": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 86400,
+                              "default": 120
+                            },
+                            "maxOrdersPerMinute": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 1000,
+                              "default": 30
+                            },
+                            "allowHip3": {
+                              "type": "boolean",
+                              "default": false
+                            },
+                            "blockedCoins": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 40,
+                                "pattern": "^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$"
+                              },
+                              "maxItems": 200,
+                              "default": []
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "history": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "version": {
+                                "type": "integer"
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdByUserId": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "version",
+                              "reason",
+                              "createdByUserId",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "limits",
+                        "reason",
+                        "createdAt",
+                        "history"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Copy risk policy: current version and history",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      },
+      "put": {
+        "description": "Needs risk.manage. 409 stale_version when expectedVersion is not the current version.\n\nAccess: risk.manage; 409 stale_version",
+        "operationId": "AdminCopyController_putRisk",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutCopyRiskDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "integer"
+                        },
+                        "limits": {
+                          "type": "object",
+                          "properties": {
+                            "paperStartingBalanceUsd": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 10000000,
+                              "default": 10000
+                            },
+                            "minAllocationUsd": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1000000,
+                              "default": 100
+                            },
+                            "maxAllocationUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 10000000,
+                              "default": 100000
+                            },
+                            "maxStrategiesPerUser": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100,
+                              "default": 10
+                            },
+                            "maxLeverage": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 50,
+                              "default": 10
+                            },
+                            "maxOrderNotionalUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 10000000,
+                              "default": 50000
+                            },
+                            "minOrderNotionalUsd": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 100000,
+                              "default": 10
+                            },
+                            "maxCoinExposureUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 100000000,
+                              "default": 100000
+                            },
+                            "maxUserExposureUsd": {
+                              "type": "number",
+                              "minimum": 1,
+                              "maximum": 100000000,
+                              "default": 250000
+                            },
+                            "maxSlippageBps": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 10000,
+                              "default": 50
+                            },
+                            "simulatedSlippageBps": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1000,
+                              "default": 5
+                            },
+                            "takerFeeBps": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "default": 4.5
+                            },
+                            "maxSignalAgeSeconds": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 86400,
+                              "default": 120
+                            },
+                            "maxOrdersPerMinute": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 1000,
+                              "default": 30
+                            },
+                            "allowHip3": {
+                              "type": "boolean",
+                              "default": false
+                            },
+                            "blockedCoins": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 40,
+                                "pattern": "^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$"
+                              },
+                              "maxItems": 200,
+                              "default": []
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "history": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "version": {
+                                "type": "integer"
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdByUserId": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "version",
+                              "reason",
+                              "createdByUserId",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "limits",
+                        "reason",
+                        "createdAt",
+                        "history"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Save a new copy risk policy version",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "risk.manage"
+        ],
+        "x-required-roles": []
+      }
+    },
+    "/admin/copy/controls": {
+      "post": {
+        "description": "pause_new_risk, reduce_only, cancel_pending and close_positions need execution.pause; resume needs execution.resume. 409 stale_revision when expectedRevision is not the scope's current revision.\n\nAccess: copy.read + execution.pause (resume: execution.resume); 409 stale_revision",
+        "operationId": "AdminCopyController_control",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminCopyControlDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        201
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "scope": {
+                          "type": "string",
+                          "enum": [
+                            "platform",
+                            "user"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "integer"
+                        },
+                        "state": {
+                          "type": "object",
+                          "properties": {
+                            "pauseNewRisk": {
+                              "type": "boolean"
+                            },
+                            "reduceOnly": {
+                              "type": "boolean"
+                            },
+                            "revision": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "pauseNewRisk",
+                            "reduceOnly",
+                            "revision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "event": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "string",
+                              "enum": [
+                                "platform",
+                                "user",
+                                "strategy"
+                              ]
+                            },
+                            "scopeId": {
+                              "type": "integer"
+                            },
+                            "command": {
+                              "type": "string",
+                              "enum": [
+                                "pause_new_risk",
+                                "cancel_pending",
+                                "reduce_only",
+                                "close_positions",
+                                "resume"
+                              ]
+                            },
+                            "revision": {
+                              "type": "integer"
+                            },
+                            "actorUserId": {
+                              "anyOf": [
+                                {
+                                  "type": "integer"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "actorEmail": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "result": {
+                              "type": "object",
+                              "properties": {
+                                "cancelledOrders": {
+                                  "type": "integer"
+                                },
+                                "closeOrders": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "cancelledOrders",
+                                "closeOrders"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "scope",
+                            "scopeId",
+                            "command",
+                            "revision",
+                            "actorUserId",
+                            "actorEmail",
+                            "reason",
+                            "result",
+                            "createdAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "scope",
+                        "scopeId",
+                        "state",
+                        "event"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Platform- or user-level stop / resume command",
+        "tags": [
+          "AdminCopy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": []
+      }
     }
   },
   "info": {
@@ -20029,6 +22482,185 @@
         },
         "required": [
           "command"
+        ],
+        "additionalProperties": false
+      },
+      "AdminCopyControlDto": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "platform",
+              "user"
+            ]
+          },
+          "userId": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Required for scope `user`; not allowed for `platform`"
+          },
+          "command": {
+            "type": "string",
+            "enum": [
+              "pause_new_risk",
+              "cancel_pending",
+              "reduce_only",
+              "close_positions",
+              "resume"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500,
+            "description": "Why; kept in the control events and the admin audit log"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "The scope's revision when the page loaded; 409 stale_revision otherwise"
+          }
+        },
+        "required": [
+          "scope",
+          "command",
+          "reason",
+          "expectedRevision"
+        ],
+        "additionalProperties": false
+      },
+      "CopyRiskLimitsDto": {
+        "type": "object",
+        "properties": {
+          "paperStartingBalanceUsd": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000000
+          },
+          "minAllocationUsd": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "maxAllocationUsd": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10000000
+          },
+          "maxStrategiesPerUser": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "maxLeverage": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "maxOrderNotionalUsd": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10000000
+          },
+          "minOrderNotionalUsd": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "maxCoinExposureUsd": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100000000
+          },
+          "maxUserExposureUsd": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100000000
+          },
+          "maxSlippageBps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "simulatedSlippageBps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "takerFeeBps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "maxSignalAgeSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400
+          },
+          "maxOrdersPerMinute": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "allowHip3": {
+            "type": "boolean"
+          },
+          "blockedCoins": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$"
+            },
+            "description": "Hyperliquid perp names (BTC, kPEPE, xyz:TSLA); matched case-insensitively and stored in Hyperliquid's spelling"
+          }
+        },
+        "required": [
+          "paperStartingBalanceUsd",
+          "minAllocationUsd",
+          "maxAllocationUsd",
+          "maxStrategiesPerUser",
+          "maxLeverage",
+          "maxOrderNotionalUsd",
+          "minOrderNotionalUsd",
+          "maxCoinExposureUsd",
+          "maxUserExposureUsd",
+          "maxSlippageBps",
+          "simulatedSlippageBps",
+          "takerFeeBps",
+          "maxSignalAgeSeconds",
+          "maxOrdersPerMinute",
+          "allowHip3",
+          "blockedCoins"
+        ],
+        "additionalProperties": false
+      },
+      "PutCopyRiskDto": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/CopyRiskLimitsDto"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "The version the form was loaded with; 409 stale_version otherwise"
+          }
+        },
+        "required": [
+          "limits",
+          "reason",
+          "expectedVersion"
         ],
         "additionalProperties": false
       },

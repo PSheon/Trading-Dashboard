@@ -134,3 +134,12 @@ Paul 2026-10-01：這一批排進優化；**後台（admin）改由 Claude 接�
 | G | 18、20：`MAX_FAVORITES_PER_USER` 與保留期應為後台設定 | 低 | 移入 settings（保留期預設：快照 90 天、稽核 1 年、佇列 30 天） | 第 3 項（保留與分割）一起做 |
 
 第一輪第 1、4、5 項中原本標「交 Codex」的後台檔案（`admin/revenue.service.ts`、`admin-system.service.ts`、`docs/admin-*.md`、`admin/dto`）也改由 Claude 處理。Sentry 暫不加（Paul）；第 8 項只做 logger 保留 stack 與 `/health`／後台的心跳、積壓警示。
+
+## Added 2026-10-02 (from the review session)
+
+Source: `docs/copydog-visual-diff-2026-10-02.md`. Paul has not set priorities; order below is mine.
+
+- V0. CI browser smoke: `e2e/accessibility.spec.ts:4` times out at 30 s (run 36959364870). Likely the slow trader page; recheck after the page-reserve fix.
+- V1. Trader page on a 503: phone stays a full skeleton with no retry. Retry silently like CopyDog.
+- V2. Copy signals arrived 157 s late on 2026-10-01 19:51Z (ZEC, three opens rejected as `stale_signal`); a 155 s cold analytics job held the budget. Fill confirms for followed leaders must not wait behind background work.
+- V3. Visual items 1–10 of the diff file (positions table clipped at 1440, card fill/border, explore heights and icons, insights table alignment/row height/monospace, chart label overlap, default avatar, smooth sparklines, avatar badge, tab title uses the name, percent format in the chart badge).

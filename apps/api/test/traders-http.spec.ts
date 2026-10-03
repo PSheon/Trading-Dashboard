@@ -180,6 +180,54 @@ describe("public discovery routes over HTTP", () => {
     }
   });
 
+  it("retains completed dex order reads when a later dex times out, so retries make progress", async () => {
+    const address = `0x${"37".repeat(20)}`;
+    const service = app.get(TradersService);
+    service.dexCache.set("dexes", ["", "xyz", "flx"]);
+    info.frontendOpenOrders.mockClear();
+    let interrupted = false;
+    info.frontendOpenOrders.mockImplementation(async (_user: string, dex?: string) => {
+      if (dex === "flx" && !interrupted) {
+        interrupted = true;
+        throw new DOMException("Request deadline", "AbortError");
+      }
+      return [];
+    });
+    try {
+      await request(app.getHttpServer()).get(`/traders/${address}/orders`).expect(503);
+      const retry = await request(app.getHttpServer()).get(`/traders/${address}/orders`).expect(200);
+      expect(retry.body.data.dexes).toEqual(["", "xyz", "flx"]);
+      expect(info.frontendOpenOrders.mock.calls.map((call) => call[1])).toEqual([undefined, "xyz", "flx", "flx"]);
+    } finally {
+      info.frontendOpenOrders.mockResolvedValue([]);
+      service.dexCache.set("dexes", [""]);
+    }
+  });
+
+  it("keeps the oldest dex observation time and expires the combined order snapshot with it", async () => {
+    const address = `0x${"38".repeat(20)}`;
+    const service = app.get(TradersService);
+    const observedAt = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(observedAt);
+    service.dexCache.set("dexes", ["", "xyz"]);
+    service.dexOrdersCache.set(`${address}:`, { orders: [], observedAt });
+    info.frontendOpenOrders.mockClear();
+    info.frontendOpenOrders.mockResolvedValue([]);
+    try {
+      clock.mockReturnValue(observedAt + 29_000);
+      const first = await service.orders(address);
+      expect(first.fetchedAt.getTime()).toBe(observedAt);
+      expect(info.frontendOpenOrders.mock.calls.map((call) => call[1])).toEqual(["xyz"]);
+      clock.mockReturnValue(observedAt + 30_001);
+      const next = await service.orders(address);
+      expect(next.fetchedAt.getTime()).toBe(observedAt + 29_000);
+      expect(info.frontendOpenOrders.mock.calls.map((call) => call[1])).toEqual(["xyz", undefined]);
+    } finally {
+      clock.mockRestore();
+      service.dexCache.set("dexes", [""]);
+    }
+  });
+
   it("sends the profile's total, its parts and the spot balances through the wire contract", async () => {
     const res = await request(app.getHttpServer()).get(`/traders/${A}`).set("x-api-contract", "1").expect(200);
     const parsed = wireTraderProfileSchema.safeParse(res.body.data);

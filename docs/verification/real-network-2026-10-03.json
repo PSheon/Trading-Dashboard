@@ -1,0 +1,683 @@
+{
+  "at": "2026-10-03T13:11:09.435Z",
+  "baseRevision": "fa60dfb",
+  "scope": "read-only actual networks; local isolated PostgreSQL; no wallet signing or transaction submission",
+  "signalRuns": [
+    {
+      "source": "recentActiveTraders",
+      "startedAt": null,
+      "runMs": 90000,
+      "drainMs": 120000,
+      "watched": 10,
+      "markets": 330,
+      "sockets": "2/2",
+      "fills": 269,
+      "actions": 160,
+      "actionsWithAllFillsStored": 160,
+      "liveSignals": 99,
+      "replayedSignals": 61,
+      "latencyMs": {
+        "n": 99,
+        "p50": 1235,
+        "p90": 1391,
+        "max": 5591
+      },
+      "fastLiveSignals": 91,
+      "slowLiveSignals": 8,
+      "unavailableAddressCount": 0,
+      "budgetDuringRun": null
+    },
+    {
+      "source": "recentActiveTraders",
+      "startedAt": "2026-10-03T12:52:10.240Z",
+      "runMs": 90000,
+      "drainMs": 120000,
+      "watched": 10,
+      "markets": 330,
+      "sockets": "2/2",
+      "fills": 475,
+      "actions": 204,
+      "actionsWithAllFillsStored": 204,
+      "liveSignals": 130,
+      "replayedSignals": 74,
+      "latencyMs": {
+        "n": 130,
+        "p50": 1239,
+        "p90": 1374,
+        "max": 5389
+      },
+      "fastLiveSignals": 123,
+      "slowLiveSignals": 7,
+      "unavailableAddressCount": 0,
+      "budgetDuringRun": {
+        "requestsLastMinute": 31,
+        "weightLastMinute": 648,
+        "effectiveBudgetPerMin": 840,
+        "configuredBudgetPerMin": 840,
+        "burstCapacity": 200,
+        "tokensAvailable": 182.66,
+        "reserveTokens": 120,
+        "reserveCapacity": 120,
+        "pageWeightLastMinute": 0,
+        "backgroundFactor": 1,
+        "consumers": {
+          "other": 648
+        },
+        "consumerCaps": {},
+        "lastRateLimitedAt": null
+      }
+    }
+  ],
+  "httpAndProviderProbes": {
+    "at": "2026-10-03T12:47:02.473Z",
+    "results": [
+      {
+        "name": "localWeb",
+        "status": 200,
+        "ms": 91,
+        "frame": "DENY",
+        "nosniff": "nosniff"
+      },
+      {
+        "name": "localReady",
+        "status": 200,
+        "ms": 3,
+        "frame": "DENY",
+        "nosniff": "nosniff"
+      },
+      {
+        "name": "workerReady",
+        "status": 200,
+        "ms": 3,
+        "frame": null,
+        "nosniff": null
+      },
+      {
+        "name": "localMe",
+        "status": 401,
+        "ms": 2,
+        "frame": "DENY",
+        "nosniff": "nosniff"
+      },
+      {
+        "name": "stageWeb",
+        "status": 200,
+        "ms": 709,
+        "frame": "DENY",
+        "nosniff": "nosniff"
+      },
+      {
+        "name": "stageMe",
+        "status": 401,
+        "ms": 172,
+        "frame": "DENY",
+        "nosniff": "nosniff"
+      },
+      {
+        "name": "stageAdmin",
+        "status": 401,
+        "ms": 225,
+        "frame": "DENY",
+        "nosniff": "nosniff"
+      },
+      {
+        "name": "stageDocs",
+        "status": 404,
+        "ms": 96,
+        "frame": "DENY",
+        "nosniff": "nosniff"
+      },
+      {
+        "name": "mainnetMeta",
+        "status": 200,
+        "markets": 234,
+        "ms": 200
+      },
+      {
+        "name": "testnetMeta",
+        "status": 200,
+        "markets": 212,
+        "ms": 446
+      },
+      {
+        "name": "privyActualAuthenticatedAppSettings",
+        "ok": true,
+        "settingKeys": [
+          "logo_url",
+          "icon_url",
+          "terms_and_conditions_url",
+          "privacy_policy_url",
+          "show_wallet_login_first",
+          "allowed_domains",
+          "allowed_native_app_url_schemes",
+          "google_oauth",
+          "twitter_oauth",
+          "discord_oauth",
+          "github_oauth",
+          "tiktok_oauth",
+          "line_oauth",
+          "twitch_oauth",
+          "linkedin_oauth",
+          "apple_oauth",
+          "spotify_oauth",
+          "instagram_oauth",
+          "telegram_oauth",
+          "custom_oauth_providers",
+          "custom_api_url",
+          "twitter_oauth_on_mobile_enabled"
+        ],
+        "appIdentityMatches": true
+      }
+    ]
+  },
+  "browser": [
+    {
+      "origin": "http://localhost:3001",
+      "title": "Hyperliquid 跟單交易 | Orbie",
+      "networkIdle": false,
+      "pageErrors": [],
+      "loginEnabled": true,
+      "googleVisible": true,
+      "privyHttpFailures": 0
+    },
+    {
+      "origin": "https://stage.orbie.fun",
+      "title": "Orbie — orbit the best traders",
+      "networkIdle": true,
+      "pageErrors": [],
+      "loginEnabled": true,
+      "googleVisible": true,
+      "privyHttpFailures": 0
+    }
+  ],
+  "google": [
+    {
+      "origin": "http://localhost:3001",
+      "oauthCalls": [
+        {
+          "host": "auth.privy.io",
+          "path": "/api/v1/oauth/init",
+          "status": 200,
+          "callbackOrigin": "http://localhost:3001",
+          "callbackPath": "/"
+        },
+        {
+          "host": "accounts.google.com",
+          "path": "/o/oauth2/v2/auth",
+          "status": 302
+        }
+      ],
+      "destinations": [
+        {
+          "host": "accounts.google.com",
+          "path": "/v3/signin/identifier"
+        }
+      ],
+      "googleAuthorizationPageReached": true,
+      "loginCompleted": false
+    },
+    {
+      "origin": "https://stage.orbie.fun",
+      "oauthCalls": [
+        {
+          "host": "privy.stage.orbie.fun",
+          "path": "/api/v1/oauth/init",
+          "status": 200,
+          "callbackOrigin": "https://stage.orbie.fun",
+          "callbackPath": "/"
+        },
+        {
+          "host": "accounts.google.com",
+          "path": "/o/oauth2/v2/auth",
+          "status": 302
+        }
+      ],
+      "destinations": [
+        {
+          "host": "accounts.google.com",
+          "path": "/v3/signin/identifier"
+        }
+      ],
+      "googleAuthorizationPageReached": true,
+      "loginCompleted": false
+    }
+  ],
+  "stageConfiguration": {
+    "at": "2026-10-03T12:52:51.518Z",
+    "stagePrivyFrontendBackendMatch": true,
+    "stageCredentialsConfigured": true,
+    "explicitCopyMode": null,
+    "explicitWalletNetwork": null,
+    "authenticatedPrivySettings": true,
+    "googleEnabled": true,
+    "stageOriginAllowed": true
+  },
+  "deployments": [
+    {
+      "service": "api",
+      "deployment": "5f18adce-f34d-46e9-b229-c18808f0bb3a",
+      "status": "SUCCESS",
+      "createdAt": "2026-10-02T13:50:46.506Z",
+      "commit": null
+    },
+    {
+      "service": "worker",
+      "deployment": "2f07f2ad-293b-4f71-8b4c-02eca6a77b1d",
+      "status": "SUCCESS",
+      "createdAt": "2026-10-02T12:42:10.733Z",
+      "commit": null
+    },
+    {
+      "service": "web",
+      "deployment": "db976b34-45f1-4b5f-a357-9fe40f68be3d",
+      "status": "SUCCESS",
+      "createdAt": "2026-10-02T11:57:37.020Z",
+      "commit": null
+    }
+  ],
+  "exchangeBoundaryReads": {
+    "at": "2026-10-03T12:49:32.011Z",
+    "results": [
+      {
+        "test": "real userRole self signer proof",
+        "passed": true,
+        "weights": [
+          60
+        ],
+        "ageMs": 185
+      },
+      {
+        "test": "real extraAgents refuses unapproved signer",
+        "passed": true,
+        "code": "exchange_agent_not_approved",
+        "weights": [
+          60,
+          20
+        ]
+      },
+      {
+        "test": "real testnet WebSocket allMids",
+        "passed": true,
+        "subscriptionAcknowledged": true,
+        "pricedMarkets": 3280
+      },
+      {
+        "test": "local/traders?limit=5",
+        "status": 200,
+        "ms": 34,
+        "shape": "object"
+      },
+      {
+        "test": "local/insights/crowd",
+        "status": 200,
+        "ms": 10,
+        "shape": "object"
+      },
+      {
+        "test": "stage/traders?limit=5",
+        "status": 200,
+        "ms": 415,
+        "shape": "object"
+      },
+      {
+        "test": "stage/insights/crowd",
+        "status": 200,
+        "ms": 322,
+        "shape": "object"
+      }
+    ]
+  },
+  "orderDiagnosis": {
+    "at": "2026-10-03T13:00:13.400Z",
+    "activeDexCount": 10,
+    "accountMode": "unifiedAccount",
+    "fullOrderWeight": 200,
+    "mainDex": {
+      "status": 200,
+      "ms": 77,
+      "count": 0
+    },
+    "oneHip3Dex": {
+      "status": 200,
+      "ms": 66,
+      "count": 2
+    },
+    "metadataStatus": 200
+  },
+  "publicDataAfterLocalFix": {
+    "at": "2026-10-03T13:07:54.263Z",
+    "retryBusy": true,
+    "results": [
+      {
+        "site": "local",
+        "route": "/health",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "feedConnected": true,
+        "retryAfter": null,
+        "ms": 34,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 5,
+        "retryAfter": null,
+        "ms": 30,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 6808,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/portfolio",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 242,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/activity",
+        "status": 503,
+        "envelopeValid": true,
+        "contractValid": false,
+        "errorCode": "busy",
+        "retryAfter": "5",
+        "ms": 12006,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/activity",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 5119,
+        "attempt": 2
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/fills",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 50,
+        "retryAfter": null,
+        "ms": 52,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/orders",
+        "status": 503,
+        "envelopeValid": true,
+        "contractValid": false,
+        "errorCode": "busy",
+        "retryAfter": "5",
+        "ms": 12004,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/orders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 199,
+        "attempt": 2
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/twap",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 572,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/transfers",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 53,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/health",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "feedConnected": true,
+        "retryAfter": null,
+        "ms": 615,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 5,
+        "retryAfter": null,
+        "ms": 307,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 483,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/portfolio",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 184,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/activity",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 715,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/fills",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 50,
+        "retryAfter": null,
+        "ms": 156,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/orders",
+        "status": 503,
+        "envelopeValid": true,
+        "contractValid": false,
+        "errorCode": "busy",
+        "retryAfter": "5",
+        "ms": 12122,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/orders",
+        "status": 503,
+        "envelopeValid": true,
+        "contractValid": false,
+        "errorCode": "busy",
+        "retryAfter": "5",
+        "ms": 12275,
+        "attempt": 2
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/orders",
+        "status": 503,
+        "envelopeValid": true,
+        "contractValid": false,
+        "errorCode": "busy",
+        "retryAfter": "5",
+        "ms": 12289,
+        "attempt": 3
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/twap",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 1142,
+        "attempt": 1
+      },
+      {
+        "site": "stage",
+        "route": "/traders/:address/transfers",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 162,
+        "attempt": 1
+      }
+    ]
+  },
+  "publicDataLocalFinal": {
+    "at": "2026-10-03T13:09:11.175Z",
+    "retryBusy": true,
+    "results": [
+      {
+        "site": "local",
+        "route": "/health",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "feedConnected": true,
+        "retryAfter": null,
+        "ms": 34,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 5,
+        "retryAfter": null,
+        "ms": 21,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 9432,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/portfolio",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 469,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/activity",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 43,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/fills",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 50,
+        "retryAfter": null,
+        "ms": 43,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/orders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 10485,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/twap",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 2901,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/transfers",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 3,
+        "attempt": 1
+      }
+    ]
+  }
+}

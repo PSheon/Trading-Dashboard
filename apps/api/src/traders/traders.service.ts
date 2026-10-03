@@ -23,7 +23,7 @@ import { AnalysisHistoryService } from "./analysis-history.service.js";
 import { TradersRepository } from "./traders.repository.js";
 import { HyperliquidInfoClient, LEDGER_MAX_ITEMS, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
 import { budgetConsumer, PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
-import type { HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
+import type { HlFrontendOpenOrder, HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { activeTwaps, mergeOrders, toTraderTransfer } from "./trader-tabs.mappers.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
@@ -131,6 +131,9 @@ export class TradersService {
   /** Staked HYPE per address, in HYPE; valued with the live price book. */
   readonly stakingCache = new TtlCache<number>(STAKING_TTL_MS);
   readonly ordersCache = new TtlCache<TraderOrdersResponse>(ORDERS_TTL_MS);
+  /** Preserve completed dex reads across page deadlines. Without this, a
+   * unified account's 200-weight scan restarts on every 12-second retry. */
+  readonly dexOrdersCache = new TtlCache<{ orders: HlFrontendOpenOrder[]; observedAt: number }>(ORDERS_TTL_MS);
   readonly twapCache = new TtlCache<TraderTwapsResponse>(TWAP_TTL_MS);
   readonly transfersCache = new TtlCache<TraderTransfersResponse>(TRANSFERS_TTL_MS);
   readonly spotPrices: SpotPriceService;
@@ -588,10 +591,16 @@ export class TradersService {
     return this.ordersCache.get(address, async () => {
       const dexes = await this.orderDexes(address);
       const lists = await Promise.all(
-        dexes.map((dex) => this.info.frontendOpenOrders(address, dex || undefined, LANE, PAGE_RANK.fills)),
+        dexes.map((dex) => this.dexOrdersCache.get(`${address}:${dex}`, async () => ({
+          orders: await this.info.frontendOpenOrders(address, dex || undefined, LANE, PAGE_RANK.fills),
+          observedAt: Date.now(),
+        }), ORDERS_TTL_MS, PAGE_RANK.fills)),
       );
-      return { orders: mergeOrders(lists), dexes, fetchedAt: new Date() };
-    });
+      // Retrying must not relabel an earlier dex snapshot as freshly fetched
+      // or extend its 30-second cache lifetime by another aggregate TTL.
+      const observedAt = Math.min(...lists.map((list) => list.observedAt));
+      return { orders: mergeOrders(lists.map((list) => list.orders)), dexes, fetchedAt: new Date(observedAt) };
+    }, (value) => Math.max(0, value.fetchedAt.getTime() + ORDERS_TTL_MS - Date.now()), PAGE_RANK.fills);
   }
 
   private async orderDexes(address: string): Promise<string[]> {

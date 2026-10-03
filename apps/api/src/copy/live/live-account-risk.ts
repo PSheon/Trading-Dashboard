@@ -6,6 +6,7 @@ import { assertMarketIdentity, LIVE_DEX_NAME, LIVE_PERP_COIN, marketIdentityKey,
 import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrderAction, type LiveOrderIntent } from './live-order.js';
 import { effectiveLeverage, strategyExposureCap, symbolRefusal, type ControlFlags } from '../copy-risk.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import { ceilDecimalProduct } from './live-risk-rounding.js';
 
 export interface LiveRiskIdentity {
   readonly accountId: string; readonly userId: number; readonly strategyId: number;
@@ -81,13 +82,9 @@ function sameMarket(a: LiveMarketIdentity, b: LiveMarketIdentity): void {
   try { requireProof(isDeepStrictEqual(marketIdentityKey(a), marketIdentityKey(b)), 'live_risk_market'); }
   catch { throw new LiveBoundaryError('live_risk_market'); }
 }
-const monetaryQuantum = Dec.from(`0.${'0'.repeat(USD_DP - 1)}1`);
-function reserve(value: Dec): Dec {
-  const down = value.floor(USD_DP); return down.eq(value) ? down : down.add(monetaryQuantum);
-}
 function feeReserve(notional: Dec, bps: Dec): Dec {
   if (!notional.isPositive || !bps.isPositive) return Dec.ZERO;
-  return Dec.max(monetaryQuantum, reserve(notional.mul(bps).div(10000)));
+  return ceilDecimalProduct([notional, bps], [10000], USD_DP);
 }
 
 /** Pure assessment only. These proofs must come from authoritative adapters under
@@ -148,7 +145,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
   sameMarket(market, input.quote.market); fresh(input.quote.market.observedAt, now); fresh(input.quote.observedAt, now); digest(input.quote.sourceDigest);
   const mid = money(input.quote.midPrice), mark = money(input.quote.markPrice), size = money(intent.size), px = money(intent.limitPrice);
   requireProof(mid.isPositive && mark.isPositive, 'live_risk_evidence_invalid');
-  const riskPrice = Dec.max(mid, mark, px), notional = size.mul(riskPrice), key = executionKey(intent), fingerprint = intentFingerprint(intent, action);
+  const riskPrice = Dec.max(mid, mark, px), notional = ceilDecimalProduct([size, riskPrice]), key = executionKey(intent), fingerprint = intentFingerprint(intent, built);
   const dexByName = new Map(snapshot.dexes.map(d => [d.dex, d]));
   const dex = dexByName.get(market.dex);
   requireProof(dex && dex.perpDexIndex === market.perpDexIndex && dex.supported === true && dex.collateralCoin === 'USDC' &&
@@ -240,7 +237,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
       (coin !== market.coin || proof.maxLeverage === market.maxLeverage), 'live_risk_leverage'); return proof.value;
   }
   const currentLeverage = leverage(market.coin, market.asset, market.dex);
-  const requiredMargin = intent.reduceOnly ? Dec.ZERO : reserve(notional.div(currentLeverage));
+  const requiredMargin = intent.reduceOnly ? Dec.ZERO : ceilDecimalProduct([notional], [currentLeverage], USD_DP);
   requireProof(reservations.complete === true && reservations.accountId === id.accountId && reservations.userId === id.userId &&
     reservations.network === 'testnet' && address(reservations.accountAddress) === address(id.accountAddress) && reservations.others.length <= 5000, 'live_risk_reservation');
   fresh(reservations.checkedAt, now); digest(reservations.sourceDigest);
@@ -251,10 +248,13 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
       r.market && integer(row.strategyVersion) && integer(row.policyVersion) && integer(row.authorizationVersion) &&
       integer(row.expiresAt, 0) && ['held', 'unknown', 'resting'].includes(row.state) &&
       (row.exchangeOrderId === null || typeof row.exchangeOrderId === 'string' && /^\d+$/.test(row.exchangeOrderId)), 'live_risk_reservation');
-    try { requireProof(row.key === executionKey(r) && row.fingerprint === intentFingerprint(r, row.action) &&
-      isDeepStrictEqual(buildOrderAction(r), row.action), 'live_risk_reservation'); } catch { throw new LiveBoundaryError('live_risk_reservation'); }
+    try {
+      const canonicalAction = buildOrderAction(r);
+      requireProof(row.key === executionKey(r) && isDeepStrictEqual(canonicalAction, row.action) &&
+        row.fingerprint === intentFingerprint(r, canonicalAction), 'live_risk_reservation');
+    } catch { throw new LiveBoundaryError('live_risk_reservation'); }
     observedIdentity(r.market.coin, r.market.dex, r.asset);
-    requireProof(money(row.notionalUsd).gte(money(r.size).mul(money(r.limitPrice))), 'live_risk_reservation_bound');
+    requireProof(money(row.notionalUsd).gte(ceilDecimalProduct([money(r.size), money(r.limitPrice)])), 'live_risk_reservation_bound');
     money(row.marginUsd); money(row.feeBufferUsd);
     requireProof(row.state !== 'held' || row.expiresAt > now, 'live_risk_reservation');
     if (own) requireProof(row.key === key && row.fingerprint === fingerprint && row.state === 'held' && row.exchangeOrderId === null &&
@@ -280,20 +280,20 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
       continue; // Actual remaining quantities below already represent this liability.
     }
     if (r.reduceOnly) { if (m.coin === market.coin) pendingReduce = pendingReduce.add(money(r.size)); continue; }
-    const value = Dec.max(money(row.notionalUsd), money(r.size).mul(m.coin === market.coin ? riskPrice : money(r.limitPrice)));
+    const value = Dec.max(money(row.notionalUsd), ceilDecimalProduct([money(r.size), m.coin === market.coin ? riskPrice : money(r.limitPrice)]));
     pendingExposure = pendingExposure.add(value); if (m.coin === market.coin) pendingCoin = pendingCoin.add(value);
     if (m.dex === market.dex) {
-      pendingMargin = pendingMargin.add(Dec.max(money(row.marginUsd), reserve(value.div(leverage(m.coin, r.asset, m.dex)))));
+      pendingMargin = pendingMargin.add(Dec.max(money(row.marginUsd), ceilDecimalProduct([value], [leverage(m.coin, r.asset, m.dex)], USD_DP)));
       pendingFees = pendingFees.add(Dec.max(money(row.feeBufferUsd), feeReserve(value, feeBps.add(Dec.from(r.builder?.feeTenthsBps ?? 0).div(10)))));
     }
   }
   let restingMargin = Dec.ZERO, restingFees = Dec.ZERO, openingExposure = Dec.ZERO, openingCoin = Dec.ZERO;
   for (const o of orders) {
     if (o.reduceOnly) { if (o.coin === market.coin) pendingReduce = pendingReduce.add(money(o.remainingSize)); continue; }
-    const value = o.coin === market.coin ? money(o.remainingSize).mul(Dec.max(riskPrice, money(o.limitPrice))) : money(o.notionalUsd);
+    const value = o.coin === market.coin ? ceilDecimalProduct([money(o.remainingSize), Dec.max(riskPrice, money(o.limitPrice))]) : money(o.notionalUsd);
     openingExposure = openingExposure.add(value); if (o.coin === market.coin) openingCoin = openingCoin.add(value);
     if (o.dex === market.dex) {
-      restingMargin = restingMargin.add(reserve(value.div(leverage(o.coin, o.asset, o.dex))));
+      restingMargin = restingMargin.add(ceilDecimalProduct([value], [leverage(o.coin, o.asset, o.dex)], USD_DP));
       restingFees = restingFees.add(feeReserve(value, restingFeeRate));
     }
   }
@@ -328,8 +328,8 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
   fresh(user.checkedAt, now); digest(user.sourceDigest);
   const external = money(user.otherAccountsExposureUsd), externalCoin = money(user.otherAccountsCoinExposureUsd);
   requireProof(externalCoin.lte(external), 'live_risk_account_totals');
-  const existing = Dec.sum(positions.map(p => p.coin === market.coin ? Dec.max(money(p.positionValue), money(p.size, true).abs().mul(riskPrice)) : money(p.positionValue)));
-  const currentCoin = actual ? Dec.max(money(actual.positionValue), actualSize.abs().mul(riskPrice)) : Dec.ZERO;
+  const existing = Dec.sum(positions.map(p => p.coin === market.coin ? Dec.max(money(p.positionValue), ceilDecimalProduct([money(p.size, true).abs(), riskPrice])) : money(p.positionValue)));
+  const currentCoin = actual ? Dec.max(money(actual.positionValue), ceilDecimalProduct([actualSize.abs(), riskPrice])) : Dec.ZERO;
   const projected = existing.add(openingExposure).add(pendingExposure).add(intent.reduceOnly ? 0 : notional);
   const userProjected = external.add(projected), coinProjected = externalCoin.add(currentCoin).add(openingCoin).add(pendingCoin).add(intent.reduceOnly ? 0 : notional);
   if (!intent.reduceOnly) {

@@ -60,6 +60,12 @@ Order signing adapter 使用實際安裝的 Privy SDK，以每次請求獨立 cl
 
 入金與提款的reserve、claim、cancel、attempt、restore及結果狀態寫入也已加入相同user鎖；scan排程與進度只修改核對metadata。等待後重新讀取啟用狀態與身分，入金credit仍核對scan revision並允許停用後的真實晚到收款。新增16個實際等待／NOWAIT／caller mutation案例；四個受影響PostgreSQL檔案72項通過，型別與scoped lint通過，獨立審查未發現Critical／Important。這些writer協定仍不代表live worker已啟用。
 
+資金保留新增獨立0042資料表與原始risk session的SQL介面。Read使用readonly repeatable-read，拒絕繼承未結束的transaction；回滾失敗、不明狀態或未await的transaction不會被放回pool。精確BigInt乘除向上取整保留所有正餘數，避免18位中間四捨五入令USDC保留不足。Reservation綁定完整action／版本／授權與journal，原始成功hold session之外無法把submitting視為仍可送出的held；未知／已嘗試／terminal label不因到期而释放。僅過期且仍prepared、無attempt／oid的reservation可以釋放；真正成交後的settlement producer仍未接通。
+
+中央訂單fingerprint現在先核對action全部數值，再從canonical action計算；有效舊hash不變，真實PostgreSQL JSONB journal已通過sign／submit兩階段gate。交易回覆的nonce已使用、未知錯誤保留unknown且只查原訂單，不重簽或重送；排程取消及其他terminal status按官方有限清單辨識，未審查的新狀態保持不確定。
+
+這輪root獨立focused八檔250項及executor31項通過；完整API在開發中首次2434項含四個正在修復的RED案例，穩定版本重跑157檔2436項全數通過。API型別／全域oxlint／shared ESLint／建置／OpenAPI一致性通過。Local PG先建立1060427139-byte、0600且catalog可讀的新備份，再使用既有migration鎖套用0042並確認表存在。尚未啟用實際worker或進行任何使用者簽署／交易／轉帳；這些驗證不代表全部Copydog功能已完成。
+
 歷史成交 API 有最新 10,000 fills 與時間查詢筆數限制。空回應／短頁面／operational scanned-through 都不是 90 天完整歷史的證明。報表始終回傳 `historicalCompleteness: unproven`，缺口不填零。
 
 全 venue WS 查詢有 subscription、in-flight、每分鐘訊息與連線額度。重用固定 testnet connection 並限制批次可完成低頻 snapshot；高頻交易仍必須符合額度與最老證據期限，不能透過使用舊 snapshot 宣稱即時風險完整。

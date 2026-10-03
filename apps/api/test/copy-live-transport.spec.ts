@@ -55,6 +55,19 @@ function statusReply(status = "open", overrides = {}) {
   return { status: "order", order: { status, statusTimestamp: now, order: { coin: 'BTC', reduceOnly: false, tif: 'Ioc', cloid: intent.cloid, side: "B", origSz: "0.01", sz: "0.01", limitPx: "65000", oid: 10, ...overrides } } };
 }
 
+describe('authoritative finite order-status classification', () => {
+  it('reconciles documented scheduledCancel as a terminal cancellation', async () => {
+    const s = setup(); s.fetcher.mockResolvedValue(reply(statusReply('scheduledCancel')));
+    expect(await s.transport.query(record)).toEqual({ state: 'cancelled', exchangeOrderId: '10', filledSize: '0' });
+    expect(s.signTypedData).not.toHaveBeenCalled();
+    expect(JSON.parse(String(s.fetcher.mock.calls[0]![1]?.body))).toEqual({ type: 'orderStatus', user: grant.accountAddress, oid: intent.cloid });
+  });
+  it.each(['inventedCanceled', 'inventedRejected'])('refuses undocumented terminal-looking %s status', async status => {
+    const s = setup(); s.fetcher.mockResolvedValue(reply(statusReply(status)));
+    await expect(s.transport.query(record)).rejects.toThrow('unrecognized_exchange_order_status');
+  });
+});
+
 function realApprovalFixture(clock = () => now, validUntil: number | null = now + 100_000) {
   let approved = true;
   const fetcher = vi.fn<typeof fetch>(async (_url, options) => {
@@ -66,6 +79,37 @@ function realApprovalFixture(clock = () => now, validUntil: number | null = now 
 }
 
 describe("real approval checks at signing and submission boundaries (offline)", () => {
+  it.each(['Nonce already used.', 'Order must have minimum value of $10.'])('classifies per-order error %s only with documented placement evidence', async error => {
+    const s = setup(), signed = await s.transport.sign(record, intent, lease);
+    const body = (error: string) => ({ status: 'ok', response: { type: 'order', data: { statuses: [{ error }] } } });
+    s.fetcher.mockResolvedValueOnce(reply(body(error)));
+    const pending = s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease);
+    if (error === 'Nonce already used.') await expect(pending).rejects.toThrow('exchange_submission_ambiguous');
+    else expect(await pending).toEqual({ state: 'rejected', reason: 'exchange_rejected_order' });
+    expect(s.fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each(['Nonce already used.', 'Unrecognized server result.'])('retains ambiguous top-level exchange error %s instead of claiming rejection', async response => {
+    const s = setup(), signed = await s.transport.sign(record, intent, lease);
+    s.fetcher.mockResolvedValue(reply({ status: 'err', response }));
+    await expect(s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).rejects.toThrow('exchange_submission_ambiguous');
+    expect(s.fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each(['Nonce already used.', 'Unrecognized server result.'])('reconciles %s after a durable unknown without another signature or POST', async response => {
+    const s = setup(); let stored: LiveExecutionRecord | null = null;
+    const journal: LiveExecutionJournal = {
+      withOrderLock: async (_key, work) => work(lease), get: async () => stored,
+      prepare: async input => stored ??= { key: input.key, fingerprint: input.fingerprint, authorization: input.authorization,
+        action: input.action, nonce: input.now, expiresAfter: input.now + 60000, state: 'prepared', createdAt: input.now, updatedAt: input.now },
+      save: async value => { stored = value; },
+    };
+    const executor = new LiveOrderExecutor(s.auth, journal, s.transport, gate, () => now);
+    s.fetcher.mockResolvedValueOnce(reply({ status: 'err', response }));
+    expect((await executor.execute(intent)).state).toBe('unknown');
+    s.fetcher.mockResolvedValueOnce(reply(statusReply('filled')));
+    expect((await executor.execute(intent)).state).toBe('filled');
+    expect(s.signTypedData).toHaveBeenCalledTimes(1);
+    expect(s.fetcher.mock.calls.map(([, options]) => JSON.parse(String(options?.body)).type)).toEqual([undefined, 'orderStatus']);
+  });
   it.each(['foreign signer', 'different connection hash'])('rejects a validly encoded provider signature for %s', async scenario => {
     const s = setup();
     s.signTypedData.mockImplementation(async (_id, input) => {

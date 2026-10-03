@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { Dec } from "../../common/decimal/dec.js";
 import { LiveBoundaryError, address, type WalletRequest } from "./wallet-authorization.js";
 import { assertMarketIdentity, marketIdentityKey, type LiveMarketIdentity } from './live-market-resolver.js';
@@ -67,7 +68,11 @@ export function executionKey(intent: Pick<LiveOrderIntent, "network" | "accountA
 }
 
 export function intentFingerprint(intent: LiveOrderIntent, action: HyperliquidOrderAction): string {
+  // PostgreSQL JSONB may reorder object keys. Bind exact action values first,
+  // then hash the same canonical wire representation used during preparation.
+  const canonicalAction = buildOrderAction(intent);
+  if (!isDeepStrictEqual(action, canonicalAction)) throw new LiveBoundaryError('live_risk_record_mismatch');
   return createHash("sha256").update(JSON.stringify({ authorizationId: intent.authorizationId, userId: intent.userId,
-    strategyId: intent.strategyId, walletId: intent.walletId, network: intent.network, account: address(intent.accountAddress), action,
+    strategyId: intent.strategyId, walletId: intent.walletId, network: intent.network, account: address(intent.accountAddress), action: canonicalAction,
     ...(intent.market ? { market: marketIdentityKey(intent.market) } : {}) })).digest("hex");
 }

@@ -41,6 +41,23 @@ it('does not count its own reservation twice against exposure or collateral', ()
   const f = edit(fixture(), v => { v.strategy.settings.maxTotalExposureUsd = 150; v.reservations.own.marginUsd = '99'; });
   expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, projectedStrategyExposureUsd: '100', availableCollateralUsd: '100' });
 });
+function reorderedJson(value: any): any {
+  if (Array.isArray(value)) return value.map(reorderedJson);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).reverse().map(([key, child]) => [key, reorderedJson(child)]));
+  return value;
+}
+it.each(['own', 'other'] as const)('validates %s reservation action values after JSONB changes object key order', kind => {
+  const base = fixture(), other = reservation({ ...base.intent, cloid: `0x${'cd'.repeat(16)}` });
+  const f = edit(base, v => {
+    v.action = reorderedJson(v.action);
+    if (kind === 'own') v.reservations.own.action = reorderedJson(v.reservations.own.action);
+    else v.reservations.others = [{ ...other, action: reorderedJson(other.action) }];
+  });
+  expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, fingerprint: base.reservations.own.fingerprint,
+    projectedStrategyExposureUsd: kind === 'own' ? '100' : '200', availableCollateralUsd: kind === 'own' ? '100' : '89.9' });
+  const changed = edit(f, v => { (kind === 'own' ? v.reservations.own : v.reservations.others[0]).action.orders[0].s = '2'; });
+  expect(assessLiveAccountRisk(changed)).toEqual({ ok: false, reason: 'live_risk_reservation' });
+});
 it.each([
   ['quarantined', (v: any) => { v.accountSource.quarantined = true; }, 'live_risk_quarantined'],
   ['incomplete', (v: any) => { v.accountSource.snapshot.coverage.complete = false; }, 'live_risk_coverage_incomplete'],
@@ -213,6 +230,47 @@ it('rounds conservative margin and fee reserves upward rather than losing moneta
     v.fees.makerFeeBps = '-1'; v.fees.takerFeeBps = '0'; v.fees.extraRiskBufferBps = '0.00001'; v.policy.limits.takerFeeBps = 0;
   });
   expect(assessLiveAccountRisk(dust)).toMatchObject({ ok: true, feeBufferUsd: '0.00000001' });
+});
+function withPreciseQuote(f = fixture()) {
+  return edit(f, v => {
+    v.quote.midPrice = '100.000000000000000001'; v.quote.markPrice = v.quote.midPrice;
+    Object.assign(v.reservations.own, { notionalUsd: '100.000000000000000001', marginUsd: '10.00000001', feeBufferUsd: '0.10000001' });
+  });
+}
+it('retains positive quotient remainders until the final margin and fee ceilings', () => {
+  const f = withPreciseQuote();
+  expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, requiredMarginUsd: '10.00000001', feeBufferUsd: '0.10000001' });
+  expect(assessLiveAccountRisk(edit(f, v => {
+    v.accountSource.snapshot.withdrawable = '10.1'; v.accountSource.snapshot.dexes[0].withdrawable = '10.1';
+  }))).toEqual({ ok: false, reason: 'available_collateral' });
+});
+it.each(['marginUsd', 'feeBufferUsd'] as const)('rejects own %s bounds whose positive remainder disappeared at intermediate precision', field => {
+  const f = edit(withPreciseQuote(), v => { v.reservations.own[field] = field === 'marginUsd' ? '10' : '0.1'; });
+  expect(assessLiveAccountRisk(f)).toEqual({ ok: false, reason: 'live_risk_reservation_bound' });
+});
+it('ceilings a fractional mark-price product before exposure and collateral comparisons', () => {
+  const f = edit(withPreciseQuote(updateIntent(fixture(), { size: '0.4' })), v => {
+    Object.assign(v.reservations.own, { notionalUsd: '40.000000000000000001', marginUsd: '4.00000001', feeBufferUsd: '0.04000001' });
+  });
+  expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, notionalUsd: '40.000000000000000001',
+    requiredMarginUsd: '4.00000001', feeBufferUsd: '0.04000001', projectedStrategyExposureUsd: '40.000000000000000001' });
+  expect(assessLiveAccountRisk(edit(f, v => { v.reservations.own.notionalUsd = '40'; })))
+    .toEqual({ ok: false, reason: 'live_risk_reservation_bound' });
+});
+it.each(['pending', 'resting'] as const)('keeps exact positive remainders in additional %s liabilities', kind => {
+  let f = withPreciseQuote();
+  if (kind === 'resting') f = withResting(f);
+  else {
+    const other = reservation({ ...f.intent, cloid: `0x${'cd'.repeat(16)}` });
+    f = edit(f, v => { v.reservations.others = [other]; });
+  }
+  const amount = kind === 'pending' ? '20.20000002' : '20.30000002';
+  f = edit(f, v => { v.accountSource.snapshot.withdrawable = amount; v.accountSource.snapshot.dexes[0].withdrawable = amount; });
+  expect(assessLiveAccountRisk(f)).toEqual({ ok: false, reason: 'available_collateral' });
+});
+it('conservatively ceilings mark-price exposure of an actual fractional position', () => {
+  const f = withPreciseQuote(withPosition(fixture(), '0.4', '40', '4'));
+  expect(assessLiveAccountRisk(f)).toMatchObject({ ok: true, projectedStrategyExposureUsd: '140.000000000000000002' });
 });
 it.each([
   ['coin', (v: any) => { v.userExposureProof.coin = 'ETH'; }],

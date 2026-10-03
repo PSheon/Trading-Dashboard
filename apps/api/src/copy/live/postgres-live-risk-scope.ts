@@ -1,4 +1,8 @@
 import type { Pool } from 'pg';
+import * as schema from '@trading-dashboard/shared/database';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import type { DbExecutor, DbTransaction } from '../../db/unit-of-work.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 
 export interface LiveRiskIdentity {
@@ -13,6 +17,14 @@ export interface LiveRiskScope {
   assertHeld(): Promise<void>;
   /** Synchronous boundary check tied to this scope, never a successor scope. */
   assertFresh(): void;
+}
+/** Local DAL operations on the original lock connection. Callbacks must only
+ * perform SQL; provider I/O belongs outside these callbacks and transactions.
+ * Repositories recheck scope after each SQL await and validate immutable rows. */
+export interface LiveRiskDatabaseSession {
+  readonly scope: LiveRiskScope;
+  read<T>(work: (db: DbExecutor) => Promise<T>): Promise<T>;
+  transaction<T>(work: (tx: DbTransaction) => Promise<T>): Promise<T>;
 }
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 function capture(value: LiveRiskIdentity): Readonly<LiveRiskIdentity> {
@@ -29,7 +41,7 @@ function capture(value: LiveRiskIdentity): Readonly<LiveRiskIdentity> {
  * a proof producer must still load current ownership and complete liabilities. */
 export class PostgresLiveRiskScope {
   constructor(private readonly pool: Pool, private readonly now = Date.now) {}
-  async run<T>(rawIdentity: LiveRiskIdentity, work: (scope: LiveRiskScope) => Promise<T>): Promise<T> {
+  async run<T>(rawIdentity: LiveRiskIdentity, work: (scope: LiveRiskScope, session: LiveRiskDatabaseSession) => Promise<T>): Promise<T> {
     const identity = capture(rawIdentity);
     // Match the existing transaction writer locks exactly. User limits and
     // controls are global across networks, so this lock deliberately is too.
@@ -43,6 +55,7 @@ export class PostgresLiveRiskScope {
     const client = await this.pool.connect();
     const acquired: typeof locks = [];
     let held = false, lost = false, checkedAt = NaN;
+    let databaseBusy = false, activeOperation: Promise<unknown> | undefined;
     const onError = () => { lost = true; };
     client.on('error', onError);
     client.on('end', onError);
@@ -73,7 +86,50 @@ export class PostgresLiveRiskScope {
         fail('live_risk_serialization_lost');
       }
     } });
+    const database = drizzle(client, { schema });
+    const local = <R>(callback: () => Promise<R>): Promise<R> => {
+      try {
+        assertFresh();
+        if (databaseBusy) fail('live_risk_database_busy');
+        if (client.getTransactionStatus() !== 'I') { lost = true; fail('live_risk_database_dirty'); }
+      } catch (error) { return Promise.reject(error); }
+      databaseBusy = true;
+      const operation = (async () => {
+        try {
+          await scope.assertHeld();
+          const result = await callback();
+          if (client.getTransactionStatus() !== 'I') { lost = true; fail('live_risk_database_dirty'); }
+          await scope.assertHeld();
+          return result;
+        } catch (error) {
+          // A failed rollback or ambiguous transaction completion cannot be
+          // repaired by catching the callback error and reusing this scope.
+          if (client.getTransactionStatus() !== 'I') lost = true;
+          throw error;
+        } finally { databaseBusy = false; }
+      })();
+      activeOperation = operation;
+      // Retain the operation for scope teardown, including a mistakenly
+      // unawaited callback. Its caller still receives the original rejection.
+      void operation.catch(() => {}).finally(() => { if (activeOperation === operation) activeOperation = undefined; });
+      return operation;
+    };
+    const scopedTransaction = <R>(callback: (tx: DbTransaction) => Promise<R>, readOnly = false) => local(() => database.transaction(async tx => {
+        await tx.execute(sql`set local statement_timeout = '5000ms'`);
+        await tx.execute(sql`set local idle_in_transaction_session_timeout = '5000ms'`);
+        await scope.assertHeld();
+        const result = await callback(tx);
+        // A released/ended original scope must roll back before COMMIT.
+        await scope.assertHeld();
+        return result;
+      }, readOnly ? { isolationLevel: 'repeatable read', accessMode: 'read only' } : undefined));
+    const session: LiveRiskDatabaseSession = Object.freeze({ scope,
+      read: <R>(callback: (db: DbExecutor) => Promise<R>) => scopedTransaction(callback, true),
+      transaction: scopedTransaction,
+    });
     try {
+      // Never adopt or commit another caller's unfinished SQL transaction.
+      if (client.getTransactionStatus() !== 'I') { lost = true; fail('live_risk_database_dirty'); }
       // Stable policy -> platform -> user -> account order. Try rather than wait: no provider budget
       // or prepared order can be consumed by a concurrent owner of this scope.
       for (const lock of locks) {
@@ -83,21 +139,38 @@ export class PostgresLiveRiskScope {
       }
       held = true;
       await scope.assertHeld();
-      return await work(scope);
+      const result = await work(scope, session);
+      if (databaseBusy) fail('live_risk_database_unawaited');
+      return result;
     } finally {
       // Tombstone every callback before cleanup releases authority to another
       // worker. A stale closure can never regain it by querying this pool.
       held = false;
-      let discard = lost;
-      for (const lock of acquired.reverse()) {
+      let discard = lost || client.getTransactionStatus() !== 'I';
+      if (activeOperation) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          const result = await client.query<{ unlocked: boolean }>(lock.release, lock.values);
-          if (result.rows[0]?.unlocked !== true) discard = true;
+          await Promise.race([activeOperation.catch(() => {}), new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error()), 5000);
+          })]);
         } catch { discard = true; }
+        finally { clearTimeout(timer); }
+        // A pending callback cannot outlive this connection or return it to
+        // the pool with a transaction still open. Destruction releases locks.
+        if (databaseBusy) discard = true;
+      }
+      if (client.getTransactionStatus() !== 'I') discard = true;
+      if (!databaseBusy && !discard) {
+        for (const lock of acquired.reverse()) {
+          try {
+            const result = await client.query<{ unlocked: boolean }>(lock.release, lock.values);
+            if (result.rows[0]?.unlocked !== true) discard = true;
+          } catch { discard = true; }
+        }
       }
       client.removeListener('error', onError);
       client.removeListener('end', onError);
-      client.release(discard);
+      client.release(discard || client.getTransactionStatus() !== 'I');
     }
   }
 }

@@ -1529,6 +1529,41 @@ export const copyLiveExecutions = pgTable("copy_live_executions", {
   check("copy_live_executions_network_check", oneOf(t.network, ["testnet", "mainnet"])),
   check("copy_live_executions_state_check", oneOf(t.state, ["prepared", "submitting", "unknown", "resting", "filled", "partial", "cancelled", "rejected"]))]);
 
+/** Actual order liabilities. Expiry alone never releases attempted orders;
+ * uncertainty survives restart, revocation and strategy stop. No paper cash. */
+export const copyLiveRiskReservations = pgTable("copy_live_risk_reservations", {
+  key: text("key").primaryKey().references(() => copyLiveExecutions.key, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet">().notNull(), accountAddress: text("account_address").notNull(),
+  cloid: text("cloid").notNull(), fingerprint: text("fingerprint").notNull(),
+  walletId: text("wallet_id").notNull(), authorizationId: text("authorization_id").notNull().references(() => copyWalletAuthorizations.id, { onDelete: "restrict" }),
+  strategyVersion: integer("strategy_version").notNull(), policyVersion: integer("policy_version").notNull(), authorizationVersion: integer("authorization_version").notNull(),
+  coin: text("coin").notNull(), dex: text("dex").notNull(), asset: integer("asset").notNull(),
+  notionalUsd: text("notional_usd").notNull(), marginUsd: text("margin_usd").notNull(), feeBufferUsd: text("fee_buffer_usd").notNull(),
+  /** Validated immutable normalized intent/action and their source bindings. */
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(), sourceDigest: text("source_digest").notNull(),
+  revision: integer("revision").notNull().default(1),
+  state: text("state").$type<"held" | "unknown" | "resting" | "released" | "quarantined">().notNull().default("held"),
+  exchangeOrderId: text("exchange_order_id"), attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  releaseReason: text("release_reason").$type<"unattempted_expired" | "verified_settlement">(), releaseEvidenceDigest: text("release_evidence_digest"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_risk_reservations_cloid_uq").on(t.network, t.accountAddress, t.cloid),
+  index("copy_live_risk_reservations_owner_idx").on(t.userId, t.state, t.updatedAt),
+  index("copy_live_risk_reservations_account_idx").on(t.accountId, t.state),
+  check("copy_live_risk_reservations_identity_check", sql`${t.network} = 'testnet' and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.cloid} ~ '^0x[0-9a-f]{32}$' and ${t.fingerprint} ~ '^[0-9a-f]{64}$' and ${t.sourceDigest} ~ '^[0-9a-f]{64}$' and length(${t.walletId}) between 1 and 128 and ${t.asset} >= 0`),
+  check("copy_live_risk_reservations_versions_check", sql`${t.strategyVersion} > 0 and ${t.policyVersion} > 0 and ${t.authorizationVersion} > 0 and ${t.revision} > 0`),
+  check("copy_live_risk_reservations_amounts_check", sql`${t.notionalUsd} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$' and length(${t.notionalUsd}) <= 80 and ${t.notionalUsd}::numeric > 0 and ${t.marginUsd} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,8})?$' and length(${t.marginUsd}) <= 80 and ${t.marginUsd}::numeric >= 0 and ${t.feeBufferUsd} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,8})?$' and length(${t.feeBufferUsd}) <= 80 and ${t.feeBufferUsd}::numeric >= 0`),
+  check("copy_live_risk_reservations_payload_check", sql`jsonb_typeof(${t.payload}) = 'object' and ${t.payload} ? 'intent' and ${t.payload} ? 'action'`),
+  check("copy_live_risk_reservations_time_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.updatedAt} >= ${t.createdAt}`),
+  check("copy_live_risk_reservations_state_check", oneOf(t.state, ["held", "unknown", "resting", "released", "quarantined"])),
+  check("copy_live_risk_reservations_order_check", sql`(${t.exchangeOrderId} is null or ${t.exchangeOrderId} ~ '^[1-9][0-9]*$') and (${t.state} <> 'held' or (${t.attemptedAt} is null and ${t.exchangeOrderId} is null)) and (${t.state} not in ('unknown', 'resting') or ${t.attemptedAt} is not null) and (${t.state} <> 'resting' or ${t.exchangeOrderId} is not null)`),
+  check("copy_live_risk_reservations_release_check", sql`(${t.state} <> 'released' and ${t.releaseReason} is null and ${t.releaseEvidenceDigest} is null) or (${t.state} = 'released' and ${t.releaseReason} is not null and ${t.releaseEvidenceDigest} is not null and ${t.releaseEvidenceDigest} ~ '^[0-9a-f]{64}$' and ((${t.releaseReason} = 'unattempted_expired' and ${t.attemptedAt} is null and ${t.exchangeOrderId} is null) or (${t.releaseReason} = 'verified_settlement' and ${t.attemptedAt} is not null)))`),
+]);
+
 /** Actual follower receipts remain separate from simulated paper accounting. */
 export const copyFollowerReceipts = pgTable("copy_follower_receipts", {
   key: text("key").primaryKey(), accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),

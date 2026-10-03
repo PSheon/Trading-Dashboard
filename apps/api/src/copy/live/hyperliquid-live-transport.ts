@@ -15,6 +15,26 @@ export interface LiveTransportDependencies {
   acquire: (weight: number) => Promise<unknown>;
 }
 
+// Protocol statuses, not suffix guesses. Unknown future statuses retain
+// uncertainty until their meaning is explicitly reviewed.
+// https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-order-status-by-oid-or-cloid
+const canceledStatuses = new Set(['canceled', 'marginCanceled', 'vaultWithdrawalCanceled', 'openInterestCapCanceled',
+  'selfTradeCanceled', 'reduceOnlyCanceled', 'siblingFilledCanceled', 'delistedCanceled', 'liquidatedCanceled', 'scheduledCancel']);
+const rejectedStatuses = new Set(['rejected', 'tickRejected', 'minTradeNtlRejected', 'perpMarginRejected', 'reduceOnlyRejected',
+  'badAloPxRejected', 'iocCancelRejected', 'badTriggerPxRejected', 'marketOrderNoLiquidityRejected',
+  'positionIncreaseAtOpenInterestCapRejected', 'positionFlipAtOpenInterestCapRejected', 'tooAggressiveAtOpenInterestCapRejected',
+  'openInterestIncreaseRejected', 'insufficientSpotBalanceRejected', 'oracleRejected', 'perpMaxPositionRejected']);
+// Only exact documented order-placement errors prove rejection. Top-level
+// errors (including nonce reuse) and unknown messages may describe a prior
+// accepted request; they must flow through durable unknown reconciliation.
+// https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/error-responses
+const placementErrors = new Set(['Price must be divisible by tick size.', 'Order must have minimum value of $10.',
+  'Insufficient margin to place order.', 'Reduce only order would increase position.',
+  'Order could not immediately match against any resting orders.', 'Invalid TP/SL price.',
+  'No liquidity available for market order.', 'Order would increase open interest while open interest is capped',
+  'Order would increase open interest too quickly', 'Order price too far from oracle',
+  'Order would cause position to exceed margin tier limit at current leverage']);
+
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new LiveBoundaryError("invalid_exchange_response");
   return value as Record<string, unknown>;
@@ -88,14 +108,17 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       throw new LiveSubmissionBlockedError(error instanceof LiveBoundaryError ? error.code : "final_execution_check_failed");
     }
     const body = object(await this.post("exchange", order, true));
-    if (body.status === "err") return { state: "rejected", reason: "exchange_rejected_action" };
+    if (body.status === "err") throw new LiveBoundaryError('exchange_submission_ambiguous');
     if (body.status !== "ok") throw new LiveBoundaryError("invalid_exchange_response");
     const response = object(body.response);
     if (response.type !== "order") throw new LiveBoundaryError("invalid_exchange_response_type");
     const statuses = object(response.data).statuses;
     if (!Array.isArray(statuses) || statuses.length !== 1) throw new LiveBoundaryError("invalid_exchange_order_count");
     const result = object(statuses[0]);
-    if (typeof result.error === "string") return { state: "rejected", reason: "exchange_rejected_order" };
+    if (typeof result.error === "string") {
+      if (!placementErrors.has(result.error)) throw new LiveBoundaryError('exchange_submission_ambiguous');
+      return { state: "rejected", reason: "exchange_rejected_order" };
+    }
     if (result.resting) return { state: "resting", exchangeOrderId: orderId(object(result.resting).oid) };
     if (result.filled) {
       const filled = object(result.filled);
@@ -132,10 +155,10 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     const exchangeOrderId = orderId(order.oid);
     if (status.status === "open") return { state: "resting", exchangeOrderId, filledSize };
     if (status.status === "filled") return { state: "filled", exchangeOrderId, filledSize: expected.s };
-    if (typeof status.status === "string" && (status.status === "canceled" || status.status.endsWith("Canceled"))) {
+    if (typeof status.status === "string" && canceledStatuses.has(status.status)) {
       return { state: filledSize === "0" ? "cancelled" : "partial", exchangeOrderId, filledSize };
     }
-    if (typeof status.status === "string" && (status.status === "rejected" || status.status.endsWith("Rejected"))) return { state: "rejected", exchangeOrderId, reason: "exchange_rejected_order" };
+    if (typeof status.status === "string" && rejectedStatuses.has(status.status)) return { state: "rejected", exchangeOrderId, reason: "exchange_rejected_order" };
     throw new LiveBoundaryError("unrecognized_exchange_order_status");
   }
 

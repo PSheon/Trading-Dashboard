@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { closeTestDb, getTestDb } from './db-test-utils.js';
 import { PostgresLiveRiskScope, type LiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -9,6 +10,99 @@ const identity = { userId: 1, network: 'testnet' as const, accountAddress: `0x${
 beforeAll(() => { getTestDb(); pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 }); scopes = new PostgresLiveRiskScope(pool); });
 afterAll(async () => { await pool?.end(); await closeTestDb(); });
 describe('distributed user and account risk serialization', () => {
+  it('discards an inherited transaction without committing its unrelated writes', async () => {
+    await pool.query('create table if not exists live_scope_probe (id text primary key)');
+    await pool.query('delete from live_scope_probe');
+    const client = await pool.connect();
+    await client.query('begin');
+    await client.query("insert into live_scope_probe values ('inherited')");
+    const connect = vi.spyOn(pool, 'connect').mockResolvedValueOnce(client as never);
+    const release = vi.spyOn(client, 'release');
+    const work = vi.fn(async (_scope, session) => session.transaction(async () => 'unsafe'));
+    try {
+      await expect(scopes.run(identity, work)).rejects.toThrow('live_risk_database_dirty');
+      expect(work).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledWith(true);
+    } finally { connect.mockRestore(); }
+    expect((await pool.query('select * from live_scope_probe')).rows).toEqual([]);
+  });
+  it('discards a connection when rollback fails, even if the caller catches the error', async () => {
+    const client = await pool.connect();
+    const connect = vi.spyOn(pool, 'connect').mockResolvedValueOnce(client as never);
+    const original = client.query.bind(client);
+    const release = vi.spyOn(client, 'release');
+    let refused = false;
+    client.query = ((...args: Parameters<typeof original>) => {
+      const raw: unknown = args[0];
+      const command = typeof raw === 'string' ? raw : raw && typeof raw === 'object' && 'text' in raw ? (raw as { text?: string }).text : undefined;
+      if (command?.toLowerCase() === 'rollback' && !refused) {
+        refused = true; return Promise.reject(new Error('rollback refused'));
+      }
+      return original(...args);
+    }) as typeof client.query;
+    try {
+      await scopes.run(identity, async (scope, session) => {
+        await expect(session.transaction(async () => { throw new Error('callback failed'); })).rejects.toThrow();
+        expect(refused).toBe(true);
+        expect(() => scope.assertFresh()).toThrow('live_risk_serialization_lost');
+        await expect(session.read(async () => 'unsafe')).rejects.toThrow('live_risk_serialization_lost');
+      });
+      expect(release).toHaveBeenCalledWith(true);
+    } finally { connect.mockRestore(); }
+  });
+  it('enforces a read-only SQL snapshot for proof reads', async () => {
+    await pool.query('create table if not exists live_scope_probe (id text primary key)');
+    await pool.query('delete from live_scope_probe');
+    await scopes.run(identity, async (_scope, session) => {
+      await expect(session.read(db => db.execute(sql`insert into live_scope_probe values ('forbidden-read-write')`))).rejects.toThrow();
+      const result = await session.read(db => db.execute(sql`select * from live_scope_probe`));
+      expect(result.rows).toEqual([]);
+    });
+  });
+  it('runs local reads and transactions on the original lock session', async () => {
+    await scopes.run(identity, async (_scope, session) => {
+      const read = await session.read(db => db.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`));
+      const transaction = await session.transaction(async tx => {
+        const result = await tx.execute<{ pid: number; locked: boolean }>(sql`select pg_backend_pid() as pid, pg_try_advisory_xact_lock(7404, ${identity.userId}) as locked`);
+        return result.rows[0];
+      });
+      expect(transaction).toEqual({ pid: read.rows[0].pid, locked: true });
+    });
+  });
+  it('refuses overlapping SQL callbacks and tombstones the old session capability', async () => {
+    let saved!: Parameters<Parameters<PostgresLiveRiskScope['run']>[1]>[1];
+    await scopes.run(identity, async (_scope, session) => {
+      saved = session;
+      let release!: () => void;
+      const wait = new Promise<void>(resolve => { release = resolve; });
+      const pending = session.read(async () => { await wait; return 'first'; });
+      await expect(session.transaction(async () => 'unsafe')).rejects.toThrow('live_risk_database_busy');
+      release(); expect(await pending).toBe('first');
+    });
+    await expect(saved.read(async () => 'unsafe')).rejects.toThrow('live_risk_serialization_lost');
+    await expect(saved.transaction(async () => 'unsafe')).rejects.toThrow('live_risk_serialization_lost');
+  });
+  it('rolls back a local transaction when its owning callback leaves it unawaited', async () => {
+    await pool.query('create table if not exists live_scope_probe (id text primary key)');
+    await pool.query('delete from live_scope_probe');
+    let entered!: () => void, resume!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const waiting = new Promise<void>(resolve => { resume = resolve; });
+    let operation!: Promise<void>;
+    const run = scopes.run(identity, async (_scope, session) => {
+      operation = session.transaction(async tx => {
+        await tx.execute(sql`insert into live_scope_probe values ('unawaited')`);
+        entered(); await waiting;
+      });
+      await ready;
+    });
+    const outcome = run.then(() => null, error => error);
+    await Promise.race([ready, outcome.then(error => { if (error) throw error; })]);
+    await new Promise(resolve => setImmediate(resolve)); resume();
+    expect((await outcome)?.message).toBe('live_risk_database_unawaited');
+    await expect(operation).rejects.toThrow('live_risk_serialization_lost');
+    expect((await pool.query('select * from live_scope_probe')).rows).toEqual([]);
+  });
   it('excludes another account of the same user while the original scope is held', async () => {
     await scopes.run(identity, async scope => {
       await scope.assertHeld(); scope.assertFresh();

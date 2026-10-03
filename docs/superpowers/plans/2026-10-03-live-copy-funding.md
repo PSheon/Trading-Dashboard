@@ -51,5 +51,5 @@ Interfaces: consume Task 1 wire contracts; `runCopyFunding` signs only prepared 
 
 - [x] Generate migration and HTTP/OpenAPI artifacts, verify schema freshness and repository boundaries.
 - [x] Run complete isolated API tests, web tests, typecheck, lint and builds; fix failures before committing.
-- [ ] Review final diff, record verified and externally unverified scope, commit and push dev.
+- [x] Review final diff, record verified and externally unverified scope, commit and push dev. Product commit `cc6c538` is on `origin/dev`; see [delivery record](../../copydog-funding-delivery-2026-10-03.md).
 - [ ] Continue with agent lifecycle and live runtime dependencies from the spec; funding delivery alone does not complete the overall objective.

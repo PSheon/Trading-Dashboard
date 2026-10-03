@@ -8,15 +8,17 @@ import { CopyFollowerStatementSettings } from '@/components/settings/copy-follow
 import { I18nProvider } from '@/i18n/provider';
 import { catalogs } from '@/i18n/messages';
 import { LOCALES, type Locale } from '@/i18n/config';
-const state = vi.hoisted(() => ({ get: vi.fn(), status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }));
+import { followerSnapshot } from './copy-follower-snapshot-fixtures';
+import { activityPage } from './copy-follower-activity-fixtures';
+const state = vi.hoisted(() => ({ get: vi.fn(), activity: vi.fn(), snapshot: vi.fn(), status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ ...state, wallet: null }) }));
-vi.mock('@/lib/api', () => ({ api: { get: state.get }, sessionKey: () => state.session }));
+vi.mock('@/lib/api', () => ({ api: { get: (path: string, ...args: unknown[]) => path.endsWith('/snapshot') ? state.snapshot(path, ...args) : path.includes('/activity?') ? state.activity(path, ...args) : state.get(path, ...args) }, sessionKey: () => state.session }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {} }) }));
 const account: CopyExecutionAccount = { id: 'account', strategyId: 9, network: 'testnet', state: 'ready', address: `0x${'22'.repeat(20)}`, issue: null, createdAt: '2026-10-03T00:00:00Z', updatedAt: '2026-10-03T00:00:00Z' };
 const other: CopyExecutionAccount = { ...account, id: 'other', strategyId: 10, address: `0x${'33'.repeat(20)}` };
 function statement(a = account): CopyFollowerStatement { return { accountId: a.id, strategyId: a.strategyId, network: a.network, accountAddress: a.address!, token: 'USDC', receiptCount: '2', actual: { realizedPnl: '12.5', exchangeFee: '0.000001', builderFee: '-0.25', funding: '-1', tradingCashDelta: '11.250001' }, quarantine: { blocked: false, reason: null }, coverage: { historicalCompleteness: 'unproven', scannedThrough: null, unresolvedWindows: null, issue: null, updatedAt: null }, latestReceipts: [{ key: 'fill', kind: 'fill', coin: 'BTC', time: '2026-10-03T00:00:00Z', attribution: 'execution', executionKey: 'execution' }, { key: 'funding', kind: 'funding', coin: 'BTC', time: '2026-10-03T00:00:01Z', attribution: 'account', executionKey: null }] }; }
 let root: Root, container: HTMLDivElement, client: QueryClient;
-beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); Object.assign(state, { status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }); state.get.mockReset().mockResolvedValue(statement()); client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); Object.assign(state, { status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }); state.get.mockReset().mockResolvedValue(statement()); state.snapshot.mockReset().mockImplementation((path: string) => { const a = path.includes('/other/') ? other : account; return Promise.resolve({ mode: 'actual', network: 'testnet', accountId: a.id, strategyId: a.strategyId, accountAddress: a.address, status: 'unavailable', observation: null, reason: 'not_observed' }); }); state.activity.mockReset().mockImplementation((path: string) => Promise.resolve({ ...activityPage(path.includes('/other/') ? other : account), items: [], hasMore: false, previousCursor: null })); client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
 async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); }); }
 async function render(accounts = [account, other], locale: Locale = 'en') { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyFollowerStatementSettings accounts={accounts}/></I18nProvider></QueryClientProvider>)); await settle(); }
@@ -29,6 +31,18 @@ it('requires account selection and displays exact booked components with financi
   const details = container.querySelector('details')!; expect(details.open).toBe(false); expect(details.querySelector('summary')?.textContent).toContain('Recent receipts');
   expect(details.textContent).toContain('BTC'); expect(details.textContent).toContain('Attributed to an execution'); expect(details.textContent).toContain('Account receipt'); expect(details.querySelectorAll('th')).toHaveLength(4);
   const el = container.querySelector('select')!; expect(container.querySelector(`label[for="${el.id}"]`)).not.toBeNull();
+});
+it('mounts separate actual activity only for the selected master and resets both readers on session change', async () => {
+  await render(); expect(state.activity).not.toHaveBeenCalled();
+  const page = activityPage(account); page.hasMore = false; page.items[0] = { ...page.items[0], kind: 'fill', attribution: 'execution', executionKey: 'execution', oid: '7', tid: '1', side: 'B', size: '0.01', price: '100', realizedPnl: '12.5', exchangeFee: '0.000001', builderFee: '-0.25', tradingCashDelta: '12.250001' }; page.items[1] = { ...page.items[1], kind: 'funding', attribution: 'account', executionKey: null, hash: `0x${'44'.repeat(32)}`, funding: '-1', tradingCashDelta: '-1' };
+  state.activity.mockResolvedValue(page); await select();
+  expect(state.activity.mock.calls[0][0]).toBe('/me/copy/execution-wallets/account/activity?limit=20'); expect(container.textContent).toContain('Actual follower statement'); expect(container.textContent).toContain('Actual follower activity'); expect(container.textContent).toContain('+12.250001 USDC');
+  state.session = 'changed'; await render(); expect(container.querySelector('select')?.value).toBe(''); expect(container.textContent).not.toContain('+12.250001 USDC'); expect(container.textContent).not.toContain('Actual follower activity');
+});
+it('mounts exact selected-account observations separately from booked cash delta and removes them on session change', async () => {
+  await render(); expect(state.snapshot).not.toHaveBeenCalled(); state.snapshot.mockResolvedValue(followerSnapshot(account)); await select();
+  expect(state.snapshot.mock.calls[0][0]).toBe('/me/copy/execution-wallets/account/snapshot'); expect(container.textContent).toContain('100 USDC'); expect(container.textContent).toContain('+11.250001 USDC'); expect(container.textContent).toContain('Actual account observation');
+  state.session = 'changed'; await render(); expect(container.textContent).not.toContain('100 USDC'); expect(container.textContent).not.toContain('Actual account observation'); expect(container.querySelector('select')?.value).toBe('');
 });
 it('removes the previous account amounts immediately and ignores a late previous account response', async () => {
   let finish!: (value: CopyFollowerStatement) => void; state.get.mockImplementation((path: string) => path.includes('/account/') ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve({ ...statement(other), actual: { realizedPnl: '7', exchangeFee: '0', builderFee: '0', funding: '0', tradingCashDelta: '7' } }));

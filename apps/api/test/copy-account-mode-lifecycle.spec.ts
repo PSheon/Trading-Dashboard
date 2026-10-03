@@ -24,7 +24,7 @@ const observation = (intent: AccountModeIntent): AccountModeObservation => ({ ne
   issue: configured && dexNull ? 'account_mode_legacy_state_unproven' : configured ? null : 'account_mode_standard_unproven' });
 beforeAll(() => { db = getTestDb(); });
 beforeEach(async () => {
-  await truncateAll(db); configured = false; dexNull = false;
+  await truncateAll(db); await db.delete(copySignerNonces); configured = false; dexNull = false;
   uid = (await insertUser(db, { privyUserId: 'did:privy:mode-owner', embeddedWalletAddress: owner.address.toLowerCase() })).id;
   stranger = (await insertUser(db)).id;
   strategyId = (await db.insert(copyStrategies).values({ userId: uid, leaderAddress: foreign.address.toLowerCase(), allocated: '100', cash: '100', activatedAt: new Date() }).returning())[0]!.id;
@@ -44,6 +44,32 @@ async function challenge() { const prepared = await service.prepare(uid, account
 async function approve() { const c = await challenge(); return service.approve(uid, c.operation.id, await owner.signTypedData(accountModeOwnerConsentTypedData(c.intent)), 'fresh-user-jwt'); }
 
 describe('durable owned-master standard-mode operation', () => {
+  async function freshActual(status: 'paused' | 'active' = 'paused', pauseNewRisk = true) {
+    strategyId = (await db.insert(copyStrategies).values({ userId: uid, leaderAddress: foreign.address.toLowerCase(), mode: 'testnet', status,
+      pauseNewRisk, allocated: '0', cash: '0', activatedAt: new Date() }).returning())[0]!.id;
+    await db.update(copyExecutionAccounts).set({ strategyId }).where(eq(copyExecutionAccounts.id, accountId));
+  }
+  it('permits an explicit mode challenge on a fresh dormant paused testnet strategy', async () => {
+    await freshActual();
+    const c = await challenge();
+    expect(c.intent).toMatchObject({ strategyId, network: 'testnet', accountAddress: address });
+    expect(exchange.signMaster).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled();
+  });
+  it('refuses actual strategies that are active or lack the new-risk pause barrier', async () => {
+    await freshActual('active'); await expect(challenge()).rejects.toThrow('account_mode_strategy_not_dormant');
+    await db.update(copyStrategies).set({ status: 'paused', pauseNewRisk: false }).where(eq(copyStrategies.id, strategyId));
+    await expect(challenge()).rejects.toThrow('account_mode_strategy_not_dormant');
+    expect(exchange.signMaster).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled();
+  });
+  it('retains the existing active-agent dormancy refusal on fresh testnet strategies', async () => {
+    await freshActual();
+    await db.insert(copyExecutionWallets).values({ id: 'actual-agent', userId: uid, strategyId, network: 'testnet', accountAddress: address,
+      privyWalletId: 'agent', privyOwnerId: 'worker', signerAddress: foreign.address.toLowerCase() });
+    await db.insert(copyWalletAuthorizations).values({ id: 'actual-grant', walletId: 'actual-agent', version: 1, scopes: ['copy:trade', 'copy:reduce'],
+      validFrom: new Date(Date.now() - 1000), expiresAt: new Date(Date.now() + 600000), exchangeApprovedAt: new Date() });
+    await expect(challenge()).rejects.toThrow('account_mode_account_not_dormant');
+    expect(exchange.signMaster).not.toHaveBeenCalled(); expect(exchange.send).not.toHaveBeenCalled();
+  });
   it('reserves one owner-bound operation without signing, sending or provider creation', async () => {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: key });
     expect(prepared).toMatchObject({ accountId, strategyId, accountAddress: address, submissionState: 'prepared', targetState: 'unproven' });

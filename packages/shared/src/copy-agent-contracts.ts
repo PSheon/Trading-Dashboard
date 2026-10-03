@@ -7,6 +7,8 @@ export const copyAgentSetupSchema = z.object({
   state: copyAgentStateSchema, accountAddress: z.string(), agentAddress: z.string().nullable(),
   expiresAt: z.string().datetime(), issue: z.string().nullable(), authorizationId: z.string().nullable(),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  /** Optional while older deployed APIs roll out; the server binds exact consent. */
+  revision: z.number().int().positive().optional(),
 });
 export const copyAgentOverviewSchema = z.object({ available: z.boolean(), network: z.enum(["testnet", "mainnet"]), setups: z.array(copyAgentSetupSchema) });
 export const copyAgentApproveSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();

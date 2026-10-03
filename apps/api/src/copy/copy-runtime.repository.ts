@@ -35,22 +35,25 @@ export class CopyRuntimeRepository {
   }
 
   async appendEvent(tx: DbTransaction, userId: number, strategyId: number | null, type: string, payload: Record<string, unknown>): Promise<void> {
+    const input = structuredClone(payload);
+    if (strategyId !== null) await this.requirePaper(tx, strategyId, userId);
     // IDs for the same owner's feed are allocated in commit order. Otherwise
     // polling could pass an id still invisible in an earlier open transaction.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`copy-events:${userId}`}, 0))`);
-    await tx.insert(copyEvents).values({ userId, strategyId, type, payload });
+    await tx.insert(copyEvents).values({ userId, strategyId, type, payload: input });
   }
 
   events(userId: number, after: bigint, limit: number, before?: bigint) {
     const replay = after > 0n && before === undefined;
     return this.db.select().from(copyEvents).where(and(eq(copyEvents.userId, userId),
+      sql`(${copyEvents.strategyId} is null or exists (select 1 from ${copyStrategies} where ${copyStrategies.id} = ${copyEvents.strategyId} and ${copyStrategies.mode} = 'paper'))`,
       before !== undefined ? lt(copyEvents.id, before) : replay ? gt(copyEvents.id, after) : undefined))
       .orderBy(replay ? asc(copyEvents.id) : desc(copyEvents.id)).limit(limit);
   }
 
   activeStrategies() {
     return this.db.select({ id: copyStrategies.id }).from(copyStrategies)
-      .where(sql`${copyStrategies.status} <> 'stopped'`).orderBy(asc(copyStrategies.id));
+      .where(and(eq(copyStrategies.mode, "paper"), sql`${copyStrategies.status} <> 'stopped'`)).orderBy(asc(copyStrategies.id));
   }
 
   async performance(strategyId: number, from: Date, to: Date, baselineTime: Date, bucketMs: number, freshMs: number) {
@@ -80,6 +83,14 @@ export class CopyRuntimeRepository {
   }
 
   async snapshot(tx: DbTransaction, row: typeof copyEquitySnapshots.$inferInsert): Promise<void> {
-    await tx.insert(copyEquitySnapshots).values(row).onConflictDoNothing();
+    const input = structuredClone(row);
+    await this.requirePaper(tx, input.strategyId);
+    await tx.insert(copyEquitySnapshots).values(input).onConflictDoNothing();
+  }
+
+  private async requirePaper(tx: DbTransaction, strategyId: number, userId?: number): Promise<void> {
+    const [row] = await tx.select({ id: copyStrategies.id }).from(copyStrategies).where(and(eq(copyStrategies.id, strategyId), eq(copyStrategies.mode, "paper"),
+      userId === undefined ? undefined : eq(copyStrategies.userId, userId))).for("share");
+    if (!row) throw new Error("paper_strategy_required");
   }
 }

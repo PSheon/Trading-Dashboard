@@ -1,8 +1,12 @@
 import { Pool } from 'pg';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions,
   copyLiveRiskReservations, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
+import { copyLiveStrategyConfigs, copyLiveMandates, copyLiveSourceStreams, copyLiveSourceFills, copyLiveSignalLegs, copyLiveIntentProvenance } from '@trading-dashboard/shared/database';
+import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
+import { digest } from '../src/copy/copy-live-mandate-evidence.js';
+import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js';
 import type { LiveAccountRiskInput } from '../src/copy/live/live-account-risk.js';
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -46,7 +50,48 @@ async function seed(input: LiveAccountRiskInput) {
       expiresAfter: now + 60000, state: 'prepared', createdAt: now, updatedAt: now }, updatedAt: new Date(now) } as typeof copyLiveExecutions.$inferInsert);
 }
 const scopeIdentity = () => ({ userId: f.identity.userId, network: 'testnet' as const, accountAddress: f.intent.accountAddress });
+async function actualAuthority() {
+  // Reconfigure this isolated fixture only. Production creates a separate
+  // paused strategy and never converts a paper row or its historical cash.
+  const leader = `0x${'44'.repeat(20)}`, sourceId = `testnet:${leader}:1`;
+  await db.update(copyStrategies).set({ mode: 'testnet', allocated: '0', cash: '0' }).where(eq(copyStrategies.id, 9));
+  await db.insert(copyLiveStrategyConfigs).values({ strategyId: 9, userId: f.identity.userId, sourceNetwork: 'testnet', budgetUsd: '100', strategyVersion: 2, idempotencyKey: 'actual-budget-fixture' });
+  const intent = liveCopyMandateIntentSchema.parse({ mandateId: 'mandate', accountId: 'account', userId: f.identity.userId, strategyId: 9, strategyVersion: 2,
+    network: 'testnet', sourceNetwork: 'testnet', leaderAddress: leader, accountAddress: f.intent.accountAddress, accountRevision: 1, ownerAddress, ownerPrivyUserId: 'did:privy:reservation-owner',
+    setupId: 'setup', setupRevision: 1, executionWalletId: 'local-agent', agentWalletId: 'agent', agentAddress: signerAddress, authorizationId: 'grant', authorizationVersion: 4,
+    policyId: 'policy', policyFingerprint: 'a'.repeat(64), workerQuorumId: 'worker', settingsDigest: liveCopySettingsDigest(f.strategy.settings), budgetUsd: '100',
+    builderAddress: null, builderMaxFeeTenthsOfBps: 0, plannerVersion: 1, nonce: now - 1000, consentExpiresAt: now + 299000, expiresAt: now + 600000 });
+  const { mandateId, consentExpiresAt, expiresAt, ...columns } = intent;
+  await db.insert(copyLiveMandates).values({ ...columns, id: mandateId, idempotencyKey: 'actual-mandate-fixture', intent, intentDigest: digest(intent), state: 'active', revision: 2,
+    consentDigest: 'd'.repeat(64), activationCursor: new Date(now - 1), consentExpiresAt: new Date(consentExpiresAt), expiresAt: new Date(expiresAt), createdAt: new Date(now - 1000), updatedAt: new Date(now) });
+  await db.insert(copyLiveSourceStreams).values({ id: `testnet:${leader}`, network: 'testnet', leaderAddress: leader, state: 'ready', coverageFrom: new Date(now - 1), coverageThrough: new Date(now), coverageDigest: 'a'.repeat(64) });
+  await db.insert(copyLiveSourceFills).values({ id: sourceId, streamId: `testnet:${leader}`, network: 'testnet', leaderAddress: leader, tid: '1', providerTime: new Date(now), receivedAt: new Date(now),
+    coin: 'BTC', oid: '7', tradeKey: 'oid:7', px: '100', sz: '1', side: 'B', startPosition: '0', raw: {}, normalized: {}, sourceDigest: 'a'.repeat(64) });
+  await db.insert(copyLiveSignalLegs).values({ id: 'leg', mandateId: 'mandate', sourceFillId: sourceId, leg: 'open', tradeKey: 'oid:7', sign: 1, size: '1', state: 'prepared', executionKey: executionKey(f.intent), createdAt: new Date(now), updatedAt: new Date(now) });
+  await db.insert(copyLiveIntentProvenance).values({ key: executionKey(f.intent), legId: 'leg', mandateId: 'mandate', mandateRevision: 2, sourceDigest: 'a'.repeat(64),
+    settingsDigest: intent.settingsDigest, fingerprint: intentFingerprint(f.intent, f.action), plannerVersion: 1, intent: f.intent as unknown as Record<string, unknown>, sizingBasis: { kind: 'fixture' }, admittedAt: new Date(now) });
+}
 describe('durable actual collateral reservations on original PostgreSQL lock session', () => {
+  it('uses the exact consented actual budget while simulated allocated and cash remain zero', async () => {
+    await actualAuthority();
+    await scopes.run(scopeIdentity(), async (_scope, session) => {
+      expect(await repository.hold(session, f)).toMatchObject({ state: 'held', payload: { notionalUsd: '100' } });
+    });
+    expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: 'testnet', allocated: '0', cash: '0' });
+  });
+  it.each(['budget', 'mandate', 'settings', 'provenance', 'revision', 'ownerWallet', 'masterRevision', 'setupRevision'])('rejects changed actual %s authority before reserving funds', async kind => {
+    await actualAuthority();
+    if (kind === 'budget') await db.update(copyLiveStrategyConfigs).set({ budgetUsd: '101' });
+    if (kind === 'mandate') await db.update(copyLiveMandates).set({ state: 'paused', revision: 3 });
+    if (kind === 'settings') f.strategy.settings.maxLeverage = 11;
+    if (kind === 'provenance') await db.delete(copyLiveIntentProvenance);
+    if (kind === 'revision') await db.update(copyLiveIntentProvenance).set({ mandateRevision: 1 });
+    if (kind === 'ownerWallet') await db.execute(sql`update users set embedded_wallet_address = ${`0x${'55'.repeat(20)}`} where id = ${f.identity.userId}`);
+    if (kind === 'masterRevision') await db.update(copyExecutionAccounts).set({ revision: 2 });
+    if (kind === 'setupRevision') await db.update(copyAgentSetups).set({ revision: 2 });
+    await expect(scopes.run(scopeIdentity(), async (_scope, session) => repository.hold(session, f))).rejects.toThrow();
+    expect(await db.select().from(copyLiveRiskReservations)).toHaveLength(0);
+  });
   it('assesses actual collateral before holding and returns the exact idempotent persisted allocation', async () => {
     await scopes.run(scopeIdentity(), async (_scope, session) => {
       const first = await repository.hold(session, f), duplicate = await repository.hold(session, f);

@@ -1,0 +1,85 @@
+'use client';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { createLiveCopyStrategySchema, type CopyExecutionAccount, type CopyWalletGrant } from '@trading-dashboard/shared/contracts';
+import { useAuth } from '@/lib/auth';
+import { sessionKey } from '@/lib/api';
+import { useCopyAgents } from '@/lib/copy-agents';
+import { useLiveCopyActions, useLiveCopyOverview } from '@/lib/copy-live';
+import { useI18n } from '@/i18n/provider';
+import { Button } from '@/components/ui/button';
+function useClock(enabled: boolean, anchor: number) {
+  const [now, setNow] = useState(0);
+  useEffect(() => { if (!enabled) return; const start = Date.now(), mono = performance.now(); let maximum = Math.max(start, anchor); const tick = () => { maximum = Math.max(maximum, Date.now(), start + Math.max(0, performance.now() - mono)); setNow(previous => Math.max(previous, maximum)); }; const timer = window.setInterval(tick, 1000), initial = window.setTimeout(tick, 0); window.addEventListener('focus', tick); document.addEventListener('visibilitychange', tick); return () => { window.clearInterval(timer); window.clearTimeout(initial); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); }; }, [enabled, anchor]);
+  return Math.max(now, anchor);
+}
+export function CopyLiveStrategySettings({ accounts, authorizations }: { accounts: readonly CopyExecutionAccount[]; authorizations?: readonly CopyWalletGrant[] }) {
+  const auth = useAuth();
+  if (auth.status !== 'signedIn' || auth.mode !== 'privy' || !auth.identity) return null;
+  return <LiveForm key={JSON.stringify([auth.identity, sessionKey(), auth.wallet?.address?.toLowerCase()])} accounts={accounts} authorizations={authorizations}/>;
+}
+function LiveForm({ accounts, authorizations }: { accounts: readonly CopyExecutionAccount[]; authorizations?: readonly CopyWalletGrant[] }) {
+  const { t, format } = useI18n(), query = useLiveCopyOverview(), agents = useCopyAgents(), id = useId();
+  const [leader, setLeader] = useState(''), [budget, setBudget] = useState(''), [direction, setDirection] = useState<'same' | 'reverse'>('same'), [sizing, setSizing] = useState<'ratio' | 'fixed'>('ratio'), [perTrade, setPerTrade] = useState(''), [exposure, setExposure] = useState(''), [leverage, setLeverage] = useState(''), [adopt, setAdopt] = useState(false), [selected, setSelected] = useState(''), [ack, setAck] = useState('');
+  const draft = useMemo(() => {
+    const decimal = (v: string) => v === '' ? null : /^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(v) ? Number(v) : NaN;
+    const result = createLiveCopyStrategySchema.safeParse({ idempotencyKey: 'client_validation_123456789', leader: leader.trim().toLowerCase(), sourceNetwork: 'testnet', budgetUsd: budget, settings: { direction, sizingMode: sizing, perTradeUsd: sizing === 'fixed' ? decimal(perTrade) : null, maxTotalExposureUsd: decimal(exposure), maxLeverage: decimal(leverage), copyStartMode: adopt ? 'adopt' : 'delta' } });
+    if (!result.success) return null; return { leader: result.data.leader, sourceNetwork: result.data.sourceNetwork, budgetUsd: result.data.budgetUsd, settings: result.data.settings };
+  }, [leader, budget, direction, sizing, perTrade, exposure, leverage, adopt]);
+  const agentUsable = agents.isSuccess && !agents.isError && agents.data.available && agents.data.network === 'testnet';
+  const actions = useLiveCopyActions(accounts, query.data, agentUsable ? agents.data.setups : [], selected, draft, authorizations);
+  const busy = actions.create.isPending || actions.prepare.isPending || actions.approve.isPending || actions.read.isPending || actions.recover.isPending || actions.barrier.isPending;
+  const usable = query.isSuccess && !query.isError && Boolean(query.data?.capabilities.strategyPreparation) && actions.recovery.isSuccess;
+  const pendingDraft = actions.recovery.data?.drafts.find(d => d.strategyId === null);
+  const account = accounts.find(a => a.id === selected && a.network === 'testnet'), strategy = query.data?.strategies.find(s => s.id === account?.strategyId), setup = agents.data?.setups.find(s => s.accountId === account?.id && s.state === 'active');
+  const mandates = query.data?.mandates.filter(m => m.accountId === account?.id && m.accountAddress === account.address && m.strategyId === account.strategyId) ?? [];
+  const pendingPreparation = actions.recovery.data?.preparations.find(p => p.accountId === selected);
+  const review = actions.read.data ?? actions.prepare.data;
+  const now = useClock(Boolean(mandates.length || review), Math.max(query.dataUpdatedAt, actions.read.submittedAt, actions.prepare.submittedAt));
+  const grant = authorizations?.find(g => g.id === setup?.authorizationId);
+  const grantUsable = authorizations === undefined || Boolean(grant && grant.status === 'active' && grant.revokedAt === null && Date.parse(grant.expiresAt) > now && grant.scopes.includes('copy:trade') && grant.scopes.includes('copy:reduce'));
+  const canPrepare = usable && agentUsable && grantUsable && actions.ownerReady && account?.state === 'ready' && strategy?.status === 'paused' && setup && !mandates.length && !pendingPreparation;
+  const failed = actions.create.isError || actions.prepare.isError || actions.approve.isError || actions.read.isError || actions.recover.isError || actions.barrier.isError || actions.recovery.isError;
+  const textInput = (name: string, label: string, value: string, update: (v: string) => void) => <div><label htmlFor={`${id}-${name}`} className="block text-xs font-semibold">{label}</label><input id={`${id}-${name}`} name={name} value={value} disabled={busy || Boolean(pendingDraft)} onChange={e => update(e.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" autoComplete="off"/></div>;
+  return <section className="mt-5 border-t border-border pt-5" aria-label={t('copyLive.title')}>
+    <h4 className="text-sm font-bold">{t('copyLive.title')}</h4><p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyLive.hint')}</p><p className="mt-2 text-xs leading-5 text-warning">{t('copyLive.automaticUnavailable')}</p>
+    {query.isPending ? <p role="status" className="mt-3 text-xs">{t('executionWallets.loading')}</p> : null}
+    {query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('executionWallets.actionError')}</p><Button size="sm" variant="secondary" className="mt-2" onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
+    {query.data && !query.data.capabilities.strategyPreparation ? <p className="mt-3 text-xs">{t('copyLive.unavailable')}</p> : null}
+    <form className="mt-4 space-y-3" onSubmit={e => { e.preventDefault(); if (draft && usable && !pendingDraft) actions.create.mutate(draft); }}>
+      <div className="grid gap-3 sm:grid-cols-2">{textInput('leader', t('copyLive.leader'), leader, setLeader)}{textInput('budget', t('copyLive.budget'), budget, setBudget)}</div>
+      <p className="text-xs text-muted-foreground">{t('copyLive.source')}: {t('executionWallets.networks.testnet')}</p>
+      <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-xs font-semibold">{t('portfolio.copy.detail.copySettings')}</summary><div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div><label htmlFor={`${id}-direction`} className="block text-xs font-semibold">{t('portfolio.copy.detail.direction')}</label><select id={`${id}-direction`} disabled={busy || Boolean(pendingDraft)} value={direction} onChange={e => setDirection(e.target.value as 'same' | 'reverse')} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"><option value="same">{t('portfolio.copy.detail.same')}</option><option value="reverse">{t('portfolio.copy.detail.counter')}</option></select></div>
+        <div><label htmlFor={`${id}-sizing`} className="block text-xs font-semibold">{t('portfolio.copy.detail.mode')}</label><select id={`${id}-sizing`} disabled={busy || Boolean(pendingDraft)} value={sizing} onChange={e => setSizing(e.target.value as 'ratio' | 'fixed')} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"><option value="ratio">{t('portfolio.copy.detail.ratio')}</option><option value="fixed">{t('portfolio.copy.detail.fixed')}</option></select></div>
+        {sizing === 'fixed' ? textInput('perTrade', t('portfolio.copy.detail.perTrade'), perTrade, setPerTrade) : null}{textInput('exposure', t('copyLive.maxExposure'), exposure, setExposure)}{textInput('leverage', t('trader.leverage'), leverage, setLeverage)}
+        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={adopt} disabled={busy || Boolean(pendingDraft)} onChange={e => setAdopt(e.target.checked)}/><span>{t('portfolio.copy.detail.copyExisting')}</span></label>
+        <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">{t('copyLive.settingsHint')}</p>
+      </div></details><Button type="submit" size="sm" disabled={!draft || !usable || busy || Boolean(pendingDraft)}>{t('copyLive.create')}</Button>
+    </form>
+    {failed ? <p role="alert" className="mt-3 text-xs text-warning">{t('executionWallets.actionError')}</p> : null}
+    {pendingDraft ? <div className="mt-3 rounded-xl bg-raised/50 p-3"><p role="status" className="text-xs">{t('copyLive.pending')}</p><Button size="sm" variant="secondary" className="mt-2" disabled={busy} onClick={() => actions.recover.mutate({ kind: 'draft', value: pendingDraft })}>{t('copyLive.find')}</Button></div> : null}
+    {query.data?.strategies.map(s => <article key={s.id} className="mt-3 rounded-xl bg-raised/50 p-3 text-xs"><p className="font-semibold">{t('executionWallets.copyNumber', { id: s.id })} · {t('executionWallets.networks.testnet')}</p><p className="mt-1 break-all font-mono">{s.leaderAddress}</p><p className="mt-1">{t('copyLive.budget')}: <span className="font-mono">{s.budgetUsd} USDC</span></p><p className="mt-1">{t(`portfolio.copy.status.${s.status}`)}</p><p className="mt-1 text-muted-foreground">{t('portfolio.copy.detail.version', { version: s.version })}</p></article>)}
+    {query.isSuccess && !query.data?.strategies.length ? <p className="mt-3 text-xs text-muted-foreground">{t('copyLive.empty')}</p> : null}
+    <div className="mt-4"><label htmlFor={`${id}-account`} className="block text-xs font-semibold">{t('executionWallets.strategy')}</label><select id={`${id}-account`} name="account" disabled={busy} value={account?.id ?? ''} onChange={e => { setSelected(e.target.value); setAck(''); actions.read.reset(); actions.prepare.reset(); actions.approve.reset(); }} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"><option value="">{t('executionWallets.selectStrategy')}</option>{accounts.filter(a => a.network === 'testnet' && query.data?.strategies.some(s => s.id === a.strategyId)).map(a => <option key={a.id} value={a.id}>{t('executionWallets.copyNumber', { id: a.strategyId })} · {t('executionWallets.networks.testnet')}</option>)}</select></div>
+    {account ? <p className="mt-2 break-all font-mono text-xs">{account.address}</p> : null}
+    {canPrepare ? <Button size="sm" className="mt-3" disabled={busy} onClick={() => actions.prepare.mutate()}>{t('copyLive.prepare')}</Button> : null}
+    {pendingPreparation && !mandates.some(m => m.id === pendingPreparation.mandateId) ? <div className="mt-3"><p role="status" className="text-xs">{t('copyLive.pending')}</p><Button size="sm" variant="secondary" className="mt-2" disabled={busy} onClick={() => actions.recover.mutate({ kind: 'preparation', value: pendingPreparation })}>{t('copyLive.find')}</Button></div> : null}
+    {mandates.map(m => {
+      const uncertain = actions.recovery.data?.approvals.includes(m.id) || actions.recovery.data?.barriers.some(b => b.id === m.id), terms = review?.mandate.id === m.id && review.mandate.revision === m.revision && review.mandate.state === m.state ? review.intent : undefined;
+      const expired = Date.parse(m.expiresAt) <= now || Boolean(terms && terms.consentExpiresAt <= now);
+      const reviewKey = JSON.stringify([m.id, m.revision, account?.updatedAt, account?.revision, strategy?.version, setup?.updatedAt, setup?.revision, terms]);
+      const canSign = usable && agentUsable && grantUsable && actions.ownerReady && account?.state === 'ready' && setup?.state === 'active' && strategy?.status === 'paused' && terms && m.state === 'prepared' && !uncertain && !expired;
+      return <article key={m.id} className="mt-3 space-y-3 rounded-xl border border-border p-3 text-xs"><p>{t('copyLive.status')}: <span role="status">{t(`copyLive.states.${expired ? 'expired' : m.state}`)}</span></p>
+        {uncertain ? <p role="status" className="text-warning">{t('copyLive.pending')}</p> : null}
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => { setAck(''); actions.read.mutate(m); }}>{t(uncertain || m.state !== 'prepared' ? 'copyLive.find' : 'copyLive.review')}</Button>
+        {terms ? <><dl className="grid gap-3 sm:grid-cols-2"><div><dt className="text-muted-foreground">{t('copyAgents.owner')}</dt><dd className="break-all font-mono">{terms.ownerAddress}</dd></div><div><dt className="text-muted-foreground">{t('executionWallets.account')}</dt><dd className="break-all font-mono">{terms.accountAddress}</dd></div><div><dt className="text-muted-foreground">{t('executionWallets.signer')}</dt><dd className="break-all font-mono">{terms.agentAddress}</dd></div><div><dt className="text-muted-foreground">{t('copyLive.budget')}</dt><dd className="font-mono">{terms.budgetUsd} USDC</dd></div><div><dt className="text-muted-foreground">{t('copyLive.consentExpires')}</dt><dd>{expired ? t('copyLive.states.expired') : format.dateTime(new Date(terms.consentExpiresAt).toISOString())}</dd></div><div><dt className="text-muted-foreground">{t('copyLive.feeLimit')}</dt><dd className="break-all font-mono">{terms.builderAddress ?? '—'} · {terms.builderMaxFeeTenthsOfBps / 10} bps</dd></div></dl>
+          {strategy ? <dl className="grid gap-3 sm:grid-cols-2"><div><dt>{t('portfolio.copy.detail.direction')}</dt><dd>{t(strategy.settings.direction === 'same' ? 'portfolio.copy.detail.same' : 'portfolio.copy.detail.counter')}</dd></div><div><dt>{t('portfolio.copy.detail.mode')}</dt><dd>{t(strategy.settings.sizingMode === 'ratio' ? 'portfolio.copy.detail.ratio' : 'portfolio.copy.detail.fixed')}</dd></div><div><dt>{t('portfolio.copy.detail.perTrade')}</dt><dd>{strategy.settings.perTradeUsd ?? '—'}</dd></div><div><dt>{t('copyLive.maxExposure')}</dt><dd>{strategy.settings.maxTotalExposureUsd ?? '—'}</dd></div><div><dt>{t('trader.leverage')}</dt><dd>{strategy.settings.maxLeverage ?? '—'}</dd></div><div><dt>{t('portfolio.copy.detail.copyExisting')}</dt><dd>{t(strategy.settings.copyStartMode === 'adopt' ? 'portfolio.copy.detail.on' : 'portfolio.copy.detail.off')}</dd></div></dl> : null}
+          <details><summary className="cursor-pointer font-semibold">{t('copyLive.original')}</summary><dl className="mt-3 space-y-2"><div><dt>{t('copyLive.policy')}</dt><dd className="break-all font-mono">{terms.policyFingerprint}</dd></div><div><dt>{t('copyLive.leader')}</dt><dd className="break-all font-mono">{terms.leaderAddress}</dd></div><div><dt>{t('portfolio.copy.detail.version', { version: terms.strategyVersion })}</dt><dd className="break-all font-mono">{terms.settingsDigest}</dd></div><div><dt>{t('executionWallets.expires')}</dt><dd>{format.dateTime(new Date(terms.expiresAt).toISOString())}</dd></div></dl></details>
+          {canSign ? <label className="flex items-start gap-2 leading-5"><input type="checkbox" checked={ack === reviewKey} disabled={busy} onChange={e => setAck(e.target.checked ? reviewKey : '')}/><span>{t('copyLive.acknowledgment')}</span></label> : null}
+          {canSign ? <Button size="sm" disabled={busy || ack !== reviewKey} onClick={() => { if (review) { setAck(''); actions.approve.mutate(review); } }}>{t('copyLive.confirm')}</Button> : null}
+        </> : null}
+        {!uncertain && (m.state === 'active' || m.state === 'paused') ? <><p className="leading-5 text-muted-foreground">{t('copyLive.barrierHint')}</p><div className="flex gap-2"><Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.barrier.mutate({ mandate: m, command: 'pause' })}>{t('copyLive.pause')}</Button><Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.barrier.mutate({ mandate: m, command: 'revoke' })}>{t('copyLive.revoke')}</Button></div></> : null}
+      </article>;
+    })}
+  </section>;
+}

@@ -3,10 +3,14 @@ import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyFollowerStatementSchema } from "@trading-dashboard/shared/contracts";
-import { copyExecutionAccounts, copyStrategies, copyLiveExecutions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyWalletAuthorizations, users } from "@trading-dashboard/shared/database";
+import { copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyLiveExecutions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyWalletAuthorizations, users } from "@trading-dashboard/shared/database";
 import { CopyFollowerController } from "../src/copy/copy-follower.controller.js";
 import { CopyFollowerStatementRepository } from "../src/copy/copy-follower-statement.repository.js";
 import { CopyFollowerStatementService } from "../src/copy/copy-follower-statement.service.js";
+import { CopyFollowerActivityService } from "../src/copy/copy-follower-activity.service.js";
+import { CopyFollowerActivityRepository } from "../src/copy/copy-follower-activity.repository.js";
+import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from '../src/copy/live/live-order.js';
+import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { CopyFollowerLedger } from "../src/copy/live/copy-follower-ledger.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import type { AuthService } from "../src/common/auth/auth.service.js";
@@ -23,7 +27,7 @@ const get = (id = accountId, token = "alice") => request(app.getHttpServer()).ge
 const fill = () => ({ coin: "BTC", tid: 1, oid: 7, side: "B", time: Date.now() - 1000, px: "20000", sz: "0.01", closedPnl: "2", fee: "0.06", builderFee: "0.02", feeToken: "USDC" });
 beforeAll(async () => {
   vi.stubEnv("AUTH_SERVICE_TOKEN", serviceToken); vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "copy.read,execution.pause");
-  ({ app, auth } = await createAuthedApp({ db, privy, controllers: [CopyFollowerController], providers: [CopyFollowerStatementService, CopyFollowerStatementRepository] }));
+  ({ app, auth } = await createAuthedApp({ db, privy, controllers: [CopyFollowerController], providers: [CopyFollowerStatementService, CopyFollowerStatementRepository, CopyFollowerActivityService, CopyFollowerActivityRepository] }));
   ledger = new CopyFollowerLedger(db, new UnitOfWork(db));
 });
 beforeEach(async () => {
@@ -52,13 +56,23 @@ describe("actual follower statement authenticated HTTP boundary", () => {
   });
 
   it("returns exact actual fee/funding components while retaining unresolved scan coverage", async () => {
-    await db.insert(copyLiveExecutions).values({ key: "statement-execution", network: "testnet", accountAddress: address, signerAddress: otherAddress, cloid: `0x${"33".repeat(16)}`, nonce: Date.now(), userId: uid, strategyId, state: "partial", updatedAt: new Date(), record: { market: { coin: "BTC" }, outcome: { exchangeOrderId: "7" } } });
-    await ledger.bookFill(accountId, fill()); await ledger.bookFunding(accountId, { hash: `0x${"44".repeat(32)}`, time: Date.now() - 500, delta: { type: "funding", coin: "BTC", usdc: "-0.37" } });
+    const receipt = fill(), createdAt = receipt.time - 1000;
+    const market = { network: 'testnet' as const, coin: 'BTC', dex: '', asset: 0, universeIndex: 0, perpDexIndex: 0, sizeDecimals: 5, maxLeverage: 20, observedAt: createdAt };
+    const intent: LiveOrderIntent = { authorizationId: 'statement-grant', userId: uid, strategyId, walletId: 'statement-agent', network: 'testnet', accountAddress: address as `0x${string}`, reduceOnly: false,
+      cloid: `0x${'33'.repeat(16)}`, asset: 0, side: 'B', size: '0.01', limitPrice: '20000', sizeDecimals: 5, timeInForce: 'Ioc', market };
+    const action = buildOrderAction(intent), key = executionKey(intent);
+    const record: LiveExecutionRecord = { key, fingerprint: intentFingerprint(intent, action), market, action, nonce: createdAt, expiresAfter: createdAt + 60000, state: 'partial', createdAt, updatedAt: createdAt,
+      authorization: { id: 'statement-grant', version: 1, userId: uid, strategyId, walletId: 'statement-agent', privyOwnerId: 'statement-agent-owner', signerAddress: otherAddress as `0x${string}`, accountAddress: intent.accountAddress,
+        network: 'testnet', scopes: ['copy:trade'], validFrom: createdAt - 1, expiresAt: createdAt + 60000, revokedAt: null, exchangeApprovedAt: createdAt - 1 }, outcome: { state: 'partial', exchangeOrderId: '7' } };
+    await db.insert(copyExecutionWallets).values({ id: 'statement-local-agent', userId: uid, strategyId, network: 'testnet', accountAddress: address, privyWalletId: 'statement-agent', privyOwnerId: 'statement-agent-owner', signerAddress: otherAddress });
+    await db.insert(copyWalletAuthorizations).values({ id: 'statement-grant', walletId: 'statement-local-agent', version: 1, scopes: ['copy:trade'], validFrom: new Date(createdAt - 1), expiresAt: new Date(createdAt + 60000) });
+    await db.insert(copyLiveExecutions).values({ key, network: 'testnet', accountAddress: address, signerAddress: otherAddress, cloid: intent.cloid, nonce: record.nonce, userId: uid, strategyId, state: record.state, updatedAt: new Date(record.updatedAt), record: record as unknown as Record<string, unknown> });
+    await ledger.bookFill(accountId, receipt); await ledger.bookFunding(accountId, { hash: `0x${"44".repeat(32)}`, time: Date.now() - 500, delta: { type: "funding", coin: "BTC", usdc: "-0.37" } });
     const through = Date.now() - 10000;
     await db.insert(copyFollowerScans).values({ accountId, through, claimToken: "private-claim", issue: "follower_scan_unavailable", scanState: { from: through, to: Date.now(), pending: [{ kind: "fills", from: through, to: Date.now(), depth: 1 }], observations: [], historicalCompleteness: "unproven" } });
     const response = await get().expect(200).expect("Cache-Control", "no-store"), statement = copyFollowerStatementSchema.parse(response.body.data);
     expect(statement).toMatchObject({ receiptCount: "2", actual: { realizedPnl: "2", exchangeFee: "-0.04", builderFee: "-0.02", funding: "-0.37", tradingCashDelta: "1.57" }, quarantine: { blocked: false, reason: null }, coverage: { historicalCompleteness: "unproven", scannedThrough: new Date(through).toISOString(), unresolvedWindows: 1, issue: "follower_scan_unavailable" } });
-    expect(statement.latestReceipts.map((row) => row.kind)).toEqual(["funding", "fill"]); expect(statement.latestReceipts[1]).toMatchObject({ attribution: "execution", executionKey: "statement-execution" });
+    expect(statement.latestReceipts.map((row) => row.kind)).toEqual(["funding", "fill"]); expect(statement.latestReceipts[1]).toMatchObject({ attribution: "execution", executionKey: key });
     expect(JSON.stringify(response.body)).not.toMatch(/private-claim|"raw"|"record"/); expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100" });
   });
 

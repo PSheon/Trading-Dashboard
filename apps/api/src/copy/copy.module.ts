@@ -48,6 +48,15 @@ import { CopyAccountModeRepository } from "./copy-account-mode.repository.js";
 import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER } from "./copy-account-mode.service.js";
 import { PrivyAccountModeClient } from "./live/privy-account-mode-client.js";
 import { HyperliquidAccountModeAbsenceReader } from "./copy-account-mode-evidence.js";
+import { CopyFollowerActivityRepository } from "./copy-follower-activity.repository.js";
+import { CopyFollowerActivityService } from "./copy-follower-activity.service.js";
+import { CopyFollowerSnapshotController } from "./copy-follower-snapshot.controller.js";
+import { CopyFollowerSnapshotRepository } from "./copy-follower-snapshot.repository.js";
+import { CopyFollowerSnapshotService, CopyFollowerSnapshotCollector, FOLLOWER_SNAPSHOT_READER } from "./copy-follower-snapshot.service.js";
+import { HyperliquidLiveAccountObserver } from "./live/live-account-observer.js";
+import { CopyLiveMandateController } from "./copy-live-mandate.controller.js";
+import { CopyLiveMandateRepository } from "./copy-live-mandate.repository.js";
+import { CopyLiveMandateService } from "./copy-live-mandate.service.js";
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
@@ -59,7 +68,7 @@ import { HyperliquidAccountModeAbsenceReader } from "./copy-account-mode-evidenc
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
-  controllers: [CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController],
+  controllers: [CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService, CopyAdoptionRepairService, CopyPerformanceService,
@@ -78,6 +87,11 @@ import { HyperliquidAccountModeAbsenceReader } from "./copy-account-mode-evidenc
     { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [RequestBudgeterService], useFactory: (budget: RequestBudgeterService) =>
       new HyperliquidAccountModeAbsenceReader(weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) })) },
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerMonitor, CopyFollowerStatementService, CopyFollowerStatementRepository,
+    CopyFollowerActivityRepository, CopyFollowerActivityService,
+    CopyFollowerSnapshotRepository, CopyFollowerSnapshotService, CopyFollowerSnapshotCollector,
+    CopyLiveMandateRepository, CopyLiveMandateService,
+    { provide: FOLLOWER_SNAPSHOT_READER, inject: [RequestBudgeterService], useFactory: (budget: RequestBudgeterService) =>
+      new HyperliquidLiveAccountObserver('testnet', weight => budget.acquire(weight, 'background', undefined, { signal: AbortSignal.timeout(5000) })) },
     { provide: HyperliquidFollowerReceiptReader, inject: [RequestBudgeterService], useFactory: (budget: RequestBudgeterService) =>
       new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) })) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({

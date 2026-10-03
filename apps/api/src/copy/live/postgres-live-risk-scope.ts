@@ -9,6 +9,9 @@ export interface LiveRiskIdentity {
   readonly userId: number;
   readonly network: LiveNetwork;
   readonly accountAddress: string;
+  /** Captured before acquiring any authority. Never attach a replacement
+   * stream to a running scope after loading or planning source evidence. */
+  readonly source?: Readonly<{ network: LiveNetwork; leaderAddress: string }>;
 }
 export interface LiveRiskScope {
   readonly identity: Readonly<LiveRiskIdentity>;
@@ -26,13 +29,26 @@ export interface LiveRiskDatabaseSession {
   read<T>(work: (db: DbExecutor) => Promise<T>): Promise<T>;
   transaction<T>(work: (tx: DbTransaction) => Promise<T>): Promise<T>;
 }
+const originalSessions = new WeakSet<object>();
+/** Concrete risk producers accept only capabilities issued by this factory,
+ * never a structurally compatible object containing invented SQL results. */
+export function assertOriginalLiveRiskSession(session: LiveRiskDatabaseSession): void {
+  if (!session || !originalSessions.has(session)) throw new LiveBoundaryError('live_risk_serialization_lost');
+  session.scope.assertFresh();
+}
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 function capture(value: LiveRiskIdentity): Readonly<LiveRiskIdentity> {
   if (!value || !Number.isSafeInteger(value.userId) || value.userId <= 0 || value.userId > 2147483647 ||
       !['testnet', 'mainnet'].includes(value.network) || typeof value.accountAddress !== 'string' ||
       !/^0x[0-9a-fA-F]{40}$/.test(value.accountAddress) || /^0x0{40}$/i.test(value.accountAddress))
     fail('live_risk_invalid_identity');
-  return Object.freeze({ userId: value.userId, network: value.network, accountAddress: value.accountAddress.toLowerCase() });
+  let source: LiveRiskIdentity['source'];
+  if (value.source !== undefined) {
+    if (!value.source || !['testnet', 'mainnet'].includes(value.source.network) || typeof value.source.leaderAddress !== 'string' ||
+      !/^0x[0-9a-fA-F]{40}$/.test(value.source.leaderAddress) || /^0x0{40}$/i.test(value.source.leaderAddress)) fail('live_risk_invalid_identity');
+    source = Object.freeze({ network: value.source.network, leaderAddress: value.source.leaderAddress.toLowerCase() });
+  }
+  return Object.freeze({ userId: value.userId, network: value.network, accountAddress: value.accountAddress.toLowerCase(), ...(source ? { source } : {}) });
 }
 
 /** Serializes the user's cross-account exposure and the trading account's
@@ -46,11 +62,13 @@ export class PostgresLiveRiskScope {
     // Match the existing transaction writer locks exactly. User limits and
     // controls are global across networks, so this lock deliberately is too.
     const accountKey = `live-risk-account:${identity.network}:${identity.accountAddress}`;
+    const sourceKey = identity.source ? `live-risk-source:${identity.source.network}:${identity.source.leaderAddress}` : null;
     const locks = [
       { acquire: 'select pg_try_advisory_lock_shared(7403, 0) as locked', release: 'select pg_advisory_unlock_shared(7403, 0) as unlocked', values: [] as (string | number)[] },
       { acquire: 'select pg_try_advisory_lock_shared(7405, 0) as locked', release: 'select pg_advisory_unlock_shared(7405, 0) as unlocked', values: [] as (string | number)[] },
       { acquire: 'select pg_try_advisory_lock(7404, $1::integer) as locked', release: 'select pg_advisory_unlock(7404, $1::integer) as unlocked', values: [identity.userId] },
       { acquire: 'select pg_try_advisory_lock(hashtextextended($1, 7)) as locked', release: 'select pg_advisory_unlock(hashtextextended($1, 7)) as unlocked', values: [accountKey] },
+      ...(sourceKey ? [{ acquire: 'select pg_try_advisory_lock_shared(hashtextextended($1, 8)) as locked', release: 'select pg_advisory_unlock_shared(hashtextextended($1, 8)) as unlocked', values: [sourceKey] }] : []),
     ];
     const client = await this.pool.connect();
     const acquired: typeof locks = [];
@@ -70,12 +88,15 @@ export class PostgresLiveRiskScope {
       const started = this.now();
       try {
         const result = await client.query<{ held: boolean }>(`
-          select count(*) = 4 as held from pg_locks where pid = pg_backend_pid()
+          select count(*) = $4::integer as held from pg_locks where pid = pg_backend_pid()
             and locktype = 'advisory' and granted
             and ((objsubid = 2 and mode = 'ShareLock' and classid::bigint in (7403,7405) and objid::bigint = 0)
               or (objsubid = 2 and mode = 'ExclusiveLock' and classid::bigint = 7404 and objid::bigint = $1)
               or (objsubid = 1 and mode = 'ExclusiveLock' and classid::bigint = ((hashtextextended($2, 7) >> 32) & 4294967295)
-                and objid::bigint = (hashtextextended($2, 7) & 4294967295)))`, [identity.userId, accountKey]);
+                and objid::bigint = (hashtextextended($2, 7) & 4294967295))
+              or ($3::text is not null and objsubid = 1 and mode = 'ShareLock'
+                and classid::bigint = ((hashtextextended($3::text, 8) >> 32) & 4294967295)
+                and objid::bigint = (hashtextextended($3::text, 8) & 4294967295)))`, [identity.userId, accountKey, sourceKey, locks.length]);
         if (!held || lost || result.rows[0]?.held !== true) throw new Error();
         // Timestamp is the beginning of the query, including SQL queue waits.
         checkedAt = started;
@@ -139,6 +160,7 @@ export class PostgresLiveRiskScope {
       }
       held = true;
       await scope.assertHeld();
+      originalSessions.add(session);
       const result = await work(scope, session);
       if (databaseBusy) fail('live_risk_database_unawaited');
       return result;
@@ -146,6 +168,7 @@ export class PostgresLiveRiskScope {
       // Tombstone every callback before cleanup releases authority to another
       // worker. A stale closure can never regain it by querying this pool.
       held = false;
+      originalSessions.delete(session);
       let discard = lost || client.getTransactionStatus() !== 'I';
       if (activeOperation) {
         let timer: ReturnType<typeof setTimeout> | undefined;

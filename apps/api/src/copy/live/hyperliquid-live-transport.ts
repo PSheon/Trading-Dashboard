@@ -9,6 +9,7 @@ import type { ExchangeOutcome, LiveExchangeTransport, LiveExecutionRecord, Signe
 import { PrivyOrderSigner, assertLiveSigningBoundaryProof, type LiveBuilderApprovalProof } from "./privy-order-signer.js";
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead, marketIdentityKey, type LiveMarketIdentity, type LiveMarketResolver } from './live-market-resolver.js';
+import { parseLiveOrderEvidence, type LiveOrderEvidence } from './live-order-evidence.js';
 
 export interface LiveTransportDependencies {
   marketResolver: LiveMarketResolver;
@@ -160,6 +161,25 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     }
     if (typeof status.status === "string" && rejectedStatuses.has(status.status)) return { state: "rejected", exchangeOrderId, reason: "exchange_rejected_order" };
     throw new LiveBoundaryError("unrecognized_exchange_order_status");
+  }
+
+  /** Separate settlement-grade read evidence. Legacy query outcomes alone do
+   * not carry terminal source timing or authoritative cancellation quantity. */
+  async queryEvidence(supplied: LiveExecutionRecord): Promise<Readonly<LiveOrderEvidence>> {
+    const record = structuredClone(supplied), checkedAt = this.now();
+    if (this.network !== 'testnet' || record.authorization.network !== 'testnet') throw new LiveBoundaryError('transport_network_mismatch');
+    const remaining = () => {
+      this.assertObservationFresh(checkedAt); return Math.max(1, 5000 - (this.now() - checkedAt));
+    };
+    const market = await boundedLiveRead(this.resolver().resolveAsset(record.action.orders[0].a), remaining());
+    await boundedLiveRead(this.acquire(20), remaining());
+    const response = await boundedLiveRead(this.fetcher(`${this.endpoint}/info`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0].c }),
+      signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
+    if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
+    const raw = await boundedLiveRead(readInfoJson(response, 'live order evidence', 256 * 1024), remaining());
+    const completedAt = this.now(), evidence = parseLiveOrderEvidence({ record, market, raw, checkedAt, completedAt, now: completedAt });
+    this.assertObservationFresh(checkedAt); return evidence;
   }
 
   private resolver(): LiveMarketResolver {

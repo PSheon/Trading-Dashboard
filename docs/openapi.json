@@ -22593,6 +22593,10 @@
                                 "type": "string",
                                 "format": "date-time"
                               },
+                              "revision": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
                               "issue": {
                                 "anyOf": [
                                   {
@@ -22680,6 +22684,10 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
                               }
                             },
                             "required": [
@@ -22839,6 +22847,10 @@
                           "type": "string",
                           "format": "date-time"
                         },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
                         "issue": {
                           "anyOf": [
                             {
@@ -22988,6 +23000,10 @@
                         "updatedAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
                         },
                         "issue": {
                           "anyOf": [
@@ -23150,6 +23166,10 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
                         }
                       },
                       "required": [
@@ -24441,6 +24461,10 @@
                               "updatedAt": {
                                 "type": "string",
                                 "format": "date-time"
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
                               }
                             },
                             "required": [
@@ -24624,6 +24648,10 @@
                         "updatedAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
                         }
                       },
                       "required": [
@@ -24787,6 +24815,10 @@
                         "updatedAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
                         }
                       },
                       "required": [
@@ -24952,6 +24984,10 @@
                             "updatedAt": {
                               "type": "string",
                               "format": "date-time"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
                             }
                           },
                           "required": [
@@ -25200,6 +25236,10 @@
                         "updatedAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
                         }
                       },
                       "required": [
@@ -26694,6 +26734,3719 @@
         "summary": "Read my actual follower trading statement",
         "tags": [
           "CopyFollower"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/execution-wallets/{id}/activity": {
+      "get": {
+        "description": "Bounded before-only booked fill/funding history for this exact dedicated master. Signed USDC components exclude capital transfers and do not imply equity, ROI or complete provider history.\n\nAccess: user (owner); booked actual receipts; before-only pagination",
+        "operationId": "CopyFollowerController_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "Original account-bound before cursor",
+            "schema": {
+              "maxLength": 2048,
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "const": "actual"
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "token": {
+                          "type": "string",
+                          "const": "USDC"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 350
+                                  },
+                                  "coin": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40}:)?[^:\\s/@\\p{Cc}\\p{Cf}]{1,80}$"
+                                  },
+                                  "time": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "tradingCashDelta": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "fill"
+                                  },
+                                  "attribution": {
+                                    "type": "string",
+                                    "enum": [
+                                      "execution",
+                                      "account"
+                                    ]
+                                  },
+                                  "executionKey": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 350
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "oid": {
+                                    "type": "string",
+                                    "pattern": "^(?:0|[1-9]\\d{0,19})$"
+                                  },
+                                  "tid": {
+                                    "type": "string",
+                                    "pattern": "^(?:0|[1-9]\\d{0,19})$"
+                                  },
+                                  "side": {
+                                    "type": "string",
+                                    "enum": [
+                                      "B",
+                                      "A"
+                                    ]
+                                  },
+                                  "size": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "price": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "realizedPnl": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "exchangeFee": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "builderFee": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "coin",
+                                  "time",
+                                  "tradingCashDelta",
+                                  "kind",
+                                  "attribution",
+                                  "executionKey",
+                                  "oid",
+                                  "tid",
+                                  "side",
+                                  "size",
+                                  "price",
+                                  "realizedPnl",
+                                  "exchangeFee",
+                                  "builderFee"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 350
+                                  },
+                                  "coin": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40}:)?[^:\\s/@\\p{Cc}\\p{Cf}]{1,80}$"
+                                  },
+                                  "time": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "tradingCashDelta": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "funding"
+                                  },
+                                  "attribution": {
+                                    "type": "string",
+                                    "const": "account"
+                                  },
+                                  "executionKey": {
+                                    "type": "null"
+                                  },
+                                  "hash": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{64}$"
+                                  },
+                                  "funding": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "coin",
+                                  "time",
+                                  "tradingCashDelta",
+                                  "kind",
+                                  "attribution",
+                                  "executionKey",
+                                  "hash",
+                                  "funding"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "maxItems": 50
+                        },
+                        "previousCursor": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2048,
+                              "pattern": "^[A-Za-z0-9_-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        },
+                        "quarantine": {
+                          "type": "object",
+                          "properties": {
+                            "blocked": {
+                              "type": "boolean"
+                            },
+                            "reason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "blocked",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "coverage": {
+                          "type": "object",
+                          "properties": {
+                            "historicalCompleteness": {
+                              "type": "string",
+                              "const": "unproven"
+                            },
+                            "scannedThrough": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "unresolvedWindows": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "issue": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "updatedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "historicalCompleteness",
+                            "scannedThrough",
+                            "unresolvedWindows",
+                            "issue",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "accountId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "token",
+                        "items",
+                        "previousCursor",
+                        "hasMore",
+                        "quarantine",
+                        "coverage"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read my actual follower receipt history",
+        "tags": [
+          "CopyFollower"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/execution-wallets/{id}/snapshot": {
+      "get": {
+        "description": "Cached all-venue testnet equity, positions and remaining exchange orders with original observation times. Unavailable and stale evidence are explicit. This read does not contact the exchange, authorize trading or calculate account ROI.\n\nAccess: user (owner); cached actual testnet observation",
+        "operationId": "CopyFollowerSnapshotController_snapshot",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "const": "actual"
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "status": {
+                              "type": "string",
+                              "const": "observed"
+                            },
+                            "freshness": {
+                              "type": "string",
+                              "enum": [
+                                "fresh",
+                                "stale"
+                              ]
+                            },
+                            "lastReadIssue": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "not_observed",
+                                    "source_unavailable",
+                                    "unsupported_mode",
+                                    "unsupported_network",
+                                    "incomplete_coverage",
+                                    "invalid_evidence"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "asOf": {
+                              "type": "object",
+                              "properties": {
+                                "observedAt": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "completedAt": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "earliestProviderTime": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "checkedAt": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "freshUntil": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "observedAt",
+                                "completedAt",
+                                "earliestProviderTime",
+                                "checkedAt",
+                                "freshUntil"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "sourceDigest": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "role": {
+                              "type": "string",
+                              "const": "user"
+                            },
+                            "accountMode": {
+                              "type": "string",
+                              "const": "standard"
+                            },
+                            "accountAbstraction": {
+                              "type": "string",
+                              "const": "disabled"
+                            },
+                            "collateral": {
+                              "type": "object",
+                              "properties": {
+                                "tokenIndex": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "coin": {
+                                  "type": "string",
+                                  "const": "USDC"
+                                }
+                              },
+                              "required": [
+                                "tokenIndex",
+                                "coin"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "metrics": {
+                              "type": "object",
+                              "properties": {
+                                "perpEquity": {
+                                  "type": "string",
+                                  "maxLength": 80,
+                                  "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                },
+                                "marginUsed": {
+                                  "type": "string",
+                                  "maxLength": 80,
+                                  "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                },
+                                "withdrawable": {
+                                  "type": "string",
+                                  "maxLength": 80,
+                                  "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                },
+                                "exposureUsd": {
+                                  "type": "string",
+                                  "maxLength": 80,
+                                  "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                },
+                                "restingExposureUsd": {
+                                  "type": "string",
+                                  "maxLength": 80,
+                                  "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                },
+                                "grossRestingExposureUsd": {
+                                  "type": "string",
+                                  "maxLength": 80,
+                                  "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                },
+                                "unrealizedPnl": {
+                                  "type": "string",
+                                  "maxLength": 80,
+                                  "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                },
+                                "roi": {
+                                  "type": "null"
+                                },
+                                "periodPnl": {
+                                  "type": "null"
+                                },
+                                "netDeposits": {
+                                  "type": "null"
+                                }
+                              },
+                              "required": [
+                                "perpEquity",
+                                "marginUsed",
+                                "withdrawable",
+                                "exposureUsd",
+                                "restingExposureUsd",
+                                "grossRestingExposureUsd",
+                                "unrealizedPnl",
+                                "roi",
+                                "periodPnl",
+                                "netDeposits"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "positions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "coin": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40}:)?[^:\\s/@\\p{Cc}\\p{Cf}]{1,80}$"
+                                  },
+                                  "dex": {
+                                    "type": "string",
+                                    "maxLength": 40,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40})?$"
+                                  },
+                                  "asset": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "sizeDecimals": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 6
+                                  },
+                                  "size": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "entryPrice": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "positionValue": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "unrealizedPnl": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "marginUsed": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "leverage": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "exclusiveMinimum": 0
+                                  },
+                                  "leverageType": {
+                                    "type": "string",
+                                    "enum": [
+                                      "cross",
+                                      "isolated"
+                                    ]
+                                  },
+                                  "maxLeverage": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "exclusiveMinimum": 0
+                                  },
+                                  "fundingSinceOpen": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "fundingSinceChange": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  }
+                                },
+                                "required": [
+                                  "coin",
+                                  "dex",
+                                  "asset",
+                                  "sizeDecimals",
+                                  "size",
+                                  "entryPrice",
+                                  "positionValue",
+                                  "unrealizedPnl",
+                                  "marginUsed",
+                                  "leverage",
+                                  "leverageType",
+                                  "maxLeverage",
+                                  "fundingSinceOpen",
+                                  "fundingSinceChange"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "maxItems": 10000
+                            },
+                            "restingOrders": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "coin": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40}:)?[^:\\s/@\\p{Cc}\\p{Cf}]{1,80}$"
+                                  },
+                                  "dex": {
+                                    "type": "string",
+                                    "maxLength": 40,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40})?$"
+                                  },
+                                  "asset": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "oid": {
+                                    "type": "string",
+                                    "pattern": "^(?:0|[1-9]\\d{0,19})$"
+                                  },
+                                  "side": {
+                                    "type": "string",
+                                    "enum": [
+                                      "B",
+                                      "A"
+                                    ]
+                                  },
+                                  "limitPrice": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "remainingSize": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "originalSize": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "notionalUsd": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "reduceOnly": {
+                                    "type": "boolean"
+                                  },
+                                  "timestamp": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "cloid": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^0x[0-9a-f]{32}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "coin",
+                                  "dex",
+                                  "asset",
+                                  "oid",
+                                  "side",
+                                  "limitPrice",
+                                  "remainingSize",
+                                  "originalSize",
+                                  "notionalUsd",
+                                  "reduceOnly",
+                                  "timestamp",
+                                  "cloid"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "maxItems": 5000
+                            },
+                            "dexes": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "dex": {
+                                    "type": "string",
+                                    "maxLength": 40,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40})?$"
+                                  },
+                                  "perpDexIndex": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 999
+                                  },
+                                  "supported": {
+                                    "type": "boolean"
+                                  },
+                                  "collateralToken": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "collateralCoin": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  },
+                                  "providerTime": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "equity": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "rawUsd": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "marginUsed": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "withdrawable": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "exposureUsd": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "crossEquity": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "crossMarginUsed": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "crossExposureUsd": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  },
+                                  "crossMaintenanceMarginUsed": {
+                                    "type": "string",
+                                    "maxLength": 80,
+                                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d{1,18})?$"
+                                  }
+                                },
+                                "required": [
+                                  "dex",
+                                  "perpDexIndex",
+                                  "supported",
+                                  "collateralToken",
+                                  "collateralCoin",
+                                  "providerTime",
+                                  "equity",
+                                  "rawUsd",
+                                  "marginUsed",
+                                  "withdrawable",
+                                  "exposureUsd",
+                                  "crossEquity",
+                                  "crossMarginUsed",
+                                  "crossExposureUsd",
+                                  "crossMaintenanceMarginUsed"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "minItems": 1,
+                              "maxItems": 1000
+                            },
+                            "coverage": {
+                              "type": "object",
+                              "properties": {
+                                "complete": {
+                                  "type": "boolean",
+                                  "const": true
+                                },
+                                "balanceComplete": {
+                                  "type": "boolean",
+                                  "const": true
+                                },
+                                "orderComplete": {
+                                  "type": "boolean",
+                                  "const": true
+                                },
+                                "listedDexes": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 40,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40})?$"
+                                  },
+                                  "minItems": 1,
+                                  "maxItems": 1000
+                                },
+                                "observedOrderDexes": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 40,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40})?$"
+                                  },
+                                  "minItems": 1,
+                                  "maxItems": 1000
+                                },
+                                "unobservedOrderDexes": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 40,
+                                    "pattern": "^(?:[^:\\s/@\\p{Cc}\\p{Cf}]{1,40})?$"
+                                  },
+                                  "maxItems": 0
+                                }
+                              },
+                              "required": [
+                                "complete",
+                                "balanceComplete",
+                                "orderComplete",
+                                "listedDexes",
+                                "observedOrderDexes",
+                                "unobservedOrderDexes"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "quarantine": {
+                              "type": "object",
+                              "properties": {
+                                "blocked": {
+                                  "type": "boolean"
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "blocked",
+                                "reason"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "mode",
+                            "network",
+                            "accountId",
+                            "strategyId",
+                            "accountAddress",
+                            "status",
+                            "freshness",
+                            "lastReadIssue",
+                            "asOf",
+                            "sourceDigest",
+                            "role",
+                            "accountMode",
+                            "accountAbstraction",
+                            "collateral",
+                            "metrics",
+                            "positions",
+                            "restingOrders",
+                            "dexes",
+                            "coverage",
+                            "quarantine"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "const": "actual"
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "status": {
+                              "type": "string",
+                              "const": "unavailable"
+                            },
+                            "observation": {
+                              "type": "null"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "not_observed",
+                                "source_unavailable",
+                                "unsupported_mode",
+                                "unsupported_network",
+                                "incomplete_coverage",
+                                "invalid_evidence"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "mode",
+                            "network",
+                            "accountId",
+                            "strategyId",
+                            "accountAddress",
+                            "status",
+                            "observation",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read my observed actual perpetual account",
+        "tags": [
+          "CopyFollowerSnapshot"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live": {
+      "get": {
+        "operationId": "CopyLiveMandateController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "const": "actual"
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "capabilities": {
+                          "type": "object",
+                          "properties": {
+                            "strategyPreparation": {
+                              "type": "boolean"
+                            },
+                            "automaticExecution": {
+                              "type": "boolean"
+                            },
+                            "sourceNetworks": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "strategyPreparation",
+                            "automaticExecution",
+                            "sourceNetworks"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "strategies": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "mode": {
+                                "type": "string",
+                                "const": "actual"
+                              },
+                              "network": {
+                                "type": "string",
+                                "const": "testnet"
+                              },
+                              "sourceNetwork": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "leaderAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "budgetUsd": {
+                                "type": "string",
+                                "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                                "maxLength": 32
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "paused",
+                                  "stopping",
+                                  "stopped"
+                                ]
+                              },
+                              "version": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "settings": {
+                                "type": "object",
+                                "properties": {
+                                  "direction": {
+                                    "type": "string",
+                                    "enum": [
+                                      "same",
+                                      "reverse"
+                                    ]
+                                  },
+                                  "sizingMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ratio",
+                                      "fixed"
+                                    ]
+                                  },
+                                  "perTradeUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxTotalExposureUsd": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "maxLeverage": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 1,
+                                        "maximum": 50
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "copyStartMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "adopt",
+                                      "delta"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "direction",
+                                  "sizingMode",
+                                  "perTradeUsd",
+                                  "maxTotalExposureUsd",
+                                  "maxLeverage",
+                                  "copyStartMode"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "pauseNewRisk": {
+                                "type": "boolean"
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "mode",
+                              "network",
+                              "sourceNetwork",
+                              "leaderAddress",
+                              "budgetUsd",
+                              "status",
+                              "version",
+                              "settings",
+                              "pauseNewRisk",
+                              "reduceOnly",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "mandates": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "accountId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "mode": {
+                                "type": "string",
+                                "const": "actual"
+                              },
+                              "network": {
+                                "type": "string",
+                                "const": "testnet"
+                              },
+                              "accountAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "sourceNetwork": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "leaderAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "budgetUsd": {
+                                "type": "string",
+                                "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                                "maxLength": 32
+                              },
+                              "strategyVersion": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "prepared",
+                                  "active",
+                                  "paused",
+                                  "stopping",
+                                  "stopped",
+                                  "revoked",
+                                  "expired"
+                                ]
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "activationCursor": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "expiresAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "accountId",
+                              "strategyId",
+                              "mode",
+                              "network",
+                              "accountAddress",
+                              "sourceNetwork",
+                              "leaderAddress",
+                              "budgetUsd",
+                              "strategyVersion",
+                              "state",
+                              "revision",
+                              "activationCursor",
+                              "expiresAt",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "network",
+                        "capabilities",
+                        "strategies",
+                        "mandates"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read my dedicated testnet copy strategies and local owner mandates",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); local testnet mandate state"
+      }
+    },
+    "/me/copy/live/strategies/by-key/{key}": {
+      "get": {
+        "operationId": "CopyLiveMandateController_strategyByKey",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minLength": 16,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "actual"
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "sourceNetwork": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "leaderAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "budgetUsd": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                          "maxLength": 32
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "network",
+                        "sourceNetwork",
+                        "leaderAddress",
+                        "budgetUsd",
+                        "status",
+                        "version",
+                        "settings",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Recover my original dedicated strategy by its local operation key",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); original local idempotency key"
+      }
+    },
+    "/me/copy/live/mandates/by-key/{key}": {
+      "get": {
+        "description": "Returns archived expired/revoked evidence without changing its nonce, expiry or state.\n\nAccess: user (owner); original local idempotency key; read only",
+        "operationId": "CopyLiveMandateController_mandateByKey",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minLength": 16,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mandate": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "actual"
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "sourceNetwork": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "leaderAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "budgetUsd": {
+                              "type": "string",
+                              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                              "maxLength": 32
+                            },
+                            "strategyVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "prepared",
+                                "active",
+                                "paused",
+                                "stopping",
+                                "stopped",
+                                "revoked",
+                                "expired"
+                              ]
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "activationCursor": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "accountId",
+                            "strategyId",
+                            "mode",
+                            "network",
+                            "accountAddress",
+                            "sourceNetwork",
+                            "leaderAddress",
+                            "budgetUsd",
+                            "strategyVersion",
+                            "state",
+                            "revision",
+                            "activationCursor",
+                            "expiresAt",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "intent": {
+                          "type": "object",
+                          "properties": {
+                            "mandateId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "userId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "strategyVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "sourceNetwork": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "leaderAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "ownerAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "ownerPrivyUserId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "setupId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "setupRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "executionWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "agentWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "agentAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "authorizationId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "authorizationVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "policyId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "policyFingerprint": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "workerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "settingsDigest": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "budgetUsd": {
+                              "type": "string",
+                              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                              "maxLength": 32
+                            },
+                            "builderAddress": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "builderMaxFeeTenthsOfBps": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            "plannerVersion": {
+                              "type": "number",
+                              "const": 1
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "mandateId",
+                            "accountId",
+                            "userId",
+                            "strategyId",
+                            "strategyVersion",
+                            "network",
+                            "sourceNetwork",
+                            "leaderAddress",
+                            "accountAddress",
+                            "accountRevision",
+                            "ownerAddress",
+                            "ownerPrivyUserId",
+                            "setupId",
+                            "setupRevision",
+                            "executionWalletId",
+                            "agentWalletId",
+                            "agentAddress",
+                            "authorizationId",
+                            "authorizationVersion",
+                            "policyId",
+                            "policyFingerprint",
+                            "workerQuorumId",
+                            "settingsDigest",
+                            "budgetUsd",
+                            "builderAddress",
+                            "builderMaxFeeTenthsOfBps",
+                            "plannerVersion",
+                            "nonce",
+                            "consentExpiresAt",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "mandate",
+                        "intent"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Recover my exact original local mandate challenge by key",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/mandates/{id}/challenge": {
+      "get": {
+        "description": "Recovery does not refresh consent or activate trading.\n\nAccess: user (owner); original persisted consent intent; read only",
+        "operationId": "CopyLiveMandateController_originalChallenge",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mandate": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "actual"
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "sourceNetwork": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "leaderAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "budgetUsd": {
+                              "type": "string",
+                              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                              "maxLength": 32
+                            },
+                            "strategyVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "prepared",
+                                "active",
+                                "paused",
+                                "stopping",
+                                "stopped",
+                                "revoked",
+                                "expired"
+                              ]
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "activationCursor": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "accountId",
+                            "strategyId",
+                            "mode",
+                            "network",
+                            "accountAddress",
+                            "sourceNetwork",
+                            "leaderAddress",
+                            "budgetUsd",
+                            "strategyVersion",
+                            "state",
+                            "revision",
+                            "activationCursor",
+                            "expiresAt",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "intent": {
+                          "type": "object",
+                          "properties": {
+                            "mandateId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "userId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "strategyVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "sourceNetwork": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "leaderAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "ownerAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "ownerPrivyUserId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "setupId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "setupRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "executionWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "agentWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "agentAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "authorizationId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "authorizationVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "policyId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "policyFingerprint": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "workerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "settingsDigest": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "budgetUsd": {
+                              "type": "string",
+                              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                              "maxLength": 32
+                            },
+                            "builderAddress": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "builderMaxFeeTenthsOfBps": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            "plannerVersion": {
+                              "type": "number",
+                              "const": 1
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "mandateId",
+                            "accountId",
+                            "userId",
+                            "strategyId",
+                            "strategyVersion",
+                            "network",
+                            "sourceNetwork",
+                            "leaderAddress",
+                            "accountAddress",
+                            "accountRevision",
+                            "ownerAddress",
+                            "ownerPrivyUserId",
+                            "setupId",
+                            "setupRevision",
+                            "executionWalletId",
+                            "agentWalletId",
+                            "agentAddress",
+                            "authorizationId",
+                            "authorizationVersion",
+                            "policyId",
+                            "policyFingerprint",
+                            "workerQuorumId",
+                            "settingsDigest",
+                            "budgetUsd",
+                            "builderAddress",
+                            "builderMaxFeeTenthsOfBps",
+                            "plannerVersion",
+                            "nonce",
+                            "consentExpiresAt",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "mandate",
+                        "intent"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read the exact original local mandate challenge",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/strategies": {
+      "post": {
+        "description": "Creates local configuration only. Does not allocate simulated funds or start execution.\n\nAccess: user (owner); fresh paused testnet configuration",
+        "operationId": "CopyLiveMandateController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLiveCopyStrategyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "actual"
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "sourceNetwork": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "leaderAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "budgetUsd": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                          "maxLength": 32
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "network",
+                        "sourceNetwork",
+                        "leaderAddress",
+                        "budgetUsd",
+                        "status",
+                        "version",
+                        "settings",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare a fresh paused testnet copy strategy",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/execution-wallets/{id}/mandates": {
+      "post": {
+        "operationId": "CopyLiveMandateController_prepare",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareLiveCopyMandateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mandate": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "mode": {
+                              "type": "string",
+                              "const": "actual"
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "sourceNetwork": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "leaderAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "budgetUsd": {
+                              "type": "string",
+                              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                              "maxLength": 32
+                            },
+                            "strategyVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "prepared",
+                                "active",
+                                "paused",
+                                "stopping",
+                                "stopped",
+                                "revoked",
+                                "expired"
+                              ]
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "activationCursor": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "accountId",
+                            "strategyId",
+                            "mode",
+                            "network",
+                            "accountAddress",
+                            "sourceNetwork",
+                            "leaderAddress",
+                            "budgetUsd",
+                            "strategyVersion",
+                            "state",
+                            "revision",
+                            "activationCursor",
+                            "expiresAt",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "intent": {
+                          "type": "object",
+                          "properties": {
+                            "mandateId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "userId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "strategyVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "sourceNetwork": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "leaderAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "ownerAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "ownerPrivyUserId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "setupId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "setupRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "executionWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "agentWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "agentAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "authorizationId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "authorizationVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "policyId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "policyFingerprint": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "workerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "settingsDigest": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "budgetUsd": {
+                              "type": "string",
+                              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                              "maxLength": 32
+                            },
+                            "builderAddress": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{40}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "builderMaxFeeTenthsOfBps": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            "plannerVersion": {
+                              "type": "number",
+                              "const": 1
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "mandateId",
+                            "accountId",
+                            "userId",
+                            "strategyId",
+                            "strategyVersion",
+                            "network",
+                            "sourceNetwork",
+                            "leaderAddress",
+                            "accountAddress",
+                            "accountRevision",
+                            "ownerAddress",
+                            "ownerPrivyUserId",
+                            "setupId",
+                            "setupRevision",
+                            "executionWalletId",
+                            "agentWalletId",
+                            "agentAddress",
+                            "authorizationId",
+                            "authorizationVersion",
+                            "policyId",
+                            "policyFingerprint",
+                            "workerQuorumId",
+                            "settingsDigest",
+                            "budgetUsd",
+                            "builderAddress",
+                            "builderMaxFeeTenthsOfBps",
+                            "plannerVersion",
+                            "nonce",
+                            "consentExpiresAt",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "mandate",
+                        "intent"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare exact local owner consent for a verified testnet agent",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); exact current verified agent binding"
+      }
+    },
+    "/me/copy/live/mandates/{id}/approve": {
+      "post": {
+        "description": "Active acknowledges consent only. The strategy remains paused; automatic execution is unavailable.\n\nAccess: user (owner); exact local owner consent; automatic execution unavailable",
+        "operationId": "CopyLiveMandateController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveLiveCopyMandateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "actual"
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "sourceNetwork": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "leaderAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "budgetUsd": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                          "maxLength": 32
+                        },
+                        "strategyVersion": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped",
+                            "revoked",
+                            "expired"
+                          ]
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "activationCursor": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "mode",
+                        "network",
+                        "accountAddress",
+                        "sourceNetwork",
+                        "leaderAddress",
+                        "budgetUsd",
+                        "strategyVersion",
+                        "state",
+                        "revision",
+                        "activationCursor",
+                        "expiresAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Acknowledge exact owner consent locally",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/mandates/{id}/pause": {
+      "post": {
+        "operationId": "CopyLiveMandateController_pause",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyLiveCopyMandateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "actual"
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "sourceNetwork": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "leaderAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "budgetUsd": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                          "maxLength": 32
+                        },
+                        "strategyVersion": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped",
+                            "revoked",
+                            "expired"
+                          ]
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "activationCursor": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "mode",
+                        "network",
+                        "accountAddress",
+                        "sourceNetwork",
+                        "leaderAddress",
+                        "budgetUsd",
+                        "strategyVersion",
+                        "state",
+                        "revision",
+                        "activationCursor",
+                        "expiresAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Pause new risk locally without cancelling orders or settling funds",
+        "tags": [
+          "CopyLiveMandate"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); local new-risk barrier"
+      }
+    },
+    "/me/copy/live/mandates/{id}/revoke": {
+      "post": {
+        "description": "Preserves all orders, unknown receipts and financial liabilities for reconciliation.\n\nAccess: user (owner); local consent revocation preserves liabilities",
+        "operationId": "CopyLiveMandateController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyLiveCopyMandateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "actual"
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "sourceNetwork": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "leaderAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "budgetUsd": {
+                          "type": "string",
+                          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                          "maxLength": 32
+                        },
+                        "strategyVersion": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped",
+                            "revoked",
+                            "expired"
+                          ]
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "activationCursor": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "mode",
+                        "network",
+                        "accountAddress",
+                        "sourceNetwork",
+                        "leaderAddress",
+                        "budgetUsd",
+                        "strategyVersion",
+                        "state",
+                        "revision",
+                        "activationCursor",
+                        "expiresAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Revoke local execution consent",
+        "tags": [
+          "CopyLiveMandate"
         ],
         "security": [
           {
@@ -30455,6 +34208,128 @@
         "required": [
           "consentSignature"
         ],
+        "additionalProperties": false
+      },
+      "LiveCopyStrategySettingsDto": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "same",
+              "reverse"
+            ]
+          },
+          "sizingMode": {
+            "type": "string",
+            "enum": [
+              "ratio",
+              "fixed"
+            ]
+          },
+          "perTradeUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxTotalExposureUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxLeverage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "copyStartMode": {
+            "type": "string",
+            "enum": [
+              "adopt",
+              "delta"
+            ]
+          }
+        },
+        "required": [
+          "direction",
+          "sizingMode",
+          "perTradeUsd",
+          "maxTotalExposureUsd",
+          "maxLeverage",
+          "copyStartMode"
+        ],
+        "additionalProperties": false
+      },
+      "CreateLiveCopyStrategyDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          },
+          "leader": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]{40}$"
+          },
+          "sourceNetwork": {
+            "type": "string",
+            "enum": [
+              "testnet",
+              "mainnet"
+            ],
+            "description": "Only testnet sources are currently supported"
+          },
+          "budgetUsd": {
+            "type": "string",
+            "description": "Explicit real-account risk budget; does not allocate funds"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/LiveCopyStrategySettingsDto"
+          }
+        },
+        "required": [
+          "idempotencyKey",
+          "leader",
+          "sourceNetwork",
+          "budgetUsd",
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "PrepareLiveCopyMandateDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveLiveCopyMandateDto": {
+        "type": "object",
+        "properties": {
+          "consentSignature": {
+            "type": "string",
+            "description": "Ephemeral owner signature of the exact CopyTradingMandate intent"
+          }
+        },
+        "required": [
+          "consentSignature"
+        ],
+        "additionalProperties": false
+      },
+      "EmptyLiveCopyMandateDto": {
+        "type": "object",
+        "properties": {},
         "additionalProperties": false
       },
       "AdminCopyControlDto": {

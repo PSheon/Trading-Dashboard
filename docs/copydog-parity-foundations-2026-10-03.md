@@ -72,10 +72,27 @@ Order signing adapter 使用實際安裝的 Privy SDK，以每次請求獨立 cl
 
 ## 尚未完成的驗收
 
+2026-10-04 最新整合進度：
+
+- Dedicated testnet 策略與紙上策略已分開，實際策略的模擬現金、分配、損益、費用及 funding 全部為零。紙上交易的查詢、規劃、寫入、訊號 outbox 與 worker 不會處理實際策略；不會轉換既有紙上歷史。
+- 新增本人操作的 paused 策略草稿、精確主錢包同意及本地 mandate。簽署綁定預算、leader、來源網路、設定版本、master revision、agent setup、grant、Privy 身分、builder 與期限。取得 token、等待資料庫鎖與完成純資料驗證後都再次檢查。`active` 只代表本地同意已核對，策略仍 paused，並不表示自動執行已啟用。
+- 策略及 mandate 的原 idempotency key、原 challenge 都可唯讀恢復。恢復不換 nonce、不延長期限、不重新簽署或重送。不確定請求保留原操作；本人本地 pause／revoke 保留所有交易責任。
+- 實際資金保留從當前 mandate 預算及完整原始綁定取值，不讀模擬 allocated。具體風險來源只能接受原始 factory-issued SQL session；訊號 ingestion 與執行使用相同 source lock。原始 session 結束後的 callback 不能接到後繼 worker。
+- Actual order evidence 與原 IOC acknowledgment 已分開保存；部分成交的 acknowledgment 不是釋放責任的證明。成交與帳本歸屬核對 exact account／network／master／journal／OID，無 cloid 的成交只能透過唯一且原始身分相符的 evidence 歸屬。停止、停用及撤銷後仍核對晚到資料。
+- 新增本人完整 activity 分頁及實際帳戶 snapshot UI。金額使用精確十進位，展示倉位、掛單、各 venue、來源時間、coverage 及隔離狀態。失敗或過期不冒充即時資料；實際 ROI、期間損益及 net deposits 未證明時仍為 unknown。實際持倉不從紙上 positions 產生。
+- 本地已使用可讀、0600 的新備份套用0043–0048。最新備份1070463147 bytes；原始空帳戶 baseline 的 schema 與純驗證已備，原子準備 producer 尚未接通。它只能作同一 mandate 的初始數量證據，不能事後補作，也不能用來接管手動或前一次授權的部位。
+- 固定 testnet 訊號 reader／storage 已有獨立測試與 immutable origin；尚未註冊為實際交易訊號服務。原始比例 sizing、settlement 完整證明、generation position projection 及 coordinator 正在整合。不能用來源 digest 或 compact sizing scalars 單獨當作交易權威。
+
+新增本地 API／worker readiness 均200，localhost:3001 為200；私人 mandate／snapshot 路由匿名均401、no-store。這些僅證明本地服務與存取邊界。未進行使用者簽署、交易或轉帳，未更新 Railway，也未完成 funded-account acceptance。
+
+開發中的兩次整體 API run 分別2750項含49個失敗、2800項含8個失敗；原因包含真實 DTO 邊界缺失及與代理 RED scaffold／暫時錯誤重疊，均有對應修正及 focused 綠色結果。最後穩定清單整體回歸另行重跑；不能把開發中 run 描述成全部通過。原始 session／journal／baseline focused 四檔66項通過，mandate／schema／crypto／DTO 五檔67項通過；UI 仍須以最終完整 web 回歸為準。
+
+穩定清單重跑178檔2814項全數通過，明確排除當時仍在開發的 source planner／generation projection 兩檔。完整前端101檔829項通過；API 型別／lint、shared lint、OpenAPI 一致性通過。正式 Next build 首次在沙箱內因 CSS 子程序綁定埠失敗；清除該失敗的 production Turbopack cache 後，以授權本機建置重跑成功，包含型別與42個靜態頁面生成。未修改 Next 建置設定或切換編譯器。這些驗證是本輪 guarded foundations 的 checkpoint，不能代替尚未接通的實際交易驗收。
+
 1. 將 actual account risk、不可重複的 collateral reservation、leader signal、具體 final gate、Privy signer、exchange submission 與 receipt reconciliation 接成真正的 testnet 策略執行。
 2. 以實際準備且已入金的使用者帳戶完成本人授權、leader 開／加／減／平、部分成交、斷線、未知結果、重啟的 end-to-end 驗證。
 3. 接通停止新增風險、取消掛單、reduce-only 平倉、flat 證明及返回 hub 的完整流程；停止與本地 grant 撤銷不能冒充 exchange cancel／agent remove。
-4. 對 follower position/equity、reservation settlement、實際績效及 UI activity 提供同一套真實資料，完成報表 UI。
+4. 將已完成的 follower position/equity／activity UI 與實際執行使用相同權威資料接通，完成 settlement 原始完整證明及實際績效。
 5. 完成使用者推薦關係、可追溯返佣與申領，以及先前完整 UI／功能／資料差異清單中的周邊流程。平台收入快照不是使用者推薦帳本。
 6. 完成整體 tests/build/security review 與 dev release；Railway 部署及 funded-account acceptance 狀態須獨立確認。
 

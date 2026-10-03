@@ -24,7 +24,7 @@ export class FillSyncRepository {
   /** Whether a live copy follows `address`: its stored fills become copy signals. */
   async isCopied(address: string): Promise<boolean> {
     const [row] = await this.db.select({ id: copyStrategies.id }).from(copyStrategies)
-      .where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).limit(1);
+      .where(and(eq(copyStrategies.mode, "paper"), eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).limit(1);
     return row !== undefined;
   }
 

@@ -28,7 +28,7 @@ export async function enqueueCopySignals(tx: DbTransaction, address: string, ins
   const [cursor] = await tx
     .select({ from: sql<Date | null>`min(${copyStrategies.activatedAt})` })
     .from(copyStrategies)
-    .where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES])));
+    .where(and(eq(copyStrategies.mode, "paper"), eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES])));
   if (!cursor?.from) return 0;
   const from = new Date(cursor.from).getTime();
   const rows = inserted.filter((r) => r.ts.getTime() > from).map((r) => ({ chain: CHAIN_DEFAULT, address, tid: r.tid, fillTime: r.ts }));
@@ -43,7 +43,9 @@ export async function catchUpCopySignals(tx: DbTransaction, address: string, aft
   const rows = await tx
     .select({ tid: fills.tid, ts: fills.ts })
     .from(fills)
-    .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), gt(fills.ts, after)));
+    .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), gt(fills.ts, after),
+      sql`exists (select 1 from ${copyStrategies} where ${copyStrategies.mode} = 'paper' and ${copyStrategies.chain} = ${CHAIN_DEFAULT}
+        and ${copyStrategies.leaderAddress} = ${address} and ${inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES])})`));
   if (rows.length === 0) return 0;
   const out = await tx
     .insert(copySignalOutbox)

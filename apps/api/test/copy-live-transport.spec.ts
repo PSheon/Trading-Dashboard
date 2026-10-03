@@ -56,6 +56,51 @@ function statusReply(status = "open", overrides = {}) {
 }
 
 describe('authoritative finite order-status classification', () => {
+  it('returns immutable identity-bound terminal evidence with exact source timing and raw status', async () => {
+    const s = setup(); s.fetcher.mockResolvedValue(reply(statusReply('filled', { timestamp: now, isTrigger: false, isPositionTpsl: false, children: [] })));
+    const evidence = await s.transport.queryEvidence({ ...record, market });
+    expect(evidence).toMatchObject({ kind: 'order', checkedAt: now, completedAt: now, classification: 'filled',
+      oid: '10', cloid: intent.cloid, originalSize: '0.01', statusTimestamp: now, quantity: { kind: 'full', filledSize: '0.01' },
+      identity: { key: record.key, fingerprint: record.fingerprint, nonce: record.nonce, accountAddress: grant.accountAddress } });
+    expect(evidence.sourceDigest).toMatch(/^[0-9a-f]{64}$/); expect(Object.isFrozen(evidence.raw)).toBe(true);
+    expect(s.signTypedData).not.toHaveBeenCalled();
+  });
+  it('accepts the documented fully-filled shape where sz still equals original100 quantity', async () => {
+    const s = setup(), original = { ...intent, size:'100' }, action = buildOrderAction(original);
+    s.fetcher.mockResolvedValue(reply(statusReply('filled',{origSz:'100',sz:'100',timestamp:now,isTrigger:false,isPositionTpsl:false,children:[]})));
+    expect(await s.transport.queryEvidence({...record,market,action,fingerprint:intentFingerprint(original,action)})).toMatchObject({kind:'order',originalSize:'100',observedOrderSize:'100',quantity:{kind:'full',filledSize:'100'}});
+  });
+  it('includes queued read-budget time in the five-second observation deadline before HTTP', async () => {
+    let clock = now; const s = setup(gate,exchangeApprovalFixture(()=>clock),()=>clock);
+    s.acquire.mockImplementationOnce(async () => { clock += 5001; });
+    await expect(s.transport.queryEvidence({...record,market})).rejects.toThrow();
+    expect(s.fetcher).not.toHaveBeenCalled();
+  });
+  it('captures the original account and action before the caller mutates them during a budget wait', async () => {
+    const s = setup(), supplied = structuredClone({...record,market});
+    s.acquire.mockImplementationOnce(async () => { supplied.authorization.accountAddress=`0x${'55'.repeat(20)}`;supplied.action.orders[0].c=`0x${'cd'.repeat(16)}`; });
+    s.fetcher.mockResolvedValue(reply(statusReply('filled',{timestamp:now,isTrigger:false,isPositionTpsl:false,children:[]})));
+    expect(await s.transport.queryEvidence(supplied)).toMatchObject({kind:'order',cloid:intent.cloid,identity:{accountAddress:grant.accountAddress}});
+    expect(JSON.parse(String(s.fetcher.mock.calls[0]![1]?.body))).toMatchObject({user:grant.accountAddress,oid:intent.cloid});
+  });
+  it('retains cancelled GTC quantity uncertainty rather than certifying origSz minus sz', async () => {
+    const s = setup(), gtc = { ...intent, timeInForce: 'Gtc' as const }, action = buildOrderAction(gtc);
+    s.fetcher.mockResolvedValue(reply(statusReply('canceled', { tif: 'Gtc', sz: '0.005', timestamp: now, isTrigger: false, isPositionTpsl: false, children: [] })));
+    expect(await s.transport.queryEvidence({ ...record, market, action, fingerprint: intentFingerprint(gtc, action) })).toMatchObject({
+      kind: 'order', classification: 'cancelled', quantity: { kind: 'unproven', filledSize: null } });
+  });
+  it('reports unknownOid as missing evidence rather than zero quantity', async () => {
+    const s = setup(); s.fetcher.mockResolvedValue(reply({ status: 'unknownOid' }));
+    expect(await s.transport.queryEvidence({ ...record, market })).toMatchObject({ kind: 'missing', identity: { key: record.key } });
+  });
+  it.each(['wrong oid', 'future status', 'trigger', 'wrong source account'])('refuses malformed or unbound %s terminal evidence', async scenario => {
+    const s = setup(); const raw = statusReply('filled', { timestamp: now, isTrigger: scenario === 'trigger', isPositionTpsl: false, children: [] });
+    if (scenario === 'future status') raw.order.statusTimestamp = now + 1;
+    if (scenario === 'wrong source account') Object.assign(raw, { user: `0x${'44'.repeat(20)}` });
+    s.fetcher.mockResolvedValue(reply(raw));
+    const saved = { ...record, market, ...(scenario === 'wrong oid' ? { outcome: { state: 'filled' as const, exchangeOrderId: '99' } } : {}) };
+    await expect(s.transport.queryEvidence(saved)).rejects.toThrow();
+  });
   it('reconciles documented scheduledCancel as a terminal cancellation', async () => {
     const s = setup(); s.fetcher.mockResolvedValue(reply(statusReply('scheduledCancel')));
     expect(await s.transport.query(record)).toEqual({ state: 'cancelled', exchangeOrderId: '10', filledSize: '0' });

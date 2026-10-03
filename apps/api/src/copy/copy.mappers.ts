@@ -33,6 +33,7 @@ export function toCopyPosition(p: PositionRow, mids: Mids | null): CopyPosition 
  * position has none (never shown as 0). A stopped strategy is valued at
  * its final cash. */
 export function toCopyStrategy(s: StrategyRow, settings: CopyStrategySettings, positions: PositionRow[], mids: Mids | null, counts?: { pending: number; filled: number }): CopyStrategy {
+  if (s.mode !== "paper") throw new Error("paper_strategy_required");
   const own = positions.filter((p) => p.strategyId === s.id && !Dec.from(p.size).isZero);
   const priced = own.every((p) => mids?.px.has(p.coin));
   const unrealized = priced ? Dec.sum(own.map((p) => Dec.from(p.size).mul(mids!.px.get(p.coin)!.sub(p.entryPx)))) : null;

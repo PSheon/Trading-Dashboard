@@ -12,12 +12,12 @@ import { LiveBoundaryError, address } from "./wallet-authorization.js";
 import { marketIdentityKey } from './live-market-resolver.js';
 
 type ExecutionRow = typeof copyLiveExecutions.$inferSelect;
-const transitions: Record<LiveExecutionRecord["state"], readonly LiveExecutionRecord["state"][]> = {
+export const liveExecutionTransitions: Record<LiveExecutionRecord["state"], readonly LiveExecutionRecord["state"][]> = {
   prepared: ["submitting", "rejected"], submitting: ["unknown", "resting", "filled", "partial", "cancelled", "rejected"],
   unknown: ["unknown", "resting", "filled", "partial", "cancelled", "rejected"],
   resting: ["resting", "filled", "partial", "cancelled", "rejected"], filled: [], partial: [], cancelled: [], rejected: [],
 };
-function decode(row: ExecutionRow): LiveExecutionRecord {
+export function decodeLiveExecutionRow(row: ExecutionRow): LiveExecutionRecord {
   const record = row.record as unknown as LiveExecutionRecord;
   if (record?.market) {
     marketIdentityKey(record.market);
@@ -27,7 +27,7 @@ function decode(row: ExecutionRow): LiveExecutionRecord {
   if (!record || typeof record !== "object" || !record.authorization || !record.action?.orders?.[0] ||
       record.key !== row.key || record.nonce !== row.nonce || record.state !== row.state ||
       !Number.isSafeInteger(record.nonce) || !Number.isSafeInteger(record.createdAt) || !Number.isSafeInteger(record.updatedAt) ||
-      !Number.isSafeInteger(record.expiresAfter) || !(record.state in transitions) || typeof record.fingerprint !== "string" ||
+      !Number.isSafeInteger(record.expiresAfter) || !(record.state in liveExecutionTransitions) || typeof record.fingerprint !== "string" ||
       record.authorization.network !== row.network || address(record.authorization.accountAddress) !== row.accountAddress ||
       address(record.authorization.signerAddress) !== row.signerAddress || record.authorization.userId !== row.userId ||
       record.authorization.strategyId !== row.strategyId || record.action.orders[0].c !== row.cloid ||
@@ -35,7 +35,7 @@ function decode(row: ExecutionRow): LiveExecutionRecord {
       (record.outcome && record.outcome.state !== record.state)) throw new LiveBoundaryError("execution_record_invalid");
   return record;
 }
-function immutable(record: LiveExecutionRecord) {
+export function immutableLiveExecution(record: LiveExecutionRecord) {
   return { key: record.key, fingerprint: record.fingerprint, authorization: record.authorization, action: record.action,
     nonce: record.nonce, expiresAfter: record.expiresAfter, createdAt: record.createdAt, ...(record.market ? { market: record.market } : {}) };
 }
@@ -83,7 +83,7 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
   async get(key: string): Promise<LiveExecutionRecord | null> {
     const [row] = await this.db.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     if (!row) return null;
-    return decode(row);
+    return decodeLiveExecutionRow(row);
   }
 
   async prepare(input: Parameters<LiveExecutionJournal["prepare"]>[0]): Promise<LiveExecutionRecord> {
@@ -99,7 +99,7 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:${grant.network}:${signer}`}, 2))`);
       const [existing] = await tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
       if (existing) {
-        const record = decode(existing);
+        const record = decodeLiveExecutionRow(existing);
         if (record.fingerprint !== fingerprint) throw new LiveBoundaryError("cloid_payload_conflict");
         if (!isDeepStrictEqual(record.action, action)) throw new LiveBoundaryError("persisted_order_payload_mismatch");
         if (!isDeepStrictEqual(record.market ? marketIdentityKey(record.market) : undefined, market ? marketIdentityKey(market) : undefined))
@@ -124,13 +124,13 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
     await this.uow.run(async (tx) => {
       const [row] = await tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, record.key)).for("update");
       if (!row) throw new LiveBoundaryError("execution_record_missing");
-      const existing = decode(row);
-      if (!isDeepStrictEqual(immutable(existing), immutable(record))) throw new LiveBoundaryError("execution_record_immutable");
+      const existing = decodeLiveExecutionRow(row);
+      if (!isDeepStrictEqual(immutableLiveExecution(existing), immutableLiveExecution(record))) throw new LiveBoundaryError("execution_record_immutable");
       if (!Number.isSafeInteger(record.updatedAt) || record.updatedAt < existing.updatedAt ||
           (record.outcome && record.outcome.state !== record.state)) throw new LiveBoundaryError("execution_record_invalid");
       // JSONB omits undefined optional properties. Preserve idempotent persistence retries.
       if (isDeepStrictEqual(existing, JSON.parse(JSON.stringify(record)))) return;
-      if (!transitions[existing.state].includes(record.state)) throw new LiveBoundaryError("execution_state_transition_denied");
+      if (!liveExecutionTransitions[existing.state].includes(record.state)) throw new LiveBoundaryError("execution_state_transition_denied");
       await tx.update(copyLiveExecutions).set({ state: record.state, record: record as unknown as Record<string, unknown>, updatedAt: new Date(record.updatedAt) })
         .where(eq(copyLiveExecutions.key, record.key));
     });

@@ -113,6 +113,7 @@ export class CopyOrderPlanner {
   constructor(private readonly repository: CopyRepository) {}
 
   async place(tx: DbTransaction, o: PlaceOrder): Promise<OrderRow | null> {
+    if (o.strategy.mode !== "paper") throw new Error("paper_strategy_required");
     const increasesRisk = !(o.leg === "close" || o.leg === "stop_close" || o.leg === "liquidation");
     const revisions = { platform: o.controls.platform?.revision ?? 0, user: o.controls.user?.revision ?? 0, strategy: o.strategy.controlRevision };
     const base = {

@@ -46,7 +46,9 @@ export class CopyAccountModeRepository {
         account.strategyId !== row.strategyId || account.address !== row.accountAddress || account.privyWalletId !== row.accountWalletId || account.ownerQuorumId !== row.accountOwnerQuorumId)
       throw new ConflictException('account_mode_identity_changed');
     if (mutation) {
-      if (['stopped', 'stopping'].includes(strategy.status) || strategy.mode !== 'paper') throw new ConflictException('account_mode_strategy_not_dormant');
+      if (['stopped', 'stopping'].includes(strategy.status) ||
+          (strategy.mode === 'testnet' && (strategy.status !== 'paused' || !strategy.pauseNewRisk)))
+        throw new ConflictException('account_mode_strategy_not_dormant');
       await this.assertDormant(row, tx);
     }
     return { owner, account, strategy };

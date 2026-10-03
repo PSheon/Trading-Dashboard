@@ -14,7 +14,7 @@ function wire(row: AgentSetupRow): CopyAgentSetup {
   return copyAgentSetupSchema.parse({ id: row.id, strategyId: row.strategyId, accountId: row.accountId, network: row.network,
     state: row.state !== "revoked" && row.expiresAt.getTime() <= Date.now() ? "expired" : row.state,
     accountAddress: row.accountAddress, agentAddress: row.agentAddress, expiresAt: row.expiresAt.toISOString(),
-    authorizationId: row.authorizationId, issue: row.issue, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
+    authorizationId: row.authorizationId, issue: row.issue, revision: row.revision, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
 }
 function consent(row: AgentSetupRow): AgentConsentIntent {
   if (!row.agentAddress || !row.policyId || !row.approvalNonce || !row.consentExpiresAt) throw new ConflictException("agent_consent_not_prepared");

@@ -88,7 +88,7 @@ export class CopyStrategyService {
     const totalValue = liveEquity === null ? null : balance.add(liveEquity);
     const startingBalance = Dec.from(account.startingBalance);
     return {
-      mode: this.config.value.copy.mode,
+      mode: "paper",
       paper: {
         balance: wire(balance),
         startingBalance: wire(startingBalance),

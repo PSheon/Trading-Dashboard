@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { closeTestDb, getTestDb } from './db-test-utils.js';
-import { PostgresLiveRiskScope, type LiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
+import { assertOriginalLiveRiskSession, PostgresLiveRiskScope, type LiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 
 let pool: Pool;
 let scopes: PostgresLiveRiskScope;
@@ -10,6 +10,38 @@ const identity = { userId: 1, network: 'testnet' as const, accountAddress: `0x${
 beforeAll(() => { getTestDb(); pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 }); scopes = new PostgresLiveRiskScope(pool); });
 afterAll(async () => { await pool?.end(); await closeTestDb(); });
 describe('distributed user and account risk serialization', () => {
+  it('accepts only the original factory-issued session while that scope is live', async () => {
+    let old!: Parameters<Parameters<PostgresLiveRiskScope['run']>[1]>[1];
+    await scopes.run(identity, async (_scope, session) => {
+      old = session;
+      expect(() => assertOriginalLiveRiskSession(session)).not.toThrow();
+      expect(() => assertOriginalLiveRiskSession({ ...session })).toThrow('live_risk_serialization_lost');
+    });
+    await scopes.run(identity, async () => { expect(() => assertOriginalLiveRiskSession(old)).toThrow('live_risk_serialization_lost'); });
+  });
+  it('fences a captured source stream against ingestion throughout the original scope', async () => {
+    const source = { network: 'testnet' as const, leaderAddress: `0x${'44'.repeat(20)}` };
+    const key = `live-risk-source:${source.network}:${source.leaderAddress}`;
+    await scopes.run({ ...identity, source }, async scope => {
+      const writer = await pool.connect();
+      try {
+        expect((await writer.query<{ locked: boolean }>('select pg_try_advisory_lock(hashtextextended($1, 8)) as locked', [key])).rows[0]?.locked).toBe(false);
+        await scope.assertHeld();
+      } finally { writer.release(); }
+    });
+    const writer = await pool.connect();
+    try {
+      expect((await writer.query<{ locked: boolean }>('select pg_try_advisory_lock(hashtextextended($1, 8)) as locked', [key])).rows[0]?.locked).toBe(true);
+      await expect(scopes.run({ ...identity, source }, async () => 'unsafe')).rejects.toThrow('live_risk_busy');
+    } finally { await writer.query('select pg_advisory_unlock(hashtextextended($1, 8))', [key]); writer.release(); }
+  });
+  it('rejects an invalid source identity before issuing any database work', async () => {
+    const connect = vi.spyOn(pool, 'connect');
+    try {
+      await expect(scopes.run({ ...identity, source: { network: 'testnet', leaderAddress: 'invalid' } }, async () => 'unsafe')).rejects.toThrow('live_risk_invalid_identity');
+      expect(connect).not.toHaveBeenCalled();
+    } finally { connect.mockRestore(); }
+  });
   it('discards an inherited transaction without committing its unrelated writes', async () => {
     await pool.query('create table if not exists live_scope_probe (id text primary key)');
     await pool.query('delete from live_scope_probe');

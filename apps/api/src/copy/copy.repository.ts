@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, ne, notInArray, sql, type SQLWrapper } from "drizzle-orm";
 import {
   copyConsumerCheckpoints,
   copyControlEvents,
@@ -50,8 +50,14 @@ const signedOpen = (r: { side: "B" | "A"; size: string; filled: string }): Dec =
   return r.side === "B" ? open : open.neg();
 };
 
+/** Child tables contain simulated records only. Check their parent too: a
+ * stray paper child must never turn an actual account into paper exposure. */
+const paperStrategy = (id: SQLWrapper | number) => sql`exists (select 1 from ${copyStrategies} where ${copyStrategies.id} = ${id} and ${copyStrategies.mode} = 'paper')`;
+
 /**
- * Persistence of copy trading. No method opens its own transaction or
+ * Paper persistence plus shared controls/policy and the global strategy quota.
+ * Actual account/wallet/grant/funding recovery uses its separate repositories.
+ * No method opens its own transaction or
  * calls out: services own UnitOfWork boundaries and pass `tx`. Methods named
  * `lock*` must run inside the caller's transaction.
  */
@@ -183,43 +189,54 @@ export class CopyRepository {
   // --- strategies -----------------------------------------------------------------
 
   async insertStrategy(tx: DbTransaction, values: typeof copyStrategies.$inferInsert): Promise<StrategyRow> {
-    const [row] = await tx.insert(copyStrategies).values(values).returning();
+    const input = structuredClone(values);
+    if (input.mode !== undefined && input.mode !== "paper") throw new Error("paper_strategy_required");
+    const [row] = await tx.insert(copyStrategies).values(input).returning();
     return row!;
   }
 
   async insertVersion(tx: DbTransaction, strategyId: number, version: number, settings: CopyStrategySettingsJson, userId: number | null): Promise<void> {
-    await tx.insert(copyStrategyVersions).values({ strategyId, version, settings, createdByUserId: userId });
+    const input = structuredClone(settings);
+    await this.requirePaperStrategy(tx, strategyId);
+    await tx.insert(copyStrategyVersions).values({ strategyId, version, settings: input, createdByUserId: userId });
   }
 
   async settingsOf(ex: DbExecutor, strategyId: number, version: number): Promise<CopyStrategySettingsJson> {
     const [row] = await ex.select({ settings: copyStrategyVersions.settings }).from(copyStrategyVersions)
-      .where(and(eq(copyStrategyVersions.strategyId, strategyId), eq(copyStrategyVersions.version, version)));
+      .where(and(paperStrategy(copyStrategyVersions.strategyId), eq(copyStrategyVersions.strategyId, strategyId), eq(copyStrategyVersions.version, version)));
     if (!row) throw new Error(`Strategy ${strategyId} has no version ${version}`);
     return row.settings;
   }
 
   versionsOf(strategyId: number) {
-    return this.db.select().from(copyStrategyVersions).where(eq(copyStrategyVersions.strategyId, strategyId)).orderBy(desc(copyStrategyVersions.version));
+    return this.db.select().from(copyStrategyVersions).where(and(paperStrategy(copyStrategyVersions.strategyId), eq(copyStrategyVersions.strategyId, strategyId))).orderBy(desc(copyStrategyVersions.version));
   }
 
   async lockStrategy(tx: DbTransaction, id: number): Promise<StrategyRow | undefined> {
-    const [row] = await tx.select().from(copyStrategies).where(eq(copyStrategies.id, id)).for("update");
+    const [row] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, id), eq(copyStrategies.mode, "paper"))).for("update");
     return row;
+  }
+
+  private async requirePaperStrategy(tx: DbTransaction, id: number, userId?: number): Promise<void> {
+    const row = await this.lockStrategy(tx, id);
+    if (!row || userId !== undefined && row.userId !== userId) throw new Error("paper_strategy_required");
   }
 
   async findLive(tx: DbTransaction, userId: number, leader: string): Promise<StrategyRow | undefined> {
     const [row] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.userId, userId), eq(copyStrategies.chain, CHAIN_DEFAULT),
-      eq(copyStrategies.leaderAddress, leader), ne(copyStrategies.status, "stopped")));
+      eq(copyStrategies.leaderAddress, leader), eq(copyStrategies.mode, "paper"), ne(copyStrategies.status, "stopped")));
     return row;
   }
 
   async countLive(tx: DbTransaction, userId: number): Promise<number> {
+    // The platform max-strategies quota is global, across strategy modes.
     const [row] = await tx.select({ n: count() }).from(copyStrategies).where(and(eq(copyStrategies.userId, userId), ne(copyStrategies.status, "stopped")));
     return Number(row?.n ?? 0);
   }
 
   async updateStrategy(tx: DbTransaction, id: number, patch: Partial<typeof copyStrategies.$inferInsert>): Promise<StrategyRow> {
-    const [row] = await tx.update(copyStrategies).set(patch).where(eq(copyStrategies.id, id)).returning();
+    if (patch.mode !== undefined && patch.mode !== "paper") throw new Error("paper_strategy_required");
+    const [row] = await tx.update(copyStrategies).set(patch).where(and(eq(copyStrategies.id, id), eq(copyStrategies.mode, "paper"))).returning();
     return row!;
   }
 
@@ -232,7 +249,7 @@ export class CopyRepository {
     if (d.realizedPnl) set.realizedPnl = sql`${copyStrategies.realizedPnl} + ${d.realizedPnl}::numeric`;
     if (d.fees) set.fees = sql`${copyStrategies.fees} + ${d.fees}::numeric`;
     if (d.funding) set.funding = sql`${copyStrategies.funding} + ${d.funding}::numeric`;
-    if (Object.keys(set).length) await tx.update(copyStrategies).set(set).where(eq(copyStrategies.id, id));
+    if (Object.keys(set).length) await tx.update(copyStrategies).set(set).where(and(eq(copyStrategies.id, id), eq(copyStrategies.mode, "paper")));
   }
 
   /** A user's strategies with their current settings: live ones, and stopped
@@ -240,13 +257,14 @@ export class CopyRepository {
   strategiesOfUser(userId: number, historyDays = 30) {
     return this.db.select({ strategy: copyStrategies, settings: copyStrategyVersions.settings }).from(copyStrategies)
       .innerJoin(copyStrategyVersions, and(eq(copyStrategyVersions.strategyId, copyStrategies.id), eq(copyStrategyVersions.version, copyStrategies.version)))
-      .where(and(eq(copyStrategies.userId, userId), sql`(${copyStrategies.status} <> 'stopped' or ${copyStrategies.stoppedAt} > now() - make_interval(days => ${historyDays}))`))
+      .where(and(eq(copyStrategies.mode, "paper"), eq(copyStrategies.userId, userId), sql`(${copyStrategies.status} <> 'stopped' or ${copyStrategies.stoppedAt} > now() - make_interval(days => ${historyDays}))`))
       .orderBy(desc(copyStrategies.createdAt));
   }
 
-  /** Every strategy (admin), optionally filtered. */
+  /** Paper strategies for the simulated admin read model, optionally filtered. */
   allStrategies(filter: { status?: string; userId?: number; limit: number }) {
     const where = [
+      eq(copyStrategies.mode, "paper"),
       filter.status ? eq(copyStrategies.status, filter.status as StrategyRow["status"]) : undefined,
       filter.userId ? eq(copyStrategies.userId, filter.userId) : undefined,
     ].filter(Boolean);
@@ -261,24 +279,24 @@ export class CopyRepository {
     const [row] = await this.db.select({ strategy: copyStrategies, settings: copyStrategyVersions.settings, userEmail: users.email }).from(copyStrategies)
       .innerJoin(copyStrategyVersions, and(eq(copyStrategyVersions.strategyId, copyStrategies.id), eq(copyStrategyVersions.version, copyStrategies.version)))
       .leftJoin(users, eq(users.id, copyStrategies.userId))
-      .where(eq(copyStrategies.id, id));
+      .where(and(eq(copyStrategies.id, id), eq(copyStrategies.mode, "paper")));
     return row;
   }
 
-  /** Live strategies copying any of `addresses`. */
+  /** Non-stopped paper strategies copying any of `addresses`. */
   liveStrategiesOf(addresses: string[], ex: DbExecutor = this.db) {
     if (addresses.length === 0) return Promise.resolve([] as StrategyRow[]);
-    return ex.select().from(copyStrategies).where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), inArray(copyStrategies.leaderAddress, addresses),
+    return ex.select().from(copyStrategies).where(and(eq(copyStrategies.mode, "paper"), eq(copyStrategies.chain, CHAIN_DEFAULT), inArray(copyStrategies.leaderAddress, addresses),
       inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).orderBy(asc(copyStrategies.id));
   }
 
   liveStrategyIdsOfUser(tx: DbExecutor, userId: number | null) {
-    const where = [inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]), userId === null ? undefined : eq(copyStrategies.userId, userId)].filter(Boolean);
+    const where = [eq(copyStrategies.mode, "paper"), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]), userId === null ? undefined : eq(copyStrategies.userId, userId)].filter(Boolean);
     return tx.select({ id: copyStrategies.id, userId: copyStrategies.userId }).from(copyStrategies).where(and(...where)).orderBy(asc(copyStrategies.id));
   }
 
   stoppingStrategies() {
-    return this.db.select().from(copyStrategies).where(eq(copyStrategies.status, "stopping"));
+    return this.db.select().from(copyStrategies).where(and(eq(copyStrategies.mode, "paper"), eq(copyStrategies.status, "stopping")));
   }
 
   // --- leaders (watch list) ----------------------------------------------------------
@@ -314,15 +332,16 @@ export class CopyRepository {
 
   positionsOf(strategyIds: number[], ex: DbExecutor = this.db) {
     if (strategyIds.length === 0) return Promise.resolve([] as PositionRow[]);
-    return ex.select().from(copyPositions).where(and(inArray(copyPositions.strategyId, strategyIds), ne(copyPositions.size, "0"))).orderBy(asc(copyPositions.coin));
+    return ex.select().from(copyPositions).where(and(paperStrategy(copyPositions.strategyId), inArray(copyPositions.strategyId, strategyIds), ne(copyPositions.size, "0"))).orderBy(asc(copyPositions.coin));
   }
 
   async lockPosition(tx: DbTransaction, strategyId: number, coin: string): Promise<PositionRow | undefined> {
-    const [row] = await tx.select().from(copyPositions).where(and(eq(copyPositions.strategyId, strategyId), eq(copyPositions.coin, coin))).for("update");
+    const [row] = await tx.select().from(copyPositions).where(and(paperStrategy(copyPositions.strategyId), eq(copyPositions.strategyId, strategyId), eq(copyPositions.coin, coin))).for("update");
     return row;
   }
 
   async savePosition(tx: DbTransaction, strategyId: number, coin: string, v: { size: string; entryPx: string; realizedPnl: string; opened: boolean }): Promise<void> {
+    if (!(await this.lockStrategy(tx, strategyId))) return;
     const now = new Date();
     await tx.insert(copyPositions).values({ strategyId, coin, size: v.size, entryPx: v.entryPx, realizedPnl: v.realizedPnl, openedAt: now, fundingThrough: now, updatedAt: now })
       .onConflictDoUpdate({
@@ -339,58 +358,62 @@ export class CopyRepository {
 
   /** The size owed to later reductions (see copy-math `reduceWithCarry`). */
   async setReduceCarry(tx: DbTransaction, strategyId: number, coin: string, carry: string): Promise<void> {
-    await tx.update(copyPositions).set({ reduceCarry: carry }).where(and(eq(copyPositions.strategyId, strategyId), eq(copyPositions.coin, coin)));
+    await tx.update(copyPositions).set({ reduceCarry: carry }).where(and(paperStrategy(copyPositions.strategyId), eq(copyPositions.strategyId, strategyId), eq(copyPositions.coin, coin)));
   }
 
   /** Every open position of a live strategy, with the strategy's cash: what the liquidation check values. */
   openPositionsOfLive() {
     return this.db.select({ position: copyPositions, cash: copyStrategies.cash, userId: copyStrategies.userId }).from(copyPositions)
       .innerJoin(copyStrategies, eq(copyStrategies.id, copyPositions.strategyId))
-      .where(and(ne(copyPositions.size, "0"), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).orderBy(asc(copyPositions.strategyId), asc(copyPositions.coin));
+      .where(and(eq(copyStrategies.mode, "paper"), ne(copyPositions.size, "0"), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).orderBy(asc(copyPositions.strategyId), asc(copyPositions.coin));
   }
 
   /** Coins of the open positions of `strategyIds` (which dexes to price). */
   async positionCoins(strategyIds: number[], ex: DbExecutor = this.db): Promise<string[]> {
     if (strategyIds.length === 0) return [];
-    const rows = await ex.selectDistinct({ coin: copyPositions.coin }).from(copyPositions).where(and(inArray(copyPositions.strategyId, strategyIds), ne(copyPositions.size, "0")));
+    const rows = await ex.selectDistinct({ coin: copyPositions.coin }).from(copyPositions).where(and(paperStrategy(copyPositions.strategyId), inArray(copyPositions.strategyId, strategyIds), ne(copyPositions.size, "0")));
     return rows.map((r) => r.coin);
   }
 
   /** Coins of the given orders. */
   async orderCoins(ids: bigint[]): Promise<string[]> {
     if (ids.length === 0) return [];
-    const rows = await this.db.selectDistinct({ coin: copyOrders.coin }).from(copyOrders).where(inArray(copyOrders.id, ids));
+    const rows = await this.db.selectDistinct({ coin: copyOrders.coin }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), inArray(copyOrders.id, ids)));
     return rows.map((r) => r.coin);
   }
 
   /** Open positions whose funding hasn't been accrued through `hour`. */
   positionsDueFunding(hour: Date) {
-    return this.db.select().from(copyPositions).where(and(ne(copyPositions.size, "0"), sql`${copyPositions.fundingThrough} < ${hour}`));
+    return this.db.select().from(copyPositions).where(and(paperStrategy(copyPositions.strategyId), ne(copyPositions.size, "0"), sql`${copyPositions.fundingThrough} < ${hour}`));
   }
 
   async accruePositionFunding(tx: DbTransaction, strategyId: number, coin: string, amount: string, through: Date): Promise<boolean> {
     const rows = await tx.update(copyPositions).set({ funding: sql`${copyPositions.funding} + ${amount}::numeric`, fundingThrough: through })
-      .where(and(eq(copyPositions.strategyId, strategyId), eq(copyPositions.coin, coin), sql`${copyPositions.fundingThrough} < ${through}`)).returning({ coin: copyPositions.coin });
+      .where(and(paperStrategy(copyPositions.strategyId), eq(copyPositions.strategyId, strategyId), eq(copyPositions.coin, coin), sql`${copyPositions.fundingThrough} < ${through}`)).returning({ coin: copyPositions.coin });
     return rows.length > 0;
   }
 
   // --- orders, reservations, fills, ledger ---------------------------------------------------
 
   async insertOrder(tx: DbTransaction, values: typeof copyOrders.$inferInsert): Promise<OrderRow> {
-    const [row] = await tx.insert(copyOrders).values(values).returning();
+    const input = structuredClone(values);
+    await this.requirePaperStrategy(tx, input.strategyId, input.userId);
+    const [row] = await tx.insert(copyOrders).values(input).returning();
     if (row?.status === "rejected") await this.appendOrderRefusal(tx, row);
     return row!;
   }
 
   async insertReservation(tx: DbTransaction, values: typeof copyReservations.$inferInsert): Promise<void> {
-    await tx.insert(copyReservations).values(values);
+    const input = structuredClone(values);
+    await this.requirePaperStrategy(tx, input.strategyId, input.userId);
+    await tx.insert(copyReservations).values(input);
   }
 
   /** Orders the per-minute cap counts: what the strategy placed in reaction
    * to the leader in the last minute. Adoption legs (the start of a copy)
    * and liquidations are not reactions and are neither capped nor counted. */
   async ordersLastMinute(tx: DbTransaction, strategyId: number): Promise<number> {
-    const [row] = await tx.select({ n: count() }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId),
+    const [row] = await tx.select({ n: count() }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.strategyId, strategyId),
       gte(copyOrders.createdAt, sql`now() - interval '1 minute'`), ne(copyOrders.status, "rejected"), notInArray(copyOrders.leg, ["adopt", "liquidation"])));
     return Number(row?.n ?? 0);
   }
@@ -399,7 +422,7 @@ export class CopyRepository {
    * `tradeKey` that was not refused: fixed sizing spends its per-trade
    * amount once per leader trade (review 40). */
   async tradeAlreadyOrdered(tx: DbTransaction, strategyId: number, tradeKey: string): Promise<boolean> {
-    const [row] = await tx.select({ id: copyOrders.id }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId), eq(copyOrders.tradeKey, tradeKey),
+    const [row] = await tx.select({ id: copyOrders.id }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.strategyId, strategyId), eq(copyOrders.tradeKey, tradeKey),
       eq(copyOrders.leg, "open"), notInArray(copyOrders.status, ["rejected", "cancelled"]))).limit(1);
     return row !== undefined;
   }
@@ -407,20 +430,20 @@ export class CopyRepository {
   /** A failed execution attempt of an order: counted, with its error. Returns the new count. */
   async recordOrderFailure(orderId: bigint, error: string): Promise<number> {
     const [row] = await this.db.update(copyOrders).set({ attempts: sql`${copyOrders.attempts} + 1`, lastError: error.slice(0, 500), updatedAt: new Date() })
-      .where(eq(copyOrders.id, orderId)).returning({ attempts: copyOrders.attempts });
+      .where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.id, orderId))).returning({ attempts: copyOrders.attempts });
     return row?.attempts ?? 0;
   }
 
   /** Orders still open whose execution has failed at least `minAttempts` times, oldest first. */
   stuckOrders(minAttempts: number, limit = 50) {
-    return this.db.select().from(copyOrders).where(and(inArray(copyOrders.status, OPEN_ORDER_STATUSES), gte(copyOrders.attempts, minAttempts)))
+    return this.db.select().from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), inArray(copyOrders.status, OPEN_ORDER_STATUSES), gte(copyOrders.attempts, minAttempts)))
       .orderBy(asc(copyOrders.id)).limit(limit);
   }
 
   /** Signed size of not-yet-final orders per coin (buys +, sells −). */
   async pendingSizes(tx: DbTransaction, strategyId: number): Promise<Map<string, Dec>> {
     const rows = await tx.select({ coin: copyOrders.coin, side: copyOrders.side, size: copyOrders.size, filled: copyOrders.filledSize }).from(copyOrders)
-      .where(and(eq(copyOrders.strategyId, strategyId), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
+      .where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.strategyId, strategyId), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
     const out = new Map<string, Dec>();
     for (const r of rows) out.set(r.coin, (out.get(r.coin) ?? Dec.ZERO).add(signedOpen(r)));
     return out;
@@ -432,7 +455,7 @@ export class CopyRepository {
     const out = new Map<string, Dec>();
     if (strategyIds.length === 0) return out;
     const rows = await tx.select({ strategyId: copyOrders.strategyId, coin: copyOrders.coin, side: copyOrders.side, size: copyOrders.size, filled: copyOrders.filledSize }).from(copyOrders)
-      .where(and(inArray(copyOrders.strategyId, strategyIds), eq(copyOrders.reduceOnly, true), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
+      .where(and(paperStrategy(copyOrders.strategyId), inArray(copyOrders.strategyId, strategyIds), eq(copyOrders.reduceOnly, true), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
     for (const r of rows) {
       const key = `${r.strategyId}:${r.coin}`;
       out.set(key, (out.get(key) ?? Dec.ZERO).add(signedOpen(r)));
@@ -444,19 +467,19 @@ export class CopyRepository {
   heldReservations(strategyIds: number[], ex: DbExecutor = this.db) {
     if (strategyIds.length === 0) return Promise.resolve([] as { strategyId: number; coin: string; notional: string; margin: string }[]);
     return ex.select({ strategyId: copyReservations.strategyId, coin: copyReservations.coin, notional: copyReservations.notional, margin: copyReservations.margin })
-      .from(copyReservations).where(and(inArray(copyReservations.strategyId, strategyIds), eq(copyReservations.status, "held")));
+      .from(copyReservations).where(and(paperStrategy(copyReservations.strategyId), inArray(copyReservations.strategyId, strategyIds), eq(copyReservations.status, "held")));
   }
 
   /** Boundary inputs retain order identity so only the executing reservation is excluded. */
   heldReservationRows(strategyIds: number[], ex: DbExecutor = this.db) {
     if (strategyIds.length === 0) return Promise.resolve([] as (typeof copyReservations.$inferSelect)[]);
     return ex.select().from(copyReservations)
-      .where(and(inArray(copyReservations.strategyId, strategyIds), eq(copyReservations.status, "held")));
+      .where(and(paperStrategy(copyReservations.strategyId), inArray(copyReservations.strategyId, strategyIds), eq(copyReservations.status, "held")));
   }
 
   async refreshHeldReservation(tx: DbTransaction, orderId: bigint, amounts: { notional: string; margin: string }): Promise<void> {
     await tx.update(copyReservations).set(amounts)
-      .where(and(eq(copyReservations.orderId, orderId), eq(copyReservations.status, "held")));
+      .where(and(paperStrategy(copyReservations.strategyId), eq(copyReservations.orderId, orderId), eq(copyReservations.status, "held")));
   }
 
   /** Orders the executor should work on next, oldest first. A strategy's
@@ -465,7 +488,7 @@ export class CopyRepository {
    * retry), its later orders are left out, so an open can never run ahead
    * of the close it follows. Other strategies are not held up. */
   approvedOrders(limit: number) {
-    return this.db.select({ id: copyOrders.id, strategyId: copyOrders.strategyId }).from(copyOrders).where(and(eq(copyOrders.status, "risk_approved"),
+    return this.db.select({ id: copyOrders.id, strategyId: copyOrders.strategyId }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.status, "risk_approved"),
       sql`not exists (select 1 from ${copyOrders} b where b.strategy_id = ${copyOrders.strategyId} and b.status in ('submitting', 'submitted', 'unknown'))`))
       .orderBy(asc(copyOrders.id)).limit(limit);
   }
@@ -473,17 +496,17 @@ export class CopyRepository {
   /** `submitting` orders left by a crash, a timeout or a failed fill. */
   staleSubmitting(olderThan: Date, limit: number) {
     return this.db.select({ id: copyOrders.id, strategyId: copyOrders.strategyId }).from(copyOrders)
-      .where(and(eq(copyOrders.status, "submitting"), lte(copyOrders.updatedAt, olderThan))).orderBy(asc(copyOrders.id)).limit(limit);
+      .where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.status, "submitting"), lte(copyOrders.updatedAt, olderThan))).orderBy(asc(copyOrders.id)).limit(limit);
   }
 
   async lockOrder(tx: DbTransaction, id: bigint): Promise<OrderRow | undefined> {
-    const [row] = await tx.select().from(copyOrders).where(eq(copyOrders.id, id)).for("update");
+    const [row] = await tx.select().from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.id, id))).for("update");
     return row;
   }
 
   /** Strategy and user of an order (immutable columns), read without a lock. */
   async orderOwner(id: bigint): Promise<{ strategyId: number; userId: number } | undefined> {
-    const [row] = await this.db.select({ strategyId: copyOrders.strategyId, userId: copyOrders.userId }).from(copyOrders).where(eq(copyOrders.id, id));
+    const [row] = await this.db.select({ strategyId: copyOrders.strategyId, userId: copyOrders.userId }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.id, id)));
     return row;
   }
 
@@ -491,11 +514,11 @@ export class CopyRepository {
     if (patch.status === "cancelled" || patch.status === "rejected") {
       // The guarded UPDATE makes duplicate/replayed terminal writes a no-op.
       const [row] = await tx.update(copyOrders).set({ ...patch, updatedAt: new Date() })
-        .where(and(eq(copyOrders.id, id), inArray(copyOrders.status, OPEN_ORDER_STATUSES))).returning();
+        .where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.id, id), inArray(copyOrders.status, OPEN_ORDER_STATUSES))).returning();
       if (row) await this.appendOrderRefusal(tx, row);
       return;
     }
-    await tx.update(copyOrders).set({ ...patch, updatedAt: new Date() }).where(eq(copyOrders.id, id));
+    await tx.update(copyOrders).set({ ...patch, updatedAt: new Date() }).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.id, id)));
   }
 
   private async appendOrderRefusal(tx: DbTransaction, order: OrderRow): Promise<void> {
@@ -506,14 +529,14 @@ export class CopyRepository {
   }
 
   async settleReservation(tx: DbTransaction, orderId: bigint, status: "consumed" | "released"): Promise<void> {
-    await tx.update(copyReservations).set({ status, settledAt: new Date() }).where(and(eq(copyReservations.orderId, orderId), eq(copyReservations.status, "held")));
+    await tx.update(copyReservations).set({ status, settledAt: new Date() }).where(and(paperStrategy(copyReservations.strategyId), eq(copyReservations.orderId, orderId), eq(copyReservations.status, "held")));
   }
 
   /** Cancels orders not yet handed to an exchange, releasing their margin.
    * `onlyIncreasing` leaves reduce-only orders alone. Returns the count. */
   async cancelPending(tx: DbTransaction, strategyIds: number[], reason: string, onlyIncreasing = false): Promise<number> {
     if (strategyIds.length === 0) return 0;
-    const where = and(inArray(copyOrders.strategyId, strategyIds), inArray(copyOrders.status, CANCELLABLE_ORDER_STATUSES), onlyIncreasing ? eq(copyOrders.reduceOnly, false) : undefined);
+    const where = and(paperStrategy(copyOrders.strategyId), inArray(copyOrders.strategyId, strategyIds), inArray(copyOrders.status, CANCELLABLE_ORDER_STATUSES), onlyIncreasing ? eq(copyOrders.reduceOnly, false) : undefined);
     const rows = await tx.update(copyOrders).set({ status: "cancelled", reason, updatedAt: new Date() }).where(where).returning({ id: copyOrders.id });
     if (rows.length) {
       await tx.update(copyReservations).set({ status: "released", settledAt: new Date() })
@@ -526,12 +549,12 @@ export class CopyRepository {
   async pendingStopCloses(tx: DbTransaction, strategyIds: number[]): Promise<Set<string>> {
     if (strategyIds.length === 0) return new Set();
     const rows = await tx.select({ strategyId: copyOrders.strategyId, coin: copyOrders.coin }).from(copyOrders)
-      .where(and(inArray(copyOrders.strategyId, strategyIds), eq(copyOrders.leg, "stop_close"), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
+      .where(and(paperStrategy(copyOrders.strategyId), inArray(copyOrders.strategyId, strategyIds), eq(copyOrders.leg, "stop_close"), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
     return new Set(rows.map((r) => `${r.strategyId}:${r.coin}`));
   }
 
   async openOrderCount(ex: DbExecutor, strategyId: number): Promise<number> {
-    const [row] = await ex.select({ n: count() }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
+    const [row] = await ex.select({ n: count() }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.strategyId, strategyId), inArray(copyOrders.status, OPEN_ORDER_STATUSES)));
     return Number(row?.n ?? 0);
   }
 
@@ -539,7 +562,7 @@ export class CopyRepository {
   async orderCounts(strategyIds: number[]) {
     if (strategyIds.length === 0) return new Map<number, { pending: number; filled: number }>();
     const rows = await this.db.select({ strategyId: copyOrders.strategyId, status: copyOrders.status, n: count() }).from(copyOrders)
-      .where(inArray(copyOrders.strategyId, strategyIds)).groupBy(copyOrders.strategyId, copyOrders.status);
+      .where(and(paperStrategy(copyOrders.strategyId), inArray(copyOrders.strategyId, strategyIds))).groupBy(copyOrders.strategyId, copyOrders.status);
     const out = new Map<number, { pending: number; filled: number }>();
     for (const r of rows) {
       const cur = out.get(r.strategyId) ?? { pending: 0, filled: 0 };
@@ -551,11 +574,12 @@ export class CopyRepository {
   }
 
   ordersOfStrategy(strategyId: number, limit = 100, before?: bigint) {
-    return this.db.select().from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId), before === undefined ? undefined : lt(copyOrders.id, before))).orderBy(desc(copyOrders.id)).limit(limit);
+    return this.db.select().from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.strategyId, strategyId), before === undefined ? undefined : lt(copyOrders.id, before))).orderBy(desc(copyOrders.id)).limit(limit);
   }
 
   allOrders(filter: { status?: CopyOrderStatus[]; userId?: number; strategyId?: number; limit: number }) {
     const where = [
+      paperStrategy(copyOrders.strategyId),
       filter.status?.length ? inArray(copyOrders.status, filter.status) : undefined,
       filter.userId ? eq(copyOrders.userId, filter.userId) : undefined,
       filter.strategyId ? eq(copyOrders.strategyId, filter.strategyId) : undefined,
@@ -565,23 +589,26 @@ export class CopyRepository {
   }
 
   ordersByStatusSince(since: Date) {
-    return this.db.select({ status: copyOrders.status, n: count() }).from(copyOrders).where(gte(copyOrders.createdAt, since)).groupBy(copyOrders.status);
+    return this.db.select({ status: copyOrders.status, n: count() }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), gte(copyOrders.createdAt, since))).groupBy(copyOrders.status);
   }
 
   strategiesByStatus() {
-    return this.db.select({ status: copyStrategies.status, n: count() }).from(copyStrategies).groupBy(copyStrategies.status);
+    return this.db.select({ status: copyStrategies.status, n: count() }).from(copyStrategies).where(eq(copyStrategies.mode, "paper")).groupBy(copyStrategies.status);
   }
 
   async insertPaperFill(tx: DbTransaction, values: typeof copyPaperFills.$inferInsert): Promise<void> {
-    await tx.insert(copyPaperFills).values(values);
-    const [order] = await tx.select({ userId: copyOrders.userId, leg: copyOrders.leg }).from(copyOrders).where(eq(copyOrders.id, values.orderId));
-    if (order) await this.runtime.appendEvent(tx, order.userId, values.strategyId, order.leg === "liquidation" ? "position_liquidated" : "order_filled", {
-      mode: "paper", orderId: String(values.orderId), coin: values.coin, side: values.side, size: values.size, px: values.px, leg: order.leg,
+    const input = structuredClone(values);
+    await this.requirePaperStrategy(tx, input.strategyId);
+    await tx.insert(copyPaperFills).values(input);
+    const [order] = await tx.select({ userId: copyOrders.userId, leg: copyOrders.leg }).from(copyOrders).where(eq(copyOrders.id, input.orderId));
+    if (order) await this.runtime.appendEvent(tx, order.userId, input.strategyId, order.leg === "liquidation" ? "position_liquidated" : "order_filled", {
+      mode: "paper", orderId: String(input.orderId), coin: input.coin, side: input.side, size: input.size, px: input.px, leg: order.leg,
     });
   }
 
   async insertLedger(tx: DbTransaction, rows: (typeof copyLedger.$inferInsert)[]): Promise<void> {
-    const nonZero = rows.filter((r) => !Dec.from(r.amount).isZero);
+    const nonZero = structuredClone(rows).filter((r) => !Dec.from(r.amount).isZero);
+    for (const row of nonZero) await this.requirePaperStrategy(tx, row.strategyId, row.userId);
     if (nonZero.length) await tx.insert(copyLedger).values(nonZero);
     for (const row of nonZero) {
       if (["allocate", "withdraw", "release"].includes(row.kind)) await this.runtime.appendEvent(tx, row.userId, row.strategyId,
@@ -590,11 +617,11 @@ export class CopyRepository {
   }
 
   fillsOf(strategyId: number, limit: number, before?: bigint) {
-    return this.db.select().from(copyPaperFills).where(and(eq(copyPaperFills.strategyId, strategyId), before === undefined ? undefined : sql`${copyPaperFills.id} < ${before}`)).orderBy(desc(copyPaperFills.id)).limit(limit);
+    return this.db.select().from(copyPaperFills).where(and(paperStrategy(copyPaperFills.strategyId), eq(copyPaperFills.strategyId, strategyId), before === undefined ? undefined : sql`${copyPaperFills.id} < ${before}`)).orderBy(desc(copyPaperFills.id)).limit(limit);
   }
 
   ledgerOf(strategyId: number, limit = 200, before?: bigint) {
-    return this.db.select().from(copyLedger).where(and(eq(copyLedger.strategyId, strategyId), before === undefined ? undefined : sql`${copyLedger.id} < ${before}`)).orderBy(desc(copyLedger.id)).limit(limit);
+    return this.db.select().from(copyLedger).where(and(paperStrategy(copyLedger.strategyId), eq(copyLedger.strategyId, strategyId), before === undefined ? undefined : sql`${copyLedger.id} < ${before}`)).orderBy(desc(copyLedger.id)).limit(limit);
   }
 
   // --- execution outbox and signal legs ------------------------------------------------------
@@ -673,14 +700,16 @@ export class CopyRepository {
 
   /** Records a leg once; false when this (strategy, tid, leg) was already seen. */
   async claimLeg(tx: DbTransaction, v: { strategyId: number; tid: bigint; leg: CopyLeg; strategyVersion: number; coin: string; fillTime: Date }): Promise<boolean> {
-    const rows = await tx.insert(copySignalLegs).values({ ...v, dedupeKey: `${v.strategyId}:${v.tid}:${v.leg}:v${v.strategyVersion}`, outcome: "pending" })
+    const input = structuredClone(v);
+    await this.requirePaperStrategy(tx, input.strategyId);
+    const rows = await tx.insert(copySignalLegs).values({ ...input, dedupeKey: `${input.strategyId}:${input.tid}:${input.leg}:v${input.strategyVersion}`, outcome: "pending" })
       .onConflictDoNothing().returning({ tid: copySignalLegs.tid });
     return rows.length > 0;
   }
 
   async resolveLegs(tx: DbTransaction, strategyId: number, legs: { tid: bigint; leg: CopyLeg }[], outcome: string, orderId: bigint | null): Promise<void> {
     for (const l of legs) {
-      await tx.update(copySignalLegs).set({ outcome, orderId }).where(and(eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg)));
+      await tx.update(copySignalLegs).set({ outcome, orderId }).where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg)));
     }
   }
 
@@ -689,7 +718,7 @@ export class CopyRepository {
    * claimed in the same transaction, which have no order. */
   async releaseLegs(tx: DbTransaction, strategyId: number, legs: { tid: bigint; leg: CopyLeg }[]): Promise<void> {
     for (const l of legs) {
-      await tx.delete(copySignalLegs).where(and(eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg), eq(copySignalLegs.outcome, "pending")));
+      await tx.delete(copySignalLegs).where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg), eq(copySignalLegs.outcome, "pending")));
     }
   }
 
@@ -697,7 +726,7 @@ export class CopyRepository {
    * (an older open arriving now is superseded). */
   async hasNewerLeg(tx: DbTransaction, strategyId: number, coin: string, fillTime: Date, excludeTids: bigint[]): Promise<boolean> {
     const [row] = await tx.select({ tid: copySignalLegs.tid }).from(copySignalLegs)
-      .where(and(eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.coin, coin), gt(copySignalLegs.fillTime, fillTime),
+      .where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.coin, coin), gt(copySignalLegs.fillTime, fillTime),
         excludeTids.length ? notInArray(copySignalLegs.tid, excludeTids) : undefined)).limit(1);
     return row !== undefined;
   }
@@ -709,14 +738,14 @@ export class CopyRepository {
   rejectedAdoptions(reasons: string[], strategyId?: number) {
     return this.db.select({ order: copyOrders }).from(copyOrders)
       .innerJoin(copyStrategies, eq(copyStrategies.id, copyOrders.strategyId))
-      .where(and(eq(copyOrders.leg, "adopt"), eq(copyOrders.status, "rejected"), inArray(copyOrders.reason, reasons), eq(copyStrategies.status, "active"),
+      .where(and(eq(copyStrategies.mode, "paper"), eq(copyOrders.leg, "adopt"), eq(copyOrders.status, "rejected"), inArray(copyOrders.reason, reasons), eq(copyStrategies.status, "active"),
         strategyId === undefined ? undefined : eq(copyOrders.strategyId, strategyId)))
       .orderBy(asc(copyOrders.id));
   }
 
   /** How many adoption orders (any status) a strategy has for `coin`. */
   async adoptOrderCount(ex: DbExecutor, strategyId: number, coin: string): Promise<number> {
-    const [row] = await ex.select({ n: count() }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId), eq(copyOrders.coin, coin), eq(copyOrders.leg, "adopt")));
+    const [row] = await ex.select({ n: count() }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.strategyId, strategyId), eq(copyOrders.coin, coin), eq(copyOrders.leg, "adopt")));
     return Number(row?.n ?? 0);
   }
 
@@ -730,6 +759,6 @@ export class CopyRepository {
   /** Per-user exposure inputs (admin): live strategies with positions. */
   liveStrategies() {
     return this.db.select({ strategy: copyStrategies, userEmail: users.email }).from(copyStrategies).leftJoin(users, eq(users.id, copyStrategies.userId))
-      .where(inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES])).orderBy(asc(copyStrategies.userId));
+      .where(and(eq(copyStrategies.mode, "paper"), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).orderBy(asc(copyStrategies.userId));
   }
 }

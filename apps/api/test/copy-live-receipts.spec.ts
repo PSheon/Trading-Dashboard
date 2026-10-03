@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { parseFollowerFill, parseFollowerFunding } from '../src/copy/live/actual-fill-accounting.js';
+import { followerReceiptKey, followerReceiptDigestV1, parseFollowerFill, parseFollowerFunding } from '../src/copy/live/actual-fill-accounting.js';
 
 const expected = { network: 'testnet' as const, accountAddress: `0x${'22'.repeat(20)}`,
   coin: 'BTC', oid: '10', minTime: 100, maxTime: 200 };
@@ -7,6 +8,12 @@ const fill = { coin: 'BTC', oid: 10, tid: 123, time: 150, side: 'B', sz: '0.01',
   closedPnl: '5', fee: '0.1', builderFee: '0.03', feeToken: 'USDC' };
 
 describe('actual follower receipt accounting', () => {
+  it('keeps the immutable ledger version1 digest codec including nested objects and arrays', () => {
+    const raw = { z: [{ b: 2, a: 1 }], a: 'x' };
+    const bytes = '{"a":"x","z":[{"a":1,"b":2}]}';
+    expect(followerReceiptDigestV1(raw)).toBe(createHash('sha256').update(bytes).digest('hex'));
+    expect(followerReceiptDigestV1({ a: 'x', z: [{ a: 1, b: 2 }] })).toBe(followerReceiptDigestV1(raw));
+  });
   it('debits total fee once and splits the included builder fee', () => {
     expect(parseFollowerFill(fill, expected)).toMatchObject({ key: `testnet:${expected.accountAddress}:123`,
       totalFee: '0.1', exchangeFee: '0.07', builderFee: '0.03', cashDelta: '4.9' });
@@ -26,6 +33,11 @@ describe('actual follower receipt accounting', () => {
     expect(parseFollowerFunding(event, expected)).toMatchObject({ coin: 'BTC', amount: '-0.37', cashDelta: '-0.37' });
     expect(() => parseFollowerFunding({ ...event, delta: { coin: 'BTC' } }, expected)).toThrow();
     expect(() => parseFollowerFunding({ ...event, delta: { coin: 'BTC', usdc: '-0.37' } }, expected)).toThrow();
+  });
+  it('uses the same bounded opaque HIP3 coin identity for funding key generation and parsing', () => {
+    const event = { time: 150, hash: `0x${'ab'.repeat(32)}`, delta: { type: 'funding', coin: 'i<3fl:BTC', usdc: '-0.37' } };
+    expect(followerReceiptKey('funding', event, expected)).toBe(parseFollowerFunding(event, { ...expected, coin: event.delta.coin }).key);
+    expect(() => followerReceiptKey('funding', { ...event, delta: { ...event.delta, coin: `${'x'.repeat(81)}:BTC` } }, expected)).toThrow();
   });
   it('preserves deployed opaque dex punctuation in perp receipts', () => {
     expect(parseFollowerFill({ ...fill, coin: 'i<3fl:BTC' }, { ...expected, coin: 'i<3fl:BTC' }).coin).toBe('i<3fl:BTC');

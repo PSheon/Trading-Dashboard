@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Dec } from '../../common/decimal/dec.js';
 import { address, LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 import { LIVE_PERP_COIN } from './live-market-resolver.js';
@@ -55,7 +56,7 @@ export function followerReceiptKey(kind: 'fill' | 'funding', value: unknown, exp
   if (kind === 'fill') return `${expected.network}:${account}:${id(row.tid)}`;
   const delta = object(row.delta);
   if (typeof row.hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(row.hash) || typeof delta.coin !== 'string' ||
-      !/^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$/.test(delta.coin) || !Number.isSafeInteger(row.time) || (row.time as number) < 0)
+      !LIVE_PERP_COIN.test(delta.coin) || delta.coin.length > 80 || !Number.isSafeInteger(row.time) || (row.time as number) < 0)
     throw new LiveBoundaryError('follower_receipt_identity_mismatch');
   return `${expected.network}:${account}:${row.hash.toLowerCase()}:${delta.coin}:${row.time}`;
 }
@@ -83,4 +84,16 @@ export function parseFollowerFunding(value: unknown, expected: FollowerReceiptCo
       (delta.feeToken !== undefined && delta.feeToken !== 'USDC')) throw new LiveBoundaryError('invalid_follower_funding');
   const amount = decimal(delta.usdc).toString(), hash = row.hash.toLowerCase();
   return { ...ctx, key: `${ctx.network}:${ctx.accountAddress}:${hash}:${ctx.coin}:${ctx.time}`, hash, amount, cashDelta: amount, feeToken: 'USDC' };
+}
+
+/** Stable immutable follower-ledger digest version1. Preserve its historical
+ * key ordering and null handling; do not silently rehash booked receipts. */
+export function followerReceiptDigestV1(value: unknown): string {
+  const canonical = (item: unknown): string => {
+    if (Array.isArray(item)) return `[${item.map(canonical).join(',')}]`;
+    if (item !== null && typeof item === 'object') return `{${Object.entries(item).sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(',')}}`;
+    return JSON.stringify(item) ?? 'null';
+  };
+  return createHash('sha256').update(canonical(value)).digest('hex');
 }

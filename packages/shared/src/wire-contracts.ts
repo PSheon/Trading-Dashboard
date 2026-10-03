@@ -13,6 +13,9 @@ import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema } 
 import { copyAgentSetupSchema, copyAgentOverviewSchema, copyAgentChallengeSchema } from "./copy-agent-contracts.js";
 import { copyAccountModeOverviewSchema, copyAccountModeOperationSchema, copyAccountModeChallengeSchema } from "./copy-account-mode-contracts.js";
 import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
+import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.js";
+import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
+import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema } from "./copy-live-mandate-contracts.js";
 import * as s from "./schema/zod.js";
 
 const iso = z.string().datetime({ offset: true });
@@ -295,6 +298,15 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "DELETE", path: "/admin/kols/:address", status: 204, auth: "kols.manage", response: z.undefined() },
   { method: "GET", path: "/discover/cards", status: 200, auth: "public", response: wireTraderCardsSchema },
   { method: "GET", path: "/me/copy", status: 200, auth: "user", response: wireCopyOverviewSchema },
+  { method: "GET", path: "/me/copy/live", status: 200, auth: "user (owner); local testnet mandate state", response: liveCopyOverviewSchema },
+  { method: "POST", path: "/me/copy/live/strategies", status: 200, auth: "user (owner); fresh paused testnet configuration", response: liveCopyStrategySchema },
+  { method: "GET", path: "/me/copy/live/strategies/by-key/:key", status: 200, auth: "user (owner); original local idempotency key", response: liveCopyStrategySchema },
+  { method: "GET", path: "/me/copy/live/mandates/by-key/:key", status: 200, auth: "user (owner); original local idempotency key; read only", response: liveCopyMandateChallengeSchema },
+  { method: "GET", path: "/me/copy/live/mandates/:id/challenge", status: 200, auth: "user (owner); original persisted consent intent; read only", response: liveCopyMandateChallengeSchema },
+  { method: "POST", path: "/me/copy/live/execution-wallets/:id/mandates", status: 200, auth: "user (owner); exact current verified agent binding", response: liveCopyMandateChallengeSchema },
+  { method: "POST", path: "/me/copy/live/mandates/:id/approve", status: 200, auth: "user (owner); exact local owner consent; automatic execution unavailable", response: liveCopyMandateSchema },
+  { method: "POST", path: "/me/copy/live/mandates/:id/pause", status: 200, auth: "user (owner); local new-risk barrier", response: liveCopyMandateSchema },
+  { method: "POST", path: "/me/copy/live/mandates/:id/revoke", status: 200, auth: "user (owner); local consent revocation preserves liabilities", response: liveCopyMandateSchema },
   { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
   { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "POST", path: "/me/copy/strategies/:id/funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
@@ -314,6 +326,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/account-modes/:id/approve", status: 200, auth: "user (owner); exact signed consent; fresh user JWT; one durable attempt", response: copyAccountModeOperationSchema },
   { method: "POST", path: "/me/copy/account-modes/:id/reconcile", status: 200, auth: "user (owner); read-only original mode operation", response: copyAccountModeOperationSchema },
   { method: "GET", path: "/me/copy/execution-wallets/:id/statement", status: 200, auth: "user (owner)", response: copyFollowerStatementSchema },
+  { method: "GET", path: "/me/copy/execution-wallets/:id/activity", status: 200, auth: "user (owner); booked actual receipts; before-only pagination", response: copyFollowerActivitySchema },
+  { method: "GET", path: "/me/copy/execution-wallets/:id/snapshot", status: 200, auth: "user (owner); cached actual testnet observation", response: copyFollowerSnapshotReadSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/agent", status: 200, auth: "user (owner); configured testnet agent provider", response: copyAgentSetupSchema },
   { method: "POST", path: "/me/copy/agents/:id/reconcile", status: 200, auth: "user (owner)", response: copyAgentSetupSchema },
   { method: "POST", path: "/me/copy/agents/:id/challenge", status: 200, auth: "user (owner); verified agent", response: copyAgentChallengeSchema },

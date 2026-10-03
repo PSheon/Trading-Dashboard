@@ -69,6 +69,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  unique,
 } from "drizzle-orm/pg-core";
 import { sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
@@ -1070,7 +1071,7 @@ export const copyStrategies = pgTable("copy_strategies", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   chain: text("chain").notNull().default(CHAIN_DEFAULT),
   leaderAddress: text("leader_address").notNull(),
-  mode: text("mode").$type<"paper">().notNull().default("paper"),
+  mode: text("mode").$type<"paper" | "testnet">().notNull().default("paper"),
   status: text("status").$type<CopyStrategyStatus>().notNull().default("active"),
   version: integer("version").notNull().default(1),
   allocated: numeric("allocated").notNull(),
@@ -1090,10 +1091,12 @@ export const copyStrategies = pgTable("copy_strategies", {
   index("copy_strategies_user_idx").on(table.userId, table.status),
   index("copy_strategies_leader_idx").on(table.chain, table.leaderAddress, table.status),
   // One live copy per user and leader (CopyDog: "Already copying").
-  uniqueIndex("copy_strategies_live_uq").on(table.userId, table.chain, table.leaderAddress).where(sql`status <> 'stopped'`),
-  check("copy_strategies_mode_check", oneOf(table.mode, ["paper"])),
+  uniqueIndex("copy_strategies_live_uq").on(table.userId, table.chain, table.leaderAddress, table.mode).where(sql`status <> 'stopped'`),
+  check("copy_strategies_mode_check", oneOf(table.mode, ["paper", "testnet"])),
   check("copy_strategies_status_check", oneOf(table.status, copyStrategyStatusEnum)),
-  check("copy_strategies_amounts_check", sql`${table.allocated} > 0 and ${table.withdrawn} >= 0 and ${table.fees} >= 0 and ${table.version} >= 1 and ${table.controlRevision} >= 0`),
+  check("copy_strategies_amounts_check", sql`${table.version} >= 1 and ${table.controlRevision} >= 0 and
+    ((${table.mode} = 'paper' and ${table.allocated} > 0 and ${table.withdrawn} >= 0 and ${table.fees} >= 0) or
+     (${table.mode} = 'testnet' and ${table.allocated} = 0 and ${table.cash} = 0 and ${table.withdrawn} = 0 and ${table.realizedPnl} = 0 and ${table.fees} = 0 and ${table.funding} = 0))`),
   // Cash may be below zero only while a position is open (see the note at
   // the top); what a stopped copy returned to the balance was not negative.
   check("copy_strategies_stopped_check", sql`(${table.status} = 'stopped') = (${table.stoppedAt} is not null) and (${table.status} <> 'stopped' or ${table.cash} >= 0)`),
@@ -1512,6 +1515,64 @@ export const copyWalletAuthorizationEvents = pgTable("copy_wallet_authorization_
 }, (t) => [uniqueIndex("copy_wallet_authorization_events_version_uq").on(t.authorizationId, t.version),
   check("copy_wallet_authorization_events_action_check", sql`${t.action} = 'revoked' and ${t.version} >= 2`)]);
 
+/** Immutable settings/budget for a fresh testnet strategy. A budget is an
+ * authorization bound, not paper cash, collateral or evidence of funding. */
+export const copyLiveStrategyConfigs = pgTable("copy_live_strategy_configs", {
+  strategyId: integer("strategy_id").primaryKey().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(),
+  sourceNetwork: text("source_network").$type<"testnet" | "mainnet">().notNull(),
+  budgetUsd: text("budget_usd").notNull(), strategyVersion: integer("strategy_version").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("copy_live_configs_key_uq").on(t.userId, t.idempotencyKey),
+  check("copy_live_configs_network_check", oneOf(t.sourceNetwork, ["testnet", "mainnet"])),
+  check("copy_live_configs_budget_check", sql`${t.budgetUsd} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$' and length(${t.budgetUsd}) <= 32 and ${t.budgetUsd}::numeric > 0 and ${t.strategyVersion} >= 1`),
+  check("copy_live_configs_key_check", sql`${t.idempotencyKey} ~ '^[A-Za-z0-9_-]{16,128}$'`),
+]);
+
+/** Local owner consent generations. No signatures, JWTs or signing keys are
+ * persisted. Current binding checks remain necessary at every boundary. */
+export const copyLiveMandates = pgTable("copy_live_mandates", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyLiveStrategyConfigs.strategyId, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  setupId: text("setup_id").notNull().references(() => copyAgentSetups.id, { onDelete: "restrict" }),
+  executionWalletId: text("execution_wallet_id").notNull().references(() => copyExecutionWallets.id, { onDelete: "restrict" }),
+  authorizationId: text("authorization_id").notNull().references(() => copyWalletAuthorizations.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(), network: text("network").$type<"testnet">().notNull(),
+  sourceNetwork: text("source_network").$type<"testnet" | "mainnet">().notNull(), leaderAddress: text("leader_address").notNull(),
+  accountAddress: text("account_address").notNull(), accountRevision: integer("account_revision").notNull(),
+  ownerPrivyUserId: text("owner_privy_user_id").notNull(), ownerAddress: text("owner_address").notNull(),
+  setupRevision: integer("setup_revision").notNull(), authorizationVersion: integer("authorization_version").notNull(),
+  strategyVersion: integer("strategy_version").notNull(), agentWalletId: text("agent_wallet_id").notNull(), agentAddress: text("agent_address").notNull(),
+  policyId: text("policy_id").notNull(), policyFingerprint: text("policy_fingerprint").notNull(), workerQuorumId: text("worker_quorum_id").notNull(),
+  settingsDigest: text("settings_digest").notNull(), budgetUsd: text("budget_usd").notNull(),
+  builderAddress: text("builder_address"), builderMaxFeeTenthsOfBps: integer("builder_max_fee_tenths_of_bps").notNull().default(0),
+  plannerVersion: integer("planner_version").notNull().default(1),
+  nonce: bigint("nonce", { mode: "number" }).notNull(),
+  intent: jsonb("intent").$type<Record<string, unknown>>().notNull(), intentDigest: text("intent_digest").notNull(), consentDigest: text("consent_digest"),
+  state: text("state").$type<"prepared" | "active" | "paused" | "stopping" | "stopped" | "revoked" | "expired">().notNull().default("prepared"),
+  revision: integer("revision").notNull().default(1), activationCursor: timestamp("activation_cursor", { withTimezone: true }),
+  consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }).notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_mandates_key_uq").on(t.userId, t.idempotencyKey),
+  uniqueIndex("copy_live_mandates_current_uq").on(t.strategyId).where(sql`${t.state} not in ('stopped', 'revoked', 'expired')`),
+  uniqueIndex("copy_live_mandates_account_uq").on(t.network, t.accountId).where(sql`${t.state} not in ('stopped', 'revoked', 'expired')`),
+  uniqueIndex("copy_live_mandates_nonce_uq").on(t.userId, t.nonce),
+  index("copy_live_mandates_owner_idx").on(t.userId, t.createdAt),
+  check("copy_live_mandates_network_check", sql`${t.network} = 'testnet' and ${t.sourceNetwork} in ('testnet','mainnet')`),
+  check("copy_live_mandates_state_check", oneOf(t.state, ["prepared", "active", "paused", "stopping", "stopped", "revoked", "expired"])),
+  check("copy_live_mandates_versions_check", sql`${t.revision} >= 1 and ${t.accountRevision} >= 1 and ${t.setupRevision} >= 1 and ${t.authorizationVersion} >= 1 and ${t.strategyVersion} >= 1 and ${t.plannerVersion} = 1`),
+  check("copy_live_mandates_identity_check", sql`${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.ownerAddress} ~ '^0x[0-9a-f]{40}$' and ${t.ownerAddress} <> '0x0000000000000000000000000000000000000000' and ${t.agentAddress} ~ '^0x[0-9a-f]{40}$' and ${t.agentAddress} <> '0x0000000000000000000000000000000000000000' and ${t.leaderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.leaderAddress} <> '0x0000000000000000000000000000000000000000' and ${t.accountAddress} <> ${t.ownerAddress} and ${t.accountAddress} <> ${t.agentAddress} and ${t.ownerAddress} <> ${t.agentAddress}`),
+  check("copy_live_mandates_hash_check", sql`${t.intentDigest} ~ '^[0-9a-f]{64}$' and ${t.settingsDigest} ~ '^[0-9a-f]{64}$' and ${t.policyFingerprint} ~ '^[0-9a-f]{64}$' and (${t.consentDigest} is null or ${t.consentDigest} ~ '^[0-9a-f]{64}$') and jsonb_typeof(${t.intent}) = 'object'`),
+  check("copy_live_mandates_budget_check", sql`${t.budgetUsd} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$' and length(${t.budgetUsd}) <= 32 and ${t.budgetUsd}::numeric > 0 and ${t.builderMaxFeeTenthsOfBps} between 0 and 100 and ((${t.builderAddress} is null and ${t.builderMaxFeeTenthsOfBps} = 0) or (${t.builderAddress} is not null and ${t.builderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.builderAddress} <> '0x0000000000000000000000000000000000000000'))`),
+  check("copy_live_mandates_time_check", sql`${t.nonce} > 0 and ${t.nonce} <= 9007199254740991 and extract(epoch from ${t.consentExpiresAt}) * 1000 > ${t.nonce} and extract(epoch from ${t.consentExpiresAt}) * 1000 <= ${t.nonce} + 300000 and ${t.expiresAt} > ${t.consentExpiresAt} and extract(epoch from ${t.expiresAt}) * 1000 <= ${t.nonce} + 2592000000 and ${t.updatedAt} >= ${t.createdAt}`),
+  check("copy_live_mandates_activation_check", sql`${t.state} not in ('active','paused','stopping','stopped') or (${t.consentDigest} is not null and ${t.activationCursor} is not null and ${t.activationCursor} >= ${t.createdAt} and ${t.activationCursor} < ${t.expiresAt})`),
+  check("copy_live_mandates_key_check", sql`${t.idempotencyKey} ~ '^[A-Za-z0-9_-]{16,128}$'`),
+]);
+
 export const copySignerNonces = pgTable("copy_signer_nonces", {
   network: text("network").notNull(), signerAddress: text("signer_address").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),
 }, (t) => [primaryKey({ columns: [t.network, t.signerAddress] }),
@@ -1564,6 +1625,127 @@ export const copyLiveRiskReservations = pgTable("copy_live_risk_reservations", {
   check("copy_live_risk_reservations_release_check", sql`(${t.state} <> 'released' and ${t.releaseReason} is null and ${t.releaseEvidenceDigest} is null) or (${t.state} = 'released' and ${t.releaseReason} is not null and ${t.releaseEvidenceDigest} is not null and ${t.releaseEvidenceDigest} ~ '^[0-9a-f]{64}$' and ((${t.releaseReason} = 'unattempted_expired' and ${t.attemptedAt} is null and ${t.exchangeOrderId} is null) or (${t.releaseReason} = 'verified_settlement' and ${t.attemptedAt} is not null)))`),
 ]);
 
+/** Immutable execution bindings plus validated provider evidence. The latest
+ * status observation is not, by itself, a certificate to release liabilities. */
+export const copyLiveExecutionEvidence = pgTable("copy_live_execution_evidence", {
+  key: text("key").primaryKey().references(() => copyLiveExecutions.key, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet">().notNull(), accountAddress: text("account_address").notNull(),
+  cloid: text("cloid").notNull(), fingerprint: text("fingerprint").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),
+  revision: integer("revision").notNull().default(1),
+  exchangeOrderId: text("exchange_order_id"),
+  acknowledgement: jsonb("acknowledgement").$type<Record<string, unknown>>(), acknowledgementDigest: text("acknowledgement_digest"),
+  statusObservation: jsonb("status_observation").$type<Record<string, unknown>>(), statusDigest: text("status_digest"),
+  settlementCertificate: jsonb("settlement_certificate").$type<Record<string, unknown>>(), settlementDigest: text("settlement_digest"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_evidence_cloid_uq").on(t.network, t.accountAddress, t.cloid),
+  uniqueIndex("copy_live_evidence_oid_uq").on(t.network, t.accountAddress, t.exchangeOrderId).where(sql`${t.exchangeOrderId} is not null`),
+  index("copy_live_evidence_account_idx").on(t.accountId, t.updatedAt),
+  check("copy_live_evidence_identity_check", sql`${t.network} = 'testnet' and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.cloid} ~ '^0x[0-9a-f]{32}$' and ${t.fingerprint} ~ '^[0-9a-f]{64}$' and ${t.nonce} > 0 and ${t.nonce} <= 9007199254740991 and ${t.revision} > 0 and (${t.exchangeOrderId} is null or (${t.exchangeOrderId} ~ '^[1-9][0-9]{0,19}$' and ${t.exchangeOrderId}::numeric <= 18446744073709551615))`),
+  check("copy_live_evidence_ack_check", sql`(${t.acknowledgement} is null and ${t.acknowledgementDigest} is null) or (${t.acknowledgement} is not null and ${t.acknowledgementDigest} is not null and jsonb_typeof(${t.acknowledgement}) = 'object' and ${t.acknowledgementDigest} ~ '^[0-9a-f]{64}$' and ${t.exchangeOrderId} is not null)`),
+  check("copy_live_evidence_status_check", sql`(${t.statusObservation} is null and ${t.statusDigest} is null) or (${t.statusObservation} is not null and ${t.statusDigest} is not null and jsonb_typeof(${t.statusObservation}) = 'object' and ${t.statusDigest} ~ '^[0-9a-f]{64}$')`),
+  check("copy_live_evidence_settlement_check", sql`(${t.settlementCertificate} is null and ${t.settlementDigest} is null) or (${t.settlementCertificate} is not null and ${t.settlementDigest} is not null and jsonb_typeof(${t.settlementCertificate}) = 'object' and ${t.settlementDigest} ~ '^[0-9a-f]{64}$' and ${t.exchangeOrderId} is not null)`),
+  check("copy_live_evidence_time_check", sql`${t.updatedAt} >= ${t.createdAt}`),
+]);
+
+/** Fixed-network source streams. Coverage is operational evidence for the
+ * bounded acquisition window, never a claim of complete imported history. */
+export const copyLiveSourceStreams = pgTable("copy_live_source_streams", {
+  id: text("id").primaryKey(), network: text("network").$type<"testnet" | "mainnet">().notNull(), leaderAddress: text("leader_address").notNull(),
+  state: text("state").$type<"unproven" | "ready" | "gap" | "quarantined">().notNull().default("unproven"), revision: integer("revision").notNull().default(1),
+  coverageFrom: timestamp("coverage_from", { withTimezone: true }), coverageThrough: timestamp("coverage_through", { withTimezone: true }), coverageDigest: text("coverage_digest"),
+  lastIssue: text("last_issue").$type<"source_unavailable" | "incomplete_coverage" | "duplicate_conflict" | "invalid_fill" | "cursor_regression">(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("copy_live_stream_identity_uq").on(t.network, t.leaderAddress),
+  unique("copy_live_stream_binding_uq").on(t.id, t.network, t.leaderAddress),
+  check("copy_live_stream_identity_check", sql`${t.network} in ('testnet','mainnet') and ${t.leaderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.leaderAddress} <> '0x0000000000000000000000000000000000000000' and ${t.id} = ${t.network} || ':' || ${t.leaderAddress} and ${t.revision} > 0`),
+  check("copy_live_stream_state_check", oneOf(t.state, ["unproven", "ready", "gap", "quarantined"])),
+  check("copy_live_stream_coverage_check", sql`(${t.coverageFrom} is null and ${t.coverageThrough} is null and ${t.coverageDigest} is null and ${t.state} <> 'ready') or (${t.coverageFrom} is not null and ${t.coverageThrough} is not null and ${t.coverageDigest} is not null and ${t.coverageFrom} <= ${t.coverageThrough} and ${t.coverageDigest} ~ '^[0-9a-f]{64}$')`),
+  check("copy_live_stream_issue_check", sql`${t.lastIssue} is null or ${oneOf(t.lastIssue, ["source_unavailable", "incomplete_coverage", "duplicate_conflict", "invalid_fill", "cursor_regression"])}`),
+]);
+
+/** Public exchange fills with an explicit immutable origin. Legacy fills and
+ * history imports have no certified network and cannot populate this table. */
+export const copyLiveSourceFills = pgTable("copy_live_source_fills", {
+  id: text("id").primaryKey(), streamId: text("stream_id").notNull(), network: text("network").$type<"testnet" | "mainnet">().notNull(), leaderAddress: text("leader_address").notNull(),
+  tid: text("tid").notNull(), providerTime: timestamp("provider_time", { withTimezone: true }).notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+  coin: text("coin").notNull(), oid: text("oid").notNull(), tradeKey: text("trade_key").notNull(), px: text("px").notNull(), sz: text("sz").notNull(),
+  side: text("side").$type<"B" | "A">().notNull(), startPosition: text("start_position").notNull(),
+  normalized: jsonb("normalized").$type<Record<string, unknown>>().notNull(), raw: jsonb("raw").$type<Record<string, unknown>>().notNull(),
+  sourceDigest: text("source_digest").notNull(), originVersion: integer("origin_version").notNull().default(1),
+}, (t) => [
+  foreignKey({ columns: [t.streamId, t.network, t.leaderAddress], foreignColumns: [copyLiveSourceStreams.id, copyLiveSourceStreams.network, copyLiveSourceStreams.leaderAddress] }).onDelete("restrict"),
+  uniqueIndex("copy_live_source_fill_tid_uq").on(t.streamId, t.tid), index("copy_live_source_fill_time_idx").on(t.streamId, t.providerTime, t.tid),
+  check("copy_live_source_fill_identity_check", sql`${t.id} = ${t.network} || ':' || ${t.leaderAddress} || ':' || ${t.tid} and ${t.tid} ~ '^[1-9][0-9]{0,19}$' and ${t.tid}::numeric <= 18446744073709551615 and ${t.oid} ~ '^[1-9][0-9]{0,19}$' and ${t.oid}::numeric <= 18446744073709551615 and ${t.tradeKey} ~ '^(oid|twap):[1-9][0-9]{0,19}$' and length(${t.coin}) between 1 and 129 and ${t.originVersion} = 1`),
+  check("copy_live_source_fill_values_check", sql`${t.side} in ('B','A') and ${t.px} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$' and length(${t.px}) <= 80 and ${t.px}::numeric > 0 and ${t.sz} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$' and length(${t.sz}) <= 80 and ${t.sz}::numeric > 0 and ${t.startPosition} ~ '^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$' and length(${t.startPosition}) <= 81`),
+  check("copy_live_source_fill_evidence_check", sql`${t.sourceDigest} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.normalized}) = 'object' and jsonb_typeof(${t.raw}) = 'object' and ${t.providerTime} <= ${t.receivedAt} and extract(epoch from ${t.providerTime}) > 0`),
+]);
+
+/** Canonical source-leg claims belong to one consent generation. Fixed-size
+ * opens spend once per exchange trade even across separate partial batches. */
+export const copyLiveSignalLegs = pgTable("copy_live_signal_legs", {
+  id: text("id").primaryKey(), mandateId: text("mandate_id").notNull().references(() => copyLiveMandates.id, { onDelete: "restrict" }),
+  sourceFillId: text("source_fill_id").notNull().references(() => copyLiveSourceFills.id, { onDelete: "restrict" }),
+  leg: text("leg").$type<"open" | "close">().notNull(), tradeKey: text("trade_key").notNull(), fixedTradeClaim: boolean("fixed_trade_claim").notNull().default(false),
+  sign: integer("sign").notNull(), size: text("size").notNull(), fraction: text("fraction"),
+  dependsOnId: text("depends_on_id").references((): AnyPgColumn => copyLiveSignalLegs.id, { onDelete: "restrict" }),
+  executionKey: text("execution_key").references(() => copyLiveExecutions.key, { onDelete: "restrict" }),
+  state: text("state").$type<"planned" | "prepared" | "settled" | "skipped" | "blocked">().notNull().default("planned"), revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_leg_fill_uq").on(t.mandateId, t.sourceFillId, t.leg), unique("copy_live_leg_generation_uq").on(t.id, t.mandateId),
+  uniqueIndex("copy_live_leg_fixed_trade_uq").on(t.mandateId, t.tradeKey).where(sql`${t.leg} = 'open' and ${t.fixedTradeClaim}`),
+  uniqueIndex("copy_live_leg_execution_uq").on(t.executionKey).where(sql`${t.executionKey} is not null`), index("copy_live_leg_work_idx").on(t.state, t.createdAt),
+  check("copy_live_leg_values_check", sql`${t.leg} in ('open','close') and ${t.sign} in (-1,1) and ${t.size} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$' and length(${t.size}) <= 80 and ${t.size}::numeric > 0 and ${t.tradeKey} ~ '^(oid|twap):[1-9][0-9]{0,19}$' and ((${t.leg} = 'open' and ${t.fraction} is null) or (${t.leg} = 'close' and not ${t.fixedTradeClaim} and ${t.fraction} is not null and ${t.fraction} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$' and length(${t.fraction}) <= 80 and ${t.fraction}::numeric > 0 and ${t.fraction}::numeric <= 1))`),
+  check("copy_live_leg_state_check", sql`${oneOf(t.state, ["planned", "prepared", "settled", "skipped", "blocked"])} and (${t.state} not in ('prepared','settled') or ${t.executionKey} is not null) and (${t.dependsOnId} is null or (${t.leg} = 'open' and ${t.dependsOnId} <> ${t.id})) and ${t.revision} > 0 and ${t.updatedAt} >= ${t.createdAt}`),
+]);
+
+/** Immutable exact intent authority committed with its source claim and
+ * prepared journal. No caller-supplied generic fill is execution authority. */
+export const copyLiveIntentProvenance = pgTable("copy_live_intent_provenance", {
+  key: text("key").primaryKey().references(() => copyLiveExecutions.key, { onDelete: "restrict" }),
+  legId: text("leg_id").notNull(), mandateId: text("mandate_id").notNull(), mandateRevision: integer("mandate_revision").notNull(),
+  sourceDigest: text("source_digest").notNull(), settingsDigest: text("settings_digest").notNull(), fingerprint: text("fingerprint").notNull(), plannerVersion: integer("planner_version").notNull(),
+  intent: jsonb("intent").$type<Record<string, unknown>>().notNull(), sizingBasis: jsonb("sizing_basis").$type<Record<string, unknown>>().notNull(),
+  admittedAt: timestamp("admitted_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  foreignKey({ columns: [t.legId, t.mandateId], foreignColumns: [copyLiveSignalLegs.id, copyLiveSignalLegs.mandateId] }).onDelete("restrict"),
+  uniqueIndex("copy_live_provenance_leg_uq").on(t.legId), index("copy_live_provenance_admission_idx").on(t.mandateId, t.admittedAt),
+  check("copy_live_provenance_evidence_check", sql`${t.mandateRevision} > 0 and ${t.plannerVersion} = 1 and ${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.settingsDigest} ~ '^[0-9a-f]{64}$' and ${t.fingerprint} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.intent}) = 'object' and jsonb_typeof(${t.sizingBasis}) = 'object' and extract(epoch from ${t.admittedAt}) > 0`),
+]);
+
+/** Reduction rounding carry is actual generation/market state, never a
+ * balance or a carry imported from a paper strategy. */
+export const copyLiveReductionCarry = pgTable("copy_live_reduction_carry", {
+  mandateId: text("mandate_id").notNull().references(() => copyLiveMandates.id, { onDelete: "restrict" }), coin: text("coin").notNull(),
+  carry: text("carry").notNull(), revision: integer("revision").notNull().default(1), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.mandateId, t.coin] }),
+  check("copy_live_carry_value_check", sql`length(${t.coin}) between 1 and 129 and ${t.carry} ~ '^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$' and length(${t.carry}) <= 80 and ${t.revision} > 0`)]);
+
+/** Immutable initial empty-account quantity anchor. Created only atomically
+ * with the first journal and its source provenance, never from an HTTP body
+ * or after submission. Current risk still requires fresh provider evidence. */
+export const copyLivePositionBaselines = pgTable("copy_live_position_baselines", {
+  mandateId: text("mandate_id").primaryKey().references(() => copyLiveMandates.id, { onDelete: "restrict" }),
+  firstExecutionKey: text("first_execution_key").notNull().references(() => copyLiveExecutions.key, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet">().notNull(), accountAddress: text("account_address").notNull(),
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull(), completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+  sourceDigest: text("source_digest").notNull(), snapshotDigest: text("snapshot_digest").notNull(), baselineDigest: text("baseline_digest").notNull(),
+  record: jsonb("record").$type<Record<string, unknown>>().notNull(), producerVersion: integer("producer_version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_baseline_first_execution_uq").on(t.firstExecutionKey),
+  check("copy_live_baseline_identity_check", sql`${t.network} = 'testnet' and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.producerVersion} = 1`),
+  check("copy_live_baseline_evidence_check", sql`${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.snapshotDigest} ~ '^[0-9a-f]{64}$' and ${t.baselineDigest} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.record}) = 'object'`),
+  check("copy_live_baseline_time_check", sql`extract(epoch from ${t.observedAt}) > 0 and ${t.completedAt} >= ${t.observedAt} and ${t.createdAt} >= ${t.completedAt} and ${t.createdAt} <= ${t.observedAt} + interval '5 seconds'`),
+]);
+
 /** Actual follower receipts remain separate from simulated paper accounting. */
 export const copyFollowerReceipts = pgTable("copy_follower_receipts", {
   key: text("key").primaryKey(), accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
@@ -1575,6 +1757,7 @@ export const copyFollowerReceipts = pgTable("copy_follower_receipts", {
   attribution: text("attribution").$type<"execution" | "account">().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("copy_follower_receipts_account_time_idx").on(t.accountId, t.providerTime),
+  index("copy_follower_receipts_order_idx").on(t.accountId, sql`(${t.record}->>'oid')`).where(sql`${t.kind} = 'fill'`),
   check("copy_follower_receipts_network_check", oneOf(t.network, ["testnet", "mainnet"])),
   check("copy_follower_receipts_kind_check", oneOf(t.kind, ["fill", "funding"])),
   check("copy_follower_receipts_identity_check", sql`${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.digest} ~ '^[0-9a-f]{64}$'`),
@@ -1588,6 +1771,45 @@ export const copyFollowerLedger = pgTable("copy_follower_ledger", {
 }, (t) => [primaryKey({ columns: [t.receiptKey, t.component] }),
   check("copy_follower_ledger_component_check", oneOf(t.component, ["realized_pnl", "exchange_fee", "builder_fee", "funding"])),
   check("copy_follower_ledger_token_check", sql`${t.token} = 'USDC'`)]);
+
+/** Actual all-venue observations. History begins at the first verified read,
+ * never at strategy creation or a simulated initial deposit. */
+export const copyFollowerObservations = pgTable("copy_follower_observations", {
+  id: text("id").primaryKey(), accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet">().notNull(), accountAddress: text("account_address").notNull(),
+  sourceDigest: text("source_digest").notNull(), producerVersion: integer("producer_version").notNull().default(1),
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull(), completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+  earliestProviderTime: timestamp("earliest_provider_time", { withTimezone: true }).notNull(),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("copy_follower_observations_digest_uq").on(t.accountId, t.sourceDigest),
+  index("copy_follower_observations_history_idx").on(t.accountId, t.observedAt, t.id),
+  check("copy_follower_observations_identity_check", sql`${t.network} = 'testnet' and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.producerVersion} = 1 and jsonb_typeof(${t.snapshot}) = 'object'`),
+  check("copy_follower_observations_time_check", sql`${t.completedAt} >= ${t.observedAt} and ${t.completedAt} <= ${t.observedAt} + interval '5 seconds' and ${t.earliestProviderTime} <= ${t.completedAt} and ${t.earliestProviderTime} >= ${t.completedAt} - interval '5 seconds'`),
+]);
+
+/** Persisted admission spans API/worker replicas and process restarts. The
+ * reporting GET only reads the cache and cannot bypass this acquisition budget. */
+export const copyFollowerObservationBudget = pgTable("copy_follower_observation_budget", {
+  network: text("network").$type<"testnet">().primaryKey(),
+  nextAllowedAt: timestamp("next_allowed_at", { withTimezone: true }).notNull(),
+}, (t) => [check("copy_follower_observation_budget_network_check", sql`${t.network} = 'testnet'`)]);
+
+export const copyFollowerObservationJobs = pgTable("copy_follower_observation_jobs", {
+  accountId: text("account_id").primaryKey().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  claimToken: text("claim_token"), attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull().defaultNow(),
+  latestObservationId: text("latest_observation_id").references(() => copyFollowerObservations.id, { onDelete: "restrict" }),
+  issue: text("issue").$type<"source_unavailable" | "unsupported_mode" | "incomplete_coverage" | "invalid_evidence">(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("copy_follower_observation_jobs_due_idx").on(t.nextRunAt, t.accountId),
+  check("copy_follower_observation_jobs_issue_check", oneOf(t.issue, ["source_unavailable", "unsupported_mode", "incomplete_coverage", "invalid_evidence"])),
+  check("copy_follower_observation_jobs_claim_check", sql`(${t.claimToken} is null and ${t.attemptedAt} is null) or (${t.claimToken} is not null and ${t.attemptedAt} is not null)`),
+]);
 
 /** Any changed receipt or unattributed trade blocks new admission, not reads. */
 export const copyFollowerAccountState = pgTable("copy_follower_account_state", {

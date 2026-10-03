@@ -31,3 +31,6 @@ export * from "./wallet-withdrawal-signing.js";
 export * from "./copy-funding-contracts.js";
 export * from "./copy-funding-signing.js";
 export * from "./copy-account-mode-contracts.js";
+export * from "./copy-live-mandate-contracts.js";
+export * from "./copy-follower-activity-contracts.js";
+export * from "./copy-follower-view-contracts.js";

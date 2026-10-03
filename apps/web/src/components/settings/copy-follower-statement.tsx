@@ -6,6 +6,8 @@ import { useI18n } from '@/i18n/provider';
 import { useAuth } from '@/lib/auth';
 import { sessionKey } from '@/lib/api';
 import { formatFollowerAmount, useCopyFollowerStatement } from '@/lib/copy-follower-statements';
+import { CopyFollowerSnapshot } from '@/components/copy/copy-follower-snapshot';
+import { CopyFollowerActivity } from '@/components/copy/copy-follower-activity';
 
 /** Read-only exchange receipt ledger. Viewing it never starts copying or moves funds. */
 export function CopyFollowerStatementSettings({ accounts }: { accounts: readonly CopyExecutionAccount[] }) {
@@ -52,5 +54,7 @@ function StatementView({ accounts }: { accounts: readonly CopyExecutionAccount[]
         </table></div> : <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerStatement.emptyReceipts')}</p>}
       </details>
     </div> : null}
+    <CopyFollowerSnapshot account={account}/>
+    <CopyFollowerActivity account={account}/>
   </section>;
 }

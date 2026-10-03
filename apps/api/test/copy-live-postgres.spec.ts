@@ -6,6 +6,8 @@ import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveE
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from "./db-test-utils.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { PostgresLiveExecutionJournal } from "../src/copy/live/postgres-live-journal.js";
+import { ScopedLiveExecutionJournal } from '../src/copy/live/scoped-live-journal.js';
+import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { PostgresWalletAuthorizationSource } from "../src/copy/live/postgres-wallet-authorizations.js";
 import { LiveOrderExecutor, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from "../src/copy/live/live-order.js";
@@ -67,6 +69,49 @@ function transport(): LiveExchangeTransport {
 }
 
 describe("live PostgreSQL journal and authorization authority", () => {
+  it('reads and transitions the original prepared journal with a single-connection scoped pool', async () => {
+    const original = await first.prepare(input());
+    const scopedPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 });
+    try {
+      await new PostgresLiveRiskScope(scopedPool, () => now).run({ userId: grant.userId, network: grant.network, accountAddress: grant.accountAddress }, async (_scope, session) => {
+        const journal = new ScopedLiveExecutionJournal(session, original.key);
+        await journal.withOrderLock(original.key, async lease => {
+          expect(await journal.prepare(input())).toEqual(original);
+          await journal.save({ ...original, state: 'submitting' });
+          await lease.assertHeld();
+          expect((await journal.get(original.key))?.state).toBe('submitting');
+        });
+      });
+    } finally { await scopedPool.end(); }
+  });
+  it('cannot prepare an authority-free journal or allocate a fresh nonce through the scoped executor adapter', async () => {
+    await new PostgresLiveRiskScope(lockPool, () => now).run({ userId: grant.userId, network: grant.network, accountAddress: grant.accountAddress }, async (_scope, session) => {
+      const journal = new ScopedLiveExecutionJournal(session, executionKey(intent));
+      await expect(journal.prepare(input())).rejects.toThrow('execution_record_missing');
+    });
+    expect(await db.select().from(copyLiveExecutions)).toHaveLength(0);
+    expect((await db.execute(sql`select * from copy_signer_nonces`)).rows).toHaveLength(0);
+  });
+  it('tombstones scoped journal and order callbacks before a successor can use the same key', async () => {
+    const original = await first.prepare(input()); let saved!: ScopedLiveExecutionJournal; let savedLease!: Parameters<Parameters<ScopedLiveExecutionJournal['withOrderLock']>[1]>[0];
+    const scopes = new PostgresLiveRiskScope(lockPool, () => now), identity = { userId: grant.userId, network: grant.network, accountAddress: grant.accountAddress };
+    await scopes.run(identity, async (_scope, session) => {
+      saved = new ScopedLiveExecutionJournal(session, original.key);
+      await saved.withOrderLock(original.key, async lease => { savedLease = lease; });
+      await expect(savedLease.assertHeld()).rejects.toThrow('execution_lease_lost');
+    });
+    await scopes.run(identity, async () => { await expect(saved.get(original.key)).rejects.toThrow('live_risk_serialization_lost'); });
+  });
+  it('rejects foreign keys, changed authorization and immutable journal mutations on the original session', async () => {
+    const original = await first.prepare(input());
+    await new PostgresLiveRiskScope(lockPool, () => now).run({ userId: grant.userId, network: grant.network, accountAddress: grant.accountAddress }, async (_scope, session) => {
+      const journal = new ScopedLiveExecutionJournal(session, original.key);
+      await expect(journal.get('foreign')).rejects.toThrow('execution_record_scope_mismatch');
+      await expect(journal.prepare(input(intent, { ...grant, version: 2 }))).rejects.toThrow('wallet_authorization_changed');
+      await expect(journal.save({ ...original, action: { ...original.action, orders: [{ ...original.action.orders[0], s: '1' }] } })).rejects.toThrow('execution_record_immutable');
+    });
+    expect(await first.get(original.key)).toEqual(original);
+  });
   it('persists indexed market evidence immutably and compares retries by identity', async () => {
     const market = { network: 'testnet' as const, coin: 'xyz:TSLA', dex: 'xyz', asset: 130000,
       universeIndex: 0, perpDexIndex: 3, sizeDecimals: 3, maxLeverage: 10, observedAt: now };

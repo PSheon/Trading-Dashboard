@@ -8,7 +8,7 @@ import { CopyWalletRepository, type AccountRow, type GrantRow, type AgentRow } f
 
 function account(row: AccountRow): CopyExecutionAccount {
   return { id: row.id, strategyId: row.strategyId, network: row.network, state: row.state,
-    address: row.state === "ready" ? row.address : null, issue: row.issue,
+    address: row.state === "ready" ? row.address : null, issue: row.issue, revision: row.revision,
     createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
 }
 function authorization(grant: GrantRow, wallet: AgentRow): CopyWalletGrant {
@@ -16,7 +16,7 @@ function authorization(grant: GrantRow, wallet: AgentRow): CopyWalletGrant {
   const status = grant.revokedAt ? "revoked" : grant.expiresAt.getTime() <= now ? "expired" :
     grant.validFrom.getTime() > now || !grant.exchangeApprovedAt || grant.exchangeApprovedAt.getTime() > now ? "pending" : "active";
   return { id: grant.id, strategyId: wallet.strategyId, network: wallet.network, accountAddress: wallet.accountAddress,
-    signerAddress: wallet.signerAddress, status, scopes: grant.scopes, expiresAt: grant.expiresAt.toISOString(), revokedAt: grant.revokedAt?.toISOString() ?? null };
+    signerAddress: wallet.signerAddress, status, scopes: grant.scopes, version: grant.version, expiresAt: grant.expiresAt.toISOString(), revokedAt: grant.revokedAt?.toISOString() ?? null };
 }
 
 /** Durable wallet preparation and local consent management. Does not activate

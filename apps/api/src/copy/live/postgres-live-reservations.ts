@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { and, desc, eq, ne } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyLiveExecutions, copyLiveRiskReservations, copyRiskPolicies, copyStrategies, copyStrategyVersions, users } from '@trading-dashboard/shared/database';
+import { copyAgentSetups, copyExecutionWallets, copyLiveIntentProvenance, copyLiveMandates, copyLiveSignalLegs, copyLiveStrategyConfigs } from '@trading-dashboard/shared/database';
+import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
+import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
 import type { DbExecutor } from '../../db/unit-of-work.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { assessLiveAccountRisk, type LiveAccountRiskInput, type LiveRiskReservation } from './live-account-risk.js';
-import { executionKey } from './live-order.js';
+import { buildOrderAction, executionKey, intentFingerprint } from './live-order.js';
 import type { LiveExecutionRecord } from './live-execution.js';
 import { planLiveReservation, validateLiveReservationPayload, freezeLiveReservation, type LiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
@@ -93,8 +96,9 @@ export class PostgresLiveReservations {
     const [strategy] = await this.sql(session, db.select().from(copyStrategies).where(eq(copyStrategies.id, account.strategyId)));
     const [version] = await this.sql(session, db.select().from(copyStrategyVersions).where(and(eq(copyStrategyVersions.strategyId, account.strategyId), eq(copyStrategyVersions.version, input.identity.strategyVersion))));
     check(strategy && strategy.userId === account.userId && !['stopped', 'stopping'].includes(strategy.status) && strategy.version === input.identity.strategyVersion &&
-      Dec.from(strategy.allocated).eq(input.strategy.allocatedUsd) &&
       version && isDeepStrictEqual(version.settings, input.strategy.settings), 'live_reservation_strategy_changed');
+    if (strategy.mode === 'testnet') await this.actualBudget(session, db, account, strategy, input, record);
+    else check(Dec.from(strategy.allocated).eq(input.strategy.allocatedUsd), 'live_reservation_strategy_changed');
     const [policy] = await this.sql(session, db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1));
     check(policy && policy.version === input.identity.policyVersion && isDeepStrictEqual(policy.limits, input.policy.limits), 'live_reservation_policy_changed');
     const controls = await this.sql(session, db.select().from(copyControls).where(eq(copyControls.scope, 'platform')));
@@ -105,6 +109,44 @@ export class PostgresLiveReservations {
     const current = await this.sql(session, new PostgresWalletAuthorizationSource(db as DrizzleDb).find(input.identity.authorizationId));
     const grant = assertWalletAuthorization(current, input.intent, this.now());
     check(grant.version === input.identity.authorizationVersion, 'wallet_authorization_changed'); assertSameAuthorization(record.authorization, grant);
+  }
+  /** This is the local budget binding, not a source/sizing certificate. The
+   * trusted producer independently rederives the complete canonical source leg
+   * and sizing basis before this DAL may assess actual collateral. */
+  private async actualBudget(session: LiveRiskDatabaseSession, db: DbExecutor, account: typeof copyExecutionAccounts.$inferSelect,
+    strategy: typeof copyStrategies.$inferSelect, input: LiveAccountRiskInput, record: LiveExecutionRecord) {
+    const [row] = await this.sql(session, db.select({ provenance: copyLiveIntentProvenance, leg: copyLiveSignalLegs, mandate: copyLiveMandates, config: copyLiveStrategyConfigs,
+      setup: copyAgentSetups, wallet: copyExecutionWallets, owner: users })
+      .from(copyLiveIntentProvenance).innerJoin(copyLiveSignalLegs, eq(copyLiveSignalLegs.id, copyLiveIntentProvenance.legId))
+      .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, copyLiveIntentProvenance.mandateId))
+      .innerJoin(copyLiveStrategyConfigs, eq(copyLiveStrategyConfigs.strategyId, copyLiveMandates.strategyId))
+      .innerJoin(copyAgentSetups, eq(copyAgentSetups.id, copyLiveMandates.setupId))
+      .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyLiveMandates.executionWalletId))
+      .innerJoin(users, eq(users.id, copyLiveMandates.userId)).where(eq(copyLiveIntentProvenance.key, record.key)));
+    check(row, 'live_reservation_mandate_unproven');
+    let consent;
+    try { consent = decodeLiveCopyMandate(row.mandate); } catch { fail('live_reservation_mandate_unproven'); }
+    const { mandate, provenance: p, leg, config, setup, wallet, owner } = row;
+    check(strategy.status === 'active' && mandate.state === 'active' && mandate.consentDigest && mandate.activationCursor &&
+      mandate.expiresAt.getTime() > this.now() && mandate.revision === p.mandateRevision && p.plannerVersion === consent.plannerVersion &&
+      consent.accountId === account.id && consent.userId === account.userId && consent.strategyId === strategy.id && consent.network === account.network &&
+      consent.accountAddress === account.address && consent.accountRevision === account.revision && consent.ownerPrivyUserId === account.privyUserId &&
+      owner.embeddedWalletAddress === consent.ownerAddress && owner.privyUserId === consent.ownerPrivyUserId && owner.disabledAt === null &&
+      setup.revision === consent.setupRevision && setup.state === 'active' && setup.userId === account.userId && setup.strategyId === strategy.id && setup.accountId === account.id &&
+      setup.network === account.network && setup.accountAddress === account.address && setup.accountWalletId === account.privyWalletId && setup.accountOwnerQuorumId === account.ownerQuorumId &&
+      setup.authorizationId === consent.authorizationId && setup.policyId === consent.policyId && setup.policyFingerprint === consent.policyFingerprint && setup.workerQuorumId === consent.workerQuorumId &&
+      wallet.privyWalletId === consent.agentWalletId && wallet.signerAddress === consent.agentAddress && wallet.privyOwnerId === record.authorization.privyOwnerId &&
+      consent.authorizationId === record.authorization.id && consent.authorizationVersion === record.authorization.version && consent.agentWalletId === record.authorization.walletId &&
+      consent.agentAddress === record.authorization.signerAddress && consent.strategyVersion === strategy.version && config.strategyVersion === strategy.version &&
+      config.userId === account.userId && config.sourceNetwork === consent.sourceNetwork && consent.sourceNetwork === 'testnet' &&
+      config.budgetUsd === consent.budgetUsd && Dec.from(consent.budgetUsd).eq(input.strategy.allocatedUsd) &&
+      consent.leaderAddress === strategy.leaderAddress && consent.settingsDigest === liveCopySettingsDigest(input.strategy.settings) && p.settingsDigest === consent.settingsDigest &&
+      p.fingerprint === record.fingerprint && leg.mandateId === mandate.id && leg.executionKey === record.key && leg.state === 'prepared', 'live_reservation_mandate_changed');
+    const original = p.intent as unknown as typeof input.intent;
+    try { check(intentFingerprint(original, buildOrderAction(original)) === record.fingerprint, 'live_reservation_provenance_changed'); }
+    catch { fail('live_reservation_provenance_changed'); }
+    check(!input.intent.builder || input.intent.builder.address === consent.builderAddress && input.intent.builder.feeTenthsBps <= consent.builderMaxFeeTenthsOfBps,
+      'live_reservation_builder_changed');
   }
   async hold(session: LiveRiskDatabaseSession, raw: LiveAccountRiskInput): Promise<Readonly<LiveReservationStored>> {
     const input = structuredClone(raw); this.scoped(session, input.identity.userId, input.identity.accountAddress);

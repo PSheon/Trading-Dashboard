@@ -12,8 +12,8 @@ import { WithdrawalRepository } from "../src/wallet/withdrawal.repository.js";
 import { WithdrawalExchangeClient } from "../src/wallet/withdrawal-exchange.client.js";
 import { WithdrawalService } from "../src/wallet/withdrawal.service.js";
 import { privateKeyToAccount } from "viem/accounts";
-import { eq } from "drizzle-orm";
-import { walletWithdrawals } from "@trading-dashboard/shared/database";
+import { eq, sql } from "drizzle-orm";
+import { users, walletWithdrawals } from "@trading-dashboard/shared/database";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -25,6 +25,13 @@ const OTHER = `0x${"33".repeat(20)}`;
 const INPUT = { destination: DEST, amount: "12.500000" };
 const SERVICE = "withdrawal-service-token-0123456789";
 const ROOT = "/me/wallet/withdrawals";
+
+function deferred() {
+  let resolve!: () => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
 
 describe("durable owner withdrawal metadata", () => {
   const db = getTestDb();
@@ -231,6 +238,54 @@ describe("durable owner withdrawal metadata", () => {
     expect((await post(`/${op.id}/submit`, { signature: await signature(op) }).expect(200)).body.data.status).toBe("rejected");
     const next = await reserve();
     expect(next.id).not.toBe(op.id); expect(next.nonce).toBeGreaterThan(op.nonce);
+  });
+
+  it.each(["disabled", "replaced"])("does not submit when the owner is %s while waiting for the exchange budget", async (change) => {
+    const op = await unknown();
+    const [operation] = await db.select().from(walletWithdrawals).where(eq(walletWithdrawals.id, op.id));
+    exchange.acquire.mockImplementationOnce(async () => {
+      await db.update(users).set(change === "disabled" ? { disabledAt: new Date() } : { embeddedWalletAddress: OTHER })
+        .where(eq(users.id, operation!.userId));
+    });
+    await post(`/${op.id}/submit`, { signature: await signature(op) }).expect(409);
+    expect(exchange.send).not.toHaveBeenCalled();
+    const [saved] = await db.select().from(walletWithdrawals).where(eq(walletWithdrawals.id, op.id));
+    expect(saved).toMatchObject({ status: "unknown", attemptedAt: null });
+  });
+
+  it("waits for an in-progress owner disable transaction before deciding the durable submission boundary", async () => {
+    const op = await unknown();
+    const [operation] = await db.select().from(walletWithdrawals).where(eq(walletWithdrawals.id, op.id));
+    const locked = deferred();
+    const release = deferred();
+    const disable = db.transaction(async (tx) => {
+      await tx.update(users).set({ disabledAt: new Date() }).where(eq(users.id, operation!.userId));
+      locked.resolve();
+      await release.promise;
+    });
+    void disable.catch((error: unknown) => locked.reject(error));
+    let attempt: Promise<unknown> | undefined;
+    try {
+      await locked.promise;
+      attempt = app.get(WithdrawalRepository).beginSubmit(operation!.userId, op.id);
+      void attempt.catch(() => undefined);
+      await vi.waitFor(async () => {
+        const result = await db.execute<{ blocked: boolean }>(sql`
+          select exists(select 1 from pg_stat_activity
+            where datname = current_database() and query ilike '%from "users"%'
+            and query ilike '%for share%' and cardinality(pg_blocking_pids(pid)) > 0) as blocked
+        `);
+        expect(result.rows[0]?.blocked).toBe(true);
+      }, { timeout: 1500, interval: 10 });
+    } finally {
+      release.resolve();
+      try { await disable; }
+      finally { await attempt?.catch(() => undefined); }
+    }
+    await expect(attempt).rejects.toMatchObject({ status: 409 });
+    const [saved] = await db.select().from(walletWithdrawals).where(eq(walletWithdrawals.id, op.id));
+    expect(saved!.attemptedAt).toBeNull();
+    expect(exchange.send).not.toHaveBeenCalled();
   });
 
   it("restores preparation when the request budget fails before any exchange attempt", async () => {

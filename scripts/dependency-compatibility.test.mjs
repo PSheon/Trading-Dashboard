@@ -23,7 +23,7 @@ function visit(directory, workspace = false) {
   if (installed.has(directory) && !workspace) return;
   const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
   installed.set(directory, manifest);
-  const dependencies = { ...manifest.dependencies, ...manifest.optionalDependencies,
+  const dependencies = { ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies,
     ...(workspace ? manifest.devDependencies : {}) };
   for (const name of Object.keys(dependencies)) {
     const child = dependencyDirectory(directory, name);
@@ -33,6 +33,40 @@ function visit(directory, workspace = false) {
 for (const path of ['', 'apps/api', 'apps/web', 'packages/shared']) visit(join(root, path), true);
 const packages = (name, versions) => [...installed].filter(([, pkg]) =>
   pkg.name === name && versions.includes(pkg.version));
+
+test('braces bounds recursive parsing and AST walkers while preserving build glob semantics', () => {
+  const consumers = packages('braces', ['3.0.3']);
+  assert.ok(consumers.length, 'review the local security patch when braces is replaced');
+  assert.equal(consumers.length, [...installed].filter(([, pkg]) => pkg.name === 'braces').length,
+    'the advisory exception must not cover any other braces version');
+  for (const [directory] of consumers) {
+    const require = createRequire(join(directory, 'package.json'));
+    const braces = require(directory);
+    assert.deepEqual(braces.expand('apps/{api,web}/src/{a,b}.ts'), [
+      'apps/api/src/a.ts', 'apps/api/src/b.ts', 'apps/web/src/a.ts', 'apps/web/src/b.ts',
+    ]);
+    assert.equal(braces.compile('file-{1..3}.{ts,tsx}'), 'file-([1-3]).(ts|tsx)');
+    assert.equal(braces.stringify(braces.parse('a/{b,{c,d}}')), 'a/{b,{c,d}}');
+    for (const pattern of ['{'.repeat(512) + 'a,b' + '}'.repeat(512), '('.repeat(512) + 'x' + ')'.repeat(512), '{'.repeat(512)]) {
+      for (const method of ['parse', 'compile', 'expand', 'stringify']) {
+        assert.throws(() => braces[method](pattern), { name: 'SyntaxError', message: /nesting depth exceeds limit/ });
+      }
+    }
+    // Exported methods also accept caller-provided ASTs without parsing.
+    for (const method of ['compile', 'expand', 'stringify']) {
+      const ast = { type: 'root', nodes: [] };
+      let current = ast;
+      for (let i = 0; i < 512; i++) {
+        const child = { type: 'brace', commas: 1, nodes: [], parent: current };
+        current.nodes.push(child); current = child;
+      }
+      current.nodes.push({ type: 'text', value: 'x', parent: current });
+      assert.throws(() => braces[method](ast), { name: 'SyntaxError', message: /nesting depth exceeds limit/ });
+    }
+    const escaped = '\\{'.repeat(256);
+    assert.equal(braces.stringify(escaped), '{'.repeat(256));
+  }
+});
 
 test('legacy Drizzle loader transforms TypeScript with fixed esbuild', async () => {
   const loaders = packages('@esbuild-kit/core-utils', ['3.3.2']);

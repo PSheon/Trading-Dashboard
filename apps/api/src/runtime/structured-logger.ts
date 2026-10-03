@@ -30,7 +30,7 @@ export class StructuredLogger implements LoggerService {
       if (value instanceof Error) return { name: this.text(value.name), message: this.text(value.message) };
       if (Array.isArray(value)) return value.slice(0, 100).map((item) => clean(item, depth + 1));
       return Object.fromEntries(Object.entries(value).slice(0, 100).map(([key, item]) => [key,
-        /password|token|secret|authorization|cookie|api.?key|credential|database.?url/i.test(key) ? "[REDACTED]" : clean(item, depth + 1)]));
+        /password|token|secret|authorization|cookie|api.?key|credential|database.?url|signature|private.?key|mnemonic|seed.?phrase|^(?:body|headers|rawHeaders|requestBody|requestHeaders)$/i.test(key) ? "[REDACTED]" : clean(item, depth + 1)]));
     };
     const last = params.at(-1);
     const context = typeof last === "string" && /^[\w.:-]{1,128}$/.test(last) ? last : undefined;

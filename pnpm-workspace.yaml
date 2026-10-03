@@ -20,3 +20,7 @@ overrides:
   # Published CJS/ESM/UMD bundles use URLSearchParams, not this stale dependency.
   '@walletconnect/utils@2.21.0>query-string': '-'
   '@walletconnect/utils@2.21.1>query-string': '-'
+
+# Temporary fix for CVE-2026-93687; retain until an upstream fixed release exists.
+patchedDependencies:
+  braces@3.0.3: patches/braces@3.0.3.patch

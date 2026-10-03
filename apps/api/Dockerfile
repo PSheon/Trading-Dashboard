@@ -6,6 +6,7 @@ ENV PATH=$PNPM_HOME:$PATH
 WORKDIR /workspace
 RUN corepack enable
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY patches patches
 COPY apps/api/package.json apps/api/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile --filter @trading-dashboard/api...

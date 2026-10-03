@@ -34,6 +34,9 @@ const nextConfig: NextConfig = {
     experimental: { devMemoryThresholdRestart: false, webpackMemoryOptimizations: true },
   } : {}),
   poweredByHeader: false,
+  // Next's development access log includes complete OAuth callback queries.
+  // Keep credentials and browser/server-action arguments out of terminal logs.
+  logging: { incomingRequests: false, browserToTerminal: false, serverFunctions: false },
   headers() {
     return [{ source: "/:path*", headers: [
       { key: "X-Content-Type-Options", value: "nosniff" },

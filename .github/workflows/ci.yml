@@ -39,10 +39,13 @@ jobs:
           run_install: false
       - name: Install from lockfile
         run: pnpm install --frozen-lockfile
-      - name: Dependency security audit
-        run: pnpm audit --audit-level moderate
       - name: Dependency override compatibility
         run: node --test scripts/dependency-compatibility.test.mjs
+      # No upstream fix yet. This exact advisory is mitigated by the versioned
+      # braces patch, whose exploit/compatibility tests MUST pass first.
+      # Remove the exception and patch together when a fixed release is adopted.
+      - name: Dependency security audit
+        run: pnpm audit --audit-level moderate --ignore CVE-2026-93687
       - name: Build shared contracts
         run: pnpm --filter @trading-dashboard/shared build
       - name: Migration schema freshness

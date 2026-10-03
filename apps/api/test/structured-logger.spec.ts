@@ -23,3 +23,15 @@ it("handles errors, bigint and circular structures without breaking the request"
   expect(lines[0]).not.toContain("stack deliberately omitted");
   expect(lines[0]!.trim().split("\n")).toHaveLength(1);
 });
+
+it("redacts signing material and request containers without hiding public transaction identifiers", () => {
+  const lines: string[] = [];
+  const logger = new StructuredLogger([], (line) => lines.push(line));
+  logger.error({ hash: "public-transaction", nonce: 123, nested: {
+    signature: "signed-intent", privateKey: "wallet-key", private_key: "other-key",
+    mnemonic: "recovery-words", seedPhrase: "recovery-seed",
+    body: { unexpected: "raw-request" }, headers: { unexpected: "raw-header" },
+  } });
+  expect(lines[0]).not.toMatch(/signed-intent|wallet-key|other-key|recovery-words|recovery-seed|raw-request|raw-header/);
+  expect(JSON.parse(lines[0]!).message).toMatchObject({ hash: "public-transaction", nonce: 123 });
+});

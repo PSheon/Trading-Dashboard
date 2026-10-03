@@ -81,9 +81,19 @@ export class WithdrawalRepository {
   }
 
   async beginSubmit(userId: number, id: string) {
-    const [row] = await this.db.update(walletWithdrawals).set({ attemptedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"), sql`${walletWithdrawals.claimedAt} is not null`, isNull(walletWithdrawals.attemptedAt))).returning();
-    return row ?? null;
+    // The exchange budget can wait. Revalidate the authoritative owner at the
+    // durable attempt boundary, serialized against disablement and replacement.
+    return this.db.transaction(async (tx) => {
+      const [user] = await tx.select({ address: users.embeddedWalletAddress, disabledAt: users.disabledAt })
+        .from(users).where(eq(users.id, userId)).for("share");
+      const [operation] = await tx.select().from(walletWithdrawals)
+        .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId)));
+      if (!operation) throw new NotFoundException("Withdrawal not found");
+      if (!user || user.disabledAt || user.address !== operation.address) throw new ConflictException("Wallet is unavailable or identity changed");
+      const [row] = await tx.update(walletWithdrawals).set({ attemptedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"), sql`${walletWithdrawals.claimedAt} is not null`, isNull(walletWithdrawals.attemptedAt))).returning();
+      return row ?? null;
+    });
   }
 
   async restoreUnsent(userId: number, id: string) {

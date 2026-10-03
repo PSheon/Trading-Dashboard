@@ -1,6 +1,32 @@
 import type { Messages } from "./index";
 
 export const en: Messages = {
+  copyFunding: {
+    "title": "Testnet strategy funding",
+    "hint": "Transfer test USDC from your main account to a dedicated account. Review and sign the prepared transfer. Receiving funds does not start copying or increase your paper balance.",
+    "unavailable": "Mainnet strategy funding is not available yet, or the wallet provider is unavailable.",
+    "amount": "Funding amount",
+    "prepare": "Prepare funding",
+    "confirm": "Confirm and sign transfer",
+    "signing": "Signing / confirming…",
+    "received": "Amount received",
+    "fee": "Transfer fee",
+    "source": "Source main account",
+    "destination": "Receiving strategy account",
+    "created": "Created",
+    "reconcile": "Check original transfer",
+    "empty": "No strategy funding records yet.",
+    "pendingHint": "Confirm or cancel the original operation first. Submitted transfers can only be checked, never sent again.",
+    "error": "The outcome is unconfirmed. Refresh the records and check the original transfer.",
+    "states": {
+      "prepared": "Awaiting signature",
+      "unknown": "Outcome unknown",
+      "accepted": "Accepted, awaiting credit",
+      "credited": "Credit confirmed",
+      "rejected": "Rejected",
+      "cancelled": "Cancelled"
+    }
+  },
   executionWallets: {
     "readyHint": "Ownership is verified only. Exchange approvals, funding and live trading require separate setup.",
     "reverify": "Reverify wallet ownership",

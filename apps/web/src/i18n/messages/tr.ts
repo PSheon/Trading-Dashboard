@@ -2,6 +2,32 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const tr: Messages = {
+  copyFunding: {
+    "title": "Testnet strateji fonlama",
+    "hint": "Ana hesabınızdan özel hesaba test USDC aktarın. Hazırlanan transferi inceleyip imzalayın. Para gelmesi kopyalamayı başlatmaz veya sanal bakiyeyi artırmaz.",
+    "unavailable": "Mainnet strateji fonlama henüz açık değil veya cüzdan sağlayıcısı kullanılamıyor.",
+    "amount": "Fonlama tutarı",
+    "prepare": "Transferi hazırla",
+    "confirm": "Onayla ve imzala",
+    "signing": "İmzalanıyor / doğrulanıyor…",
+    "received": "Alınan tutar",
+    "fee": "Transfer ücreti",
+    "source": "Kaynak ana hesap",
+    "destination": "Alıcı strateji hesabı",
+    "created": "Oluşturulma",
+    "reconcile": "İlk transferi kontrol et",
+    "empty": "Henüz strateji fonlama kaydı yok.",
+    "pendingHint": "Önce ilk işlemi onaylayın veya iptal edin. Gönderilen transferler yalnızca kontrol edilebilir, tekrar gönderilemez.",
+    "error": "Sonuç doğrulanmadı. Kayıtları yenileyip ilk transferi kontrol edin.",
+    "states": {
+      "prepared": "İmza bekleniyor",
+      "unknown": "Sonuç bilinmiyor",
+      "accepted": "Kabul edildi, bakiye bekleniyor",
+      "credited": "Bakiye doğrulandı",
+      "rejected": "Reddedildi",
+      "cancelled": "İptal edildi"
+    }
+  },
   executionWallets: {
     "readyHint": "Yalnızca sahiplik doğrulandı. Borsa onayları, fonlama ve gerçek işlemler ayrı kurulum gerektirir.",
     "reverify": "Cüzdan sahipliğini tekrar doğrula",

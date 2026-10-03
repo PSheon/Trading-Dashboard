@@ -2,6 +2,32 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const zhCN: Messages = {
+  copyFunding: {
+    "title": "策略测试网注资",
+    "hint": "将测试 USDC 从主账户转入专用账户。准备后需确认签署；到账不会启动跟单，也不会增加模拟余额。",
+    "unavailable": "目前尚未开放主网策略注资，或钱包服务尚未就绪。",
+    "amount": "注资金额",
+    "prepare": "准备注资",
+    "confirm": "确认并签署转账",
+    "signing": "签署／确认中…",
+    "received": "实际到账",
+    "fee": "转账费用",
+    "source": "来源主账户",
+    "destination": "收款策略账户",
+    "created": "创建时间",
+    "reconcile": "查询原转账",
+    "empty": "尚无策略注资记录。",
+    "pendingHint": "请先确认或取消原操作。已发送的转账只能查询，不能再次发送。",
+    "error": "操作尚未确认。请更新记录并查询原转账状态。",
+    "states": {
+      "prepared": "待确认签署",
+      "unknown": "结果待确认",
+      "accepted": "已接受，等待到账",
+      "credited": "已确认到账",
+      "rejected": "已拒绝",
+      "cancelled": "已取消"
+    }
+  },
   executionWallets: {
     "readyHint": "仅已确认钱包所有权。交易所授权、入金与实盘交易仍需另外设置。",
     "reverify": "重新验证钱包所有权",

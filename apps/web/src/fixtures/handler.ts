@@ -1,5 +1,6 @@
 import { kolSchema, kolImportResponseSchema, kolPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
+import { copyFundingOverviewSchema } from "@trading-dashboard/shared/contracts";
 import { walletWithdrawalSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
@@ -310,7 +311,7 @@ export async function fixtureRequest<T>(
   const parts = url.pathname.split("/").filter(Boolean);
   const search = url.searchParams;
   const signedIn = token !== null;
-  const walletIdPath = parts[0] === "me" && parts[1] === "copy" && ["execution-wallets", "wallet-authorizations"].includes(parts[2] ?? "");
+  const walletIdPath = parts[0] === "me" && parts[1] === "copy" && ["execution-wallets", "wallet-authorizations", "funding"].includes(parts[2] ?? "");
   const route = `${method} /${parts.map((p, i) => (walletIdPath && i === 3 ? ":id" : i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
   if (route.startsWith("GET /traders/:address")) traderBusy(url.pathname, url.search);
 
@@ -537,6 +538,16 @@ export async function fixtureRequest<T>(
       // Browser fixtures have no real Privy wallet provider. Never manufacture
       // a ready account, deposit address or live signing authorization.
       return wire(copyExecutionWalletsSchema, { available: false, network: "testnet", accounts: [], authorizations: [] });
+    case "GET /me/copy/funding":
+      requireUser(token);
+      return wire(copyFundingOverviewSchema, { available: false, network: "testnet", operations: [] });
+    case "POST /me/copy/execution-wallets/:id/funding":
+    case "POST /me/copy/funding/:id/broadcast":
+    case "POST /me/copy/funding/:id/submit":
+    case "POST /me/copy/funding/:id/cancel":
+    case "POST /me/copy/funding/:id/reconcile":
+      requireUser(token);
+      throw new ApiError(503, "Strategy funding is unavailable in fixtures");
     case "POST /me/copy/strategies/:id/execution-wallet":
     case "POST /me/copy/execution-wallets/:id/reconcile":
       requireUser(token);

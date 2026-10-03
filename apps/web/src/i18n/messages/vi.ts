@@ -2,6 +2,32 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const vi: Messages = {
+  copyFunding: {
+    "title": "Nạp vốn chiến lược trên testnet",
+    "hint": "Chuyển USDC thử nghiệm từ tài khoản chính sang tài khoản riêng. Kiểm tra và ký giao dịch đã chuẩn bị. Nhận tiền không bắt đầu sao chép hoặc tăng số dư mô phỏng.",
+    "unavailable": "Chưa hỗ trợ nạp vốn chiến lược trên mainnet hoặc dịch vụ ví không khả dụng.",
+    "amount": "Số tiền nạp",
+    "prepare": "Chuẩn bị chuyển tiền",
+    "confirm": "Xác nhận và ký",
+    "signing": "Đang ký / xác nhận…",
+    "received": "Số tiền nhận",
+    "fee": "Phí chuyển tiền",
+    "source": "Tài khoản chính gửi",
+    "destination": "Tài khoản chiến lược nhận",
+    "created": "Thời gian tạo",
+    "reconcile": "Kiểm tra giao dịch gốc",
+    "empty": "Chưa có giao dịch nạp vốn chiến lược.",
+    "pendingHint": "Hãy xác nhận hoặc hủy thao tác gốc trước. Giao dịch đã gửi chỉ được kiểm tra, không được gửi lại.",
+    "error": "Kết quả chưa xác nhận. Làm mới dữ liệu và kiểm tra giao dịch gốc.",
+    "states": {
+      "prepared": "Đang chờ ký",
+      "unknown": "Chưa rõ kết quả",
+      "accepted": "Đã chấp nhận, chờ nhận tiền",
+      "credited": "Đã xác nhận tiền vào",
+      "rejected": "Bị từ chối",
+      "cancelled": "Đã hủy"
+    }
+  },
   executionWallets: {
     "readyHint": "Chỉ quyền sở hữu đã được xác minh. Quyền trên sàn, nạp tiền và giao dịch thật cần thiết lập riêng.",
     "reverify": "Xác minh lại quyền sở hữu ví",

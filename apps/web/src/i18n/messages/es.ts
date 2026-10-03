@@ -2,6 +2,32 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const es: Messages = {
+  copyFunding: {
+    "title": "Fondos de estrategia en testnet",
+    "hint": "Transfiere USDC de prueba desde tu cuenta principal a una cuenta dedicada. Revisa y firma la transferencia preparada. Recibir fondos no inicia la copia ni aumenta el saldo simulado.",
+    "unavailable": "Los fondos de estrategia en mainnet aún no están disponibles, o el proveedor de monederos no está disponible.",
+    "amount": "Importe",
+    "prepare": "Preparar transferencia",
+    "confirm": "Confirmar y firmar",
+    "signing": "Firmando / confirmando…",
+    "received": "Importe recibido",
+    "fee": "Comisión",
+    "source": "Cuenta principal de origen",
+    "destination": "Cuenta de estrategia receptora",
+    "created": "Creado",
+    "reconcile": "Consultar transferencia original",
+    "empty": "Todavía no hay transferencias de estrategia.",
+    "pendingHint": "Confirma o cancela primero la operación original. Las transferencias enviadas solo pueden consultarse, nunca reenviarse.",
+    "error": "Resultado sin confirmar. Actualiza los registros y consulta la transferencia original.",
+    "states": {
+      "prepared": "Pendiente de firma",
+      "unknown": "Resultado desconocido",
+      "accepted": "Aceptado, pendiente de abono",
+      "credited": "Abono confirmado",
+      "rejected": "Rechazado",
+      "cancelled": "Cancelado"
+    }
+  },
   executionWallets: {
     "readyHint": "Solo se ha verificado la propiedad. Las aprobaciones del exchange, los fondos y las operaciones reales requieren configuración adicional.",
     "reverify": "Verificar de nuevo la propiedad",

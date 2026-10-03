@@ -2,6 +2,32 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const id: Messages = {
+  copyFunding: {
+    "title": "Pendanaan strategi di testnet",
+    "hint": "Transfer USDC uji dari akun utama ke akun khusus. Tinjau dan tanda tangani transfer yang disiapkan. Dana yang diterima tidak memulai penyalinan atau menambah saldo simulasi.",
+    "unavailable": "Pendanaan strategi mainnet belum tersedia atau penyedia dompet tidak tersedia.",
+    "amount": "Jumlah pendanaan",
+    "prepare": "Siapkan transfer",
+    "confirm": "Konfirmasi dan tanda tangani",
+    "signing": "Menandatangani / mengonfirmasi…",
+    "received": "Jumlah diterima",
+    "fee": "Biaya transfer",
+    "source": "Akun utama pengirim",
+    "destination": "Akun strategi penerima",
+    "created": "Dibuat",
+    "reconcile": "Periksa transfer awal",
+    "empty": "Belum ada catatan pendanaan strategi.",
+    "pendingHint": "Konfirmasi atau batalkan operasi awal terlebih dahulu. Transfer yang sudah dikirim hanya dapat diperiksa, tidak boleh dikirim lagi.",
+    "error": "Hasil belum dikonfirmasi. Segarkan catatan dan periksa transfer awal.",
+    "states": {
+      "prepared": "Menunggu tanda tangan",
+      "unknown": "Hasil belum diketahui",
+      "accepted": "Diterima, menunggu dana",
+      "credited": "Dana terkonfirmasi",
+      "rejected": "Ditolak",
+      "cancelled": "Dibatalkan"
+    }
+  },
   executionWallets: {
     "readyHint": "Hanya kepemilikan yang terverifikasi. Persetujuan bursa, pendanaan, dan perdagangan nyata memerlukan pengaturan terpisah.",
     "reverify": "Verifikasi ulang kepemilikan dompet",

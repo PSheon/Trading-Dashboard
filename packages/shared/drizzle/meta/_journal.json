@@ -246,6 +246,20 @@
       "when": 1791010659180,
       "tag": "0034_wallet_withdrawals",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791015683263,
+      "tag": "0035_copy_funding_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791021255269,
+      "tag": "0036_copy_funding_scan_progress",
+      "breakpoints": true
     }
   ]
 }

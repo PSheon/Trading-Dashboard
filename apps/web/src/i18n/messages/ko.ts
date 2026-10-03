@@ -2,6 +2,32 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ko: Messages = {
+  copyFunding: {
+    "title": "전략 테스트넷 입금",
+    "hint": "기본 계정에서 전용 계정으로 테스트 USDC를 이체합니다. 내용을 확인하고 서명하세요. 입금되어도 카피 트레이딩은 시작되지 않으며 모의 잔액도 증가하지 않습니다.",
+    "unavailable": "메인넷 전략 입금이 아직 지원되지 않거나 지갑 서비스를 사용할 수 없습니다.",
+    "amount": "입금 금액",
+    "prepare": "입금 준비",
+    "confirm": "확인 후 이체 서명",
+    "signing": "서명 / 확인 중…",
+    "received": "실제 입금액",
+    "fee": "이체 수수료",
+    "source": "출금 기본 계정",
+    "destination": "입금 전략 계정",
+    "created": "생성 시간",
+    "reconcile": "원래 이체 확인",
+    "empty": "전략 입금 기록이 없습니다.",
+    "pendingHint": "원래 작업을 확인하거나 취소하세요. 이미 전송된 이체는 확인만 가능하며 다시 전송할 수 없습니다.",
+    "error": "결과가 확인되지 않았습니다. 기록을 새로 고치고 원래 이체를 확인하세요.",
+    "states": {
+      "prepared": "서명 대기",
+      "unknown": "결과 미확인",
+      "accepted": "접수됨, 입금 대기",
+      "credited": "입금 확인",
+      "rejected": "거부됨",
+      "cancelled": "취소됨"
+    }
+  },
   executionWallets: {
     "readyHint": "지갑 소유권만 확인되었습니다. 거래소 승인, 입금 및 실거래는 별도 설정이 필요합니다.",
     "reverify": "지갑 소유권 재검증",

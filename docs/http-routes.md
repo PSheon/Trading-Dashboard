@@ -102,6 +102,12 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/copy/strategies/:id/performance` | 200 | user (owner) |
 | GET | `/me/copy/events` | 200 | user |
 | GET | `/me/copy/execution-wallets` | 200 | user (owner) |
+| GET | `/me/copy/funding` | 200 | user (owner) |
+| POST | `/me/copy/execution-wallets/:id/funding` | 200 | user (owner); testnet; verified execution account |
+| POST | `/me/copy/funding/:id/broadcast` | 200 | user (owner); one permission |
+| POST | `/me/copy/funding/:id/submit` | 200 | user (owner); exact source signature; one attempt |
+| POST | `/me/copy/funding/:id/cancel` | 200 | user (owner); unattempted intent only |
+| POST | `/me/copy/funding/:id/reconcile` | 200 | user (owner); positive transaction and recipient evidence |
 | POST | `/me/copy/strategies/:id/execution-wallet` | 200 | user (owner); configured wallet provider; deployment network only |
 | POST | `/me/copy/execution-wallets/:id/reconcile` | 200 | user (owner) |
 | POST | `/me/copy/wallet-authorizations/:id/revoke` | 200 | user (owner) |

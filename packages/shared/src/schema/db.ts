@@ -1392,6 +1392,34 @@ export const copyExecutionAccounts = pgTable("copy_execution_accounts", {
 ]);
 
 /** Live identity records deliberately restrict deletion; no raw keys or tokens. */
+export const copyFundingOperations = pgTable("copy_funding_operations", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(), network: text("network").$type<"testnet" | "mainnet">().notNull(),
+  address: text("address").notNull(), destination: text("destination").notNull(), amount: text("amount").notNull(),
+  nonce: bigint("nonce", { mode: "number" }).notNull(),
+  status: text("status").$type<"prepared" | "unknown" | "accepted" | "credited" | "rejected" | "cancelled">().notNull().default("prepared"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }), attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+  evidenceHash: text("evidence_hash"), transactionHash: text("transaction_hash"), creditedAmount: text("credited_amount"), fee: text("fee"),
+  scanState: jsonb("scan_state").$type<unknown>(), scanRevision: integer("scan_revision").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("copy_funding_key_uq").on(t.userId, t.idempotencyKey),
+  uniqueIndex("copy_funding_nonce_uq").on(t.network, t.address, t.nonce),
+  uniqueIndex("copy_funding_pending_uq").on(t.network, t.address).where(sql`${t.status} in ('prepared', 'unknown', 'accepted')`),
+  uniqueIndex("copy_funding_receipt_uq").on(t.network, t.transactionHash),
+  index("copy_funding_owner_idx").on(t.userId, t.createdAt),
+  check("copy_funding_network_check", oneOf(t.network, ["testnet", "mainnet"])),
+  check("copy_funding_status_check", oneOf(t.status, ["prepared", "unknown", "accepted", "credited", "rejected", "cancelled"])),
+  check("copy_funding_identity_check", sql`${t.address} ~ '^0x[0-9a-f]{40}$' and ${t.destination} ~ '^0x[0-9a-f]{40}$' and ${t.address} <> ${t.destination} and ${t.nonce} > 0 and ${t.nonce} <= 9007199254740991`),
+  check("copy_funding_amount_check", sql`${t.amount} ~ '^[0-9]+(\\.[0-9]{1,6})?$' and length(${t.amount}) <= 32 and ${t.amount}::numeric > 0 and ${t.amount}::numeric <= 1000000000000`),
+  check("copy_funding_attempt_check", sql`${t.attemptedAt} is null or ${t.claimedAt} is not null`),
+  check("copy_funding_scan_revision_check", sql`${t.scanRevision} >= 0`),
+  check("copy_funding_outcome_check", sql`${t.status} not in ('accepted', 'credited', 'rejected') or (${t.evidenceHash} is not null and ${t.evidenceHash} ~ '^[0-9a-f]{64}$')`),
+  check("copy_funding_credit_check", sql`${t.status} <> 'credited' or (${t.transactionHash} is not null and ${t.transactionHash} ~ '^0x[0-9a-f]{64}$' and ${t.creditedAmount} is not null and ${t.fee} is not null and ${t.creditedAmount} ~ '^[0-9]+(\\.[0-9]{1,6})?$' and ${t.fee} ~ '^[0-9]+(\\.[0-9]{1,6})?$' and ${t.creditedAmount}::numeric > 0 and ${t.fee}::numeric >= 0 and ${t.creditedAmount}::numeric + ${t.fee}::numeric = ${t.amount}::numeric)`),
+]);
+
 export const copyExecutionWallets = pgTable("copy_execution_wallets", {
   id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   strategyId: integer("strategy_id").notNull(), network: text("network").$type<"testnet" | "mainnet">().notNull(),

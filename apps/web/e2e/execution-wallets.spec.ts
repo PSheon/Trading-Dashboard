@@ -13,6 +13,11 @@ for (const width of [1440, 390]) test(`execution wallet settings explain unavail
   await expect(section).toContainText("Testnet");
   await expect(section).toContainText("No signing authorizations.");
   await expect(section.getByRole("button", { name: "Prepare dedicated wallet", exact: true })).toBeDisabled();
+  const funding = section.getByRole("region", { name: "Testnet strategy funding" });
+  await expect(funding).toBeVisible();
+  await expect(funding).toContainText("Mainnet strategy funding is not available yet, or the wallet provider is unavailable.");
+  await expect(funding).toContainText("Receiving funds does not start copying or increase your paper balance.");
+  await expect(funding.getByRole("button", { name: "Confirm and sign transfer" })).toHaveCount(0);
   await expect(section.locator("article")).toHaveCount(0);
   await expectNoSidewaysScroll(page);
 });

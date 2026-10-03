@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { users, walletWithdrawals } from "@trading-dashboard/shared/database";
+import { copyFundingOperations, users, walletWithdrawals } from "@trading-dashboard/shared/database";
 import type { WalletWithdrawalInput } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -27,6 +27,10 @@ export class WithdrawalRepository {
     return this.db.transaction(async (tx) => {
       const [user] = await tx.select({ address: users.embeddedWalletAddress, disabledAt: users.disabledAt }).from(users).where(eq(users.id, scope.userId)).for("update");
       if (!user || user.disabledAt || user.address !== scope.address) throw new NotFoundException("Wallet not found");
+      if ((await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations).where(and(
+        eq(copyFundingOperations.network, scope.network), eq(copyFundingOperations.address, scope.address),
+        inArray(copyFundingOperations.status, ["prepared", "unknown", "accepted"]),
+      )).limit(1)).length) throw new ConflictException({ statusCode: 409, code: "funding_pending", message: "Resolve pending strategy funding first" });
       if (importedNonce !== undefined) {
         const [original] = await tx.select().from(walletWithdrawals).where(and(owner(scope), eq(walletWithdrawals.nonce, importedNonce)));
         if (original) {
@@ -48,7 +52,9 @@ export class WithdrawalRepository {
         return active;
       }
       const [latest] = await tx.select({ nonce: walletWithdrawals.nonce }).from(walletWithdrawals).where(owner(scope)).orderBy(desc(walletWithdrawals.nonce)).limit(1);
-      const nonce = importedNonce ?? Math.max(Date.now(), (latest?.nonce ?? 0) + 1);
+      const [funding] = await tx.select({ nonce: copyFundingOperations.nonce }).from(copyFundingOperations)
+        .where(and(eq(copyFundingOperations.network, scope.network), eq(copyFundingOperations.address, scope.address))).orderBy(desc(copyFundingOperations.nonce)).limit(1);
+      const nonce = importedNonce ?? Math.max(Date.now(), (latest?.nonce ?? 0) + 1, (funding?.nonce ?? 0) + 1);
       const [row] = await tx.insert(walletWithdrawals).values({ id: randomUUID(), ...scope, ...input, nonce, origin: importedNonce === undefined ? "client" : "legacy", status: importedNonce === undefined ? "prepared" : "unknown" }).returning();
       return row!;
     });

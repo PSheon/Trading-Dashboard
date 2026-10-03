@@ -9,6 +9,7 @@ import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.j
 import { z } from "zod";
 import { walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
 import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
+import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema } from "./copy-funding-contracts.js";
 import * as s from "./schema/zod.js";
 
 const iso = z.string().datetime({ offset: true });
@@ -302,6 +303,12 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me/copy/strategies/:id/performance", status: 200, auth: "user (owner)", response: wireCopyPerformanceSchema },
   { method: "GET", path: "/me/copy/events", status: 200, auth: "user", response: wireCopyEventsSchema },
   { method: "GET", path: "/me/copy/execution-wallets", status: 200, auth: "user (owner)", response: copyExecutionWalletsSchema },
+  { method: "GET", path: "/me/copy/funding", status: 200, auth: "user (owner)", response: copyFundingOverviewSchema },
+  { method: "POST", path: "/me/copy/execution-wallets/:id/funding", status: 200, auth: "user (owner); testnet; verified execution account", response: copyFundingSchema },
+  { method: "POST", path: "/me/copy/funding/:id/broadcast", status: 200, auth: "user (owner); one permission", response: copyFundingClaimSchema },
+  { method: "POST", path: "/me/copy/funding/:id/submit", status: 200, auth: "user (owner); exact source signature; one attempt", response: copyFundingSchema },
+  { method: "POST", path: "/me/copy/funding/:id/cancel", status: 200, auth: "user (owner); unattempted intent only", response: copyFundingSchema },
+  { method: "POST", path: "/me/copy/funding/:id/reconcile", status: 200, auth: "user (owner); positive transaction and recipient evidence", response: copyFundingSchema },
   { method: "POST", path: "/me/copy/strategies/:id/execution-wallet", status: 200, auth: "user (owner); configured wallet provider; deployment network only", response: copyExecutionAccountSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/reconcile", status: 200, auth: "user (owner)", response: copyExecutionAccountSchema },
   { method: "POST", path: "/me/copy/wallet-authorizations/:id/revoke", status: 200, auth: "user (owner)", response: copyWalletGrantSchema },

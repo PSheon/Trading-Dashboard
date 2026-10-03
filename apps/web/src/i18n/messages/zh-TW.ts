@@ -4,6 +4,32 @@
  * `{name}` and are filled by `t(key, { name })`.
  */
 export const zhTW = {
+  copyFunding: {
+    "title": "策略測試網注資",
+    "hint": "將測試 USDC 從主帳戶轉入專用帳戶。準備後需確認簽署；到帳不會啟動跟單，也不會增加模擬餘額。",
+    "unavailable": "目前尚未開放主網策略注資，或錢包服務尚未就緒。",
+    "amount": "注資金額",
+    "prepare": "準備注資",
+    "confirm": "確認並簽署轉帳",
+    "signing": "簽署／確認中…",
+    "received": "實際到帳",
+    "fee": "轉帳費用",
+    "source": "來源主帳戶",
+    "destination": "收款策略帳戶",
+    "created": "建立時間",
+    "reconcile": "查詢原轉帳",
+    "empty": "尚無策略注資紀錄。",
+    "pendingHint": "請先確認或取消原操作。已送出的轉帳只能查詢，不能再次送出。",
+    "error": "操作尚未確認。請更新紀錄並查詢原轉帳狀態。",
+    "states": {
+      "prepared": "待確認簽署",
+      "unknown": "結果待確認",
+      "accepted": "已接受，等待到帳",
+      "credited": "已確認到帳",
+      "rejected": "已拒絕",
+      "cancelled": "已取消"
+    }
+  },
   executionWallets: {
     "readyHint": "僅已確認錢包所有權。交易所授權、入金與實盤交易仍需另外設定。",
     "reverify": "重新驗證錢包所有權",

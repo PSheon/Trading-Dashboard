@@ -2,6 +2,32 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ja: Messages = {
+  copyFunding: {
+    "title": "戦略へのテストネット入金",
+    "hint": "メイン口座から専用口座へテスト USDC を転送します。内容を確認して署名してください。着金してもコピー取引は開始せず、模擬残高も増えません。",
+    "unavailable": "メインネット入金は未対応、またはウォレットサービスが利用できません。",
+    "amount": "入金額",
+    "prepare": "入金を準備",
+    "confirm": "確認して送金に署名",
+    "signing": "署名・確認中…",
+    "received": "着金額",
+    "fee": "送金手数料",
+    "source": "送金元メイン口座",
+    "destination": "受取戦略口座",
+    "created": "作成日時",
+    "reconcile": "元の送金を確認",
+    "empty": "入金記録はまだありません。",
+    "pendingHint": "元の操作を確認またはキャンセルしてください。送信済みの送金は確認のみ可能で、再送信できません。",
+    "error": "結果は未確認です。記録を更新して元の送金を確認してください。",
+    "states": {
+      "prepared": "署名待ち",
+      "unknown": "結果未確認",
+      "accepted": "受付済み・着金待ち",
+      "credited": "着金確認済み",
+      "rejected": "拒否",
+      "cancelled": "キャンセル済み"
+    }
+  },
   executionWallets: {
     "readyHint": "ウォレットの所有権のみ確認済みです。取引所の承認、入金、実取引には別途設定が必要です。",
     "reverify": "ウォレット所有権を再検証",

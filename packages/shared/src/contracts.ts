@@ -25,3 +25,5 @@ export * from "./kol-csv.js";
 export * from "./kol-preview-contracts.js";
 export * from "./copy-wallet-contracts.js";
 export * from "./wallet-withdrawal-signing.js";
+export * from "./copy-funding-contracts.js";
+export * from "./copy-funding-signing.js";

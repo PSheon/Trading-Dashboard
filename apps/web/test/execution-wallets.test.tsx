@@ -30,7 +30,7 @@ beforeEach(() => {
   state.status = "signedIn";
   state.get.mockReset(); state.post.mockReset();
   overview = { available: true, network: "testnet", accounts: [], authorizations: [] };
-  state.get.mockImplementation(async (path: string) => path === "/me/copy" ? copies : overview);
+  state.get.mockImplementation(async (path: string) => path === "/me/copy/funding" ? { available: false, network: "testnet", operations: [] } : path === "/me/copy" ? copies : overview);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });

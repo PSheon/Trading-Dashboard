@@ -6,6 +6,7 @@ import { useI18n } from "@/i18n/provider";
 import { useCopyOverview } from "@/lib/copy";
 import { useCreateExecutionWallet, useExecutionWallets, useReconcileExecutionWallet, useRevokeWalletAuthorization } from "@/lib/copy-execution-wallets";
 import { truncateAddress } from "@/lib/format";
+import { CopyFundingSettings } from "./copy-funding";
 
 /** Setup and revocation only. Preparing a wallet never starts trading. */
 export function ExecutionWalletSettings() {
@@ -79,6 +80,7 @@ export function ExecutionWalletSettings() {
               </article>
             ))}
           </div>
+          <CopyFundingSettings accounts={data.accounts} />
           <h4 className="mt-5 text-sm font-bold">{t("executionWallets.authorizations")}</h4>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("executionWallets.revokeHint")}</p>
           {!data.authorizations.length ? <p className="mt-3 text-xs text-muted-foreground">{t("executionWallets.noAuthorizations")}</p> : null}

@@ -45,6 +45,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | DELETE | `/me/favorites/:address` | 204 | user |
 | PATCH | `/me/favorites/:address/alert` | 200 | user |
 | GET | `/me/telegram` | 200 | user |
+| PATCH | `/me/telegram/copy-alerts` | 200 | user |
 | POST | `/me/telegram/link` | 200 | user |
 | POST | `/me/telegram/test` | 200 | user |
 | DELETE | `/me/telegram` | 204 | user |
@@ -87,7 +88,12 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/commands` | 200 | user (owner) |
+| GET | `/me/copy/strategies/:id/ledger` | 200 | user (owner) |
+| GET | `/me/copy/strategies/:id/fills` | 200 | user (owner) |
 | GET | `/me/copy/strategies/:id/orders` | 200 | user (owner) |
+| POST | `/me/copy/strategies/:id/withdraw-funds` | 200 | user (owner) |
+| GET | `/me/copy/strategies/:id/performance` | 200 | user (owner) |
+| GET | `/me/copy/events` | 200 | user |
 | GET | `/admin/copy/overview` | 200 | copy.read |
 | GET | `/admin/copy/strategies` | 200 | copy.read |
 | GET | `/admin/copy/strategies/:id` | 200 | copy.read |

@@ -9516,6 +9516,10 @@
                     "data": {
                       "type": "object",
                       "properties": {
+                        "copyAlertsEnabled": {
+                          "type": "boolean",
+                          "default": false
+                        },
                         "bot": {
                           "type": [
                             "string",
@@ -9606,6 +9610,129 @@
           }
         },
         "summary": "Unlink Telegram",
+        "tags": [
+          "Telegram"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
+    "/me/telegram/copy-alerts": {
+      "patch": {
+        "operationId": "TelegramController_setCopyAlerts",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCopyAlertsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "copyAlertsEnabled": {
+                          "type": "boolean",
+                          "default": false
+                        },
+                        "bot": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "linked": {
+                          "type": "boolean"
+                        },
+                        "username": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "linkedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "bot",
+                        "linked",
+                        "username",
+                        "enabled",
+                        "linkedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Set copy trading notifications",
         "tags": [
           "Telegram"
         ],
@@ -18126,6 +18253,15 @@
                               "allocated": {
                                 "type": "number"
                               },
+                              "withdrawn": {
+                                "type": "number"
+                              },
+                              "freeCollateralUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
                               "cash": {
                                 "type": "number"
                               },
@@ -18513,6 +18649,15 @@
                         "allocated": {
                           "type": "number"
                         },
+                        "withdrawn": {
+                          "type": "number"
+                        },
+                        "freeCollateralUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
                         "cash": {
                           "type": "number"
                         },
@@ -18886,6 +19031,15 @@
                         },
                         "allocated": {
                           "type": "number"
+                        },
+                        "withdrawn": {
+                          "type": "number"
+                        },
+                        "freeCollateralUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         },
                         "cash": {
                           "type": "number"
@@ -19261,6 +19415,15 @@
                         "allocated": {
                           "type": "number"
                         },
+                        "withdrawn": {
+                          "type": "number"
+                        },
+                        "freeCollateralUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
                         "cash": {
                           "type": "number"
                         },
@@ -19483,6 +19646,773 @@
         "description": "Access: user (owner)"
       }
     },
+    "/me/copy/strategies/{id}/withdraw-funds": {
+      "post": {
+        "operationId": "CopyController_withdraw",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCopyFundsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "leaderAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "stopping",
+                            "stopped"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "same",
+                                "reverse"
+                              ]
+                            },
+                            "sizingMode": {
+                              "type": "string",
+                              "enum": [
+                                "ratio",
+                                "fixed"
+                              ]
+                            },
+                            "perTradeUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxTotalExposureUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "maxLeverage": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 1,
+                                  "maximum": 50
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "copyStartMode": {
+                              "type": "string",
+                              "enum": [
+                                "adopt",
+                                "delta"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "direction",
+                            "sizingMode",
+                            "perTradeUsd",
+                            "maxTotalExposureUsd",
+                            "maxLeverage",
+                            "copyStartMode"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allocated": {
+                          "type": "number"
+                        },
+                        "withdrawn": {
+                          "type": "number"
+                        },
+                        "freeCollateralUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "cash": {
+                          "type": "number"
+                        },
+                        "equity": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unrealizedPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "realizedPnl": {
+                          "type": "number"
+                        },
+                        "fees": {
+                          "type": "number"
+                        },
+                        "funding": {
+                          "type": "number"
+                        },
+                        "totalPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "roiPct": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "exposureUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "pauseNewRisk": {
+                          "type": "boolean"
+                        },
+                        "reduceOnly": {
+                          "type": "boolean"
+                        },
+                        "tradesCopied": {
+                          "type": "integer"
+                        },
+                        "pendingOrders": {
+                          "type": "integer"
+                        },
+                        "positions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "markPx": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "notionalUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "unrealizedPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "realizedPnl": {
+                                "type": "number"
+                              },
+                              "funding": {
+                                "type": "number"
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "size",
+                              "entryPx",
+                              "markPx",
+                              "notionalUsd",
+                              "unrealizedPnl",
+                              "realizedPnl",
+                              "funding",
+                              "openedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "stoppedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "adoption": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "coin": {
+                                "type": "string"
+                              },
+                              "adopted": {
+                                "type": "boolean"
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "size": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "coin",
+                              "adopted",
+                              "reason",
+                              "size"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "mode",
+                        "leaderAddress",
+                        "status",
+                        "version",
+                        "settings",
+                        "allocated",
+                        "cash",
+                        "equity",
+                        "unrealizedPnl",
+                        "realizedPnl",
+                        "fees",
+                        "funding",
+                        "totalPnl",
+                        "roiPct",
+                        "exposureUsd",
+                        "pauseNewRisk",
+                        "reduceOnly",
+                        "tradesCopied",
+                        "pendingOrders",
+                        "positions",
+                        "activatedAt",
+                        "createdAt",
+                        "stoppedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Withdraw idle paper collateral",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/performance": {
+      "get": {
+        "operationId": "CopyController_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "window",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "7d",
+              "type": "string",
+              "enum": [
+                "1d",
+                "7d",
+                "30d",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "strategyId": {
+                          "type": "integer"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "window": {
+                          "type": "string",
+                          "enum": [
+                            "1d",
+                            "7d",
+                            "30d",
+                            "all"
+                          ]
+                        },
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "to": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "points": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "time": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "equity": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "totalPnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "netDeposits": {
+                                "type": "number"
+                              },
+                              "exposureUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "time",
+                              "equity",
+                              "totalPnl",
+                              "netDeposits",
+                              "exposureUsd"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "todayPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "coverage": {
+                          "type": "object",
+                          "properties": {
+                            "firstSnapshotAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "lastSnapshotAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "complete": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "firstSnapshotAt",
+                            "lastSnapshotAt",
+                            "complete"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "strategyId",
+                        "mode",
+                        "window",
+                        "from",
+                        "to",
+                        "points",
+                        "todayPnl",
+                        "coverage"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get a copy's observed equity history",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/events": {
+      "get": {
+        "operationId": "CopyController_events",
+        "parameters": [
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "Exclusive older-page PostgreSQL bigint cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "after",
+            "required": false,
+            "in": "query",
+            "description": "0 loads latest events; positive cursor replays newer events (maximum 9223372036854775807)",
+            "schema": {
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "default": "0",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "pattern": "^\\d+$"
+                              },
+                              "strategyId": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "payload": {
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "strategyId",
+                              "type",
+                              "payload",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "nextCursor": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "previousCursor": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^\\d+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Replay my confirmed copy events",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user"
+      }
+    },
     "/me/copy/strategies/{id}/commands": {
       "post": {
         "operationId": "CopyController_command",
@@ -19634,6 +20564,15 @@
                         },
                         "allocated": {
                           "type": "number"
+                        },
+                        "withdrawn": {
+                          "type": "number"
+                        },
+                        "freeCollateralUsd": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         },
                         "cash": {
                           "type": "number"
@@ -19870,6 +20809,26 @@
               "maximum": 2147483647,
               "type": "integer"
             }
+          },
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "Exclusive older-page PostgreSQL bigint cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -19999,6 +20958,49 @@
                               "riskPolicyVersion": {
                                 "type": "integer"
                               },
+                              "executionPolicyVersion": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "executionStrategyVersion": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "executionFeeSnapshot": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "takerFeeBps": {
+                                        "type": "number"
+                                      },
+                                      "builderFeeTenthsBps": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "takerFeeBps",
+                                      "builderFeeTenthsBps"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -20034,6 +21036,20 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "previousCursor": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^\\d+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hasMore": {
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -20061,6 +21077,358 @@
           }
         },
         "summary": "List a copy's paper orders",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/ledger": {
+      "get": {
+        "operationId": "CopyController_ledger",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "Exclusive older-page PostgreSQL bigint cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "previousCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "pattern": "^\\d+$"
+                              },
+                              "kind": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string",
+                                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                              },
+                              "coin": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "orderId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "kind",
+                              "amount",
+                              "coin",
+                              "orderId",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "previousCursor",
+                        "hasMore",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List my copy's exact-decimal accounting ledger",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/fills": {
+      "get": {
+        "operationId": "CopyController_fills",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "Exclusive older-page PostgreSQL bigint cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "previousCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "pattern": "^\\d+$"
+                              },
+                              "orderId": {
+                                "type": "string"
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "side": {
+                                "type": "string",
+                                "enum": [
+                                  "B",
+                                  "A"
+                                ]
+                              },
+                              "size": {
+                                "type": "string",
+                                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                              },
+                              "px": {
+                                "type": "string",
+                                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                              },
+                              "fee": {
+                                "type": "string",
+                                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                              },
+                              "builderFee": {
+                                "type": "string",
+                                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                              },
+                              "realizedPnl": {
+                                "type": "string",
+                                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                              },
+                              "ts": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "orderId",
+                              "coin",
+                              "side",
+                              "size",
+                              "px",
+                              "fee",
+                              "builderFee",
+                              "realizedPnl",
+                              "ts"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "previousCursor",
+                        "hasMore",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List my copy's simulated fills",
         "tags": [
           "Copy"
         ],
@@ -20588,6 +21956,15 @@
                               "allocated": {
                                 "type": "number"
                               },
+                              "withdrawn": {
+                                "type": "number"
+                              },
+                              "freeCollateralUsd": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
                               "cash": {
                                 "type": "number"
                               },
@@ -20976,6 +22353,15 @@
                             "allocated": {
                               "type": "number"
                             },
+                            "withdrawn": {
+                              "type": "number"
+                            },
+                            "freeCollateralUsd": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
                             "cash": {
                               "type": "number"
                             },
@@ -21360,6 +22746,49 @@
                               "riskPolicyVersion": {
                                 "type": "integer"
                               },
+                              "executionPolicyVersion": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "executionStrategyVersion": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "executionFeeSnapshot": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "takerFeeBps": {
+                                        "type": "number"
+                                      },
+                                      "builderFeeTenthsBps": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "takerFeeBps",
+                                      "builderFeeTenthsBps"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -21668,6 +23097,49 @@
                               },
                               "riskPolicyVersion": {
                                 "type": "integer"
+                              },
+                              "executionPolicyVersion": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "executionStrategyVersion": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "executionFeeSnapshot": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "takerFeeBps": {
+                                        "type": "number"
+                                      },
+                                      "builderFeeTenthsBps": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "takerFeeBps",
+                                      "builderFeeTenthsBps"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "createdAt": {
                                 "type": "string",
@@ -23240,6 +24712,18 @@
         ],
         "additionalProperties": false
       },
+      "PatchCopyAlertsDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
       "PatchMeDto": {
         "type": "object",
         "properties": {
@@ -23398,6 +24882,12 @@
       "CreateCopyStrategyDto": {
         "type": "object",
         "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "description": "Stable operation key retained across retries"
+          },
           "leader": {
             "type": "string",
             "pattern": "^0x[0-9a-fA-F]{40}$",
@@ -23501,6 +24991,11 @@
       "AddCopyFundsDto": {
         "type": "object",
         "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          },
           "amountUsd": {
             "type": "number",
             "description": "Paper USDC to add (CopyDog 加碼); at most 6 decimals"
@@ -23514,6 +25009,11 @@
       "CopyStrategyCommandDto": {
         "type": "object",
         "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          },
           "command": {
             "type": "string",
             "enum": [

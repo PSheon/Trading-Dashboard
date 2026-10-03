@@ -74,7 +74,10 @@ export function BoardsView() {
 
   // Shareable state: the URL follows the controls without a navigation.
   useEffect(() => {
-    const qs = new URLSearchParams();
+    // Only replace board filters. Privy consumes its OAuth callback parameters
+    // after initialization; clearing them here can leave Google users signed out.
+    const qs = new URLSearchParams(globalThis.location.search);
+    for (const key of ["market", "board", "sort", "window", "style", "view"]) qs.delete(key);
     if (market !== "crypto") qs.set("market", market);
     if (board !== "top100") qs.set("board", board);
     if (effectiveSort !== "copyScore") qs.set("sort", effectiveSort);

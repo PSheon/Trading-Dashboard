@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, ShieldAlert } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Lockup } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
@@ -18,22 +18,32 @@ import { useAuth } from "@/lib/auth";
 export function ExportKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useI18n();
   const toast = useToast();
-  const { wallet } = useAuth();
+  const { wallet, status } = useAuth();
   const [busy, setBusy] = useState(false);
-  const ready = Boolean(wallet?.address);
+  const inFlight = useRef(false);
+  const activeWallet = useRef<typeof wallet>(null);
+  const ready = status === "signedIn" && Boolean(wallet?.address);
+
+  useEffect(() => {
+    activeWallet.current = status === "signedIn" ? wallet : null;
+    return () => { activeWallet.current = null; };
+  }, [wallet, status]);
 
   async function exportKey() {
-    if (!wallet) return;
+    if (!wallet || !ready || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     try {
       // Close ours first so Privy's modal is the only one on screen.
       onOpenChange(false);
       await wallet.exportKey();
-    } catch (err) {
-      // Privy's own errors carry no key material; the toast shows the reason only.
-      toast.error(t("wallet.signFailed", { message: err instanceof Error ? err.message : String(err) }));
+    } catch {
+      // Delayed failures belong to the session that initiated the export.
+      if (activeWallet.current !== wallet) return;
+      toast.error(t("wallet.exportFailed"));
       onOpenChange(true);
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }
@@ -43,6 +53,12 @@ export function ExportKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
       <Lockup markSize={28} />
       <h2 className="mt-5 text-2xl font-extrabold tracking-tight" aria-hidden>{t("wallet.exportTitle")}</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{t("wallet.exportBody")}</p>
+      {ready ? (
+        <div className="mt-4 rounded-xl border border-border bg-raised/50 p-3">
+          <p className="text-xs font-semibold text-muted-foreground">{t("wallet.exportAddress")}</p>
+          <p className="mt-2 break-all font-mono text-xs leading-5">{wallet?.address}</p>
+        </div>
+      ) : null}
       <p className="mt-4 flex gap-2 rounded-xl bg-warning/10 p-3 text-xs leading-relaxed text-warning">
         <ShieldAlert className="mt-px size-4 shrink-0" />
         {t("wallet.exportWarning")}
@@ -54,7 +70,7 @@ export function ExportKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
       {!wallet ? (
         <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p>
       ) : !ready ? (
-        <p className="mt-2 text-center text-xs text-muted-foreground">{t("settings.walletPending")}</p>
+        <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.noWallet")}</p>
       ) : null}
       <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-subtle-foreground">
         {t("wallet.protectedBy")}

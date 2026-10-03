@@ -1,6 +1,7 @@
 import { AppConfig } from "../../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { PrivyClient, type LinkedAccount } from "@privy-io/node";
+import { isPrivyWallet, primaryEmbeddedWalletAddress, type EmbeddedWalletIdentity } from "@trading-dashboard/shared/contracts";
 
 
 /** A Privy access token that passed signature, issuer, audience and expiry
@@ -43,17 +44,24 @@ export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfi
   let email: string | null = null;
   let oauthEmail: string | null = null;
   let external: string | null = null;
-  let embedded: string | null = null;
+  const embeddedWallets: EmbeddedWalletIdentity[] = [];
   for (const account of accounts) {
     if (account.type === "email" && !email) email = account.address;
     if ((account.type === "google_oauth" || account.type === "apple_oauth") && account.email) {
       oauthEmail ??= account.email;
     }
     if (account.type === "wallet" && "chain_type" in account && account.chain_type === "ethereum") {
-      if (account.wallet_client === "privy") embedded ??= account.address;
+      if (isPrivyWallet(account.wallet_client)) embeddedWallets.push({
+        address: account.address,
+        chainType: account.chain_type,
+        clientType: account.wallet_client,
+        index: "wallet_index" in account ? account.wallet_index : null,
+        imported: "imported" in account ? account.imported : false,
+      });
       else external ??= account.address;
     }
   }
+  const embedded = primaryEmbeddedWalletAddress(embeddedWallets);
   const wallet = external ?? embedded;
   const chosen = email ?? oauthEmail;
   return {

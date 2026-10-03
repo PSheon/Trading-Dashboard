@@ -4,6 +4,7 @@ export * from "./permissions.js";
 export * from "./http-contract.js";
 export * from "./wire-contracts.js";
 export * from "./wallet-networks.js";
+export * from "./embedded-wallet-identity.js";
 export * from "./job-contracts.js";
 
 export * from "./settings-ops-contracts.js";

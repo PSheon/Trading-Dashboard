@@ -2,6 +2,7 @@
 
 import { queryKeys } from "@/lib/query-keys";
 import type { Permission } from "@trading-dashboard/shared/contracts";
+import { isPrivyWallet, primaryEmbeddedWalletAddress } from "@trading-dashboard/shared/contracts";
 import { hasPermission } from "@/lib/permissions";
 import {
   PrivyProvider,
@@ -108,7 +109,7 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
       mode: "privy",
       login: () => login(),
       logout: () => logout(),
-      identity: user?.email?.address ?? user?.wallet?.address ?? null,
+      identity: user?.email?.address ?? user?.google?.email ?? user?.apple?.email ?? user?.wallet?.address ?? null,
       wallet,
     }),
     [ready, authenticated, login, logout, user, wallet],
@@ -125,17 +126,30 @@ function PrivyBridge({ children }: { children: React.ReactNode }) {
  * never from this page.
  */
 function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
+  const { user } = usePrivy();
   const { wallets, ready } = useWallets();
   const { exportWallet } = useExportWallet();
   const { signTypedData } = useSignTypedData();
   const { sendTransaction } = useSendTransaction();
   const { createWallet } = useCreateWallet();
-  const creating = useRef(false);
-  const embedded = wallets.find((w) => w.walletClientType === "privy") ?? null;
+  const creatingFor = useRef<string | null>(null);
+  const activeSigner = useRef<WalletSigner | null>(null);
+  const userId = signedIn ? user?.id ?? null : null;
+  const linkedWallets = user?.linkedAccounts.filter((account) => account.type === "wallet").map((account) => ({
+    address: account.address,
+    chainType: account.chainType,
+    clientType: account.walletClientType ?? "",
+    index: account.walletIndex,
+    imported: account.imported,
+  })) ?? [];
+  const primary = primaryEmbeddedWalletAddress(linkedWallets);
+  const embedded = ready && userId && primary ? wallets.find((wallet) => isPrivyWallet(wallet.walletClientType) && wallet.address.toLowerCase() === primary) : null;
+  const hasEmbedded = linkedWallets.some((wallet) => isPrivyWallet(wallet.clientType) && wallet.chainType === "ethereum") || wallets.some((wallet) => isPrivyWallet(wallet.walletClientType));
 
   useEffect(() => {
-    if (!signedIn || !ready || embedded || creating.current) return;
-    creating.current = true;
+    if (!signedIn) { creatingFor.current = null; return; }
+    if (!userId || !ready || hasEmbedded || creatingFor.current === userId) return;
+    creatingFor.current = userId;
     // No query invalidation here: this runs above the session QueryClient.
     // The pages show the new address from Privy at once (useWalletAddress);
     // AuthEffects (useWalletBackfill) refetches /me and /me/wallet when the
@@ -144,25 +158,36 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
         // Already has one (created in another tab) or Privy refused: the
         // wallet panel shows "not ready" and a reload tries again.
       });
-  }, [signedIn, ready, embedded, createWallet]);
+  }, [signedIn, userId, ready, hasEmbedded, createWallet]);
 
-  const address = embedded?.address ?? null;
-  return useMemo<WalletSigner | null>(() => {
+  const address = embedded?.address.toLowerCase() ?? null;
+  const signer = useMemo<WalletSigner | null>(() => {
     if (!signedIn) return null;
-    const target = address ? { address } : undefined;
-    return {
+    const assertActive = () => {
+      if (!address || !userId || activeSigner.current !== current) throw new Error("Wallet is not ready. Reload or sign in again.");
+      // Never allow the SDK to fall back to a default wallet.
+      return { address };
+    };
+    const current: WalletSigner = {
       address,
-      exportKey: () => exportWallet(target),
+      exportKey: async () => { await exportWallet(assertActive()); },
       signTypedData: async (data) => {
-        const { signature } = await signTypedData(data, target);
+        const { signature } = await signTypedData(data, assertActive());
         return signature as `0x${string}`;
       },
       sendTransaction: async (tx, sponsor) => {
-        const { hash } = await sendTransaction(tx, { sponsor, ...target });
+        const { hash } = await sendTransaction(tx, { sponsor, ...assertActive() });
         return hash;
       },
     };
-  }, [signedIn, address, exportWallet, signTypedData, sendTransaction]);
+    return current;
+  }, [signedIn, userId, address, exportWallet, signTypedData, sendTransaction]);
+
+  useEffect(() => {
+    activeSigner.current = signer;
+    return () => { activeSigner.current = null; };
+  }, [signer]);
+  return signer;
 }
 
 function hasSavedPrivySession(): boolean {

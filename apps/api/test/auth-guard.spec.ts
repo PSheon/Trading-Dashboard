@@ -540,6 +540,32 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
 });
 
 describe("profileFromLinkedAccounts", () => {
+  it("keeps the main account at HD index zero regardless of linked-wallet order", () => {
+    const main = { type: "wallet", chain_type: "ethereum", wallet_client: "privy", wallet_index: 0, imported: false, address: "0xMAIN" };
+    const secondary = { ...main, wallet_index: 1, address: "0xCOPY" };
+    for (const linked of [[secondary, main], [main, secondary]]) {
+      expect(profileFromLinkedAccounts(linked as never)).toEqual({ email: null, walletAddress: "0xmain", embeddedWalletAddress: "0xmain" });
+    }
+  });
+
+  it("does not persist a secondary or an ambiguous wallet as the main account", () => {
+    const wallet = { type: "wallet", chain_type: "ethereum", wallet_client: "privy", imported: false, address: "0xMAIN" };
+    for (const linked of [
+      [{ ...wallet, wallet_index: 1 }],
+      [wallet, { ...wallet, address: "0xOTHER" }],
+      [{ ...wallet, wallet_index: 0 }, { ...wallet, wallet_index: 0, address: "0xOTHER" }],
+      [{ ...wallet, wallet_index: 0, imported: true }],
+    ]) {
+      expect(profileFromLinkedAccounts(linked as never)).toEqual({ email: null, walletAddress: null, embeddedWalletAddress: null });
+    }
+  });
+
+  it("recognizes Privy v2 as embedded rather than as an external wallet", () => {
+    expect(profileFromLinkedAccounts([
+      { type: "wallet", chain_type: "ethereum", wallet_client: "privy-v2", wallet_index: 0, address: "0xV2" },
+    ] as never)).toEqual({ email: null, walletAddress: "0xv2", embeddedWalletAddress: "0xv2" });
+  });
+
   it("takes the email and prefers an external Ethereum wallet over the embedded one", () => {
     const profile = profileFromLinkedAccounts([
       { type: "wallet", chain_type: "ethereum", wallet_client: "privy", address: "0xEMBEDDED" },

@@ -2,7 +2,7 @@
 
 import { ArrowUp, Bell, ChartPie, ChevronDown, Plus, Settings, ShoppingCart, UserPlus, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { cn } from "cn";
 
@@ -163,15 +163,15 @@ function TabEmpty({
 /** The open copy, in the query string so the trader panel can link to it. */
 function useSelectedCopy(): [number | null, (id: number | null) => void] {
   const params = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
   const raw = Number(params.get("copy"));
   const set = (id: number | null) => {
-    const qs = new URLSearchParams(params.toString());
+    // Selection is local UI state; Next syncs native history with useSearchParams.
+    // Read the current URL so rapid actions also retain newer query/hash changes.
+    const qs = new URLSearchParams(window.location.search);
     if (id === null) qs.delete("copy");
     else qs.set("copy", String(id));
     const query = qs.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
   };
   return [Number.isInteger(raw) && raw > 0 ? raw : null, set];
 }

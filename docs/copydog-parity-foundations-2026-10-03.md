@@ -52,7 +52,7 @@ Privy 的 phantom-agent typed data 包含 order hash，policy 無法直接查看
 
 後續前端整體93個檔案／671個測試與正式建置通過；FAQ 更新另通過6個內容測試。帳戶模式最後的 SDK／PostgreSQL／Nest 四檔124項由實作者與獨立覆核者各自通過。完整 API 首次2299項中的兩個失敗已修正：撤銷測試補齊真實當前綁定，route scanner 支援單雙引號；完整重跑151個檔案／2304項全數通過。API型別、全域oxlint、shared ESLint及10個工具測試通過。已建置 API 的 readiness200、離線503、DTO400、安全標頭、Swagger一致及 graceful shutdown 通過；新增 mode 最後送出檢查之後再次建置及 OpenAPI--check 通過。
 
-桌面／手機的執行錢包、跟單 runtime、跟單控制瀏覽器測試首次16項中15項通過，一個桌面返回頁面等待RSC的案例逾時，原樣單獨重跑通過。Demo不會顯示代理、模式或真實statement金融控制，兩種寬度均通過。尚不能宣稱首次瀏覽器整批無失敗或該等待問題已修復；後續將移除純本地query切換不需要的伺服器請求。這些瀏覽器測試使用獨立fixture port，沒有登入使用者的真實Privy帳戶。
+桌面／手機的執行錢包、跟單 runtime、跟單控制瀏覽器測試首次16項中15項通過，一個桌面返回頁面等待RSC的案例逾時，原樣單獨重跑通過。Demo不會顯示代理、模式或真實statement金融控制，兩種寬度均通過。後續已改用 Next 支援的 native history 更新純本地copy選擇，保留其他query、重複參數、hash與history entry；新增瀏覽器案例阻斷RSC仍可正常選擇及返回，十個桌面／手機控制案例全數通過。完整前端追加至94個檔案／676項全數通過，型別、lint及正式建置通過。這些瀏覽器測試使用獨立fixture port，沒有登入使用者的真實Privy帳戶。
 
 Order signing adapter 使用實際安裝的 Privy SDK，以每次請求獨立 client、禁止重試及關閉 SDK 日誌，固定 host/path/method、限制完整 response body 並主動取消超時 reader。在 SDK 的隱藏 authorization await 之後、實際 RPC fetch 前重查原 permit、wallet freshness 及訂單期限。回傳簽名必須能由確切 typed data 恢復原授權 signer；其他錢包或其他 order hash 的簽名會被拒絕。這是簽署邊界驗證，尚未接成自動下單服務。
 

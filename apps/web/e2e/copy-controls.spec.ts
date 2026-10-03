@@ -31,6 +31,28 @@ for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
     });
 
+    test("local copy selection and Back work without Flight requests and preserve query and hash", async ({ page, baseURL }) => {
+      await page.goto("/portfolio?view=copying&tag=alpha&tag=beta#paper");
+      await signIn(page);
+      const copy = page.getByRole("button", { name: /^Machi is ugly dog/ }).filter({ visible: true }).first();
+      await expect(copy).toBeVisible();
+      const flights: string[] = [];
+      // The copy query is local state: selection must keep working with server navigation unavailable.
+      await page.route(/\/portfolio\?.*_rsc=/, async (route) => {
+        flights.push(route.request().url());
+        await route.abort("blockedbyclient");
+      });
+      const historyLength = await page.evaluate(() => history.length);
+      await copy.click();
+      await expect(page).toHaveURL(`${baseURL}/portfolio?view=copying&tag=alpha&tag=beta&copy=1#paper`);
+      await expect(action(page, "Edit settings")).toBeVisible();
+      await action(page, "Back").click();
+      await expect(page).toHaveURL(`${baseURL}/portfolio?view=copying&tag=alpha&tag=beta#paper`);
+      await expect(copy).toBeVisible();
+      expect(await page.evaluate(() => history.length)).toBe(historyLength);
+      expect(flights).toEqual([]);
+    });
+
     test("pause and resume show their state on the copy, the list and the trader page", async ({ page }) => {
       test.setTimeout(90000);
       const errors: string[] = [];

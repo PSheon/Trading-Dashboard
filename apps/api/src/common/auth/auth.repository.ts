@@ -4,6 +4,7 @@ import { users } from "@trading-dashboard/shared/database";
 import { DRIZZLE_CLIENT } from "../../db/db.constants.js";
 import type { DrizzleDb } from "../../db/drizzle.provider.js";
 import { recordAdminAudit } from "../audit/admin-audit.js";
+import { lockCopyUser } from "../../copy/copy-user-lock.js";
 
 /** Advisory-lock key serializing first-admin bootstraps. */
 const BOOTSTRAP_LOCK = 7404;
@@ -86,8 +87,11 @@ export class AuthRepository {
    * so an address already stored is kept (undefined = not updated, e.g.
    * another request stored it first or the address belongs to another row). */
   async setEmbeddedWallet(id: number, address: string) {
-    const [row] = await this.db.update(users).set({ embeddedWalletAddress: address })
-      .where(and(eq(users.id, id), isNull(users.embeddedWalletAddress))).returning()
+    const [row] = await this.db.transaction(async tx => {
+      await lockCopyUser(tx, id);
+      return tx.update(users).set({ embeddedWalletAddress: address })
+        .where(and(eq(users.id, id), isNull(users.embeddedWalletAddress))).returning();
+    })
       .catch((error: { code?: string }) => {
         // 23505: the address is already on another user row. Privy never
         // shares a wallet between users, so leave both rows as they are.

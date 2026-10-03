@@ -45,6 +45,7 @@ export class AccountDeletionService {
    */
   async delete(userId: number): Promise<void> {
     await this.uow.run(async (tx) => {
+      await this.accounts.lockCopyOwner(tx, userId);
       const admins = await this.accounts.lockEnabledAdmins(tx);
       const user = await this.accounts.lockUser(tx, userId);
       if (!user) throw new NotFoundException("User not found");

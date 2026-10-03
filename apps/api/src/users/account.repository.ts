@@ -6,6 +6,7 @@ import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { lockCopyUser } from "../copy/copy-user-lock.js";
 
 /** What an account holds at deletion time: counts only, for the audit
  * record (no email, Privy id, addresses or chat ids). */
@@ -24,6 +25,8 @@ export interface AccountFootprint {
 @Injectable()
 export class AccountRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+
+  lockCopyOwner(tx: DbTransaction, userId: number) { return lockCopyUser(tx, userId); }
 
   /** Locks every enabled admin row, in id order (the same order as admin
    * user edits, so the two can't deadlock). */

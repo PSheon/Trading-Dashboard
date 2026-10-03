@@ -5,26 +5,28 @@ import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copySigne
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { lockCopyUser } from "./copy-user-lock.js";
 
 export type AgentSetupRow = typeof copyAgentSetups.$inferSelect;
 @Injectable()
 export class CopyAgentRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
-  async owner(userId: number, tx: DrizzleDb | DbTransaction = this.db) {
-    const query = tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
-    const [owner] = await (tx === this.db ? query : query.for("update"));
+  async owner(userId: number, tx?: DbTransaction) {
+    if (tx) await lockCopyUser(tx, userId);
+    const query = (tx ?? this.db).select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
+    const [owner] = await (tx ? query.for("update") : query);
     if (!owner) throw new NotFoundException("User not found");
     return owner;
   }
-  async account(userId: number, id: string, tx: DrizzleDb | DbTransaction = this.db) {
-    const query = tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.userId, userId)));
-    const [account] = await (tx === this.db ? query : query.for("update"));
+  async account(userId: number, id: string, tx?: DbTransaction) {
+    const query = (tx ?? this.db).select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, id), eq(copyExecutionAccounts.userId, userId)));
+    const [account] = await (tx ? query.for("update") : query);
     if (!account) throw new NotFoundException("Execution account not found");
     return account;
   }
-  async find(userId: number, id: string, tx: DrizzleDb | DbTransaction = this.db) {
+  async find(userId: number, id: string, tx?: DbTransaction) {
     await this.owner(userId, tx);
-    const [row] = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.id, id), eq(copyAgentSetups.userId, userId)));
+    const [row] = await (tx ?? this.db).select().from(copyAgentSetups).where(and(eq(copyAgentSetups.id, id), eq(copyAgentSetups.userId, userId)));
     if (!row) throw new NotFoundException("Agent setup not found");
     return row;
   }
@@ -41,11 +43,11 @@ export class CopyAgentRepository {
     if (revoked || detached) return (await this.transition(row, { state: "revoked", issue: revoked ? "agent_grant_revoked" : "agent_grant_detached" })) ?? await this.find(row.userId, row.id);
     return row;
   }
-  async assertCurrent(userId: number, row: AgentSetupRow, tx: DrizzleDb | DbTransaction = this.db) {
+  async assertCurrent(userId: number, row: AgentSetupRow, tx?: DbTransaction) {
     const owner = await this.owner(userId, tx);
     const account = await this.account(userId, row.accountId, tx);
-    const query = tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId)));
-    const [strategy] = await (tx === this.db ? query : query.for("update"));
+    const query = (tx ?? this.db).select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId)));
+    const [strategy] = await (tx ? query.for("update") : query);
     if (!strategy || strategy.status === "stopped" || strategy.status === "stopping") throw new ConflictException("copy_stopped");
     if (account.state !== "ready" || account.privyUserId !== owner.privyUserId || account.strategyId !== row.strategyId ||
       account.network !== row.network || account.address !== row.accountAddress || account.privyWalletId !== row.accountWalletId || account.ownerQuorumId !== row.accountOwnerQuorumId) {
@@ -55,7 +57,6 @@ export class CopyAgentRepository {
   }
   async ensure(tx: DbTransaction, userId: number, accountId: string, input: { idempotencyKey: string; validForDays: number }, workerQuorumId: string) {
     // Serialize setup admission without holding a transaction across provider calls.
-    await tx.select().from(users).where(eq(users.id, userId)).for("update");
     const owner = await this.owner(userId, tx);
     const account = await this.account(userId, accountId, tx);
     const [prior] = await tx.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.userId, userId), eq(copyAgentSetups.idempotencyKey, input.idempotencyKey)));
@@ -78,9 +79,12 @@ export class CopyAgentRepository {
     await this.assertCurrent(userId, row!, tx);
     return row!;
   }
-  async transition(row: AgentSetupRow, changes: Partial<typeof copyAgentSetups.$inferInsert>, tx: DrizzleDb | DbTransaction = this.db) {
+  async transition(rawRow: AgentSetupRow, rawChanges: Partial<typeof copyAgentSetups.$inferInsert>, tx?: DbTransaction): Promise<AgentSetupRow | null> {
+    const row = structuredClone(rawRow), changes = structuredClone(rawChanges);
+    if (!tx) return this.db.transaction(inner => this.transition(row, changes, inner));
+    await lockCopyUser(tx, row.userId);
     const [next] = await tx.update(copyAgentSetups).set({ ...changes, revision: row.revision + 1, updatedAt: new Date() })
-      .where(and(eq(copyAgentSetups.id, row.id), eq(copyAgentSetups.revision, row.revision), eq(copyAgentSetups.state, row.state))).returning();
+      .where(and(eq(copyAgentSetups.id, row.id), eq(copyAgentSetups.userId, row.userId), eq(copyAgentSetups.revision, row.revision), eq(copyAgentSetups.state, row.state))).returning();
     return next ?? null;
   }
   async challenge(tx: DbTransaction, userId: number, id: string) {

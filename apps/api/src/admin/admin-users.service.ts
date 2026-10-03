@@ -45,6 +45,7 @@ export class AdminUsersService {
     const request = parseOr400(patchAdminUserRequestSchema, body);
 
     const updated = await this.unitOfWork.run(async (tx) => {
+      await this.repository.lockCopyOwner(tx, id);
       const enabledAdmins = await this.repository.lockEnabledAdmins(tx);
       const target = await this.repository.lockUser(tx, id);
       if (!target) throw new NotFoundException({ statusCode: 404, message: `No user ${id}` });

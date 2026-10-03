@@ -9,6 +9,7 @@ import { UnitOfWork, type DbTransaction } from "../../db/unit-of-work.js";
 import { Dec } from "../../common/decimal/dec.js";
 import { followerReceiptKey, parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from "./actual-fill-accounting.js";
 import { LiveBoundaryError } from "./wallet-authorization.js";
+import { lockCopyUser } from "../copy-user-lock.js";
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -31,7 +32,7 @@ export class CopyFollowerLedger {
   recordInvalidEvidence(accountId: string, reason: "follower_receipt_conflict" | "follower_receipt_invalid_evidence", expected?: ReceiptAccountIdentity) {
     const expectedIdentity = expected ? structuredClone(expected) : null;
     return this.uow.run(async tx => {
-      const [account] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId)).for("update");
+      const account = await this.lockedAccount(tx, accountId);
       if (!account?.address) throw new LiveBoundaryError("follower_account_identity_missing");
       if (expectedIdentity && (expectedIdentity.network !== account.network || expectedIdentity.accountAddress !== account.address))
         throw new LiveBoundaryError("follower_account_identity_changed");
@@ -44,7 +45,7 @@ export class CopyFollowerLedger {
     const raw: unknown = structuredClone(input);
     const expectedIdentity = expected ? structuredClone(expected) : null;
     const result = await this.uow.run(async tx => {
-      const [account] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId)).for("update");
+      const account = await this.lockedAccount(tx, accountId);
       if (!account?.address) throw new LiveBoundaryError("follower_account_identity_missing");
       if (expectedIdentity && (expectedIdentity.network !== account.network || expectedIdentity.accountAddress !== account.address))
         throw new LiveBoundaryError("follower_account_identity_changed");
@@ -93,5 +94,14 @@ export class CopyFollowerLedger {
   private quarantine(tx: DbTransaction, accountId: string, reason: string) {
     return tx.insert(copyFollowerAccountState).values({ accountId, quarantined: true, reason })
       .onConflictDoUpdate({ target: copyFollowerAccountState.accountId, set: { quarantined: true, reason, updatedAt: new Date() } });
+  }
+  private async lockedAccount(tx: DbTransaction, accountId: string) {
+    const [lookup] = await tx.select({ userId: copyExecutionAccounts.userId }).from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId));
+    if (!lookup) throw new LiveBoundaryError("follower_account_identity_missing");
+    await lockCopyUser(tx, lookup.userId);
+    const [account] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, accountId)).for("update");
+    if (!account || account.userId !== lookup.userId) throw new LiveBoundaryError("follower_account_identity_changed");
+    // Reconciliation remains available after disable/stop/revocation.
+    return account;
   }
 }

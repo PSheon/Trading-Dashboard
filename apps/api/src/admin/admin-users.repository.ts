@@ -7,6 +7,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import type { RequestUser } from "../common/auth/current-user.js";
+import { lockCopyUser } from "../copy/copy-user-lock.js";
 
 /** `\`, `%` and `_` taken literally in a LIKE pattern (escape char `\`). */
 export function escapeLike(value: string): string {
@@ -41,6 +42,8 @@ function toAdminUser(row: AdminUserRow): AdminUser {
 @Injectable()
 export class AdminUsersRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+
+  lockCopyOwner(tx: DbTransaction, id: number) { return lockCopyUser(tx, id); }
 
   async list(query: AdminUsersQuery) {
     const conditions: SQL[] = [];

@@ -135,7 +135,7 @@ export class SettingsService implements ConsumerCapSource {
   async patch(request: PatchAdminSettingsRequest, userId: number | null, actor: AuditActor = userId): Promise<AdminSettingsSnapshot> {
     const merged = await this.uow.run(async (tx) => {
       // One transaction-scoped lock also protects sections that have no row yet.
-      await this.repository.lockSections(tx);
+      await this.repository.lockSections(tx, request.general !== undefined || request.revenue !== undefined);
       const current = await this.load(tx);
       const keys = appSettingsKeyEnum.filter(key => request[key] !== undefined);
       for (const key of keys) {

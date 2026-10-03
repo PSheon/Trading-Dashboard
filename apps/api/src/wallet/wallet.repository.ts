@@ -4,6 +4,7 @@ import { users } from "@trading-dashboard/shared/database";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { lockCopyUser } from "../copy/copy-user-lock.js";
 
 /** The user row's wallet fields only; balances are never stored. */
 @Injectable()
@@ -24,10 +25,11 @@ export class WalletRepository {
    * a unique conflict, which Privy's one-wallet-per-user rules out). */
   async setEmbeddedWallet(userId: number, address: string): Promise<string | null> {
     try {
-      await this.db
-        .update(users)
-        .set({ embeddedWalletAddress: address })
-        .where(and(eq(users.id, userId), isNull(users.embeddedWalletAddress)));
+      await this.db.transaction(async tx => {
+        await lockCopyUser(tx, userId);
+        await tx.update(users).set({ embeddedWalletAddress: address })
+          .where(and(eq(users.id, userId), isNull(users.embeddedWalletAddress)));
+      });
     } catch (error) {
       if ((error as { code?: string })?.code !== "23505") throw error;
     }

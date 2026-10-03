@@ -420,7 +420,7 @@ export class CopyExecutionService {
       const health = accountHealth(held[0]!.cash, held.map((h) => h.position), mids, assets);
       if (!health || health.equity.gte(health.maintenance)) continue;
       try {
-        if (await this.liquidateStrategy(strategyId, mids, assets)) liquidated += 1;
+        if (await this.liquidateStrategy(strategyId, held[0]!.userId, mids, assets)) liquidated += 1;
       } catch (error) {
         this.logger.error(`Liquidation of strategy ${strategyId} failed: ${(error as Error).message}`);
       }
@@ -429,13 +429,14 @@ export class CopyExecutionService {
   }
 
   /** Liquidates one strategy if, under its lock, it is still below maintenance. */
-  private async liquidateStrategy(strategyId: number, mids: Mids, assets: AssetMap): Promise<boolean> {
+  private async liquidateStrategy(strategyId: number, userId: number, mids: Mids, assets: AssetMap): Promise<boolean> {
     const policy = await this.policies.current();
     const builderFeeTenthsBps = (await this.settings.get("revenue")).builderFeeTenthsBps;
     const pricing: Pricing = { mids, assets, slippageBps: policy.limits.simulatedSlippageBps, takerFeeBps: policy.limits.takerFeeBps, builderFeeTenthsBps };
     return this.uow.run(async (tx) => {
+      await this.repository.lockCopyUser(tx, userId);
       const strategy = await this.repository.lockStrategy(tx, strategyId);
-      if (!strategy || strategy.status === "stopped") return false;
+      if (!strategy || strategy.userId !== userId || strategy.status === "stopped") return false;
       const positions = await this.repository.positionsOf([strategyId], tx);
       const health = accountHealth(strategy.cash, positions, mids, assets);
       if (!health || health.equity.gte(health.maintenance)) return false;
@@ -483,8 +484,9 @@ export class CopyExecutionService {
     let settled = 0;
     for (const s of await this.repository.stoppingStrategies()) {
       const done = await this.uow.run(async (tx) => {
+        await this.repository.lockCopyUser(tx, s.userId);
         const strategy = await this.repository.lockStrategy(tx, s.id);
-        if (!strategy || strategy.status !== "stopping") return false;
+        if (!strategy || strategy.userId !== s.userId || strategy.status !== "stopping") return false;
         if ((await this.repository.positionsOf([strategy.id], tx)).length > 0) return false;
         if ((await this.repository.openOrderCount(tx, strategy.id)) > 0) return false;
         // What returns is never negative: a shortfall is written off first.

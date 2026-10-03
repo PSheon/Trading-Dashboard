@@ -237,6 +237,7 @@ export class CopyStrategyService {
   async patch(userId: number, strategyId: number, input: unknown): Promise<CopyStrategy> {
     const req = parseOr400(patchCopyStrategyRequestSchema, input);
     await this.uow.run(async (tx) => {
+      await this.repository.lockCopyUser(tx, userId);
       const strategy = await this.owned(tx, userId, strategyId);
       if (strategy.status === "stopped" || strategy.status === "stopping") throw conflict("strategy_stopped", "This copy has stopped");
       const current = (await this.repository.settingsOf(tx, strategy.id, strategy.version)) as CopyStrategySettings;

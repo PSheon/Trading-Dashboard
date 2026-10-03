@@ -56,6 +56,8 @@ Privy 的 phantom-agent typed data 包含 order hash，policy 無法直接查看
 
 Order signing adapter 使用實際安裝的 Privy SDK，以每次請求獨立 client、禁止重試及關閉 SDK 日誌，固定 host/path/method、限制完整 response body 並主動取消超時 reader。在 SDK 的隱藏 authorization await 之後、實際 RPC fetch 前重查原 permit、wallet freshness 及訂單期限。回傳簽名必須能由確切 typed data 恢復原授權 signer；其他錢包或其他 order hash 的簽名會被拒絕。這是簽署邊界驗證，尚未接成自動下單服務。
 
+後續將策略設定、使用者停用／刪除、master 身分、grant／agent 變更、embedded wallet 綁定及 follower 隔離／記帳寫入，接上相同的使用者7404鎖；相關平台設定先取得7405鎖。鎖定順序在 row lock 之前，並重新驗證等待後的擁有者與新建策略狀態。晚到真實成交仍可在停用／停止／撤銷後記帳。新增25個實際PostgreSQL競爭案例，使用原始risk scope及NOWAIT row probes驗證阻擋與順序；root獨立重跑九個受影響檔案301項通過。這不包含尚未接入協定的入出金狀態寫入，也不代表live worker已啟用。
+
 歷史成交 API 有最新 10,000 fills 與時間查詢筆數限制。空回應／短頁面／operational scanned-through 都不是 90 天完整歷史的證明。報表始終回傳 `historicalCompleteness: unproven`，缺口不填零。
 
 全 venue WS 查詢有 subscription、in-flight、每分鐘訊息與連線額度。重用固定 testnet connection 並限制批次可完成低頻 snapshot；高頻交易仍必須符合額度與最老證據期限，不能透過使用舊 snapshot 宣稱即時風險完整。

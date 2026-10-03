@@ -9,6 +9,7 @@ import { PostgresLiveExecutionJournal } from "../src/copy/live/postgres-live-jou
 import { ScopedLiveExecutionJournal } from '../src/copy/live/scoped-live-journal.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { PostgresWalletAuthorizationSource } from "../src/copy/live/postgres-wallet-authorizations.js";
+import { ScopedWalletAuthorizationSource } from '../src/copy/live/scoped-wallet-authorizations.js';
 import { LiveOrderExecutor, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from "../src/copy/live/live-order.js";
 import { WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
@@ -69,6 +70,27 @@ function transport(): LiveExchangeTransport {
 }
 
 describe("live PostgreSQL journal and authorization authority", () => {
+  it('reads uncached authorization through the original single-connection session', async () => {
+    const scopedPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 });
+    try {
+      await new PostgresLiveRiskScope(scopedPool, () => now).run({ userId: grant.userId, network: grant.network, accountAddress: grant.accountAddress }, async (_scope, session) => {
+        const source = new ScopedWalletAuthorizationSource(session, grant.id);
+        expect(await source.find(grant.id)).toEqual(grant);
+        await session.transaction(tx => tx.update(copyWalletAuthorizations).set({ revokedAt: new Date(now) }).where(eq(copyWalletAuthorizations.id, grant.id)).then(() => {}));
+        expect((await source.find(grant.id))?.revokedAt).toBe(now);
+      });
+    } finally { await scopedPool.end(); }
+  });
+  it('rejects replacement sessions, foreign authorization identifiers and callbacks after scope release', async () => {
+    const scopes = new PostgresLiveRiskScope(lockPool, () => now), identity = { userId: grant.userId, network: grant.network, accountAddress: grant.accountAddress };
+    let saved!: ScopedWalletAuthorizationSource;
+    await scopes.run(identity, async (_scope, session) => {
+      expect(() => new ScopedWalletAuthorizationSource({ ...session }, grant.id)).toThrow('live_risk_serialization_lost');
+      saved = new ScopedWalletAuthorizationSource(session, grant.id);
+      await expect(saved.find('foreign')).rejects.toThrow('wallet_authorization_scope_mismatch');
+    });
+    await scopes.run(identity, async () => { await expect(saved.find(grant.id)).rejects.toThrow('live_risk_serialization_lost'); });
+  });
   it('reads and transitions the original prepared journal with a single-connection scoped pool', async () => {
     const original = await first.prepare(input());
     const scopedPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 1 });

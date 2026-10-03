@@ -1,10 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, isNull, like, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
-import { copyStrategies, discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
+import { copyStrategies, discoveryTraders, fills, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { HistoryFillStore } from "../traders/history-fill.store.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 
 export type DiscoveryRow = typeof discoveryTraders.$inferSelect;
@@ -61,7 +62,10 @@ const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
  */
 @Injectable()
 export class DiscoveryRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  private readonly history: HistoryFillStore;
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {
+    this.history = new HistoryFillStore(db);
+  }
 
   transaction<T>(work: (tx: DbTransaction) => Promise<T>): Promise<T> {
     return this.db.transaction(work);
@@ -240,7 +244,18 @@ export class DiscoveryRepository {
       .leftJoin(kolAvatars, and(eq(kolAvatars.chain, discoveryTraders.chain), eq(kolAvatars.address, discoveryTraders.address)))
       .leftJoin(traderStats, and(eq(traderStats.chain, discoveryTraders.chain), eq(traderStats.address, discoveryTraders.address)))
       .where(where);
-    return rows.map(({ row, ...rest }) => ({ ...row, ...rest }));
+    const addresses = rows.map(({ row }) => row.address);
+    if (addresses.length === 0) return [];
+    const [history, watched] = await Promise.all([
+      this.history.latestTimes(addresses),
+      this.db.select({ address: fills.address, latest: sql<Date>`max(${fills.ts})` }).from(fills)
+        .where(and(eq(fills.chain, CHAIN_DEFAULT), inArray(fills.address, addresses))).groupBy(fills.address),
+    ]);
+    const latest = new Map(watched.map(row => [row.address, new Date(row.latest)]));
+    return rows.map(({ row, ...rest }) => {
+      const times = [row.lastTradeAt, history.get(row.address), latest.get(row.address)].filter((value): value is Date => value instanceof Date);
+      return { ...row, ...rest, lastTradeAt: times.length ? new Date(Math.max(...times.map(time => time.getTime()))) : null };
+    });
   }
 
   /** Leaderboard figures and KOL entries of these addresses (cards of

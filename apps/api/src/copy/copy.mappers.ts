@@ -40,7 +40,8 @@ export function toCopyStrategy(s: StrategyRow, settings: CopyStrategySettings, p
   const cash = Dec.from(s.cash);
   const allocated = Dec.from(s.allocated);
   const equity = unrealized === null ? null : cash.add(unrealized);
-  const totalPnl = equity === null ? null : equity.sub(allocated);
+  const withdrawn = Dec.from(s.withdrawn ?? 0);
+  const totalPnl = equity === null ? null : equity.add(withdrawn).sub(allocated);
   return {
     id: s.id,
     mode: "paper",
@@ -49,6 +50,7 @@ export function toCopyStrategy(s: StrategyRow, settings: CopyStrategySettings, p
     version: s.version,
     settings,
     allocated: wire(allocated),
+    withdrawn: wire(withdrawn),
     cash: wire(cash),
     equity: equity === null ? null : wire(equity),
     unrealizedPnl: unrealized === null ? null : wire(unrealized),
@@ -91,6 +93,9 @@ export function toCopyOrder(o: OrderRow): CopyOrder {
     builderFee: wire(o.builderFee),
     strategyVersion: o.strategyVersion,
     riskPolicyVersion: o.riskPolicyVersion,
+    executionPolicyVersion: o.executionPolicyVersion,
+    executionStrategyVersion: o.executionStrategyVersion,
+    executionFeeSnapshot: o.executionFeeSnapshot,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
   };

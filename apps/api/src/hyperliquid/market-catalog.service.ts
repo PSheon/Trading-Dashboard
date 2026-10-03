@@ -29,6 +29,9 @@ export class MarketCatalogService implements OnModuleInit {
   private list: { coins: ReadonlySet<string>; at: number } | null = null;
   private loading: Promise<ReadonlySet<string> | null> | null = null;
   private failedAt = 0;
+  private trendingList: { coins: string[]; at: number } | null = null;
+  private trendingLoading: Promise<string[]> | null = null;
+  private trendingAttemptedAt = -Infinity;
   /** Settable for tests. */
   now: () => number = () => Date.now();
 
@@ -63,6 +66,42 @@ export class MarketCatalogService implements OnModuleInit {
   async isListed(coin: string, waitMs = MARKET_CATALOG_WAIT_MS): Promise<boolean | null> {
     const markets = await this.markets(waitMs);
     return markets ? markets.has(coin) : null;
+  }
+
+  /** Exchange 24h notional volume across active perp markets, refreshed every
+   * five minutes. Stale data expires after fifteen minutes; callers then use
+   * their configured fallback. A failed/partial dex read never replaces a
+   * complete ranking. Cold requests wait at most the catalog wait budget. */
+  async trending(waitMs = MARKET_CATALOG_WAIT_MS): Promise<string[]> {
+    const now = this.now();
+    if (this.trendingList && now - this.trendingList.at < 5 * 60_000) return this.trendingList.coins;
+    if (!this.trendingLoading && now - this.trendingAttemptedAt >= MARKET_CATALOG_RETRY_MS) {
+      this.trendingAttemptedAt = now;
+      this.trendingLoading = outsideRequest(async () => {
+        const dexes = await this.info.perpDexs("live");
+        const volumes = new Map<string, number>();
+        for (const dex of dexes) {
+          const [meta, contexts] = await this.info.metaAndAssetCtxs("live", undefined, dex?.name || undefined);
+          meta.universe.forEach((asset, index) => {
+            const volume = Number(contexts[index]?.dayNtlVlm);
+            if (!asset.isDelisted && Number.isFinite(volume) && volume > 0) volumes.set(asset.name, volume);
+          });
+        }
+        if (volumes.size === 0) throw new Error("No market volume available");
+        const coins = [...volumes].sort(([a, av], [b, bv]) => bv - av || a.localeCompare(b)).map(([coin]) => coin);
+        this.trendingList = { coins, at: this.now() };
+        return coins;
+      }).catch((error: unknown) => {
+        this.logger.warn(`Trending market read failed: ${(error as Error).message}`);
+        return [];
+      }).finally(() => { this.trendingLoading = null; });
+    }
+    if (this.trendingList && now - this.trendingList.at < 15 * 60_000) return this.trendingList.coins;
+    if (!this.trendingLoading) return [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([this.trendingLoading, new Promise<string[]>(resolve => { timer = setTimeout(() => resolve([]), waitMs); })]);
+    } finally { clearTimeout(timer); }
   }
 
   private refresh(): Promise<ReadonlySet<string> | null> {

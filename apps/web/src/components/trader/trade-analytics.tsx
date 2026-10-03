@@ -1,11 +1,12 @@
 "use client";
 
 import type { RoundTrip, TradeCoin, TraderAnalyticsResponse, TraderTradesResponse } from "@/lib/contracts";
-import { ArrowDown, ArrowRight, ArrowUpRight, Check, Share2 } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
+import { TradeShareDialog, type TradeShareSnapshot } from "./trade-share-dialog";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n/provider";
@@ -186,53 +187,38 @@ function Duration({ trade }: { trade: RoundTrip }) {
   return <>{trade.partial ? `>${duration(trade.holdSeconds)}` : duration(trade.holdSeconds)}</>;
 }
 
-/** Copies a one-line summary of the trade and the page link (CopyDog opens
- * an image card; Orbie has no share images yet). */
+function tradeSnapshot(trade: RoundTrip, side: string): TradeShareSnapshot {
+  const pnl = shownPnl(trade);
+  return { market: coinLabel(trade.coin), side, pnl: signedUsd2(pnl), positive: pnl >= 0,
+    entry: `${trade.entryApprox ? "≈" : ""}${price(trade.entryPx)}`, exit: trade.exitPx === null ? "—" : price(trade.exitPx),
+    detail: `${duration(trade.holdSeconds)} · ${trade.partial ? "> " : ""}${new Date(trade.entryTime).toISOString()} → ${trade.exitTime ? new Date(trade.exitTime).toISOString() : "—"}`,
+    capturedAt: new Date().toISOString(), source: `${window.location.origin}${window.location.pathname}` };
+}
+
 function ShareButton({ trade }: { trade: RoundTrip }) {
   const { t } = useI18n();
-  const [done, setDone] = useState(false);
-  const share = () => {
-    void copyTrade(trade).then(() => {
-      setDone(true);
-      setTimeout(() => setDone(false), 1400);
-    });
-  };
-  return (
-    <button
-      type="button"
-      onClick={share}
-      aria-label={done ? t("trader.shareCopied") : t("trader.shareTrade")}
-      title={done ? t("trader.shareCopied") : t("trader.shareTrade")}
-      className="ml-1.5 inline-flex size-5 items-center justify-center rounded text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      {done ? <Check className="size-3 text-positive" /> : <Share2 className="size-3" />}
+  const [snapshot, setSnapshot] = useState<TradeShareSnapshot | null>(null);
+  return <>
+    <button type="button" aria-haspopup="dialog" onClick={() => setSnapshot(tradeSnapshot(trade, t(trade.side === "long" ? "trader.sideLong" : "trader.sideShort")))}
+      aria-label={t("trader.shareTrade")} title={t("trader.shareTrade")}
+      className="ml-1.5 inline-flex size-5 items-center justify-center rounded text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+      <Share2 className="size-3" />
     </button>
-  );
+    {snapshot ? <TradeShareDialog snapshot={snapshot} onClose={() => setSnapshot(null)} /> : null}
+  </>;
 }
 
-/** The card's PnL block; on the 交易 tab it is the share button, as on
- * CopyDog's mobile cards. */
 function TrailShare({ trade, enabled, children }: { trade: RoundTrip; enabled: boolean; children: React.ReactNode }) {
   const { t } = useI18n();
-  const [done, setDone] = useState(false);
+  const [snapshot, setSnapshot] = useState<TradeShareSnapshot | null>(null);
   const className = "flex shrink-0 flex-col items-end gap-1 pl-2";
   if (!enabled) return <div className={className}>{children}</div>;
-  return (
-    <button
-      type="button"
-      className={cn(className, "rounded outline-none focus-visible:ring-2 focus-visible:ring-ring")}
-      aria-label={done ? t("trader.shareCopied") : t("trader.shareTrade")}
-      onClick={() => void copyTrade(trade).then(() => { setDone(true); setTimeout(() => setDone(false), 1400); })}
-    >
-      {children}
-      {done ? <Check className="size-3 text-positive" /> : null}
-    </button>
-  );
-}
-
-function copyTrade(trade: RoundTrip): Promise<void> {
-  const line = `${coinLabel(trade.coin)} ${trade.side === "long" ? "Long" : "Short"} ${price(trade.entryPx)} → ${trade.exitPx === null ? "-" : price(trade.exitPx)} ${signedUsd2(shownPnl(trade))}`;
-  return navigator.clipboard?.writeText(`${line}\n${window.location.href}`) ?? Promise.resolve();
+  return <>
+    <button type="button" className={cn(className, "rounded outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+      aria-haspopup="dialog" aria-label={t("trader.shareTrade")}
+      onClick={() => setSnapshot(tradeSnapshot(trade, t(trade.side === "long" ? "trader.sideLong" : "trader.sideShort")))}>{children}</button>
+    {snapshot ? <TradeShareDialog snapshot={snapshot} onClose={() => setSnapshot(null)} /> : null}
+  </>;
 }
 
 /** A trade as CopyDog's mobile card: coin + side, entry → exit, "2d ago",

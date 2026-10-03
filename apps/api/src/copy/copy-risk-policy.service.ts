@@ -69,7 +69,7 @@ export class CopyRiskPolicyService {
    * is a 400, and an unreachable universe a 503 (nothing saved). Needs
    * risk.manage. 409 stale_version unless `expectedVersion` is current.
    * Audited (copy.risk) in the same transaction. Tightening applies to the
-   * next order; nothing already approved is re-evaluated.
+   * next decision, including execution-time revalidation of approved orders.
    */
   async put(input: unknown, actor: RequestUser): Promise<AdminCopyRiskResponse> {
     if (!hasPermission(actor, "risk.manage")) throw new ForbiddenException("Requires risk.manage");

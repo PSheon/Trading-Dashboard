@@ -69,3 +69,13 @@ describe("the insights headline waits for the tier to be read", () => {
     expect(render()).not.toContain(zhTW.insights.cohort.building);
   });
 });
+
+it("labels surviving historical percentages when current coverage is insufficient", () => {
+  state.detail = wireOf("rekt");
+  state.history = JSON.parse(JSON.stringify(cohortHistoryResponseSchema.parse(fixtureCohortHistory("extremely_profitable", "all"))));
+  const html = render();
+  expect(html).toContain(zhTW.copyUpdates.historical);
+  expect(html).toContain("33 / 150");
+  expect(html).toContain("<time dateTime=");
+  expect(html).toContain(zhTW.insights.cohort.retry);
+});

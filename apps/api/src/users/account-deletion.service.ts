@@ -56,6 +56,9 @@ export class AccountDeletionService {
       if (await this.accounts.hasLiveCopies(tx, userId)) {
         throw new ConflictException({ statusCode: 409, code: "copies_active", message: "Stop your copies before deleting your account" });
       }
+      if (await this.accounts.hasExecutionRecords(tx, userId)) {
+        throw new ConflictException({ statusCode: 409, code: "execution_records_exist", message: "Execution accounts require reconciliation before account deletion" });
+      }
       const before = await this.accounts.footprint(tx, userId, user.role);
       for (const address of await this.accounts.favoriteAddresses(tx, userId)) {
         await this.favorites.removeAndUnwatch(tx, userId, address);

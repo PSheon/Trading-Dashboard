@@ -4,6 +4,7 @@ import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { CopyExecutionService } from "./copy-execution.service.js";
 import { CopySignalService } from "./copy-signal.service.js";
+import { COPY_SNAPSHOT_INTERVAL_MS, CopyPerformanceService } from "./copy-performance.service.js";
 
 /** Consumer passes per tick before yielding (each pass ≤ SIGNAL_BATCH rows). */
 const MAX_PASSES = 5;
@@ -25,12 +26,14 @@ export class CopyWorkerService implements OnApplicationBootstrap, OnModuleDestro
   private timer: ReturnType<typeof setInterval> | undefined;
   private running = false;
   private lastFundingCheck = 0;
+  private lastSnapshotAt = 0;
 
   constructor(
     private readonly config: AppConfig,
     private readonly signals: CopySignalService,
     private readonly execution: CopyExecutionService,
     private readonly jobs: BackgroundJobs,
+    private readonly performance: CopyPerformanceService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -61,6 +64,10 @@ export class CopyWorkerService implements OnApplicationBootstrap, OnModuleDestro
         if (Date.now() - this.lastFundingCheck > FUNDING_CHECK_MS) {
           this.lastFundingCheck = Date.now();
           await this.execution.accrueFunding();
+        }
+        if (Date.now() - this.lastSnapshotAt >= COPY_SNAPSHOT_INTERVAL_MS) {
+          await this.performance.capture();
+          this.lastSnapshotAt = Date.now();
         }
       });
     } catch (error) {

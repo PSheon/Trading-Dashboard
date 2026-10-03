@@ -1,0 +1,163 @@
+import { Pool } from "pg";
+import { eq, sql } from "drizzle-orm";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { copyExecutionWallets, copyLiveExecutions, copyWalletAuthorizations, users } from "@trading-dashboard/shared/database";
+import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from "./db-test-utils.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { PostgresLiveExecutionJournal } from "../src/copy/live/postgres-live-journal.js";
+import { PostgresWalletAuthorizationSource } from "../src/copy/live/postgres-wallet-authorizations.js";
+import { LiveOrderExecutor, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
+import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from "../src/copy/live/live-order.js";
+import { WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
+
+const gate = { assertReady: async () => {} };
+const now = 1_790_000_000_000;
+let db: TestDb;
+let lockPool: Pool;
+let grant: WalletAuthorization;
+let intent: LiveOrderIntent;
+let first: PostgresLiveExecutionJournal;
+let second: PostgresLiveExecutionJournal;
+
+beforeAll(() => {
+  // getTestDb validates loopback host and _test database before another pool is opened.
+  db = getTestDb();
+  lockPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
+  first = new PostgresLiveExecutionJournal(db, lockPool, new UnitOfWork(db));
+  second = new PostgresLiveExecutionJournal(db, lockPool, new UnitOfWork(db));
+});
+beforeEach(async () => {
+  await truncateAll(db);
+  // Nonce state has no FK and deliberately survives account deletion in production.
+  await db.execute(sql`truncate table copy_signer_nonces`);
+  const user = await insertUser(db);
+  grant = { id: "grant", version: 1, userId: user.id, strategyId: 2, walletId: "privy-wallet", privyOwnerId: "quorum",
+    signerAddress: `0x${"11".repeat(20)}`, accountAddress: `0x${"22".repeat(20)}`, network: "testnet", scopes: ["copy:trade", "copy:reduce"],
+    validFrom: now - 1, expiresAt: now + 100_000, revokedAt: null, exchangeApprovedAt: now - 1 };
+  intent = { authorizationId: "grant", userId: user.id, strategyId: 2, walletId: "privy-wallet", network: "testnet",
+    accountAddress: grant.accountAddress, reduceOnly: false, cloid: `0x${"ab".repeat(16)}`, asset: 0, side: "B", size: "0.01", limitPrice: "65000", sizeDecimals: 5, timeInForce: "Ioc" };
+  await db.insert(copyExecutionWallets).values({ id: "execution-wallet", userId: user.id, strategyId: grant.strategyId, network: grant.network,
+    accountAddress: grant.accountAddress, signerAddress: grant.signerAddress, privyWalletId: grant.walletId, privyOwnerId: grant.privyOwnerId });
+  await db.insert(copyWalletAuthorizations).values({ id: grant.id, walletId: "execution-wallet", version: grant.version, scopes: [...grant.scopes],
+    validFrom: new Date(grant.validFrom), expiresAt: new Date(grant.expiresAt), exchangeApprovedAt: new Date(grant.exchangeApprovedAt!) });
+});
+afterAll(async () => { await lockPool?.end(); await closeTestDb(); });
+
+function input(order = intent, authorization = grant) {
+  const action = buildOrderAction(order);
+  return { key: executionKey(order), fingerprint: intentFingerprint(order, action), authorization, action, now };
+}
+function transport(): LiveExchangeTransport {
+  return { network: "testnet",
+    sign: vi.fn<LiveExchangeTransport["sign"]>(async (record) => ({ action: record.action, nonce: record.nonce, expiresAfter: record.expiresAfter,
+      signature: { r: "0x01", s: "0x02", v: 27 } })),
+    submit: vi.fn<LiveExchangeTransport["submit"]>(async () => { throw new Error("accepted then response lost"); }),
+    query: vi.fn<LiveExchangeTransport["query"]>(async () => null) };
+}
+
+describe("live PostgreSQL journal and authorization authority", () => {
+  it("allocates unique monotonic nonces for two instances sharing signer and clock", async () => {
+    const other = { ...intent, cloid: `0x${"cd".repeat(16)}` as const };
+    const [a, b] = await Promise.all([first.prepare(input()), second.prepare(input(other))]);
+    expect([a.nonce, b.nonce].sort()).toEqual([now, now + 1]);
+    const restarted = new PostgresLiveExecutionJournal(db, lockPool, new UnitOfWork(db));
+    const c = await restarted.prepare(input({ ...intent, cloid: `0x${"ef".repeat(16)}` }));
+    expect(c.nonce).toBe(now + 2);
+    expect(c.expiresAfter).toBe(now + 60_000);
+  });
+  it("nonce scopes isolate networks and independent signers", async () => {
+    const a = await first.prepare(input());
+    const main = { ...intent, network: "mainnet" as const };
+    const b = await second.prepare(input(main, { ...grant, network: "mainnet" }));
+    const c = await second.prepare(input({ ...intent, cloid: `0x${"cd".repeat(16)}` }, { ...grant, signerAddress: `0x${"33".repeat(20)}` }));
+    expect([a.nonce, b.nonce, c.nonce]).toEqual([now, now, now]);
+  });
+  it("persists timeout state across restart and reconciles original cloid without resubmitting", async () => {
+    const auth = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), () => now);
+    const exchange = transport();
+    const initial = new LiveOrderExecutor(auth, first, exchange, gate, () => now);
+    expect((await initial.execute(intent)).state).toBe("unknown");
+    expect((await second.get(executionKey(intent)))?.errorCode).toBe("exchange_submission_ambiguous");
+    const resumedExchange = transport();
+    const resumed = new LiveOrderExecutor(auth, second, resumedExchange, gate, () => now);
+    expect((await resumed.execute(intent)).state).toBe("unknown");
+    expect(resumedExchange.query).toHaveBeenCalledWith(expect.objectContaining({ action: buildOrderAction(intent), nonce: now }));
+    expect(resumedExchange.sign).not.toHaveBeenCalled();
+    expect(resumedExchange.submit).not.toHaveBeenCalled();
+    vi.mocked(resumedExchange.query).mockResolvedValue({ state: "filled", exchangeOrderId: "123", filledSize: "0.01" });
+    expect((await resumed.execute(intent)).state).toBe("filled");
+    expect((await first.get(executionKey(intent)))?.outcome?.exchangeOrderId).toBe("123");
+  });
+  it("same cloid preserves payload and nonce; conflict does not burn another nonce", async () => {
+    const original = await first.prepare(input());
+    expect(await second.prepare(input())).toEqual(original);
+    await expect(second.prepare(input({ ...intent, size: "0.02" }))).rejects.toThrow("cloid_payload_conflict");
+    const next = await second.prepare(input({ ...intent, cloid: `0x${"cd".repeat(16)}` }));
+    expect(next.nonce).toBe(now + 1);
+  });
+  it("same cloid preparation across rotated signers creates only one durable intent", async () => {
+    const rotated = { ...grant, version: 2, signerAddress: `0x${"33".repeat(20)}` as const };
+    const [a, b] = await Promise.all([first.prepare(input()), second.prepare(input(intent, rotated))]);
+    expect(a).toEqual(b);
+    const rows = await db.select().from(copyLiveExecutions);
+    expect(rows).toHaveLength(1);
+  });
+  it("distributed session lock denies a second owner and releases after failures", async () => {
+    const key = executionKey(intent);
+    let unlock!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((resolve) => { entered = resolve; });
+    const hold = new Promise<void>((resolve) => { unlock = resolve; });
+    const pending = first.withOrderLock(key, async () => { entered(); await hold; throw new Error("worker failed"); });
+    // Attach rejection observer before releasing, avoiding unhandled promise rejection.
+    const finished = expect(pending).rejects.toThrow("worker failed");
+    await ready;
+    try {
+      await expect(second.withOrderLock(key, async () => "unsafe second owner")).rejects.toThrow("execution_busy");
+    } finally { unlock(); }
+    await finished;
+    expect(await second.withOrderLock(key, async () => "new owner")).toBe("new owner");
+  });
+  it("checks the original session lock and refuses a released lease", async () => {
+    const client = await lockPool.connect();
+    const connect = vi.spyOn(lockPool, "connect").mockResolvedValueOnce(client as never);
+    try {
+      await first.withOrderLock(executionKey(intent), async (lease) => {
+        await lease.assertHeld();
+        await client.query("select pg_advisory_unlock_all()");
+        await expect(lease.assertHeld()).rejects.toThrow("execution_lease_lost");
+      });
+    } finally { connect.mockRestore(); }
+  });
+  it("rejects immutable payload edits and backwards terminal transitions", async () => {
+    const prepared = await first.prepare(input());
+    await expect(first.save({ ...prepared, nonce: prepared.nonce + 1 })).rejects.toThrow("execution_record_immutable");
+    const submitting = { ...prepared, state: "submitting" as const };
+    await first.save(submitting);
+    const filled = { ...submitting, state: "filled" as const, outcome: { state: "filled" as const, exchangeOrderId: "123" } };
+    await second.save(filled);
+    await first.save({ ...filled, errorCode: undefined }); // JSONB-normalized idempotent retry
+    await expect(first.save({ ...prepared, updatedAt: now + 1 })).rejects.toThrow("execution_state_transition_denied");
+    expect((await second.get(prepared.key))?.state).toBe("filled");
+  });
+  it("rejects mismatched persisted columns and JSON evidence", async () => {
+    const prepared = await first.prepare(input());
+    await db.update(copyLiveExecutions).set({ record: { ...prepared, nonce: now + 1 } as unknown as Record<string, unknown> }).where(eq(copyLiveExecutions.key, prepared.key));
+    await expect(second.get(prepared.key)).rejects.toThrow("execution_record_invalid");
+  });
+  it("source sees committed revocation immediately and enforces network binding", async () => {
+    const source = new PostgresWalletAuthorizationSource(db);
+    const auth = new WalletAuthorizationService(source, () => now);
+    expect(await auth.authorize(intent)).toEqual(grant);
+    await expect(auth.authorize({ ...intent, network: "mainnet" })).rejects.toThrow("wallet_network_mismatch");
+    await db.update(copyWalletAuthorizations).set({ revokedAt: new Date(now), version: 2 }).where(eq(copyWalletAuthorizations.id, grant.id));
+    expect((await source.find(grant.id))?.version).toBe(2);
+    await expect(auth.authorize(intent)).rejects.toThrow("wallet_authorization_revoked");
+  });
+  it("disabled owner cannot obtain an authorization even with an unrevoked grant", async () => {
+    const auth = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), () => now);
+    await auth.authorize(intent);
+    await db.update(users).set({ disabledAt: new Date(now) }).where(eq(users.id, grant.userId));
+    await expect(auth.authorize(intent)).rejects.toThrow();
+  });
+});

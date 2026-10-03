@@ -143,7 +143,16 @@ const wireCopyPositionSchema = s.copyPositionSchema.extend({ openedAt: iso });
 export const wireCopyStrategySchema = s.copyStrategySchema.extend({ positions: z.array(wireCopyPositionSchema), activatedAt: iso, createdAt: iso, stoppedAt: iso.nullable() });
 export const wireCopyOverviewSchema = s.copyOverviewResponseSchema.extend({ strategies: z.array(wireCopyStrategySchema), pricedAt: iso.nullable() });
 export const wireCopyOrderSchema = s.copyOrderSchema.extend({ signalTime: iso, createdAt: iso, updatedAt: iso });
-export const wireCopyOrdersSchema = z.object({ items: z.array(wireCopyOrderSchema) });
+export const wireCopyLedgerSchema = s.copyLedgerResponseSchema.extend({ items: z.array(s.copyLedgerEntrySchema.extend({ createdAt: iso })) });
+export const wireCopyFillsSchema = s.copyFillsResponseSchema.extend({ items: z.array(s.copyFillEntrySchema.extend({ ts: iso })) });
+export type WireCopyLedger = z.infer<typeof wireCopyLedgerSchema>;
+export type WireCopyFills = z.infer<typeof wireCopyFillsSchema>;
+export const wireCopyOrdersSchema = s.copyOrdersResponseSchema.extend({ items: z.array(wireCopyOrderSchema) });
+export const wireCopyPerformanceSchema = s.copyPerformanceResponseSchema.extend({
+  from: iso, to: iso, points: z.array(s.copyPerformancePointSchema.extend({ time: iso })),
+  coverage: s.copyPerformanceResponseSchema.shape.coverage.extend({ firstSnapshotAt: iso.nullable(), lastSnapshotAt: iso.nullable() }),
+});
+export const wireCopyEventsSchema = s.copyEventsResponseSchema.extend({ items: z.array(s.copyEventSchema.extend({ createdAt: iso })) });
 const wireCopyControlEventSchema = s.copyControlEventSchema.extend({ createdAt: iso });
 export const wireAdminCopyControlSchema = s.adminCopyControlResponseSchema.extend({ event: wireCopyControlEventSchema });
 export const wireAdminCopyOverviewSchema = s.adminCopyOverviewSchema.extend({
@@ -234,6 +243,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "DELETE", path: "/me/favorites/:address", status: 204, auth: "user", response: z.undefined() },
   { method: "PATCH", path: "/me/favorites/:address/alert", status: 200, auth: "user", response: wireFavoriteSchema },
   { method: "GET", path: "/me/telegram", status: 200, auth: "user", response: s.telegramStatusSchema.extend({ linkedAt: iso.nullable() }) },
+  { method: "PATCH", path: "/me/telegram/copy-alerts", status: 200, auth: "user", response: s.telegramStatusSchema.extend({ linkedAt: iso.nullable() }) },
   { method: "POST", path: "/me/telegram/link", status: 200, auth: "user", response: s.telegramLinkResponseSchema.extend({ expiresAt: iso }) },
   { method: "POST", path: "/me/telegram/test", status: 200, auth: "user", response: s.telegramTestResponseSchema },
   { method: "DELETE", path: "/me/telegram", status: 204, auth: "user", response: z.undefined() },
@@ -276,7 +286,12 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "POST", path: "/me/copy/strategies/:id/funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "POST", path: "/me/copy/strategies/:id/commands", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "GET", path: "/me/copy/strategies/:id/ledger", status: 200, auth: "user (owner)", response: wireCopyLedgerSchema },
+  { method: "GET", path: "/me/copy/strategies/:id/fills", status: 200, auth: "user (owner)", response: wireCopyFillsSchema },
   { method: "GET", path: "/me/copy/strategies/:id/orders", status: 200, auth: "user (owner)", response: wireCopyOrdersSchema },
+  { method: "POST", path: "/me/copy/strategies/:id/withdraw-funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
+  { method: "GET", path: "/me/copy/strategies/:id/performance", status: 200, auth: "user (owner)", response: wireCopyPerformanceSchema },
+  { method: "GET", path: "/me/copy/events", status: 200, auth: "user", response: wireCopyEventsSchema },
   { method: "GET", path: "/admin/copy/overview", status: 200, auth: "copy.read", response: wireAdminCopyOverviewSchema },
   { method: "GET", path: "/admin/copy/strategies", status: 200, auth: "copy.read", response: wireAdminCopyStrategiesSchema },
   { method: "GET", path: "/admin/copy/strategies/:id", status: 200, auth: "copy.read", response: wireAdminCopyStrategyDetailSchema },
@@ -321,6 +336,8 @@ export type WireCopyOverview = z.infer<typeof wireCopyOverviewSchema>;
 export type WireCopyStrategy = z.infer<typeof wireCopyStrategySchema>;
 export type WireCopyOrder = z.infer<typeof wireCopyOrderSchema>;
 export type WireCopyOrders = z.infer<typeof wireCopyOrdersSchema>;
+export type WireCopyPerformance = z.infer<typeof wireCopyPerformanceSchema>;
+export type WireCopyEvents = z.infer<typeof wireCopyEventsSchema>;
 export type WireAdminCopyOverview = z.infer<typeof wireAdminCopyOverviewSchema>;
 export type WireAdminCopyStrategies = z.infer<typeof wireAdminCopyStrategiesSchema>;
 export type WireAdminCopyStrategyDetail = z.infer<typeof wireAdminCopyStrategyDetailSchema>;

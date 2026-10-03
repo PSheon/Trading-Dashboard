@@ -99,15 +99,27 @@ export class HistoryFillStore {
     }
   }
 
+  /** Newest ingested fill per account, independent of trade reconstruction.
+   * Correlated indexed lookups avoid scanning each account's entire history. */
+  async latestTimes(addresses: string[]): Promise<Map<string, Date>> {
+    if (addresses.length === 0) return new Map();
+    await this.ready();
+    const rows = await this.db.select({
+      address: historyAccounts.address,
+      latest: sql<Date | null>`(select max(${historyFills.time}) from ${historyFills} where ${historyFills.accountId} = ${historyAccounts.id})`,
+    }).from(historyAccounts).where(and(eq(historyAccounts.chain, CHAIN_DEFAULT), inArray(historyAccounts.address, addresses)));
+    return new Map(rows.flatMap(row => row.latest ? [[row.address, new Date(row.latest)] as const] : []));
+  }
+
   /** An address's stored fills in a time range, oldest first (the regular
-   * row before the TWAP row of the same millisecond). */
+   * row before the TWAP row of the same millisecond, then ascending tid). */
   async read(address: string, range: FillRange = {}, db: FillExecutor = this.db): Promise<StoredHistoryFill[]> {
     await this.ready();
     const account = await this.accountId(address, db);
     if (account === undefined) return [];
     const query = this.rows(db).where(and(eq(historyFills.accountId, account), ...timeRange(range)));
-    if (range.newest === undefined) return (await query.orderBy(asc(historyFills.time), asc(historyFills.twap))).map(stored);
-    return (await query.orderBy(desc(historyFills.time), desc(historyFills.twap)).limit(range.newest)).reverse().map(stored);
+    if (range.newest === undefined) return (await query.orderBy(asc(historyFills.time), asc(historyFills.twap), asc(historyFills.tid))).map(stored);
+    return (await query.orderBy(desc(historyFills.time), desc(historyFills.twap), desc(historyFills.tid)).limit(range.newest)).reverse().map(stored);
   }
 
   /** One stream of an address in tid order, `limit` rows after `afterTid`:

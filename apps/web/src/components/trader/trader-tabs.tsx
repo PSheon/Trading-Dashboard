@@ -9,7 +9,7 @@ import type {
   TraderTransfer,
   TraderTwap,
 } from "@/lib/contracts";
-import { ArrowDownRight, ArrowUpRight, Check, Share2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
@@ -33,6 +33,7 @@ import {
   usdFull,
 } from "@/lib/trade-format";
 import { Asset, Empty, LoadError, Loading, SortHead, useSorted } from "./trade-analytics";
+import { TradeShareDialog, type TradeShareSnapshot } from "./trade-share-dialog";
 
 /**
  * CopyDog's trader-page tabs beyond the trade analytics: 持倉, 餘額, 訂單,
@@ -55,17 +56,6 @@ function Badge({ tone, children }: { tone: "buy" | "sell" | "move"; children: Re
       {children}
     </span>
   );
-}
-
-function useCopied(): [boolean, (text: string) => void] {
-  const [done, setDone] = useState(false);
-  const copy = (text: string) => {
-    void (navigator.clipboard?.writeText(text) ?? Promise.resolve()).then(() => {
-      setDone(true);
-      setTimeout(() => setDone(false), 1400);
-    });
-  };
-  return [done, copy];
 }
 
 // --- 持倉 -------------------------------------------------------------------------
@@ -121,29 +111,24 @@ function LeverageChip({ p }: { p: LivePosition }) {
   );
 }
 
-function positionLine(p: LivePosition, mark: number | null): string {
-  return `${coinLabel(p.coin)} ${p.side === "long" ? "Long" : "Short"} ${p.leverage ? `${Math.round(p.leverage)}× ` : ""}${price(p.entryPx)} → ${price(mark)} ${signedUsd2(p.unrealizedPnl)}`;
-}
-
-function SharePosition({ p, mark }: { p: LivePosition; mark: number | null }) {
+function SharePosition({ p, mark, onShare }: { p: LivePosition; mark: number | null; onShare: (snapshot: TradeShareSnapshot) => void }) {
   const { t } = useI18n();
-  const [done, copy] = useCopied();
-  return (
-    <button
-      type="button"
-      onClick={() => copy(`${positionLine(p, mark)}\n${window.location.href}`)}
-      aria-label={done ? t("trader.shareCopied") : t("trader.sharePosition")}
-      title={done ? t("trader.shareCopied") : t("trader.sharePosition")}
-      className="ml-2 inline-flex size-5 items-center justify-center rounded-md align-middle text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      {done ? <Check className="size-3 text-positive" /> : <Share2 className="size-3" />}
+  return <>
+    <button type="button" aria-haspopup="dialog"
+      onClick={() => onShare({ market: coinLabel(p.coin), side: t(p.side === "long" ? "trader.sideLong" : "trader.sideShort"),
+        pnl: signedUsd2(p.unrealizedPnl), positive: p.unrealizedPnl >= 0, entry: price(p.entryPx), exit: price(mark),
+        detail: `${qty(Math.abs(p.szi))} · ${p.leverage ? `${p.leverage}×` : "—"}`,
+        capturedAt: new Date().toISOString(), source: `${window.location.origin}${window.location.pathname}` })}
+      aria-label={t("trader.sharePosition")} title={t("trader.sharePosition")}
+      className="ml-2 inline-flex size-5 items-center justify-center rounded-md align-middle text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+      <Share2 className="size-3" />
     </button>
-  );
+  </>;
 }
 
 /** CopyDog's mobile position card: coin, side, leverage, size; PnL and its
  * % pill; value / entry / mark / liquidation underneath. */
-function PositionCard({ p, mark }: { p: LivePosition; mark: number | null }) {
+function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | null; onShare: (snapshot: TradeShareSnapshot) => void }) {
   const { t } = useI18n();
   const pct = pnlPct(p);
   return (
@@ -163,7 +148,7 @@ function PositionCard({ p, mark }: { p: LivePosition; mark: number | null }) {
           </span>
         </div>
         <div className="flex flex-col items-end gap-[3px]">
-          <span className={cn("num text-base leading-[23px] font-semibold", pnlTone(p.unrealizedPnl))}>{signedUsdShort(p.unrealizedPnl)}</span>
+          <span className={cn("num text-base leading-[23px] font-semibold", pnlTone(p.unrealizedPnl))}>{signedUsdShort(p.unrealizedPnl)}<SharePosition p={p} mark={mark} onShare={onShare} /></span>
           {pct !== null ? (
             <span className={cn("num inline-flex items-center rounded-[6px] p-1 text-xs font-semibold", pct >= 0 ? BUY_BADGE : SELL_BADGE)}>
               {pct >= 0 ? <ArrowUpRight className="size-[9px]" strokeWidth={2.5} /> : <ArrowDownRight className="size-[9px]" strokeWidth={2.5} />}
@@ -196,6 +181,8 @@ type PositionKey = "asset" | "size" | "value" | "entry" | "mark" | "pnl" | "liqu
  * 強平價 (distance) / 保證金 / 資金費, largest value first; cards on phones. */
 export function PositionsTab({ profile, marks }: { profile: TraderProfileResponse; marks: Readonly<Record<string, number>> }) {
   const { t } = useI18n();
+  const [snapshot, setSnapshot] = useState<TradeShareSnapshot | null>(null);
+  const share = snapshot ? <TradeShareDialog snapshot={snapshot} onClose={() => setSnapshot(null)} /> : null;
   const keys = useMemo<Record<PositionKey, (p: LivePosition) => number | string>>(
     () => ({
       asset: (p) => p.coin,
@@ -212,14 +199,15 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
   );
   const { sorted, sort, onSort } = useSorted<LivePosition, PositionKey>(profile.positions, keys, { key: "value", dir: "desc" });
   if (profile.positions.length === 0) {
-    return <Empty title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} />;
+    return <><Empty title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} />{share}</>;
   }
   const head = { sort, onSort };
   return (
     <>
+      {share}
       <ul className="flex flex-col gap-3 sm:hidden">
         {sorted.map((p) => (
-          <PositionCard key={p.coin} p={p} mark={markOf(p, marks)} />
+          <PositionCard key={p.coin} p={p} mark={markOf(p, marks)} onShare={setSnapshot} />
         ))}
       </ul>
       <div className="hidden sm:block">
@@ -258,7 +246,7 @@ export function PositionsTab({ profile, marks }: { profile: TraderProfileRespons
                   <TableCell className={cn("text-right whitespace-nowrap", pnlTone(p.unrealizedPnl))}>
                     {signedUsd2(p.unrealizedPnl)}
                     {pct !== null ? <span> ({signedPct2(pct)})</span> : null}
-                    <SharePosition p={p} mark={mark} />
+                    <SharePosition p={p} mark={mark} onShare={setSnapshot} />
                   </TableCell>
                   <TableCell className="text-right">
                     <LiqCell p={p} mark={mark} />

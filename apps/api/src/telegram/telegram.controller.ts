@@ -1,9 +1,10 @@
 import { ApiDoc } from "../common/decorators/http.decorator.js";
-import { Controller, Delete, Get, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Patch, Post } from "@nestjs/common";
 import type { TelegramLinkResponse, TelegramStatus, TelegramTestResponse } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { requireUserId } from "../common/auth/current-user.js";
+import { PatchCopyAlertsDto } from "./dto/copy-alerts.dto.js";
 import { TelegramLinkService } from "./telegram-link.service.js";
 
 /** The signed-in user's Telegram link to the official bot. */
@@ -15,6 +16,12 @@ export class TelegramController {
   @Get()
   status(@CurrentUser() user: RequestUser | null): Promise<TelegramStatus> {
     return this.link.status(requireUserId(user));
+  }
+
+  @ApiDoc("Set copy trading notifications")
+  @Patch("copy-alerts")
+  setCopyAlerts(@CurrentUser() user: RequestUser | null, @Body() body: PatchCopyAlertsDto): Promise<TelegramStatus> {
+    return this.link.setCopyAlerts(requireUserId(user), body.enabled);
   }
 
   /** A one-time t.me deep link; 503 `telegram_not_configured` without a

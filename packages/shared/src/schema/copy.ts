@@ -29,6 +29,7 @@ const usd = z.number().finite();
 /** A USDC amount a user or admin types: at most 6 decimals (USDC's own
  * precision), so what is validated is exactly what is stored. */
 const usdAmount = z.number().finite().refine((v) => Number(v.toFixed(6)) === v, "At most 6 decimals");
+export const copyIdempotencyKeySchema = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/);
 
 /**
  * The one comparison key of a Hyperliquid perp name, used when an admin saves
@@ -116,6 +117,7 @@ export type CopyStrategySettings = z.infer<typeof copyStrategySettingsSchema>;
 
 /** POST /me/copy/strategies — CopyDog's configure body, Orbie names. */
 export const createCopyStrategyRequestSchema = z.object({
+  idempotencyKey: copyIdempotencyKeySchema.optional(),
   leader: address,
   direction: copyDirectionSchema.default("same"),
   allocationUsd: usdAmount.pipe(z.number().positive()),
@@ -137,14 +139,16 @@ export const patchCopyStrategyRequestSchema = z.object({
 export type PatchCopyStrategyRequest = z.infer<typeof patchCopyStrategyRequestSchema>;
 
 /** POST /me/copy/strategies/:id/funds — CopyDog's 加碼. */
-export const addCopyFundsRequestSchema = z.object({ amountUsd: usdAmount.pipe(z.number().positive()) }).strict();
+export const addCopyFundsRequestSchema = z.object({ amountUsd: usdAmount.pipe(z.number().positive()), idempotencyKey: copyIdempotencyKeySchema.optional() }).strict();
 export type AddCopyFundsRequest = z.infer<typeof addCopyFundsRequestSchema>;
+export const withdrawCopyFundsRequestSchema = addCopyFundsRequestSchema;
+export type WithdrawCopyFundsRequest = z.infer<typeof withdrawCopyFundsRequestSchema>;
 
 /** The owner's commands on one strategy. pause = pause_new_risk; stop =
  * close_positions, then the strategy's cash returns to the paper balance. */
 export const copyStrategyCommandSchema = z.enum(["pause", "resume", "reduce_only", "cancel_pending", "close_positions", "stop"]);
 export type CopyStrategyCommand = z.infer<typeof copyStrategyCommandSchema>;
-export const copyStrategyCommandRequestSchema = z.object({ command: copyStrategyCommandSchema }).strict();
+export const copyStrategyCommandRequestSchema = z.object({ command: copyStrategyCommandSchema, idempotencyKey: copyIdempotencyKeySchema.optional() }).strict();
 
 export const copyControlStateSchema = z.object({
   pauseNewRisk: z.boolean(),
@@ -189,6 +193,8 @@ export const copyStrategySchema = z.object({
   version: z.number().int(),
   settings: copyStrategySettingsSchema,
   allocated: z.number(),
+  withdrawn: z.number().optional(),
+  freeCollateralUsd: z.number().nullable().optional(),
   cash: z.number(),
   /** cash + unrealized; null while prices are unavailable and a position is open. */
   equity: z.number().nullable(),
@@ -254,12 +260,38 @@ export const copyOrderSchema = z.object({
   builderFee: z.number(),
   strategyVersion: z.number().int(),
   riskPolicyVersion: z.number().int(),
+  executionPolicyVersion: z.number().int().nullable().optional(),
+  executionStrategyVersion: z.number().int().nullable().optional(),
+  executionFeeSnapshot: z.object({ takerFeeBps: z.number(), builderFeeTenthsBps: z.number() }).nullable().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
 export type CopyOrder = z.infer<typeof copyOrderSchema>;
-export const copyOrdersResponseSchema = z.object({ items: z.array(copyOrderSchema) });
+export const copyOrdersQuerySchema = z.object({
+  before: z.string().regex(/^[1-9]\d{0,18}$/).refine((v) => BigInt(v) <= 9223372036854775807n).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+}).strict();
+export const copyOrdersResponseSchema = z.object({ items: z.array(copyOrderSchema),
+  previousCursor: z.string().regex(/^\d+$/).nullable().optional(), hasMore: z.boolean().optional(),
+});
 export type CopyOrdersResponse = z.infer<typeof copyOrdersResponseSchema>;
+
+/** Exact persisted paper accounting; wire decimals stay strings. */
+const copyHistoryDecimal = z.string().regex(/^-?\d+(?:\.\d+)?$/);
+export const copyLedgerEntrySchema = z.object({
+  id: z.string().regex(/^\d+$/), kind: z.string(), amount: copyHistoryDecimal,
+  coin: z.string().nullable(), orderId: z.string().nullable(), createdAt: z.coerce.date(),
+});
+export const copyFillEntrySchema = z.object({
+  id: z.string().regex(/^\d+$/), orderId: z.string(), coin: z.string(), side: z.enum(["B", "A"]),
+  size: copyHistoryDecimal, px: copyHistoryDecimal, fee: copyHistoryDecimal,
+  builderFee: copyHistoryDecimal, realizedPnl: copyHistoryDecimal, ts: z.coerce.date(),
+});
+const copyHistoryPage = z.object({ mode: z.literal("paper"), previousCursor: z.string().nullable(), hasMore: z.boolean() });
+export const copyLedgerResponseSchema = copyHistoryPage.extend({ items: z.array(copyLedgerEntrySchema) });
+export const copyFillsResponseSchema = copyHistoryPage.extend({ items: z.array(copyFillEntrySchema) });
+export type CopyLedgerResponse = z.infer<typeof copyLedgerResponseSchema>;
+export type CopyFillsResponse = z.infer<typeof copyFillsResponseSchema>;
 
 // --- admin ------------------------------------------------------------------
 

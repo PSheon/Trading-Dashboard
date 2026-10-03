@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { cn } from "cn";
 
+import { CopyActivity } from "@/components/copy/copy-activity";
 import { CopyCards, CopyDetail, CopyExposure, CopyInsights, CopyTable, PaperAccountCard, useLeaders } from "@/components/copy/copy-portfolio";
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ export function PortfolioView() {
       <div className="md:hidden">
         <PhonePortfolio />
       </div>
+      <CopyActivity />
     </>
   );
 }
@@ -179,6 +181,7 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
   const { t } = useI18n();
   const [selected, select] = useSelectedCopy();
   const leaders = useLeaders(overview.strategies);
+  const [tab, setTab] = useState<Tab>("copying");
   const strategy = overview.strategies.find((s) => s.id === selected);
   if (strategy) {
     return (
@@ -195,8 +198,20 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
     <CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} />
   ) : (
     <section className="flex flex-col gap-3">
-      <h2 className="text-base font-bold">{t("portfolio.copy.tradersTitle")}</h2>
-      <CopyTable strategies={overview.strategies} leaders={leaders} onSelect={select} />
+      <div role="tablist" aria-label={t("portfolio.title")} className="flex gap-2">
+        {(["copying", "insights", "exposure"] as const).map((value) => <button key={value} id={`desktop-copy-tab-${value}`} type="button" role="tab" aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} aria-controls="desktop-copy-panel" onKeyDown={(event) => {
+          const values = ["copying", "insights", "exposure"] as const;
+          const index = values.indexOf(value);
+          const next = event.key === "ArrowRight" ? values[(index + 1) % values.length] : event.key === "ArrowLeft" ? values[(index + values.length - 1) % values.length] : event.key === "Home" ? values[0] : event.key === "End" ? values[values.length - 1] : null;
+          if (next) { event.preventDefault(); setTab(next); document.getElementById(`desktop-copy-tab-${next}`)?.focus(); }
+        }} onClick={() => setTab(value)} className={cn("rounded-full px-4 py-2 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", tab === value ? "bg-primary text-primary-foreground" : "bg-raised text-foreground")}>{t(`portfolio.tabs.${value}`)}</button>)}
+      </div>
+      <div id="desktop-copy-panel" role="tabpanel" aria-labelledby={`desktop-copy-tab-${tab}`} className="pt-2">
+        {tab === "copying" ? <>
+          <h2 className="mb-3 text-base font-bold">{t("portfolio.copy.tradersTitle")}</h2>
+          <CopyTable strategies={overview.strategies} leaders={leaders} onSelect={select} />
+        </> : tab === "insights" ? <CopyInsights overview={overview} leaders={leaders} /> : <CopyExposure overview={overview} />}
+      </div>
     </section>
   );
 }

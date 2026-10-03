@@ -108,8 +108,22 @@ describe("cohort job and endpoints (real Postgres)", () => {
       { address: addr(2), poolRank: 2, pnlAll: "1500000", roiAll: "1", portfolioAt: new Date() },
       { address: addr(3), poolRank: 3, pnlAll: "1200000", roiAll: "1", portfolioAt: new Date() },
     ]);
+    await db.insert(discoveryTraders).values([
+      { address: addr(4), inPool: false, pnlAll: "-50000", roiAll: "-0.1", portfolioAt: new Date() },
+      { address: addr(5), inPool: false, pnlAll: "-60000", roiAll: "-0.2", portfolioAt: new Date() },
+      { address: addr(6), inPool: false, pnlAll: "-2000000", roiAll: "-0.9", portfolioAt: new Date() },
+    ]);
     await db.insert(kolTraders).values({ address: addr(1), displayName: "KOL One", verified: true });
   }
+
+  it("tiers topups by perp PnL even when whole-account PnL disagrees, excluding unknowns", async () => {
+    await seed();
+    await db.update(traderStats).set({ pnlAllTime: "9000000" }).where(eq(traderStats.address, addr(4)));
+    await db.insert(traderStats).values(stat(addr(7), 9e6, 1e6));
+    const topups = await repository.leaderboardTopUp("unprofitable", 20, []);
+    expect(topups).toEqual([{ address: addr(4), pnlAll: "-50000", roiAll: "-0.1" }]);
+    expect((await repository.leaderboardTopUp("extremely_profitable", 20, [])).map(row => row.address)).not.toContain(addr(7));
+  });
 
   it("chooses members per tier from the pool, topped up from the leaderboard", async () => {
     await seed();

@@ -9,6 +9,7 @@ import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
 import { DELIVERY_BATCH, NotifyRepository, type DeliveryRow } from "./notify.repository.js";
+import { copyDeliveryPayloadSchema, renderCopyMessage, COPY_NOTIFICATION_TYPES } from "./copy-message.js";
 import type { AlertContext } from "./notify.types.js";
 import { renderAlertMessage, renderTestMessage, tradeSideOf } from "./message-template.js";
 import { TelegramApiError, TelegramHttpClient } from "./telegram-http.client.js";
@@ -124,6 +125,13 @@ export class NotifyService {
    * 45 seconds for the same 200, and a backlog under load).
    */
   async deliverAction(actionId?: bigint): Promise<void> {
+    if (actionId === undefined) {
+      for (const { event, chatId } of await this.repository.copyCandidates()) {
+        const payload = copyDeliveryPayloadSchema.parse({ version: 2, kind: "copy", mode: "paper", eventId: String(event.id), chatId,
+          text: renderCopyMessage(event, this.config.value.telegram.linkBaseUrl) });
+        await this.unitOfWork.run(tx => this.repository.enqueueCopy(event.id, event.userId, payload, tx));
+      }
+    }
     const deadline = Date.now() + DELIVERY_DRAIN_BUDGET_MS;
     while (!this.jobs.stopping) {
       const rows = await this.repository.findDue(actionId);
@@ -137,6 +145,7 @@ export class NotifyService {
     const leaseToken = randomUUID();
     const row = await this.repository.claim(id, leaseToken, 300_000);
     if (!row) return;
+    if (row.copyEventId !== null) { await this.deliverCopy(row, leaseToken); return; }
     const retry = { delayMs: 0, permanent: false };
     let status: "sent" | "dry_run" | "failed" = "failed";
     let reason: string | undefined;
@@ -173,6 +182,38 @@ export class NotifyService {
     }));
   }
 
+  private async deliverCopy(row: DeliveryRow, leaseToken: string): Promise<void> {
+    const retry = { delayMs: 0, permanent: false };
+    let status: "sent" | "dry_run" | "failed" = "failed";
+    let reason: string | undefined;
+    try {
+      const payload = copyDeliveryPayloadSchema.parse(row.payloadJson);
+      const allowed = async () => {
+        const [recipient, channel, event, settings] = await Promise.all([
+          this.repository.enabledRecipient(row.userId), this.repository.enabledChannel(row.userId, payload.chatId),
+          this.repository.copyEvent(row.copyEventId!, row.userId), this.repository.notificationSettings(),
+        ]);
+        return Boolean(recipient && channel?.copyAlertsEnabled && channel.copyAlertsSince && event
+          && String(event.id) === payload.eventId && event.payload.mode === "paper"
+          && (COPY_NOTIFICATION_TYPES as readonly string[]).includes(event.type)
+          && event.createdAt >= channel.copyAlertsSince && Date.now() - event.createdAt.getTime() <= 24 * 60 * 60_000
+          && recoverSettingsSection("notifications", settings ? settings.value : {}, Boolean(settings)).value.alertsEnabled);
+      };
+      if (row.attempts > 5 || !(await allowed())) { retry.permanent = true; reason = "copy notification authorization withdrawn or expired"; }
+      else if (this.config.value.telegram.dryRun) status = "dry_run";
+      else if (await this.sendWithRetry(payload.chatId, payload.text, retry, allowed)) status = "sent";
+      else reason = "Telegram send failed";
+    } catch (error) {
+      reason = "copy delivery failed";
+      if (error instanceof Error && error.name === "ZodError") retry.permanent = true;
+      this.logger.error(`Copy delivery ${row.id} failed: ${errorText(error)}`);
+    }
+    await this.unitOfWork.run(tx => this.repository.recordDelivery(tx, row, leaseToken, {
+      status, pending: status === "failed" && !retry.permanent && row.attempts < 5,
+      availableAt: new Date(Date.now() + Math.max(60_000, retry.delayMs)), reason,
+    }));
+  }
+
   private async deliveryStillAllowed(
     row: DeliveryRow,
     payload: ReturnType<typeof notificationDeliveryPayloadSchema.parse>,
@@ -182,6 +223,7 @@ export class NotifyService {
     if (!recoverSettingsSection("notifications", config ? config.value : {}, Boolean(config)).value.alertsEnabled) return false;
     if (role === "admin" && payload.reasons.rules.length > 0) return true;
     if (!payload.reasons.favorite) return false;
+    if (row.actionId === null) return false;
     const action = await this.repository.action(row.actionId);
     if (!action) return false;
     const favorite = await this.repository.enabledFavorite(row.userId, action.chain, action.address);

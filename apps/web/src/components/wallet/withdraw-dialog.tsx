@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth";
 import type { WalletSummary } from "@/lib/contracts";
 import { WITHDRAW_FEE_USDC, networkConfig, usdcString } from "@/lib/hyperliquid-network";
 import { amountInput } from "@/lib/amount-input";
-import { signErrorMessage, useWallet, useWithdraw } from "@/lib/wallet";
+import { signErrorMessage, useWallet, useWithdraw, useWithdrawalRecovery } from "@/lib/wallet";
 import { NetworkBadge } from "./bits";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -71,8 +71,15 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   const toast = useToast();
   const { wallet } = useAuth();
   const withdraw = useWithdraw();
-  const [destination, setDestination] = useState("");
-  const [amount, setAmount] = useState("");
+  const [destinationInput, setDestination] = useState("");
+  const [amountInputValue, setAmount] = useState("");
+  const recovery = useWithdrawalRecovery(summary);
+  const pendingOperation = recovery.data?.status === "unknown" || recovery.data?.status === "prepared" ? recovery.data : null;
+  const destination = pendingOperation?.destination ?? destinationInput;
+  const amount = pendingOperation?.amount ?? amountInputValue;
+  const recovering = Boolean(pendingOperation);
+  const checking = pendingOperation?.status === "unknown";
+  const recoveryText = t("wallet.withdrawRecovery");
   const destId = useId();
   const amountId = useId();
   const network = networkConfig(summary.network);
@@ -93,7 +100,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       className="flex flex-col"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!ready || withdraw.isPending) return;
+        if ((!ready && !recovering) || withdraw.isPending || recovery.isPending || recovery.isError) return;
         // CopyDog's three toasts: "Withdrawing $X…" (no icon) while signing,
         // then the submitted confirmation (and the modal closes) or the error.
         const pending = toast.info(t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false });
@@ -114,11 +121,14 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         );
       }}
     >
+      {checking ? <p role="status" className="mb-4 rounded-xl bg-raised p-3 text-sm text-muted-foreground">{recoveryText}<span className="num mt-2 block text-xs">ID: {pendingOperation?.nonce}</span></p> : null}
+      {recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
       <label htmlFor={destId} className="text-sm font-semibold">
         {t("wallet.destination")}
       </label>
       <input
         id={destId}
+        disabled={recovering}
         value={destination}
         onChange={(e) => setDestination(e.target.value)}
         placeholder={t("wallet.destinationPlaceholder")}
@@ -133,6 +143,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       </label>
       <input
         id={amountId}
+        disabled={recovering}
         value={amount}
         onChange={(e) => setAmount(amountInput(e.target.value, amount))}
         placeholder="0.00"
@@ -146,14 +157,14 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         <button
           type="button"
           className="font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
-          disabled={withdrawable <= 0}
+          disabled={withdrawable <= 0 || recovering}
           onClick={() => setAmount(usdcString(withdrawable))}
         >
           {t("wallet.max")}
         </button>
       </div>
 
-      {problemText ? (
+      {!recovering && problemText ? (
         <p role="alert" className="mt-2 text-xs text-negative">
           {problemText}
         </p>
@@ -168,9 +179,9 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         {t("wallet.withdrawNote", { chain: network.chainLabel, fee: WITHDRAW_FEE_USDC })}
       </p>
 
-      <Button type="submit" size="xl" className="mt-5 w-full" disabled={!ready || !wallet?.address || withdraw.isPending}>
+      <Button type="submit" size="xl" className="mt-5 w-full" disabled={(!ready && !recovering) || !wallet?.address || withdraw.isPending || recovery.isPending || recovery.isError}>
         {withdraw.isPending ? <Loader2 className="animate-spin" /> : null}
-        {withdraw.isPending ? t("wallet.withdrawing") : t("wallet.withdrawTitle")}
+        {withdraw.isPending ? t("wallet.withdrawing") : checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawTitle")}
       </Button>
       {!wallet ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p> : null}
     </form>

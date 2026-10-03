@@ -66,7 +66,7 @@ export function HomeView() {
 
       <section className="hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
         <div>
-          <h1 className="max-w-[8.2em] text-[3.5rem] leading-[1.05] font-extrabold tracking-tight">{t("home.heroTitle")}</h1>
+          <h1 className="max-w-[11.5em] text-[clamp(2.25rem,3.25vw,3.5rem)] leading-[1.05] font-extrabold tracking-tight">{t("home.heroTitle")}</h1>
           <Link
             href="/explore"
             className="mt-[26px] inline-flex h-[47px] items-center rounded-full bg-raised px-5 text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"

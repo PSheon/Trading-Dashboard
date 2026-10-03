@@ -108,9 +108,10 @@ export class CopyControlService {
   }
 
   /** The owner's command on one of their strategies (404 for anyone else's). */
-  async strategyCommand(userId: number, strategyId: number, command: CopyStrategyCommand): Promise<void> {
-    const mids = command === "close_positions" || command === "stop" ? await this.market.midPrices(await this.repository.positionCoins([strategyId])) : null;
-    await this.uow.run(async (tx) => {
+  async strategyCommand(userId: number, strategyId: number, command: CopyStrategyCommand, transaction?: DbTransaction, preparedMids?: Mids | null): Promise<void> {
+    const mids = transaction ? preparedMids ?? null : command === "close_positions" || command === "stop" ? await this.market.midPrices(await this.repository.positionCoins([strategyId])) : null;
+    const work = async (tx: DbTransaction) => {
+      await this.repository.lockCopyUser(tx, userId);
       const strategy = await this.repository.lockStrategy(tx, strategyId);
       if (!strategy || strategy.userId !== userId) throw new NotFoundException("Copy not found");
       if (strategy.status === "stopped") throw new ConflictException({ statusCode: 409, code: "strategy_stopped", message: "This copy has stopped" });
@@ -130,7 +131,9 @@ export class CopyControlService {
       await this.repository.insertControlEvent(tx, {
         scope: "strategy", scopeId: strategy.id, command: mapped, revision: updated.controlRevision, actorUserId: userId, reason: command === "stop" ? "stop" : null, result,
       });
-    });
+    };
+    if (transaction) await work(transaction);
+    else await this.uow.run(work);
   }
 
   private async applyEffects(tx: DbTransaction, command: CopyControlCommand, strategies: StrategyRow[], mids: Mids | null, reason: string) {

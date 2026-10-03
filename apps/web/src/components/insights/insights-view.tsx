@@ -39,12 +39,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
   const detail = useCohort(tier);
   const history = useCohortHistory(tier, window);
   const data = detail.data;
-  // The headline (the two split cards, the chart's badge, the per-market
-  // map) is the tier's only once most of its members have a fresh
-  // snapshot. Until then it is withheld, with the same placeholders as
-  // while loading and the "building" line: a figure from the first few
-  // members read differs from the tier's by tens of points. CopyDog's page
-  // has no coverage label, so none is added.
+  // Current summaries require fresh coverage; history remains explicitly historical.
   const ready = data ? (data.headlineReady ?? cohortHeadlineReady(data.walletCount, data.memberCount)) : false;
   const tierName = t(`trader.pnlTiers.${tier}`);
 
@@ -79,7 +74,11 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
             <HeroCards data={ready ? data : undefined} />
           </div>
           {data && !ready ? (
-            <p className="rounded-xl bg-raised/60 px-4 py-2.5 text-xs text-muted-foreground">{t("insights.cohort.building")}</p>
+            <div role="status" className="rounded-xl bg-raised/60 px-4 py-2.5 text-xs text-muted-foreground">
+              <p>{t("insights.cohort.building")}</p>
+              <p className="mt-1">{t("copyUpdates.coverage", { count: data.walletCount, total: data.memberCount })}</p>
+              <button type="button" className="mt-2 text-primary underline" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</button>
+            </div>
           ) : null}
           <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
             {history.errorUpdateCount > 0 && !history.data ? (

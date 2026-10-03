@@ -35,7 +35,7 @@ export interface CohortIdentityRow {
 const mine = eq(cohortMembers.chain, CHAIN_DEFAULT);
 const tierOrder = sql`array_position(array[${sql.join(COHORT_TIERS.map((t) => sql`${t}`), sql`, `)}]::text[], ${cohortMembers.tier})`;
 
-function bounds(column: typeof traderStats.pnlAllTime, tier: CohortTier): SQL | undefined {
+function bounds(column: typeof discoveryTraders.pnlAll, tier: CohortTier): SQL | undefined {
   const b = TIER_BOUNDS[tier];
   return and(
     b.gte !== undefined ? gte(column, String(b.gte)) : undefined,
@@ -72,19 +72,22 @@ export class CohortRepository {
       .where(and(eq(discoveryTraders.chain, CHAIN_DEFAULT), eq(discoveryTraders.inPool, true), isNotNull(discoveryTraders.pnlAll)));
   }
 
-  /** The leaderboard's largest active non-vault accounts in a tier (by its
-   * whole-account all-time PnL), skipping `exclude`. */
-  async leaderboardTopUp(tier: CohortTier, limit: number, exclude: string[]): Promise<Array<{ address: string; pnlAll: string; roiAll: string }>> {
+  /** Largest active non-vault accounts with known perp portfolio figures.
+   * Never infer a perp tier from whole-account leaderboard PnL. Unknown
+   * perp history stays excluded; a short tier remains visibly short. */
+  async leaderboardTopUp(tier: CohortTier, limit: number, exclude: string[]): Promise<Array<{ address: string; pnlAll: string | null; roiAll: string | null }>> {
     if (limit <= 0) return [];
     return this.db
-      .select({ address: traderStats.address, pnlAll: traderStats.pnlAllTime, roiAll: traderStats.roiAllTime })
+      .select({ address: traderStats.address, pnlAll: discoveryTraders.pnlAll, roiAll: discoveryTraders.roiAll })
       .from(traderStats)
+      .innerJoin(discoveryTraders, and(eq(discoveryTraders.chain, traderStats.chain), eq(discoveryTraders.address, traderStats.address)))
       .where(and(
         eq(traderStats.chain, CHAIN_DEFAULT),
         eq(traderStats.isVault, false),
         gt(traderStats.volumeMonth, "0"),
         gt(traderStats.accountValue, "0"),
-        bounds(traderStats.pnlAllTime, tier),
+        isNotNull(discoveryTraders.portfolioAt),
+        bounds(discoveryTraders.pnlAll, tier),
         exclude.length > 0 ? notInArray(traderStats.address, exclude) : undefined,
       ))
       .orderBy(desc(traderStats.accountValue), asc(traderStats.address))

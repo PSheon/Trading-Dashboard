@@ -1,12 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
-  actions, alerts, notificationOutbox, notificationChannels, userFavorites, appSettings, users,
+  actions, alerts, copyEvents, notificationOutbox, notificationChannels, userFavorites, appSettings, users,
 } from "@trading-dashboard/shared/database";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { COPY_NOTIFICATION_TYPES } from "./copy-message.js";
 import type { AlertContext } from "./notify.types.js";
 
 export type DeliveryRow = typeof notificationOutbox.$inferSelect;
@@ -17,6 +18,27 @@ export const DELIVERY_BATCH = 100;
 @Injectable()
 export class NotifyRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+
+  copyCandidates() {
+    return this.db.select({ event: copyEvents, chatId: notificationChannels.target }).from(copyEvents)
+      .innerJoin(users, and(eq(users.id, copyEvents.userId), isNull(users.disabledAt)))
+      .innerJoin(notificationChannels, and(eq(notificationChannels.userId, copyEvents.userId), eq(notificationChannels.kind, "telegram")))
+      .where(and(isNull(copyEvents.notificationQueuedAt), eq(notificationChannels.enabled, true), eq(notificationChannels.copyAlertsEnabled, true),
+        gte(copyEvents.createdAt, notificationChannels.copyAlertsSince), sql`${copyEvents.createdAt} >= now() - interval '24 hours'`,
+        inArray(copyEvents.type, [...COPY_NOTIFICATION_TYPES]), sql`${copyEvents.payload}->>'mode' = 'paper'`))
+      .orderBy(copyEvents.id).limit(DELIVERY_BATCH);
+  }
+
+  async enqueueCopy(eventId: bigint, userId: number, payloadJson: Record<string, unknown>, tx: DbTransaction): Promise<void> {
+    const claimed = await tx.update(copyEvents).set({ notificationQueuedAt: sql`now()` })
+      .where(and(eq(copyEvents.id, eventId), eq(copyEvents.userId, userId), isNull(copyEvents.notificationQueuedAt))).returning({ id: copyEvents.id });
+    if (claimed.length) await tx.insert(notificationOutbox).values({ copyEventId: eventId, userId, payloadJson }).onConflictDoNothing();
+  }
+
+  async copyEvent(id: bigint, userId: number) {
+    const [event] = await this.db.select().from(copyEvents).where(and(eq(copyEvents.id, id), eq(copyEvents.userId, userId)));
+    return event;
+  }
 
   /** Insert intent and pending alert rows in the caller's cooldown transaction.
    * A duplicate action/recipient inserts neither another intent nor another log. */
@@ -98,7 +120,7 @@ export class NotifyRepository {
     const updated = await tx.update(notificationOutbox).set({ status: pending ? "pending" : status,
       availableAt, lockedUntil: null, leaseToken: null, lastError: reason ?? null,
     }).where(and(eq(notificationOutbox.id, row.id), eq(notificationOutbox.leaseToken, leaseToken))).returning({ id: notificationOutbox.id });
-    if (!updated.length) return;
+    if (!updated.length || row.actionId === null) return;
     await tx.update(alerts).set({ sendStatus: status, sentAt: new Date(),
       payloadJson: reason ? { ...row.payloadJson, reason } : row.payloadJson,
     }).where(and(eq(alerts.actionId, row.actionId), eq(alerts.userId, row.userId)));

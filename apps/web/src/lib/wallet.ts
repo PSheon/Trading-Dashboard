@@ -16,6 +16,7 @@ import {
 } from "@/lib/hyperliquid-network";
 import { busyRetry } from "@/lib/query-policy";
 import { queryKeys } from "@/lib/query-keys";
+import { createWithdrawalJournal, runWithdrawal, withdrawalStorageKey } from "@/lib/withdrawal-operation";
 
 /** The header pill, portfolio and modals share one read; the api caches
  * 15 s, so polling faster buys nothing. */
@@ -84,18 +85,21 @@ export function useBridgeDeposit() {
   });
 }
 
-/** Hyperliquid's answer to an exchange request. */
-interface ExchangeReply {
-  status: "ok" | "err";
-  response?: unknown;
+/** Pending metadata is scoped by network and account, including across tabs. */
+export function useWithdrawalRecovery(summary: WalletSummary) {
+  return useQuery({
+    queryKey: [...queryKeys.wallet.all, "withdrawal", summary.network, summary.address],
+    queryFn: () => summary.address ? createWithdrawalJournal(localStorage, summary.network, summary.address).read() : null,
+    staleTime: 0,
+    refetchInterval: 1_000,
+    enabled: Boolean(summary.address),
+    retry: false,
+  });
 }
 
-/**
- * Withdraw USDC to an Arbitrum address: the user's embedded wallet signs a
- * `withdraw3` action (EIP-712) in the browser and the signed request goes
- * straight to Hyperliquid's exchange endpoint on the wallet network. The
- * api never sees the signature. Hyperliquid takes its $1 fee from `amount`.
- */
+/** Sign in the browser, persist the nonce before broadcast, and reconcile
+ * ambiguous results by the exact withdrawal nonce. Never create a fresh
+ * withdrawal as a retry of an uncertain one. */
 export function useWithdraw() {
   const { wallet } = useAuth();
   const queryClient = useQueryClient();
@@ -103,19 +107,38 @@ export function useWithdraw() {
     mutationFn: async ({ summary, destination, amount }: { summary: WalletSummary; destination: string; amount: string }) => {
       if (!wallet?.address) throw new Error("No wallet");
       if (!summary.address || summary.address !== wallet.address.toLowerCase()) throw new Error("Wallet mismatch");
+      if (!navigator.locks) throw new Error("Secure withdrawal locking is unavailable in this browser");
       const network = networkConfig(summary.network);
-      const time = Date.now();
-      const signature = await wallet.signTypedData(withdraw3TypedData(network, destination, amount, time));
-      const res = await fetch(network.exchangeUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(withdraw3Request(network, destination, amount, time, signature)),
+      const address = summary.address;
+      return navigator.locks.request(withdrawalStorageKey(summary.network, address), { ifAvailable: true }, async (lock) => {
+        if (!lock) throw new Error("withdrawal_pending");
+        return runWithdrawal({ destination, amount }, {
+          journal: createWithdrawalJournal(localStorage, summary.network, address),
+          now: Date.now,
+          sign: (op) => wallet.signTypedData(withdraw3TypedData(network, op.destination, op.amount, op.nonce)),
+          submit: async (op, signature) => {
+            const res = await fetch(network.exchangeUrl, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(withdraw3Request(network, op.destination, op.amount, op.nonce, signature)),
+              signal: AbortSignal.timeout(20_000),
+            });
+            const reply = await res.json();
+            if (!res.ok || !reply || !["ok", "err"].includes(reply.status)) throw new Error("withdrawal_unknown");
+            return reply;
+          },
+          lookup: async (op) => {
+            const res = await fetch(network.infoUrl, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "userNonFundingLedgerUpdates", user: address, startTime: Math.max(0, op.nonce - 60_000) }),
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (!res.ok) throw new Error("Withdrawal status unavailable");
+            const rows: unknown = await res.json();
+            if (!Array.isArray(rows)) throw new Error("Withdrawal status unavailable");
+            return rows.some((row) => row?.delta?.type === "withdraw" && row.delta.nonce === op.nonce);
+          },
+        });
       });
-      const reply = (await res.json().catch(() => null)) as ExchangeReply | null;
-      if (!res.ok || reply?.status !== "ok") {
-        throw new Error(typeof reply?.response === "string" ? reply.response : `Hyperliquid answered ${res.status}`);
-      }
-      return reply;
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.wallet.all }),
   });

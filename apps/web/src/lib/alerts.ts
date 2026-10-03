@@ -126,3 +126,12 @@ export function useAddFavorite() {
     },
   });
 }
+
+/** Preferences apply only to future confirmed paper-copy events. */
+export function useSetCopyAlerts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api.patch<TelegramStatus>("/me/telegram/copy-alerts", { enabled }),
+    onSuccess: (status) => queryClient.setQueryData(TELEGRAM_KEY, status),
+  });
+}

@@ -101,12 +101,18 @@ export class TelegramLinkService {
   async status(userId: number): Promise<TelegramStatus> {
     const channel = await this.repository.channelOf(userId);
     return {
+      copyAlertsEnabled: channel?.copyAlertsEnabled ?? false,
       bot: this.bot(),
       linked: channel !== undefined,
       username: channel?.username ?? null,
       enabled: channel?.enabled ?? false,
       linkedAt: channel?.createdAt ?? null,
     };
+  }
+
+  async setCopyAlerts(userId: number, enabled: boolean): Promise<TelegramStatus> {
+    if (!(await this.repository.setCopyAlerts(userId, enabled))) throw notLinked();
+    return this.status(userId);
   }
 
   async createLink(userId: number): Promise<TelegramLinkResponse> {

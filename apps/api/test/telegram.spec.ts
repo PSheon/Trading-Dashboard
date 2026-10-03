@@ -172,10 +172,26 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
     await bot.handleUpdate(press(chatId, confirm, opts));
   }
 
+  it("copy alerts require explicit opt-in on the owner's linked chat and reset on relink", async () => {
+    const patch = (body: unknown) => http().patch("/me/telegram/copy-alerts").set("Authorization", "Bearer alice-token").send(body as object);
+    await http().patch("/me/telegram/copy-alerts").send({ enabled: true }).expect(401);
+    await patch({ enabled: true }).expect(409);
+    await startAndConfirm(4242, await newToken());
+    expect((await patch({ enabled: true }).expect(200)).body.data.copyAlertsEnabled).toBe(true);
+    const since = (await channels())[0].copyAlertsSince;
+    await patch({ enabled: true }).expect(200); // idempotent, preserves cutoff
+    expect((await channels())[0].copyAlertsSince).toEqual(since);
+    await patch({ enabled: "true" }).expect(400);
+    await patch({ enabled: true, userId: 999 }).expect(400);
+    await startAndConfirm(4243, await newToken());
+    expect((await alice.get("/me/telegram").expect(200)).body.data.copyAlertsEnabled).toBe(false);
+  });
+
   describe("link tokens", () => {
     it("GET /me/telegram before linking; POST link issues a 43-char base64url token, stored only as its sha256", async () => {
       expect((await alice.get("/me/telegram").expect(200)).body.data).toEqual({
         bot: BOT,
+        copyAlertsEnabled: false,
         linked: false,
         username: null,
         enabled: false,

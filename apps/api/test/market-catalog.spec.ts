@@ -84,3 +84,41 @@ describe("MarketCatalogService", () => {
     expect(seen).toBeUndefined();
   });
 });
+
+
+describe("trending markets", () => {
+  it("ranks actual 24h volume across dexes and caches the result", async () => {
+    const info = {
+      perpDexs: vi.fn(async () => [null, { name: "xyz" }]),
+      metaAndAssetCtxs: vi.fn(async (_lane: string, _rank: unknown, dex?: string) => [
+        universe(dex ? ["xyz:TSLA", "xyz:OLD"] : ["BTC", "ETH"], ["xyz:OLD"]),
+        dex ? [{ dayNtlVlm: "500" }, { dayNtlVlm: "9000" }] : [{ dayNtlVlm: "100" }, { dayNtlVlm: "200" }],
+      ]),
+    };
+    const catalog = new MarketCatalogService(info as unknown as HyperliquidInfoClient);
+    let now = 1_000_000;
+    catalog.now = () => now;
+    expect(await catalog.trending()).toEqual(["xyz:TSLA", "ETH", "BTC"]);
+    expect(await catalog.trending()).toEqual(["xyz:TSLA", "ETH", "BTC"]);
+    expect(info.metaAndAssetCtxs).toHaveBeenCalledTimes(2);
+    now += 16 * 60_000;
+    info.metaAndAssetCtxs.mockRejectedValue(new Error("unavailable"));
+    expect(await catalog.trending()).toEqual([]);
+    expect(await catalog.trending()).toEqual([]); // retry backoff, expired data never masquerades as fresh
+    expect(info.metaAndAssetCtxs).toHaveBeenCalledTimes(3);
+  });
+
+  it("bounds a cold read and does not publish a partial dex ranking", async () => {
+    const info = {
+      perpDexs: vi.fn(async () => [null, { name: "xyz" }]),
+      metaAndAssetCtxs: vi.fn(async (_lane: string, _rank: unknown, dex?: string) => {
+        if (dex) throw new Error("missing dex");
+        return [universe(["BTC"]), [{ dayNtlVlm: "100" }]];
+      }),
+    };
+    const catalog = new MarketCatalogService(info as unknown as HyperliquidInfoClient);
+    expect(await catalog.trending()).toEqual([]);
+    const blocked = new MarketCatalogService({ perpDexs: () => new Promise(() => {}) } as unknown as HyperliquidInfoClient);
+    expect(await blocked.trending(1)).toEqual([]);
+  });
+});

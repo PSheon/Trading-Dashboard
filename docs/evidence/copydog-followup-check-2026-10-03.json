@@ -1,0 +1,60 @@
+{
+  "copydog_methods": {
+    "source": "https://copydog.xyz/llms.txt",
+    "at": "2026-10-03T03:18:01.359338+00:00",
+    "exitCode": 0,
+    "sha256": "5d87bdbfc84310746ebf072ea27bdc280b27cdef14ad47c50e1294afc468a5e6",
+    "bytes": 2975
+  },
+  "copydog_stats": {
+    "source": "https://api.copydog.xyz/api/hyperliquid/leaderboard/stats",
+    "at": "2026-10-03T03:18:01.533797+00:00",
+    "exitCode": 0,
+    "data": {
+      "wallets": 23299,
+      "aum": 11307533711.499651,
+      "volume": 8581991915342.05
+    }
+  },
+  "copydog_trending": {
+    "source": "https://api.copydog.xyz/api/hyperliquid/leaderboard/trending-coins",
+    "at": "2026-10-03T03:18:01.365891+00:00",
+    "exitCode": 0,
+    "data": {
+      "coins": [
+        "ZEC",
+        "PUMP"
+      ],
+      "stocks": [
+        "xyz:MU",
+        "xyz:SILVER"
+      ]
+    }
+  },
+  "local_board": {
+    "source": "http://127.0.0.1:3100/discover/boards",
+    "at": "2026-10-03T03:18:00.861029+00:00",
+    "exitCode": 0,
+    "data": {
+      "market": "crypto",
+      "board": "top100",
+      "coin": null,
+      "sort": "copyScore",
+      "window": "all",
+      "style": null,
+      "pool": {
+        "ready": 1136,
+        "total": 1136,
+        "tradesReady": 246
+      },
+      "rankingScope": "candidate_pool",
+      "eligibleCount": 1089,
+      "freshness": {
+        "oldestUpdatedAt": "2026-10-03T02:18:41.875Z",
+        "newestUpdatedAt": "2026-10-03T03:11:09.271Z",
+        "missingTimestamps": 0
+      },
+      "updatedAt": "2026-10-03T03:18:00.202Z"
+    }
+  }
+}

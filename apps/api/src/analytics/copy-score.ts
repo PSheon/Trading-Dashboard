@@ -1,18 +1,9 @@
 /**
- * CopyDog's copy score (its `copyScore`, "score_version 5"), reverse-
- * engineered on 2026-09-30 from 549 traders' `/copy-score` components and
- * scores (see docs/trade-analytics.md, "Copy score").
- *
- * CopyDog describes it as "ranked against all active Hyperliquid traders on
- * ROI, Sharpe, PnL & track record; 80 = top 20%": a percentile within its
- * whole population (~16k wallets), capped at 98. Orbie can't rank against
- * that population (its pool is the top N), so the percentile is reproduced
- * with a fitted, fixed curve: a logistic of the same inputs, calibrated on
- * CopyDog's scores. The result doesn't depend on who else is in Orbie's
- * pool, so a trader's score is the same on every board.
- *
- * Holdout accuracy (fit on half, tested on the other half, 274 traders):
- * median error 7 points, 75% within ±10, 91% agree on ≥ 80 vs < 80.
+ * Local logistic score fitted to a historical third-party sample. This is
+ * an estimate, not a measured percentile of all active Hyperliquid traders.
+ * The candidate pool is selected by PnL and cannot represent that population.
+ * The archived calibration sample is regression evidence only, not an
+ * independently verified holdout or proof of third-party algorithm parity.
  */
 
 export interface CopyScoreInputs {

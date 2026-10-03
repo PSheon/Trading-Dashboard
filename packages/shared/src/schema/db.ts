@@ -426,6 +426,8 @@ export const notificationChannels = pgTable(
     /** Telegram @username at link time (without "@"), for display. */
     username: text("username"),
     enabled: boolean("enabled").notNull().default(true),
+    copyAlertsEnabled: boolean("copy_alerts_enabled").notNull().default(false),
+    copyAlertsSince: timestamp("copy_alerts_since", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -541,7 +543,8 @@ export const actionOutbox = pgTable("action_outbox", {
 
 export const notificationOutbox = pgTable("notification_outbox", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
-  actionId: bigint("action_id", { mode: "bigint" }).notNull().references(() => actions.id, { onDelete: "cascade" }),
+  actionId: bigint("action_id", { mode: "bigint" }).references(() => actions.id, { onDelete: "cascade" }),
+  copyEventId: bigint("copy_event_id", { mode: "bigint" }).references((): AnyPgColumn => copyEvents.id, { onDelete: "cascade" }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull(),
   status: text("status").notNull().default("pending"),
@@ -553,6 +556,8 @@ export const notificationOutbox = pgTable("notification_outbox", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("notification_outbox_action_user_uq").on(table.actionId, table.userId),
+  uniqueIndex("notification_outbox_copy_event_user_uq").on(table.copyEventId, table.userId),
+  check("notification_outbox_source_check", sql`(${table.actionId} is not null) <> (${table.copyEventId} is not null)`),
   index("notification_outbox_pending_idx").on(table.status, table.availableAt),
   check("notification_outbox_status_check", oneOf(table.status, ["pending", "processing", "sent", "dry_run", "failed"])),
   check("notification_outbox_attempts_check", sql`${table.attempts} >= 0`),
@@ -1067,6 +1072,7 @@ export const copyStrategies = pgTable("copy_strategies", {
   version: integer("version").notNull().default(1),
   allocated: numeric("allocated").notNull(),
   cash: numeric("cash").notNull(),
+  withdrawn: numeric("withdrawn").notNull().default("0"),
   realizedPnl: numeric("realized_pnl").notNull().default("0"),
   fees: numeric("fees").notNull().default("0"),
   funding: numeric("funding").notNull().default("0"),
@@ -1084,7 +1090,7 @@ export const copyStrategies = pgTable("copy_strategies", {
   uniqueIndex("copy_strategies_live_uq").on(table.userId, table.chain, table.leaderAddress).where(sql`status <> 'stopped'`),
   check("copy_strategies_mode_check", oneOf(table.mode, ["paper"])),
   check("copy_strategies_status_check", oneOf(table.status, copyStrategyStatusEnum)),
-  check("copy_strategies_amounts_check", sql`${table.allocated} > 0 and ${table.fees} >= 0 and ${table.version} >= 1 and ${table.controlRevision} >= 0`),
+  check("copy_strategies_amounts_check", sql`${table.allocated} > 0 and ${table.withdrawn} >= 0 and ${table.fees} >= 0 and ${table.version} >= 1 and ${table.controlRevision} >= 0`),
   // Cash may be below zero only while a position is open (see the note at
   // the top); what a stopped copy returned to the balance was not negative.
   check("copy_strategies_stopped_check", sql`(${table.status} = 'stopped') = (${table.stoppedAt} is not null) and (${table.status} <> 'stopped' or ${table.cash} >= 0)`),
@@ -1175,6 +1181,11 @@ export const copyOrders = pgTable("copy_orders", {
   mode: text("mode").$type<"paper">().notNull().default("paper"),
   strategyVersion: integer("strategy_version").notNull(),
   riskPolicyVersion: integer("risk_policy_version").notNull(),
+  /** Approval versions remain immutable; boundary versions are separate. */
+  executionPolicyVersion: integer("execution_policy_version"),
+  executionStrategyVersion: integer("execution_strategy_version"),
+  executionControlRevisions: jsonb("execution_control_revisions").$type<{ platform: number; user: number; strategy: number }>(),
+  executionFeeSnapshot: jsonb("execution_fee_snapshot").$type<{ takerFeeBps: number; builderFeeTenthsBps: number }>(),
   leaderAddress: text("leader_address").notNull(),
   coin: text("coin").notNull(),
   leg: text("leg").$type<CopyLeg>().notNull(),
@@ -1291,19 +1302,80 @@ export const copyLedger = pgTable("copy_ledger", {
   userId: integer("user_id").notNull(),
   /** `liquidation` is the loss beyond the strategy's equity that a
    * liquidation writes off (cash is brought back to 0, never below). */
-  kind: text("kind").$type<"allocate" | "realized_pnl" | "fee" | "builder_fee" | "funding" | "release" | "liquidation">().notNull(),
+  kind: text("kind").$type<"allocate" | "realized_pnl" | "fee" | "builder_fee" | "funding" | "release" | "withdraw" | "liquidation">().notNull(),
   amount: numeric("amount").notNull(),
   coin: text("coin"),
   orderId: bigint("order_id", { mode: "bigint" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("copy_ledger_strategy_idx").on(table.strategyId, table.id),
-  check("copy_ledger_kind_check", oneOf(table.kind, ["allocate", "realized_pnl", "fee", "builder_fee", "funding", "release", "liquidation"])),
+  check("copy_ledger_kind_check", oneOf(table.kind, ["allocate", "realized_pnl", "fee", "builder_fee", "funding", "release", "withdraw", "liquidation"])),
   // The sign each kind always has: money in on an allocation or a
   // write-off, out on a fee or a release. PnL and funding go either way;
   // no row is zero.
-  check("copy_ledger_sign_check", sql`${table.amount} <> 0 and case ${table.kind} when 'allocate' then ${table.amount} > 0 when 'liquidation' then ${table.amount} > 0 when 'fee' then ${table.amount} < 0 when 'builder_fee' then ${table.amount} < 0 when 'release' then ${table.amount} < 0 else true end`),
+  check("copy_ledger_sign_check", sql`${table.amount} <> 0 and case ${table.kind} when 'allocate' then ${table.amount} > 0 when 'liquidation' then ${table.amount} > 0 when 'fee' then ${table.amount} < 0 when 'builder_fee' then ${table.amount} < 0 when 'release' then ${table.amount} < 0 when 'withdraw' then ${table.amount} < 0 else true end`),
 ]);
+
+/** Atomic paper mutations; a key is bound to one normalized operation. */
+export const copyOperations = pgTable("copy_operations", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  mode: text("mode").notNull(), network: text("network").notNull(), key: text("key").notNull(),
+  operation: text("operation").notNull(), fingerprint: text("fingerprint").notNull(),
+  result: jsonb("result").$type<{ strategyId: number }>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("copy_operations_key_uq").on(t.userId, t.mode, t.network, t.key)]);
+
+export const copyEvents = pgTable("copy_events", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  strategyId: integer("strategy_id").references(() => copyStrategies.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  notificationQueuedAt: timestamp("notification_queued_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("copy_events_owner_cursor_idx").on(t.userId, t.id)]);
+
+/** Unknown marks remain null; installation never fabricates older history. */
+export const copyEquitySnapshots = pgTable("copy_equity_snapshots", {
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "cascade" }),
+  time: timestamp("time", { withTimezone: true }).notNull(),
+  equity: numeric("equity"), totalPnl: numeric("total_pnl"), netDeposits: numeric("net_deposits").notNull(), exposureUsd: numeric("exposure_usd"),
+}, (t) => [primaryKey({ columns: [t.strategyId, t.time] })]);
+
+/** Live identity records deliberately restrict deletion; no raw keys or tokens. */
+export const copyExecutionWallets = pgTable("copy_execution_wallets", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull(), network: text("network").$type<"testnet" | "mainnet">().notNull(),
+  accountAddress: text("account_address").notNull(), privyWalletId: text("privy_wallet_id").notNull(), privyOwnerId: text("privy_owner_id").notNull(),
+  signerAddress: text("signer_address").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("copy_execution_wallets_account_uq").on(t.network, t.accountAddress),
+  uniqueIndex("copy_execution_wallets_strategy_uq").on(t.network, t.strategyId),
+  check("copy_execution_wallets_network_check", oneOf(t.network, ["testnet", "mainnet"]))]);
+
+export const copyWalletAuthorizations = pgTable("copy_wallet_authorizations", {
+  id: text("id").primaryKey(), walletId: text("wallet_id").notNull().references(() => copyExecutionWallets.id, { onDelete: "restrict" }),
+  version: integer("version").notNull(), scopes: jsonb("scopes").$type<Array<"copy:trade" | "copy:reduce">>().notNull(),
+  validFrom: timestamp("valid_from", { withTimezone: true }).notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }), exchangeApprovedAt: timestamp("exchange_approved_at", { withTimezone: true }),
+}, (t) => [index("copy_wallet_authorizations_wallet_idx").on(t.walletId),
+  check("copy_wallet_authorizations_version_check", sql`${t.version} >= 1 and ${t.expiresAt} > ${t.validFrom}`)]);
+
+export const copySignerNonces = pgTable("copy_signer_nonces", {
+  network: text("network").notNull(), signerAddress: text("signer_address").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),
+}, (t) => [primaryKey({ columns: [t.network, t.signerAddress] }),
+  check("copy_signer_nonces_network_check", oneOf(t.network, ["testnet", "mainnet"])), check("copy_signer_nonces_value_check", sql`${t.nonce} >= 0 and ${t.nonce} <= 9007199254740991`)]);
+
+/** External intents survive process failure. JSON contains no signatures/private keys. */
+export const copyLiveExecutions = pgTable("copy_live_executions", {
+  key: text("key").primaryKey(), network: text("network").notNull(), accountAddress: text("account_address").notNull(),
+  signerAddress: text("signer_address").notNull(), cloid: text("cloid").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }), strategyId: integer("strategy_id").notNull(),
+  state: text("state").notNull(), record: jsonb("record").$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [uniqueIndex("copy_live_executions_nonce_uq").on(t.network, t.signerAddress, t.nonce),
+  index("copy_live_executions_owner_idx").on(t.userId, t.updatedAt), index("copy_live_executions_recovery_idx").on(t.state, t.updatedAt),
+  check("copy_live_executions_network_check", oneOf(t.network, ["testnet", "mainnet"])),
+  check("copy_live_executions_state_check", oneOf(t.state, ["prepared", "submitting", "unknown", "resting", "filled", "partial", "cancelled", "rejected"]))]);
 
 /** Durable initial watched-address backfill. Admission shares the leader transaction. */
 export const backfillJobs = pgTable("backfill_jobs", {

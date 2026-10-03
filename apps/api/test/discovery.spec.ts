@@ -1,7 +1,7 @@
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { readFileSync } from "node:fs";
 import type { INestApplication } from "@nestjs/common";
-import { adminAuditLogs, discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
+import { adminAuditLogs, discoveryTraders, fills, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades } from "@trading-dashboard/shared/database";
 import { wireBoardSchema, wireCoinBoardSchema, wireCoinIndexSchema, wireCopyScoreSchema, wireHomeBoardsSchema, wireDiscoverSearchSchema } from "@trading-dashboard/shared/contracts";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
@@ -26,6 +26,7 @@ import type { HlPortfolioResponse } from "../src/hyperliquid/types.js";
 import { SettingsService } from "../src/settings/settings.service.js";
 import type { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
 import type { TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
+import { HistoryFillStore } from "../src/traders/history-fill.store.js";
 import { TradersService } from "../src/traders/traders.service.js";
 import { insertUser } from "./admin-test-utils.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
@@ -320,7 +321,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     const traders = { rawPortfolio: vi.fn(async () => D70C.portfolio) };
     // Hyperliquid's universe as the catalog would have read it.
     const listedMarkets = new Set(["BTC", "ETH", "MEGA", "xyz:TSLA", "xyz:GOLD"]);
-    const catalog = { isListed: vi.fn(async (coin: string): Promise<boolean | null> => listedMarkets.has(coin)) };
+    const catalog = { trending: vi.fn(async () => [] as string[]), isListed: vi.fn(async (coin: string): Promise<boolean | null> => listedMarkets.has(coin)) };
 
     beforeAll(async () => {
       ({ app, auth } = await createAuthedApp({
@@ -337,6 +338,36 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       auth.clearCache();
       await insertUser(db, { privyUserId: "did:privy:admin", role: "admin" });
       await insertUser(db, { privyUserId: "did:privy:user" });
+    });
+
+    it("reads recent regular, TWAP and watched fills before trade reconstruction catches up", async () => {
+      await seedPool();
+      const old = new Date("2026-09-01T00:00:00Z");
+      const recent = new Date("2026-10-01T00:00:00Z");
+      const watched = new Date("2026-10-02T00:00:00Z");
+      await db.update(discoveryTraders).set({ lastTradeAt: old });
+      const raw = fixture("user-fills.json")[0];
+      await new HistoryFillStore(db).insert([
+        { address: addr(1), source: "regular", origin: "rest", fill: { ...raw, tid: 1, time: recent.getTime() } },
+        { address: addr(2), source: "twap", origin: "rest", fill: { ...raw, tid: 2, time: recent.getTime() } },
+      ]);
+      await db.insert(fills).values({ address: addr(1), tid: 3n, coin: "BTC", side: "B", dir: "Open Long", px: "100", sz: "1", fee: "0", ts: watched, raw: {} });
+      const rows = await repository.boardRows();
+      expect(rows.find(row => row.address === addr(1))?.lastTradeAt).toEqual(watched);
+      expect(rows.find(row => row.address === addr(2))?.lastTradeAt).toEqual(recent);
+      expect(rows.find(row => row.address === addr(3))?.lastTradeAt).toEqual(old);
+    });
+
+    it("uses volume-ranked populated markets in the configured category slots", async () => {
+      await seedPool();
+      await db.update(discoveryTraders).set({ coinStats: { ETH: { pnl: 200, volume: 1000, trades: 2, wins: 2 } } }).where(eq(discoveryTraders.address, addr(1)));
+      catalog.trending.mockResolvedValueOnce(["NO-DATA", "ETH", "xyz:TSLA", "BTC"]);
+      const home = await app.get(DiscoveryService).home();
+      const coins = home.markets.map(row => row.coin);
+      expect(coins[0]).toBe("ETH");
+      expect(coins).toContain("xyz:TSLA");
+      expect(coins).not.toContain("NO-DATA");
+      expect(new Set(coins).size).toBe(coins.length);
     });
 
     async function seedPool() {

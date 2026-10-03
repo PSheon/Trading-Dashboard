@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, gte, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, ne, notInArray, sql } from "drizzle-orm";
 import {
   copyConsumerCheckpoints,
   copyControlEvents,
@@ -23,6 +23,7 @@ import {
 import { CHAIN_DEFAULT, type CopyControlCommand, type CopyControlScope, type CopyLeg, type CopyOrderStatus } from "@trading-dashboard/shared/contracts";
 
 import { Dec } from "../common/decimal/dec.js";
+import { CopyRuntimeRepository } from "./copy-runtime.repository.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbExecutor, DbTransaction } from "../db/unit-of-work.js";
@@ -55,11 +56,18 @@ const signedOpen = (r: { side: "B" | "A"; size: string; filled: string }): Dec =
  */
 @Injectable()
 export class CopyRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  readonly runtime: CopyRuntimeRepository;
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) { this.runtime = new CopyRuntimeRepository(db); }
 
   /** The pool, for a read that takes an executor outside any transaction. */
   get reader(): DbExecutor {
     return this.db;
+  }
+
+  /** All risk/money writers serialize per owner BEFORE acquiring strategy
+   * rows. Cross-strategy reservations then observe a consistent user cap. */
+  async lockCopyUser(tx: DbTransaction, userId: number): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
   }
 
   // --- risk policy ------------------------------------------------------------
@@ -79,6 +87,11 @@ export class CopyRepository {
     await tx.execute(sql`select pg_advisory_xact_lock(7403, 0)`);
   }
 
+  /** Execution keeps the effective policy stable until its boundary commits. */
+  async lockPoliciesForExecution(tx: DbTransaction): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock_shared(7403, 0)`);
+  }
+
   policyHistory(limit = 20) {
     return this.db.select({ version: copyRiskPolicies.version, reason: copyRiskPolicies.reason, createdByUserId: copyRiskPolicies.createdByUserId, createdAt: copyRiskPolicies.createdAt })
       .from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(limit);
@@ -95,6 +108,7 @@ export class CopyRepository {
    * waits for one in progress), so an order is never approved against a
    * control state that a committed command already replaced. */
   async readControls(userId: number, lock: "share" | "none" = "none", ex: DbExecutor = this.db) {
+    if (lock === "share") await ex.execute(sql`select pg_advisory_xact_lock(7404, ${userId})`);
     const q = ex.select().from(copyControls).where(
       sql`(${copyControls.scope} = 'platform' and ${copyControls.scopeId} = 0) or (${copyControls.scope} = 'user' and ${copyControls.scopeId} = ${userId})`,
     );
@@ -105,6 +119,7 @@ export class CopyRepository {
   }
 
   async lockControl(tx: DbTransaction, scope: "platform" | "user", scopeId: number): Promise<ControlRow> {
+    if (scope === "user") await this.lockCopyUser(tx, scopeId);
     await this.ensureControl(tx, scope, scopeId);
     const [row] = await tx.select().from(copyControls).where(and(eq(copyControls.scope, scope), eq(copyControls.scopeId, scopeId))).for("update");
     return row!;
@@ -135,6 +150,11 @@ export class CopyRepository {
   async userExists(tx: DbTransaction, userId: number): Promise<boolean> {
     const [row] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId));
     return row !== undefined;
+  }
+
+  async userCanCopy(tx: DbTransaction, userId: number): Promise<boolean> {
+    const [row] = await tx.select({ disabledAt: users.disabledAt }).from(users).where(eq(users.id, userId)).for("share");
+    return row !== undefined && row.disabledAt === null;
   }
 
   // --- paper accounts -------------------------------------------------------------
@@ -199,10 +219,11 @@ export class CopyRepository {
   }
 
   /** Adds to the strategy's money columns (numeric strings, may be negative). */
-  async addToStrategy(tx: DbTransaction, id: number, d: { cash?: string; allocated?: string; realizedPnl?: string; fees?: string; funding?: string }): Promise<void> {
+  async addToStrategy(tx: DbTransaction, id: number, d: { cash?: string; allocated?: string; withdrawn?: string; realizedPnl?: string; fees?: string; funding?: string }): Promise<void> {
     const set: Record<string, unknown> = {};
     if (d.cash) set.cash = sql`${copyStrategies.cash} + ${d.cash}::numeric`;
     if (d.allocated) set.allocated = sql`${copyStrategies.allocated} + ${d.allocated}::numeric`;
+    if (d.withdrawn) set.withdrawn = sql`${copyStrategies.withdrawn} + ${d.withdrawn}::numeric`;
     if (d.realizedPnl) set.realizedPnl = sql`${copyStrategies.realizedPnl} + ${d.realizedPnl}::numeric`;
     if (d.fees) set.fees = sql`${copyStrategies.fees} + ${d.fees}::numeric`;
     if (d.funding) set.funding = sql`${copyStrategies.funding} + ${d.funding}::numeric`;
@@ -420,6 +441,18 @@ export class CopyRepository {
       .from(copyReservations).where(and(inArray(copyReservations.strategyId, strategyIds), eq(copyReservations.status, "held")));
   }
 
+  /** Boundary inputs retain order identity so only the executing reservation is excluded. */
+  heldReservationRows(strategyIds: number[], ex: DbExecutor = this.db) {
+    if (strategyIds.length === 0) return Promise.resolve([] as (typeof copyReservations.$inferSelect)[]);
+    return ex.select().from(copyReservations)
+      .where(and(inArray(copyReservations.strategyId, strategyIds), eq(copyReservations.status, "held")));
+  }
+
+  async refreshHeldReservation(tx: DbTransaction, orderId: bigint, amounts: { notional: string; margin: string }): Promise<void> {
+    await tx.update(copyReservations).set(amounts)
+      .where(and(eq(copyReservations.orderId, orderId), eq(copyReservations.status, "held")));
+  }
+
   /** Orders the executor should work on next, oldest first. A strategy's
    * orders run strictly in id order: while one of them is past the
    * execution boundary and not final (a fill that failed and waits for its
@@ -497,8 +530,8 @@ export class CopyRepository {
     return out;
   }
 
-  ordersOfStrategy(strategyId: number, limit = 100) {
-    return this.db.select().from(copyOrders).where(eq(copyOrders.strategyId, strategyId)).orderBy(desc(copyOrders.id)).limit(limit);
+  ordersOfStrategy(strategyId: number, limit = 100, before?: bigint) {
+    return this.db.select().from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId), before === undefined ? undefined : lt(copyOrders.id, before))).orderBy(desc(copyOrders.id)).limit(limit);
   }
 
   allOrders(filter: { status?: CopyOrderStatus[]; userId?: number; strategyId?: number; limit: number }) {
@@ -521,15 +554,27 @@ export class CopyRepository {
 
   async insertPaperFill(tx: DbTransaction, values: typeof copyPaperFills.$inferInsert): Promise<void> {
     await tx.insert(copyPaperFills).values(values);
+    const [order] = await tx.select({ userId: copyOrders.userId, leg: copyOrders.leg }).from(copyOrders).where(eq(copyOrders.id, values.orderId));
+    if (order) await this.runtime.appendEvent(tx, order.userId, values.strategyId, order.leg === "liquidation" ? "position_liquidated" : "order_filled", {
+      mode: "paper", orderId: String(values.orderId), coin: values.coin, side: values.side, size: values.size, px: values.px, leg: order.leg,
+    });
   }
 
   async insertLedger(tx: DbTransaction, rows: (typeof copyLedger.$inferInsert)[]): Promise<void> {
     const nonZero = rows.filter((r) => !Dec.from(r.amount).isZero);
     if (nonZero.length) await tx.insert(copyLedger).values(nonZero);
+    for (const row of nonZero) {
+      if (["allocate", "withdraw", "release"].includes(row.kind)) await this.runtime.appendEvent(tx, row.userId, row.strategyId,
+        row.kind === "allocate" ? "funds_added" : row.kind === "withdraw" ? "funds_withdrawn" : "funds_returned", { mode: "paper", amount: row.amount });
+    }
   }
 
-  ledgerOf(strategyId: number, limit = 200) {
-    return this.db.select().from(copyLedger).where(eq(copyLedger.strategyId, strategyId)).orderBy(desc(copyLedger.id)).limit(limit);
+  fillsOf(strategyId: number, limit: number, before?: bigint) {
+    return this.db.select().from(copyPaperFills).where(and(eq(copyPaperFills.strategyId, strategyId), before === undefined ? undefined : sql`${copyPaperFills.id} < ${before}`)).orderBy(desc(copyPaperFills.id)).limit(limit);
+  }
+
+  ledgerOf(strategyId: number, limit = 200, before?: bigint) {
+    return this.db.select().from(copyLedger).where(and(eq(copyLedger.strategyId, strategyId), before === undefined ? undefined : sql`${copyLedger.id} < ${before}`)).orderBy(desc(copyLedger.id)).limit(limit);
   }
 
   // --- execution outbox and signal legs ------------------------------------------------------

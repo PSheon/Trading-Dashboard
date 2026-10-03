@@ -1,11 +1,13 @@
 "use client";
 
-import { ArrowLeft, ChevronDown, Pause, Pencil, Play, Plus, Square } from "lucide-react";
+import { ArrowLeft, ChevronDown, Minus, Pause, Pencil, Play, Plus, Square } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
+import { CopyAccountingHistory } from "@/components/copy/copy-accounting-history";
 import { PaperBadge } from "@/components/copy/paper-badge";
+import { CopyEquitySparkline, CopyPerformance } from "@/components/copy/copy-performance";
 import { TraderAvatar, boardName } from "@/components/discover/board-bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
@@ -16,7 +18,7 @@ import type { MessageKey } from "@/i18n/messages";
 import { amountInput } from "@/lib/amount-input";
 import { apiErrorCode } from "@/lib/api";
 import type { CopyOrderView, CopyOverview, CopyPositionView, CopyStrategyView } from "@/lib/contracts";
-import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy } from "@/lib/copy";
+import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy, useWithdrawCopyFunds } from "@/lib/copy";
 import { useTraderCards } from "@/lib/favorite-groups";
 import { coinLabel, truncateAddress } from "@/lib/format";
 
@@ -146,7 +148,7 @@ export function CopyTable({ strategies, leaders, onSelect }: { strategies: CopyS
               <span className="num text-right">{t("portfolio.copy.daysShort", { count: copyDays(s.createdAt) })}</span>
               <span className="num text-right">{s.positions.length}</span>
               <span className="num text-right">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
-              <span className="text-right text-muted-foreground">—</span>
+              <span className="text-right text-muted-foreground"><CopyEquitySparkline strategyId={s.id} /></span>
               <span className={cn("num text-right", s.positions.length ? tone(s.unrealizedPnl) : "")}>
                 {s.positions.length && s.unrealizedPnl !== null ? format.usd(s.unrealizedPnl, { sign: true, digits: 2 }) : "—"}
               </span>
@@ -244,8 +246,9 @@ function orderReason(o: CopyOrderView): string | null {
 export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy: CopyStrategyView; leader: Leader; balance: number; onBack: () => void }) {
   const { t, format } = useI18n();
   const command = useCopyCommand();
-  const orders = useCopyOrders(s.id);
-  const [dialog, setDialog] = useState<"stop" | "edit" | "funds" | null>(null);
+  const [orderPages, setOrderPages] = useState<string[]>([]);
+  const orders = useCopyOrders(s.id, orderPages.at(-1));
+  const [dialog, setDialog] = useState<"stop" | "edit" | "funds" | "withdraw" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const live = s.status !== "stopped";
   const run = async (c: "pause" | "resume") => {
@@ -305,12 +308,17 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
           <Button variant="secondary" onClick={() => setDialog("funds")} disabled={s.status === "stopping"}>
             <Plus /> {t("portfolio.copy.actions.addFunds")}
           </Button>
+          <Button variant="secondary" onClick={() => setDialog("withdraw")} disabled={s.status === "stopping"}>
+            <Minus /> {t("copyUpdates.withdrawTitle")}
+          </Button>
           <Button variant="secondary" className="text-negative" onClick={() => setDialog("stop")} disabled={s.status === "stopping"}>
             <Square /> {t("portfolio.copy.actions.stop")}
           </Button>
         </div>
       ) : null}
       {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
+
+      <CopyPerformance strategyId={s.id} />
 
       <div className="grid gap-4 md:grid-cols-[1fr_1.4fr]">
         <section className="rounded-2xl border border-border bg-card p-4">
@@ -386,9 +394,16 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
         )}
       </section>
 
+      {(orders.data?.hasMore || orderPages.length > 0) ? <div className="flex justify-end gap-2">
+        {orderPages.length > 0 ? <Button variant="secondary" disabled={orders.isFetching} onClick={() => setOrderPages((pages) => pages.slice(0, -1))}>{t("portfolio.copy.detail.back")}</Button> : null}
+        {orders.data?.hasMore && orders.data.previousCursor ? <Button variant="secondary" disabled={orders.isFetching} onClick={() => setOrderPages((pages) => [...pages, orders.data!.previousCursor!])}>{t("copyUpdates.olderOrders")}</Button> : null}
+      </div> : null}
+      {orders.isError ? <p role="status" className="text-xs text-negative">{t("copyUpdates.historyError")} <button type="button" className="underline" onClick={() => void orders.refetch()}>{t("copyUpdates.retry")}</button></p> : null}
+      <CopyAccountingHistory strategyId={s.id} />
       <StopDialog strategy={s} open={dialog === "stop"} onClose={() => setDialog(null)} />
       <EditDialog strategy={s} balance={balance} open={dialog === "edit"} onClose={() => setDialog(null)} />
       <FundsDialog strategy={s} balance={balance} open={dialog === "funds"} onClose={() => setDialog(null)} />
+      <WithdrawDialog strategy={s} open={dialog === "withdraw"} onClose={() => setDialog(null)} />
     </div>
   );
 }
@@ -542,6 +557,40 @@ function FundsDialog({ strategy: s, balance, open, onClose }: { strategy: CopySt
   );
 }
 
+export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyStrategyView; open: boolean; onClose: () => void }) {
+  const { t, format } = useI18n();
+  const withdraw = useWithdrawCopyFunds();
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const pending = withdraw.pendingOperations.filter((body) => body.id === s.id);
+  const available = s.freeCollateralUsd;
+  const value = Number.parseFloat(amount);
+  const invalid = !(value > 0) || available == null || value > available;
+  return <Modal open={open} onOpenChange={(o) => !o && onClose()} title={t("copyUpdates.withdrawTitle")} badge={<PaperBadge />}>
+    <div className="flex flex-col gap-4 p-5">
+      <p className="text-xs text-muted-foreground">{t("copyUpdates.withdrawHint")}</p>
+      <label htmlFor="withdraw-amount" className="flex justify-between text-sm font-semibold">USDC <span className="text-xs text-muted-foreground">{t("copyUpdates.available")}: {available == null ? "—" : format.usd(available, { digits: 2 })}</span></label>
+      {pending.map((body) => <Button key={body.amountUsd} variant="secondary" disabled={withdraw.isPending} onClick={async () => {
+        setError(null);
+        try { await withdraw.mutateAsync(body); setAmount(""); onClose(); }
+        catch { setError(t("copyUpdates.withdrawUnknown")); }
+      }}>{t("copyUpdates.retryWithdrawal", { amount: format.usd(body.amountUsd, { digits: 2 }) })}</Button>)}
+      <AmountInput id="withdraw-amount" value={amount} onChange={setAmount} invalid={amount !== "" && invalid} />
+      {error ? <p role="alert" className="text-xs text-negative">{error}</p> : null}
+      <Button size="xl" disabled={invalid || withdraw.isPending || pending.length > 0} onClick={async () => {
+        setError(null);
+        try {
+          await withdraw.mutateAsync({ id: s.id, amountUsd: value });
+          setAmount("");
+          onClose();
+        } catch (error) {
+          setError(t(apiErrorCode(error) ? "copyUpdates.withdrawError" : "copyUpdates.withdrawUnknown"));
+        }
+      }}>{withdraw.isPending ? (t("copyUpdates.processing")) : (t("copyUpdates.withdrawConfirm"))}</Button>
+    </div>
+  </Modal>;
+}
+
 /** Phone Insights: paper P&L split and each trader's contribution. */
 export function CopyInsights({ overview, leaders }: { overview: CopyOverview; leaders: Map<string, Leader> }) {
   const { t, format } = useI18n();
@@ -597,6 +646,8 @@ export function CopyInsights({ overview, leaders }: { overview: CopyOverview; le
 export function CopyExposure({ overview }: { overview: CopyOverview }) {
   const { t, format } = useI18n();
   const live = overview.strategies.filter((s) => s.status !== "stopped");
+  const unknown = live.some((s) => s.equity === null || s.positions.some((p) => p.notionalUsd === null));
+  if (unknown) return <p role="status" className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.exposureUnknown")}</p>;
   const byCoin = new Map<string, { long: number; short: number }>();
   for (const s of live) for (const p of s.positions) {
     const cur = byCoin.get(p.coin) ?? { long: 0, short: 0 };
@@ -607,7 +658,7 @@ export function CopyExposure({ overview }: { overview: CopyOverview }) {
   const long = [...byCoin.values()].reduce((a, c) => a + c.long, 0);
   const short = [...byCoin.values()].reduce((a, c) => a + c.short, 0);
   const equity = live.reduce((a, s) => a + (s.equity ?? 0), 0);
-  const leverage = equity > 0 ? (long + short) / equity : 0;
+  const leverage = equity > 0 ? (long + short) / equity : null;
   const total = long + short;
   if (total === 0) return <p className="py-8 text-center text-sm text-muted-foreground">{t("portfolio.copy.exposure.none")}</p>;
   const rows = [...byCoin.entries()].sort((a, b) => b[1].long + b[1].short - (a[1].long + a[1].short));
@@ -615,6 +666,7 @@ export function CopyExposure({ overview }: { overview: CopyOverview }) {
     <div className="flex flex-col gap-4">
       <section className="rounded-2xl border border-border bg-card p-4">
         <h3 className="flex items-center justify-between text-sm font-bold">{t("portfolio.copy.exposure.direction")} <PaperBadge /></h3>
+        {[...byCoin.values()].some((c) => c.long > 0 && c.short > 0) ? <p className="mt-2 text-xs text-warning">{t("copyUpdates.hedgeHint")}</p> : null}
         <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-raised">
           <span className="bg-positive" style={{ width: `${(long / total) * 100}%` }} />
           <span className="bg-negative" style={{ width: `${(short / total) * 100}%` }} />
@@ -626,7 +678,7 @@ export function CopyExposure({ overview }: { overview: CopyOverview }) {
         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
           <div className="rounded-xl bg-raised/50 p-3">
             <dt className="text-muted-foreground">{t("portfolio.copy.exposure.leverage")} · {t("portfolio.copy.exposure.weightedAvg")}</dt>
-            <dd className="num mt-1 text-sm font-bold">{leverage.toFixed(2)}×</dd>
+            <dd className="num mt-1 text-sm font-bold">{leverage === null ? "—" : `${leverage.toFixed(2)}×`}</dd>
           </div>
           <div className="rounded-xl bg-raised/50 p-3">
             <dt className="text-muted-foreground">{t("portfolio.copy.exposure.equity")}</dt>

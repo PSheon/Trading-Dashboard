@@ -1,0 +1,204 @@
+{
+  "capturedAt": "2026-10-03T03:07:23.101141+00:00",
+  "source": "https://copydog.xyz/assets/index-Dp4CR15e.js",
+  "sourceSha256": "fddcaa12174634a4dff837aeb5b68c6da3f389f5bd2e223e367107fe23c43efe",
+  "limitations": "Public frontend references, not authenticated workflow or backend verification. Embedded third-party SDK strings alone are not feature proof.",
+  "features": [
+    {
+      "term": "/api/referral/me",
+      "count": 1,
+      "byteOffsets": [
+        3167612
+      ]
+    },
+    {
+      "term": "/api/referral/friends",
+      "count": 1,
+      "byteOffsets": [
+        3167814
+      ]
+    },
+    {
+      "term": "/api/referral/claims",
+      "count": 1,
+      "byteOffsets": [
+        3168012
+      ]
+    },
+    {
+      "term": "/api/referral/code",
+      "count": 1,
+      "byteOffsets": [
+        3168225
+      ]
+    },
+    {
+      "term": "/api/referral/claim",
+      "count": 2,
+      "byteOffsets": [
+        3168012,
+        3168342
+      ]
+    },
+    {
+      "term": "/api/referral/bind",
+      "count": 1,
+      "byteOffsets": [
+        3168429
+      ]
+    },
+    {
+      "term": "/api/referral/check/",
+      "count": 1,
+      "byteOffsets": [
+        3168663
+      ]
+    },
+    {
+      "term": "hl-vault",
+      "count": 2,
+      "byteOffsets": [
+        3043649,
+        3044918
+      ]
+    },
+    {
+      "term": "portfolio-feed",
+      "count": 2,
+      "byteOffsets": [
+        3104409,
+        3163758
+      ]
+    },
+    {
+      "term": "chart-snapshots",
+      "count": 1,
+      "byteOffsets": [
+        2729298
+      ]
+    },
+    {
+      "term": "universal-address",
+      "count": 1,
+      "byteOffsets": [
+        3030205
+      ]
+    },
+    {
+      "term": "onramp-url",
+      "count": 1,
+      "byteOffsets": [
+        3029568
+      ]
+    },
+    {
+      "term": "trade_bot",
+      "count": 2,
+      "byteOffsets": [
+        3177437,
+        3180254
+      ]
+    },
+    {
+      "term": "account/wallets",
+      "count": 2,
+      "byteOffsets": [
+        3178285,
+        3284199
+      ]
+    },
+    {
+      "term": "needs_deposit",
+      "count": 6,
+      "byteOffsets": [
+        2983623,
+        3052349
+      ]
+    },
+    {
+      "term": "stop-and-close",
+      "count": 2,
+      "byteOffsets": [
+        3042404,
+        3119912
+      ]
+    },
+    {
+      "term": "close-hl-position",
+      "count": 1,
+      "byteOffsets": [
+        3041124
+      ]
+    },
+    {
+      "term": "poster",
+      "count": 6,
+      "byteOffsets": [
+        2959412,
+        2972784
+      ]
+    },
+    {
+      "term": "spotlight",
+      "count": 4,
+      "byteOffsets": [
+        2959448,
+        2970812
+      ]
+    },
+    {
+      "term": "/api/seo/news",
+      "count": 2,
+      "byteOffsets": [
+        2730966,
+        2731009
+      ]
+    }
+  ],
+  "stats": {
+    "wallets": 23299,
+    "aum": 11307533711.499651,
+    "volume": 8581991915342.05
+  },
+  "trending": {
+    "coins": [
+      "ZEC",
+      "PUMP"
+    ],
+    "stocks": [
+      "xyz:MU",
+      "xyz:SILVER"
+    ]
+  },
+  "localBoard": {
+    "url": "http://127.0.0.1:3100/discover/boards",
+    "responseTimestamp": "2026-10-03T03:09:40.252Z",
+    "metadata": {
+      "market": "crypto",
+      "board": "top100",
+      "coin": null,
+      "sort": "copyScore",
+      "window": "all",
+      "style": null,
+      "pool": {
+        "ready": 1136,
+        "total": 1136,
+        "tradesReady": 246
+      },
+      "rankingScope": "candidate_pool",
+      "eligibleCount": 1089,
+      "freshness": {
+        "oldestUpdatedAt": "2026-10-03T02:08:46.551Z",
+        "newestUpdatedAt": "2026-10-03T03:08:36.388Z",
+        "missingTimestamps": 0
+      },
+      "updatedAt": "2026-10-03T03:09:37.337Z"
+    }
+  },
+  "statsSource": "https://api.copydog.xyz/api/hyperliquid/leaderboard/stats",
+  "trendingSource": "https://api.copydog.xyz/api/hyperliquid/leaderboard/trending-coins",
+  "methodologySource": {
+    "url": "https://copydog.xyz/llms.txt",
+    "sha256": "5d87bdbfc84310746ebf072ea27bdc280b27cdef14ad47c50e1294afc468a5e6"
+  }
+}

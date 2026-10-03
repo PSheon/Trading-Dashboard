@@ -69,9 +69,10 @@ describe("history fill store: Postgres hands back the fill that was stored", () 
 
   it("reads a time range in time order, pages one stream in tid order, and removes by address", async () => {
     const at = (tid: number, time: number): HlUserFill => ({ ...SEEN_SHAPES[0], tid, time });
-    await store.insert(rows(A, [at(5, 3000), at(9, 1000), at(7, 2000), at(8, 2000)]));
+    await store.insert(rows(A, [at(5, 3000), at(9, 1000), at(8, 2000), at(7, 2000)]));
     await store.insert(rows(B, [at(1, 1500)]));
     expect((await store.read(A)).map((row) => row.fill.tid)).toEqual([9, 7, 8, 5]);
+    expect((await store.read(A, { newest: 2 })).map((row) => row.fill.tid)).toEqual([8, 5]);
     expect((await store.read(A, { from: new Date(2000), before: new Date(3000) })).map((row) => row.fill.tid)).toEqual([7, 8]);
     expect((await store.read(A, { through: new Date(2000) })).map((row) => row.fill.tid)).toEqual([9, 7, 8]);
     expect((await store.page(A, "regular", null, 3)).map((row) => row.fill.tid)).toEqual([5, 7, 8]);

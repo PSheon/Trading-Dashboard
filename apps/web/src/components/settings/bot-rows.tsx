@@ -20,6 +20,7 @@ import {
   TELEGRAM_KEY,
   useCreateTelegramLink,
   useTelegramStatus,
+  useSetCopyAlerts,
   useTelegramTest,
   useUnlinkTelegram,
 } from "@/lib/alerts";
@@ -66,22 +67,24 @@ export function BotRow({
   );
 }
 
-/** 交易機器人: copy-trade execution notices. Nothing executes before copy
- * trading ships, so the row is shown disabled, as a preview. */
+/** Opt-in notifications for confirmed paper copy events in the linked chat. */
 export function TradingBotRow({ className }: { className?: string }) {
   const { t } = useI18n();
-  return (
-    <BotRow
-      className={className}
-      title={t("settings.tradingBot")}
-      hint={t("settings.tradingBotHint")}
-      action={
-        <Button variant="secondary" size="sm" disabled title={t("settings.comingSoon")}>
-          {t("settings.comingSoon")}
-        </Button>
-      }
-    />
-  );
+  const status = useTelegramStatus();
+  const update = useSetCopyAlerts();
+  const data = status.data;
+  const canEnable = Boolean(data?.linked && data.enabled && data.bot);
+  const checked = data?.copyAlertsEnabled ?? false;
+  return <BotRow className={className} title={t("settings.tradingBot")} hint={t("copyUpdates.alertHint")} action={
+    status.isError && !data ? <Button variant="secondary" size="sm" onClick={() => status.refetch()}>{t("common.retry")}</Button> :
+    !data ? <Skeleton className="h-9 w-16 rounded-full" /> :
+    <Button variant="secondary" size="sm" role="switch" aria-checked={checked} aria-label={t("settings.tradingBot")} disabled={update.isPending || (!canEnable && !checked)} onClick={() => update.mutate(!checked)}>
+      {t(checked ? "copyUpdates.alertOn" : "copyUpdates.alertOff")}
+    </Button>
+  }>
+    {data && !canEnable ? <p className="mt-2 ml-11 text-xs text-muted-foreground">{t("copyUpdates.alertLink")}</p> : null}
+    {update.isError ? <p role="alert" className="mt-2 ml-11 text-xs text-negative">{t("copyUpdates.alertError")}</p> : null}
+  </BotRow>;
 }
 
 /**

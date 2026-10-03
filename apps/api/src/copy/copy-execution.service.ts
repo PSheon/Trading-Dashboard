@@ -1,13 +1,14 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
-import { COPY_STUCK_ORDER_ATTEMPTS } from "@trading-dashboard/shared/contracts";
+import { COPY_STUCK_ORDER_ATTEMPTS, copyStrategySettingsSchema } from "@trading-dashboard/shared/contracts";
 
 import { Dec, type DecInput } from "../common/decimal/dec.js";
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { NotifyService } from "../notify/notify.service.js";
 import { SettingsService } from "../settings/settings.service.js";
-import { CopyMarketService, maintenanceMargin, type AssetMap, type Mids } from "./copy-market.service.js";
+import { CopyMarketService, MIDS_TTL_MS, maintenanceMargin, type AssetMap, type Mids } from "./copy-market.service.js";
 import { applyFill, cloidOf, dec, fillFees, fundingHours, fundingPayment, roundPx, slippedPx } from "./copy-math.js";
-import { pricedCoins } from "./copy-risk.js";
+import { evaluateRisk, symbolRefusal } from "./copy-risk.js";
+import { strategyValue } from "./copy-planner.service.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OrderRow, type PositionRow, type StrategyRow } from "./copy.repository.js";
 
@@ -44,9 +45,10 @@ const signalAgeSeconds = (order: Pick<OrderRow, "signalTime">) => (Date.now() - 
  *
  * 1. Execution boundary: in one transaction, read the platform and user
  *    control rows (FOR SHARE) and the strategy row (FOR UPDATE) — the
- *    authoritative revisions, never a cache — and cancel a risk-increasing
- *    order that any active pause / reduce-only now forbids. Otherwise mark
- *    it `submitting`.
+ *    authoritative revisions, never a cache. Recheck current policy,
+ *    strategy settings, fresh prices, exposure, equity and reservations;
+ *    cancel any risk increase that no longer fits. Otherwise mark it
+ *    `submitting` and refresh its own reservation.
  * 2. Simulated fill: mid now (allMids) ± the policy's slippage, rounded to
  *    the asset's price rules; taker fee from the policy, builder fee from
  *    revenue.builderFeeTenthsBps. Reduce-only orders are clamped to the
@@ -56,7 +58,7 @@ const signalAgeSeconds = (order: Pick<OrderRow, "signalTime">) => (Date.now() - 
  * `submitting` exists so that testnet/live can put the exchange round trip
  * between the two; there an unanswered request becomes `unknown` and is
  * reconciled by client order id instead of being re-sent. In paper a
- * leftover `submitting` order is simply re-simulated.
+ * leftover `submitting` order is revalidated before being re-simulated.
  *
  * Order within a strategy is strict: its orders run in id order, and while
  * one is `submitting` (its fill failed and waits for the retry) nothing
@@ -104,14 +106,6 @@ export class CopyExecutionService {
     const stale = await this.repository.staleSubmitting(new Date(Date.now() - SUBMITTING_RECOVERY_MS), limit);
     let approved = await this.repository.approvedOrders(limit);
     if (stale.length === 0 && approved.length === 0) return result;
-    const policy = await this.policies.current();
-    const coins = pricedCoins(policy.limits, await this.repository.orderCoins([...stale, ...approved].map((o) => o.id)));
-    const mids = await this.market.midPrices(coins);
-    const assets = await this.market.assetInfo(coins);
-    const builderFeeTenthsBps = (await this.settings.get("revenue")).builderFeeTenthsBps;
-    const maxSignalAgeSeconds = policy.limits.maxSignalAgeSeconds;
-    const pricing = { mids, assets, slippageBps: policy.limits.simulatedSlippageBps, takerFeeBps: policy.limits.takerFeeBps, builderFeeTenthsBps, maxSignalAgeSeconds };
-
     /** Strategies whose order failed this pass: nothing later of theirs runs before it. */
     const held = new Set<number>();
     const guarded = async (order: { id: bigint; strategyId: number }, work: () => Promise<void>) => {
@@ -127,14 +121,18 @@ export class CopyExecutionService {
     };
     for (const order of stale) {
       await guarded(order, async () => {
-        if (await this.fill(order.id, pricing)) result.filled += 1;
+        const owner = await this.repository.orderOwner(order.id);
+        if (owner && await this.fill(order.id, await this.boundaryPricing(order.id, owner.userId))) result.filled += 1;
       });
     }
     // A strategy whose leftover order just finished can go on in this pass.
     if (stale.length > 0) approved = await this.repository.approvedOrders(limit);
     for (const order of approved) {
       await guarded(order, async () => {
-        const outcome = await this.submit(order.id, maxSignalAgeSeconds);
+        const owner = await this.repository.orderOwner(order.id);
+        if (!owner) return;
+        const pricing = await this.boundaryPricing(order.id, owner.userId);
+        const outcome = await this.submit(order.id, undefined, pricing);
         if (outcome === "cancelled") result.cancelled += 1;
         else if (outcome === "submitting" && (await this.fill(order.id, pricing))) result.filled += 1;
       });
@@ -156,38 +154,141 @@ export class CopyExecutionService {
     }
   }
 
-  /** Step 1, the execution boundary. `maxSignalAgeSeconds` defaults to the policy in force. */
-  async submit(orderId: bigint, maxSignalAgeSeconds?: number): Promise<"submitting" | "cancelled" | "skipped"> {
+  /** Market reads happen before locks; state and policy are read again under locks. */
+  private async boundaryCoins(userId: number): Promise<string[]> {
+    const ids = (await this.repository.liveStrategyIdsOfUser(this.repository.reader, userId)).map((s) => s.id);
+    return (await this.repository.positionsOf(ids)).map((p) => p.coin);
+  }
+
+  private async boundaryPricing(orderId: bigint, userId: number): Promise<Pricing> {
+    const coins = [...await this.repository.orderCoins([orderId]), ...await this.boundaryCoins(userId)];
+    const [mids, assets, revenue] = await Promise.all([
+      this.market.midPrices(coins), this.market.assetInfo(coins), this.settings.get("revenue"),
+    ]);
+    // Slippage/fees are replaced with the authoritative policy inside the boundary.
+    return { mids, assets, slippageBps: 0, takerFeeBps: 0, builderFeeTenthsBps: revenue.builderFeeTenthsBps };
+  }
+
+  /** Step 1, the execution boundary. An optional age bound can only tighten policy. */
+  async submit(orderId: bigint, maxSignalAgeSeconds?: number, snapshot?: Pricing): Promise<"submitting" | "cancelled" | "skipped"> {
     const owner = await this.repository.orderOwner(orderId);
     if (!owner) return "skipped";
+    const pricing = snapshot ?? await this.boundaryPricing(orderId, owner.userId);
     return this.uow.run(async (tx) => {
-      // Lock order everywhere: controls (share) → strategy → order.
+      // Policy writers take the exclusive form of this same advisory lock.
+      await this.repository.lockPoliciesForExecution(tx);
+      await this.repository.lockCopyUser(tx, owner.userId);
       const controls = await this.repository.readControls(owner.userId, "share", tx);
       const strategy = await this.repository.lockStrategy(tx, owner.strategyId);
-      const peek = await this.repository.lockOrder(tx, orderId);
-      if (!strategy || !peek || peek.status !== "risk_approved") return "skipped";
-      if (!peek.reduceOnly) {
-        const maxAge = maxSignalAgeSeconds ?? (await this.policies.current(tx)).limits.maxSignalAgeSeconds;
-        const blocked =
-          controls.platform?.pauseNewRisk ? "platform_paused" :
-          controls.platform?.reduceOnly ? "platform_reduce_only" :
-          controls.user?.pauseNewRisk ? "user_paused" :
-          controls.user?.reduceOnly ? "user_reduce_only" :
-          strategy.pauseNewRisk ? "strategy_paused" :
-          strategy.reduceOnly ? "strategy_reduce_only" :
-          strategy.status !== "active" ? `strategy_${strategy.status}` :
-          // Approved in time, but it waited: it would fill at a mid the leader never traded at.
-          // Adoption is not tied to a fill's price: late is still what the person asked for.
-          peek.leg !== "adopt" && signalAgeSeconds(peek) > maxAge ? "stale_signal" : null;
-        if (blocked) {
-          await this.repository.updateOrder(tx, orderId, { status: "cancelled", reason: `${blocked}_before_submit` });
-          await this.repository.settleReservation(tx, orderId, "released");
-          return "cancelled";
-        }
+      const order = await this.repository.lockOrder(tx, orderId);
+      if (!strategy || !order || order.status !== "risk_approved") return "skipped";
+      const reason = await this.revalidate(tx, strategy, order, controls, pricing, maxSignalAgeSeconds);
+      if (reason) {
+        await this.cancel(tx, order, `${reason}_before_submit`);
+        return "cancelled";
       }
-      await this.repository.updateOrder(tx, orderId, { status: "submitting" });
+      await this.repository.updateOrder(tx, orderId, { status: "submitting", executionFeeSnapshot: {
+        takerFeeBps: pricing.takerFeeBps, builderFeeTenthsBps: pricing.builderFeeTenthsBps,
+      } });
       return "submitting";
     });
+  }
+
+  /** Check the entire current risk intersection, excluding only this order's reservation.
+   * Pending closes do not free exposure until they have actually filled. */
+  private async revalidate(
+    tx: DbTransaction, strategy: StrategyRow, order: OrderRow,
+    controls: Awaited<ReturnType<CopyRepository["readControls"]>>, pricing: Pricing, ageBound?: number,
+  ): Promise<string | null> {
+    const policy = await this.policies.current(tx);
+    pricing.slippageBps = policy.limits.simulatedSlippageBps;
+    pricing.takerFeeBps = order.executionFeeSnapshot?.takerFeeBps ?? policy.limits.takerFeeBps;
+    pricing.builderFeeTenthsBps = order.executionFeeSnapshot?.builderFeeTenthsBps ?? pricing.builderFeeTenthsBps;
+    pricing.maxSignalAgeSeconds = Math.min(policy.limits.maxSignalAgeSeconds, ageBound ?? Infinity);
+    await this.repository.updateOrder(tx, order.id, {
+      executionPolicyVersion: policy.version, executionStrategyVersion: strategy.version,
+      executionControlRevisions: { platform: controls.platform?.revision ?? 0, user: controls.user?.revision ?? 0, strategy: strategy.controlRevision },
+    });
+    if (order.reduceOnly) return null;
+    if (!(await this.repository.userCanCopy(tx, strategy.userId))) return "user_disabled";
+    if (policy.invalid) return "risk_policy_invalid";
+    if (strategy.status !== "active") return `strategy_${strategy.status}`;
+    const refused = symbolRefusal(policy.limits, order.coin);
+    if (refused) return refused;
+    const parsed = copyStrategySettingsSchema.safeParse(await this.repository.settingsOf(tx, strategy.id, strategy.version));
+    if (!parsed.success) return "strategy_settings_invalid";
+    const settings = parsed.data;
+    let tightenedPerTrade = false;
+    if (order.strategyVersion !== strategy.version) {
+      const previous = copyStrategySettingsSchema.safeParse(await this.repository.settingsOf(tx, strategy.id, order.strategyVersion));
+      if (!previous.success || previous.data.direction !== settings.direction || previous.data.sizingMode !== settings.sizingMode) return "strategy_settings_changed";
+      tightenedPerTrade = settings.sizingMode === "fixed" && settings.perTradeUsd !== null &&
+        (previous.data.perTradeUsd === null || settings.perTradeUsd < previous.data.perTradeUsd);
+    }
+    const at = pricing.mids?.at.getTime();
+    if (at === undefined || !Number.isFinite(at) || Date.now() - at > MIDS_TTL_MS || at > Date.now()) return "stale_price";
+    const mid = pricing.mids?.px.get(order.coin);
+    const asset = pricing.assets?.get(order.coin);
+    if (!mid?.isPositive) return "no_price";
+    if (!asset) return "no_asset_info";
+    const positions = await this.repository.positionsOf([strategy.id], tx);
+    const current = Dec.from(positions.find((p) => p.coin === order.coin)?.size ?? 0);
+    if (!current.isZero && current.sign !== (order.side === "B" ? 1 : -1)) return "opposite_position";
+    const userIds = (await this.repository.liveStrategyIdsOfUser(tx, strategy.userId)).map((s) => s.id);
+    const userPositions = await this.repository.positionsOf(userIds, tx);
+    const reservations = await this.repository.heldReservationRows(userIds, tx);
+    // Identity matters: subtracting an estimated notional can free another order's funds.
+    const own = reservations.find((r) => r.orderId === order.id);
+    if (!own) return "missing_reservation";
+    const others = reservations.filter((r) => r.orderId !== order.id);
+    let exposure = Dec.ZERO;
+    let coinExposure = Dec.ZERO;
+    for (const p of userPositions) {
+      const px = pricing.mids?.px.get(p.coin);
+      if (!px?.isPositive) return "no_price";
+      const n = Dec.from(p.size).abs().mul(px);
+      exposure = exposure.add(n);
+      if (p.coin === order.coin) coinExposure = coinExposure.add(n);
+    }
+    for (const r of others) {
+      exposure = exposure.add(r.notional);
+      if (r.coin === order.coin) coinExposure = coinExposure.add(r.notional);
+    }
+    const value = strategyValue(strategy, positions, pricing.mids);
+    if (value.equity === null) return "no_price";
+    const px = roundPx(slippedPx(mid, order.side, pricing.slippageBps), asset.szDecimals);
+    const size = Dec.from(order.size);
+    // Exposure caps value positions at the current mark, regardless of fill slippage.
+    const notional = size.mul(mid);
+    const fees = fillFees(size.mul(px), pricing.takerFeeBps, pricing.builderFeeTenthsBps);
+    const slippageLoss = size.mul(px.sub(mid).abs());
+    const reserved = others.filter((r) => r.strategyId === strategy.id);
+    if (tightenedPerTrade && settings.perTradeUsd !== null && Dec.from(order.size).mul(mid).gt(settings.perTradeUsd)) return "max_per_trade";
+    // The counter already contains this order. Do not charge it twice on revalidation.
+    const count = await this.repository.ordersLastMinute(tx, strategy.id);
+    const counted = order.leg !== "adopt" && order.createdAt.getTime() >= Date.now() - 60_000;
+    const decision = evaluateRisk({
+      limits: { ...policy.limits, maxSignalAgeSeconds: pricing.maxSignalAgeSeconds }, settings,
+      controls: {
+        platform: { pauseNewRisk: controls.platform?.pauseNewRisk ?? false, reduceOnly: controls.platform?.reduceOnly ?? false },
+        user: { pauseNewRisk: controls.user?.pauseNewRisk ?? false, reduceOnly: controls.user?.reduceOnly ?? false },
+        strategy: { pauseNewRisk: strategy.pauseNewRisk, reduceOnly: strategy.reduceOnly },
+      },
+      coin: order.coin, increasesRisk: true, adoption: order.leg === "adopt", notional, px: mid,
+      signalPx: order.leg === "adopt" ? null : Dec.from(order.signalPx), signalAgeSeconds: signalAgeSeconds(order),
+      coinMaxLeverage: asset.maxLeverage,
+      strategy: {
+        allocated: Dec.from(strategy.allocated), equity: value.equity.sub(fees.fee).sub(fees.builderFee).sub(slippageLoss), exposure: value.exposure,
+        reservedMargin: Dec.sum(reserved.map((r) => Dec.from(r.margin))),
+        reservedNotional: Dec.sum(reserved.map((r) => Dec.from(r.notional))), ordersLastMinute: Math.max(0, count - (counted ? 1 : 0)),
+      },
+      user: { coinExposure, exposure },
+    });
+    if (!decision.ok) return decision.reason;
+    // Keep the approved size immutable; a tightened cap requires a new intent.
+    if (decision.notional.lt(notional)) return `risk_cap_${decision.notes.join("_")}`;
+    await this.repository.refreshHeldReservation(tx, order.id, { notional: notional.toString(), margin: decision.margin.toString() });
+    return null;
   }
 
   /** Step 2, the simulated fill of a `submitting` order. */
@@ -195,9 +296,18 @@ export class CopyExecutionService {
     const owner = await this.repository.orderOwner(orderId);
     if (!owner) return false;
     return this.uow.run(async (tx) => {
+      // Policy writers take the exclusive form of this same advisory lock.
+      await this.repository.lockPoliciesForExecution(tx);
+      await this.repository.lockCopyUser(tx, owner.userId);
+      const controls = await this.repository.readControls(owner.userId, "share", tx);
       const strategy = await this.repository.lockStrategy(tx, owner.strategyId);
       const order = await this.repository.lockOrder(tx, orderId);
       if (!strategy || !order || order.status !== "submitting") return false;
+      const reason = await this.revalidate(tx, strategy, order, controls, pricing);
+      if (reason) {
+        await this.cancel(tx, order, `${reason}_before_fill`);
+        return false;
+      }
       const position = await this.repository.lockPosition(tx, strategy.id, order.coin);
       const current = Dec.from(position?.size ?? 0);
       const sign: 1 | -1 = order.side === "B" ? 1 : -1;
@@ -264,6 +374,7 @@ export class CopyExecutionService {
     ]);
     const partial = size.lt(order.size);
     await this.repository.updateOrder(tx, order.id, {
+      executionFeeSnapshot: order.executionFeeSnapshot ?? { takerFeeBps: pricing.takerFeeBps, builderFeeTenthsBps: pricing.builderFeeTenthsBps },
       status: partial ? "partial" : "filled", filledSize: size.toString(), avgPx: px.toString(), fee: fee.toString(), builderFee: builderFee.toString(),
       reason: partial ? "reduce_only_clamped" : order.reason,
     });
@@ -382,7 +493,12 @@ export class CopyExecutionService {
         await this.repository.lockPaperAccount(tx, strategy.userId, "0");
         await this.repository.adjustPaperBalance(tx, strategy.userId, cash.toString());
         await this.repository.insertLedger(tx, [{ strategyId: strategy.id, userId: strategy.userId, kind: "release", amount: cash.neg().toString() }]);
-        await this.repository.updateStrategy(tx, strategy.id, { status: "stopped", stoppedAt: new Date() });
+        const stoppedAt = new Date();
+        const netDeposits = Dec.from(strategy.allocated).sub(strategy.withdrawn);
+        await this.repository.runtime.snapshot(tx, { strategyId: strategy.id, time: stoppedAt,
+          equity: cash.toString(), totalPnl: cash.sub(netDeposits).toString(), netDeposits: netDeposits.toString(), exposureUsd: "0" });
+        await this.repository.updateStrategy(tx, strategy.id, { status: "stopped", stoppedAt });
+        await this.repository.runtime.appendEvent(tx, strategy.userId, strategy.id, "strategy_stopped", { mode: "paper" });
         await this.repository.unwatchLeaderIfUnused(tx, strategy.leaderAddress);
         return true;
       });

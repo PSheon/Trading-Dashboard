@@ -1243,7 +1243,10 @@ export type PatchFavoriteAlertRequest = z.infer<typeof patchFavoriteAlertRequest
 
 /** GET /me/telegram — the official bot and whether this user's chat is
  * linked to it. */
+export const patchCopyAlertsRequestSchema = z.object({ enabled: z.boolean() }).strict();
+
 export const telegramStatusSchema = z.object({
+  copyAlertsEnabled: z.boolean().default(false),
   /** Bot username without "@" (TELEGRAM_BOT_USERNAME); null = not set up. */
   bot: z.string().nullable(),
   linked: z.boolean(),
@@ -2002,3 +2005,4 @@ export type KolImportResponse = z.infer<typeof kolImportResponseSchema>;
 
 // Copy trading (Stage 4 step 3, paper mode).
 export * from "./copy.js";
+export * from "./copy-runtime.js";

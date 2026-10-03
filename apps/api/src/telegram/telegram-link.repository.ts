@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, count, eq, gt, isNull, lt, ne } from "drizzle-orm";
+import { and, count, eq, gt, isNull, lt, ne, sql } from "drizzle-orm";
 import { notificationChannels, telegramLinkTokens, users } from "@trading-dashboard/shared/database";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -9,6 +9,15 @@ import type { DbTransaction } from "../db/unit-of-work.js";
 @Injectable()
 export class TelegramLinkRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+
+  async setCopyAlerts(userId: number, enabled: boolean): Promise<boolean> {
+    const rows = await this.db.update(notificationChannels).set({
+      copyAlertsEnabled: enabled,
+      copyAlertsSince: enabled ? sql`case when ${notificationChannels.copyAlertsEnabled} then ${notificationChannels.copyAlertsSince} else now() end` : null,
+    }).where(and(eq(notificationChannels.userId, userId), eq(notificationChannels.kind, "telegram"), eq(notificationChannels.enabled, true)))
+      .returning({ id: notificationChannels.id });
+    return rows.length > 0;
+  }
 
   async disableChat(chatId: string): Promise<boolean> {
     const rows = await this.db
@@ -178,7 +187,7 @@ export class TelegramLinkRepository {
       .values({ userId, kind: "telegram", target: chatId, username, enabled: true, createdAt: now })
       .onConflictDoUpdate({
         target: [notificationChannels.userId, notificationChannels.kind],
-        set: { target: chatId, username, enabled: true, createdAt: now },
+        set: { target: chatId, username, enabled: true, createdAt: now, copyAlertsEnabled: false, copyAlertsSince: null },
       });
 
     return movedFrom.length > 0;

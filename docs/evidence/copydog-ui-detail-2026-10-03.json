@@ -1,0 +1,86 @@
+{
+  "capturedAt": "2026-10-03T03:32:15.727929+00:00",
+  "head": "67ead8a",
+  "scope": "Public signed-out browser pages; source audit of working tree. No transactions, authenticated Copydog workflows or full test run.",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "locale": "Reference en-US; local initially zh-TW default then desktop recaptured with locale=en cookie.",
+  "observations": {
+    "home": "English heading 2 lines reference vs 3 local; reference has app download links; market shortcuts and featured population differ.",
+    "explore": {
+      "MP05": {
+        "referenceScore": 98,
+        "localScore": 95,
+        "referenceActivity": "11H",
+        "localActivity": "21H"
+      },
+      "note": "Sequential captures, not identical data cutoffs; activity mismatch cause unverified."
+    },
+    "insights": {
+      "referenceLongPct": 69.8,
+      "localHistoricalLongPct": 41.5,
+      "referenceChartStart": "Mar 18",
+      "localChartStart": "Sep 30",
+      "localState": "Headline skeletons, collecting message, blank treemap, historical chart still present"
+    },
+    "trader": "Local Bholu rendered. Incorrect reference /trader/ path returned404; corrected path blank at capture, comparison incomplete."
+  },
+  "screenshots": [
+    {
+      "path": "/private/tmp/copydog-ui-detail/local-en.png",
+      "sha256": "2db7fcffb3a7a0bb7eff5bc8b4e81a792fb5eef11f526a7929e16cc501b5d902"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/local-explore.png",
+      "sha256": "bf79b30a4c393a2b1bea40365a7b756cdc3809c7242663cbf4b2d8b2393e6fb4"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/local-insights.png",
+      "sha256": "1ebe222b296ca1c4416a794198adcb81a04290848d98093698d9c112b9ea851f"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/local-phone.png",
+      "sha256": "543ff29605d6048f11cf0ef2b74b995fe1323e816d473f541a0b53ee4b70399d"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/local-trader.png",
+      "sha256": "31fec442820f662a53e9f0467e1821fe375f7ee0cc3530e195a6b9a26e57aa00"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/local.png",
+      "sha256": "33c8925b2c965c4d24c88cd7a7df12e4385132b9056daae7b2796599ab9dcfab"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/reference-explore.png",
+      "sha256": "425db677e52797a8142e0af7f02e189d47576c604e4e4667e7a1b433acbbe986"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/reference-insights.png",
+      "sha256": "40a3a3778c78fd29265f7a73febf4377ac1658a642c0bd128cff86a72a37f3c2"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/reference-phone.png",
+      "sha256": "0c1c642f3747a059b207832f177345b907d21842a1d2f06032a4e103f09b7105"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/reference-trader-correct.png",
+      "sha256": "0d419e3db05db9d8e4682a28b6c10b8229b8e16b5e6dd4e69e1c4686e2f12031"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/reference-trader.png",
+      "sha256": "b3e68200e73a2776eff357946ab9e87ef73cf8d18cffb50128aef3956b155ef7"
+    },
+    {
+      "path": "/private/tmp/copydog-ui-detail/reference.png",
+      "sha256": "fa659596509d999b7f03e3d7a98cf7972f72f9cc0650a0e800ab95203ec2fe04"
+    }
+  ]
+}

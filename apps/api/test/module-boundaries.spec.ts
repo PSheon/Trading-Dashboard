@@ -1,3 +1,4 @@
+import { MarketCatalogService } from "../src/hyperliquid/market-catalog.service.js";
 import { AppConfig } from "../src/config/app-config.js";
 import { testConfig } from "./config-test-utils.js";
 import { Global, Module } from "@nestjs/common";
@@ -18,13 +19,16 @@ it("feature modules initialize without a watcher, ingestion schedule or network 
   vi.stubEnv("NODE_ENV", "development");
   @Global() @Module({ providers: [{ provide: AppConfig, useValue: testConfig() }, { provide: DRIZZLE_CLIENT, useValue: {} }, UnitOfWork], exports: [AppConfig, DRIZZLE_CLIENT, UnitOfWork] })
   class TestDatabase {}
+  // dev intentionally warms the market catalog at startup; isolate that network
+  // dependency while checking that no ingestion/watcher background work starts.
+  const warmup = vi.spyOn(MarketCatalogService.prototype, "onModuleInit").mockImplementation(() => {});
   const ref = await Test.createTestingModule({ imports: [TestDatabase, SettingsModule, UsersModule, TradersModule] }).compile();
   const app = ref.createNestApplication({ logger: false });
   try {
     await app.init();
     expect(() => app.get(WatcherService)).toThrow();
     expect(fetcher).not.toHaveBeenCalled();
-  } finally { await app.close(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
+  } finally { await app.close(); warmup.mockRestore(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
 });
 
 it("browser sources use only the contracts subpath, never the database or root barrel", () => {

@@ -2,8 +2,12 @@ import type { INestApplication } from "@nestjs/common";
 import {
   appSettings,
   copyConsumerCheckpoints,
+  copyEquitySnapshots,
+  copyEvents,
+  copyOperations,
   copyControlEvents,
   copyLedger,
+  copyPaperFills,
   copyOrders,
   copyPositions,
   copySignalLegs,
@@ -35,6 +39,7 @@ import { CopyOrderPlanner } from "../src/copy/copy-planner.service.js";
 import { CopyRiskPolicyService } from "../src/copy/copy-risk-policy.service.js";
 import { CopySignalService } from "../src/copy/copy-signal.service.js";
 import { CopyStrategyService } from "../src/copy/copy-strategy.service.js";
+import { CopyPerformanceService } from "../src/copy/copy-performance.service.js";
 import { CopyController } from "../src/copy/copy.controller.js";
 import { CopyRepository } from "../src/copy/copy.repository.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
@@ -155,7 +160,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       controllers: [CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
+        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
         { provide: HyperliquidInfoClient, useValue: info },
         { provide: NotifyService, useValue: notify },
       ],
@@ -1382,8 +1387,8 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
         coin: "BTC", leg: "open", side: "A", reduceOnly: false, size: "0.05", signalPx: "100000", signalTime: new Date(), signalTids: [], status: "risk_approved",
         controlRevisions: { platform: 0, user: 0, strategy: 0 },
       });
-      expect(await execution.drain()).toEqual({ filled: 0, cancelled: 0 });
-      expect((await orders(id)).at(-1)).toMatchObject({ status: "cancelled", reason: "opposite_position" });
+      expect(await execution.drain()).toEqual({ filled: 0, cancelled: 1 });
+      expect((await orders(id)).at(-1)).toMatchObject({ status: "cancelled", reason: "opposite_position_before_submit" });
       expect(await position(id)).toBeCloseTo(0.05);
     });
 
@@ -2082,6 +2087,246 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       const detail = await reads.strategy(id);
       expect(detail.versions).toHaveLength(1);
       expect(detail.ledger.map((l) => l.kind)).toContain("allocate");
+    });
+  });
+  describe("durable owner operations and performance", () => {
+    const key = (suffix: string) => `copy-operation-test-${suffix}`;
+
+    it("concurrent configure retries allocate once and reject another payload", async () => {
+      const body = { leader: LEADER, allocationUsd: 1_000, copyStartMode: "delta", idempotencyKey: key("create") };
+      const [a, b] = await Promise.all([alice.post("/me/copy/strategies", body).expect(201), alice.post("/me/copy/strategies", body).expect(201)]);
+      expect(a.body.data.id).toBe(b.body.data.id);
+      expect(await db.select().from(copyStrategies)).toHaveLength(1);
+      expect(await db.select().from(copyOperations)).toHaveLength(1);
+      expect((await db.select().from(paperAccounts))[0]!.balance).toBe("9000");
+      const conflict = await alice.post("/me/copy/strategies", { ...body, allocationUsd: 2_000 }).expect(409);
+      expect(conflict.body.error.code).toBe("idempotency_conflict");
+    });
+
+    it("topup retries and command retries commit once", async () => {
+      const { id } = await startCopy();
+      const body = { amountUsd: 100, idempotencyKey: key("topup") };
+      await Promise.all([alice.post(`/me/copy/strategies/${id}/funds`, body).expect(200), alice.post(`/me/copy/strategies/${id}/funds`, body).expect(200)]);
+      expect((await db.select().from(copyStrategies))[0]!.allocated).toBe("1100");
+      const command = { command: "pause", idempotencyKey: key("pause") };
+      await Promise.all([alice.post(`/me/copy/strategies/${id}/commands`, command).expect(200), alice.post(`/me/copy/strategies/${id}/commands`, command).expect(200)]);
+      expect((await db.select().from(copyStrategies))[0]!.controlRevision).toBe(1);
+      const reused = await alice.post(`/me/copy/strategies/${id}/funds`, { amountUsd: 10, idempotencyKey: key("pause") }).expect(409);
+      expect(reused.body.error.code).toBe("idempotency_conflict");
+    });
+
+    it("withdrawal retries preserve total value and do not book a loss", async () => {
+      const { id } = await startCopy();
+      const body = { amountUsd: 300, idempotencyKey: key("withdraw") };
+      await Promise.all([alice.post(`/me/copy/strategies/${id}/withdraw-funds`, body).expect(200), alice.post(`/me/copy/strategies/${id}/withdraw-funds`, body).expect(200)]);
+      const data = (await alice.get("/me/copy").expect(200)).body.data;
+      expect(data.paper).toMatchObject({ balance: 9_300, totalValue: 10_000, totalPnl: 0 });
+      expect(data.strategies[0]).toMatchObject({ cash: 700, allocated: 1_000, withdrawn: 300, totalPnl: 0, freeCollateralUsd: 700 });
+      expect((await db.select().from(copyLedger)).filter((r) => r.kind === "withdraw")).toHaveLength(1);
+      expect((await db.select().from(copyEvents)).filter((r) => r.type === "funds_withdrawn")).toHaveLength(1);
+    });
+
+    it("concurrent distinct withdrawals cannot spend the same collateral", async () => {
+      const { id } = await startCopy();
+      const responses = await Promise.all([alice.post(`/me/copy/strategies/${id}/withdraw-funds`, { amountUsd: 600, idempotencyKey: key("withdraw-a") }), alice.post(`/me/copy/strategies/${id}/withdraw-funds`, { amountUsd: 600, idempotencyKey: key("withdraw-b") })]);
+      expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect((await db.select().from(copyStrategies))[0]).toMatchObject({ cash: "400", withdrawn: "600" });
+    });
+
+    it("keeps margin reserved for approved orders and rejects non-owner withdrawals", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 100 })]);
+      await signals.drain();
+      const denied = await alice.post(`/me/copy/strategies/${id}/withdraw-funds`, { amountUsd: 600, idempotencyKey: key("reserved") }).expect(409);
+      expect(denied.body.error.code).toBe("no_free_collateral");
+      await api("bob-token").post(`/me/copy/strategies/${id}/withdraw-funds`, { amountUsd: 1, idempotencyKey: key("bob") }).expect(404);
+    });
+
+    it("fees stay bound to the submitted order when settings change before fill", async () => {
+      const { id, activatedAt } = await startCopy();
+      await db.insert(appSettings).values({ key: "revenue", value: { builderAddress: null, builderFeeTenthsBps: 10 } });
+      settings.invalidate();
+      await store([fill({ side: "B", sz: 0.1, px: 100_000, start: 0, time: activatedAt + 100 })]);
+      await signals.drain();
+      const [order] = await orders(id);
+      expect(await execution.submit(order!.id)).toBe("submitting");
+      await db.update(appSettings).set({ value: { builderAddress: null, builderFeeTenthsBps: 50 } }).where(eq(appSettings.key, "revenue"));
+      settings.invalidate();
+      await execution.fill(order!.id, {
+        mids: await marketService.midPrices(["BTC"]), assets: await marketService.assetInfo(["BTC"]),
+        slippageBps: 5, takerFeeBps: 10, builderFeeTenthsBps: 50,
+      });
+      const [after] = await orders(id);
+      expect(after!.executionFeeSnapshot).toEqual({ takerFeeBps: 4.5, builderFeeTenthsBps: 10 });
+      expect(Number(after!.builderFee)).toBeCloseTo(Number(after!.filledSize) * Number(after!.avgPx) * 0.0001, 8);
+    });
+
+    it("refuses stale collateral and preserves a terminal performance snapshot", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.1, px: 100_000, start: 0, time: activatedAt + 100 })]);
+      await run();
+      const marks = await marketService.midPrices(["BTC"]);
+      const spy = vi.spyOn(marketService, "midPrices").mockResolvedValue({ ...marks!, at: new Date(Date.now() - 10_000) });
+      try {
+        const result = await alice.post(`/me/copy/strategies/${id}/withdraw-funds`, { amountUsd: 1, idempotencyKey: key("stale") }).expect(409);
+        expect(result.body.error.code).toBe("collateral_unavailable");
+      } finally { spy.mockRestore(); }
+      await alice.post(`/me/copy/strategies/${id}/commands`, { command: "stop", idempotencyKey: key("terminal") }).expect(200);
+      await execution.drain();
+      expect(await execution.settleStopping()).toBe(1);
+      const strategy = (await db.select().from(copyStrategies).where(eq(copyStrategies.id, id)))[0]!;
+      const final = (await db.select().from(copyEquitySnapshots).where(eq(copyEquitySnapshots.strategyId, id))).find((r) => r.time.getTime() === strategy.stoppedAt!.getTime());
+      expect(final).toBeDefined();
+      expect(Number(final!.totalPnl)).toBeCloseTo(Number(strategy.cash) + Number(strategy.withdrawn) - Number(strategy.allocated), 8);
+      expect(Number(final!.exposureUsd)).toBe(0);
+      expect((await db.select().from(copyEvents)).filter((r) => r.type === "strategy_stopped")).toHaveLength(1);
+    });
+
+    it("snapshot time and price age are checked after a delayed strategy lock", async () => {
+      const { id } = await startCopy();
+      await db.insert(copyPositions).values({ strategyId: id, coin: "BTC", size: "0.001", entryPx: "100000" });
+      const repo = app.get(CopyRepository);
+      const lock = repo.lockStrategy.bind(repo);
+      const begin = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(begin);
+      const delayed = vi.spyOn(repo, "lockStrategy").mockImplementation(async (tx, strategyId) => {
+        const row = await lock(tx, strategyId);
+        clock.mockReturnValue(begin + 10_000);
+        return row;
+      });
+      try {
+        await app.get(CopyPerformanceService).capture();
+        const after = await db.select().from(copyEquitySnapshots).where(eq(copyEquitySnapshots.strategyId, id));
+        expect(after).toContainEqual(expect.objectContaining({ time: new Date(begin + 10_000), equity: null }));
+      } finally { delayed.mockRestore(); clock.mockRestore(); }
+    });
+
+    it("owner events replay by cursor without cross-user disclosure", async () => {
+      const { id } = await startCopy();
+      await alice.post(`/me/copy/strategies/${id}/funds`, { amountUsd: 100, idempotencyKey: key("events") }).expect(200);
+      const first = (await alice.get("/me/copy/events?limit=1").expect(200)).body.data;
+      expect(first.items).toHaveLength(1);
+      const rest = (await alice.get(`/me/copy/events?after=${first.nextCursor}`).expect(200)).body.data;
+      expect(rest.items.every((r: { id: string }) => BigInt(r.id) > BigInt(first.nextCursor))).toBe(true);
+      expect((await api("bob-token").get("/me/copy/events").expect(200)).body.data.items).toEqual([]);
+      await alice.get("/me/copy/events?after=9223372036854775808").expect(400);
+      expect(first.hasMore).toBe(true);
+      const older = (await alice.get(`/me/copy/events?before=${first.previousCursor}`).expect(200)).body.data;
+      expect(await db.select().from(copyEvents)).toHaveLength(first.items.length + older.items.length);
+    });
+
+    it("pages order history without overlap and enforces ownership", async () => {
+      const { id } = await startCopy();
+      const owner = await aliceUser();
+      await db.insert(copyOrders).values(Array.from({ length: 105 }, (_, i) => ({
+        cloid: "0x" + i.toString(16).padStart(32, "0"), strategyId: id, userId: owner.id,
+        strategyVersion: 1, riskPolicyVersion: 0, leaderAddress: LEADER, coin: "BTC", leg: "close" as const,
+        side: "A" as const, reduceOnly: true, size: "0.2", signalPx: "100000", signalTime: new Date(), signalTids: [],
+        status: "cancelled" as const, controlRevisions: { platform: 0, user: 0, strategy: 0 },
+      })));
+      const first = (await alice.get(`/me/copy/strategies/${id}/orders?limit=100`).expect(200)).body.data;
+      expect(first.items).toHaveLength(100);
+      expect(first.hasMore).toBe(true);
+      const older = (await alice.get(`/me/copy/strategies/${id}/orders?before=${first.previousCursor}`).expect(200)).body.data;
+      expect(older.items).toHaveLength(5);
+      expect(older.hasMore).toBe(false);
+      expect(new Set([...first.items, ...older.items].map((r: { id: string }) => r.id)).size).toBe(105);
+      await api("bob-token").get(`/me/copy/strategies/${id}/orders?before=${first.previousCursor}`).expect(404);
+      await alice.get(`/me/copy/strategies/${id}/orders?before=9223372036854775808`).expect(400);
+    });
+
+    it("pages the owner's exact-decimal ledger and fills without exposing another account", async () => {
+      const { id } = await startCopy();
+      const owner = await aliceUser();
+      await db.delete(copyLedger).where(eq(copyLedger.strategyId, id));
+      await db.insert(copyLedger).values(Array.from({ length: 105 }, () => ({ strategyId: id, userId: owner.id, kind: "funding" as const, amount: "0.000000000000000001" })));
+      const [order] = await db.insert(copyOrders).values({ cloid: "0x" + "ab".repeat(16), strategyId: id, userId: owner.id,
+        strategyVersion: 1, riskPolicyVersion: 0, leaderAddress: LEADER, coin: "BTC", leg: "close", side: "A", reduceOnly: true,
+        size: "0.2", signalPx: "100000", signalTime: new Date(), signalTids: [], status: "filled",
+        controlRevisions: { platform: 0, user: 0, strategy: 0 } }).returning();
+      await db.insert(copyPaperFills).values(Array.from({ length: 105 }, () => ({ orderId: order!.id, strategyId: id, coin: "BTC", side: "A" as const,
+        size: "0.00000001", px: "100000", basePx: "100000", priceSource: "mid", slippageBps: "0", fee: "0", builderFee: "0", realizedPnl: "0.000000000000000001" })));
+      for (const endpoint of ["ledger", "fills"]) {
+        const first = (await alice.get(`/me/copy/strategies/${id}/${endpoint}?limit=100`).expect(200)).body.data;
+        expect(first.mode).toBe("paper");
+        expect(first.items).toHaveLength(100);
+        expect(first.hasMore).toBe(true);
+        const second = (await alice.get(`/me/copy/strategies/${id}/${endpoint}?before=${first.previousCursor}`).expect(200)).body.data;
+        expect(second.items).toHaveLength(5);
+        expect(second.hasMore).toBe(false);
+        expect(new Set([...first.items, ...second.items].map((r: { id: string }) => r.id)).size).toBe(105);
+        expect(first.items[0][endpoint === "ledger" ? "amount" : "realizedPnl"]).toBe("0.000000000000000001");
+        await api("bob-token").get(`/me/copy/strategies/${id}/${endpoint}`).expect(404);
+        await alice.get(`/me/copy/strategies/${id}/${endpoint}?before=9223372036854775808`).expect(400);
+      }
+    });
+
+    it("starts with the latest events and replays every new event across page boundaries", async () => {
+      const { id } = await startCopy();
+      const owner = await aliceUser();
+      await db.delete(copyEvents);
+      await db.insert(copyEvents).values(Array.from({ length: 10000 }, () => ({ userId: owner.id, strategyId: id, type: "fixture", payload: {} })));
+      const first = (await alice.get("/me/copy/events?limit=100").expect(200)).body.data;
+      const all = await db.select().from(copyEvents).orderBy(asc(copyEvents.id));
+      expect(first.items.map((r: { id: string }) => r.id)).toEqual(all.slice(-100).map((r) => String(r.id)));
+      const older = (await alice.get(`/me/copy/events?before=${first.previousCursor}&limit=100`).expect(200)).body.data;
+      expect(older.items.map((r: { id: string }) => r.id)).toEqual(all.slice(-200, -100).map((r) => String(r.id)));
+      await db.insert(copyEvents).values(Array.from({ length: 103 }, () => ({ userId: owner.id, strategyId: id, type: "new", payload: {} })));
+      const delta = (await alice.get(`/me/copy/events?after=${first.nextCursor}&limit=100`).expect(200)).body.data;
+      expect(delta.items).toHaveLength(100);
+      expect(delta.hasMore).toBe(true);
+      const tail = (await alice.get(`/me/copy/events?after=${delta.nextCursor}&limit=100`).expect(200)).body.data;
+      expect(tail.items).toHaveLength(3);
+      expect(tail.hasMore).toBe(false);
+      await alice.get(`/me/copy/events?after=${first.nextCursor}&before=${first.previousCursor}`).expect(400);
+    });
+
+    it("keeps stopped-day history but reports zero today after an earlier UTC stop", async () => {
+      const { id } = await startCopy();
+      const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+      const start = new Date(today.getTime() - 86_400_000);
+      const stop = new Date(start.getTime() + 60_000);
+      await db.update(copyStrategies).set({ status: "stopped", createdAt: start, stoppedAt: stop }).where(eq(copyStrategies.id, id));
+      await db.delete(copyEquitySnapshots).where(eq(copyEquitySnapshots.strategyId, id));
+      await db.insert(copyEquitySnapshots).values([
+        { strategyId: id, time: start, equity: "1000", totalPnl: "0", netDeposits: "1000", exposureUsd: "0" },
+        { strategyId: id, time: stop, equity: "1050", totalPnl: "50", netDeposits: "1000", exposureUsd: "0" },
+      ]);
+      const data = (await alice.get(`/me/copy/strategies/${id}/performance`).expect(200)).body.data;
+      expect(data.todayPnl).toBe(0);
+      expect(data.points.at(-1).totalPnl).toBe(50);
+    });
+
+    it("cashflow-adjusted performance keeps deposits and withdrawals out of PnL", async () => {
+      const { id } = await startCopy();
+      const now = Date.now();
+      const begin = new Date(now - 3_600_000);
+      await db.update(copyStrategies).set({ createdAt: begin, cash: "1310", allocated: "1500", withdrawn: "200" }).where(eq(copyStrategies.id, id));
+      await db.delete(copyEquitySnapshots).where(eq(copyEquitySnapshots.strategyId, id));
+      await db.insert(copyEquitySnapshots).values([
+        { strategyId: id, time: begin, equity: "1000", totalPnl: "0", netDeposits: "1000", exposureUsd: "0" },
+        { strategyId: id, time: new Date(now - 60_000), equity: "1500", totalPnl: "0", netDeposits: "1500", exposureUsd: "0" },
+        { strategyId: id, time: new Date(now - 1000), equity: "1310", totalPnl: "10", netDeposits: "1300", exposureUsd: "0" },
+      ]);
+      const data = (await alice.get(`/me/copy/strategies/${id}/performance?window=1d`).expect(200)).body.data;
+      expect(data.points.map((p: { totalPnl: number }) => p.totalPnl)).toContain(10);
+      if (begin.getUTCDate() === new Date(now).getUTCDate()) expect(data.todayPnl).toBe(10);
+      expect(data.coverage.complete).toBe(false); // observation gap is disclosed
+      await api("bob-token").get(`/me/copy/strategies/${id}/performance`).expect(404);
+      await alice.get(`/me/copy/strategies/${id}/performance?window=invalid`).expect(400);
+    });
+
+    it("records a missing mark as null and leaves insufficient daily history unknown", async () => {
+      const { id } = await startCopy();
+      await db.update(copyStrategies).set({ createdAt: new Date(Date.now() - 120_000) }).where(eq(copyStrategies.id, id));
+      await db.insert(copyPositions).values({ strategyId: id, coin: "MISSING", size: "1", entryPx: "10" });
+      await app.get(CopyPerformanceService).capture();
+      const rows = await db.select().from(copyEquitySnapshots).where(eq(copyEquitySnapshots.strategyId, id));
+      expect(rows.some((r) => r.equity === null && r.totalPnl === null)).toBe(true);
+      const result = await alice.post(`/me/copy/strategies/${id}/withdraw-funds`, { amountUsd: 1, idempotencyKey: key("missing") }).expect(409);
+      expect(result.body.error.code).toBe("collateral_unavailable");
+      const data = (await alice.get(`/me/copy/strategies/${id}/performance`).expect(200)).body.data;
+      expect(data.todayPnl).toBeNull();
     });
   });
 });

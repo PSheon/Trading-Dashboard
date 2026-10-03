@@ -24,6 +24,7 @@ import { CopyOrderPlanner } from "../src/copy/copy-planner.service.js";
 import { CopyRiskPolicyService } from "../src/copy/copy-risk-policy.service.js";
 import { CopySignalService } from "../src/copy/copy-signal.service.js";
 import { CopyStrategyService } from "../src/copy/copy-strategy.service.js";
+import { CopyPerformanceService } from "../src/copy/copy-performance.service.js";
 import { CopyController } from "../src/copy/copy.controller.js";
 import { CopyRepository } from "../src/copy/copy.repository.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
@@ -98,7 +99,7 @@ describe("/admin/copy — the copy-trading admin API", () => {
       controllers: [AdminCopyController, CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyAdminReadService, FillSyncRepository,
+        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyAdminReadService, FillSyncRepository,
         { provide: HyperliquidInfoClient, useValue: info },
       ],
     }));

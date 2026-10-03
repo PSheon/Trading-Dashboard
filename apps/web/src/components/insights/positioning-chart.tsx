@@ -156,6 +156,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           ))}
         </div>
       </div>
+      {shown ? <p className="px-3 pt-2 text-[11px] text-muted-foreground">{t("copyUpdates.historical")} · <time dateTime={new Date(shown.x).toISOString()}>{stamp.format(new Date(shown.x))}</time></p> : null}
       <div ref={box} className="relative h-[400px]">
         {loading && !geo ? <Skeleton className="absolute inset-0" /> : null}
         {geo ? (

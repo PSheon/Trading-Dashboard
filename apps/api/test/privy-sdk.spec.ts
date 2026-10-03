@@ -1,3 +1,4 @@
+import { MarketCatalogService } from "../src/hyperliquid/market-catalog.service.js";
 import { SkipTransform } from "../src/common/decorators/http.decorator.js";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +72,8 @@ it("real signed Privy tokens resolve database RBAC through the HTTP guards", asy
   }
   const fetcher = vi.fn(() => { throw new Error("Unexpected network access"); });
   vi.stubGlobal("fetch", fetcher);
+  // Catalog startup uses HL independently of Privy token verification.
+  const warmup = vi.spyOn(MarketCatalogService.prototype, "onModuleInit").mockImplementation(() => {});
   const { app } = await createAuthedApp({ db, privy: verifier(), controllers: [Probe] });
   const signed = token({ role: "admin", permissions: ["users.manage"] });
   try {
@@ -80,5 +83,5 @@ it("real signed Privy tokens resolve database RBAC through the HTTP guards", asy
     await db.update(users).set({ disabledAt: new Date() }).where(eq(users.privyUserId, did));
     await request(app.getHttpServer()).get("/sdk-probe").set("Authorization", `Bearer ${signed}`).expect(401);
     expect(fetcher).not.toHaveBeenCalled();
-  } finally { await app.close(); await closeTestDb(); }
+  } finally { await app.close(); warmup.mockRestore(); await closeTestDb(); }
 });

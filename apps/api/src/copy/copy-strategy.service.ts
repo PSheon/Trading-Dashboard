@@ -2,10 +2,15 @@ import { WatchCapacityError } from "../watcher/leader-watch.js";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import {
   addCopyFundsRequestSchema,
+  withdrawCopyFundsRequestSchema,
+  copyStrategyCommandRequestSchema,
+  copyOrdersQuerySchema,
   createCopyStrategyRequestSchema,
   patchCopyStrategyRequestSchema,
   type CopyAdoption,
   type CopyOrdersResponse,
+  type CopyLedgerResponse,
+  type CopyFillsResponse,
   type CopyOverviewResponse,
   type CopyStrategy,
   type CopyStrategyCommand,
@@ -19,6 +24,7 @@ import { UnitOfWork } from "../db/unit-of-work.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { CopyControlService } from "./copy-control.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
+import { freeCopyCollateral } from "./copy-collateral.js";
 import { dec, leaderPositionPx, openNotional } from "./copy-math.js";
 import { toCopyOrder, toCopyStrategy, wire } from "./copy.mappers.js";
 import { CopyOrderPlanner, marketDataGap } from "./copy-planner.service.js";
@@ -62,9 +68,15 @@ export class CopyStrategyService {
     ] as const);
     const rows = await this.repository.strategiesOfUser(userId);
     const ids = rows.map((r) => r.strategy.id);
-    const [positions, counts] = await Promise.all([this.repository.positionsOf(ids), this.repository.orderCounts(ids)]);
+    const [positions, counts, reservations] = await Promise.all([this.repository.positionsOf(ids), this.repository.orderCounts(ids), this.repository.heldReservations(ids)]);
     const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
-    const strategies = rows.map((r) => toCopyStrategy(r.strategy, r.settings as CopyStrategySettings, positions, mids, counts.get(r.strategy.id)));
+    const assets = positions.length ? await this.market.assetInfo(positions.map((p) => p.coin)) : null;
+    const strategies = rows.map((r) => {
+      const settings = r.settings as CopyStrategySettings;
+      const free = policy.invalid || r.strategy.status === "stopped" || r.strategy.status === "stopping" ? null
+        : freeCopyCollateral(r.strategy, settings, positions.filter((p) => p.strategyId === r.strategy.id), reservations.filter((p) => p.strategyId === r.strategy.id), policy.limits, mids, assets);
+      return { ...toCopyStrategy(r.strategy, settings, positions, mids, counts.get(r.strategy.id)), freeCollateralUsd: free === null ? null : wire(free) };
+    });
     const live = strategies.filter((s) => s.status !== "stopped");
     // Totals are summed from the stored decimals, not from the display numbers.
     const liveRows = rows.filter((r) => r.strategy.status !== "stopped").map((r) => r.strategy);
@@ -159,7 +171,7 @@ export class CopyStrategyService {
     const leaderEquity = equity?.state === "known" ? equity.value : null;
 
     const adoption: CopyAdoption[] = [];
-    const { id } = await this.uow.run(async (tx) => {
+    const { strategyId: id } = await this.uow.run(async (tx) => this.repository.runtime.mutate(tx, userId, "create", req, req.idempotencyKey, async () => {
       adoption.length = 0;
       const policy = await this.policies.current(tx);
       const limits = policy.limits;
@@ -213,8 +225,10 @@ export class CopyStrategyService {
           adoption.push({ coin, adopted, reason: order?.reason ?? null, size: adopted ? wire(order.size) : 0 });
         }
       }
-      return { id: strategy.id };
-    });
+      await this.repository.runtime.snapshot(tx, { strategyId: strategy.id, time: strategy.createdAt, equity: amount, totalPnl: "0", netDeposits: amount, exposureUsd: "0" });
+      await this.repository.runtime.appendEvent(tx, userId, strategy.id, "strategy_created", { mode: "paper", leader: req.leader });
+      return { strategyId: strategy.id };
+    }));
     const created = await this.one(userId, id);
     return snapshot ? { ...created, adoption } : created;
   }
@@ -239,7 +253,8 @@ export class CopyStrategyService {
   async addFunds(userId: number, strategyId: number, input: unknown): Promise<CopyStrategy> {
     const req = parseOr400(addCopyFundsRequestSchema, input);
     const policy = await this.policies.current();
-    await this.uow.run(async (tx) => {
+    await this.uow.run(async (tx) => this.repository.runtime.mutate(tx, userId, "topup", { strategyId, ...req }, req.idempotencyKey, async () => {
+      await this.repository.lockCopyUser(tx, userId);
       // Lock order: strategy, then paper account (as settlement does).
       const strategy = await this.owned(tx, userId, strategyId);
       if (strategy.status === "stopped" || strategy.status === "stopping") throw conflict("strategy_stopped", "This copy has stopped");
@@ -250,21 +265,84 @@ export class CopyStrategyService {
       await this.repository.adjustPaperBalance(tx, userId, `-${amount}`);
       await this.repository.addToStrategy(tx, strategy.id, { cash: amount, allocated: amount });
       await this.repository.insertLedger(tx, [{ strategyId: strategy.id, userId, kind: "allocate", amount }]);
-    });
+      return { strategyId };
+    }));
+    return this.one(userId, strategyId);
+  }
+
+  /** Return only idle paper collateral, preserving position/reservation margin. */
+  async withdrawFunds(userId: number, strategyId: number, input: unknown): Promise<CopyStrategy> {
+    this.requireEnabled();
+    const req = parseOr400(withdrawCopyFundsRequestSchema, input);
+    const row = await this.repository.strategyWithSettings(strategyId);
+    if (!row || row.strategy.userId !== userId) throw new NotFoundException("Copy not found");
+    const coins = await this.repository.positionCoins([strategyId]);
+    const [mids, assets] = await Promise.all([this.market.midPrices(coins), this.market.assetInfo(coins)]);
+    await this.uow.run((tx) => this.repository.runtime.mutate(tx, userId, "withdraw", { strategyId, ...req }, req.idempotencyKey, async () => {
+      await this.repository.lockPoliciesForExecution(tx);
+      await this.repository.readControls(userId, "share", tx);
+      const strategy = await this.owned(tx, userId, strategyId);
+      if (strategy.status === "stopped" || strategy.status === "stopping") throw conflict("strategy_stopped", "This copy has stopped");
+      const policy = await this.policies.current(tx);
+      if (policy.invalid) throw conflict("risk_policy_invalid", "The current risk policy is unavailable");
+      const positions = await this.repository.positionsOf([strategyId], tx);
+      const reservations = await this.repository.heldReservations([strategyId], tx);
+      const settings = await this.repository.settingsOf(tx, strategyId, strategy.version) as CopyStrategySettings;
+      const available = freeCopyCollateral(strategy, settings, positions, reservations, policy.limits, mids, assets);
+      if (available === null) throw conflict("collateral_unavailable", "Current collateral cannot be valued");
+      if (available.lt(req.amountUsd)) throw conflict("no_free_collateral", "Not enough idle collateral", { available: wire(available) });
+      await this.repository.lockPaperAccount(tx, userId, dec(policy.limits.paperStartingBalanceUsd));
+      const amount = dec(req.amountUsd, 6);
+      await this.repository.addToStrategy(tx, strategyId, { cash: `-${amount}`, withdrawn: amount });
+      await this.repository.adjustPaperBalance(tx, userId, amount);
+      await this.repository.insertLedger(tx, [{ strategyId, userId, kind: "withdraw", amount: `-${amount}` }]);
+      return { strategyId };
+    }));
     return this.one(userId, strategyId);
   }
 
   /** POST /me/copy/strategies/:id/commands — only this strategy, only its owner. */
-  async command(userId: number, strategyId: number, command: CopyStrategyCommand): Promise<CopyStrategy> {
-    await this.controls.strategyCommand(userId, strategyId, command);
+  async command(userId: number, strategyId: number, command: CopyStrategyCommand, idempotencyKey?: string): Promise<CopyStrategy> {
+    const req = parseOr400(copyStrategyCommandRequestSchema, { command, idempotencyKey });
+    const own = await this.repository.strategyWithSettings(strategyId);
+    if (!own || own.strategy.userId !== userId) throw new NotFoundException("Copy not found");
+    const mids = command === "close_positions" || command === "stop" ? await this.market.midPrices(await this.repository.positionCoins([strategyId])) : null;
+    await this.uow.run((tx) => this.repository.runtime.mutate(tx, userId, "command", { strategyId, ...req }, req.idempotencyKey, async () => {
+      await this.controls.strategyCommand(userId, strategyId, command, tx, mids);
+      await this.repository.runtime.appendEvent(tx, userId, strategyId, "strategy_command", { mode: "paper", command });
+      return { strategyId };
+    }));
     return this.one(userId, strategyId);
   }
 
   /** GET /me/copy/strategies/:id/orders — newest first. */
-  async orders(userId: number, strategyId: number): Promise<CopyOrdersResponse> {
+  async orders(userId: number, strategyId: number, query: unknown = {}): Promise<CopyOrdersResponse> {
+    const { before, limit } = parseOr400(copyOrdersQuerySchema, query);
     const row = await this.repository.strategyWithSettings(strategyId);
     if (!row || row.strategy.userId !== userId) throw new NotFoundException("Copy not found");
-    return { items: (await this.repository.ordersOfStrategy(strategyId, 100)).map(toCopyOrder) };
+    const rows = await this.repository.ordersOfStrategy(strategyId, limit + 1, before ? BigInt(before) : undefined);
+    const items = rows.slice(0, limit).map(toCopyOrder);
+    return { items, previousCursor: items.at(-1)?.id ?? null, hasMore: rows.length > limit };
+  }
+
+  async ledger(userId: number, strategyId: number, query: unknown = {}): Promise<CopyLedgerResponse> {
+    const { before, limit } = parseOr400(copyOrdersQuerySchema, query);
+    const owned = await this.repository.strategyWithSettings(strategyId);
+    if (!owned || owned.strategy.userId !== userId) throw new NotFoundException("Copy not found");
+    const rows = await this.repository.ledgerOf(strategyId, limit + 1, before ? BigInt(before) : undefined);
+    const items = rows.slice(0, limit).map((row) => ({ id: String(row.id), kind: row.kind, amount: row.amount,
+      coin: row.coin, orderId: row.orderId === null ? null : String(row.orderId), createdAt: row.createdAt }));
+    return { mode: "paper", items, previousCursor: items.at(-1)?.id ?? null, hasMore: rows.length > limit };
+  }
+
+  async fills(userId: number, strategyId: number, query: unknown = {}): Promise<CopyFillsResponse> {
+    const { before, limit } = parseOr400(copyOrdersQuerySchema, query);
+    const owned = await this.repository.strategyWithSettings(strategyId);
+    if (!owned || owned.strategy.userId !== userId) throw new NotFoundException("Copy not found");
+    const rows = await this.repository.fillsOf(strategyId, limit + 1, before ? BigInt(before) : undefined);
+    const items = rows.slice(0, limit).map((row) => ({ id: String(row.id), orderId: String(row.orderId), coin: row.coin, side: row.side,
+      size: row.size, px: row.px, fee: row.fee, builderFee: row.builderFee, realizedPnl: row.realizedPnl, ts: row.ts }));
+    return { mode: "paper", items, previousCursor: items.at(-1)?.id ?? null, hasMore: rows.length > limit };
   }
 
   private async owned(tx: Parameters<Parameters<UnitOfWork["run"]>[0]>[0], userId: number, strategyId: number) {
@@ -279,6 +357,12 @@ export class CopyStrategyService {
     const positions = await this.repository.positionsOf([strategyId]);
     const mids = positions.length ? await this.market.midPrices(positions.map((p) => p.coin)) : null;
     const counts = await this.repository.orderCounts([strategyId]);
-    return toCopyStrategy(row.strategy, row.settings as CopyStrategySettings, positions, mids, counts.get(strategyId));
+    const settings = row.settings as CopyStrategySettings;
+    const assets = positions.length ? await this.market.assetInfo(positions.map((p) => p.coin)) : null;
+    const reserved = await this.repository.heldReservations([strategyId]);
+    const policy = await this.policies.current();
+    const available = row.strategy.status === "stopped" || row.strategy.status === "stopping" || policy.invalid ? null
+      : freeCopyCollateral(row.strategy, settings, positions, reserved, policy.limits, mids, assets);
+    return { ...toCopyStrategy(row.strategy, settings, positions, mids, counts.get(strategyId)), freeCollateralUsd: available === null ? null : wire(available) };
   }
 }

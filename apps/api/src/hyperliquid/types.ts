@@ -25,6 +25,7 @@ export interface HlMetaResponse {
 /** One `metaAndAssetCtxs` context, index-aligned with `universe`.
  * `funding` is the current hourly funding rate. */
 export interface HlPerpAssetCtx {
+  dayNtlVlm?: string;
   funding: string;
   markPx: string;
   midPx?: string | null;

@@ -18,7 +18,7 @@ type Order = {
 };
 type Strategy = {
   id: number; leaderAddress: string; status: "active" | "paused" | "stopping" | "stopped"; version: number;
-  settings: CopyStrategySettings; allocated: number; cash: number; realizedPnl: number; fees: number; funding: number;
+  settings: CopyStrategySettings; allocated: number; withdrawn: number; cash: number; realizedPnl: number; fees: number; funding: number;
   pauseNewRisk: boolean; reduceOnly: boolean; positions: Position[]; orders: Order[]; createdAt: Date; stoppedAt: Date | null;
 };
 
@@ -40,7 +40,7 @@ const strategies: Strategy[] =
     : [
         {
           id: 1, leaderAddress: "0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f", status: "active", version: 1, settings: settings(),
-          allocated: 2_000, cash: 2_061.37, realizedPnl: 68.92, fees: 7.55, funding: 0, pauseNewRisk: false, reduceOnly: false,
+          allocated: 2_000, withdrawn: 0, cash: 2_061.37, realizedPnl: 68.92, fees: 7.55, funding: 0, pauseNewRisk: false, reduceOnly: false,
           positions: [
             { coin: "BTC", size: 0.042, entryPx: 116_980, openedAt: new Date(Date.now() - 5 * day), realizedPnl: 0, funding: 0.84 },
             { coin: "HYPE", size: 38.5, entryPx: 45.1, openedAt: new Date(Date.now() - 2 * day), realizedPnl: 0, funding: 0.21 },
@@ -55,7 +55,7 @@ const strategies: Strategy[] =
         },
         {
           id: 2, leaderAddress: "0x880ac484a1743862989a441d6d867238c7aa311c", status: "paused", version: 2, settings: settings({ direction: "reverse", copyStartMode: "delta" }),
-          allocated: 1_500, cash: 1_471.2, realizedPnl: -24.1, fees: 4.7, funding: 0, pauseNewRisk: true, reduceOnly: false,
+          allocated: 1_500, withdrawn: 0, cash: 1_471.2, realizedPnl: -24.1, fees: 4.7, funding: 0, pauseNewRisk: true, reduceOnly: false,
           positions: [{ coin: "ETH", size: -0.25, entryPx: 4_590.2, openedAt: new Date(Date.now() - 1 * day), realizedPnl: 0, funding: -0.12 }],
           orders: [
             order({ coin: "ETH", leg: "open", side: "A", size: 0.25, px: 4_590.2, status: "filled", reason: null, at: new Date(Date.now() - 1 * day), fee: 0.52 }),
@@ -76,11 +76,11 @@ function view(s: Strategy) {
   });
   const unrealized = positions.reduce((a, p) => a + p.unrealizedPnl, 0);
   const equity = s.cash + unrealized;
-  const totalPnl = equity - s.allocated;
+  const totalPnl = equity + s.withdrawn - s.allocated;
   return {
     id: s.id, mode: "paper" as const, leaderAddress: s.leaderAddress, status: s.status, version: s.version, settings: s.settings,
-    allocated: s.allocated, cash: s.cash, equity, unrealizedPnl: unrealized, realizedPnl: s.realizedPnl, fees: s.fees, funding: s.funding,
-    totalPnl, roiPct: (totalPnl / s.allocated) * 100, exposureUsd: positions.reduce((a, p) => a + p.notionalUsd, 0),
+    allocated: s.allocated, withdrawn: s.withdrawn, cash: s.cash, freeCollateralUsd: s.positions.length || s.orders.some((o) => o.status === "risk_approved") ? 0 : Math.max(0, Math.min(s.cash, s.allocated - s.withdrawn)), equity, unrealizedPnl: unrealized, realizedPnl: s.realizedPnl, fees: s.fees, funding: s.funding,
+    totalPnl, roiPct: s.allocated > 0 ? (totalPnl / s.allocated) * 100 : null, exposureUsd: positions.reduce((a, p) => a + p.notionalUsd, 0),
     pauseNewRisk: s.pauseNewRisk, reduceOnly: s.reduceOnly, tradesCopied: s.orders.filter((o) => o.status === "filled").length,
     pendingOrders: s.orders.filter((o) => o.status === "risk_approved").length, positions, activatedAt: s.createdAt, createdAt: s.createdAt, stoppedAt: s.stoppedAt,
   };
@@ -109,7 +109,7 @@ function owned(id: number): Strategy {
 const conflict = (code: string, message: string) => new ApiError(409, message, { code });
 
 const FAIL_KEY = "orbie:fixtures:copy-fail";
-function failOnce(kind: "patch" | "commands" | "funds") {
+function failOnce(kind: "patch" | "commands" | "funds" | "withdraw_response") {
   let armed = false;
   try {
     armed = sessionStorage.getItem(FAIL_KEY) === kind;
@@ -120,7 +120,7 @@ function failOnce(kind: "patch" | "commands" | "funds") {
   if (armed) throw new ApiError(503, "Service unavailable", { code: "unavailable" });
 }
 
-export function fixtureStartCopy(body: Record<string, unknown>) {
+function fixtureStartCopyOnce(body: Record<string, unknown>) {
   const leader = String(body.leader ?? "").toLowerCase();
   const amount = Number(body.allocationUsd);
   if (!/^0x[0-9a-f]{40}$/.test(leader) || !(amount > 0)) throw new ApiError(400, "Invalid request", { code: "validation_error" });
@@ -135,7 +135,7 @@ export function fixtureStartCopy(body: Record<string, unknown>) {
   const s: Strategy = {
     id: nextId++, leaderAddress: leader, status: "active", version: 1,
     settings: settings({ direction, copyStartMode: adopt ? "adopt" : "delta" }),
-    allocated: amount, cash: amount - fee, realizedPnl: 0, fees: fee, funding: 0, pauseNewRisk: false, reduceOnly: false, positions,
+    allocated: amount, withdrawn: 0, cash: amount - fee, realizedPnl: 0, fees: fee, funding: 0, pauseNewRisk: false, reduceOnly: false, positions,
     orders: positions.map((p) => order({ coin: p.coin, leg: "adopt", side: p.size > 0 ? "B" : "A", size: Math.abs(p.size), px: p.entryPx, status: "filled", reason: null, at: now, fee })),
     createdAt: now, stoppedAt: null,
   };
@@ -157,7 +157,7 @@ export function fixturePatchCopy(id: number, body: Record<string, unknown>) {
   return view(s);
 }
 
-export function fixtureAddFunds(id: number, body: Record<string, unknown>) {
+function fixtureAddFundsOnce(id: number, body: Record<string, unknown>) {
   failOnce("funds");
   const s = owned(id);
   const amount = Number(body.amountUsd);
@@ -168,7 +168,7 @@ export function fixtureAddFunds(id: number, body: Record<string, unknown>) {
   return view(s);
 }
 
-export function fixtureCopyCommand(id: number, body: Record<string, unknown>) {
+function fixtureCopyCommandOnce(id: number, body: Record<string, unknown>) {
   failOnce("commands");
   const s = owned(id);
   if (s.status === "stopped") throw conflict("strategy_stopped", "This copy has stopped");
@@ -208,14 +208,109 @@ export function fixtureCopyCommand(id: number, body: Record<string, unknown>) {
   return view(s);
 }
 
-export function fixtureCopyOrders(id: number) {
+export function fixtureCopyOrders(id: number, before?: string, limit = 100) {
   const s = owned(id);
+  const eligible = s.orders.filter((order) => !before || BigInt(order.id) < BigInt(before)).sort((a, b) => BigInt(a.id) > BigInt(b.id) ? -1 : 1);
+  const page = eligible.slice(0, limit);
   return {
-    items: s.orders.map((o) => ({
+    previousCursor: page.at(-1)?.id ?? null,
+    hasMore: eligible.length > page.length,
+    items: page.map((o) => ({
       id: o.id, cloid: `0x${o.id.padStart(32, "0")}`, strategyId: s.id, userId: 1, leaderAddress: s.leaderAddress, coin: o.coin, leg: o.leg, side: o.side,
       reduceOnly: o.leg === "close" || o.leg === "stop_close", size: o.size, signalPx: o.px ?? MIDS[o.coin] ?? 1, signalTime: o.at, status: o.status, reason: o.reason,
       filledSize: o.status === "filled" ? o.size : 0, avgPx: o.status === "filled" ? o.px : null, fee: o.fee, builderFee: 0, strategyVersion: s.version,
       riskPolicyVersion: 0, createdAt: o.at, updatedAt: o.at,
     })),
   };
+}
+
+/** Fixture history uses observations only; it does not invent past returns. */
+const observed = new Map<number, { time: Date; equity: number; totalPnl: number; netDeposits: number; exposureUsd: number }[]>();
+export function fixtureCopyPerformance(id: number, window: "1d" | "7d" | "30d" | "all") {
+  const s = owned(id);
+  const v = view(s);
+  const now = new Date();
+  const previous = observed.get(id) ?? [];
+  const point = { time: now, equity: v.equity, totalPnl: v.totalPnl, netDeposits: s.allocated - s.withdrawn, exposureUsd: v.exposureUsd };
+  if (!previous.length || now.getTime() - previous[previous.length - 1].time.getTime() >= 60_000) previous.push(point);
+  observed.set(id, previous.slice(-1440));
+  const from = window === "all" ? s.createdAt : new Date(now.getTime() - (window === "1d" ? 1 : window === "7d" ? 7 : 30) * day);
+  const points = previous.filter((p) => p.time >= from);
+  return { strategyId: id, mode: "paper" as const, window, from, to: now, points, todayPnl: null,
+    coverage: { firstSnapshotAt: previous[0]?.time ?? null, lastSnapshotAt: previous.at(-1)?.time ?? null, complete: false } };
+}
+
+function fixtureWithdrawFundsOnce(id: number, body: Record<string, unknown>) {
+  const s = owned(id);
+  if (s.status === "stopped" || s.status === "stopping") throw conflict("strategy_stopped", "This copy has stopped");
+  const amount = Number(body.amountUsd);
+  // Fixture also reserves all capital while positions or orders remain.
+  const available = s.positions.length || s.orders.some((o) => o.status === "risk_approved") ? 0 : Math.max(0, Math.min(s.cash, s.allocated - s.withdrawn));
+  if (!(amount > 0) || amount > available) throw conflict("insufficient_free_collateral", "Not enough idle paper funds");
+  balance += amount;
+  s.withdrawn += amount;
+  s.cash -= amount;
+  return view(s);
+}
+
+
+const completedOperations = new Map<string, { fingerprint: string; result: unknown }>();
+function fixtureOperation<T>(scope: string, body: Record<string, unknown>, run: () => T): T {
+  const key = typeof body.idempotencyKey === "string" ? `${scope}:${body.idempotencyKey}` : null;
+  const fingerprint = JSON.stringify(body);
+  const previous = key ? completedOperations.get(key) : undefined;
+  if (previous) {
+    if (previous.fingerprint !== fingerprint) throw conflict("idempotency_key_conflict", "Operation key reused with different data");
+    return previous.result as T;
+  }
+  const result = run();
+  const strategyId = typeof result === "object" && result !== null && "id" in result ? Number(result.id) : null;
+  const type = scope === "start" ? "strategy_created" : scope.startsWith("funds:") ? "funds_added" : scope.startsWith("withdraw:") ? "funds_withdrawn" : "strategy_command";
+  fixtureEvents.push({ id: String(++fixtureEventId), strategyId, type, payload: {
+    mode: "paper", ...(body.amountUsd !== undefined ? { amount: body.amountUsd } : {}),
+    ...(body.command !== undefined ? { command: body.command } : {}),
+    ...(body.leader !== undefined ? { leader: body.leader } : {}),
+  }, createdAt: new Date() });
+  if (fixtureEvents.length > 1000) fixtureEvents.splice(0, fixtureEvents.length - 1000);
+  if (key) completedOperations.set(key, { fingerprint, result });
+  return result;
+}
+export function fixtureStartCopy(body: Record<string, unknown>) { return fixtureOperation("start", body, () => fixtureStartCopyOnce(body)); }
+export function fixtureAddFunds(id: number, body: Record<string, unknown>) { return fixtureOperation(`funds:${id}`, body, () => fixtureAddFundsOnce(id, body)); }
+export function fixtureCopyCommand(id: number, body: Record<string, unknown>) { return fixtureOperation(`command:${id}`, body, () => fixtureCopyCommandOnce(id, body)); }
+export function fixtureWithdrawFunds(id: number, body: Record<string, unknown>) {
+  const result = fixtureOperation(`withdraw:${id}`, body, () => fixtureWithdrawFundsOnce(id, body));
+  // E2E-only failure injection: simulate the confirmed write's response
+  // being lost, so retry must reuse the cached operation rather than debit twice.
+  failOnce("withdraw_response");
+  return result;
+}
+
+
+let fixtureEventId = 0;
+const fixtureEvents: { id: string; strategyId: number | null; type: string; payload: Record<string, unknown>; createdAt: Date }[] = [];
+export function fixtureCopyEvents(after: string, limit: number, before?: string) {
+  const eligible = fixtureEvents.filter((event) => before ? BigInt(event.id) < BigInt(before) : BigInt(event.id) > BigInt(after));
+  const items = before || after === "0" ? eligible.slice(-Math.min(100, limit)) : eligible.slice(0, Math.min(100, limit));
+  return { items, nextCursor: items.at(-1)?.id ?? after, previousCursor: items[0]?.id ?? null, hasMore: eligible.length > items.length };
+}
+
+/** Fixture accounting is derived from the fixture's own confirmed state. */
+export function fixtureCopyAccounting(id: number, kind: "ledger" | "fills", before?: string, limit = 50) {
+  const strategy = strategies.find((row) => row.id === id);
+  if (!strategy) throw new ApiError(404, "Copy not found");
+  const page = <T extends { id: string }>(rows: T[]) => {
+    const eligible = rows.filter((row) => !before || BigInt(row.id) < BigInt(before)).sort((a, b) => BigInt(a.id) > BigInt(b.id) ? -1 : 1);
+    const items = eligible.slice(0, limit);
+    return { mode: "paper" as const, items, previousCursor: items.at(-1)?.id ?? null, hasMore: eligible.length > limit };
+  };
+  if (kind === "fills") return page(strategy.orders.filter((row) => row.status === "filled" && row.px !== null).map((row) => ({
+    id: row.id, orderId: row.id, coin: row.coin, side: row.side, size: String(row.size), px: String(row.px),
+    fee: String(row.fee), builderFee: "0", realizedPnl: "0", ts: row.at,
+  })));
+  return page(fixtureEvents.filter((event) => event.strategyId === id && typeof event.payload.amount === "number").map((event) => ({
+    id: event.id, kind: event.type === "funds_withdrawn" ? "withdraw" : "allocate",
+    amount: String((event.type === "funds_withdrawn" ? -1 : 1) * Number(event.payload.amount)),
+    coin: null, orderId: null, createdAt: event.createdAt,
+  })));
 }

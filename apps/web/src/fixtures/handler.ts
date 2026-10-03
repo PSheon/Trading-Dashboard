@@ -78,6 +78,12 @@ import {
   copyOverviewResponseSchema,
   copyStrategySchema,
   copyOrdersResponseSchema,
+  copyLedgerResponseSchema,
+  copyFillsResponseSchema,
+  copyPerformanceResponseSchema,
+  copyEventsResponseSchema,
+  copyEventsQuerySchema,
+  copyPerformanceWindowSchema,
   telegramStatusSchema,
   telegramTestResponseSchema,
   traderActivityResponseSchema,
@@ -132,7 +138,7 @@ import {
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
 import { fixtureBoard, fixtureCohort, fixtureCohortHistory, fixtureCoinBoard, fixtureCoinIndex, fixtureHome, fixtureSearch } from "./discovery";
-import { fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
+import { fixtureCopyAccounting, fixtureCopyEvents, fixtureCopyPerformance, fixtureWithdrawFunds, fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
 import { fixtureAdminCopyControl, fixtureAdminCopyExposure, fixtureAdminCopyOrders, fixtureAdminCopyOverview, fixtureAdminCopyPutRisk, fixtureAdminCopyRisk, fixtureAdminCopyStrategies, fixtureAdminCopyStrategy } from "./admin-copy";
 import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
 
@@ -163,8 +169,8 @@ const favorites = new Map<string, { createdAt: Date; alert: FavoriteAlert }>(
 const startLinked =
   typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tg") === "linked";
 let telegram: Omit<TelegramStatus, "bot"> = startLinked
-  ? { linked: true, username: "orbie_demo", enabled: true, linkedAt: new Date(Date.now() - 3 * 86400_000) }
-  : { linked: false, username: null, enabled: false, linkedAt: null };
+  ? { linked: true, username: "orbie_demo", enabled: true, linkedAt: new Date(Date.now() - 3 * 86400_000), copyAlertsEnabled: false }
+  : { linked: false, username: null, enabled: false, linkedAt: null, copyAlertsEnabled: false };
 // `?wallet=funded` / `?wallet=pending` start the demo wallet with Hyperliquid
 // balances / with USDC waiting on Arbitrum; otherwise it is empty ($0.00, as
 // on a new CopyDog account). Testnet, like the api default.
@@ -208,7 +214,7 @@ let pendingLinkAt: number | null = null;
 
 function telegramStatus(): TelegramStatus {
   if (pendingLinkAt !== null && Date.now() >= pendingLinkAt) {
-    telegram = { linked: true, username: "orbie_demo", enabled: true, linkedAt: new Date() };
+    telegram = { linked: true, username: "orbie_demo", enabled: true, linkedAt: new Date(), copyAlertsEnabled: false };
     pendingLinkAt = null;
   }
   return { bot: FIXTURE_BOT, ...telegram };
@@ -523,6 +529,11 @@ export async function fixtureRequest<T>(
     case "GET /me/wallet":
       requireUser(token);
       return wire(walletResponseSchema, fixtureWallet());
+    case "GET /me/copy/events": {
+      requireUser(token);
+      const query = copyEventsQuerySchema.parse({ after: search.get("after") ?? "0", limit: search.get("limit") ?? "100", before: search.get("before") ?? undefined });
+      return wire(copyEventsResponseSchema, fixtureCopyEvents(query.after, query.limit, query.before));
+    }
     case "GET /me/copy":
       requireUser(token);
       return wire(copyOverviewResponseSchema, fixtureCopyOverview());
@@ -537,12 +548,24 @@ export async function fixtureRequest<T>(
     case "POST /me/copy/strategies/:id/funds":
       requireUser(token);
       return wire(copyStrategySchema, fixtureAddFunds(Number(parts[3]), body as Record<string, unknown>));
+    case "POST /me/copy/strategies/:id/withdraw-funds":
+      requireUser(token);
+      return wire(copyStrategySchema, fixtureWithdrawFunds(Number(parts[3]), body as Record<string, unknown>));
+    case "GET /me/copy/strategies/:id/performance":
+      requireUser(token);
+      return wire(copyPerformanceResponseSchema, fixtureCopyPerformance(Number(parts[3]), copyPerformanceWindowSchema.parse(search.get("window") ?? "7d")));
     case "POST /me/copy/strategies/:id/commands":
       requireUser(token);
       return wire(copyStrategySchema, fixtureCopyCommand(Number(parts[3]), body as Record<string, unknown>));
+    case "GET /me/copy/strategies/:id/ledger":
+      requireUser(token);
+      return wire(copyLedgerResponseSchema, fixtureCopyAccounting(Number(parts[3]), "ledger", search.get("before") ?? undefined, Number(search.get("limit") ?? 50)));
+    case "GET /me/copy/strategies/:id/fills":
+      requireUser(token);
+      return wire(copyFillsResponseSchema, fixtureCopyAccounting(Number(parts[3]), "fills", search.get("before") ?? undefined, Number(search.get("limit") ?? 50)));
     case "GET /me/copy/strategies/:id/orders":
       requireUser(token);
-      return wire(copyOrdersResponseSchema, fixtureCopyOrders(Number(parts[3])));
+      return wire(copyOrdersResponseSchema, fixtureCopyOrders(Number(parts[3]), search.get("before") ?? undefined));
     case "GET /me/wallet/history":
       requireUser(token);
       return wire(walletHistoryResponseSchema, fixtureWalletHistory());
@@ -560,9 +583,17 @@ export async function fixtureRequest<T>(
     }
     case "DELETE /me/telegram":
       requireUser(token);
-      telegram = { linked: false, username: null, enabled: false, linkedAt: null };
+      telegram = { linked: false, username: null, enabled: false, linkedAt: null, copyAlertsEnabled: false };
       pendingLinkAt = null;
       return undefined as T;
+    case "PATCH /me/telegram/copy-alerts": {
+      requireUser(token);
+      const enabled = (body as { enabled?: boolean })?.enabled;
+      if (typeof enabled !== "boolean") throw new ApiError(400, "Invalid preference");
+      if (!telegramStatus().linked || !telegram.enabled) throw new ApiError(409, "Link Telegram first", { code: "telegram_not_linked" });
+      telegram = { ...telegram, copyAlertsEnabled: enabled };
+      return wire(telegramStatusSchema, telegramStatus());
+    }
     case "POST /me/telegram/test":
       requireUser(token);
       if (!telegramStatus().linked || !telegram.enabled) {

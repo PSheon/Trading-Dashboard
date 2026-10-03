@@ -1,0 +1,258 @@
+{
+  "at": "2026-10-03T13:42:14.837Z",
+  "baseCommit": "2593e77",
+  "scope": "Local environment configuration and read-only real-network verification; no financial signing or exchange submission",
+  "persistedEnvironment": {
+    "APP_ROLE": "api",
+    "WORKER_URL": "http://127.0.0.1:3101",
+    "HYPERLIQUID_NETWORK": "testnet",
+    "COPY_TRADING_MODE": "paper"
+  },
+  "temporaryTestFlagsRestored": true,
+  "envIgnored": true,
+  "envFileMode": "600",
+  "modeChecks": [
+    {
+      "mode": "testnet",
+      "exitCode": 2,
+      "accepted": false,
+      "error": "COPY_TRADING_MODE=testnet is not available in this build (paper only)"
+    },
+    {
+      "mode": "live",
+      "exitCode": 2,
+      "accepted": false,
+      "error": "COPY_TRADING_MODE=live is not available in this build (paper only)"
+    },
+    {
+      "mode": "paper",
+      "exitCode": 0,
+      "accepted": true,
+      "role": "api",
+      "network": "testnet",
+      "workerUrl": "http://127.0.0.1:3101",
+      "copyMode": "paper"
+    }
+  ],
+  "isolatedApiBoot": {
+    "at": "2026-10-03T13:40:31.629Z",
+    "port": 3102,
+    "envFile": ".env",
+    "readyStatus": 200
+  },
+  "providerProbes": {
+    "at": "2026-10-03T13:38:17.612Z",
+    "results": [
+      {
+        "name": "anonymous_wallets",
+        "status": 401,
+        "ms": 22
+      },
+      {
+        "name": "anonymous_funding",
+        "status": 401,
+        "ms": 24
+      },
+      {
+        "name": "worker_ready",
+        "status": 200,
+        "ms": 24
+      },
+      {
+        "name": "api_ready",
+        "status": 200,
+        "ms": 33
+      },
+      {
+        "name": "web",
+        "status": 200,
+        "ms": 67
+      },
+      {
+        "name": "mainnet_meta",
+        "status": 200,
+        "ms": 139,
+        "markets": 234
+      },
+      {
+        "name": "testnet_meta",
+        "status": 200,
+        "ms": 193,
+        "markets": 212
+      },
+      {
+        "name": "privy_app_settings",
+        "status": 200,
+        "ms": 476
+      },
+      {
+        "name": "testnet_websocket",
+        "received": true,
+        "priceKeys": 3280,
+        "ms": 3791
+      }
+    ]
+  },
+  "signals": {
+    "source": "recentActiveTraders",
+    "startedAt": "2026-10-03T13:36:59.419Z",
+    "runMs": 90000,
+    "drainMs": 120000,
+    "watched": 10,
+    "markets": 330,
+    "sockets": "2/2",
+    "fills": 566,
+    "actions": 310,
+    "actionsWithAllFillsStored": 310,
+    "alertsOnTradesBeforeStart": 127,
+    "all": {
+      "n": 183,
+      "p50": 1208,
+      "p90": 1540,
+      "max": 5915
+    },
+    "leaderFast": {
+      "n": 163,
+      "p50": 1208,
+      "p90": 1403,
+      "max": 4941
+    },
+    "leaderSlow": {
+      "n": 20,
+      "p50": 1078,
+      "p90": 5145,
+      "max": 5915
+    },
+    "budgetDuringRun": {
+      "requestsLastMinute": 41,
+      "weightLastMinute": 802,
+      "effectiveBudgetPerMin": 840,
+      "configuredBudgetPerMin": 840,
+      "burstCapacity": 200,
+      "tokensAvailable": 189.198,
+      "reserveTokens": 120,
+      "reserveCapacity": 120,
+      "pageWeightLastMinute": 0,
+      "backgroundFactor": 1,
+      "consumers": {
+        "other": 796,
+        "live": 6
+      },
+      "consumerCaps": {},
+      "lastRateLimitedAt": null
+    },
+    "assertionsPassed": true,
+    "isolatedDatabaseRemoved": true,
+    "metric": "leader_fill_to_action_event_not_follower_execution"
+  },
+  "publicRoutes": {
+    "at": "2026-10-03T13:40:03.986Z",
+    "retryBusy": true,
+    "results": [
+      {
+        "site": "local",
+        "route": "/health",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "feedConnected": true,
+        "retryAfter": null,
+        "ms": 31,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 5,
+        "retryAfter": null,
+        "ms": 29,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 435,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/portfolio",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 153,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/activity",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 242,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/fills",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 50,
+        "retryAfter": null,
+        "ms": 57,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/orders",
+        "status": 503,
+        "envelopeValid": true,
+        "contractValid": false,
+        "errorCode": "busy",
+        "retryAfter": "5",
+        "ms": 12004,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/orders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 9141,
+        "attempt": 2
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/twap",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 1345,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/transfers",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 82,
+        "attempt": 1
+      }
+    ]
+  }
+}

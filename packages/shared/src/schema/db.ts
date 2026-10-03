@@ -975,6 +975,9 @@ export const cohortSnapshots = pgTable(
     chain: text("chain").notNull().default(CHAIN_DEFAULT),
     tier: text("tier").notNull(),
     ts: timestamp("ts", { withTimezone: true }).notNull(),
+    /** Immutable selected universe, not just its fresh contributors. Null on legacy rows. */
+    membershipVersion: text("membership_version"),
+    memberAddresses: text("member_addresses").array(),
     /** Members of the tier / members with a fresh snapshot. */
     memberCount: integer("member_count").notNull(),
     walletCount: integer("wallet_count").notNull(),

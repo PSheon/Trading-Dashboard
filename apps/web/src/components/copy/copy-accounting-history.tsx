@@ -1,5 +1,6 @@
 "use client";
 
+import { copyRecordLabel } from "./copy-labels";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { wireCopyLedgerSchema, wireCopyFillsSchema } from "@trading-dashboard/shared/contracts";
@@ -46,7 +47,7 @@ function AccountingPage({ strategyId, kind }: { strategyId: number; kind: "ledge
   return <div role="tabpanel">
     {data.items.length === 0 ? <p className="py-3 text-xs text-muted-foreground">{t("copyUpdates.activityEmpty")}</p> : <ul className="divide-y divide-border">
       {data.kind === "ledger" ? data.items.map((row) => <li key={row.id} className="flex flex-wrap justify-between gap-2 py-3 text-xs">
-        <div className="min-w-0"><p>{row.kind.replaceAll("_", " ")}{row.coin ? ` · ${row.coin}` : ""}</p><time className="text-muted-foreground" dateTime={row.createdAt}>{format.dateTime(row.createdAt)}</time><p className="text-muted-foreground">#{row.id}{row.orderId ? ` · ${t("trader.tabs.orders")} #${row.orderId}` : ""}</p></div>
+        <div className="min-w-0"><p>{copyRecordLabel("ledgerKinds", row.kind, t)}{row.coin ? ` · ${row.coin}` : ""}</p><time className="text-muted-foreground" dateTime={row.createdAt}>{format.dateTime(row.createdAt)}</time><p className="text-muted-foreground">#{row.id}{row.orderId ? ` · ${t("trader.tabs.orders")} #${row.orderId}` : ""}</p></div>
         <span className="num break-all" title={row.amount}>{row.amount} USDC</span>
       </li>) : data.items.map((row) => <li key={row.id} className="flex flex-wrap justify-between gap-2 py-3 text-xs">
         <div className="min-w-0"><p>{row.coin} · {t(row.side === "B" ? "portfolio.copy.order.buy" : "portfolio.copy.order.sell")}</p><time className="text-muted-foreground" dateTime={row.ts}>{format.dateTime(row.ts)}</time><p className="text-muted-foreground">#{row.id} · {t("trader.tabs.orders")} #{row.orderId}</p></div>

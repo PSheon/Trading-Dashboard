@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const pt: Messages = {
   copyUpdates: {
+    orderRejected: "Ordem rejeitada",
+    orderCancelled: "Ordem cancelada",
+    exposureLabels: {"grossExposure": "Exposição bruta", "netExposure": "Exposição líquida", "signedNet": "Saldo com sinal", "grossLeverage": "Alavancagem bruta", "exposureFormula": "Bruta = compradas + vendidas; líquida = |compradas − vendidas|. Valores nocionais em USD.", "accountRisk": "Cada cópia mantém sua própria garantia e risco de liquidação. Posições opostas não compartilham margem."},
+    ledgerKinds: {"allocate": "Alocação", "realized_pnl": "Lucro/prejuízo realizado", "fee": "Taxa de negociação", "builder_fee": "Taxa do construtor", "funding": "Financiamento", "release": "Fundos devolvidos", "withdraw": "Saque", "liquidation": "Liquidação"},
+    commandLabels: {"pause": "Pausar", "resume": "Retomar", "reduce_only": "Somente reduzir", "cancel_pending": "Cancelar ordens pendentes", "close_positions": "Fechar posições", "stop": "Parar"},
     accountingHistory: "Histórico da conta simulada",
     ledger: "Livro contábil",
     fills: "Execuções",
@@ -70,7 +75,16 @@ export const pt: Messages = {
     body: "Você pode continuar navegando; as alterações não podem ser salvas até que termine.",
     endsAt: "Retorno previsto por volta de {time}",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "Endereços que atingiram a meta",
+      archiveCoverageValue: "{done} / {total} endereços ativos",
+      archivePending: "Aguardando cobertura",
+      archiveExcluded: "Endereços excluídos",
+      archiveTarget: "Meta de carga histórica (UTC)",
+      archiveCursor: "Próxima hora histórica (UTC)",
+      archiveLiveThrough: "Próxima hora do arquivo ao vivo (UTC)",
+      archiveCoverageHint: "As contagens medem a cobertura de execuções arquivadas, não análises completas de todo o histórico. Contas com muita atividade ainda podem usar uma janela de análise limitada.",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "Traders correspondentes",
@@ -994,6 +1008,7 @@ export const pt: Messages = {
   insights: {
     title: "Insights",
     cohort: {
+      membershipChanged: "As lacunas indicam mudanças nos membros do grupo.",
       bannerTitle: "Posicionamento do dinheiro inteligente da Hyperliquid",
       tierLabel: "Nível",
       unrealizedPnl: "PnL não realizado",

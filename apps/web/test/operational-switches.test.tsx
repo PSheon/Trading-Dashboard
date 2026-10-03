@@ -48,3 +48,31 @@ it("the archive ingest's state: off, running, capped by today's spend, failed, u
   expect(archiveState(true, { ...archive, lastError: "access_error" })).toBe("error");
   expect(archiveState(true, { ...archive, enabled: false })).toBe("disabled");
 });
+
+
+it("separates active archive coverage from excluded accounts and shows the real UTC cursor", () => {
+  const html = render({ api, worker, archive: { ...archive,
+    addresses: { total: 100, backfilled: 60, pending: 30, excluded: 10 },
+    backfillFloor: "2026-07-05T00:00:00Z", backfillCursorHour: "2026-07-30T14:00:00Z",
+  } });
+  expect(html).toContain("60 / 90 active addresses");
+  expect(html).toContain("2026-07-05T00:00:00.000Z");
+  expect(html).toContain("2026-07-30T14:00:00.000Z");
+  expect(html).toContain("not complete lifetime analytics");
+});
+
+it("does not fabricate a completion percentage or date without archive coverage", () => {
+  const html = render({ api, worker, archive: { ...archive,
+    addresses: { total: 2, backfilled: 0, pending: 0, excluded: 2 }, liveNextHour: null,
+  } });
+  expect(html).toContain("0 / 0 active addresses");
+  expect(html).not.toMatch(/NaN|Infinity|100%/);
+});
+
+it("labels an initialized live cursor as the next hour, never completed ingestion", () => {
+  const html = render({ api, worker, archive: { ...archive, objects: 0, fillsKept: 0, lastRunAt: null,
+    addresses: { total: 1, backfilled: 0, pending: 1, excluded: 0 },
+  } });
+  expect(html).toContain("Next live archive hour (UTC)");
+  expect(html).not.toContain("Archive ingested through");
+});

@@ -1074,6 +1074,10 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       info.allMids.mockReset();
       info.allMids.mockImplementation(async () => Object.fromEntries(Object.entries(market.mids).map(([k, v]) => [k, String(v)])));
       expect(await orders(id)).toEqual([expect.objectContaining({ coin: "ETH", status: "rejected", reason: "stale_signal" })]);
+      await signals.drain();
+      const rejected = await db.select().from(copyEvents).where(eq(copyEvents.type, "order_rejected"));
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]).toMatchObject({ strategyId: id, payload: { mode: "paper", reason: "stale_signal" } });
       expect((await db.select().from(copySignalOutbox))[0]).toMatchObject({ status: "done" });
     });
   });
@@ -1130,6 +1134,10 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       expect(await signals.drain()).toEqual({ processed: 1, orders: 1 });
       info.clearinghouseState.mockReset();
       expect(await orders(id)).toEqual([expect.objectContaining({ coin: "ETH", status: "rejected", reason: "stale_signal" })]);
+      await signals.drain();
+      const rejected = await db.select().from(copyEvents).where(eq(copyEvents.type, "order_rejected"));
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]).toMatchObject({ strategyId: id, payload: { mode: "paper", reason: "stale_signal" } });
     });
   });
 
@@ -1400,8 +1408,34 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await db.update(copyOrders).set({ signalTime: new Date(Date.now() - 600_000) });
       expect(await execution.drain()).toEqual({ filled: 0, cancelled: 1 });
       expect((await orders(id))[0]).toMatchObject({ status: "cancelled", reason: "stale_signal_before_submit" });
+      await execution.drain();
+      const cancelled = await db.select().from(copyEvents).where(eq(copyEvents.type, "order_cancelled"));
+      expect(cancelled).toHaveLength(1);
+      expect(cancelled[0]).toMatchObject({ strategyId: id, payload: { mode: "paper", orderId: String((await orders(id))[0]!.id), reason: "stale_signal_before_submit" } });
       expect(await position(id)).toBe(0);
       expect((await db.execute(sql`select status from copy_reservations`)).rows).toEqual([{ status: "released" }]);
+    });
+
+    it("terminal order events roll back with their transaction and concurrent retries emit only once", async () => {
+      const { id, activatedAt } = await startCopy();
+      await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
+      await signals.drain();
+      const [order] = await orders(id);
+      const repo = app.get(CopyRepository);
+      const uow = new UnitOfWork(db);
+      await expect(uow.run(async tx => {
+        await repo.updateOrder(tx, order!.id, { status: "cancelled", reason: "stale_signal_before_submit" });
+        throw new Error("rollback terminal transition");
+      })).rejects.toThrow("rollback terminal transition");
+      expect((await orders(id))[0]!.status).toBe("risk_approved");
+      expect(await db.select().from(copyEvents).where(eq(copyEvents.type, "order_cancelled"))).toHaveLength(0);
+      await Promise.all([1, 2].map(() => uow.run(tx => repo.updateOrder(tx, order!.id, {
+        status: "cancelled", reason: "database password=DO_NOT_EXPOSE",
+      }))));
+      const events = await db.select().from(copyEvents).where(eq(copyEvents.type, "order_cancelled"));
+      expect(events).toHaveLength(1);
+      expect(events[0]!.payload).toMatchObject({ reason: "order_not_executed", orderId: String(order!.id) });
+      expect(JSON.stringify(events[0]!.payload)).not.toContain("DO_NOT_EXPOSE");
     });
 
     it("the same for an open left `submitting`: resumed too late, it is cancelled, not filled at today's mid", async () => {
@@ -1886,6 +1920,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
         await execution.drain();
         const [close] = (await orders(id)).filter((o) => o.leg === "close");
         expect(close).toMatchObject({ status: "submitting", attempts: attempt, lastError: "numeric field overflow" });
+        expect(await db.select().from(copyEvents).where(sql`${copyEvents.type} in ('order_rejected', 'order_cancelled')`)).toHaveLength(0);
         expect(notify.sendSystemMessage).toHaveBeenCalledTimes(attempt >= 5 ? 1 : 0);
         expect(((await reads.overview()).stuckOrders ?? []).map((o) => o.id)).toEqual(attempt >= 5 ? [String(close!.id)] : []);
         // The retry comes after the recovery delay.

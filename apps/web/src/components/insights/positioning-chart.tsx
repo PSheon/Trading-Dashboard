@@ -50,7 +50,7 @@ function smooth(points: Pt[]): string {
  */
 export function PositioningChart({ title, series, btc, window, onWindow, loading, latest, emptyHint }: {
   title: string;
-  series: Array<{ t: string; pctLong: number }>;
+  series: Array<{ t: string; pctLong: number; membershipVersion?: string | null; membershipChanged?: boolean }>;
   btc: Array<[number, number]>;
   window: CohortWindow;
   onWindow: (w: CohortWindow) => void;
@@ -75,7 +75,9 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
     return () => ro.disconnect();
   }, []);
 
-  const points = useMemo(() => series.map((p) => ({ x: Date.parse(p.t), y: p.pctLong })), [series]);
+  const points = useMemo(() => series.map((p, i) => ({ x: Date.parse(p.t), y: p.pctLong,
+    boundary: i > 0 && (p.membershipChanged === true || (p.membershipVersion ?? null) !== (series[i - 1].membershipVersion ?? null)),
+  })), [series]);
   const day = useMemo(() => new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", timeZone: TIME_ZONE }), [locale]);
   const stamp = useMemo(() => new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TIME_ZONE }), [locale]);
 
@@ -88,11 +90,22 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
     const x1 = points[points.length - 1].x;
     const sx = (v: number) => PAD.l + ((v - x0) / Math.max(1, x1 - x0)) * iw;
     const sy = (v: number) => PAD.t + (1 - v / 100) * ih;
-    const line = smooth(points.map((p) => ({ x: sx(p.x), y: sy(p.y) })));
-    const right = sx(x1).toFixed(2);
-    const left = sx(x0).toFixed(2);
-    const long = `${line}L${right},${(PAD.t + ih).toFixed(2)}L${left},${(PAD.t + ih).toFixed(2)}Z`;
-    const short = `${line}L${right},${PAD.t.toFixed(2)}L${left},${PAD.t.toFixed(2)}Z`;
+    const segments: Pt[][] = [];
+    for (const p of points) {
+      if (segments.length === 0 || p.boundary) segments.push([]);
+      segments[segments.length - 1].push({ x: sx(p.x), y: sy(p.y) });
+    }
+    const paths = segments.filter(segment => segment.length >= 2).map(segment => {
+      const line = smooth(segment);
+      const left = segment[0].x.toFixed(2);
+      const right = segment[segment.length - 1].x.toFixed(2);
+      return { line, long: `${line}L${right},${(PAD.t + ih).toFixed(2)}L${left},${(PAD.t + ih).toFixed(2)}Z`,
+        short: `${line}L${right},${PAD.t.toFixed(2)}L${left},${PAD.t.toFixed(2)}Z` };
+    });
+    const line = paths.map(path => path.line).join("");
+    const long = paths.map(path => path.long).join("");
+    const short = paths.map(path => path.short).join("");
+    const isolated = segments.filter(segment => segment.length === 1).map(segment => segment[0]);
     const ticks: Array<{ px: number; label: string; i: number }> = [];
     let prev = "";
     for (let i = 0; i < 5; i++) {
@@ -110,7 +123,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
       const by = (v: number) => PAD.t + (1 - (v - lo + pad) / (hi - lo + pad * 2)) * ih;
       btcLine = smooth(inRange.map(([x, v]) => ({ x: sx(Math.min(Math.max(x, x0), x1)), y: by(v) })));
     }
-    return { sx, sy, line, long, short, ticks, ih, mid: sy(50), btcLine, inRange };
+    return { sx, sy, line, long, short, isolated, ticks, ih, mid: sy(50), btcLine, inRange };
   }, [points, btc, size, day]);
 
   const last = points.length ? points[points.length - 1] : null;
@@ -157,6 +170,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
         </div>
       </div>
       {shown ? <p className="px-3 pt-2 text-[11px] text-muted-foreground">{t("copyUpdates.historical")} · <time dateTime={new Date(shown.x).toISOString()}>{stamp.format(new Date(shown.x))}</time></p> : null}
+      {points.some(point => point.boundary) ? <p className="px-3 pt-1 text-[11px] text-muted-foreground">{t("insights.cohort.membershipChanged")}</p> : null}
       <div ref={box} className="relative h-[400px]">
         {loading && !geo ? <Skeleton className="absolute inset-0" /> : null}
         {geo ? (
@@ -177,6 +191,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
             <path d={geo.short} fill={`url(#${id}-s)`} />
             <path d={geo.line} fill="none" strokeWidth="2" stroke="var(--positive)" clipPath={`url(#${id}-above)`} strokeLinejoin="round" />
             <path d={geo.line} fill="none" strokeWidth="2" stroke="var(--negative)" clipPath={`url(#${id}-below)`} strokeLinejoin="round" />
+            {geo.isolated.map((point, i) => <circle key={i} cx={point.x} cy={point.y} r="3" fill="var(--foreground)" />)}
             {geo.btcLine ? <path d={geo.btcLine} fill="none" strokeWidth="1.4" stroke="var(--foreground)" strokeOpacity="0.45" strokeLinejoin="round" /> : null}
             {[0, 25, 50, 75, 100].map((v) => (
               <text key={v} x={size.w - PAD.r + 14} y={geo.sy(v) + 4} className="num fill-subtle-foreground font-mono text-[10px]">{v}%</text>

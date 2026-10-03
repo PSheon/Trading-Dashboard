@@ -1403,7 +1403,13 @@ export type CohortWindow = z.infer<typeof cohortWindowSchema>;
 export const cohortHistoryResponseSchema = z.object({
   tier: cohortTierSchema,
   window: cohortWindowSchema,
-  series: z.array(z.object({ t: z.coerce.date(), pctLong: z.number() })),
+  series: z.array(z.object({
+    t: z.coerce.date(), pctLong: z.number(),
+    /** Selected-member identity, not freshness coverage; legacy history is unknown. */
+    membershipVersion: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
+    /** A membership boundary occurred since the previous returned point, even if downsampled out. */
+    membershipChanged: z.boolean().optional(),
+  })),
   /** [epoch ms, close], oldest first. */
   btc: z.array(z.tuple([z.number(), z.number()])),
 });

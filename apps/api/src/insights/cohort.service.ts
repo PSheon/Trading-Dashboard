@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
-import { cohortHeadlineReady, cohortTierSchema, type CohortDetailResponse, type CohortHistoryResponse, type CohortTier, type CohortWindow } from "@trading-dashboard/shared/contracts";
+import { CHAIN_DEFAULT, cohortHeadlineReady, cohortTierSchema, type CohortDetailResponse, type CohortHistoryResponse, type CohortTier, type CohortWindow } from "@trading-dashboard/shared/contracts";
 
 import { pnlTier } from "../analytics/trade-metrics.js";
 import { AppConfig } from "../config/app-config.js";
@@ -9,7 +10,7 @@ import { ESSENTIAL_RANK, PAGE_RANK } from "../hyperliquid/request-budgeter.servi
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
-import { COHORT_TIERS, aggregate, candleInterval, dexOf, downsample, positionsFrom, WINDOW_MS, type MemberSnapshot } from "./cohorts.js";
+import { COHORT_TIERS, aggregate, candleInterval, dexOf, positionsFrom, WINDOW_MS, type MemberSnapshot } from "./cohorts.js";
 import { CohortRepository, type CohortCandidate, type CohortMemberRow } from "./cohort.repository.js";
 
 /** Weight of one `clearinghouseState` (per dex). */
@@ -214,10 +215,16 @@ export class CohortService {
     for (const tier of COHORT_TIERS) {
       const last = this.lastSnapshot.get(tier);
       if (last && now.getTime() - last.getTime() < intervalMs - 30_000) continue;
-      const detail = aggregate(tier, await this.snapshots(tier), this.freshSince(intervalMs, now));
+      const members = await this.snapshots(tier);
+      const detail = aggregate(tier, members, this.freshSince(intervalMs, now));
       if (!cohortHeadlineReady(detail.walletCount, detail.memberCount)) continue;
       const h = detail.hero;
+      // Use the exact selected set aggregated above, not a later mutable membership read.
+      // Coverage still describes the fresh subset; identity alone does not imply identical contributors.
+      const memberAddresses = members.map(member => member.address.toLowerCase()).sort();
+      const membershipVersion = createHash("sha256").update(JSON.stringify([CHAIN_DEFAULT, tier, memberAddresses])).digest("hex");
       await this.repository.insertSnapshot({
+        membershipVersion, memberAddresses,
         tier, ts: now, memberCount: detail.memberCount, walletCount: detail.walletCount,
         notionalLong: String(h.notionalLong), notionalShort: String(h.notionalShort), longPct: h.longPct === null ? null : String(h.longPct),
         upnlProfit: String(h.upnlProfit), upnlLoss: String(h.upnlLoss), walletsInProfit: h.walletsInProfit, walletsInLoss: h.walletsInLoss,
@@ -269,8 +276,18 @@ export class CohortService {
     const parsed = parseTier(tier);
     const now = Date.now();
     const since = Number.isFinite(WINDOW_MS[window]) ? new Date(now - WINDOW_MS[window]) : null;
-    const rows = (await this.repository.history(parsed, since)).filter((r) => r.longPct !== null).map((r) => ({ t: r.ts, pctLong: Number(r.longPct) }));
-    const series = downsample(rows, MAX_POINTS);
+    const history = await this.repository.history(parsed, since);
+    let segment = 0;
+    const rows = history.map((row, index) => {
+      if (index > 0 && row.membershipVersion !== history[index - 1].membershipVersion) segment++;
+      return { t: row.ts, pctLong: row.longPct === null ? null : Number(row.longPct), membershipVersion: row.membershipVersion, segment };
+    }).filter((row): row is typeof row & { pctLong: number } => row.pctLong !== null);
+    // Retain real observations, never average across different member sets. Segment
+    // numbers preserve even a short A→B→A change skipped by the point budget.
+    const count = Math.min(rows.length, MAX_POINTS);
+    const sampled = Array.from({ length: count }, (_, i) => rows[count < 2 ? 0 : Math.floor(i * (rows.length - 1) / (count - 1))]);
+    const series = sampled.map((row, index) => ({ t: row.t, pctLong: row.pctLong, membershipVersion: row.membershipVersion,
+      membershipChanged: index > 0 && row.segment !== sampled[index - 1].segment }));
     let btc: Array<[number, number]> = [];
     if (series.length > 0) {
       const start = since ? since.getTime() : series[0].t.getTime();

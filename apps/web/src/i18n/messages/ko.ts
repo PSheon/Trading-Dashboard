@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const ko: Messages = {
   copyUpdates: {
+    orderRejected: "주문 거절",
+    orderCancelled: "주문 취소",
+    exposureLabels: {"grossExposure": "총 익스포저", "netExposure": "순 익스포저", "signedNet": "부호가 있는 순액", "grossLeverage": "총 레버리지", "exposureFormula": "총액 = 롱 + 숏, 순액 = |롱 − 숏|. 금액은 USD 명목 가치입니다.", "accountRisk": "각 카피의 담보와 청산 위험은 독립적입니다. 반대 포지션 간 증거금은 공유되지 않습니다."},
+    ledgerKinds: {"allocate": "자금 배정", "realized_pnl": "실현 손익", "fee": "거래 수수료", "builder_fee": "빌더 수수료", "funding": "펀딩", "release": "자금 반환", "withdraw": "출금", "liquidation": "청산"},
+    commandLabels: {"pause": "일시 중지", "resume": "재개", "reduce_only": "포지션 축소만", "cancel_pending": "대기 주문 취소", "close_positions": "포지션 청산", "stop": "중지"},
     accountingHistory: "모의 계좌 내역",
     ledger: "원장",
     fills: "체결",
@@ -70,7 +75,16 @@ export const ko: Messages = {
     body: "계속 둘러볼 수 있지만, 점검이 끝날 때까지 변경 사항을 저장할 수 없습니다.",
     endsAt: "{time}경 복구 예정",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "목표에 도달한 주소",
+      archiveCoverageValue: "활성 주소 {done} / {total}",
+      archivePending: "데이터 확보 대기",
+      archiveExcluded: "제외된 주소",
+      archiveTarget: "과거 데이터 보충 목표 (UTC)",
+      archiveCursor: "다음 과거 시간 (UTC)",
+      archiveLiveThrough: "다음 실시간 아카이브 시간 (UTC)",
+      archiveCoverageHint: "개수는 보관된 체결 데이터의 범위를 나타내며 전체 기간 분석을 뜻하지 않습니다. 거래가 많은 계정은 분석 기간이 제한될 수 있습니다.",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "일치하는 트레이더",
@@ -994,6 +1008,7 @@ export const ko: Messages = {
   insights: {
     title: "인사이트",
     cohort: {
+      membershipChanged: "차트의 간격은 그룹 구성원 변경을 나타냅니다.",
       bannerTitle: "Hyperliquid 스마트 머니 포지셔닝",
       tierLabel: "티어",
       unrealizedPnl: "미실현 손익",

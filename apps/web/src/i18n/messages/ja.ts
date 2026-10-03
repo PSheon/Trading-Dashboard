@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const ja: Messages = {
   copyUpdates: {
+    orderRejected: "注文拒否",
+    orderCancelled: "注文取消",
+    exposureLabels: {"grossExposure": "総エクスポージャー", "netExposure": "純エクスポージャー", "signedNet": "符号付き純額", "grossLeverage": "総レバレッジ", "exposureFormula": "総額 = ロング + ショート、純額 = |ロング − ショート|。金額は米ドル建て想定元本です。", "accountRisk": "各コピーの証拠金と清算リスクは独立しています。反対方向のポジション間で証拠金は共有されません。"},
+    ledgerKinds: {"allocate": "資金配分", "realized_pnl": "実現損益", "fee": "取引手数料", "builder_fee": "ビルダー手数料", "funding": "資金調達料", "release": "資金返還", "withdraw": "出金", "liquidation": "清算"},
+    commandLabels: {"pause": "一時停止", "resume": "再開", "reduce_only": "縮小のみ", "cancel_pending": "未処理注文を取消", "close_positions": "ポジション決済", "stop": "停止"},
     accountingHistory: "デモ口座履歴",
     ledger: "台帳",
     fills: "約定",
@@ -70,7 +75,16 @@ export const ja: Messages = {
     body: "閲覧は引き続き可能ですが、終了するまで変更は保存できません。",
     endsAt: "{time} 頃に復旧予定",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "目標達成アドレス",
+      archiveCoverageValue: "アクティブアドレス {done} / {total}",
+      archivePending: "カバー待ち",
+      archiveExcluded: "除外アドレス",
+      archiveTarget: "履歴補完の目標（UTC）",
+      archiveCursor: "次の履歴時間（UTC）",
+      archiveLiveThrough: "次のライブアーカイブ時間（UTC）",
+      archiveCoverageHint: "件数はアーカイブ約定のカバー状況を示し、全期間の完全な分析を示すものではありません。取引が多い口座では分析期間が制限される場合があります。",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "一致するトレーダー",
@@ -994,6 +1008,7 @@ export const ja: Messages = {
   insights: {
     title: "インサイト",
     cohort: {
+      membershipChanged: "グラフの空白はグループの構成員の変更を示します。",
       bannerTitle: "Hyperliquid スマートマネーのポジション",
       tierLabel: "ティア",
       unrealizedPnl: "未実現損益",

@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const vi: Messages = {
   copyUpdates: {
+    orderRejected: "Lệnh bị từ chối",
+    orderCancelled: "Lệnh đã hủy",
+    exposureLabels: {"grossExposure": "Tổng giá trị vị thế", "netExposure": "Giá trị vị thế ròng", "signedNet": "Giá trị ròng có dấu", "grossLeverage": "Đòn bẩy gộp", "exposureFormula": "Tổng = mua + bán; ròng = |mua − bán|. Số tiền là giá trị danh nghĩa bằng USD.", "accountRisk": "Mỗi bản sao có tài sản thế chấp và rủi ro thanh lý riêng. Các vị thế đối lập không dùng chung ký quỹ."},
+    ledgerKinds: {"allocate": "Phân bổ", "realized_pnl": "Lãi/lỗ đã thực hiện", "fee": "Phí giao dịch", "builder_fee": "Phí nhà phát triển", "funding": "Phí funding", "release": "Hoàn tiền", "withdraw": "Rút tiền", "liquidation": "Thanh lý"},
+    commandLabels: {"pause": "Tạm dừng", "resume": "Tiếp tục", "reduce_only": "Chỉ giảm vị thế", "cancel_pending": "Hủy lệnh chờ", "close_positions": "Đóng vị thế", "stop": "Dừng"},
     accountingHistory: "Lịch sử tài khoản mô phỏng",
     ledger: "Sổ cái",
     fills: "Khớp lệnh",
@@ -70,7 +75,16 @@ export const vi: Messages = {
     body: "Bạn vẫn có thể xem, nhưng không thể lưu thay đổi cho đến khi bảo trì kết thúc.",
     endsAt: "Dự kiến hoạt động lại khoảng {time}",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "Địa chỉ đã đạt mục tiêu",
+      archiveCoverageValue: "{done} / {total} địa chỉ hoạt động",
+      archivePending: "Đang chờ dữ liệu",
+      archiveExcluded: "Địa chỉ bị loại trừ",
+      archiveTarget: "Mục tiêu bổ sung lịch sử (UTC)",
+      archiveCursor: "Giờ lịch sử tiếp theo (UTC)",
+      archiveLiveThrough: "Giờ lưu trữ trực tiếp tiếp theo (UTC)",
+      archiveCoverageHint: "Số lượng đo mức độ bao phủ lệnh khớp lưu trữ, không phải phân tích đầy đủ toàn bộ lịch sử. Tài khoản giao dịch nhiều vẫn có thể dùng khoảng phân tích giới hạn.",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "Trader phù hợp",
@@ -994,6 +1008,7 @@ export const vi: Messages = {
   insights: {
     title: "Phân tích",
     cohort: {
+      membershipChanged: "Khoảng trống biểu thị thay đổi thành viên nhóm.",
       bannerTitle: "Vị thế của dòng tiền thông minh trên Hyperliquid",
       tierLabel: "Cấp",
       unrealizedPnl: "PnL chưa thực hiện",

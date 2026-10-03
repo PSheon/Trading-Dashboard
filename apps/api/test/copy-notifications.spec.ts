@@ -48,6 +48,25 @@ describe("confirmed copy notifications with durable delivery", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("delivers terminal rejection and cancellation events once with sanitized reasons", async () => {
+    await event("order_rejected"); // opt-in is prospective
+    await link.setCopyAlerts(owner, true);
+    await event("order_rejected", { reason: "stale_signal", orderId: "42" });
+    await event("order_cancelled", { reason: "DATABASE_PASSWORD=secret", lastError: "DO_NOT_RENDER" });
+    await event("order_rejected", { mode: "live" });
+    await Promise.all([service().deliverAction(), service().deliverAction()]);
+    await service().deliverAction();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    const messages = sendMessage.mock.calls.map(call => call[1]).join("\n");
+    expect(messages).toContain("Order rejected");
+    expect(messages).toContain("Order cancelled");
+    expect(messages).toContain("Reason: stale_signal");
+    expect(messages).toContain("Reason: order_not_executed");
+    expect(messages).not.toContain("DATABASE_PASSWORD");
+    expect(messages).not.toContain("DO_NOT_RENDER");
+    expect(await db.select().from(notificationOutbox)).toHaveLength(2);
+  });
+
   it("recovers rate-limited deliveries after restart and respects opt-out before retry", async () => {
     await link.setCopyAlerts(owner, true);
     await event("funds_added", { amount: "500" });

@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const es: Messages = {
   copyUpdates: {
+    orderRejected: "Orden rechazada",
+    orderCancelled: "Orden cancelada",
+    exposureLabels: {"grossExposure": "Exposición bruta", "netExposure": "Exposición neta", "signedNet": "Neto con signo", "grossLeverage": "Apalancamiento bruto", "exposureFormula": "Bruta = largos + cortos; neta = |largos − cortos|. Importes nocionales en USD.", "accountRisk": "Cada copia conserva su propia garantía y riesgo de liquidación. Las posiciones opuestas no comparten margen."},
+    ledgerKinds: {"allocate": "Asignación", "realized_pnl": "Ganancia/pérdida realizada", "fee": "Comisión de negociación", "builder_fee": "Comisión del constructor", "funding": "Financiación", "release": "Fondos devueltos", "withdraw": "Retirada", "liquidation": "Liquidación"},
+    commandLabels: {"pause": "Pausar", "resume": "Reanudar", "reduce_only": "Solo reducir", "cancel_pending": "Cancelar órdenes pendientes", "close_positions": "Cerrar posiciones", "stop": "Detener"},
     accountingHistory: "Historial de cuenta simulada",
     ledger: "Libro contable",
     fills: "Ejecuciones",
@@ -70,7 +75,16 @@ export const es: Messages = {
     body: "Puedes seguir navegando; los cambios no se pueden guardar hasta que termine.",
     endsAt: "Vuelta prevista hacia las {time}",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "Direcciones que alcanzaron el objetivo",
+      archiveCoverageValue: "{done} / {total} direcciones activas",
+      archivePending: "Cobertura pendiente",
+      archiveExcluded: "Direcciones excluidas",
+      archiveTarget: "Objetivo de carga histórica (UTC)",
+      archiveCursor: "Siguiente hora histórica (UTC)",
+      archiveLiveThrough: "Siguiente hora del archivo en vivo (UTC)",
+      archiveCoverageHint: "Los recuentos miden la cobertura de ejecuciones archivadas, no un análisis completo de toda la vida de la cuenta. Las cuentas con mucha actividad pueden seguir usando un período de análisis limitado.",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "Traders coincidentes",
@@ -994,6 +1008,7 @@ export const es: Messages = {
   insights: {
     title: "Perspectivas",
     cohort: {
+      membershipChanged: "Los espacios indican cambios en los miembros del grupo.",
       bannerTitle: "Posicionamiento del dinero inteligente de Hyperliquid",
       tierLabel: "Nivel",
       unrealizedPnl: "PnL no realizado",

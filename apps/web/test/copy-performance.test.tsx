@@ -122,3 +122,22 @@ it("releases a rejected withdrawal intent when no ledger mutation occurred", asy
   })).rejects.toThrow("Not enough");
   expect(operation.pendingBodies()).toEqual([]);
 });
+
+it("distinguishes gross and net opposing exposure and retains signed direction", () => {
+  const overview: CopyOverview = JSON.parse(JSON.stringify(fixtureCopyOverview()));
+  const position = overview.strategies[0].positions[0];
+  overview.strategies = overview.strategies.slice(0, 2).map((s, i) => ({ ...s, status: "active", equity: 100, positions: [{ ...position, size: i ? -2 : 1, notionalUsd: i ? 200 : 100 }] }));
+  const render = () => renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyExposure overview={overview} /></I18nProvider>);
+  const html = render();
+  expect(html).toMatch(/Gross exposure<\/dt><dd[^>]*>\$300.00/);
+  expect(html).toMatch(/Net exposure<\/dt><dd[^>]*>\$100.00/);
+  expect(html).toMatch(/Signed net<\/dt><dd[^>]*>-\$100.00/);
+  expect(html).toMatch(/Gross leverage<\/dt><dd[^>]*>1.50×/);
+  expect(html).toContain("Each copy retains its own collateral and liquidation risk");
+  overview.strategies[1].positions[0].notionalUsd = 100;
+  expect(render()).toMatch(/Net exposure<\/dt><dd[^>]*>\$0.00/);
+  expect(render()).toMatch(/Gross exposure<\/dt><dd[^>]*>\$200.00/);
+  overview.strategies[1].positions[0].notionalUsd = null;
+  expect(render()).toContain("Exposure valuation unavailable");
+  expect(render()).not.toContain("$0.00");
+});

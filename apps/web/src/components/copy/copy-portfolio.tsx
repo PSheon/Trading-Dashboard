@@ -646,13 +646,13 @@ export function CopyInsights({ overview, leaders }: { overview: CopyOverview; le
 export function CopyExposure({ overview }: { overview: CopyOverview }) {
   const { t, format } = useI18n();
   const live = overview.strategies.filter((s) => s.status !== "stopped");
-  const unknown = live.some((s) => s.equity === null || s.positions.some((p) => p.notionalUsd === null));
+  const unknown = live.some((s) => s.equity === null || !Number.isFinite(s.equity) || s.positions.some((p) => p.notionalUsd === null || !Number.isFinite(p.notionalUsd) || !Number.isFinite(p.size)));
   if (unknown) return <p role="status" className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.exposureUnknown")}</p>;
   const byCoin = new Map<string, { long: number; short: number }>();
   for (const s of live) for (const p of s.positions) {
     const cur = byCoin.get(p.coin) ?? { long: 0, short: 0 };
-    if (p.size > 0) cur.long += p.notionalUsd ?? 0;
-    else cur.short += p.notionalUsd ?? 0;
+    if (p.size > 0) cur.long += Math.abs(p.notionalUsd ?? 0);
+    else if (p.size < 0) cur.short += Math.abs(p.notionalUsd ?? 0);
     byCoin.set(p.coin, cur);
   }
   const long = [...byCoin.values()].reduce((a, c) => a + c.long, 0);
@@ -660,6 +660,7 @@ export function CopyExposure({ overview }: { overview: CopyOverview }) {
   const equity = live.reduce((a, s) => a + (s.equity ?? 0), 0);
   const leverage = equity > 0 ? (long + short) / equity : null;
   const total = long + short;
+  const signedNet = long - short;
   if (total === 0) return <p className="py-8 text-center text-sm text-muted-foreground">{t("portfolio.copy.exposure.none")}</p>;
   const rows = [...byCoin.entries()].sort((a, b) => b[1].long + b[1].short - (a[1].long + a[1].short));
   return (
@@ -672,12 +673,20 @@ export function CopyExposure({ overview }: { overview: CopyOverview }) {
           <span className="bg-negative" style={{ width: `${(short / total) * 100}%` }} />
         </div>
         <div className="mt-2 flex justify-between text-xs">
-          <span className="text-positive">{t("portfolio.copy.exposure.long")} {format.usd(long, { compact: true })}</span>
-          <span className="text-negative">{t("portfolio.copy.exposure.short")} {format.usd(short, { compact: true })}</span>
+          <span className="text-positive">{t("portfolio.copy.exposure.long")} {format.usd(long, { sign: true, digits: 2 })}</span>
+          <span className="text-negative">{t("portfolio.copy.exposure.short")} {format.usd(-short, { sign: true, digits: 2 })}</span>
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">{t("copyUpdates.exposureLabels.exposureFormula")}</p>
+        <p className="mt-2 text-xs text-warning">{t("copyUpdates.exposureLabels.accountRisk")}</p>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+          {([
+            ["grossExposure", total], ["netExposure", Math.abs(signedNet)], ["signedNet", signedNet],
+          ] as const).map(([label, value]) => <div key={label} className="rounded-xl bg-raised/50 p-3">
+            <dt className="text-muted-foreground">{t(`copyUpdates.exposureLabels.${label}`)}</dt>
+            <dd className="num mt-1 text-sm font-bold">{format.usd(value, { sign: label === "signedNet", digits: 2 })}</dd>
+          </div>)}
           <div className="rounded-xl bg-raised/50 p-3">
-            <dt className="text-muted-foreground">{t("portfolio.copy.exposure.leverage")} · {t("portfolio.copy.exposure.weightedAvg")}</dt>
+            <dt className="text-muted-foreground">{t("copyUpdates.exposureLabels.grossLeverage")}</dt>
             <dd className="num mt-1 text-sm font-bold">{leverage === null ? "—" : `${leverage.toFixed(2)}×`}</dd>
           </div>
           <div className="rounded-xl bg-raised/50 p-3">
@@ -696,7 +705,11 @@ export function CopyExposure({ overview }: { overview: CopyOverview }) {
               <span className="relative h-2 flex-1 rounded-full bg-raised">
                 <span className={cn("absolute inset-y-0 left-0 rounded-full", v.long >= v.short ? "bg-positive" : "bg-negative")} style={{ width: `${((v.long + v.short) / total) * 100}%` }} />
               </span>
-              <span className="num w-20 text-right font-semibold">{format.usd(v.long + v.short, { compact: true })}</span>
+              <dl className="num ml-auto text-right">
+                <div><dt className="inline text-muted-foreground">{t("copyUpdates.exposureLabels.grossExposure")}: </dt><dd className="inline font-semibold">{format.usd(v.long + v.short, { digits: 2 })}</dd></div>
+                <div><dt className="inline text-muted-foreground">{t("copyUpdates.exposureLabels.netExposure")}: </dt><dd className="inline font-semibold">{format.usd(Math.abs(v.long - v.short), { digits: 2 })}</dd></div>
+                <div><dt className="inline text-muted-foreground">{t("copyUpdates.exposureLabels.signedNet")}: </dt><dd className="inline font-semibold">{format.usd(v.long - v.short, { sign: true, digits: 2 })}</dd></div>
+              </dl>
             </li>
           ))}
         </ul>

@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const ru: Messages = {
   copyUpdates: {
+    orderRejected: "Ордер отклонён",
+    orderCancelled: "Ордер отменён",
+    exposureLabels: {"grossExposure": "Валовая экспозиция", "netExposure": "Чистая экспозиция", "signedNet": "Нетто со знаком", "grossLeverage": "Валовое плечо", "exposureFormula": "Валовая = лонги + шорты; чистая = |лонги − шорты|. Номинальная стоимость в USD.", "accountRisk": "У каждой копии собственное обеспечение и риск ликвидации. Встречные позиции не используют общую маржу."},
+    ledgerKinds: {"allocate": "Выделение средств", "realized_pnl": "Реализованная прибыль/убыток", "fee": "Торговая комиссия", "builder_fee": "Комиссия разработчика", "funding": "Фандинг", "release": "Возврат средств", "withdraw": "Вывод", "liquidation": "Ликвидация"},
+    commandLabels: {"pause": "Приостановить", "resume": "Возобновить", "reduce_only": "Только сокращение", "cancel_pending": "Отменить ожидающие ордера", "close_positions": "Закрыть позиции", "stop": "Остановить"},
     accountingHistory: "История демо-счёта",
     ledger: "Реестр",
     fills: "Исполнения",
@@ -70,7 +75,16 @@ export const ru: Messages = {
     body: "Вы можете продолжать просмотр, но изменения нельзя сохранить до их окончания.",
     endsAt: "Ожидаемое время восстановления: {time}",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "Адреса, достигшие цели",
+      archiveCoverageValue: "{done} / {total} активных адресов",
+      archivePending: "Ожидают покрытия",
+      archiveExcluded: "Исключённые адреса",
+      archiveTarget: "Цель загрузки истории (UTC)",
+      archiveCursor: "Следующий час истории (UTC)",
+      archiveLiveThrough: "Следующий час текущего архива (UTC)",
+      archiveCoverageHint: "Счётчики отражают покрытие архивных исполнений, а не полную аналитику за всё время. Для активных счетов период анализа всё ещё может быть ограничен.",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "Подходящие трейдеры",
@@ -994,6 +1008,7 @@ export const ru: Messages = {
   insights: {
     title: "Инсайты",
     cohort: {
+      membershipChanged: "Разрывы отмечают изменения состава группы.",
       bannerTitle: "Позиции умных денег Hyperliquid",
       tierLabel: "Уровень",
       unrealizedPnl: "Нереализованный PnL",

@@ -23,6 +23,7 @@ import {
 import { CHAIN_DEFAULT, type CopyControlCommand, type CopyControlScope, type CopyLeg, type CopyOrderStatus } from "@trading-dashboard/shared/contracts";
 
 import { Dec } from "../common/decimal/dec.js";
+import { publicOrderReason } from "./copy-order-reason.js";
 import { CopyRuntimeRepository } from "./copy-runtime.repository.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
@@ -373,6 +374,7 @@ export class CopyRepository {
 
   async insertOrder(tx: DbTransaction, values: typeof copyOrders.$inferInsert): Promise<OrderRow> {
     const [row] = await tx.insert(copyOrders).values(values).returning();
+    if (row?.status === "rejected") await this.appendOrderRefusal(tx, row);
     return row!;
   }
 
@@ -482,7 +484,21 @@ export class CopyRepository {
   }
 
   async updateOrder(tx: DbTransaction, id: bigint, patch: Partial<typeof copyOrders.$inferInsert>): Promise<void> {
+    if (patch.status === "cancelled" || patch.status === "rejected") {
+      // The guarded UPDATE makes duplicate/replayed terminal writes a no-op.
+      const [row] = await tx.update(copyOrders).set({ ...patch, updatedAt: new Date() })
+        .where(and(eq(copyOrders.id, id), inArray(copyOrders.status, OPEN_ORDER_STATUSES))).returning();
+      if (row) await this.appendOrderRefusal(tx, row);
+      return;
+    }
     await tx.update(copyOrders).set({ ...patch, updatedAt: new Date() }).where(eq(copyOrders.id, id));
+  }
+
+  private async appendOrderRefusal(tx: DbTransaction, order: OrderRow): Promise<void> {
+    await this.runtime.appendEvent(tx, order.userId, order.strategyId, `order_${order.status}`, {
+      mode: "paper", orderId: String(order.id), coin: order.coin, side: order.side,
+      size: order.size, leg: order.leg, reason: publicOrderReason(order.reason),
+    });
   }
 
   async settleReservation(tx: DbTransaction, orderId: bigint, status: "consumed" | "released"): Promise<void> {

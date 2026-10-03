@@ -9292,6 +9292,20 @@
                               },
                               "pctLong": {
                                 "type": "number"
+                              },
+                              "membershipVersion": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{64}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "membershipChanged": {
+                                "type": "boolean"
                               }
                             },
                             "required": [

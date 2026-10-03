@@ -196,9 +196,9 @@ export class CohortRepository {
    * recorded while less than COHORT_HEADLINE_MIN_COVERAGE of the tier was
    * fresh (written before that rule existed) are left out: each is the
    * long share of a few members, not of the tier. */
-  history(tier: CohortTier, since: Date | null): Promise<Array<{ ts: Date; longPct: string | null }>> {
+  history(tier: CohortTier, since: Date | null): Promise<Array<{ ts: Date; longPct: string | null; membershipVersion: string | null }>> {
     return this.db
-      .select({ ts: cohortSnapshots.ts, longPct: cohortSnapshots.longPct })
+      .select({ ts: cohortSnapshots.ts, longPct: cohortSnapshots.longPct, membershipVersion: cohortSnapshots.membershipVersion })
       .from(cohortSnapshots)
       .where(and(eq(cohortSnapshots.chain, CHAIN_DEFAULT), eq(cohortSnapshots.tier, tier), since ? gte(cohortSnapshots.ts, since) : undefined,
         sql`${cohortSnapshots.walletCount} >= ${COHORT_HEADLINE_MIN_COVERAGE}::numeric * ${cohortSnapshots.memberCount}`))

@@ -71,10 +71,17 @@ export function OperationalSwitchesPanel({ api, worker, archive }: { api?: Opera
               <Fact label={t("adminOps.system.archiveSpend")} value={t("adminOps.system.archiveSpendValue", { spent: format.usd(archive.spendDayUsd, { digits: 4 }), cap: format.usd(archive.maxDailyUsd, { digits: 2 }) })} />
               <Fact label={t("adminOps.system.archiveLag")} value={archive.lagSeconds === null ? "—" : format.duration(archive.lagSeconds)} />
               <Fact label={t("adminOps.system.archiveLastRun")} value={archive.lastRunAt ? format.dateTime(archive.lastRunAt) : "—"} />
+              <Fact label={t("adminOps.system.archiveCoverage")} value={t("adminOps.system.archiveCoverageValue", { done: archive.addresses.backfilled, total: archive.addresses.total - archive.addresses.excluded })} />
+              <Fact label={t("adminOps.system.archivePending")} value={archive.addresses.pending} />
+              <Fact label={t("adminOps.system.archiveExcluded")} value={archive.addresses.excluded} />
+              <Fact label={t("adminOps.system.archiveTarget")} value={archive.backfillFloor ? <time dateTime={new Date(archive.backfillFloor).toISOString()}>{new Date(archive.backfillFloor).toISOString()}</time> : "—"} />
+              <Fact label={t("adminOps.system.archiveCursor")} value={archive.backfillCursorHour ? <time dateTime={new Date(archive.backfillCursorHour).toISOString()}>{new Date(archive.backfillCursorHour).toISOString()}</time> : "—"} />
+              <Fact label={t("adminOps.system.archiveLiveThrough")} value={archive.liveNextHour ? <time dateTime={new Date(archive.liveNextHour).toISOString()}>{new Date(archive.liveNextHour).toISOString()}</time> : "—"} />
               {archive.lastError ? <Fact label={t("adminOps.system.archiveLastError")} value={archive.lastError} /> : null}
             </>
           ) : null}
         </dl>
+        {archive?.enabled ? <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("adminOps.system.archiveCoverageHint")}</p> : null}
       </div>
     </Panel>
   );

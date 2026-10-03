@@ -118,3 +118,18 @@ it("drains missed event pages immediately on reconnect rather than one page per 
   expect(state.get.mock.calls[2][0]).toBe("/me/copy/events?after=10001&limit=100");
   expect(container.textContent).toBe("10000,10001,10002");
 });
+
+it("labels rejected and cancelled orders and never exposes unrecognized provider reasons", () => {
+  const items: WireCopyEvents["items"] = [
+    { ...event("90"), type: "order_rejected", payload: { orderId: "9007199254740993", reason: "no_price_before_submit" } },
+    { ...event("91"), type: "order_cancelled", payload: { orderId: "92", reason: "provider: secret token" } },
+    { ...event("92"), type: "strategy_command", payload: { command: "cancel_pending" } },
+  ];
+  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyActivityItems items={items} /></I18nProvider>);
+  expect(html).toContain("Order rejected");
+  expect(html).toContain("Order cancelled");
+  expect(html).toContain("#9007199254740993");
+  expect(html).toContain("No price available");
+  expect(html).toContain("Cancel pending orders");
+  expect(html).not.toContain("secret token");
+});

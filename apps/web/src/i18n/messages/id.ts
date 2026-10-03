@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const id: Messages = {
   copyUpdates: {
+    orderRejected: "Order ditolak",
+    orderCancelled: "Order dibatalkan",
+    exposureLabels: {"grossExposure": "Eksposur bruto", "netExposure": "Eksposur neto", "signedNet": "Neto bertanda", "grossLeverage": "Leverage bruto", "exposureFormula": "Bruto = long + short; neto = |long − short|. Nilai nosional dalam USD.", "accountRisk": "Setiap salinan memiliki jaminan dan risiko likuidasi sendiri. Posisi berlawanan tidak berbagi margin."},
+    ledgerKinds: {"allocate": "Alokasi", "realized_pnl": "Laba/rugi terealisasi", "fee": "Biaya perdagangan", "builder_fee": "Biaya pembangun", "funding": "Pendanaan", "release": "Dana dikembalikan", "withdraw": "Penarikan", "liquidation": "Likuidasi"},
+    commandLabels: {"pause": "Jeda", "resume": "Lanjutkan", "reduce_only": "Hanya kurangi", "cancel_pending": "Batalkan order tertunda", "close_positions": "Tutup posisi", "stop": "Hentikan"},
     accountingHistory: "Riwayat akun simulasi",
     ledger: "Buku besar",
     fills: "Eksekusi",
@@ -70,7 +75,16 @@ export const id: Messages = {
     body: "Kamu tetap bisa menjelajah; perubahan tidak dapat disimpan sampai pemeliharaan selesai.",
     endsAt: "Perkiraan kembali sekitar {time}",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "Alamat yang mencapai target",
+      archiveCoverageValue: "{done} / {total} alamat aktif",
+      archivePending: "Menunggu cakupan",
+      archiveExcluded: "Alamat yang dikecualikan",
+      archiveTarget: "Target pengisian riwayat (UTC)",
+      archiveCursor: "Jam historis berikutnya (UTC)",
+      archiveLiveThrough: "Jam arsip langsung berikutnya (UTC)",
+      archiveCoverageHint: "Jumlah mengukur cakupan eksekusi yang diarsipkan, bukan analisis lengkap sepanjang waktu. Akun aktif masih dapat menggunakan rentang analisis terbatas.",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "Trader yang cocok",
@@ -994,6 +1008,7 @@ export const id: Messages = {
   insights: {
     title: "Wawasan",
     cohort: {
+      membershipChanged: "Celah menandai perubahan anggota kelompok.",
       bannerTitle: "Posisi Uang Pintar Hyperliquid",
       tierLabel: "Tingkat",
       unrealizedPnl: "PnL Belum Terealisasi",

@@ -5,6 +5,11 @@
  */
 export const zhTW = {
   copyUpdates: {
+    orderRejected: "訂單已拒絕",
+    orderCancelled: "訂單已取消",
+    exposureLabels: {"grossExposure": "總曝險", "netExposure": "淨曝險", "signedNet": "有方向淨額", "grossLeverage": "總曝險槓桿", "exposureFormula": "總曝險 = 多單 + 空單；淨曝險 = |多單 − 空單|。金額為美元名目價值。", "accountRisk": "每筆跟單各自承擔保證金及清算風險。反向倉位不共用保證金。"},
+    ledgerKinds: {"allocate": "資金分配", "realized_pnl": "已實現損益", "fee": "交易手續費", "builder_fee": "Builder 費用", "funding": "資金費", "release": "資金退回", "withdraw": "提款", "liquidation": "清算"},
+    commandLabels: {"pause": "暫停", "resume": "繼續", "reduce_only": "只減倉", "cancel_pending": "取消待處理訂單", "close_positions": "平倉", "stop": "停止"},
     accountingHistory: "模擬帳戶歷史",
     ledger: "帳本",
     fills: "成交",
@@ -609,6 +614,15 @@ export const zhTW = {
       alertDays: "提醒發送紀錄（天）",
     },
     system: {
+      archiveCoverage: "已達目標的地址",
+      archiveCoverageValue: "{done} / {total} 個活躍地址",
+      archivePending: "等待涵蓋",
+      archiveExcluded: "已排除的地址",
+      archiveTarget: "歷史回補目標（UTC）",
+      archiveCursor: "下一個歷史小時（UTC）",
+      archiveLiveThrough: "下一個即時存檔小時（UTC）",
+      archiveCoverageHint: "數量表示存檔成交的涵蓋程度，不代表完整歷史分析。交易頻繁的帳戶仍可能使用有限的分析期間。",
+
       title: "部署開關（唯讀）",
       hint: "這些值來自各行程啟動時的環境變數，後台無法修改；要變更需調整環境變數並重新啟動。api 與 worker 是不同行程，值可能不同。",
       switch: "開關",
@@ -1678,6 +1692,7 @@ export const zhTW = {
   insights: {
     title: "洞察",
     cohort: {
+      membershipChanged: "圖表空隙表示群組成員已變更。",
       bannerTitle: "Hyperliquid 聰明錢的多空配置",
       tierLabel: "分層",
       unrealizedPnl: "未實現盈虧",

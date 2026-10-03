@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const zhCN: Messages = {
   copyUpdates: {
+    orderRejected: "订单已拒绝",
+    orderCancelled: "订单已取消",
+    exposureLabels: {"grossExposure": "总敞口", "netExposure": "净敞口", "signedNet": "有方向净额", "grossLeverage": "总敞口杠杆", "exposureFormula": "总敞口 = 多单 + 空单；净敞口 = |多单 − 空单|。金额为美元名义价值。", "accountRisk": "每笔跟单各自承担保证金及清算风险。反向仓位不共用保证金。"},
+    ledgerKinds: {"allocate": "资金分配", "realized_pnl": "已实现盈亏", "fee": "交易手续费", "builder_fee": "Builder 费用", "funding": "资金费", "release": "资金退回", "withdraw": "提款", "liquidation": "清算"},
+    commandLabels: {"pause": "暂停", "resume": "继续", "reduce_only": "只减仓", "cancel_pending": "取消待处理订单", "close_positions": "平仓", "stop": "停止"},
     accountingHistory: "模拟账户历史",
     ledger: "账本",
     fills: "成交",
@@ -70,7 +75,16 @@ export const zhCN: Messages = {
     body: "你仍可以浏览，但维护结束前无法保存任何更改。",
     endsAt: "预计 {time} 恢复",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "已达目标的地址",
+      archiveCoverageValue: "{done} / {total} 个活跃地址",
+      archivePending: "等待覆盖",
+      archiveExcluded: "已排除的地址",
+      archiveTarget: "历史回补目标（UTC）",
+      archiveCursor: "下一个历史小时（UTC）",
+      archiveLiveThrough: "下一个实时存档小时（UTC）",
+      archiveCoverageHint: "数量表示存档成交的覆盖程度，不代表完整历史分析。交易频繁的账户仍可能使用有限的分析期间。",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "匹配的交易员",
@@ -994,6 +1008,7 @@ export const zhCN: Messages = {
   insights: {
     title: "洞察",
     cohort: {
+      membershipChanged: "图表空隙表示群组成员已变更。",
       bannerTitle: "Hyperliquid 聪明钱的多空配置",
       tierLabel: "分层",
       unrealizedPnl: "未实现盈亏",

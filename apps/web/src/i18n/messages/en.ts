@@ -2,6 +2,11 @@ import type { Messages } from "./index";
 
 export const en: Messages = {
   copyUpdates: {
+    orderRejected: "Order rejected",
+    orderCancelled: "Order cancelled",
+    exposureLabels: {"grossExposure": "Gross exposure", "netExposure": "Net exposure", "signedNet": "Signed net", "grossLeverage": "Gross leverage", "exposureFormula": "Gross = long + short; net = |long − short|. Amounts are USD notionals.", "accountRisk": "Each copy retains its own collateral and liquidation risk. Opposing positions do not share margin."},
+    ledgerKinds: {"allocate": "Allocation", "realized_pnl": "Realized P&L", "fee": "Trading fee", "builder_fee": "Builder fee", "funding": "Funding", "release": "Funds returned", "withdraw": "Withdrawal", "liquidation": "Liquidation"},
+    commandLabels: {"pause": "Pause", "resume": "Resume", "reduce_only": "Reduce only", "cancel_pending": "Cancel pending orders", "close_positions": "Close positions", "stop": "Stop"},
     accountingHistory: "Paper account history",
     ledger: "Ledger",
     fills: "Fills",
@@ -606,6 +611,15 @@ export const en: Messages = {
       alertDays: "Alert delivery records (days)",
     },
     system: {
+      archiveCoverage: "Addresses at target",
+      archiveCoverageValue: "{done} / {total} active addresses",
+      archivePending: "Awaiting coverage",
+      archiveExcluded: "Excluded addresses",
+      archiveTarget: "Backfill target (UTC)",
+      archiveCursor: "Next historical hour (UTC)",
+      archiveLiveThrough: "Next live archive hour (UTC)",
+      archiveCoverageHint: "Counts measure archived fill coverage, not complete lifetime analytics. Busy accounts may still use a bounded analysis window.",
+
       title: "Deployment switches (read-only)",
       hint: "Each process read these from its environment when it started. They can't be changed here: change the environment and restart. The api and the worker are separate processes and may differ.",
       switch: "Switch",
@@ -1674,6 +1688,7 @@ export const en: Messages = {
   insights: {
     title: "Insights",
     cohort: {
+      membershipChanged: "Gaps mark changes in cohort membership.",
       bannerTitle: "Hyperliquid Smartest Money Positioning",
       tierLabel: "Tier",
       unrealizedPnl: "Unrealized PNL",

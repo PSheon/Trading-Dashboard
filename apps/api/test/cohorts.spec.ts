@@ -175,6 +175,30 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect(snap).toMatchObject({ tier: "extremely_profitable", walletCount: 2, walletsInProfit: 1, walletsInLoss: 1 });
   });
 
+  it("persists the selected membership with each snapshot across rank and member changes", async () => {
+    await seed();
+    await service.build(2);
+    for (const member of await repository.membersOf("extremely_profitable")) await service.refreshOne(member);
+    const now = new Date();
+    await service.writeSnapshots(60_000, now);
+    const [first] = await db.select().from(cohortSnapshots);
+    expect(first).toMatchObject({ memberAddresses: [addr(1), addr(2)], membershipVersion: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    await db.update(cohortMembers).set({ rank: 10 }).where(eq(cohortMembers.address, addr(1)));
+    await service.writeSnapshots(60_000, new Date(now.getTime() + 60_000));
+    await db.delete(cohortMembers).where(eq(cohortMembers.address, addr(2)));
+    await service.writeSnapshots(60_000, new Date(now.getTime() + 120_000));
+    const snapshots = await db.select().from(cohortSnapshots).orderBy(cohortSnapshots.ts);
+    expect(snapshots[0]).toMatchObject({ memberAddresses: [addr(1), addr(2)] });
+    expect(snapshots[1]).toMatchObject({ membershipVersion: snapshots[0].membershipVersion });
+    expect(snapshots[2]).toMatchObject({ memberAddresses: [addr(1)] });
+    const history = await service.history("extremely_profitable", "all");
+    expect(history.series).toEqual([
+      expect.objectContaining({ membershipVersion: expect.any(String), membershipChanged: false }),
+      expect.objectContaining({ membershipVersion: expect.any(String), membershipChanged: false }),
+      expect.objectContaining({ membershipVersion: expect.any(String), membershipChanged: true }),
+    ]);
+  });
+
   it("withholds the headline until most of the tier is fresh: no history point from a fraction of the members (review 52)", async () => {
     const now = new Date("2026-09-30T00:00:00Z");
     const fresh = new Date(now.getTime() - 60_000);
@@ -214,6 +238,27 @@ describe("cohort job and endpoints (real Postgres)", () => {
     const history = await service.history("extremely_profitable", "7d");
     expect(history.series).toHaveLength(1);
     expect(history.series[0]!.pctLong).not.toBe(6.9);
+  });
+
+  it("preserves legacy unknown identity and hidden membership changes when capping history", async () => {
+    const base = { tier: "extremely_profitable", memberCount: 1, walletCount: 1,
+      notionalLong: "100", notionalShort: "100", upnlProfit: "0", upnlLoss: "0", walletsInProfit: 0, walletsInLoss: 0 };
+    const start = Date.now() - 1_000_000;
+    await db.insert(cohortSnapshots).values(Array.from({ length: 801 }, (_, i) => ({
+      ...base, ts: new Date(start + i * 1000), longPct: i === 3 ? "100" : "25",
+      // A brief A→B→A between sampled points must not be averaged or bridged.
+      membershipVersion: i < 2 ? null : (i === 3 ? "b" : "a").repeat(64),
+      memberAddresses: i < 2 ? null : [addr(i === 3 ? 2 : 1)],
+    })));
+    const history = await service.history("extremely_profitable", "all");
+    expect(history.series).toHaveLength(400);
+    expect(history.series[0]).toMatchObject({ membershipVersion: null, membershipChanged: false });
+    expect(history.series[1]).toMatchObject({ membershipVersion: "a".repeat(64), membershipChanged: true });
+    expect(history.series[2]).toMatchObject({ membershipVersion: "a".repeat(64), membershipChanged: true });
+    expect(history.series.every(point => point.pctLong === 25)).toBe(true);
+    expect(history.series.at(-1)?.t.getTime()).toBe(start + 800_000);
+    expect(wireCohortHistorySchema.parse(JSON.parse(JSON.stringify(history))).series[1]).toMatchObject({ membershipChanged: true, membershipVersion: "a".repeat(64) });
+    expect((await db.select().from(cohortSnapshots).orderBy(cohortSnapshots.ts))[0]).toMatchObject({ membershipVersion: null, memberAddresses: null });
   });
 
   it("keeps the last snapshot when a refresh fails", async () => {

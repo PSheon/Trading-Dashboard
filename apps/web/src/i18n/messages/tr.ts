@@ -3,6 +3,11 @@ import type { Messages } from "./index";
 
 export const tr: Messages = {
   copyUpdates: {
+    orderRejected: "Emir reddedildi",
+    orderCancelled: "Emir iptal edildi",
+    exposureLabels: {"grossExposure": "Brüt pozisyon tutarı", "netExposure": "Net pozisyon tutarı", "signedNet": "İşaretli net tutar", "grossLeverage": "Brüt kaldıraç", "exposureFormula": "Brüt = uzun + kısa; net = |uzun − kısa|. Tutarlar USD nominal değeridir.", "accountRisk": "Her kopyanın teminatı ve tasfiye riski ayrıdır. Karşıt pozisyonlar marj paylaşmaz."},
+    ledgerKinds: {"allocate": "Tahsis", "realized_pnl": "Gerçekleşen kâr/zarar", "fee": "İşlem ücreti", "builder_fee": "Geliştirici ücreti", "funding": "Fonlama", "release": "İade edilen fonlar", "withdraw": "Para çekme", "liquidation": "Tasfiye"},
+    commandLabels: {"pause": "Duraklat", "resume": "Sürdür", "reduce_only": "Yalnızca azalt", "cancel_pending": "Bekleyen emirleri iptal et", "close_positions": "Pozisyonları kapat", "stop": "Durdur"},
     accountingHistory: "Sanal hesap geçmişi",
     ledger: "Hesap defteri",
     fills: "Gerçekleşen işlemler",
@@ -70,7 +75,16 @@ export const tr: Messages = {
     body: "Gezinmeye devam edebilirsiniz; bakım bitene kadar değişiklikler kaydedilemez.",
     endsAt: "Tahmini dönüş: {time}",
   },
-  adminOps: en.adminOps,
+  adminOps: { ...en.adminOps, system: { ...en.adminOps.system,
+      archiveCoverage: "Hedefe ulaşan adresler",
+      archiveCoverageValue: "{done} / {total} aktif adres",
+      archivePending: "Kapsama bekleniyor",
+      archiveExcluded: "Hariç tutulan adresler",
+      archiveTarget: "Geçmiş veri yükleme hedefi (UTC)",
+      archiveCursor: "Sonraki geçmiş saat (UTC)",
+      archiveLiveThrough: "Sonraki canlı arşiv saati (UTC)",
+      archiveCoverageHint: "Sayılar arşivlenmiş işlem kapsamını ölçer, tüm geçmişin eksiksiz analizini değil. Yoğun hesaplarda analiz aralığı hâlâ sınırlı olabilir.",
+    } },
   jobs: en.jobs,
   research: {
     searchTitle: "Eşleşen trader'lar",
@@ -994,6 +1008,7 @@ export const tr: Messages = {
   insights: {
     title: "İçgörüler",
     cohort: {
+      membershipChanged: "Boşluklar grup üyelerindeki değişiklikleri gösterir.",
       bannerTitle: "Hyperliquid'de Akıllı Paranın Konumlanması",
       tierLabel: "Grup",
       unrealizedPnl: "Gerçekleşmemiş K/Z",

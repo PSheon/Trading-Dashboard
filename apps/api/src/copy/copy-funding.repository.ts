@@ -5,6 +5,8 @@ import { copyExecutionAccounts, copyFundingOperations, copyStrategies, users, wa
 import type { CopyFundingInput } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import type { DbTransaction } from "../db/unit-of-work.js";
+import { lockCopyUser } from "./copy-user-lock.js";
 import type { FundingScan } from "./copy-funding-scan.js";
 
 export type FundingRow = typeof copyFundingOperations.$inferSelect;
@@ -14,6 +16,9 @@ const conflict = () => new ConflictException({ statusCode: 409, code: "funding_p
 @Injectable()
 export class CopyFundingRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  private locked<T>(userId: number, write: (tx: DbTransaction) => PromiseLike<T>): Promise<T> {
+    return this.db.transaction(async tx => { await lockCopyUser(tx, userId); return write(tx); });
+  }
   list(userId: number) {
     return this.db.select().from(copyFundingOperations).where(eq(copyFundingOperations.userId, userId))
       .orderBy(sql`case when ${copyFundingOperations.status} in ('prepared', 'unknown', 'accepted') then 0 else 1 end`, desc(copyFundingOperations.createdAt)).limit(100);
@@ -34,8 +39,9 @@ export class CopyFundingRepository {
       return tx.update(copyFundingOperations).set({ updatedAt: new Date() }).where(inArray(copyFundingOperations.id, rows.map((row) => row.id))).returning();
     });
   }
-  async reserve(userId: number, accountId: string, network: FundingRow["network"], input: CopyFundingInput) {
-    return this.db.transaction(async (tx) => {
+  async reserve(userId: number, accountId: string, network: FundingRow["network"], rawInput: CopyFundingInput) {
+    const input = structuredClone(rawInput);
+    return this.locked(userId, async (tx) => {
       const [user] = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt))).for("update");
       if (!user?.embeddedWalletAddress) throw new NotFoundException("Wallet not found");
       const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId))).for("share");
@@ -60,20 +66,20 @@ export class CopyFundingRepository {
     });
   }
   async claim(userId: number, id: string) {
-    const [row] = await this.db.update(copyFundingOperations).set({ status: "unknown", claimedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "prepared"))).returning();
+    const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: "unknown", claimedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "prepared"))).returning());
     return { row: row ?? await this.find(userId, id), claimed: Boolean(row) };
   }
   async cancel(userId: number, id: string) {
-    const [row] = await this.db.update(copyFundingOperations).set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), inArray(copyFundingOperations.status, ["prepared", "unknown"]), isNull(copyFundingOperations.attemptedAt))).returning();
+    const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: "cancelled", updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), inArray(copyFundingOperations.status, ["prepared", "unknown"]), isNull(copyFundingOperations.attemptedAt))).returning());
     const current = row ?? await this.find(userId, id);
     if (current.status !== "cancelled") throw conflict();
     return current;
   }
   async beginSubmit(userId: number, id: string) {
     // Serialize against owner disablement, account re-verification and copy stop.
-    return this.db.transaction(async (tx) => {
+    return this.locked(userId, async (tx) => {
       const [user] = await tx.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt))).for("share");
       const [row] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId)));
       if (!row) throw new NotFoundException("Funding operation not found");
@@ -87,12 +93,12 @@ export class CopyFundingRepository {
     });
   }
   async restoreUnsent(userId: number, id: string) {
-    await this.db.update(copyFundingOperations).set({ status: "prepared", claimedAt: null, updatedAt: new Date() })
-      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), isNull(copyFundingOperations.attemptedAt)));
+    await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: "prepared", claimedAt: null, updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), isNull(copyFundingOperations.attemptedAt))));
   }
   async finish(userId: number, id: string, status: "accepted" | "rejected", evidenceHash: string) {
-    const [row] = await this.db.update(copyFundingOperations).set({ status, evidenceHash, updatedAt: new Date() })
-      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();
+    const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status, evidenceHash, updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), sql`${copyFundingOperations.attemptedAt} is not null`)).returning());
     return row ?? this.find(userId, id);
   }
   async saveScan(operation: FundingRow, scanState: FundingScan | null) {
@@ -100,9 +106,10 @@ export class CopyFundingRepository {
       .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.scanRevision, operation.scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();
     return row ?? null;
   }
-  async credit(userId: number, id: string, receipt: { transactionHash: string; creditedAmount: string; fee: string }, evidenceHash: string, scanRevision: number) {
-    const [row] = await this.db.update(copyFundingOperations).set({ ...receipt, status: "credited", evidenceHash, updatedAt: new Date() })
-      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.scanRevision, scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();
+  async credit(userId: number, id: string, rawReceipt: { transactionHash: string; creditedAmount: string; fee: string }, evidenceHash: string, scanRevision: number) {
+    const receipt = structuredClone(rawReceipt);
+    const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ ...receipt, status: "credited", evidenceHash, updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.scanRevision, scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning());
     return row ?? this.find(userId, id);
   }
 }

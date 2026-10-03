@@ -5,6 +5,8 @@ import { copyFundingOperations, users, walletWithdrawals } from "@trading-dashbo
 import type { WalletWithdrawalInput } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import type { DbTransaction } from "../db/unit-of-work.js";
+import { lockCopyUser } from "../copy/copy-user-lock.js";
 
 export type WithdrawalRow = typeof walletWithdrawals.$inferSelect;
 type Scope = { userId: number; network: "testnet" | "mainnet"; address: string };
@@ -15,6 +17,9 @@ const conflict = () => new ConflictException({ statusCode: 409, code: "withdrawa
 @Injectable()
 export class WithdrawalRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  private locked<T>(userId: number, write: (tx: DbTransaction) => PromiseLike<T>): Promise<T> {
+    return this.db.transaction(async tx => { await lockCopyUser(tx, userId); return write(tx); });
+  }
 
   async latest(scope: Scope) {
     const [row] = await this.db.select().from(walletWithdrawals).where(owner(scope)).orderBy(sql`case when ${walletWithdrawals.status} in ('prepared', 'unknown') then 0 else 1 end`, desc(walletWithdrawals.nonce)).limit(1);
@@ -23,8 +28,9 @@ export class WithdrawalRepository {
 
   /** The user-row lock also serializes against deletion. Amount, destination,
    * source, network and nonce are immutable after reservation. */
-  async reserve(scope: Scope, input: WalletWithdrawalInput, importedNonce?: number): Promise<WithdrawalRow> {
-    return this.db.transaction(async (tx) => {
+  async reserve(rawScope: Scope, rawInput: WalletWithdrawalInput, importedNonce?: number): Promise<WithdrawalRow> {
+    const scope = structuredClone(rawScope), input = structuredClone(rawInput);
+    return this.locked(scope.userId, async (tx) => {
       const [user] = await tx.select({ address: users.embeddedWalletAddress, disabledAt: users.disabledAt }).from(users).where(eq(users.id, scope.userId)).for("update");
       if (!user || user.disabledAt || user.address !== scope.address) throw new NotFoundException("Wallet not found");
       if ((await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations).where(and(
@@ -67,14 +73,14 @@ export class WithdrawalRepository {
   }
 
   async claim(userId: number, id: string) {
-    const [claimed] = await this.db.update(walletWithdrawals).set({ status: "unknown", claimedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "prepared"))).returning();
+    const [claimed] = await this.locked(userId, tx => tx.update(walletWithdrawals).set({ status: "unknown", claimedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "prepared"))).returning());
     return { row: claimed ?? await this.find(userId, id), claimed: Boolean(claimed) };
   }
 
   async cancel(userId: number, id: string) {
-    const [cancelled] = await this.db.update(walletWithdrawals).set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), or(eq(walletWithdrawals.status, "prepared"), and(eq(walletWithdrawals.status, "unknown"), eq(walletWithdrawals.origin, "client"), isNull(walletWithdrawals.attemptedAt))))).returning();
+    const [cancelled] = await this.locked(userId, tx => tx.update(walletWithdrawals).set({ status: "cancelled", updatedAt: new Date() })
+      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), or(eq(walletWithdrawals.status, "prepared"), and(eq(walletWithdrawals.status, "unknown"), eq(walletWithdrawals.origin, "client"), isNull(walletWithdrawals.attemptedAt))))).returning());
     const row = cancelled ?? await this.find(userId, id);
     if (row.status !== "cancelled") throw conflict();
     return row;
@@ -83,7 +89,7 @@ export class WithdrawalRepository {
   async beginSubmit(userId: number, id: string) {
     // The exchange budget can wait. Revalidate the authoritative owner at the
     // durable attempt boundary, serialized against disablement and replacement.
-    return this.db.transaction(async (tx) => {
+    return this.locked(userId, async (tx) => {
       const [user] = await tx.select({ address: users.embeddedWalletAddress, disabledAt: users.disabledAt })
         .from(users).where(eq(users.id, userId)).for("share");
       const [operation] = await tx.select().from(walletWithdrawals)
@@ -97,13 +103,13 @@ export class WithdrawalRepository {
   }
 
   async restoreUnsent(userId: number, id: string) {
-    await this.db.update(walletWithdrawals).set({ status: "prepared", claimedAt: null, updatedAt: new Date() })
-      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"), isNull(walletWithdrawals.attemptedAt)));
+    await this.locked(userId, tx => tx.update(walletWithdrawals).set({ status: "prepared", claimedAt: null, updatedAt: new Date() })
+      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"), isNull(walletWithdrawals.attemptedAt))));
   }
 
   async finish(userId: number, id: string, status: "accepted" | "rejected", evidenceHash: string) {
-    const [accepted] = await this.db.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })
-      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "unknown"))).returning();
+    const [accepted] = await this.locked(userId, tx => tx.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })
+      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "unknown"))).returning());
     return accepted ?? this.find(userId, id);
   }
 }

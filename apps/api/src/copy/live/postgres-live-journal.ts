@@ -9,6 +9,7 @@ import { DATABASE_POOL, type DrizzleDb } from "../../db/drizzle.provider.js";
 import { UnitOfWork } from "../../db/unit-of-work.js";
 import { type LiveExecutionJournal, type LiveExecutionRecord } from "./live-execution.js";
 import { LiveBoundaryError, address } from "./wallet-authorization.js";
+import { marketIdentityKey } from './live-market-resolver.js';
 
 type ExecutionRow = typeof copyLiveExecutions.$inferSelect;
 const transitions: Record<LiveExecutionRecord["state"], readonly LiveExecutionRecord["state"][]> = {
@@ -18,6 +19,11 @@ const transitions: Record<LiveExecutionRecord["state"], readonly LiveExecutionRe
 };
 function decode(row: ExecutionRow): LiveExecutionRecord {
   const record = row.record as unknown as LiveExecutionRecord;
+  if (record?.market) {
+    marketIdentityKey(record.market);
+    if (record.market.network !== row.network || record.market.asset !== record.action?.orders?.[0]?.a)
+      throw new LiveBoundaryError('execution_record_market_mismatch');
+  }
   if (!record || typeof record !== "object" || !record.authorization || !record.action?.orders?.[0] ||
       record.key !== row.key || record.nonce !== row.nonce || record.state !== row.state ||
       !Number.isSafeInteger(record.nonce) || !Number.isSafeInteger(record.createdAt) || !Number.isSafeInteger(record.updatedAt) ||
@@ -31,7 +37,7 @@ function decode(row: ExecutionRow): LiveExecutionRecord {
 }
 function immutable(record: LiveExecutionRecord) {
   return { key: record.key, fingerprint: record.fingerprint, authorization: record.authorization, action: record.action,
-    nonce: record.nonce, expiresAfter: record.expiresAfter, createdAt: record.createdAt };
+    nonce: record.nonce, expiresAfter: record.expiresAfter, createdAt: record.createdAt, ...(record.market ? { market: record.market } : {}) };
 }
 
 @Injectable()
@@ -44,6 +50,7 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
     let lost = false;
     const onError = () => { lost = true; };
     client.on("error", onError);
+    client.on("end", onError);
     const lease: LiveExecutionLease = { assertHeld: async () => {
       if (!locked || lost) throw new LiveBoundaryError("execution_lease_lost");
       try {
@@ -68,6 +75,7 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
       }
       locked = false;
       client.removeListener("error", onError);
+      client.removeListener("end", onError);
       client.release(discard);
     }
   }
@@ -79,7 +87,9 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
   }
 
   async prepare(input: Parameters<LiveExecutionJournal["prepare"]>[0]): Promise<LiveExecutionRecord> {
-    const { authorization: grant, now, key, fingerprint, action } = input;
+    const { authorization: grant, now, key, fingerprint, action, market } = input;
+    if (market && (marketIdentityKey(market).network !== grant.network || market.asset !== action.orders[0].a))
+      throw new LiveBoundaryError('execution_record_market_mismatch');
     if (!Number.isSafeInteger(now) || now < 0 || key !== `${grant.network}:${address(grant.accountAddress)}:${action.orders[0].c}`) throw new LiveBoundaryError("execution_record_invalid");
     return this.uow.run(async (tx) => {
       const signer = address(grant.signerAddress);
@@ -92,6 +102,8 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
         const record = decode(existing);
         if (record.fingerprint !== fingerprint) throw new LiveBoundaryError("cloid_payload_conflict");
         if (!isDeepStrictEqual(record.action, action)) throw new LiveBoundaryError("persisted_order_payload_mismatch");
+        if (!isDeepStrictEqual(record.market ? marketIdentityKey(record.market) : undefined, market ? marketIdentityKey(market) : undefined))
+          throw new LiveBoundaryError('persisted_order_market_mismatch');
         return record;
       }
       const allocated = await tx.execute(sql`
@@ -101,7 +113,7 @@ export class PostgresLiveExecutionJournal implements LiveExecutionJournal {
       `);
       const nonce = Number(allocated.rows[0]?.nonce);
       if (!Number.isSafeInteger(nonce) || nonce > now + 30_000) throw new LiveBoundaryError("nonce_clock_skew");
-      const record: LiveExecutionRecord = { key, fingerprint, authorization: grant, action, nonce, expiresAfter: now + 60_000, state: "prepared", createdAt: now, updatedAt: now };
+      const record: LiveExecutionRecord = { key, fingerprint, authorization: grant, action, ...(market ? { market: structuredClone(market) } : {}), nonce, expiresAfter: now + 60_000, state: "prepared", createdAt: now, updatedAt: now };
       await tx.insert(copyLiveExecutions).values({ key, network: grant.network, accountAddress: address(grant.accountAddress), signerAddress: signer,
         cloid: action.orders[0].c, nonce, userId: grant.userId, strategyId: grant.strategyId, state: record.state, record: record as unknown as Record<string, unknown>, updatedAt: new Date(now) });
       return record;

@@ -17,8 +17,8 @@ import { MarketCatalogService } from "../hyperliquid/market-catalog.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TradersService } from "../traders/traders.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
-import { boardFreshness, buildBoard, coinBoard, coinIndex, toCandidate, traderCard, type Candidate } from "./boards.js";
-import { isStockCoin, portfolioNumbers, scoreOf } from "./discovery-figures.js";
+import { boardFreshness, buildBoard, candidateScores, coinBoard, coinIndex, toCandidate, traderCard, type Candidate, type PoolScores } from "./boards.js";
+import { isStockCoin, portfolioNumbers } from "./discovery-figures.js";
 import { DiscoveryRepository } from "./discovery.repository.js";
 
 /** Boards read the pool table at most this often (it changes a row at a
@@ -35,6 +35,7 @@ export const SEARCH_PER_SOURCE = 25;
 
 interface Snapshot {
   candidates: Candidate[];
+  scores: PoolScores;
   pool: { ready: number; total: number; tradesReady: number };
 }
 
@@ -64,13 +65,14 @@ export class DiscoveryService {
       // between separate coverage and data queries.
       const pool = { total: rows.length, ready: rows.filter(r => r.portfolioAt !== null).length,
         tradesReady: rows.filter(r => r.tradesAt !== null).length };
-      return { candidates: rows.map(toCandidate), pool };
+      const candidates = rows.map(toCandidate);
+      return { candidates, scores: candidateScores(candidates), pool };
     });
   }
 
   async board(query: BoardQuery): Promise<BoardResponse> {
-    const { candidates, pool } = await this.snapshot();
-    return buildBoard(candidates, query, pool);
+    const { candidates, scores, pool } = await this.snapshot();
+    return buildBoard(candidates, query, pool, undefined, scores);
   }
 
   /**
@@ -127,10 +129,10 @@ export class DiscoveryService {
    * highest ROI first.
    */
   async home(): Promise<HomeBoardsResponse> {
-    const [{ candidates, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
+    const [{ candidates, scores, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
     const moves = (t: BoardTrader) => t.sparkline.length > 1 && Math.max(...t.sparkline) > Math.min(...t.sparkline);
     const row = (query: Partial<BoardQuery>, size = HOME_ROW_SIZE) =>
-      buildBoard(candidates, { market: "crypto", board: "top100", sort: "copyScore", window: "all", ...query }, pool).items.filter(moves).slice(0, size);
+      buildBoard(candidates, { market: "crypto", board: "top100", sort: "copyScore", window: "all", ...query }, pool, undefined, scores).items.filter(moves).slice(0, size);
     const featured = row({ board: "kol" });
     const crypto = row({});
     // PnL-ranked rows list only traders who made money in that market, as
@@ -169,10 +171,10 @@ export class DiscoveryService {
    * performance loop refreshes these first.
    */
   async visibleAddresses(): Promise<Set<string>> {
-    const [{ candidates, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
+    const [{ candidates, scores, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
     const shown = new Set<string>();
     const add = (query: BoardQuery) => {
-      for (const t of buildBoard(candidates, query, pool).items) shown.add(t.address);
+      for (const t of buildBoard(candidates, query, pool, undefined, scores).items) shown.add(t.address);
     };
     const sorts: BoardSort[] = ["copyScore", "pnl", "roi", "accountValue"];
     for (const board of ["top100", "kol"] as const) for (const sort of sorts) for (const window of ["all", "30d"] as const) add({ market: "crypto", board, sort, window });
@@ -186,38 +188,42 @@ export class DiscoveryService {
 
   /**
    * Watchlist cards for these addresses, in the order given (duplicates
-   * dropped, at most `CARDS_MAX`): two indexed reads, no cache (a user's
-   * own list, small), no Hyperliquid calls. See {@link traderCard}.
+   * dropped, at most `CARDS_MAX`): two indexed list reads plus the cached
+   * pool snapshot for scores; no Hyperliquid calls. See {@link traderCard}.
    */
   async cards(addresses: string[]): Promise<TraderCardsResponse> {
     const unique = [...new Set(addresses.map((a) => a.toLowerCase()))].slice(0, CARDS_MAX);
-    const [rows, identities] = await Promise.all([this.repository.poolRowsOf(unique), this.repository.identitiesOf(unique)]);
+    const [rows, identities, { scores }] = await Promise.all([this.repository.poolRowsOf(unique), this.repository.identitiesOf(unique), this.snapshot()]);
     const byRow = new Map(rows.map((r) => [r.address, r]));
     const byIdentity = new Map(identities.map((r) => [r.address, r]));
-    return { items: unique.map((address) => traderCard(address, byRow.get(address), byIdentity.get(address))) };
+    return { items: unique.map((address) => traderCard(address, byRow.get(address), byIdentity.get(address), scores.values.get(address) ?? null)) };
   }
 
-  /**
-   * Any trader's copy score and its inputs, from the all-time portfolio
-   * (the trader page's own 60 s portfolio cache, so the chart and the rail
-   * share one read) and the leaderboard account value.
-   */
+  /** Same percentile and component snapshot as every board. A trader outside
+   * its eligible universe receives null; live portfolio inputs remain useful
+   * for an untracked trader but never produce a standalone percentile. */
   async copyScore(address: string): Promise<CopyScoreResponse> {
-    const [raw, accountValue] = await Promise.all([this.traders.rawPortfolio(address), this.repository.leaderboardAccountValue(address)]);
-    const n = portfolioNumbers(raw);
-    return {
-      address,
-      copyScore: scoreOf(n, accountValue),
-      components: {
-        roi: n.roiAll,
-        pnl: n.pnlAll,
-        sharpe: n.sharpe,
-        maxDrawdown: n.maxDrawdown,
-        returnSamples: n.returnSamples,
-        spanDays: Math.round(n.spanDays * 10) / 10,
-        accountValue,
-      },
-      version: "copydog-v5-fit",
+    const normalized = address.toLowerCase();
+    const { candidates, scores } = await this.snapshot();
+    const candidate = candidates.find(c => c.row.address === normalized);
+    const number = (value: string | number | null | undefined): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
     };
+    let components: CopyScoreResponse["components"];
+    if (candidate?.row.portfolioAt) {
+      const { row, card } = candidate;
+      components = { roi: number(row.roiAll), pnl: number(row.pnlAll), sharpe: number(row.sharpe),
+        maxDrawdown: number(row.maxDrawdown), returnSamples: number(row.returnSamples),
+        spanDays: number(row.spanDays), accountValue: card.accountValue };
+    } else {
+      const [raw, accountValue] = await Promise.all([this.traders.rawPortfolio(normalized), this.repository.leaderboardAccountValue(normalized)]);
+      const n = portfolioNumbers(raw);
+      components = { roi: n.roiAll, pnl: n.pnlAll, sharpe: n.sharpe, maxDrawdown: n.maxDrawdown,
+        returnSamples: n.returnSamples, spanDays: Math.round(n.spanDays * 10) / 10, accountValue };
+    }
+    return { address: normalized, copyScore: scores.values.get(normalized) ?? null, components,
+      version: "candidate-pool-percentile-v1", rankingScope: "candidate_pool", scoreEligibleCount: scores.eligibleCount };
   }
 }

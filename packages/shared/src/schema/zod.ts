@@ -1806,6 +1806,8 @@ export const boardResponseSchema = z.object({
   pool: discoveryPoolSchema,
   rankingScope: z.literal("candidate_pool").optional(),
   eligibleCount: z.number().int().nonnegative().optional(),
+  /** Score universe before board/style/limit filters, distinct from eligibleCount. */
+  scoreEligibleCount: z.number().int().nonnegative().optional(),
   freshness: boardFreshnessSchema.optional(),
   /** Newest refresh among the board's rows; null when none is computed. */
   updatedAt: z.coerce.date().nullable(),
@@ -1952,11 +1954,13 @@ export const copyScoreResponseSchema = z.object({
     pnl: z.number().nullable(),
     sharpe: z.number().nullable(),
     maxDrawdown: z.number().nullable(),
-    returnSamples: z.number().int(),
-    spanDays: z.number(),
+    returnSamples: z.number().int().nullable(),
+    spanDays: z.number().nullable(),
     accountValue: z.number().nullable(),
   }),
-  version: z.literal("copydog-v5-fit"),
+  version: z.literal("candidate-pool-percentile-v1"),
+  rankingScope: z.literal("candidate_pool").optional(),
+  scoreEligibleCount: z.number().int().nonnegative().optional(),
 });
 export type CopyScoreResponse = z.infer<typeof copyScoreResponseSchema>;
 

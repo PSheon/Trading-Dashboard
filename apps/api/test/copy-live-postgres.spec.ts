@@ -1,8 +1,8 @@
-import { exchangeApprovalFixture } from "./copy-live-test-utils.js";
+import { exchangeApprovalFixture, executionGateFixture } from "./copy-live-test-utils.js";
 import { Pool } from "pg";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { copyExecutionWallets, copyLiveExecutions, copyWalletAuthorizations, users } from "@trading-dashboard/shared/database";
+import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, copyStrategies, copyWalletAuthorizations, users } from "@trading-dashboard/shared/database";
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from "./db-test-utils.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { PostgresLiveExecutionJournal } from "../src/copy/live/postgres-live-journal.js";
@@ -11,7 +11,7 @@ import { LiveOrderExecutor, type LiveExchangeTransport } from "../src/copy/live/
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from "../src/copy/live/live-order.js";
 import { WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
 
-const gate = { assertReady: async () => {} };
+const gate = executionGateFixture();
 const now = 1_790_000_000_000;
 let db: TestDb;
 let lockPool: Pool;
@@ -37,10 +37,20 @@ beforeEach(async () => {
     validFrom: now - 1, expiresAt: now + 100_000, revokedAt: null, exchangeApprovedAt: now - 1 };
   intent = { authorizationId: "grant", userId: user.id, strategyId: 2, walletId: "privy-wallet", network: "testnet",
     accountAddress: grant.accountAddress, reduceOnly: false, cloid: `0x${"ab".repeat(16)}`, asset: 0, side: "B", size: "0.01", limitPrice: "65000", sizeDecimals: 5, timeInForce: "Ioc" };
+  await db.insert(copyStrategies).values({ id: grant.strategyId, userId: user.id, leaderAddress: `0x${"44".repeat(20)}`, allocated: "100", cash: "100", activatedAt: new Date(now) });
+  await db.insert(copyExecutionAccounts).values({ id: "execution-account", userId: user.id, strategyId: grant.strategyId, network: grant.network,
+    privyUserId: user.privyUserId!, externalId: "master-external", state: "ready", address: grant.accountAddress,
+    privyWalletId: "master-wallet", ownerQuorumId: "master-owner" });
   await db.insert(copyExecutionWallets).values({ id: "execution-wallet", userId: user.id, strategyId: grant.strategyId, network: grant.network,
     accountAddress: grant.accountAddress, signerAddress: grant.signerAddress, privyWalletId: grant.walletId, privyOwnerId: grant.privyOwnerId });
   await db.insert(copyWalletAuthorizations).values({ id: grant.id, walletId: "execution-wallet", version: grant.version, scopes: [...grant.scopes],
     validFrom: new Date(grant.validFrom), expiresAt: new Date(grant.expiresAt), exchangeApprovedAt: new Date(grant.exchangeApprovedAt!) });
+  await db.insert(copyAgentSetups).values({ id: "setup", userId: user.id, strategyId: grant.strategyId, accountId: "execution-account", network: grant.network,
+    idempotencyKey: "journal-agent-setup", validForDays: 1, externalId: "agent-external", workerQuorumId: "worker-quorum", policyAttemptId: "policy-attempt",
+    policyId: "agent-policy", policyFingerprint: "a".repeat(64), agentWalletId: grant.walletId, agentOwnerQuorumId: grant.privyOwnerId,
+    agentAddress: grant.signerAddress, accountAddress: grant.accountAddress, accountWalletId: "master-wallet", accountOwnerQuorumId: "master-owner",
+    state: "active", authorizationId: grant.id, expiresAt: new Date(grant.expiresAt), createdAt: new Date(now - 1), updatedAt: new Date(now) });
+
 });
 afterAll(async () => { await lockPool?.end(); await closeTestDb(); });
 
@@ -57,6 +67,17 @@ function transport(): LiveExchangeTransport {
 }
 
 describe("live PostgreSQL journal and authorization authority", () => {
+  it('persists indexed market evidence immutably and compares retries by identity', async () => {
+    const market = { network: 'testnet' as const, coin: 'xyz:TSLA', dex: 'xyz', asset: 130000,
+      universeIndex: 0, perpDexIndex: 3, sizeDecimals: 3, maxLeverage: 10, observedAt: now };
+    const liveIntent = { ...intent, asset: 130000, sizeDecimals: 3, market };
+    const preparedInput = { ...input(liveIntent), market };
+    const prepared = await first.prepare(preparedInput);
+    expect((await second.get(prepared.key))?.market).toEqual(market);
+    await expect(second.save({ ...prepared, market: { ...market, coin: 'xyz:ETH' } })).rejects.toThrow('execution_record_immutable');
+    const newer = { ...market, observedAt: now + 1, maxLeverage: 5 };
+    expect(await second.prepare({ ...preparedInput, market: newer })).toEqual(prepared);
+  });
   it("allocates unique monotonic nonces for two instances sharing signer and clock", async () => {
     const other = { ...intent, cloid: `0x${"cd".repeat(16)}` as const };
     const [a, b] = await Promise.all([first.prepare(input()), second.prepare(input(other))]);
@@ -154,6 +175,20 @@ describe("live PostgreSQL journal and authorization authority", () => {
     await db.update(copyWalletAuthorizations).set({ revokedAt: new Date(now), version: 2 }).where(eq(copyWalletAuthorizations.id, grant.id));
     expect((await source.find(grant.id))?.version).toBe(2);
     await expect(auth.authorize(intent)).rejects.toThrow("wallet_authorization_revoked");
+  });
+  it.each(["account_pending", "privy_owner_changed", "setup_revoked", "agent_detached", "master_detached", "strategy_owner_changed"] as const)("refuses an unrevoked grant after %s", async change => {
+    const source = new PostgresWalletAuthorizationSource(db);
+    expect(await source.find(grant.id)).toEqual(grant);
+    if (change === "account_pending") await db.update(copyExecutionAccounts).set({ state: "unknown", issue: "verification_pending" });
+    if (change === "privy_owner_changed") await db.update(users).set({ privyUserId: "did:privy:replacement-owner" }).where(eq(users.id, grant.userId));
+    if (change === "setup_revoked") await db.update(copyAgentSetups).set({ state: "revoked" });
+    if (change === "agent_detached") await db.update(copyAgentSetups).set({ agentWalletId: "different-agent" });
+    if (change === "master_detached") await db.update(copyAgentSetups).set({ accountWalletId: "different-master" });
+    if (change === "strategy_owner_changed") {
+      const other = await insertUser(db);
+      await db.update(copyStrategies).set({ userId: other.id });
+    }
+    expect(await source.find(grant.id)).toBeNull();
   });
   it("disabled owner cannot obtain an authorization even with an unrevoked grant", async () => {
     const auth = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), exchangeApprovalFixture(() => now), () => now);

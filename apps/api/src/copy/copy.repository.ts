@@ -120,6 +120,10 @@ export class CopyRepository {
   }
 
   async lockControl(tx: DbTransaction, scope: "platform" | "user", scopeId: number): Promise<ControlRow> {
+    // Live admission holds the matching session shared lock through the final
+    // provider boundary. A committed platform stop cannot be bypassed using
+    // a control snapshot read before this command.
+    if (scope === "platform") await tx.execute(sql`select pg_advisory_xact_lock(7405, 0)`);
     if (scope === "user") await this.lockCopyUser(tx, scopeId);
     await this.ensureControl(tx, scope, scopeId);
     const [row] = await tx.select().from(copyControls).where(and(eq(copyControls.scope, scope), eq(copyControls.scopeId, scopeId))).for("update");

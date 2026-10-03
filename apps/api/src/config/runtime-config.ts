@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { createPublicKey } from "node:crypto";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
@@ -43,13 +43,30 @@ function walletNetwork(source: Environment) {
  * build doesn't have, so they are refused at startup rather than silently
  * running as paper; no admin setting can switch a deployment to live.
  */
-function copyTrading(source: Environment) {
+interface AgentSigningConfig { authorizationPrivateKey: string; authorizationPublicKey: string; workerQuorumId: string }
+function agentSigning(source: Environment): AgentSigningConfig | undefined {
+  const authorizationPrivateKey = optional(source.PRIVY_AGENT_AUTHORIZATION_KEY);
+  const workerQuorumId = optional(source.PRIVY_AGENT_WORKER_QUORUM_ID);
+  if (Boolean(authorizationPrivateKey) !== Boolean(workerQuorumId)) throw new Error("PRIVY_AGENT_AUTHORIZATION_KEY and PRIVY_AGENT_WORKER_QUORUM_ID must be set together");
+  if (!authorizationPrivateKey || !workerQuorumId) return undefined;
+  if (!optional(source.PRIVY_APP_ID) || !optional(source.PRIVY_APP_SECRET)) throw new Error("Agent signing requires Privy credentials");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(workerQuorumId)) throw new Error("PRIVY_AGENT_WORKER_QUORUM_ID is invalid");
+  try {
+    const bytes = Buffer.from(authorizationPrivateKey, "base64");
+    if (bytes.toString("base64") !== authorizationPrivateKey) throw new Error();
+    const key = createPrivateKey({ key: bytes, type: "pkcs8", format: "der" });
+    if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1" || !key.export({ format: "der", type: "pkcs8" }).equals(bytes)) throw new Error();
+    return { authorizationPrivateKey, workerQuorumId, authorizationPublicKey: createPublicKey(key).export({ format: "der", type: "spki" }).toString("base64") };
+  } catch { throw new Error("PRIVY_AGENT_AUTHORIZATION_KEY must be a canonical base64 P256 PKCS8 private key"); }
+}
+function copyTrading(source: Environment): { mode: "paper" | "disabled"; workerIntervalMs: number; agent?: AgentSigningConfig } {
   const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
   if (mode === "testnet" || mode === "live") throw new Error(`COPY_TRADING_MODE=${mode} is not available in this build (paper only)`);
   if (mode !== "paper" && mode !== "disabled") throw new Error("COPY_TRADING_MODE must be paper or disabled");
   return {
     mode: mode as "paper" | "disabled",
     workerIntervalMs: integerValue("COPY_WORKER_INTERVAL_MS", source.COPY_WORKER_INTERVAL_MS, 2000, 250, 60_000),
+    agent: agentSigning(source),
   };
 }
 

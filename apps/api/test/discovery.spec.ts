@@ -7,7 +7,6 @@ import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { copyScore } from "../src/analytics/copy-score.js";
 import { AuthService } from "../src/common/auth/auth.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { buildBoard, toCandidate, boardKind, effectiveSort, effectiveWindow } from "../src/discovery/boards.js";
@@ -38,32 +37,7 @@ const PORTFOLIO = fixture("portfolio.json") as HlPortfolioResponse;
 const D70C = fixture("portfolio-copydog-d70c.json") as { portfolio: HlPortfolioResponse; copydog: { roi: number; sharpe: number; maxDrawdown: number; return_sample_count: number } };
 const addr = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
 
-describe("copy score (CopyDog v5, fitted)", () => {
-  it("matches CopyDog's scores on its own reference set", () => {
-    const ref = fixture("copydog-copy-score-2026-09-30.json") as { rows: number[][] };
-    const errors = ref.rows.map(([score, roi, pnl, sharpe, maxDrawdown, returnSamples, spanDays, accountValue]) =>
-      Math.abs(copyScore({ roi, pnl, sharpe, maxDrawdown, returnSamples, spanDays, accountValue })! - score)).sort((a, b) => a - b);
-    const within = (k: number) => errors.filter((e) => e <= k).length / errors.length;
-    expect(errors.length).toBeGreaterThanOrEqual(500);
-    expect(errors[Math.floor(errors.length / 2)]).toBeLessThanOrEqual(8);
-    expect(within(10)).toBeGreaterThanOrEqual(0.72);
-    expect(within(20)).toBeGreaterThanOrEqual(0.93);
-  });
-
-  it("ranks a long, steady winner high and a young or losing record low; never above 98", () => {
-    const strong = copyScore({ roi: 8.94, pnl: 5_937_391, sharpe: 1.5874, maxDrawdown: 0.264, returnSamples: 91, spanDays: 622.3, accountValue: 2_515_015 });
-    const young = copyScore({ roi: 1.28, pnl: 5_591_970, sharpe: 2.43, maxDrawdown: 0.237, returnSamples: 40, spanDays: 54.95, accountValue: 12_984_695 });
-    const loser = copyScore({ roi: -0.75, pnl: -1_004_185, sharpe: -2.01, maxDrawdown: 1, returnSamples: 47, spanDays: 118, accountValue: 1_115 });
-    expect(strong).toBeGreaterThanOrEqual(92);
-    expect(strong).toBeLessThanOrEqual(98);
-    expect(young).toBeLessThan(75);
-    expect(loser).toBeLessThan(20);
-    expect(copyScore({ roi: 1, pnl: 1, sharpe: null, maxDrawdown: null, returnSamples: 0, spanDays: 0, accountValue: 1 })).toBeNull();
-    // A holder with no perp PnL is not scored, however large.
-    expect(copyScore({ roi: 0, pnl: 0, sharpe: 0.4, maxDrawdown: 0.1, returnSamples: 60, spanDays: 600, accountValue: 4e7 })).toBeNull();
-    expect(copyScore({ roi: 1e6, pnl: 1e12, sharpe: 99, maxDrawdown: 0, returnSamples: 1e4, spanDays: 1e4, accountValue: 1e12 })).toBe(98);
-  });
-
+describe("copy-score portfolio inputs", () => {
   it("computes the inputs from Hyperliquid's portfolio as CopyDog does (0xd70c…)", () => {
     const n = portfolioNumbers(D70C.portfolio);
     expect(n.roiAll!).toBeCloseTo(D70C.copydog.roi, 1);
@@ -227,7 +201,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     expect(row.performanceAttemptedAt).not.toBeNull();
     expect(row.attemptedAt).toBeNull();
     expect(row.tradesAt).toBeNull();
-    expect(row.copyScore).toEqual(expect.any(Number));
+    expect(row.copyScore).toBeNull();
     expect(pool.log.at(-1)).toMatchObject({ kind: "portfolio", weight: 20, calls: 1, ok: true });
 
     // The ledger loop builds rows without a ledger (visible ones first).
@@ -309,7 +283,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     expect(result.ok).toBe(false);
     const [row] = await db.select().from(discoveryTraders);
     expect(row.lastError).toMatch(/429/);
-    expect(row.copyScore).toEqual(expect.any(Number));
+    expect(row.copyScore).toBeNull();
     // A failed row backs off; the queue skips it for RETRY_BACKOFF_MS.
     expect(pool.performanceQueue(await repository.queueRows(), new Set())).toEqual([]);
   });
@@ -373,7 +347,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     async function seedPool() {
       // A row with ledger figures carries the ledger's read time, as the job stores it.
       const row = (n: number, figures: Partial<typeof discoveryTraders.$inferInsert>) => ({
-        address: addr(n), poolRank: n, portfolioAt: new Date(), accountValue: "1000", sparkline: [0, 1, 2, 3], sparkline30d: [0, 1],
+        address: addr(n), poolRank: n, portfolioAt: new Date(), accountValue: "1000", sharpe: "1", returnSamples: 10, spanDays: "100", sparkline: [0, 1, 2, 3], sparkline30d: [0, 1],
         ...(figures.coinStats ? { tradesAt: new Date() } : {}), ...figures,
       });
       await db.insert(traderStats).values([stat(addr(1), 1), stat(addr(2), 1), stat(addr(3), 1), stat(addr(4), 1, { accountValue: "0" })]);
@@ -533,11 +507,47 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       await request(server).get("/discover/search?q=a&limit=11").expect(400);
     });
 
-    it("computes any trader's copy score from the portfolio", async () => {
+    it("shares one pool percentile between boards, watchlist cards and trader detail", async () => {
+      await seedPool();
+      // A > B in ROI/Sharpe/length (80%); B only wins PnL (20%). Stored fit scores are irrelevant.
+      await db.update(discoveryTraders).set({ sharpe: "2", spanDays: "200", copyScore: 1 }).where(eq(discoveryTraders.address, addr(1)));
+      await db.update(discoveryTraders).set({ copyScore: 97 }).where(eq(discoveryTraders.address, addr(2)));
+      const service = new DiscoveryService(repository, settings, traders as unknown as TradersService, catalog as unknown as MarketCatalogService);
+      const board = await service.board({ market: "crypto", board: "top100", sort: "copyScore", window: "all" });
+      expect(board.items.map(t => [t.address, t.copyScore])).toEqual([[addr(1), 98], [addr(2), 0]]);
+      expect(board.scoreEligibleCount).toBe(2);
+      const detail = await service.copyScore(addr(2));
+      expect(detail).toMatchObject({ copyScore: 0, rankingScope: "candidate_pool", scoreEligibleCount: 2,
+        version: "candidate-pool-percentile-v1", components: { roi: 0.2, pnl: 900, sharpe: 1, spanDays: 100 } });
+      const filtered = await service.board({ market: "crypto", board: "kol", style: "intraday", sort: "copyScore", window: "all" });
+      expect(filtered.items.map(t => t.copyScore)).toEqual([0]);
+      expect(filtered.scoreEligibleCount).toBe(2);
+      const cards = await service.cards([addr(2), addr(1)]);
+      expect(cards.items.map(t => [t.address, t.copyScore])).toEqual([[addr(2), 0], [addr(1), 98]]);
+      // A stored row outside current pool membership must not retain its obsolete fitted score.
+      await db.insert(discoveryTraders).values({ address: addr(8), inPool: false, portfolioAt: new Date(),
+        accountValue: "1000", pnlAll: "100", roiAll: "1", copyScore: 98 });
+      expect((await service.cards([addr(8)])).items[0].copyScore).toBeNull();
+      expect((await service.copyScore(addr(8))).copyScore).toBeNull();
+    });
+
+    it("preserves missing score inputs instead of manufacturing zero on trader detail", async () => {
+      await seedPool();
+      await db.update(discoveryTraders).set({ returnSamples: null, spanDays: null }).where(eq(discoveryTraders.address, addr(1)));
+      const service = new DiscoveryService(repository, settings, traders as unknown as TradersService, catalog as unknown as MarketCatalogService);
+      const detail = await service.copyScore(addr(1));
+      expect(detail.copyScore).toBeNull();
+      expect(detail.components.returnSamples).toBeNull();
+      expect(detail.components.spanDays).toBeNull();
+    });
+
+    it("leaves an untracked trader unscored while returning its portfolio inputs", async () => {
       const res = await request(app.getHttpServer()).get(`/traders/${addr(7).toUpperCase().replace("0X", "0x")}/copy-score`).expect(200);
       const body = wireCopyScoreSchema.parse(res.body.data);
       expect(body.address).toBe(addr(7));
-      expect(body.copyScore).toEqual(expect.any(Number));
+      expect(body.copyScore).toBeNull();
+      expect(body.version).toBe("candidate-pool-percentile-v1");
+      expect(body.rankingScope).toBe("candidate_pool");
       expect(body.components.returnSamples).toBe(D70C.copydog.return_sample_count);
     });
 

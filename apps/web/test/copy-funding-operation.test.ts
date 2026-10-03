@@ -7,8 +7,8 @@ beforeEach(() => { vi.resetAllMocks(); deps.sign.mockResolvedValue("signature");
 describe("owner-confirmed strategy funding", () => {
   it("signs the fixed prepared operation and submits only after one claim", async () => {
     expect((await runCopyFunding(op, deps)).status).toBe("accepted");
-    expect(deps.sign).toHaveBeenCalledWith(op); expect(deps.claim).toHaveBeenCalledWith(op.id);
-    expect(deps.submit).toHaveBeenCalledWith(expect.objectContaining({ id: op.id, nonce: op.nonce }), "signature");
+    expect(deps.sign).toHaveBeenCalledWith(op); expect(deps.claim).toHaveBeenCalledWith(op.id, expect.any(Function));
+    expect(deps.submit).toHaveBeenCalledWith(expect.objectContaining({ id: op.id, nonce: op.nonce }), "signature", expect.any(Function));
   });
   it.each(["unknown", "accepted"] as const)("only looks up %s operations, even when a SDK signer exists", async (status) => {
     await runCopyFunding({ ...op, status }, deps);
@@ -47,3 +47,7 @@ describe("owner-confirmed strategy funding", () => {
     expect(deps.submit).toHaveBeenCalledOnce(); expect(deps.reconcile).not.toHaveBeenCalled();
   });
 });
+it("keeps a stale prepared original reconcile-only after a durable uncertain claim", async () => { const journal = new Set<string>(); deps.claim.mockRejectedValueOnce(new Error('lost')); const guarded = { ...deps, uncertain: (id: string) => journal.has(id), markUncertain: (id: string) => { journal.add(id); } }; await expect(runCopyFunding(op, guarded)).rejects.toThrow('lost'); const signatures = deps.sign.mock.calls.length; await runCopyFunding(op, guarded); expect(deps.sign).toHaveBeenCalledTimes(signatures); expect(deps.reconcile).toHaveBeenCalledOnce(); expect(deps.submit).not.toHaveBeenCalled(); });
+it("never claims funds when its uncertainty record cannot persist", async () => { await expect(runCopyFunding(op, { ...deps, markUncertain() { throw new Error('storage_unavailable'); } })).rejects.toThrow('storage_unavailable'); expect(deps.claim).not.toHaveBeenCalled(); expect(deps.submit).not.toHaveBeenCalled(); });
+it.each(['0', '-1', '01', '10.0000000', '1e3', '1000000000001'])('rejects invalid or noncanonical original funding amount %s before signing or POST', async amount => { await expect(runCopyFunding({ ...op, amount }, deps)).rejects.toThrow(); expect(deps.sign).not.toHaveBeenCalled(); expect(deps.claim).not.toHaveBeenCalled(); expect(deps.submit).not.toHaveBeenCalled(); });
+it.each(['address', 'destination'] as const)('rejects a zero %s before any funding signature', async field => { await expect(runCopyFunding({ ...op, [field]: `0x${'00'.repeat(20)}` }, deps)).rejects.toThrow(); expect(deps.sign).not.toHaveBeenCalled(); expect(deps.claim).not.toHaveBeenCalled(); });

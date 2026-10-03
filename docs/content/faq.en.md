@@ -35,7 +35,7 @@ All of it comes from Hyperliquid's public API and official leaderboard. Orbie do
 
 ### Why is some traders' history incomplete?
 
-Hyperliquid serves a limited fill history per account (its documentation states the most recent 10,000 fills). For very active accounts, older trades may no longer be available, so trade count and win rate only cover the period we can read. When a trade was opened before the available history, it is shown as "before …". From the moment Orbie starts monitoring an address, it keeps its own copy of that address's fills, so the record is complete from then on.
+Hyperliquid serves a limited fill history per account (its documentation states the most recent 10,000 fills). For very active accounts, older trades may no longer be available, so trade count and win rate only cover the period we can read. When a trade was opened before the available history, it is shown as "before …". Orbie saves the fills it receives after monitoring begins. Disconnects and provider limits can still leave gaps; saving fills does not prove the entire period is complete.
 
 ### Why do Orbie's numbers differ from other sites?
 
@@ -74,13 +74,14 @@ A high win rate doesn't mean a trader makes money: someone can win nine small tr
 
 ### What is the copy score?
 
-The copy score (0–98) combines a trader's ROI, Sharpe ratio, total PnL, max drawdown, account size and length of track record into one number for quick comparison. It is designed so that about 80 corresponds to roughly the top 20% of active traders.
+The copy score (0–98) compares traders within Orbie's eligible candidate pool. ROI and Sharpe each contribute 30%, while total PnL and track-record length each contribute 20%. Each component is ranked within that pool, and the combined result is ranked again. Around 80 represents roughly the top fifth of the scored pool; it does not establish a rank among every Hyperliquid account.
 
 A few notes:
 
-- A longer record counts for more. Traders with less than 90 days of history score noticeably lower.
+- Track-record length is compared with the other scored traders; there is no fixed penalty at 90 days.
+- Tied results share a score. A pool containing one eligible trader gives that trader the neutral score of 49.
 - The score is an estimated relative ranking based on public metrics. It is not a promise of profit and not a recommendation from Orbie.
-- Accounts without enough PnL history are not scored and are listed last.
+- Missing inputs, dust accounts, dormant accounts and accounts excluded by the local activity filters are not scored. An unknown score is not zero. The eligible pool can change as data is refreshed.
 
 ### How is trading style determined?
 

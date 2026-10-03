@@ -12,6 +12,7 @@ import type {
   TradingStyle,
 } from "@trading-dashboard/shared/contracts";
 import { tradingStyleSchema } from "@trading-dashboard/shared/contracts";
+import { copyScores } from "../analytics/copy-score.js";
 
 import { isStockCoin, realized } from "./discovery-figures.js";
 import type { BoardSourceRow, CardIdentityRow } from "./discovery.repository.js";
@@ -46,13 +47,39 @@ export function toCandidate(row: BoardSourceRow): Candidate {
       verified: kol ? Boolean(row.kolVerified) : false,
       kol,
       accountValue: num(row.leaderboardAccountValue) ?? num(row.accountValue),
-      copyScore: row.copyScore,
+      // Old stored fitted scores are never a population percentile.
+      copyScore: null,
       style: style.success ? style.data : null,
       topCoins: row.topCoins,
       lastTradeAt: row.lastTradeAt,
       tradesFrom: row.tradesFrom,
     },
   };
+}
+
+export interface PoolScores {
+  values: Map<string, number>;
+  eligibleCount: number;
+}
+
+/**
+ * One universe for every board, card and detail in a snapshot. $10 dust,
+ * 30-day activity and archive high-fill-rate exclusion are local inferred
+ * eligibility rules, not Copydog's unpublished thresholds/classification.
+ * Unknown activity is unscored. Recent imported positive monthly volume
+ * provides evidence while the fill ledger is still warming up.
+ */
+export function candidateScores(candidates: Candidate[], now = Date.now()): PoolScores {
+  const since = now - 30 * 86_400_000;
+  const recent = (date: Date | null | undefined) => date != null && date.getTime() >= since && date.getTime() <= now;
+  const eligible = candidates.filter(({ row, card }) => row.inPool && row.portfolioAt !== null
+    && card.accountValue !== null && card.accountValue >= 10 && !row.archiveExcluded
+    && (recent(row.lastTradeAt) || (recent(row.leaderboardUpdatedAt) && (num(row.leaderboardVolumeMonth) ?? 0) > 0)));
+  const values = copyScores(eligible.map(({ row }) => ({ address: row.address, inputs: {
+    roi: num(row.roiAll), pnl: num(row.pnlAll), sharpe: num(row.sharpe),
+    spanDays: num(row.spanDays), returnSamples: row.returnSamples,
+  } })));
+  return { values, eligibleCount: values.size };
 }
 
 /** Which board a query names. */
@@ -124,6 +151,7 @@ export function buildBoard(
   query: BoardQuery,
   pool: { ready: number; total: number; tradesReady?: number },
   limit = BOARD_SIZE,
+  scores = candidateScores(candidates),
 ): BoardResponse {
   const kind = boardKind(query.board);
   const window = effectiveWindow(query);
@@ -138,14 +166,14 @@ export function buildBoard(
     if (style && c.card.style !== style) continue;
     const t = figures(c, query.market, kind, coin, window);
     if (!t) continue;
-    items.push(t);
+    items.push({ ...t, copyScore: scores.values.get(t.address) ?? null });
     const at = c.row.portfolioAt;
     if (at && (!updatedAt || at > updatedAt)) updatedAt = at;
   }
   items.sort(compare(sort));
   const displayed = items.slice(0, limit);
   return { market: query.market, board: query.board, coin, sort, window, style, items: displayed, pool, updatedAt,
-    rankingScope: "candidate_pool", eligibleCount: items.length, freshness: boardFreshness(displayed) };
+    rankingScope: "candidate_pool", eligibleCount: items.length, scoreEligibleCount: scores.eligibleCount, freshness: boardFreshness(displayed) };
 }
 
 export function boardFreshness(items: BoardTrader[]) {
@@ -163,7 +191,7 @@ export function boardFreshness(items: BoardTrader[]) {
  * risk figures), else identity only. KOL name, handle, badge and cached
  * avatar come from the registry either way.
  */
-export function traderCard(address: string, row: BoardSourceRow | undefined, identity: CardIdentityRow | undefined): TraderCard {
+export function traderCard(address: string, row: BoardSourceRow | undefined, identity: CardIdentityRow | undefined, score: number | null = null): TraderCard {
   if (row && row.portfolioAt !== null) {
     const { card } = toCandidate(row);
     let trades = 0;
@@ -174,6 +202,7 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
     }
     return {
       ...card,
+      copyScore: score,
       pnl: num(row.pnlAll),
       roi: num(row.roiAll),
       sparkline: row.sparkline ?? [],
@@ -197,7 +226,7 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
     accountValue: num(identity?.accountValue),
     pnl: num(identity?.pnlAllTime),
     roi: num(identity?.roiAllTime),
-    copyScore: row?.copyScore ?? null,
+    copyScore: null,
     style: null,
     topCoins: row?.topCoins ?? [],
     lastTradeAt: row?.lastTradeAt ?? null,

@@ -27,6 +27,7 @@ async function bootstrap(): Promise<void> {
     config.database.url,
     config.archive.credentials?.secretAccessKey,
     config.archive.credentials?.sessionToken,
+    config.copy.agent?.authorizationPrivateKey,
   ].filter((value): value is string => Boolean(value));
   const logger = new StructuredLogger(redactions);
   const app = await NestFactory.create(AppModule, { forceCloseConnections: true, logger });

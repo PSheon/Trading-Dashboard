@@ -1,7 +1,8 @@
-import { assertLiveExecutionReady, assertSignedOrderMatches, LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "./live-execution-gate.js";
+import { assertLiveExecutionReady, assertLiveExecutionPermit, assertSignedOrderMatches, LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "./live-execution-gate.js";
 import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrderAction, type LiveOrderIntent } from "./live-order.js";
 import { isDeepStrictEqual } from "node:util";
 import { LiveBoundaryError, WalletAuthorizationService, assertSameAuthorization, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
+import type { LiveMarketIdentity } from './live-market-resolver.js';
 
 export type LiveExecutionState = "prepared" | "submitting" | "unknown" | "resting" | "filled" | "partial" | "cancelled" | "rejected";
 export interface ExchangeOutcome {
@@ -16,6 +17,7 @@ export interface LiveExecutionRecord {
   fingerprint: string;
   authorization: WalletAuthorization;
   action: HyperliquidOrderAction;
+  market?: LiveMarketIdentity;
   nonce: number;
   expiresAfter: number;
   state: LiveExecutionState;
@@ -34,7 +36,7 @@ export interface LiveExecutionJournal {
    * Unique key is network/account/cloid. Return existing row on conflict; never overwrite.
    * nonce = max(now, previousNonce+1), expiresAfter = now+60_000.
    * Must commit BEFORE signing or submitting. */
-  prepare(input: { key: string; fingerprint: string; authorization: WalletAuthorization; action: HyperliquidOrderAction; now: number }): Promise<LiveExecutionRecord>;
+  prepare(input: { key: string; fingerprint: string; authorization: WalletAuthorization; action: HyperliquidOrderAction; market?: LiveMarketIdentity; now: number }): Promise<LiveExecutionRecord>;
   /** Durable replace under withOrderLock; commit before returning. */
   save(record: LiveExecutionRecord): Promise<void>;
 }
@@ -76,7 +78,7 @@ export class LiveOrderExecutor {
       if (record && ["submitting", "unknown", "resting"].includes(record.state)) return this.reconcileLocked(record, lease);
       if (record && record.state !== "prepared") return record;
       const authorization = await this.authorizations.authorizeLocal(intent);
-      record ??= await this.journal.prepare({ key, fingerprint, authorization, action, now: this.now() });
+      record ??= await this.journal.prepare({ key, fingerprint, authorization, action, ...(intent.market ? { market: intent.market } : {}), now: this.now() });
       if (record.fingerprint !== fingerprint) throw new LiveBoundaryError("cloid_payload_conflict");
       if (record.key !== key || !isDeepStrictEqual(record.action, action)) throw new LiveBoundaryError("persisted_order_payload_mismatch");
       assertSameAuthorization(record.authorization, authorization);
@@ -85,7 +87,8 @@ export class LiveOrderExecutor {
         return this.persist({ ...record, state: "rejected", errorCode: "prepared_order_expired", updatedAt: this.now() }, lease);
       }
       // Signing failures are definitely before submission and leave the order prepared.
-      await assertLiveExecutionReady(this.gate, lease, "sign", intent, record);
+      const signingPermit = await assertLiveExecutionReady(this.gate, lease, "sign", intent, record);
+      assertLiveExecutionPermit(signingPermit, 'sign', intent, record);
       const signed = structuredClone(await this.transport.sign(structuredClone(record), structuredClone(intent), lease));
       assertSignedOrderMatches(signed, record);
       const fresh = await this.authorizations.authorizeLocal(intent);
@@ -98,9 +101,10 @@ export class LiveOrderExecutor {
       try {
         const finalAuthorization = await this.authorizations.authorizeLocal(intent);
         assertSameAuthorization(authorization, finalAuthorization);
-        await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
+        const submissionPermit = await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
         if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
         assertSignedOrderMatches(signed, record);
+        assertLiveExecutionPermit(submissionPermit, 'submit', intent, record);
       } catch (error) {
         // A lost session may have a successor owner; do not write from that worker.
         await lease.assertHeld();

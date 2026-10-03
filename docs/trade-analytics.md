@@ -137,60 +137,54 @@ figure is extrapolated when the record is under 90 days old (CopyDog's
 current bundle; an older copy used 41). The 表現 subline is the track record
 since the first point of the history ("<1d", "12d", "1mo", "2.8y").
 
-## Copy score (CopyDog's `score_version` 5, fitted: `copydog-v5-fit`)
+## Copy score (`candidate-pool-percentile-v1`)
 
-2026-09-30 reproducibility note: the [new numerical audit](copydog-numerical-parity.md) reruns all 549 saved rows (548 scored): median error 7, max 41, 424/548 within ±10, 88.87% agreement at 80. The saved fixture has no address/timestamp/split labels; the historical holdout claims below cannot be independently reconstructed from it.
+The discovery score now reranks the complete eligible **Orbie candidate pool**,
+not just the 100 displayed rows. [Copydog's published definition](https://copydog.xyz/llms.txt)
+weights ROI 30%, Sharpe 30%, PnL 20% and track-record length 20%, then
+reranks the blend to a 0–98 percentile. Its component normalization and
+eligibility thresholds are unpublished. Our implementation uses those weights
+with locally inferred empirical midrank normalization; it cannot assert exact
+Copydog scores or represent its full indexed universe.
 
+For each component, rank all finite eligible inputs in ascending order. Equal
+values share their average ordinal rank. Blend the ranks with weights 3/3/2/2
+(equivalent to 30/30/20/20 after dividing by the common denominator), then
+rank that blend again. For N > 1, the displayed score is
+`round(98 * average_ordinal_rank / (N - 1))`. Entirely tied records and a
+singleton receive the neutral midpoint 49. Score ties sort by PnL and address,
+so ordering is deterministic. User style, market, board, sort and limit filters
+are applied afterward and never change this score denominator.
 
-CopyDog's score is 0–98 and, per its tooltip, "ranked against all active
-Hyperliquid traders on ROI, Sharpe, PnL & track record; 80 = top 20%": a
-percentile over its whole indexed population (≈16k wallets: 2,250 traders
-fill the 85–98 range of its Copy Score board). `/copy-score` publishes the
-inputs (`sharpe_raw`, `sortino_raw`, `volatility_raw`, `max_drawdown_raw`,
-`return_sample_count`, `span_days`, `profitable_day_ratio`) but not the
-formula, and Orbie cannot rank against that population (its pool is the
-top N), so the percentile is reproduced with a fixed, fitted curve:
+The pool remains the configured active PnL-selected top N plus KOLs; no
+expansion to Copydog's universe is implied. Local inferred eligibility requires
+a refreshed pool portfolio, finite ROI/PnL/Sharpe/span/sample count, positive
+span and sample count, and account value at least $10. Genuine zero ROI,
+PnL or Sharpe remains valid. Activity requires a fill within 30 days or positive
+monthly leaderboard volume from an import no more than 30 days old.
+Unknown activity is unscored, rather than inferred dormant. The optional
+archive `excluded` status also excludes scoring: this means the address
+exceeded the configured `maxFillsPerAddressHour` limit (disabled by default),
+and is a local high-fill-rate proxy, **not a confirmed market-maker style or
+Copydog classification**. These $10/30-day thresholds are our inference.
+Dust/dormant/high-fill-rate and incomplete rows can still appear in boards
+under other metrics, with `copyScore: null`; they are not in the score universe.
 
-```text
-score = round(98 · σ(z))
-z = −4.5652 + 0.3178·asinh(2·ROI) + 0.2141·clamp(Sharpe, −4, 6)
-    + 0.0770·sign(PnL)·log10(1 + |PnL|) + 0.4383·min(span, 365)/365
-    + 2.9636·min(span, 90)/90 − 1.1120·maxDrawdown
-    + 0.2066·ln(1 + samples) + 0.2303·log10(1 + accountValue)
-```
+One 30-second snapshot carries the universe and its scores for every board,
+home row, watchlist card and tracked-trader detail. Board `rankingScope` is
+`candidate_pool`; `scoreEligibleCount` reports the scorer denominator before
+filters, while existing `eligibleCount` counts the queried board rows. The
+trader endpoint uses the same snapshot inputs and score, with version
+`candidate-pool-percentile-v1` and the same scope/count. Outside that universe,
+the endpoint returns null and may still return live portfolio inputs.
+A single portfolio read cannot produce a percentile. Legacy fitted values in
+`discovery_traders.copy_score` are ignored and cleared on refresh; no schema
+migration is needed.
 
-Inputs are Orbie's own `copydog-v1` figures (above): perp all-time ROI and
-PnL, whole-account all-time Sharpe, max drawdown and return-sample count,
-the all-time series' span in days, and the leaderboard account value. No
-return series → null (unscored; sorts last). Code:
-`apps/api/src/analytics/copy-score.ts`; served on the boards and at
-`GET /traders/:address/copy-score`.
-
-**How it was found (2026-09-30).** 3,794 leaderboard rows from CopyDog's
-`/leaderboard` (top100 by copy score desc and asc, coin and stock boards,
-KOL) and `/copy-score` for a sample stratified by score (≈5–12 per value,
-549 with score_version 5 and a return series). Spearman correlation with
-the score: ROI 0.75, Sortino 0.72, Sharpe 0.72, total PnL 0.72, perp PnL
-0.69, max drawdown −0.64, span 0.18, samples 0.06. A linear model of rank
-features left 13 points RMSE; the residuals showed the track-record cliff:
-traders younger than ~90 days never score above 52 (< 30 d), 61 (30–60 d)
-or 87 (60–90 d), however good, hence the separate 90-day term. Account
-value and sample count improved the fit; Sortino, volatility, win rate and
-profitable-day ratio added nothing on held-out data.
-
-| Check (fixture `apps/api/test/fixtures/copydog-copy-score-2026-09-30.json`) | Result |
-| --- | --- |
-| Fit on half (275), tested on the other half (274) | RMSE 10.2, median error 7, 41% within ±5, 75% within ±10, 89% within ±15; ≥ 80 vs < 80 agrees on 91% |
-| All 549 | RMSE 10.2, median 7, 77% within ±10, 89% agree on ≥ 80 |
-| Inputs recomputed from Hyperliquid's portfolio (0xd70c…, fixture fetched 3 min after CopyDog's snapshot) | ROI, Sharpe, drawdown and sample count equal CopyDog's |
-
-**Known differences.** It is an approximation of a population percentile,
-not CopyDog's private formula: individual scores can differ by 10–20 points
-(e.g. 0x350e… scores 57 on CopyDog with ROI 7.4 and $10M PnL over 1,000
-days; the fit gives 93), and CopyDog's scores are snapshots up to a day
-old. CopyDog gives traders with no return series 20–32 from data it
-doesn't publish; Orbie leaves them unscored. The regression test keeps the
-median error ≤ 8 and ≥ 72% within ±10 on the reference set.
+The 2026-09-30 absolute-fit fixture remains historical evidence only. The audit
+replay script now labels its derived scores as `saved_sample` percentiles, with
+no activity/dust/high-fill-rate eligibility evidence or full-population parity
+claim. A captured isolated live trader has no percentile in that report.
 
 ## Classification thresholds
 

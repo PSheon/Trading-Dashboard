@@ -1,7 +1,7 @@
 import { exchangeApprovalFixture } from "./copy-live-test-utils.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
+import { copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
 import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
@@ -195,10 +195,17 @@ describe("dedicated user-owned execution wallet lifecycle", () => {
 
 describe("owner consent revocation", () => {
   async function grant() {
+    const account = await service.prepare(uid, strategy, { network: "testnet" });
+    const expiresAt = new Date(Date.now() + 100_000);
     await db.insert(copyExecutionWallets).values({ id: "agent-wallet", userId: uid, strategyId: strategy, network: "testnet", accountAddress: addr,
       privyWalletId: "privy-agent", privyOwnerId: "server-quorum", signerAddress: signer });
     await db.insert(copyWalletAuthorizations).values({ id: "grant", walletId: "agent-wallet", version: 1,
-      scopes: ["copy:trade", "copy:reduce"], validFrom: new Date(Date.now() - 10_000), expiresAt: new Date(Date.now() + 100_000), exchangeApprovedAt: new Date(Date.now() - 5_000) });
+      scopes: ["copy:trade", "copy:reduce"], validFrom: new Date(Date.now() - 10_000), expiresAt, exchangeApprovedAt: new Date(Date.now() - 5_000) });
+    await db.insert(copyAgentSetups).values({ id: "active-setup", userId: uid, strategyId: strategy, accountId: account.id, network: "testnet",
+      idempotencyKey: "wallet-revocation-setup", validForDays: 1, externalId: "revocation-agent", workerQuorumId: "worker-quorum", policyAttemptId: "policy-attempt",
+      policyId: "agent-policy", policyFingerprint: "a".repeat(64), agentWalletId: "privy-agent", agentOwnerQuorumId: "server-quorum",
+      agentAddress: signer, accountAddress: addr, accountWalletId: "provider-wallet", accountOwnerQuorumId: "verified-user-quorum",
+      state: "active", authorizationId: "grant", expiresAt });
   }
   it("revokes atomically once across concurrent requests and survives a new process", async () => {
     await grant();

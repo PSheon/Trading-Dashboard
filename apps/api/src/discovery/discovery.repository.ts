@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, isNull, like, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
-import { copyStrategies, discoveryTraders, fills, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, like, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { archiveCoverage, copyStrategies, discoveryTraders, fills, kolAvatars, kolTraders, traderAnalytics, traderStats, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -25,6 +25,10 @@ export interface BoardSourceRow extends DiscoveryRow {
   leaderboardName: string | null;
   /** Leaderboard account value (free, refreshed with every import). */
   leaderboardAccountValue: string | null;
+  leaderboardVolumeMonth?: string | null;
+  leaderboardUpdatedAt?: Date | null;
+  /** Local archive high-fill-rate exclusion; only a market-maker proxy. */
+  archiveExcluded?: boolean;
 }
 
 /** A card's identity and leaderboard figures, for a trader the pool has
@@ -238,11 +242,15 @@ export class DiscoveryRepository {
         kolSortOrder: kolTraders.sortOrder,
         leaderboardName: traderStats.displayName,
         leaderboardAccountValue: traderStats.accountValue,
+        leaderboardVolumeMonth: traderStats.volumeMonth,
+        leaderboardUpdatedAt: traderStats.updatedAt,
+        archiveStatus: archiveCoverage.status,
       })
       .from(discoveryTraders)
       .leftJoin(kolTraders, and(eq(kolTraders.chain, discoveryTraders.chain), eq(kolTraders.address, discoveryTraders.address)))
       .leftJoin(kolAvatars, and(eq(kolAvatars.chain, discoveryTraders.chain), eq(kolAvatars.address, discoveryTraders.address)))
       .leftJoin(traderStats, and(eq(traderStats.chain, discoveryTraders.chain), eq(traderStats.address, discoveryTraders.address)))
+      .leftJoin(archiveCoverage, and(eq(archiveCoverage.chain, discoveryTraders.chain), eq(archiveCoverage.address, discoveryTraders.address)))
       .where(where);
     const addresses = rows.map(({ row }) => row.address);
     if (addresses.length === 0) return [];
@@ -252,9 +260,9 @@ export class DiscoveryRepository {
         .where(and(eq(fills.chain, CHAIN_DEFAULT), inArray(fills.address, addresses))).groupBy(fills.address),
     ]);
     const latest = new Map(watched.map(row => [row.address, new Date(row.latest)]));
-    return rows.map(({ row, ...rest }) => {
+    return rows.map(({ row, archiveStatus, ...rest }) => {
       const times = [row.lastTradeAt, history.get(row.address), latest.get(row.address)].filter((value): value is Date => value instanceof Date);
-      return { ...row, ...rest, lastTradeAt: times.length ? new Date(Math.max(...times.map(time => time.getTime()))) : null };
+      return { ...row, ...rest, archiveExcluded: archiveStatus === "excluded", lastTradeAt: times.length ? new Date(Math.max(...times.map(time => time.getTime()))) : null };
     });
   }
 
@@ -337,13 +345,4 @@ export class DiscoveryRepository {
     return row ?? { total: 0, ready: 0 };
   }
 
-  /** The stored copy score of a pool member (null when absent). */
-  async copyScoreOf(address: string): Promise<number | null> {
-    const [row] = await this.db
-      .select({ copyScore: discoveryTraders.copyScore })
-      .from(discoveryTraders)
-      .where(and(mine, eq(discoveryTraders.address, address), isNotNull(discoveryTraders.copyScore)))
-      .limit(1);
-    return row?.copyScore ?? null;
-  }
 }

@@ -20,7 +20,7 @@ if (process.env.NODE_ENV !== "test" && existsSync(envFile)) process.loadEnvFile(
 process.env.APP_ROLE ??= "worker";
 const config = validateEnvironment();
 if (config.app.role !== "worker") throw new Error("worker entrypoint requires APP_ROLE=worker");
-const logger = new StructuredLogger([config.database.url, config.telegram.botToken, config.auth.appSecret, config.archive.credentials?.secretAccessKey, config.archive.credentials?.sessionToken].filter((x): x is string => Boolean(x)));
+const logger = new StructuredLogger([config.database.url, config.telegram.botToken, config.auth.appSecret, config.archive.credentials?.secretAccessKey, config.archive.credentials?.sessionToken, config.copy.agent?.authorizationPrivateKey].filter((x): x is string => Boolean(x)));
 const pool = new Pool({ connectionString: config.database.url, max: 1, keepAlive: true, connectionTimeoutMillis: 3000, query_timeout: 3000 });
 let client: PoolClient | undefined;
 let app: INestApplicationContext | undefined;

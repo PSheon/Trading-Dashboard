@@ -160,17 +160,29 @@ async function currentToken(publicRead = false): Promise<string | null> {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<JsonWire<T>> {
+export interface PostOptions { beforeSend?: () => void }
+
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, options?: PostOptions): Promise<JsonWire<T>> {
   const requestSignal = signal ? AbortSignal.any([signal, sessionController.signal]) : sessionController.signal;
   const token = await currentToken(isPublicRead(method, path));
   requestSignal.throwIfAborted();
+
+  const beforeSend = () => {
+    const result: unknown = options?.beforeSend?.();
+    if (result !== undefined) {
+      // Async callbacks are invalid; handle their rejection without waiting or sending.
+      if (result instanceof Promise) void result.catch(() => undefined);
+      throw new Error("invalid_before_send");
+    }
+    requestSignal.throwIfAborted();
+  };
 
   // Fixture mode: answered in-process. The env var is read inline (not via
   // lib/config) so the bundler sees a literal and drops the branch — and
   // the fixture chunk — from any build without NEXT_PUBLIC_API_FIXTURES=1.
   if (process.env.NEXT_PUBLIC_API_FIXTURES === "1") {
     const { fixtureRequest } = await import("@/fixtures/handler");
-    requestSignal.throwIfAborted();
+    beforeSend();
     const result = await fixtureRequest<T>(method, path, body, token);
     requestSignal.throwIfAborted();
     const json = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
@@ -183,6 +195,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const locale = pageLocale();
   if (locale) headers["Accept-Language"] = locale;
 
+  beforeSend();
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     signal: requestSignal,
@@ -278,7 +291,7 @@ function validateData<T>(method: string, path: string, data: unknown): JsonWire<
 
 export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>("GET", path, undefined, signal),
-  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
+  post: <T>(path: string, body?: unknown, options?: PostOptions) => request<T>("POST", path, body, undefined, options),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
   delete: <T>(path: string) => request<T>("DELETE", path),

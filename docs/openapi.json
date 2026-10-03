@@ -14770,6 +14770,10 @@
                           "type": "integer",
                           "minimum": 0
                         },
+                        "scoreEligibleCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
                         "freshness": {
                           "type": "object",
                           "properties": {
@@ -16642,10 +16646,20 @@
                               ]
                             },
                             "returnSamples": {
-                              "type": "integer"
+                              "anyOf": [
+                                {
+                                  "type": "integer"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "spanDays": {
-                              "type": "number"
+                              "type": [
+                                "number",
+                                "null"
+                              ]
                             },
                             "accountValue": {
                               "type": [
@@ -16667,7 +16681,15 @@
                         },
                         "version": {
                           "type": "string",
-                          "const": "copydog-v5-fit"
+                          "const": "candidate-pool-percentile-v1"
+                        },
+                        "rankingScope": {
+                          "type": "string",
+                          "const": "candidate_pool"
+                        },
+                        "scoreEligibleCount": {
+                          "type": "integer",
+                          "minimum": 0
                         }
                       },
                       "required": [
@@ -24302,6 +24324,2386 @@
         "x-required-roles": []
       }
     },
+    "/me/copy/agents": {
+      "get": {
+        "operationId": "CopyAgentController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "setups": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "accountId": {
+                                "type": "string"
+                              },
+                              "network": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "policy_prepared",
+                                  "policy_unknown",
+                                  "wallet_prepared",
+                                  "wallet_unknown",
+                                  "ready",
+                                  "approval_signing",
+                                  "approval_unknown",
+                                  "active",
+                                  "blocked",
+                                  "revoked",
+                                  "expired"
+                                ]
+                              },
+                              "accountAddress": {
+                                "type": "string"
+                              },
+                              "agentAddress": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "expiresAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "issue": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "authorizationId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "strategyId",
+                              "accountId",
+                              "network",
+                              "state",
+                              "accountAddress",
+                              "agentAddress",
+                              "expiresAt",
+                              "issue",
+                              "authorizationId",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "available",
+                        "network",
+                        "setups"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List my strategy trading agents and setup states",
+        "tags": [
+          "CopyAgent"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/execution-wallets/{id}/agent": {
+      "post": {
+        "description": "Creates a restricted user-owned agent only; does not approve, fund or start trading.\n\nAccess: user (owner); configured testnet agent provider",
+        "operationId": "CopyAgentController_prepare",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareCopyAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "policy_prepared",
+                            "policy_unknown",
+                            "wallet_prepared",
+                            "wallet_unknown",
+                            "ready",
+                            "approval_signing",
+                            "approval_unknown",
+                            "active",
+                            "blocked",
+                            "revoked",
+                            "expired"
+                          ]
+                        },
+                        "accountAddress": {
+                          "type": "string"
+                        },
+                        "agentAddress": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "issue": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "authorizationId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "strategyId",
+                        "accountId",
+                        "network",
+                        "state",
+                        "accountAddress",
+                        "agentAddress",
+                        "expiresAt",
+                        "issue",
+                        "authorizationId",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare a user-owned testnet trading agent",
+        "tags": [
+          "CopyAgent"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/agents/{id}/reconcile": {
+      "post": {
+        "description": "Pending approval is queried without resubmission.\n\nAccess: user (owner)",
+        "operationId": "CopyAgentController_reconcile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "policy_prepared",
+                            "policy_unknown",
+                            "wallet_prepared",
+                            "wallet_unknown",
+                            "ready",
+                            "approval_signing",
+                            "approval_unknown",
+                            "active",
+                            "blocked",
+                            "revoked",
+                            "expired"
+                          ]
+                        },
+                        "accountAddress": {
+                          "type": "string"
+                        },
+                        "agentAddress": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "issue": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "authorizationId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "strategyId",
+                        "accountId",
+                        "network",
+                        "state",
+                        "accountAddress",
+                        "agentAddress",
+                        "expiresAt",
+                        "issue",
+                        "authorizationId",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Recover the original agent setup",
+        "tags": [
+          "CopyAgent"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/agents/{id}/challenge": {
+      "post": {
+        "operationId": "CopyAgentController_challenge",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "operation": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "accountId": {
+                              "type": "string"
+                            },
+                            "network": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "policy_prepared",
+                                "policy_unknown",
+                                "wallet_prepared",
+                                "wallet_unknown",
+                                "ready",
+                                "approval_signing",
+                                "approval_unknown",
+                                "active",
+                                "blocked",
+                                "revoked",
+                                "expired"
+                              ]
+                            },
+                            "accountAddress": {
+                              "type": "string"
+                            },
+                            "agentAddress": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "issue": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "authorizationId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "strategyId",
+                            "accountId",
+                            "network",
+                            "state",
+                            "accountAddress",
+                            "agentAddress",
+                            "expiresAt",
+                            "issue",
+                            "authorizationId",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "intent": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountAddress": {
+                              "type": "string"
+                            },
+                            "agentAddress": {
+                              "type": "string"
+                            },
+                            "policyId": {
+                              "type": "string"
+                            },
+                            "workerQuorumId": {
+                              "type": "string"
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "strategyId",
+                            "network",
+                            "accountAddress",
+                            "agentAddress",
+                            "policyId",
+                            "workerQuorumId",
+                            "nonce",
+                            "expiresAt",
+                            "consentExpiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "operation",
+                        "intent"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare exact main-wallet consent for agent approval",
+        "tags": [
+          "CopyAgent"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); verified agent"
+      }
+    },
+    "/me/copy/agents/{id}/approve": {
+      "post": {
+        "description": "Requires main-wallet consent and fresh user JWT. Master signature stays ephemeral; a local grant follows fresh exchange confirmation only.\n\nAccess: user (owner); exact signed consent; fresh user JWT",
+        "operationId": "CopyAgentController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCopyAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "policy_prepared",
+                            "policy_unknown",
+                            "wallet_prepared",
+                            "wallet_unknown",
+                            "ready",
+                            "approval_signing",
+                            "approval_unknown",
+                            "active",
+                            "blocked",
+                            "revoked",
+                            "expired"
+                          ]
+                        },
+                        "accountAddress": {
+                          "type": "string"
+                        },
+                        "agentAddress": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "issue": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "authorizationId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "strategyId",
+                        "accountId",
+                        "network",
+                        "state",
+                        "accountAddress",
+                        "agentAddress",
+                        "expiresAt",
+                        "issue",
+                        "authorizationId",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Approve the exact consented strategy agent",
+        "tags": [
+          "CopyAgent"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/account-modes": {
+      "get": {
+        "operationId": "CopyAccountModeController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "operations": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "accountId": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "network": {
+                                "type": "string",
+                                "const": "testnet"
+                              },
+                              "accountAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "target": {
+                                "type": "string",
+                                "const": "disabled"
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "submissionState": {
+                                "type": "string",
+                                "enum": [
+                                  "prepared",
+                                  "signing",
+                                  "unknown",
+                                  "accepted",
+                                  "rejected"
+                                ]
+                              },
+                              "targetState": {
+                                "type": "string",
+                                "enum": [
+                                  "unknown",
+                                  "supported",
+                                  "unproven",
+                                  "unsupported"
+                                ]
+                              },
+                              "issue": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "observedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "attemptedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "accountId",
+                              "strategyId",
+                              "network",
+                              "accountAddress",
+                              "target",
+                              "revision",
+                              "submissionState",
+                              "targetState",
+                              "issue",
+                              "observedAt",
+                              "attemptedAt",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "available",
+                        "network",
+                        "operations"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List my dedicated account mode setup operations",
+        "tags": [
+          "CopyAccountMode"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/account-modes/by-key/{key}": {
+      "get": {
+        "operationId": "CopyAccountModeController_byKey",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minLength": 16,
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "target": {
+                          "type": "string",
+                          "const": "disabled"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "submissionState": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "signing",
+                            "unknown",
+                            "accepted",
+                            "rejected"
+                          ]
+                        },
+                        "targetState": {
+                          "type": "string",
+                          "enum": [
+                            "unknown",
+                            "supported",
+                            "unproven",
+                            "unsupported"
+                          ]
+                        },
+                        "issue": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "attemptedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "target",
+                        "revision",
+                        "submissionState",
+                        "targetState",
+                        "issue",
+                        "observedAt",
+                        "attemptedAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Recover the original account mode preparation by its owner idempotency key",
+        "tags": [
+          "CopyAccountMode"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); original idempotency key"
+      }
+    },
+    "/me/copy/execution-wallets/{id}/mode": {
+      "post": {
+        "description": "Reserves an operation only; never signs, funds or starts trading.\n\nAccess: user (owner); ready dedicated testnet master",
+        "operationId": "CopyAccountModeController_prepare",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareCopyAccountModeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "target": {
+                          "type": "string",
+                          "const": "disabled"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "submissionState": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "signing",
+                            "unknown",
+                            "accepted",
+                            "rejected"
+                          ]
+                        },
+                        "targetState": {
+                          "type": "string",
+                          "enum": [
+                            "unknown",
+                            "supported",
+                            "unproven",
+                            "unsupported"
+                          ]
+                        },
+                        "issue": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "attemptedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "target",
+                        "revision",
+                        "submissionState",
+                        "targetState",
+                        "issue",
+                        "observedAt",
+                        "attemptedAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare an explicit testnet standard-mode operation",
+        "tags": [
+          "CopyAccountMode"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/account-modes/{id}/challenge": {
+      "post": {
+        "operationId": "CopyAccountModeController_challenge",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "operation": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "accountId": {
+                              "type": "string"
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "target": {
+                              "type": "string",
+                              "const": "disabled"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "submissionState": {
+                              "type": "string",
+                              "enum": [
+                                "prepared",
+                                "signing",
+                                "unknown",
+                                "accepted",
+                                "rejected"
+                              ]
+                            },
+                            "targetState": {
+                              "type": "string",
+                              "enum": [
+                                "unknown",
+                                "supported",
+                                "unproven",
+                                "unsupported"
+                              ]
+                            },
+                            "issue": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "observedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "attemptedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "accountId",
+                            "strategyId",
+                            "network",
+                            "accountAddress",
+                            "target",
+                            "revision",
+                            "submissionState",
+                            "targetState",
+                            "issue",
+                            "observedAt",
+                            "attemptedAt",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "intent": {
+                          "type": "object",
+                          "properties": {
+                            "operationId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "operationId",
+                            "accountId",
+                            "strategyId",
+                            "network",
+                            "accountAddress",
+                            "nonce",
+                            "consentExpiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "operation",
+                        "intent"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare exact owner consent for a dormant dedicated testnet account",
+        "tags": [
+          "CopyAccountMode"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); complete dormant account proof"
+      }
+    },
+    "/me/copy/account-modes/{id}/reconcile": {
+      "post": {
+        "operationId": "CopyAccountModeController_reconcile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "target": {
+                          "type": "string",
+                          "const": "disabled"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "submissionState": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "signing",
+                            "unknown",
+                            "accepted",
+                            "rejected"
+                          ]
+                        },
+                        "targetState": {
+                          "type": "string",
+                          "enum": [
+                            "unknown",
+                            "supported",
+                            "unproven",
+                            "unsupported"
+                          ]
+                        },
+                        "issue": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "attemptedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "target",
+                        "revision",
+                        "submissionState",
+                        "targetState",
+                        "issue",
+                        "observedAt",
+                        "attemptedAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read the original account mode operation without signing or resubmission",
+        "tags": [
+          "CopyAccountMode"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner); read-only original mode operation"
+      }
+    },
+    "/me/copy/account-modes/{id}/approve": {
+      "post": {
+        "description": "Requires exact owner consent and fresh user JWT; one durable attempt only, followed by separate mode observation.\n\nAccess: user (owner); exact signed consent; fresh user JWT; one durable attempt",
+        "operationId": "CopyAccountModeController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCopyAccountModeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "target": {
+                          "type": "string",
+                          "const": "disabled"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "submissionState": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "signing",
+                            "unknown",
+                            "accepted",
+                            "rejected"
+                          ]
+                        },
+                        "targetState": {
+                          "type": "string",
+                          "enum": [
+                            "unknown",
+                            "supported",
+                            "unproven",
+                            "unsupported"
+                          ]
+                        },
+                        "issue": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "observedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "attemptedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "target",
+                        "revision",
+                        "submissionState",
+                        "targetState",
+                        "issue",
+                        "observedAt",
+                        "attemptedAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Set the explicitly reviewed dormant testnet account to standard mode",
+        "tags": [
+          "CopyAccountMode"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/execution-wallets/{id}/statement": {
+      "get": {
+        "description": "Actual realised PnL, signed fee components and funding receipts only. Trading cash movement excludes deposits/transfers and is not account equity. Historical completeness remains unproven; unresolved scans and quarantine are explicit.\n\nAccess: user (owner)",
+        "operationId": "CopyFollowerController_statement",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "accountAddress": {
+                          "type": "string"
+                        },
+                        "token": {
+                          "type": "string",
+                          "const": "USDC"
+                        },
+                        "receiptCount": {
+                          "type": "string",
+                          "pattern": "^\\d+$"
+                        },
+                        "actual": {
+                          "type": "object",
+                          "properties": {
+                            "realizedPnl": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                            },
+                            "exchangeFee": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                            },
+                            "builderFee": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                            },
+                            "funding": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                            },
+                            "tradingCashDelta": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                            }
+                          },
+                          "required": [
+                            "realizedPnl",
+                            "exchangeFee",
+                            "builderFee",
+                            "funding",
+                            "tradingCashDelta"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quarantine": {
+                          "type": "object",
+                          "properties": {
+                            "blocked": {
+                              "type": "boolean"
+                            },
+                            "reason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "blocked",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "coverage": {
+                          "type": "object",
+                          "properties": {
+                            "historicalCompleteness": {
+                              "type": "string",
+                              "const": "unproven"
+                            },
+                            "scannedThrough": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "unresolvedWindows": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "issue": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "updatedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "historicalCompleteness",
+                            "scannedThrough",
+                            "unresolvedWindows",
+                            "issue",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "latestReceipts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "fill",
+                                  "funding"
+                                ]
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "time": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "attribution": {
+                                "type": "string",
+                                "enum": [
+                                  "execution",
+                                  "account"
+                                ]
+                              },
+                              "executionKey": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "kind",
+                              "coin",
+                              "time",
+                              "attribution",
+                              "executionKey"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 50
+                        }
+                      },
+                      "required": [
+                        "accountId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "token",
+                        "receiptCount",
+                        "actual",
+                        "quarantine",
+                        "coverage",
+                        "latestReceipts"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read my actual follower trading statement",
+        "tags": [
+          "CopyFollower"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
     "/admin/copy/overview": {
       "get": {
         "operationId": "AdminCopyController_overview",
@@ -26406,8 +28808,8 @@
                               "items": {
                                 "type": "string",
                                 "minLength": 1,
-                                "maxLength": 40,
-                                "pattern": "^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$"
+                                "maxLength": 80,
+                                "pattern": "^(?:[^\\s:/@\\\\]{1,40}:)?[A-Za-z0-9]+$"
                               },
                               "maxItems": 200,
                               "default": []
@@ -26661,8 +29063,8 @@
                               "items": {
                                 "type": "string",
                                 "minLength": 1,
-                                "maxLength": 40,
-                                "pattern": "^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$"
+                                "maxLength": 80,
+                                "pattern": "^(?:[^\\s:/@\\\\]{1,40}:)?[A-Za-z0-9]+$"
                               },
                               "maxItems": 200,
                               "default": []
@@ -27992,6 +30394,66 @@
         },
         "required": [
           "signature"
+        ],
+        "additionalProperties": false
+      },
+      "PrepareCopyAgentDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "validForDays": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 30,
+            "default": 7
+          }
+        },
+        "required": [
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveCopyAgentDto": {
+        "type": "object",
+        "properties": {
+          "consentSignature": {
+            "type": "string",
+            "description": "Ephemeral signature of the exact main-wallet CopyAgentConsent challenge"
+          }
+        },
+        "required": [
+          "consentSignature"
+        ],
+        "additionalProperties": false
+      },
+      "PrepareCopyAccountModeDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveCopyAccountModeDto": {
+        "type": "object",
+        "properties": {
+          "consentSignature": {
+            "type": "string",
+            "description": "Ephemeral main-wallet signature of the exact CopyAccountModeConsent challenge"
+          }
+        },
+        "required": [
+          "consentSignature"
         ],
         "additionalProperties": false
       },

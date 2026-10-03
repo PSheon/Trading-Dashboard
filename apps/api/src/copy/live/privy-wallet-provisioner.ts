@@ -22,7 +22,7 @@ export class PrivyUserWalletProvisioner implements UserWalletProvisioner {
   constructor(config: AppConfig) {
     const { appId, appSecret } = config.value.auth;
     this.available = Boolean(appId && appSecret);
-    this.client = appId && appSecret ? new PrivyClient({ appId, appSecret, timeout: 10_000, maxRetries: 0 }) : null;
+    this.client = appId && appSecret ? new PrivyClient({ appId, appSecret, timeout: 10_000, maxRetries: 0, logLevel: "off" }) : null;
   }
   async create(userId: string, externalId: string): Promise<void> {
     if (!this.client) throw new Error("provider_unavailable");

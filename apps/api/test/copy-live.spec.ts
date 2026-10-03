@@ -1,4 +1,4 @@
-import { exchangeApprovalFixture } from "./copy-live-test-utils.js";
+import { exchangeApprovalFixture, executionGateFixture } from "./copy-live-test-utils.js";
 import { LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "../src/copy/live/live-execution-gate.js";
 import { describe, expect, it, vi } from "vitest";
 import { LiveOrderExecutor, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
@@ -36,7 +36,7 @@ class Journal implements LiveExecutionJournal {
   async save(record: LiveExecutionRecord) { this.rows.set(record.key, record); }
 }
 
-function setup(gate: LiveExecutionGate = { assertReady: async () => {} }) {
+function setup(gate: LiveExecutionGate = executionGateFixture()) {
   let current = structuredClone(grant);
   const journal = new Journal();
   const auth = new WalletAuthorizationService({ find: async () => current }, exchangeApprovalFixture(() => now), () => now);
@@ -48,10 +48,23 @@ function setup(gate: LiveExecutionGate = { assertReady: async () => {} }) {
 }
 
 describe("live execution authorization and exact wire boundary", () => {
+  it("accepts indexed HIP-3 markets and rejects a substituted asset", () => {
+    const market = { network: 'testnet', coin: 'xyz:TSLA', dex: 'xyz', asset: 130002,
+      universeIndex: 2, perpDexIndex: 3, sizeDecimals: 3, maxLeverage: 10, observedAt: now };
+    const order = { ...intent, asset: 130002, sizeDecimals: 3, market } as LiveOrderIntent;
+    expect(buildOrderAction(order).orders[0].a).toBe(130002);
+    expect(() => buildOrderAction({ ...order, asset: 130001 })).toThrow();
+    expect(() => buildOrderAction({ ...order, asset: 10002 })).toThrow();
+  });
+  it("binds an approved builder rate in the exact wire action", () => {
+    const builder = { address: `0x${'33'.repeat(20)}`, feeTenthsBps: 10, approvedMaxFeeTenthsBps: 10 };
+    expect(buildOrderAction({ ...intent, builder } as LiveOrderIntent)).toMatchObject({ builder: { b: builder.address, f: 10 } });
+    expect(() => buildOrderAction({ ...intent, builder: { ...builder, feeTenthsBps: 101 } } as LiveOrderIntent)).toThrow();
+  });
   it("a custom transport cannot execute without a configured exchange approval verifier", async () => {
     const { journal, transport } = setup();
     const auth = new WalletAuthorizationService({ find: async () => grant }, undefined as never, () => now);
-    const executor = new LiveOrderExecutor(auth, journal, transport, { assertReady: async () => {} }, () => now);
+    const executor = new LiveOrderExecutor(auth, journal, transport, executionGateFixture(), () => now);
     await expect(executor.execute(intent)).rejects.toThrow("exchange_approval_verifier_missing");
     expect(transport.sign).not.toHaveBeenCalled(); expect(transport.submit).not.toHaveBeenCalled();
     expect(journal.rows.size).toBe(0);
@@ -85,7 +98,7 @@ describe("live execution durable submission semantics (injected transport)", () 
   });
   it("rechecks controls after signing and refuses a newly paused strategy", async () => {
     let paused = false;
-    const { executor, transport, journal } = setup({ assertReady: async () => { if (paused) throw new Error("strategy_paused"); } });
+    const { executor, transport, journal } = setup(executionGateFixture(async () => { if (paused) throw new Error("strategy_paused"); }));
     const sign = vi.mocked(transport.sign).getMockImplementation()!;
     vi.mocked(transport.sign).mockImplementationOnce(async (...args) => {
       const signed = await sign(...args); paused = true; return signed;

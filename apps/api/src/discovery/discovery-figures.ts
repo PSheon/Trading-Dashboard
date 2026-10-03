@@ -1,6 +1,5 @@
 import type { DiscoveryCoinStat } from "@trading-dashboard/shared/database";
 
-import { copyScore } from "../analytics/copy-score.js";
 import type { HlPortfolioResponse } from "../hyperliquid/types.js";
 import { downsample, portfolioSeries, returnMetrics, riskMetrics } from "../traders/traders.mappers.js";
 import type { CoinAggregate, DiscoveryFigures } from "./discovery.repository.js";
@@ -44,19 +43,6 @@ export function portfolioNumbers(raw: HlPortfolioResponse) {
   };
 }
 
-/** The copy score of a `portfolio` response and account value. */
-export function scoreOf(n: ReturnType<typeof portfolioNumbers>, accountValue: number | null): number | null {
-  return copyScore({
-    roi: n.roiAll,
-    pnl: n.pnlAll,
-    sharpe: n.sharpe,
-    maxDrawdown: n.maxDrawdown,
-    returnSamples: n.returnSamples,
-    spanDays: n.spanDays,
-    accountValue,
-  });
-}
-
 /**
  * The pool's portfolio figures from one `portfolio` read (20 weight),
  * stamped `portfolioAt` with `now`: the time of the Hyperliquid read (the
@@ -78,7 +64,8 @@ export function portfolioFigures(raw: HlPortfolioResponse, accountValue: number 
     maxDrawdown: dec(n.maxDrawdown),
     returnSamples: n.returnSamples,
     spanDays: String(Math.round(n.spanDays * 10) / 10),
-    copyScore: scoreOf(n, accountValue),
+    // Percentiles require the full snapshot; never persist a single-row fit.
+    copyScore: null,
     sparkline: downsample(n.perpAll.pnl, SPARKLINE_POINTS).map(([, v]) => round2(v)),
     sparkline30d: downsample(n.perp30.pnl, SPARKLINE_POINTS).map(([, v]) => round2(v)),
     portfolioAt: new Date(now),

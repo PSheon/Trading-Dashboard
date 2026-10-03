@@ -41,7 +41,7 @@ describe("watchlist cards (real Postgres)", () => {
       roiDay: "0", roiWeek: "0", roiMonth: "0.1", roiAllTime: "0.5", volumeDay: "0", volumeWeek: "0", volumeMonth: "1", volumeAllTime: "1", updatedAt: now,
     })));
     await db.insert(discoveryTraders).values({
-      address: addr(1), poolRank: 1, portfolioAt: now, accountValue: "1000", pnlAll: "900", roiAll: "2", pnl30d: "40", sharpe: "1.5", maxDrawdown: "0.2", copyScore: 77,
+      address: addr(1), poolRank: 1, portfolioAt: now, accountValue: "1000", pnlAll: "900", roiAll: "2", pnl30d: "40", sharpe: "1.5", maxDrawdown: "0.2", returnSamples: 10, spanDays: "100", copyScore: 77,
       sparkline: [0, 5, 9], topCoins: ["BTC"], coinStats: { BTC: { pnl: 900, volume: 1, trades: 4, wins: 3 } },
     });
     await db.insert(kolTraders).values({ address: addr(3), displayName: "Kol Three", xHandle: "three", verified: true });
@@ -49,7 +49,7 @@ describe("watchlist cards (real Postgres)", () => {
     const { items } = wireTraderCardsSchema.parse(res.body.data);
     expect(items.map((c) => c.address)).toEqual([addr(2), addr(1), addr(3)]);
     expect(items[0]).toMatchObject({ source: "leaderboard", displayName: "Board Two", pnl: 200, roi: 0.5, pnl30d: 12, copyScore: null, sparkline: [], winRate: null });
-    expect(items[1]).toMatchObject({ source: "pool", pnl: 900, roi: 2, pnl30d: 40, copyScore: 77, winRate: 0.75, sharpe: 1.5, maxDrawdown: 0.2, sparkline: [0, 5, 9] });
+    expect(items[1]).toMatchObject({ source: "pool", pnl: 900, roi: 2, pnl30d: 40, copyScore: 49, winRate: 0.75, sharpe: 1.5, maxDrawdown: 0.2, sparkline: [0, 5, 9] });
     expect(items[2]).toMatchObject({ source: "none", displayName: "Kol Three", kol: true, verified: true, xHandle: "three", avatarUrl: null, pnl: null });
     await request(app.getHttpServer()).get("/discover/cards?addresses=nope").expect(400);
     await request(app.getHttpServer()).get("/discover/cards").expect(400);

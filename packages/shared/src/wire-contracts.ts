@@ -10,6 +10,9 @@ import { z } from "zod";
 import { walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
 import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
 import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema } from "./copy-funding-contracts.js";
+import { copyAgentSetupSchema, copyAgentOverviewSchema, copyAgentChallengeSchema } from "./copy-agent-contracts.js";
+import { copyAccountModeOverviewSchema, copyAccountModeOperationSchema, copyAccountModeChallengeSchema } from "./copy-account-mode-contracts.js";
+import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
 import * as s from "./schema/zod.js";
 
 const iso = z.string().datetime({ offset: true });
@@ -303,6 +306,18 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me/copy/strategies/:id/performance", status: 200, auth: "user (owner)", response: wireCopyPerformanceSchema },
   { method: "GET", path: "/me/copy/events", status: 200, auth: "user", response: wireCopyEventsSchema },
   { method: "GET", path: "/me/copy/execution-wallets", status: 200, auth: "user (owner)", response: copyExecutionWalletsSchema },
+  { method: "GET", path: "/me/copy/agents", status: 200, auth: "user (owner)", response: copyAgentOverviewSchema },
+  { method: "GET", path: "/me/copy/account-modes", status: 200, auth: "user (owner)", response: copyAccountModeOverviewSchema },
+  { method: "GET", path: "/me/copy/account-modes/by-key/:key", status: 200, auth: "user (owner); original idempotency key", response: copyAccountModeOperationSchema },
+  { method: "POST", path: "/me/copy/execution-wallets/:id/mode", status: 200, auth: "user (owner); ready dedicated testnet master", response: copyAccountModeOperationSchema },
+  { method: "POST", path: "/me/copy/account-modes/:id/challenge", status: 200, auth: "user (owner); complete dormant account proof", response: copyAccountModeChallengeSchema },
+  { method: "POST", path: "/me/copy/account-modes/:id/approve", status: 200, auth: "user (owner); exact signed consent; fresh user JWT; one durable attempt", response: copyAccountModeOperationSchema },
+  { method: "POST", path: "/me/copy/account-modes/:id/reconcile", status: 200, auth: "user (owner); read-only original mode operation", response: copyAccountModeOperationSchema },
+  { method: "GET", path: "/me/copy/execution-wallets/:id/statement", status: 200, auth: "user (owner)", response: copyFollowerStatementSchema },
+  { method: "POST", path: "/me/copy/execution-wallets/:id/agent", status: 200, auth: "user (owner); configured testnet agent provider", response: copyAgentSetupSchema },
+  { method: "POST", path: "/me/copy/agents/:id/reconcile", status: 200, auth: "user (owner)", response: copyAgentSetupSchema },
+  { method: "POST", path: "/me/copy/agents/:id/challenge", status: 200, auth: "user (owner); verified agent", response: copyAgentChallengeSchema },
+  { method: "POST", path: "/me/copy/agents/:id/approve", status: 200, auth: "user (owner); exact signed consent; fresh user JWT", response: copyAgentSetupSchema },
   { method: "GET", path: "/me/copy/funding", status: 200, auth: "user (owner)", response: copyFundingOverviewSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/funding", status: 200, auth: "user (owner); testnet; verified execution account", response: copyFundingSchema },
   { method: "POST", path: "/me/copy/funding/:id/broadcast", status: 200, auth: "user (owner); one permission", response: copyFundingClaimSchema },

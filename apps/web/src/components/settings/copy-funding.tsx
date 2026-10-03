@@ -3,18 +3,19 @@
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/provider";
+import { sessionKey } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCopyFunding, useReserveCopyFunding, useConfirmCopyFunding, useCancelCopyFunding } from "@/lib/copy-funding";
 import { copyFundingInputSchema, type CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
 
 /** Funding is explicit, testnet-only, and independent of paper collateral. */
 export function CopyFundingSettings({ accounts }: { accounts: CopyExecutionAccount[] }) {
-  const { t, format } = useI18n(), { wallet, identity } = useAuth();
-  return <FundingForm key={identity ?? "anonymous"} accounts={accounts} walletAddress={wallet?.address?.toLowerCase()} t={t} format={format} />;
+  const { t, format } = useI18n(), { wallet, identity, mode } = useAuth();
+  return <FundingForm key={`${mode}:${identity}:${sessionKey()}`} accounts={accounts} walletAddress={wallet?.address?.toLowerCase()} t={t} format={format} />;
 }
 function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExecutionAccount[]; walletAddress?: string; t: ReturnType<typeof useI18n>["t"]; format: ReturnType<typeof useI18n>["format"] }) {
   const selectId = useId(), amountId = useId();
-  const query = useCopyFunding(), prepare = useReserveCopyFunding(), confirm = useConfirmCopyFunding(), cancel = useCancelCopyFunding();
+  const query = useCopyFunding(), prepare = useReserveCopyFunding(), confirm = useConfirmCopyFunding(accounts, query.data?.operations ?? [], Boolean(query.data?.available && !query.isError)), cancel = useCancelCopyFunding();
   const [accountId, setAccountId] = useState(""), [amount, setAmount] = useState("10"), [key, setKey] = useState<string | null>(null);
   const data = query.data, operations = data?.operations ?? [];
   const pending = operations.some((item) => ["prepared", "unknown", "accepted"].includes(item.status));
@@ -40,11 +41,11 @@ function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExe
       <Button size="sm" type="submit" disabled={!accountId || !valid || pending || busy || query.isError}>{t("copyFunding.prepare")}</Button>
       {key && !pending && !busy ? <Button size="sm" variant="secondary" type="button" onClick={() => { setKey(null); prepare.reset(); void query.refetch(); }}>{t("executionWallets.cancel")}</Button> : null}
     </form> : null}
-    {prepare.isError || confirm.isError || cancel.isError ? <p role="alert" className="mt-3 text-xs text-warning">{t("copyFunding.error")}</p> : null}
+    {prepare.isError || confirm.isError || confirm.recovery.isError || cancel.isError ? <p role="alert" className="mt-3 text-xs text-warning">{t("copyFunding.error")}</p> : null}
     {pending ? <p className="mt-3 text-xs text-muted-foreground">{t("copyFunding.pendingHint")}</p> : null}
     {!operations.length && data ? <p className="mt-3 text-xs text-muted-foreground">{t("copyFunding.empty")}</p> : null}
     <div className="mt-3 space-y-3">{operations.map((op) => <article key={op.id} className="rounded-xl bg-raised/50 p-3">
-      <div className="flex flex-wrap justify-between gap-2 text-xs font-semibold"><h5>{t("executionWallets.copyNumber", { id: op.strategyId })} · {t(`executionWallets.networks.${op.network}`)}</h5><span>{t(`copyFunding.states.${op.status}`)}</span></div>
+      <div className="flex flex-wrap justify-between gap-2 text-xs font-semibold"><h5>{t("executionWallets.copyNumber", { id: op.strategyId })} · {t(`executionWallets.networks.${op.network}`)}</h5><span>{t(`copyFunding.states.${op.status === "prepared" && confirm.recovery.data?.includes(op.id) ? "unknown" : op.status}`)}</span></div>
       <dl className="mt-2 space-y-2 text-xs">
         <div><dt className="text-muted-foreground">{t("copyFunding.source")}</dt><dd className="break-all font-mono">{op.address}</dd></div>
         <div><dt className="text-muted-foreground">{t("copyFunding.destination")}</dt><dd className="break-all font-mono">{op.destination}</dd></div>
@@ -53,9 +54,9 @@ function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExe
         <div><dt className="text-muted-foreground">{t("copyFunding.created")}</dt><dd>{format.dateTime(op.createdAt)}</dd></div>
       </dl>
       <div className="mt-3 flex flex-wrap gap-2">
-        {op.status === "prepared" ? <Button size="sm" disabled={busy || query.isError || !data?.available || walletAddress !== op.address || op.network !== "testnet"} onClick={() => confirm.mutate(op)}>{confirm.isPending ? t("copyFunding.signing") : t("copyFunding.confirm")}</Button> : null}
-        {["unknown", "accepted"].includes(op.status) ? <Button size="sm" variant="secondary" disabled={busy || query.isError} onClick={() => confirm.mutate(op)}>{t("copyFunding.reconcile")}</Button> : null}
-        {op.canCancel ? <Button size="sm" variant="secondary" disabled={busy || query.isError} onClick={() => cancel.mutate(op.id)}>{t("executionWallets.cancel")}</Button> : null}
+        {op.status === "prepared" && !confirm.recovery.data?.includes(op.id) ? <Button size="sm" disabled={busy || query.isError || !data?.available || !confirm.recovery.isSuccess || !accounts.some(a => a.id === op.accountId && a.strategyId === op.strategyId && a.network === op.network && a.address === op.destination && a.state === "ready") || walletAddress !== op.address || op.network !== "testnet"} onClick={() => confirm.mutate(op)}>{confirm.isPending ? t("copyFunding.signing") : t("copyFunding.confirm")}</Button> : null}
+        {(["unknown", "accepted"].includes(op.status) || op.status === "prepared" && confirm.recovery.data?.includes(op.id)) ? <Button size="sm" variant="secondary" disabled={busy || query.isError} onClick={() => confirm.mutate(op)}>{t("copyFunding.reconcile")}</Button> : null}
+        {op.canCancel && !confirm.recovery.data?.includes(op.id) ? <Button size="sm" variant="secondary" disabled={busy || query.isError || !confirm.recovery.isSuccess} onClick={() => cancel.mutate(op.id)}>{t("executionWallets.cancel")}</Button> : null}
       </div>
     </article>)}</div>
   </section>;

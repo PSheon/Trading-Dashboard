@@ -106,10 +106,10 @@ it("every production controller route has exactly one shared response contract",
       if (entry.isDirectory()) scan(path);
       else if (entry.name.endsWith(".controller.ts")) {
         const source = readFileSync(path, "utf8");
-        const blocks = source.split(/@Controller\("([^"]*)"\)/);
+        const blocks = source.split(/@Controller\(["']([^"']*)["']\)/);
         for (let i = 1; i < blocks.length; i += 2) {
           const prefix = blocks[i];
-          for (const match of blocks[i + 1].matchAll(/@(Get|Post|Put|Patch|Delete)\((?:"([^"]*)")?\)/g)) {
+          for (const match of blocks[i + 1].matchAll(/@(Get|Post|Put|Patch|Delete)\((?:["']([^"']*)["'])?\)/g)) {
             discovered.push(`${match[1].toUpperCase()} /${[prefix, match[2]].filter(Boolean).join("/")}`);
           }
         }

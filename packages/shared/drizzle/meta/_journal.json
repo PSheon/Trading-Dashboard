@@ -260,6 +260,41 @@
       "when": 1791021255269,
       "tag": "0036_copy_funding_scan_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791037158063,
+      "tag": "0037_copy_agent_setup",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791038956354,
+      "tag": "0038_copy_agent_identity_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791039163819,
+      "tag": "0039_copy_follower_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791041258287,
+      "tag": "0040_copy_follower_scans",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791048686576,
+      "tag": "0041_copy_account_modes",
+      "breakpoints": true
     }
   ]
 }

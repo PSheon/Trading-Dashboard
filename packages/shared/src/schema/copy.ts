@@ -92,7 +92,11 @@ export const copyRiskLimitsSchema = z.object({
   allowHip3: z.boolean().default(false),
   /** Coins never copied. Matched with {@link coinKey}; the admin service
    * stores each entry in Hyperliquid's own spelling and rejects unknown names. */
-  blockedCoins: z.array(z.string().trim().min(1).max(40).regex(/^(?:[A-Za-z0-9]+:)?[A-Za-z0-9]+$/, "A Hyperliquid perp name, e.g. BTC, kPEPE or xyz:TSLA"))
+  blockedCoins: z.array(z.string().trim().min(1).max(80)
+    // Venue names are provider identities, including actual testnet i<3fl.
+    // The admin service still resolves every accepted spelling against meta.
+    .regex(/^(?:[^\s:/@\\]{1,40}:)?[A-Za-z0-9]+$/, "A Hyperliquid perp name, e.g. BTC, kPEPE or xyz:TSLA")
+    .refine(value => [...value].every(char => char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127), "No control bytes"))
     .max(200).default([])
     .transform((list) => [...new Map(list.map((c) => [coinKey(c), c.trim()])).values()]),
 }).strict().superRefine((v, ctx) => {

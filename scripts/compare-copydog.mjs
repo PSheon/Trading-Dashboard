@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { toPortfolioResponse } from "../apps/api/dist/traders/traders.mappers.js";
-import { copyScore } from "../apps/api/dist/analytics/copy-score.js";
+import { copyScores } from "../apps/api/dist/analytics/copy-score.js";
 
 const root = new URL("../", import.meta.url);
 const read = path => JSON.parse(readFileSync(new URL(path, root), "utf8"));
@@ -37,20 +37,23 @@ export function portfolioComparison(portfolio, reference, metadata) {
     note: "Same address and named windows; source snapshots differ. Numeric differences are observations, not formula pass/fail.", rows };
 }
 export function scoreComparison(rows) {
-  const results = rows.map(([reference, roi, pnl, sharpe, maxDrawdown, returnSamples, spanDays, accountValue], rowIndex) => {
-    const actual = copyScore({ roi, pnl, sharpe, maxDrawdown, returnSamples, spanDays, accountValue });
+  const scores = copyScores(rows.map(([, roi, pnl, sharpe, , returnSamples, spanDays], rowIndex) => ({
+    address: String(rowIndex), inputs: { roi, pnl, sharpe, returnSamples, spanDays },
+  })));
+  const results = rows.map(([reference], rowIndex) => {
+    const actual = scores.get(String(rowIndex)) ?? null;
     return { rowIndex, reference, actual, error: actual === null ? null : Math.abs(actual - reference) };
   });
   const scored = results.filter(r => r.error !== null);
   const errors = scored.map(r => r.error).sort((a, b) => a - b);
   const middle = Math.floor(errors.length / 2);
-  return { total: results.length, scored: scored.length, unscored: results.filter(r => r.error === null),
+  return { version: "candidate-pool-percentile-v1", rankingScope: "saved_sample", scoreEligibleCount: scores.size, total: results.length, scored: scored.length, unscored: results.filter(r => r.error === null),
     medianAbsoluteError: errors.length ? (errors.length % 2 ? errors[middle] : (errors[middle - 1] + errors[middle]) / 2) : null,
     maxAbsoluteError: errors.at(-1) ?? null,
     withinTen: scored.filter(r => r.error <= 10).length,
     threshold80Agreement: scored.length ? scored.filter(r => (r.reference >= 80) === (r.actual >= 80)).length / scored.length : null,
     largestDifferences: [...scored].sort((a, b) => b.error - a.error).slice(0, 10),
-    limitation: "Saved calibration sample, not an independent holdout. No row addresses, split labels or per-row timestamps are stored; rowIndex is not a wallet identity." };
+    limitation: "Ranks the archived sample only, not the eligible discovery candidate pool or Copydog population. Activity/dust/high-fill-rate eligibility cannot be verified from this sample. Normalization is locally inferred; numeric differences do not certify formula parity. No addresses, timestamps or split labels; rowIndex is not a wallet identity." };
 }
 export function buildReport() {
   const portfolioPath = "apps/api/test/fixtures/portfolio-copydog-d70c.json";
@@ -59,17 +62,12 @@ export function buildReport() {
   const saved = read(portfolioPath);
   const live = read(livePath);
   const score = read(scoresPath);
-  const components = live.summary.body.copyScoreComponents;
-  const account = live.summary.body.account;
-  const liveScore = copyScore({ roi: live.summary.body.stats.roi, pnl: live.summary.body.perpPnlSummary.allTime,
-    sharpe: components.sharpe_raw, maxDrawdown: components.max_drawdown_raw, returnSamples: components.return_sample_count,
-    spanDays: components.span_days, accountValue: account.accountValue });
   return { schemaVersion: 1, generatedAt: new Date().toISOString(),
     calculationSources: ["apps/api/src/traders/traders.mappers.ts", "apps/api/src/analytics/copy-score.ts"].map(path => ({ path, sha256: hash(path) })),
     inputs: [portfolioPath, scoresPath, livePath].map(path => ({ path, sha256: hash(path) })),
     frozenPortfolio: portfolioComparison(saved.portfolio, saved.copydog, { address: "0xd70c9e61ba506a8cf1c25b54d14b25abdc048fd4", source: saved.source }),
     livePortfolio: portfolioComparison(live.portfolio.body, live.summary.body.stats, { address: live.summary.body.address, source: "Fresh public requests; see captured evidence and timestamps" }),
-    liveScore: { ...comparison("copyScore", liveScore, live.summary.body.copyScore, 0), inputBasis: "CopyDog published components and account value; isolates fitted-formula error, not end-to-end data parity" },
+    liveScore: { ...comparison("copyScore", null, live.summary.body.copyScore, 0), inputBasis: "An isolated trader has no eligible candidate-pool universe in this evidence capture; a percentile is unavailable." },
     scoreCalibrationSample: scoreComparison(score.rows) };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

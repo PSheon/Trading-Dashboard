@@ -18,6 +18,14 @@ for (const width of [1440, 390]) test(`execution wallet settings explain unavail
   await expect(funding).toContainText("Mainnet strategy funding is not available yet, or the wallet provider is unavailable.");
   await expect(funding).toContainText("Receiving funds does not start copying or increase your paper balance.");
   await expect(funding.getByRole("button", { name: "Confirm and sign transfer" })).toHaveCount(0);
+  // Demo authentication never supplies authority for the real account lifecycle or ledger.
+  for (const name of ["Strategy agent approval", "Strategy account mode", "Actual follower statement"]) {
+    await expect(page.getByRole("region", { name, exact: true, includeHidden: true })).toHaveCount(0);
+  }
+  for (const name of ["Prepare agent", "Confirm and sign approval", "Prepare account mode", "Confirm and sign mode consent"]) {
+    await expect(section.getByRole("button", { name, exact: true, includeHidden: true })).toHaveCount(0);
+  }
+  await expect(section.getByText(/^(Delegation approved|Submission accepted|Standard mode observed)$/)).toHaveCount(0);
   await expect(section.locator("article")).toHaveCount(0);
   await expectNoSidewaysScroll(page);
 });

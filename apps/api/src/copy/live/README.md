@@ -2,10 +2,11 @@ The live boundary is separate from the paper executor and does not book fills, c
 fees, or release reservations. `LiveOrderExecutor` consumes an already risk-approved
 `LiveOrderIntent`, an authoritative `WalletAuthorizationService`, a durable
 `LiveExecutionJournal`, a mandatory `LiveExecutionGate`, and a `HyperliquidLiveTransport` whose network is fixed at
-construction. It supports standard perpetual limit/IOC orders on master accounts
-using an approved agent or the account's own signer. Vault/subaccount signing,
-spot/HIP-3 orders, transfers, agent approval, cancellation, and wallet provisioning
-are not implemented by this boundary.
+construction. It builds perpetual limit/IOC orders using exact, indexed market
+identity. The concrete Privy order adapter permits testnet delegated-agent
+signing only. Vault/subaccount signing, spot orders, cancellation and the complete
+live worker remain outside this executor. Principal wallet preparation, agent
+approval and funding have separate owner-consent workflows in `CopyModule`.
 
 `WalletAuthorizationService` now requires `HyperliquidAgentApprovalVerifier` (wired
 through `CopyModule`) as well as local consent. Dedicated delegated signers are
@@ -30,27 +31,41 @@ not atomic cancellation: an owner can revoke after the final local/remote read,
 or a lock can fail just after its last check. Exchange/provider fencing would
 be needed to eliminate that outgoing-request race.
 
-`PrivyOrderSigner` uses the installed Privy Node SDK. A configured callback supplies
-Privy's authorization context; credentials and signing keys must remain outside
-the journal. Before signing, it checks the current local grant and the actual
+`PrivyOrderSigner` requires a boundary-aware `PrivyOrderSigningClient`, implemented
+by `BoundaryPrivyOrderSigningClient` using the installed SDK. A configured callback
+supplies the worker's P-256 request-authorization key; credentials and keys remain
+outside the journal. The key is not the agent EVM private key or owner authority.
+The request-scoped adapter disables retries and SDK logging, limits complete
+responses to 64 KiB and ten seconds, and cancels streams on timeout. Its exact
+RPC fetch hook rechecks the original risk permit after SDK request preparation
+awaits, immediately before transport. Before signing, it checks the local grant and actual
 Privy wallet's address, chain, owner quorum and archive state. The grant's
 `privyOwnerId` is a Privy owner quorum ID, not an application user ID or a user DID.
 The signer accepts only the exact prepared order's phantom-agent hash and the
-expected network/domain. `@nktkas/hyperliquid@0.33.3` supplies canonicalization,
+expected network/domain, then verifies the returned EVM signature against the
+bound signer and original hash. `@nktkas/hyperliquid@0.33.3` supplies canonicalization,
 msgpack hashing and EIP-712 signing; this code does not reimplement cryptography.
 
 `PostgresLiveExecutionJournal` implements durable network/account/cloid uniqueness,
 immutable prepared payloads, transition checks and session advisory locks across
 replicas. It allocates nonces atomically per network/signer using
 `max(now, previous+1)`, without holding a transaction open during HTTP.
-`PostgresWalletAuthorizationSource` loads local grants and rejects disabled users.
+`PostgresWalletAuthorizationSource` loads grants only through the current enabled
+owner, Privy identity, ready owned master, active setup, unretired agent wallet
+and strategy ownership. Detached legacy grants cannot authorize an order.
 Verified provisioning must populate those grants, and every authorization mutation
 must increment its version. The application now provides dedicated user-owned
 master wallet preparation and owner-scoped local grant revocation through
 `CopyWalletService`. Master accounts are persisted separately in
 `copy_execution_accounts`; preparing one never creates an agent, grant or exchange
-approval and never switches a paper strategy to live. Delegated-agent provisioning
-and verified grant issuance remain unimplemented, as does live worker integration.
+approval and never switches a paper strategy to live. `CopyAgentService` now
+provides verified user-owned agent provisioning, explicit principal approval,
+durable unknown recovery and verified grant rotation. `CopyAccountModeService`
+separately prepares a standard-mode operation for a dormant dedicated testnet
+master: exact owner consent, all-venue absence evidence and one persisted
+attempt precede the principal POST. An accepted response and supported current
+mode are separate states; disabled/null legacy evidence remains unproven.
+No workflow activates live copying; the live worker remains unimplemented.
 
 The state flow is `prepared -> submitting -> resting | filled | partial |
 cancelled | rejected`. Exceptions after the POST begins produce `unknown`.
@@ -70,9 +85,10 @@ accounting/reduction clamps, verify exchange approval independently, and wire
 current pause/reduce-only/risk controls at the final execution boundary. This
 directory does not enable live trading in an application module or environment.
 
-Offline tests inject Privy and HTTP responses while exercising the actual installed
-Hyperliquid hashing/signing adapter. They verify payloads and fault handling;
-they do not validate signatures with Privy or execute an exchange order.
+Offline tests replace HTTP while exercising the installed Privy request
+authorization and Hyperliquid hashing/signing adapters. Ephemeral fixture keys
+verify exact EVM signature recovery and rejection of foreign signers/hashes.
+They do not establish real Privy user consent or an actual exchange fill.
 
 Reference: [Hyperliquid signing](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/signing),
 [rate limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits),
@@ -86,7 +102,7 @@ Reference: [Hyperliquid signing](https://hyperliquid.gitbook.io/hyperliquid-docs
 ## Final execution checks and remaining integration
 
 The executor, Privy signer, and exchange submission boundary require an explicit
-`LiveExecutionGate`. Missing gate or lease implementations deny execution; there
+`LiveExecutionGate`. Missing gate, phase-bound permit or lease implementations deny execution; there
 is no allow-all production default. The gate receives a detached copy of the
 exact intent and durable order, with phase `sign` or `submit`. Implementations
 must throw when any authoritative input is missing, stale, revoked, or denied.
@@ -96,7 +112,7 @@ or a callback that only checks a cached boolean does not satisfy this contract.
 
 `PostgresLiveExecutionJournal` supplies a lease tied to its original advisory-lock
 session. `assertHeld()` checks that session's exact granted advisory lock without
-reacquiring it, and a session error permanently invalidates the lease. The
+reacquiring it, and session `error` or normal `end` permanently invalidates the lease. The
 executor checks before durable state changes, signing, submission and saving
 exchange evidence. A lost lease after preparing/submitting leaves recovery to
 the next owner; the old worker does not overwrite the journal. This is not an
@@ -111,34 +127,38 @@ no POST started and records rejection; HTTP/response errors remain ambiguous.
 
 Before connecting a live worker, implement and verify all of these dependencies:
 
-1. **Authoritative risk adapter:** load the strategy and owner/platform controls,
+1. **Authoritative risk adapter:** `assessLiveAccountRisk` and
+   `AccountRiskExecutionGate` now validate detached, phase-bound evidence and
+   recheck its age after the computation. `PostgresLiveRiskScope` holds matching
+   policy/platform shared locks, the existing user writer lock and an account
+   session lock, with original-scope callbacks invalidated before unlock. A
+   concrete DB proof producer and durable live reservation are still needed: load the strategy and owner/platform controls,
    current policy and revision, exclusive reservation, funded execution-account
    collateral and positions, and fresh quote/market metadata on every final
    gate call. Enforce pause/reduce-only/stop, limits, direction and exact reduction
    ownership. Reject stale revisions or unavailable reads. Persist the approval
    and reservation linkage so a restarted worker can verify the same intent.
-2. **Wallet/grant lifecycle:** verified dedicated execution-account ownership,
-   Privy owner/policy binding, user consent, independently confirmed exchange-agent
-   approval, expiry, revocation and rotation. Supply signing authorization without
-   persisting secret material. No fabricated grants or paper balance may satisfy it.
+2. **Wallet/grant lifecycle:** connect the implemented master, agent and mode
+   workflows to the live admission path. All identity, revocation, retirement
+   and quarantine writers must follow its serialization protocol. Verified
+   grants alone do not prove supported mode, funded collateral or live consent.
 3. **Funding operations:** durable deposit/withdraw/sweep intents and reservations,
    chain/exchange confirmation, fee/minimum/collateral validation and restart-safe
    reconciliation of unknown outcomes. Activation follows confirmed funding.
-4. **Follower accounting:** ingest and dedupe actual exchange fills, fees, funding,
-   balances and positions by network/account/order/trade identity. Journal order
-   status alone is not enough to book PnL or release all reserved collateral.
+4. **Follower accounting:** actual fills/fees/funding ingestion, immutable receipt
+   deduplication, conflicts/quarantine, worker scan recovery and owner statements
+   are implemented. Connect them to reservation settlement, live positions and
+   account equity. Journal order status alone cannot book PnL or release collateral.
 5. **Worker and stop lifecycle:** connect the live executor separately from paper,
    supervise reconciliation and alerts, and implement cancel, late-fill handling,
    flat verification, then sweep. Validate restart and lease-loss scenarios on
    testnet before separately reviewing mainnet configuration.
-6. **Market identity:** persist and verify network, account/dex scope, canonical
-   coin, universe index, size precision, metadata source/version/time and delisting
-   status against authoritative exchange metadata. The current intent has only
-   an asset integer and caller-supplied precision; it cannot prove HIP-3 identity.
-   `buildOrderAction` therefore continues to reject asset IDs >= 10000 (including
-   spot and HIP-3). Add a typed authoritative mapping and include its identity in
-   the durable fingerprint before widening market support; never infer permission
-   from a numeric range or the presence of Stocks in the UI.
+6. **Market identity:** indexed main/named-dex mapping, persisted market identity,
+   builder approval and order-status matching are implemented. All-venue account
+   reads retain original DEX indices, including null slots and opaque names.
+   The uncached risk provider currently proves effective fees for validator perps;
+   named-dex effective fee scope remains unproven and admission is denied. Neither
+   numeric asset IDs nor the Stocks UI establish trade permission.
 
 These are integration prerequisites, not implemented production readiness. No
 live/testnet execution mode has been enabled by this boundary work.

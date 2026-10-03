@@ -17,6 +17,7 @@ async function probe(databaseUrl, expected) {
   const child = spawn(process.execPath, ["apps/api/dist/main.js"], { cwd: root, stdio: ["ignore", "ignore", "inherit"], env: {
     ...process.env, NODE_ENV: "test", DATABASE_URL: databaseUrl, PORT: String(port),
     PRIVY_APP_ID: "", PRIVY_APP_SECRET: "", PRIVY_VERIFICATION_KEY: "", AUTH_SERVICE_TOKEN: "", AUTH_SERVICE_PERMISSIONS: "",
+    PRIVY_AGENT_AUTHORIZATION_KEY: "", PRIVY_AGENT_WORKER_QUORUM_ID: "",
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_BOT_USERNAME: "", TELEGRAM_DRY_RUN: "true", TELEGRAM_BOT_POLLING: "false",
   } });
   const exited = new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code, signal) => resolve({ code, signal })); });

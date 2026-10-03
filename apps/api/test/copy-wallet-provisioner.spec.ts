@@ -44,7 +44,7 @@ beforeEach(() => {
 describe("Privy execution wallet provider", () => {
   it("bounds SDK requests to ten seconds and disables automatic retries", () => {
     expect(new PrivyUserWalletProvisioner(config()).available).toBe(true);
-    expect(sdk.client).toHaveBeenCalledExactlyOnceWith({ appId: "test-app", appSecret: "test-secret", timeout: 10_000, maxRetries: 0 });
+    expect(sdk.client).toHaveBeenCalledExactlyOnceWith({ appId: "test-app", appSecret: "test-secret", timeout: 10_000, maxRetries: 0, logLevel: "off" });
   });
 
   it.each([

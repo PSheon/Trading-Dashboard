@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { withTestDatabase } from "./test-database.mjs";
+import { isolatedApiEnvironment } from "./api-test-environment.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 let child;
 let interrupted = false;
@@ -28,6 +29,6 @@ function run(args, env = process.env) {
 try {
   await run(["--filter", "@trading-dashboard/shared", "build"]);
   await withTestDatabase((url) => run(["--filter", "@trading-dashboard/api", "exec", "vitest", "run", ...process.argv.slice(2)],
-    { ...process.env, DATABASE_URL: url, TEST_DATABASE_URL: url, NODE_ENV: "test" }));
+    isolatedApiEnvironment(process.env, url)));
 } catch (error) { console.error(error instanceof Error ? error.message : "Isolated test run failed"); process.exitCode = 1; }
 finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }

@@ -37,9 +37,27 @@ export class AuthRepository {
   /** Return undefined when another first sign-in won the unique Privy DID insert. */
   async createIfAbsent(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress" | "role"> & { embeddedWalletAddress?: string | null; locale?: AuthUserRow["locale"] }) {
     // Concurrent first sign-ins share one identity; the loser reads the winner.
-    const [row] = await this.db.insert(users).values(input)
-      .onConflictDoNothing({ target: users.privyUserId }).returning();
-    return row;
+    return this.recoverConcurrentIdentity(input.privyUserId, async () => {
+      const [row] = await this.db.insert(users).values(input)
+        .onConflictDoNothing({ target: users.privyUserId }).returning();
+      return row;
+    });
+  }
+
+  /** PostgreSQL can report the other unique index (embedded wallet) while
+   * concurrent speculative inserts of the same DID are resolving. Only an
+   * actually committed row for that verified DID proves an identity winner.
+   * A wallet collision with another DID remains a conflict; no row is changed.
+   * Catch outside any transaction so a rolled-back bootstrap can be read. */
+  private async recoverConcurrentIdentity(privyUserId: string, create: () => Promise<AuthUserRow | undefined>): Promise<AuthUserRow | undefined> {
+    try { return await create(); }
+    catch (error) {
+      const cause = error && typeof error === "object" && "cause" in error ? error.cause : error;
+      if (cause && typeof cause === "object" && "code" in cause && cause.code === "23505" && await this.findByPrivyId(privyUserId)) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -54,14 +72,14 @@ export class AuthRepository {
    * another first sign-in of the same Privy DID won the insert.
    */
   async createBootstrapCandidate(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress"> & { embeddedWalletAddress?: string | null; locale?: AuthUserRow["locale"] }) {
-    return this.db.transaction(async (tx) => {
+    return this.recoverConcurrentIdentity(input.privyUserId, () => this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(${sql.raw(String(BOOTSTRAP_LOCK))}, 0)`);
       const [admin] = await tx.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), isNull(users.disabledAt))).limit(1);
       const role = admin ? "user" as const : "admin" as const;
       const [row] = await tx.insert(users).values({ ...input, role }).onConflictDoNothing({ target: users.privyUserId }).returning();
       if (row && role === "admin") await recordAdminAudit(tx, null, "user.bootstrap", String(row.id), null, { role: "admin", source: "AUTH_ADMIN_EMAILS" });
       return row;
-    });
+    }));
   }
 
   /** Record the Privy embedded wallet once. It never changes for a Privy user,

@@ -1,3 +1,4 @@
+import { exchangeApprovalFixture } from "./copy-live-test-utils.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
@@ -201,7 +202,7 @@ describe("owner consent revocation", () => {
   }
   it("revokes atomically once across concurrent requests and survives a new process", async () => {
     await grant();
-    const authority = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db));
+    const authority = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), exchangeApprovalFixture(Date.now));
     const input = { authorizationId: "grant", userId: uid, strategyId: strategy, walletId: "privy-agent", network: "testnet" as const, accountAddress: addr, reduceOnly: false };
     await expect(authority.authorize(input)).resolves.toMatchObject({ version: 1 });
     const [a, b] = await Promise.all([service.revoke(uid, "grant"), service.revoke(uid, "grant")]);

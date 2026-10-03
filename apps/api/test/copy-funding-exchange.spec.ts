@@ -27,7 +27,8 @@ describe("strategy funding trusted transport", () => {
   });
   it("queries only the fixed explorer for a valid receipt hash and refuses arbitrary inputs", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ type: "txDetails", tx: {} }))); vi.stubGlobal("fetch", fetcher);
-    const { transport } = client(), hash = `0x${"aa".repeat(32)}`; await transport.txDetails("testnet", hash);
+    const { transport, budget } = client(), hash = `0x${"aa".repeat(32)}`; await transport.txDetails("testnet", hash);
+    expect(budget.acquire).toHaveBeenCalledWith(40, "live", 0, { signal: expect.any(AbortSignal) });
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit]; expect(url).toBe("https://rpc.hyperliquid-testnet.xyz/explorer"); expect(JSON.parse(init.body as string)).toEqual({ type: "txDetails", hash });
     expect(() => transport.txDetails("testnet", "https://foreign.example")).toThrow("Invalid funding evidence"); expect(fetcher).toHaveBeenCalledTimes(1);
   });

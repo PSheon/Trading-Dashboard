@@ -47,8 +47,12 @@ export interface SignedLiveOrder {
 }
 export interface LiveExchangeTransport {
   readonly network: LiveNetwork;
+  /** Must independently verify current local consent AND fresh exchange
+   * approval after the risk gate, at the actual signing request boundary. */
   sign(record: LiveExecutionRecord, intent: LiveOrderIntent, lease: LiveExecutionLease): Promise<SignedLiveOrder>;
-  /** Exceptions are ambiguous after POST. Only LiveSubmissionBlockedError proves no request began. */
+  /** Must repeat fresh exchange/local approval checks at the actual POST
+   * boundary. Exceptions are ambiguous after POST. Only
+   * LiveSubmissionBlockedError proves no request began. */
   submit(order: SignedLiveOrder, record: LiveExecutionRecord, intent: LiveOrderIntent, lease: LiveExecutionLease): Promise<ExchangeOutcome>;
   /** null means no evidence yet, not permission to retry. Query the trading account by cloid. */
   query(record: LiveExecutionRecord): Promise<ExchangeOutcome | null>;
@@ -71,7 +75,7 @@ export class LiveOrderExecutor {
       // Reconciliation is read-only and remains possible after grant revocation/expiry.
       if (record && ["submitting", "unknown", "resting"].includes(record.state)) return this.reconcileLocked(record, lease);
       if (record && record.state !== "prepared") return record;
-      const authorization = await this.authorizations.authorize(intent);
+      const authorization = await this.authorizations.authorizeLocal(intent);
       record ??= await this.journal.prepare({ key, fingerprint, authorization, action, now: this.now() });
       if (record.fingerprint !== fingerprint) throw new LiveBoundaryError("cloid_payload_conflict");
       if (record.key !== key || !isDeepStrictEqual(record.action, action)) throw new LiveBoundaryError("persisted_order_payload_mismatch");
@@ -84,7 +88,7 @@ export class LiveOrderExecutor {
       await assertLiveExecutionReady(this.gate, lease, "sign", intent, record);
       const signed = structuredClone(await this.transport.sign(structuredClone(record), structuredClone(intent), lease));
       assertSignedOrderMatches(signed, record);
-      const fresh = await this.authorizations.authorize(intent);
+      const fresh = await this.authorizations.authorizeLocal(intent);
       assertSameAuthorization(authorization, fresh);
       if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
       await lease.assertHeld();
@@ -92,7 +96,7 @@ export class LiveOrderExecutor {
       // Persistence can block long enough for controls or the lock to change.
       // Any failure before POST is a definite non-submission, never an unknown fill.
       try {
-        const finalAuthorization = await this.authorizations.authorize(intent);
+        const finalAuthorization = await this.authorizations.authorizeLocal(intent);
         assertSameAuthorization(authorization, finalAuthorization);
         await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
         if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");

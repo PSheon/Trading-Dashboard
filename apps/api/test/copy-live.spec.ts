@@ -1,3 +1,4 @@
+import { exchangeApprovalFixture } from "./copy-live-test-utils.js";
 import { LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "../src/copy/live/live-execution-gate.js";
 import { describe, expect, it, vi } from "vitest";
 import { LiveOrderExecutor, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
@@ -38,7 +39,7 @@ class Journal implements LiveExecutionJournal {
 function setup(gate: LiveExecutionGate = { assertReady: async () => {} }) {
   let current = structuredClone(grant);
   const journal = new Journal();
-  const auth = new WalletAuthorizationService({ find: async () => current }, () => now);
+  const auth = new WalletAuthorizationService({ find: async () => current }, exchangeApprovalFixture(() => now), () => now);
   const transport: LiveExchangeTransport = { network: "testnet",
     sign: vi.fn<LiveExchangeTransport["sign"]>(async (record) => ({ action: record.action, nonce: record.nonce, expiresAfter: record.expiresAfter, signature: { r: "0x01", s: "0x02", v: 27 } })),
     submit: vi.fn<LiveExchangeTransport["submit"]>(async () => ({ state: "filled", exchangeOrderId: "10", filledSize: "0.01", averagePrice: "65000" })),
@@ -47,6 +48,14 @@ function setup(gate: LiveExecutionGate = { assertReady: async () => {} }) {
 }
 
 describe("live execution authorization and exact wire boundary", () => {
+  it("a custom transport cannot execute without a configured exchange approval verifier", async () => {
+    const { journal, transport } = setup();
+    const auth = new WalletAuthorizationService({ find: async () => grant }, undefined as never, () => now);
+    const executor = new LiveOrderExecutor(auth, journal, transport, { assertReady: async () => {} }, () => now);
+    await expect(executor.execute(intent)).rejects.toThrow("exchange_approval_verifier_missing");
+    expect(transport.sign).not.toHaveBeenCalled(); expect(transport.submit).not.toHaveBeenCalled();
+    expect(journal.rows.size).toBe(0);
+  });
   it.each([
     { userId: 99 }, { strategyId: 99 }, { walletId: "foreign" }, { network: "mainnet" as const },
     { accountAddress: `0x${"33".repeat(20)}` as const }, { scopes: [] }, { revokedAt: now }, { expiresAt: now },
@@ -68,7 +77,7 @@ describe("live execution authorization and exact wire boundary", () => {
 describe("live execution durable submission semantics (injected transport)", () => {
   it("refuses a missing final risk gate before obtaining a signature", async () => {
     const { journal, transport } = setup();
-    const auth = new WalletAuthorizationService({ find: async () => grant }, () => now);
+    const auth = new WalletAuthorizationService({ find: async () => grant }, exchangeApprovalFixture(() => now), () => now);
     const executor = new LiveOrderExecutor(auth, journal, transport, undefined as never, () => now);
     await expect(executor.execute(intent)).rejects.toThrow("live_execution_gate_missing");
     expect(transport.sign).not.toHaveBeenCalled();

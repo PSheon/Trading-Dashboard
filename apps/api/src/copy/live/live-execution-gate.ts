@@ -11,6 +11,8 @@ export interface LiveExecutionLease {
 export interface LiveExecutionGate {
   /** Authoritative, uncached final check of current strategy/owner/platform controls,
    * risk policy, reservation ownership, funded collateral, quotes and market identity.
+   * Verify dedicated execution-account ownership and supported master-account
+   * role: a current agent listing alone does not establish either prerequisite.
    * Reject unavailable dependencies as well as denied risk. No permissive default.
    * Integration must use exact record.action/nonce, without resizing the order. */
   assertReady(input: { phase: "sign" | "submit"; intent: LiveOrderIntent; record: LiveExecutionRecord }): Promise<void>;

@@ -27,6 +27,10 @@ import { CopyFundingRepository } from "./copy-funding.repository.js";
 import { CopyFundingService } from "./copy-funding.service.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { CopyFundingMonitor } from "./copy-funding-monitor.service.js";
+import { AppConfig } from "../config/app-config.js";
+import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { HyperliquidAgentApprovalVerifier } from "./live/hyperliquid-agent-approval.js";
+import { WalletAuthorizationService } from "./live/wallet-authorization.js";
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
@@ -43,6 +47,11 @@ import { CopyFundingMonitor } from "./copy-funding-monitor.service.js";
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService, CopyAdoptionRepairService, CopyPerformanceService,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
+    { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, RequestBudgeterService],
+      useFactory: (config: AppConfig, budget: RequestBudgeterService) => new HyperliquidAgentApprovalVerifier(
+        config.value.hyperliquid.wallet.network, (weight) => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) })) },
+    { provide: WalletAuthorizationService, inject: [PostgresWalletAuthorizationSource, HyperliquidAgentApprovalVerifier],
+      useFactory: (source: PostgresWalletAuthorizationSource, exchange: HyperliquidAgentApprovalVerifier) => new WalletAuthorizationService(source, exchange) },
     CopyWalletService, CopyWalletRepository, { provide: USER_WALLET_PROVISIONER, useClass: PrivyUserWalletProvisioner },
     CopyFundingRepository, CopyFundingService, CopyFundingExchangeClient, CopyFundingMonitor,
   ],

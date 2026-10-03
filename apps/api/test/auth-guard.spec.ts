@@ -263,9 +263,18 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     });
 
     it("concurrent first requests create exactly one user", async () => {
-      await Promise.all([1, 2, 3, 4].map(() => get("/t/protected", "alice-token").expect(200)));
-      expect(await db.select().from(users)).toHaveLength(1);
-      expect(await db.select().from(alertRules)).toHaveLength(3); // the defaults only
+      // Exercise PostgreSQL's speculative inserts against both DID and wallet
+      // unique indexes. A single attempt rarely triggers the non-arbiter index
+      // race; every concurrent caller must still resolve the committed identity.
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await db.delete(users);
+        auth.clearCache();
+        const responses = await Promise.all([1, 2, 3, 4].map(() => get("/t/protected", "alice-token").expect(200)));
+        const rows = await db.select().from(users);
+        expect(rows).toHaveLength(1);
+        expect(responses.map((response) => response.body.user.id)).toEqual([rows[0].id, rows[0].id, rows[0].id, rows[0].id]);
+        expect(await db.select().from(alertRules)).toHaveLength(3); // the defaults only
+      }
     });
 
     it("does not restore a demoted bootstrap admin while the email remains allowlisted", async () => {

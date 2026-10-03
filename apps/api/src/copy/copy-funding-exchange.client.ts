@@ -29,6 +29,6 @@ export class CopyFundingExchangeClient {
   txDetails(network: FundingRow["network"], hash: string) {
     if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error("Invalid funding evidence");
     const url = network === "mainnet" ? "https://rpc.hyperliquid.xyz/explorer" : "https://rpc.hyperliquid-testnet.xyz/explorer";
-    return this.read(url, { type: "txDetails", hash }, 20);
+    return this.read(url, { type: "txDetails", hash }, 40);
   }
 }

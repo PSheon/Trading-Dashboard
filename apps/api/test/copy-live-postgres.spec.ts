@@ -1,3 +1,4 @@
+import { exchangeApprovalFixture } from "./copy-live-test-utils.js";
 import { Pool } from "pg";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -73,7 +74,7 @@ describe("live PostgreSQL journal and authorization authority", () => {
     expect([a.nonce, b.nonce, c.nonce]).toEqual([now, now, now]);
   });
   it("persists timeout state across restart and reconciles original cloid without resubmitting", async () => {
-    const auth = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), () => now);
+    const auth = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), exchangeApprovalFixture(() => now), () => now);
     const exchange = transport();
     const initial = new LiveOrderExecutor(auth, first, exchange, gate, () => now);
     expect((await initial.execute(intent)).state).toBe("unknown");
@@ -147,7 +148,7 @@ describe("live PostgreSQL journal and authorization authority", () => {
   });
   it("source sees committed revocation immediately and enforces network binding", async () => {
     const source = new PostgresWalletAuthorizationSource(db);
-    const auth = new WalletAuthorizationService(source, () => now);
+    const auth = new WalletAuthorizationService(source, exchangeApprovalFixture(() => now), () => now);
     expect(await auth.authorize(intent)).toEqual(grant);
     await expect(auth.authorize({ ...intent, network: "mainnet" })).rejects.toThrow("wallet_network_mismatch");
     await db.update(copyWalletAuthorizations).set({ revokedAt: new Date(now), version: 2 }).where(eq(copyWalletAuthorizations.id, grant.id));
@@ -155,7 +156,7 @@ describe("live PostgreSQL journal and authorization authority", () => {
     await expect(auth.authorize(intent)).rejects.toThrow("wallet_authorization_revoked");
   });
   it("disabled owner cannot obtain an authorization even with an unrevoked grant", async () => {
-    const auth = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), () => now);
+    const auth = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db), exchangeApprovalFixture(() => now), () => now);
     await auth.authorize(intent);
     await db.update(users).set({ disabledAt: new Date(now) }).where(eq(users.id, grant.userId));
     await expect(auth.authorize(intent)).rejects.toThrow();

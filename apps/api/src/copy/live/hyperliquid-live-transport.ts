@@ -55,6 +55,11 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       order = structuredClone(order);
       assertSignedOrderMatches(order, record);
       await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
+      // The risk adapter can perform remote reads. Verify exchange approval
+      // after it too, immediately before starting the exchange POST.
+      const verified = await this.signer.assertAuthorization(record, intent);
+      await lease.assertHeld();
+      this.signer.assertAuthorizationFresh(verified, intent);
       if (order.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
     } catch (error) {
       throw new LiveSubmissionBlockedError(error instanceof LiveBoundaryError ? error.code : "final_execution_check_failed");

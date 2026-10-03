@@ -7,6 +7,29 @@ using an approved agent or the account's own signer. Vault/subaccount signing,
 spot/HIP-3 orders, transfers, agent approval, cancellation, and wallet provisioning
 are not implemented by this boundary.
 
+`WalletAuthorizationService` now requires `HyperliquidAgentApprovalVerifier` (wired
+through `CopyModule`) as well as local consent. Dedicated delegated signers are
+checked against a fresh, unique exact-address `extraAgents` listing queried on
+the grant's actual account and fixed network. Missing, expired, malformed,
+ambiguous or unavailable approval fails closed; no positive result is cached.
+An unnamed/default agent absent from that listing is unsupported. Self signing
+instead requires a fresh `userRole=user` response. These checks do not establish
+Privy ownership, the account's supported master role, risk approval or consent:
+those remain mandatory verified-provisioning and final risk-gate inputs.
+
+The actual SDK signing and exchange POST boundaries each acquire new approval
+evidence after their risk gate, reread local consent after the exchange read,
+then revalidate both expiries and the five-second evidence window synchronously
+after the final lease check. Intermediate preparation checks read only local
+consent, but still refuse an unconfigured verifier. A standard delegated order
+therefore makes two uncached approval reads, not repeated role queries at every
+intermediate check. The shared budget charges `extraAgents` 20 and `userRole` 60;
+funding explorer receipts separately cost 40. Slow/budget-starved observations
+are refused rather than timestamped as fresh. These are bounded observations,
+not atomic cancellation: an owner can revoke after the final local/remote read,
+or a lock can fail just after its last check. Exchange/provider fencing would
+be needed to eliminate that outgoing-request race.
+
 `PrivyOrderSigner` uses the installed Privy Node SDK. A configured callback supplies
 Privy's authorization context; credentials and signing keys must remain outside
 the journal. Before signing, it checks the current local grant and the actual
@@ -52,6 +75,7 @@ Hyperliquid hashing/signing adapter. They verify payloads and fault handling;
 they do not validate signatures with Privy or execute an exchange order.
 
 Reference: [Hyperliquid signing](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/signing),
+[rate limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits),
 [nonce rules](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets),
 [exchange orders](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint),
 [order status](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint),

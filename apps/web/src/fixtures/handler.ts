@@ -1,4 +1,5 @@
 import { kolSchema, kolImportResponseSchema, kolPreviewSchema } from "@trading-dashboard/shared/contracts";
+import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
@@ -308,7 +309,8 @@ export async function fixtureRequest<T>(
   const parts = url.pathname.split("/").filter(Boolean);
   const search = url.searchParams;
   const signedIn = token !== null;
-  const route = `${method} /${parts.map((p, i) => (i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
+  const walletIdPath = parts[0] === "me" && parts[1] === "copy" && ["execution-wallets", "wallet-authorizations"].includes(parts[2] ?? "");
+  const route = `${method} /${parts.map((p, i) => (walletIdPath && i === 3 ? ":id" : i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
   if (route.startsWith("GET /traders/:address")) traderBusy(url.pathname, url.search);
 
   if (parts[0] === "insights" && parts[1] === "cohorts" && method === "GET" && parts.length === 3) return wire(cohortDetailResponseSchema, fixtureCohort(parts[2]));
@@ -529,6 +531,18 @@ export async function fixtureRequest<T>(
     case "GET /me/wallet":
       requireUser(token);
       return wire(walletResponseSchema, fixtureWallet());
+    case "GET /me/copy/execution-wallets":
+      requireUser(token);
+      // Browser fixtures have no real Privy wallet provider. Never manufacture
+      // a ready account, deposit address or live signing authorization.
+      return wire(copyExecutionWalletsSchema, { available: false, network: "testnet", accounts: [], authorizations: [] });
+    case "POST /me/copy/strategies/:id/execution-wallet":
+    case "POST /me/copy/execution-wallets/:id/reconcile":
+      requireUser(token);
+      throw new ApiError(503, "Wallet preparation is currently unavailable", { code: "wallet_provider_unavailable" });
+    case "POST /me/copy/wallet-authorizations/:id/revoke":
+      requireUser(token);
+      throw new ApiError(404, "Wallet authorization not found");
     case "GET /me/copy/events": {
       requireUser(token);
       const query = copyEventsQuerySchema.parse({ after: search.get("after") ?? "0", limit: search.get("limit") ?? "100", before: search.get("before") ?? undefined });

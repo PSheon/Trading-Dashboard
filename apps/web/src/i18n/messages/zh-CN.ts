@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const zhCN: Messages = {
+  executionWallets: {
+    "readyHint": "仅已确认钱包所有权。交易所授权、入金与实盘交易仍需另外设置。",
+    "reverify": "重新验证钱包所有权",
+    "title": "跟单执行钱包",
+    "setupHint": "为跟单准备一个由你拥有的空钱包。此操作不会入金或启用实盘交易。",
+    "loading": "正在加载执行钱包…",
+    "loadError": "无法加载执行钱包。",
+    "retry": "重试",
+    "network": "网络",
+    "unavailable": "目前无法准备钱包。",
+    "loadingCopies": "正在加载你的跟单…",
+    "copiesError": "无法加载你的跟单。",
+    "strategy": "你的跟单",
+    "selectStrategy": "选择跟单",
+    "copyNumber": "跟单 #{id}",
+    "creating": "准备中…",
+    "prepared": "钱包已准备",
+    "create": "准备专用钱包",
+    "noCopies": "请先创建模拟跟单，再准备专用钱包。",
+    "actionError": "无法确认操作结果。重试前请刷新或查询钱包状态。",
+    "addressPending": "地址尚未确认",
+    "unconfirmedHint": "钱包验证尚未完成。请勿向此钱包转入资金。",
+    "checking": "查询中…",
+    "reconcile": "查询钱包状态",
+    "authorizations": "服务器签署授权",
+    "revokeHint": "撤销只会停止未来的服务器签署。现有交易所订单和代理授权仍需在交易所清理。",
+    "noAuthorizations": "没有签署授权。",
+    "account": "账户地址",
+    "signer": "签署者地址",
+    "scopes": "权限",
+    "tradeScope": "跟单交易",
+    "reduceScope": "减少跟单仓位",
+    "expires": "到期时间",
+    "revokeConfirmHint": "撤销无法恢复，且不会取消现有交易所订单或移除交易所代理授权。",
+    "revoking": "撤销中…",
+    "confirmRevoke": "确认撤销",
+    "cancel": "取消",
+    "revoked": "已永久撤销",
+    "revoke": "撤销授权",
+    "networks": {
+      "testnet": "测试网",
+      "mainnet": "主网"
+    },
+    "states": {
+      "requested": "已请求准备",
+      "unknown": "结果未确认",
+      "ready": "已就绪",
+      "blocked": "已阻止"
+    },
+    "issues": {
+      "verification_pending": "正在验证钱包所有权。",
+      "provider_unavailable": "钱包服务暂时无法使用。",
+      "wallet_conflict": "钱包资料冲突，请联系客服。"
+    },
+    "statuses": {
+      "pending": "待确认",
+      "active": "有效",
+      "expired": "已到期",
+      "revoked": "已撤销"
+    }
+  },
   copyUpdates: {
     orderRejected: "订单已拒绝",
     orderCancelled: "订单已取消",

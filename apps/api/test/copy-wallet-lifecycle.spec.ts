@@ -1,0 +1,234 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { and, eq } from "drizzle-orm";
+import { copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copyWalletAuthorizationEvents, users } from "@trading-dashboard/shared/database";
+import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
+import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
+import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
+import { UnitOfWork } from "../src/db/unit-of-work.js";
+import { PostgresWalletAuthorizationSource } from "../src/copy/live/postgres-wallet-authorizations.js";
+import { WalletAuthorizationService } from "../src/copy/live/wallet-authorization.js";
+import { ProvisioningVerificationPending, ProvisioningWalletConflict, type ProvisionedUserWallet, type UserWalletProvisioner } from "../src/copy/live/privy-wallet-provisioner.js";
+import { testConfig } from "./config-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from "./db-test-utils.js";
+
+let db: TestDb;
+let uid: number;
+let stranger: number;
+let strategy: number;
+let stored: ProvisionedUserWallet | null;
+let provider: UserWalletProvisioner;
+let service: CopyWalletService;
+const addr = `0x${"22".repeat(20)}` as const;
+const signer = `0x${"11".repeat(20)}` as const;
+beforeAll(() => { db = getTestDb(); });
+beforeEach(async () => {
+  await truncateAll(db);
+  uid = (await insertUser(db, { privyUserId: "did:privy:wallet-owner" })).id;
+  stranger = (await insertUser(db)).id;
+  strategy = (await db.insert(copyStrategies).values({ userId: uid, leaderAddress: addr, allocated: "100", cash: "100", activatedAt: new Date() }).returning())[0].id;
+  stored = null;
+  provider = { available: true,
+    create: vi.fn(async (_user, externalId) => { stored = { id: "provider-wallet", address: addr, externalId, ownerQuorumId: "verified-user-quorum" }; }),
+    findOwned: vi.fn(async () => stored),
+  };
+  service = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
+});
+afterAll(closeTestDb);
+
+describe("dedicated user-owned execution wallet lifecycle", () => {
+  it("read has no provider mutation and exposes no owner/provider identity", async () => {
+    expect(copyExecutionWalletsSchema.parse(await service.overview(uid))).toEqual({ available: true, network: "testnet", accounts: [], authorizations: [] });
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(provider.findOwned).not.toHaveBeenCalled();
+    const result = await service.prepare(uid, strategy, { network: "testnet" });
+    expect(result.state).toBe("ready");
+    expect(result.address).toBe(addr);
+    expect(Object.keys(result)).not.toContain("privyWalletId");
+    expect(Object.keys(result)).not.toContain("privyUserId");
+    const [row] = await db.select().from(copyExecutionAccounts);
+    expect(provider.create).toHaveBeenCalledWith("did:privy:wallet-owner", row.externalId);
+    expect(row.externalId).toMatch(/^copy_[a-z0-9]{32}$/);
+    expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100" });
+    expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
+  });
+  it("concurrent replicas create once and repeated requests reuse the same account", async () => {
+    const second = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
+    const results = await Promise.all([service.prepare(uid, strategy, { network: "testnet" }), second.prepare(uid, strategy, { network: "testnet" })]);
+    expect(results[0].id).toBe(results[1].id);
+    expect(provider.create).toHaveBeenCalledTimes(1);
+    const replay = await second.prepare(uid, strategy, { network: "testnet" });
+    expect(replay).toMatchObject({ id: results[0].id, state: "ready", address: addr });
+    expect(provider.create).toHaveBeenCalledTimes(1);
+    expect(await db.select().from(copyExecutionAccounts)).toHaveLength(1);
+  });
+  it("commits unknown before provider POST and recovers a lost creation response after restart", async () => {
+    vi.mocked(provider.create).mockImplementation(async (_user, externalId) => {
+      const [row] = await db.select().from(copyExecutionAccounts);
+      expect(row.state).toBe("unknown");
+      stored = { id: "provider-wallet", address: addr, externalId, ownerQuorumId: "verified-user-quorum" };
+      throw new Error("Secret remote exception text");
+    });
+    const initial = await service.prepare(uid, strategy, { network: "testnet" });
+    expect(initial.state).toBe("unknown");
+    expect(initial.address).toBeNull();
+    expect(JSON.stringify(initial)).not.toContain("Secret");
+    const restarted = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
+    expect(await restarted.reconcile(uid, initial.id)).toMatchObject({ state: "ready", address: addr });
+    expect(provider.create).toHaveBeenCalledTimes(1);
+  });
+  it("missing evidence for an unknown intent never authorizes a new creation", async () => {
+    vi.mocked(provider.create).mockRejectedValue(new Error("timeout"));
+    const initial = await service.prepare(uid, strategy, { network: "testnet" });
+    expect(initial.state).toBe("unknown");
+    for (let i = 0; i < 3; i++) expect((await service.reconcile(uid, initial.id)).state).toBe("unknown");
+    expect(provider.create).toHaveBeenCalledTimes(1);
+  });
+  it("a crash after the durable claim but before POST stays lookup-only after restart", async () => {
+    await db.insert(copyExecutionAccounts).values({ id: "crashed-account", userId: uid, strategyId: strategy, network: "testnet",
+      privyUserId: "did:privy:wallet-owner", externalId: "copy_crashed_claim", state: "unknown", issue: "verification_pending" });
+    const restarted = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
+    expect(await restarted.reconcile(uid, "crashed-account")).toMatchObject({ state: "unknown", address: null });
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(provider.findOwned).toHaveBeenCalledWith("did:privy:wallet-owner", "copy_crashed_claim");
+  });
+  it("a failed pre-create lookup can retry without losing the unsubmitted intent", async () => {
+    vi.mocked(provider.findOwned).mockRejectedValueOnce(new Error("lookup unavailable"));
+    const initial = await service.prepare(uid, strategy, { network: "testnet" });
+    expect(initial).toMatchObject({ state: "requested", issue: "provider_unavailable" });
+    expect(provider.create).not.toHaveBeenCalled();
+    expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
+    expect(provider.create).toHaveBeenCalledTimes(1);
+  });
+  it("refuses foreign strategies/accounts, disabled users, stopped copies and wrong network", async () => {
+    await expect(service.prepare(stranger, strategy, { network: "testnet" })).rejects.toThrow("Copy strategy not found");
+    await expect(service.prepare(uid, strategy, { network: "mainnet" })).rejects.toThrow("wallet_network_mismatch");
+    await expect(service.prepare(uid, strategy, { network: "testnet", ownerId: "injected" })).rejects.toThrow("Invalid execution wallet request");
+    expect(provider.create).not.toHaveBeenCalled();
+    const prepared = await service.prepare(uid, strategy, { network: "testnet" });
+    await expect(service.reconcile(stranger, prepared.id)).rejects.toThrow("Execution wallet not found");
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
+    await expect(service.reconcile(uid, prepared.id)).rejects.toThrow("User not found");
+    await db.update(users).set({ disabledAt: null }).where(eq(users.id, uid));
+    await db.update(copyStrategies).set({ status: "stopped", stoppedAt: new Date() }).where(eq(copyStrategies.id, strategy));
+    await expect(service.prepare(uid, strategy, { network: "testnet" })).rejects.toThrow("copy_stopped");
+  });
+  it("blocks provider ownership/identity conflicts and never exposes an unverified address", async () => {
+    vi.mocked(provider.findOwned).mockRejectedValue(new ProvisioningWalletConflict("wallet_conflict"));
+    const row = await service.prepare(uid, strategy, { network: "testnet" });
+    expect(row).toMatchObject({ state: "blocked", issue: "wallet_conflict", address: null });
+    expect(provider.create).not.toHaveBeenCalled();
+    expect((await service.reconcile(uid, row.id)).state).toBe("blocked");
+  });
+  it("blocks an identity change in a previously verified account", async () => {
+    const initial = await service.prepare(uid, strategy, { network: "testnet" });
+    stored = { ...stored!, ownerQuorumId: "foreign-quorum" };
+    expect(await service.reconcile(uid, initial.id)).toMatchObject({ state: "blocked", address: null });
+  });
+  it("blocks a wallet/address already bound to another strategy through wrapped database errors", async () => {
+    const first = await service.prepare(uid, strategy, { network: "testnet" });
+    const next = (await db.insert(copyStrategies).values({ userId: uid, leaderAddress: signer, allocated: "100", cash: "100", activatedAt: new Date() }).returning())[0].id;
+    stored = null;
+    expect(await service.prepare(uid, next, { network: "testnet" })).toMatchObject({ state: "blocked", address: null, issue: "wallet_conflict" });
+    expect((await service.overview(uid)).accounts.find((row) => row.id === first.id)?.state).toBe("ready");
+  });
+  it("keeps temporarily incomplete ownership evidence recoverable without another creation", async () => {
+    vi.mocked(provider.findOwned).mockRejectedValueOnce(new ProvisioningVerificationPending("verification_pending"));
+    const initial = await service.prepare(uid, strategy, { network: "testnet" });
+    expect(initial).toMatchObject({ state: "unknown", issue: "verification_pending", address: null });
+    stored = { id: "provider-wallet", address: addr, externalId: (await db.select().from(copyExecutionAccounts))[0].externalId, ownerQuorumId: "verified-user-quorum" };
+    expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
+    expect(provider.create).not.toHaveBeenCalled();
+  });
+  it("failed reverification hides a stale positive result until new proof arrives", async () => {
+    const initial = await service.prepare(uid, strategy, { network: "testnet" });
+    vi.mocked(provider.findOwned).mockRejectedValueOnce(new Error("provider unavailable"));
+    expect(await service.reconcile(uid, initial.id)).toMatchObject({ state: "unknown", address: null, issue: "provider_unavailable" });
+    expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
+    expect(provider.create).toHaveBeenCalledTimes(1);
+  });
+  it("a stale failure cannot downgrade a newer successful proof even within the same millisecond", async () => {
+    const fixed = new Date();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(fixed);
+    try {
+      const initial = await service.prepare(uid, strategy, { network: "testnet" });
+      let reject!: (error: Error) => void;
+      let entered!: () => void;
+      const waiting = new Promise<ProvisionedUserWallet | null>((_resolve, rejectPromise) => { reject = rejectPromise; });
+      const ready = new Promise<void>((resolve) => { entered = resolve; });
+      vi.mocked(provider.findOwned).mockImplementationOnce(() => { entered(); return waiting; });
+      const stale = service.reconcile(uid, initial.id);
+      await ready;
+      expect((await service.reconcile(uid, initial.id)).state).toBe("ready");
+      reject(new Error("stale provider failure"));
+      expect((await stale).state).toBe("ready");
+      expect((await service.overview(uid)).accounts[0].state).toBe("ready");
+    } finally { vi.useRealTimers(); }
+  });
+  it("concurrent conflicting positive identities never overwrite the first committed binding", async () => {
+    let resolve!: (wallet: ProvisionedUserWallet) => void;
+    let entered!: () => void;
+    const wait = new Promise<ProvisionedUserWallet>((done) => { resolve = done; });
+    const ready = new Promise<void>((done) => { entered = done; });
+    vi.mocked(provider.findOwned).mockImplementationOnce(() => { entered(); return wait; });
+    const older = service.prepare(uid, strategy, { network: "testnet" });
+    await ready;
+    const [row] = await db.select().from(copyExecutionAccounts);
+    stored = { id: "first-committed-wallet", externalId: row.externalId, address: addr, ownerQuorumId: "verified-user-quorum" };
+    expect((await service.prepare(uid, strategy, { network: "testnet" })).state).toBe("ready");
+    resolve({ ...stored, id: "late-conflicting-wallet", address: signer });
+    expect(await older).toMatchObject({ state: "blocked", address: null, issue: "wallet_conflict" });
+    const [retained] = await db.select().from(copyExecutionAccounts);
+    expect(retained.privyWalletId).toBe("first-committed-wallet");
+    expect(retained.address).toBe(addr);
+    expect(provider.create).not.toHaveBeenCalled();
+  });
+  it("does not create an account when provider is unconfigured", async () => {
+    provider = { ...provider, available: false };
+    service = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
+    expect((await service.overview(uid)).available).toBe(false);
+    await expect(service.prepare(uid, strategy, { network: "testnet" })).rejects.toThrow("wallet_provider_unavailable");
+    expect(await db.select().from(copyExecutionAccounts)).toHaveLength(0);
+  });
+});
+
+describe("owner consent revocation", () => {
+  async function grant() {
+    await db.insert(copyExecutionWallets).values({ id: "agent-wallet", userId: uid, strategyId: strategy, network: "testnet", accountAddress: addr,
+      privyWalletId: "privy-agent", privyOwnerId: "server-quorum", signerAddress: signer });
+    await db.insert(copyWalletAuthorizations).values({ id: "grant", walletId: "agent-wallet", version: 1,
+      scopes: ["copy:trade", "copy:reduce"], validFrom: new Date(Date.now() - 10_000), expiresAt: new Date(Date.now() + 100_000), exchangeApprovedAt: new Date(Date.now() - 5_000) });
+  }
+  it("revokes atomically once across concurrent requests and survives a new process", async () => {
+    await grant();
+    const authority = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(db));
+    const input = { authorizationId: "grant", userId: uid, strategyId: strategy, walletId: "privy-agent", network: "testnet" as const, accountAddress: addr, reduceOnly: false };
+    await expect(authority.authorize(input)).resolves.toMatchObject({ version: 1 });
+    const [a, b] = await Promise.all([service.revoke(uid, "grant"), service.revoke(uid, "grant")]);
+    expect(a).toEqual(b);
+    expect(a.status).toBe("revoked");
+    expect((await db.select().from(copyWalletAuthorizations))[0].version).toBe(2);
+    expect(await db.select().from(copyWalletAuthorizationEvents)).toHaveLength(1);
+    await expect(authority.authorize(input)).rejects.toThrow("authorization_revoked");
+    expect(await new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider).revoke(uid, "grant")).toEqual(a);
+  });
+  it("a foreign owner cannot read or revoke, and expiration is displayed accurately", async () => {
+    await grant();
+    expect((await service.overview(stranger)).authorizations).toEqual([]);
+    await expect(service.revoke(stranger, "grant")).rejects.toThrow("Wallet authorization not found");
+    expect((await db.select().from(copyWalletAuthorizations))[0].revokedAt).toBeNull();
+    await db.update(copyWalletAuthorizations).set({ exchangeApprovedAt: null }).where(eq(copyWalletAuthorizations.id, "grant"));
+    expect((await service.overview(uid)).authorizations[0].status).toBe("pending");
+    await db.update(copyWalletAuthorizations).set({ validFrom: new Date(Date.now() - 20_000), expiresAt: new Date(Date.now() - 10_000) })
+      .where(and(eq(copyWalletAuthorizations.id, "grant"), eq(copyWalletAuthorizations.version, 1)));
+    expect((await service.overview(uid)).authorizations[0].status).toBe("expired");
+  });
+  it("rolls back grant revocation when durable consent evidence cannot be inserted", async () => {
+    await grant();
+    await db.insert(copyWalletAuthorizationEvents).values({ id: "conflicting-audit", authorizationId: "grant", userId: uid, version: 2, action: "revoked" });
+    await expect(service.revoke(uid, "grant")).rejects.toThrow();
+    const [row] = await db.select().from(copyWalletAuthorizations);
+    expect(row).toMatchObject({ version: 1, revokedAt: null });
+    expect((await service.overview(uid)).authorizations[0].status).toBe("active");
+  });
+});

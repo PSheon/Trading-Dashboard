@@ -232,6 +232,13 @@
       "when": 1791001695727,
       "tag": "0032_cohort_membership_history",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791003146350,
+      "tag": "0033_copy_wallet_lifecycle",
+      "breakpoints": true
     }
   ]
 }

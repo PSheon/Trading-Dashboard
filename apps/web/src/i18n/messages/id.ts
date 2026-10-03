@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const id: Messages = {
+  executionWallets: {
+    "readyHint": "Hanya kepemilikan yang terverifikasi. Persetujuan bursa, pendanaan, dan perdagangan nyata memerlukan pengaturan terpisah.",
+    "reverify": "Verifikasi ulang kepemilikan dompet",
+    "title": "Dompet eksekusi salinan",
+    "setupHint": "Siapkan dompet kosong milik kamu untuk salinan. Ini tidak mendanai dompet atau mengaktifkan perdagangan nyata.",
+    "loading": "Memuat dompet eksekusi…",
+    "loadError": "Gagal memuat dompet eksekusi.",
+    "retry": "Coba lagi",
+    "network": "Jaringan",
+    "unavailable": "Persiapan dompet saat ini tidak tersedia.",
+    "loadingCopies": "Memuat salinan kamu…",
+    "copiesError": "Gagal memuat salinan kamu.",
+    "strategy": "Salinan kamu",
+    "selectStrategy": "Pilih salinan",
+    "copyNumber": "Salinan #{id}",
+    "creating": "Menyiapkan…",
+    "prepared": "Dompet sudah disiapkan",
+    "create": "Siapkan dompet khusus",
+    "noCopies": "Buat salinan simulasi terlebih dahulu untuk menyiapkan dompet khusus.",
+    "actionError": "Tindakan belum terkonfirmasi. Muat ulang atau periksa status dompet sebelum mencoba lagi.",
+    "addressPending": "Alamat belum dikonfirmasi",
+    "unconfirmedHint": "Verifikasi dompet belum selesai. Jangan kirim dana ke dompet ini.",
+    "checking": "Memeriksa…",
+    "reconcile": "Periksa status dompet",
+    "authorizations": "Otorisasi tanda tangan server",
+    "revokeHint": "Pencabutan hanya menghentikan tanda tangan server berikutnya. Order dan persetujuan agen yang ada harus dibersihkan di bursa.",
+    "noAuthorizations": "Tidak ada otorisasi tanda tangan.",
+    "account": "Alamat akun",
+    "signer": "Alamat penanda tangan",
+    "scopes": "Izin",
+    "tradeScope": "Perdagangan salinan",
+    "reduceScope": "Kurangi posisi salinan",
+    "expires": "Kedaluwarsa",
+    "revokeConfirmHint": "Pencabutan tidak dapat dibatalkan. Order dan persetujuan agen yang ada di bursa tidak dihapus.",
+    "revoking": "Mencabut…",
+    "confirmRevoke": "Konfirmasi pencabutan",
+    "cancel": "Batal",
+    "revoked": "Dicabut permanen",
+    "revoke": "Cabut otorisasi",
+    "networks": {
+      "testnet": "Jaringan uji",
+      "mainnet": "Jaringan utama"
+    },
+    "states": {
+      "requested": "Persiapan diminta",
+      "unknown": "Hasil belum dikonfirmasi",
+      "ready": "Siap",
+      "blocked": "Diblokir"
+    },
+    "issues": {
+      "verification_pending": "Verifikasi kepemilikan dompet masih menunggu.",
+      "provider_unavailable": "Layanan dompet sementara tidak tersedia.",
+      "wallet_conflict": "Detail dompet bertentangan. Hubungi dukungan."
+    },
+    "statuses": {
+      "pending": "Menunggu",
+      "active": "Aktif",
+      "expired": "Kedaluwarsa",
+      "revoked": "Dicabut"
+    }
+  },
   copyUpdates: {
     orderRejected: "Order ditolak",
     orderCancelled: "Order dibatalkan",

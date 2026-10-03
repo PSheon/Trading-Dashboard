@@ -4,6 +4,67 @@
  * `{name}` and are filled by `t(key, { name })`.
  */
 export const zhTW = {
+  executionWallets: {
+    "readyHint": "僅已確認錢包所有權。交易所授權、入金與實盤交易仍需另外設定。",
+    "reverify": "重新驗證錢包所有權",
+    "title": "跟單執行錢包",
+    "setupHint": "為跟單準備一個由你擁有的空錢包。此操作不會入金或啟用實盤交易。",
+    "loading": "正在載入執行錢包…",
+    "loadError": "無法載入執行錢包。",
+    "retry": "重試",
+    "network": "網路",
+    "unavailable": "目前無法準備錢包。",
+    "loadingCopies": "正在載入你的跟單…",
+    "copiesError": "無法載入你的跟單。",
+    "strategy": "你的跟單",
+    "selectStrategy": "選擇跟單",
+    "copyNumber": "跟單 #{id}",
+    "creating": "準備中…",
+    "prepared": "錢包已準備",
+    "create": "準備專用錢包",
+    "noCopies": "請先建立模擬跟單，再準備專用錢包。",
+    "actionError": "無法確認操作結果。重試前請重新整理或查詢錢包狀態。",
+    "addressPending": "地址尚未確認",
+    "unconfirmedHint": "錢包驗證尚未完成。請勿向此錢包轉入資金。",
+    "checking": "查詢中…",
+    "reconcile": "查詢錢包狀態",
+    "authorizations": "伺服器簽署授權",
+    "revokeHint": "撤銷只會停止未來的伺服器簽署。現有交易所訂單和代理授權仍需在交易所清理。",
+    "noAuthorizations": "沒有簽署授權。",
+    "account": "帳戶地址",
+    "signer": "簽署者地址",
+    "scopes": "權限",
+    "tradeScope": "跟單交易",
+    "reduceScope": "減少跟單倉位",
+    "expires": "到期時間",
+    "revokeConfirmHint": "撤銷無法復原，且不會取消現有交易所訂單或移除交易所代理授權。",
+    "revoking": "撤銷中…",
+    "confirmRevoke": "確認撤銷",
+    "cancel": "取消",
+    "revoked": "已永久撤銷",
+    "revoke": "撤銷授權",
+    "networks": {
+      "testnet": "測試網",
+      "mainnet": "主網"
+    },
+    "states": {
+      "requested": "已請求準備",
+      "unknown": "結果未確認",
+      "ready": "已就緒",
+      "blocked": "已封鎖"
+    },
+    "issues": {
+      "verification_pending": "正在驗證錢包所有權。",
+      "provider_unavailable": "錢包服務暫時無法使用。",
+      "wallet_conflict": "錢包資料衝突，請聯絡客服。"
+    },
+    "statuses": {
+      "pending": "待確認",
+      "active": "有效",
+      "expired": "已到期",
+      "revoked": "已撤銷"
+    }
+  },
   copyUpdates: {
     orderRejected: "訂單已拒絕",
     orderCancelled: "訂單已取消",

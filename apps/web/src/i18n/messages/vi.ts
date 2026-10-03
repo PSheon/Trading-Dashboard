@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const vi: Messages = {
+  executionWallets: {
+    "readyHint": "Chỉ quyền sở hữu đã được xác minh. Quyền trên sàn, nạp tiền và giao dịch thật cần thiết lập riêng.",
+    "reverify": "Xác minh lại quyền sở hữu ví",
+    "title": "Ví thực thi sao chép",
+    "setupHint": "Chuẩn bị một ví trống do bạn sở hữu cho bản sao chép. Thao tác này không nạp tiền hoặc bật giao dịch thật.",
+    "loading": "Đang tải ví thực thi…",
+    "loadError": "Không thể tải ví thực thi.",
+    "retry": "Thử lại",
+    "network": "Mạng",
+    "unavailable": "Hiện không thể chuẩn bị ví.",
+    "loadingCopies": "Đang tải bản sao chép của bạn…",
+    "copiesError": "Không thể tải bản sao chép của bạn.",
+    "strategy": "Bản sao chép của bạn",
+    "selectStrategy": "Chọn bản sao chép",
+    "copyNumber": "Bản sao chép #{id}",
+    "creating": "Đang chuẩn bị…",
+    "prepared": "Ví đã được chuẩn bị",
+    "create": "Chuẩn bị ví riêng",
+    "noCopies": "Tạo bản sao chép mô phỏng trước để chuẩn bị ví riêng.",
+    "actionError": "Chưa xác nhận được thao tác. Làm mới hoặc kiểm tra trạng thái ví trước khi thử lại.",
+    "addressPending": "Địa chỉ chưa được xác nhận",
+    "unconfirmedHint": "Chưa hoàn tất xác minh ví. Không gửi tiền vào ví này.",
+    "checking": "Đang kiểm tra…",
+    "reconcile": "Kiểm tra trạng thái ví",
+    "authorizations": "Ủy quyền ký của máy chủ",
+    "revokeHint": "Thu hồi chỉ dừng chữ ký máy chủ trong tương lai. Các lệnh và quyền đại lý hiện có cần được xử lý trên sàn.",
+    "noAuthorizations": "Không có ủy quyền ký.",
+    "account": "Địa chỉ tài khoản",
+    "signer": "Địa chỉ người ký",
+    "scopes": "Quyền",
+    "tradeScope": "Giao dịch sao chép",
+    "reduceScope": "Giảm vị thế sao chép",
+    "expires": "Hết hạn",
+    "revokeConfirmHint": "Không thể hoàn tác việc thu hồi. Các lệnh và quyền đại lý hiện có trên sàn không bị hủy.",
+    "revoking": "Đang thu hồi…",
+    "confirmRevoke": "Xác nhận thu hồi",
+    "cancel": "Hủy",
+    "revoked": "Đã thu hồi vĩnh viễn",
+    "revoke": "Thu hồi ủy quyền",
+    "networks": {
+      "testnet": "Mạng thử nghiệm",
+      "mainnet": "Mạng chính"
+    },
+    "states": {
+      "requested": "Đã yêu cầu chuẩn bị",
+      "unknown": "Kết quả chưa xác nhận",
+      "ready": "Sẵn sàng",
+      "blocked": "Bị chặn"
+    },
+    "issues": {
+      "verification_pending": "Đang chờ xác minh quyền sở hữu ví.",
+      "provider_unavailable": "Dịch vụ ví tạm thời không khả dụng.",
+      "wallet_conflict": "Thông tin ví xung đột. Liên hệ hỗ trợ."
+    },
+    "statuses": {
+      "pending": "Đang chờ",
+      "active": "Có hiệu lực",
+      "expired": "Hết hạn",
+      "revoked": "Đã thu hồi"
+    }
+  },
   copyUpdates: {
     orderRejected: "Lệnh bị từ chối",
     orderCancelled: "Lệnh đã hủy",

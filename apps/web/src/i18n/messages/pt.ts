@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const pt: Messages = {
+  executionWallets: {
+    "readyHint": "Apenas a propriedade foi verificada. Aprovações da corretora, fundos e negociações reais exigem configuração separada.",
+    "reverify": "Verificar novamente a propriedade",
+    "title": "Carteiras de execução de cópia",
+    "setupHint": "Prepare uma carteira vazia de sua propriedade para uma cópia. Isso não deposita fundos nem ativa negociações reais.",
+    "loading": "Carregando carteiras de execução…",
+    "loadError": "Não foi possível carregar as carteiras de execução.",
+    "retry": "Tentar novamente",
+    "network": "Rede",
+    "unavailable": "A preparação de carteiras está indisponível no momento.",
+    "loadingCopies": "Carregando suas cópias…",
+    "copiesError": "Não foi possível carregar suas cópias.",
+    "strategy": "Sua cópia",
+    "selectStrategy": "Selecione uma cópia",
+    "copyNumber": "Cópia #{id}",
+    "creating": "Preparando…",
+    "prepared": "Carteira já preparada",
+    "create": "Preparar carteira dedicada",
+    "noCopies": "Crie primeiro uma cópia simulada para preparar uma carteira dedicada.",
+    "actionError": "Não foi possível confirmar a ação. Atualize ou verifique o estado da carteira antes de tentar novamente.",
+    "addressPending": "Endereço ainda não confirmado",
+    "unconfirmedHint": "A verificação da carteira está incompleta. Não envie fundos para esta carteira.",
+    "checking": "Verificando…",
+    "reconcile": "Verificar estado da carteira",
+    "authorizations": "Autorizações de assinatura do servidor",
+    "revokeHint": "A revogação interrompe apenas assinaturas futuras do servidor. Ordens e aprovações de agentes existentes devem ser removidas na corretora.",
+    "noAuthorizations": "Nenhuma autorização de assinatura.",
+    "account": "Endereço da conta",
+    "signer": "Endereço do signatário",
+    "scopes": "Permissões",
+    "tradeScope": "Negociação de cópia",
+    "reduceScope": "Reduzir posições copiadas",
+    "expires": "Expira em",
+    "revokeConfirmHint": "A revogação é irreversível. Não cancela ordens nem remove aprovações de agentes existentes na corretora.",
+    "revoking": "Revogando…",
+    "confirmRevoke": "Confirmar revogação",
+    "cancel": "Cancelar",
+    "revoked": "Revogada permanentemente",
+    "revoke": "Revogar autorização",
+    "networks": {
+      "testnet": "Rede de teste",
+      "mainnet": "Rede principal"
+    },
+    "states": {
+      "requested": "Preparação solicitada",
+      "unknown": "Resultado não confirmado",
+      "ready": "Pronta",
+      "blocked": "Bloqueada"
+    },
+    "issues": {
+      "verification_pending": "A verificação da propriedade da carteira está pendente.",
+      "provider_unavailable": "O serviço de carteiras está temporariamente indisponível.",
+      "wallet_conflict": "Os dados da carteira estão em conflito. Contate o suporte."
+    },
+    "statuses": {
+      "pending": "Pendente",
+      "active": "Ativa",
+      "expired": "Expirada",
+      "revoked": "Revogada"
+    }
+  },
   copyUpdates: {
     orderRejected: "Ordem rejeitada",
     orderCancelled: "Ordem cancelada",

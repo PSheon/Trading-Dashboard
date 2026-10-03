@@ -21,3 +21,4 @@ export * from "./admin-sources-contracts.js";
 
 export * from "./kol-csv.js";
 export * from "./kol-preview-contracts.js";
+export * from "./copy-wallet-contracts.js";

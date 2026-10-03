@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ja: Messages = {
+  executionWallets: {
+    "readyHint": "ウォレットの所有権のみ確認済みです。取引所の承認、入金、実取引には別途設定が必要です。",
+    "reverify": "ウォレット所有権を再検証",
+    "title": "コピー実行ウォレット",
+    "setupHint": "コピー用に自分が所有する空のウォレットを準備します。入金や実取引の有効化は行いません。",
+    "loading": "実行ウォレットを読み込み中…",
+    "loadError": "実行ウォレットを読み込めませんでした。",
+    "retry": "再試行",
+    "network": "ネットワーク",
+    "unavailable": "現在ウォレットを準備できません。",
+    "loadingCopies": "コピーを読み込み中…",
+    "copiesError": "コピーを読み込めませんでした。",
+    "strategy": "自分のコピー",
+    "selectStrategy": "コピーを選択",
+    "copyNumber": "コピー #{id}",
+    "creating": "準備中…",
+    "prepared": "ウォレット準備済み",
+    "create": "専用ウォレットを準備",
+    "noCopies": "先にペーパーコピーを作成してください。",
+    "actionError": "操作結果を確認できませんでした。再試行前に更新するか、ウォレットの状態を確認してください。",
+    "addressPending": "アドレス未確認",
+    "unconfirmedHint": "ウォレットの検証が未完了です。資金を送らないでください。",
+    "checking": "確認中…",
+    "reconcile": "ウォレットの状態を確認",
+    "authorizations": "サーバー署名の承認",
+    "revokeHint": "取り消しは今後のサーバー署名のみを停止します。既存の取引所注文やエージェント承認は取引所で解除してください。",
+    "noAuthorizations": "署名の承認はありません。",
+    "account": "アカウントアドレス",
+    "signer": "署名者アドレス",
+    "scopes": "権限",
+    "tradeScope": "コピー取引",
+    "reduceScope": "コピーのポジションを縮小",
+    "expires": "有効期限",
+    "revokeConfirmHint": "取り消しは元に戻せません。既存の取引所注文やエージェント承認は解除されません。",
+    "revoking": "取り消し中…",
+    "confirmRevoke": "取り消しを確定",
+    "cancel": "キャンセル",
+    "revoked": "永久に取り消し済み",
+    "revoke": "承認を取り消す",
+    "networks": {
+      "testnet": "テストネット",
+      "mainnet": "メインネット"
+    },
+    "states": {
+      "requested": "準備をリクエスト済み",
+      "unknown": "結果未確認",
+      "ready": "準備完了",
+      "blocked": "ブロック済み"
+    },
+    "issues": {
+      "verification_pending": "ウォレットの所有権を検証中です。",
+      "provider_unavailable": "ウォレットサービスを一時的に利用できません。",
+      "wallet_conflict": "ウォレット情報が一致しません。サポートに連絡してください。"
+    },
+    "statuses": {
+      "pending": "保留中",
+      "active": "有効",
+      "expired": "期限切れ",
+      "revoked": "取り消し済み"
+    }
+  },
   copyUpdates: {
     orderRejected: "注文拒否",
     orderCancelled: "注文取消",

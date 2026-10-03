@@ -1345,6 +1345,29 @@ export const copyEquitySnapshots = pgTable("copy_equity_snapshots", {
   equity: numeric("equity"), totalPnl: numeric("total_pnl"), netDeposits: numeric("net_deposits").notNull(), exposureUsd: numeric("exposure_usd"),
 }, (t) => [primaryKey({ columns: [t.strategyId, t.time] })]);
 
+/** Durable user-owned master wallet preparation, separate from delegated agent
+ * identities below. Preparing a wallet never switches a paper strategy to live. */
+export const copyExecutionAccounts = pgTable("copy_execution_accounts", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet" | "mainnet">().notNull(),
+  privyUserId: text("privy_user_id").notNull(), externalId: text("external_id").notNull().unique(),
+  revision: integer("revision").notNull().default(1),
+  state: text("state").$type<"requested" | "unknown" | "ready" | "blocked">().notNull().default("requested"),
+  privyWalletId: text("privy_wallet_id").unique(), ownerQuorumId: text("owner_quorum_id"), address: text("address").unique(),
+  issue: text("issue").$type<"verification_pending" | "provider_unavailable" | "wallet_conflict">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("copy_execution_accounts_strategy_uq").on(t.network, t.strategyId),
+  index("copy_execution_accounts_owner_idx").on(t.userId, t.createdAt),
+  check("copy_execution_accounts_network_check", oneOf(t.network, ["testnet", "mainnet"])),
+  check("copy_execution_accounts_state_check", oneOf(t.state, ["requested", "unknown", "ready", "blocked"])),
+  check("copy_execution_accounts_revision_check", sql`${t.revision} >= 1`),
+  check("copy_execution_accounts_issue_check", oneOf(t.issue, ["verification_pending", "provider_unavailable", "wallet_conflict"])),
+  check("copy_execution_accounts_ready_check", sql`${t.state} <> 'ready' or (${t.privyWalletId} is not null and ${t.ownerQuorumId} is not null and ${t.address} is not null and ${t.address} ~ '^0x[0-9a-f]{40}$' and ${t.issue} is null)`),
+]);
+
 /** Live identity records deliberately restrict deletion; no raw keys or tokens. */
 export const copyExecutionWallets = pgTable("copy_execution_wallets", {
   id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
@@ -1362,6 +1385,16 @@ export const copyWalletAuthorizations = pgTable("copy_wallet_authorizations", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }), exchangeApprovedAt: timestamp("exchange_approved_at", { withTimezone: true }),
 }, (t) => [index("copy_wallet_authorizations_wallet_idx").on(t.walletId),
   check("copy_wallet_authorizations_version_check", sql`${t.version} >= 1 and ${t.expiresAt} > ${t.validFrom}`)]);
+
+/** Immutable consent revocation evidence. No provider credentials or signatures. */
+export const copyWalletAuthorizationEvents = pgTable("copy_wallet_authorization_events", {
+  id: text("id").primaryKey(),
+  authorizationId: text("authorization_id").notNull().references(() => copyWalletAuthorizations.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  version: integer("version").notNull(), action: text("action").$type<"revoked">().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("copy_wallet_authorization_events_version_uq").on(t.authorizationId, t.version),
+  check("copy_wallet_authorization_events_action_check", sql`${t.action} = 'revoked' and ${t.version} >= 2`)]);
 
 export const copySignerNonces = pgTable("copy_signer_nonces", {
   network: text("network").notNull(), signerAddress: text("signer_address").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),

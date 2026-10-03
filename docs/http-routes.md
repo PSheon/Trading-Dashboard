@@ -94,6 +94,10 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/strategies/:id/withdraw-funds` | 200 | user (owner) |
 | GET | `/me/copy/strategies/:id/performance` | 200 | user (owner) |
 | GET | `/me/copy/events` | 200 | user |
+| GET | `/me/copy/execution-wallets` | 200 | user (owner) |
+| POST | `/me/copy/strategies/:id/execution-wallet` | 200 | user (owner); configured wallet provider; deployment network only |
+| POST | `/me/copy/execution-wallets/:id/reconcile` | 200 | user (owner) |
+| POST | `/me/copy/wallet-authorizations/:id/revoke` | 200 | user (owner) |
 | GET | `/admin/copy/overview` | 200 | copy.read |
 | GET | `/admin/copy/strategies` | 200 | copy.read |
 | GET | `/admin/copy/strategies/:id` | 200 | copy.read |

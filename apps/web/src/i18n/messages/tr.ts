@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const tr: Messages = {
+  executionWallets: {
+    "readyHint": "Yalnızca sahiplik doğrulandı. Borsa onayları, fonlama ve gerçek işlemler ayrı kurulum gerektirir.",
+    "reverify": "Cüzdan sahipliğini tekrar doğrula",
+    "title": "Kopya yürütme cüzdanları",
+    "setupHint": "Bir kopya için size ait boş bir cüzdan hazırlayın. Bu işlem para yatırmaz veya gerçek işlemleri etkinleştirmez.",
+    "loading": "Yürütme cüzdanları yükleniyor…",
+    "loadError": "Yürütme cüzdanları yüklenemedi.",
+    "retry": "Tekrar dene",
+    "network": "Ağ",
+    "unavailable": "Cüzdan hazırlama şu anda kullanılamıyor.",
+    "loadingCopies": "Kopyalarınız yükleniyor…",
+    "copiesError": "Kopyalarınız yüklenemedi.",
+    "strategy": "Kopyanız",
+    "selectStrategy": "Bir kopya seçin",
+    "copyNumber": "Kopya #{id}",
+    "creating": "Hazırlanıyor…",
+    "prepared": "Cüzdan zaten hazırlandı",
+    "create": "Özel cüzdan hazırla",
+    "noCopies": "Özel cüzdan hazırlamak için önce bir sanal kopya oluşturun.",
+    "actionError": "İşlem doğrulanamadı. Yeniden denemeden önce yenileyin veya cüzdan durumunu kontrol edin.",
+    "addressPending": "Adres henüz doğrulanmadı",
+    "unconfirmedHint": "Cüzdan doğrulaması tamamlanmadı. Bu cüzdana para göndermeyin.",
+    "checking": "Kontrol ediliyor…",
+    "reconcile": "Cüzdan durumunu kontrol et",
+    "authorizations": "Sunucu imzalama yetkileri",
+    "revokeHint": "İptal yalnızca gelecekteki sunucu imzalarını durdurur. Mevcut borsa emirleri ve ajan onayları borsada temizlenmelidir.",
+    "noAuthorizations": "İmzalama yetkisi yok.",
+    "account": "Hesap adresi",
+    "signer": "İmzalayan adresi",
+    "scopes": "İzinler",
+    "tradeScope": "Kopya işlemleri",
+    "reduceScope": "Kopya pozisyonlarını azaltma",
+    "expires": "Son kullanma tarihi",
+    "revokeConfirmHint": "İptal geri alınamaz. Mevcut borsa emirlerini veya borsadaki ajan onaylarını kaldırmaz.",
+    "revoking": "İptal ediliyor…",
+    "confirmRevoke": "İptali onayla",
+    "cancel": "Vazgeç",
+    "revoked": "Kalıcı olarak iptal edildi",
+    "revoke": "Yetkiyi iptal et",
+    "networks": {
+      "testnet": "Test ağı",
+      "mainnet": "Ana ağ"
+    },
+    "states": {
+      "requested": "Hazırlama istendi",
+      "unknown": "Sonuç doğrulanmadı",
+      "ready": "Hazır",
+      "blocked": "Engellendi"
+    },
+    "issues": {
+      "verification_pending": "Cüzdan sahipliği doğrulaması bekleniyor.",
+      "provider_unavailable": "Cüzdan hizmeti geçici olarak kullanılamıyor.",
+      "wallet_conflict": "Cüzdan bilgileri çelişiyor. Destek ile iletişime geçin."
+    },
+    "statuses": {
+      "pending": "Beklemede",
+      "active": "Etkin",
+      "expired": "Süresi doldu",
+      "revoked": "İptal edildi"
+    }
+  },
   copyUpdates: {
     orderRejected: "Emir reddedildi",
     orderCancelled: "Emir iptal edildi",

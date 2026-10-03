@@ -18,6 +18,10 @@ import { CopyController } from "./copy.controller.js";
 import { CopyRepository } from "./copy.repository.js";
 import { PostgresLiveExecutionJournal } from "./live/postgres-live-journal.js";
 import { PostgresWalletAuthorizationSource } from "./live/postgres-wallet-authorizations.js";
+import { CopyWalletController } from "./copy-wallet.controller.js";
+import { CopyWalletService } from "./copy-wallet.service.js";
+import { CopyWalletRepository } from "./copy-wallet.repository.js";
+import { PrivyUserWalletProvisioner, USER_WALLET_PROVISIONER } from "./live/privy-wallet-provisioner.js";
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
@@ -29,11 +33,12 @@ import { PostgresWalletAuthorizationSource } from "./live/postgres-wallet-author
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
-  controllers: [CopyController],
+  controllers: [CopyController, CopyWalletController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService, CopyAdoptionRepairService, CopyPerformanceService,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
+    CopyWalletService, CopyWalletRepository, { provide: USER_WALLET_PROVISIONER, useClass: PrivyUserWalletProvisioner },
   ],
   exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource],
 })

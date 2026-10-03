@@ -1,6 +1,67 @@
 import type { Messages } from "./index";
 
 export const en: Messages = {
+  executionWallets: {
+    "readyHint": "Ownership is verified only. Exchange approvals, funding and live trading require separate setup.",
+    "reverify": "Reverify wallet ownership",
+    "title": "Copy execution wallets",
+    "setupHint": "Prepare an empty wallet owned by you for a copy. This does not fund it or enable live trading.",
+    "loading": "Loading execution wallets…",
+    "loadError": "Could not load execution wallets.",
+    "retry": "Retry",
+    "network": "Network",
+    "unavailable": "Wallet preparation is currently unavailable.",
+    "loadingCopies": "Loading your copies…",
+    "copiesError": "Could not load your copies.",
+    "strategy": "Your copy",
+    "selectStrategy": "Select a copy",
+    "copyNumber": "Copy #{id}",
+    "creating": "Preparing…",
+    "prepared": "Wallet already prepared",
+    "create": "Prepare dedicated wallet",
+    "noCopies": "Create a paper copy first to prepare a dedicated wallet.",
+    "actionError": "The action could not be confirmed. Refresh or check the wallet status before retrying.",
+    "addressPending": "Address not yet confirmed",
+    "unconfirmedHint": "Wallet verification is incomplete. Do not send funds to this wallet.",
+    "checking": "Checking…",
+    "reconcile": "Check wallet status",
+    "authorizations": "Server signing authorizations",
+    "revokeHint": "Revoking stops future server signatures only. Existing exchange orders and agent approvals require cleanup on the exchange.",
+    "noAuthorizations": "No signing authorizations.",
+    "account": "Account address",
+    "signer": "Signer address",
+    "scopes": "Permissions",
+    "tradeScope": "Copy trading",
+    "reduceScope": "Reduce copy positions",
+    "expires": "Expires",
+    "revokeConfirmHint": "Revocation cannot be undone. It does not cancel existing exchange orders or remove exchange agent approvals.",
+    "revoking": "Revoking…",
+    "confirmRevoke": "Confirm revocation",
+    "cancel": "Cancel",
+    "revoked": "Revoked permanently",
+    "revoke": "Revoke authorization",
+    "networks": {
+      "testnet": "Testnet",
+      "mainnet": "Mainnet"
+    },
+    "states": {
+      "requested": "Preparation requested",
+      "unknown": "Outcome unconfirmed",
+      "ready": "Ready",
+      "blocked": "Blocked"
+    },
+    "issues": {
+      "verification_pending": "Wallet ownership verification is pending.",
+      "provider_unavailable": "Wallet service is temporarily unavailable.",
+      "wallet_conflict": "Wallet details conflict. Contact support."
+    },
+    "statuses": {
+      "pending": "Pending",
+      "active": "Active",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    }
+  },
   copyUpdates: {
     orderRejected: "Order rejected",
     orderCancelled: "Order cancelled",

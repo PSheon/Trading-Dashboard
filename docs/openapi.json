@@ -21456,6 +21456,704 @@
         "description": "Access: user (owner)"
       }
     },
+    "/me/copy/execution-wallets": {
+      "get": {
+        "operationId": "CopyWalletController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "accounts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "network": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "requested",
+                                  "unknown",
+                                  "ready",
+                                  "blocked"
+                                ]
+                              },
+                              "address": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{40}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "issue": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "verification_pending",
+                                      "provider_unavailable",
+                                      "wallet_conflict"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "strategyId",
+                              "network",
+                              "state",
+                              "address",
+                              "createdAt",
+                              "updatedAt",
+                              "issue"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "authorizations": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "network": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "accountAddress": {
+                                "type": "string"
+                              },
+                              "signerAddress": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "active",
+                                  "expired",
+                                  "revoked"
+                                ]
+                              },
+                              "scopes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "copy:trade",
+                                    "copy:reduce"
+                                  ]
+                                }
+                              },
+                              "expiresAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "revokedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "strategyId",
+                              "network",
+                              "accountAddress",
+                              "signerAddress",
+                              "status",
+                              "scopes",
+                              "expiresAt",
+                              "revokedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "available",
+                        "network",
+                        "accounts",
+                        "authorizations"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List my prepared execution accounts and local trading grants",
+        "tags": [
+          "CopyWallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (owner)"
+      }
+    },
+    "/me/copy/strategies/{id}/execution-wallet": {
+      "post": {
+        "description": "Creates an empty user-owned wallet only. Never funds or activates a paper strategy, creates a delegated signer, or approves an exchange agent. Ambiguous results are durable and recovered by lookup.\n\nAccess: user (owner); configured wallet provider; deployment network only",
+        "operationId": "CopyWalletController_prepare",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareExecutionWalletDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "requested",
+                            "unknown",
+                            "ready",
+                            "blocked"
+                          ]
+                        },
+                        "address": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "issue": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "verification_pending",
+                                "provider_unavailable",
+                                "wallet_conflict"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "strategyId",
+                        "network",
+                        "state",
+                        "address",
+                        "createdAt",
+                        "updatedAt",
+                        "issue"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare a dedicated user-owned wallet",
+        "tags": [
+          "CopyWallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/execution-wallets/{id}/reconcile": {
+      "post": {
+        "description": "Unknown creation outcomes only query the original provider identity; they never create another wallet.\n\nAccess: user (owner)",
+        "operationId": "CopyWalletController_reconcile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "requested",
+                            "unknown",
+                            "ready",
+                            "blocked"
+                          ]
+                        },
+                        "address": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "issue": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "verification_pending",
+                                "provider_unavailable",
+                                "wallet_conflict"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "strategyId",
+                        "network",
+                        "state",
+                        "address",
+                        "createdAt",
+                        "updatedAt",
+                        "issue"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Recover or reverify my execution wallet",
+        "tags": [
+          "CopyWallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/wallet-authorizations/{id}/revoke": {
+      "post": {
+        "description": "Atomically increments the grant version and records consent revocation. Blocks future server signatures; does not remove the exchange agent or cancel orders already accepted by the exchange.\n\nAccess: user (owner)",
+        "operationId": "CopyWalletController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "accountAddress": {
+                          "type": "string"
+                        },
+                        "signerAddress": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "active",
+                            "expired",
+                            "revoked"
+                          ]
+                        },
+                        "scopes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "copy:trade",
+                              "copy:reduce"
+                            ]
+                          }
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "revokedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "signerAddress",
+                        "status",
+                        "scopes",
+                        "expiresAt",
+                        "revokedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Revoke my local trading grant",
+        "tags": [
+          "CopyWallet"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
     "/admin/copy/overview": {
       "get": {
         "operationId": "AdminCopyController_overview",
@@ -25043,6 +25741,23 @@
         },
         "required": [
           "command"
+        ],
+        "additionalProperties": false
+      },
+      "PrepareExecutionWalletDto": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "testnet",
+              "mainnet"
+            ],
+            "description": "Must equal the deployment's wallet network"
+          }
+        },
+        "required": [
+          "network"
         ],
         "additionalProperties": false
       },

@@ -7,6 +7,7 @@ import { traderSearchResponseSchema } from "./trader-search-contracts.js";
 import { appliedDiscoverySchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
 import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.js";
 import { z } from "zod";
+import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
 import * as s from "./schema/zod.js";
 
 const iso = z.string().datetime({ offset: true });
@@ -292,6 +293,10 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/strategies/:id/withdraw-funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "GET", path: "/me/copy/strategies/:id/performance", status: 200, auth: "user (owner)", response: wireCopyPerformanceSchema },
   { method: "GET", path: "/me/copy/events", status: 200, auth: "user", response: wireCopyEventsSchema },
+  { method: "GET", path: "/me/copy/execution-wallets", status: 200, auth: "user (owner)", response: copyExecutionWalletsSchema },
+  { method: "POST", path: "/me/copy/strategies/:id/execution-wallet", status: 200, auth: "user (owner); configured wallet provider; deployment network only", response: copyExecutionAccountSchema },
+  { method: "POST", path: "/me/copy/execution-wallets/:id/reconcile", status: 200, auth: "user (owner)", response: copyExecutionAccountSchema },
+  { method: "POST", path: "/me/copy/wallet-authorizations/:id/revoke", status: 200, auth: "user (owner)", response: copyWalletGrantSchema },
   { method: "GET", path: "/admin/copy/overview", status: 200, auth: "copy.read", response: wireAdminCopyOverviewSchema },
   { method: "GET", path: "/admin/copy/strategies", status: 200, auth: "copy.read", response: wireAdminCopyStrategiesSchema },
   { method: "GET", path: "/admin/copy/strategies/:id", status: 200, auth: "copy.read", response: wireAdminCopyStrategyDetailSchema },

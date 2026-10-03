@@ -44,6 +44,7 @@ import { useChangeLocale } from "@/lib/use-change-locale";
 import { useWallet, useWalletAddress } from "@/lib/wallet";
 import { AlertBotRow, TradingBotRow } from "./bot-rows";
 import { DeleteAccountButton, DeleteAccountDialog } from "./delete-account";
+import { ExecutionWalletSettings } from "./execution-wallets";
 
 type Tab = "account" | "funds";
 type PhoneView = "root" | "account" | "notifications" | "language" | "history";
@@ -293,6 +294,7 @@ function DesktopSettings() {
                 <h2 className="truncate text-xl font-bold tracking-tight">{name}</h2>
               </div>
               <ProfileAndWallet />
+              <ExecutionWalletSettings />
               <SectionTitle className="pt-8">{t("settings.language")}</SectionTitle>
               <Row label={t("settings.language")} value={t("settings.languageHint")} action={<LanguageSelect />} />
               <SectionTitle className="pt-8">{t("settings.notifications")}</SectionTitle>
@@ -497,6 +499,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                   <p className="truncate text-lg font-bold">{name}</p>
                 </div>
                 <ProfileAndWallet />
+                <ExecutionWalletSettings />
                 <DeleteAccountButton className="mt-10" />
               </>
             ) : view === "notifications" ? (

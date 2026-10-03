@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const es: Messages = {
+  executionWallets: {
+    "readyHint": "Solo se ha verificado la propiedad. Las aprobaciones del exchange, los fondos y las operaciones reales requieren configuración adicional.",
+    "reverify": "Verificar de nuevo la propiedad",
+    "title": "Carteras de ejecución de copia",
+    "setupHint": "Prepara una cartera vacía de tu propiedad para una copia. Esto no añade fondos ni activa operaciones reales.",
+    "loading": "Cargando carteras de ejecución…",
+    "loadError": "No se pudieron cargar las carteras de ejecución.",
+    "retry": "Reintentar",
+    "network": "Red",
+    "unavailable": "La preparación de carteras no está disponible ahora.",
+    "loadingCopies": "Cargando tus copias…",
+    "copiesError": "No se pudieron cargar tus copias.",
+    "strategy": "Tu copia",
+    "selectStrategy": "Selecciona una copia",
+    "copyNumber": "Copia #{id}",
+    "creating": "Preparando…",
+    "prepared": "Cartera ya preparada",
+    "create": "Preparar cartera dedicada",
+    "noCopies": "Crea primero una copia simulada para preparar una cartera dedicada.",
+    "actionError": "No se pudo confirmar la acción. Actualiza o comprueba el estado de la cartera antes de reintentar.",
+    "addressPending": "Dirección aún sin confirmar",
+    "unconfirmedHint": "La verificación de la cartera está incompleta. No envíes fondos a esta cartera.",
+    "checking": "Comprobando…",
+    "reconcile": "Comprobar estado de la cartera",
+    "authorizations": "Autorizaciones de firma del servidor",
+    "revokeHint": "Revocar solo detiene las futuras firmas del servidor. Las órdenes y aprobaciones de agentes existentes deben eliminarse en el exchange.",
+    "noAuthorizations": "No hay autorizaciones de firma.",
+    "account": "Dirección de la cuenta",
+    "signer": "Dirección del firmante",
+    "scopes": "Permisos",
+    "tradeScope": "Operaciones de copia",
+    "reduceScope": "Reducir posiciones copiadas",
+    "expires": "Vence",
+    "revokeConfirmHint": "La revocación es irreversible. No cancela las órdenes ni elimina las aprobaciones de agentes existentes en el exchange.",
+    "revoking": "Revocando…",
+    "confirmRevoke": "Confirmar revocación",
+    "cancel": "Cancelar",
+    "revoked": "Revocada permanentemente",
+    "revoke": "Revocar autorización",
+    "networks": {
+      "testnet": "Red de prueba",
+      "mainnet": "Red principal"
+    },
+    "states": {
+      "requested": "Preparación solicitada",
+      "unknown": "Resultado sin confirmar",
+      "ready": "Lista",
+      "blocked": "Bloqueada"
+    },
+    "issues": {
+      "verification_pending": "La verificación de propiedad de la cartera está pendiente.",
+      "provider_unavailable": "El servicio de carteras no está disponible temporalmente.",
+      "wallet_conflict": "Los datos de la cartera no coinciden. Contacta con soporte."
+    },
+    "statuses": {
+      "pending": "Pendiente",
+      "active": "Activa",
+      "expired": "Vencida",
+      "revoked": "Revocada"
+    }
+  },
   copyUpdates: {
     orderRejected: "Orden rechazada",
     orderCancelled: "Orden cancelada",

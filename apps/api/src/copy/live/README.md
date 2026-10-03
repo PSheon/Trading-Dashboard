@@ -22,8 +22,12 @@ replicas. It allocates nonces atomically per network/signer using
 `max(now, previous+1)`, without holding a transaction open during HTTP.
 `PostgresWalletAuthorizationSource` loads local grants and rejects disabled users.
 Verified provisioning must populate those grants, and every authorization mutation
-must increment its version. The application does not yet provide that provisioning
-or connect this boundary to its paper strategy worker.
+must increment its version. The application now provides dedicated user-owned
+master wallet preparation and owner-scoped local grant revocation through
+`CopyWalletService`. Master accounts are persisted separately in
+`copy_execution_accounts`; preparing one never creates an agent, grant or exchange
+approval and never switches a paper strategy to live. Delegated-agent provisioning
+and verified grant issuance remain unimplemented, as does live worker integration.
 
 The state flow is `prepared -> submitting -> resting | filled | partial |
 cancelled | rejected`. Exceptions after the POST begins produce `unknown`.

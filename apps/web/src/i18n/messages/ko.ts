@@ -2,6 +2,67 @@ import { en } from "./en";
 import type { Messages } from "./index";
 
 export const ko: Messages = {
+  executionWallets: {
+    "readyHint": "지갑 소유권만 확인되었습니다. 거래소 승인, 입금 및 실거래는 별도 설정이 필요합니다.",
+    "reverify": "지갑 소유권 재검증",
+    "title": "카피 실행 지갑",
+    "setupHint": "카피용으로 본인 소유의 빈 지갑을 준비합니다. 입금하거나 실거래를 활성화하지 않습니다.",
+    "loading": "실행 지갑 로딩 중…",
+    "loadError": "실행 지갑을 불러오지 못했습니다.",
+    "retry": "다시 시도",
+    "network": "네트워크",
+    "unavailable": "현재 지갑을 준비할 수 없습니다.",
+    "loadingCopies": "내 카피 로딩 중…",
+    "copiesError": "내 카피를 불러오지 못했습니다.",
+    "strategy": "내 카피",
+    "selectStrategy": "카피 선택",
+    "copyNumber": "카피 #{id}",
+    "creating": "준비 중…",
+    "prepared": "지갑 준비 완료",
+    "create": "전용 지갑 준비",
+    "noCopies": "먼저 모의 카피를 생성하세요.",
+    "actionError": "작업 결과를 확인하지 못했습니다. 재시도 전에 새로고침하거나 지갑 상태를 확인하세요.",
+    "addressPending": "주소 미확인",
+    "unconfirmedHint": "지갑 검증이 완료되지 않았습니다. 이 지갑에 자금을 보내지 마세요.",
+    "checking": "확인 중…",
+    "reconcile": "지갑 상태 확인",
+    "authorizations": "서버 서명 권한",
+    "revokeHint": "철회는 향후 서버 서명만 중단합니다. 기존 거래소 주문과 에이전트 승인은 거래소에서 정리해야 합니다.",
+    "noAuthorizations": "서명 권한이 없습니다.",
+    "account": "계정 주소",
+    "signer": "서명자 주소",
+    "scopes": "권한",
+    "tradeScope": "카피 거래",
+    "reduceScope": "카피 포지션 축소",
+    "expires": "만료일",
+    "revokeConfirmHint": "철회는 되돌릴 수 없습니다. 기존 거래소 주문이나 에이전트 승인은 해제되지 않습니다.",
+    "revoking": "철회 중…",
+    "confirmRevoke": "철회 확인",
+    "cancel": "취소",
+    "revoked": "영구 철회됨",
+    "revoke": "권한 철회",
+    "networks": {
+      "testnet": "테스트넷",
+      "mainnet": "메인넷"
+    },
+    "states": {
+      "requested": "준비 요청됨",
+      "unknown": "결과 미확인",
+      "ready": "준비 완료",
+      "blocked": "차단됨"
+    },
+    "issues": {
+      "verification_pending": "지갑 소유권 검증이 대기 중입니다.",
+      "provider_unavailable": "지갑 서비스를 일시적으로 사용할 수 없습니다.",
+      "wallet_conflict": "지갑 정보가 충돌합니다. 지원팀에 문의하세요."
+    },
+    "statuses": {
+      "pending": "대기 중",
+      "active": "활성",
+      "expired": "만료됨",
+      "revoked": "철회됨"
+    }
+  },
   copyUpdates: {
     orderRejected: "주문 거절",
     orderCancelled: "주문 취소",

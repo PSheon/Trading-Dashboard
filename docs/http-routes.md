@@ -51,6 +51,13 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | DELETE | `/me/telegram` | 204 | user |
 | GET | `/me/wallet` | 200 | user; 503 busy |
 | GET | `/me/wallet/history` | 200 | user; 503 busy |
+| GET | `/me/wallet/withdrawals/current` | 200 | user |
+| POST | `/me/wallet/withdrawals` | 200 | user; 409 withdrawal_pending |
+| POST | `/me/wallet/withdrawals/import` | 200 | user; legacy metadata only |
+| POST | `/me/wallet/withdrawals/:id/broadcast` | 200 | user; one broadcast permission |
+| POST | `/me/wallet/withdrawals/:id/submit` | 200 | user; verified main-wallet signature; one attempt |
+| POST | `/me/wallet/withdrawals/:id/cancel` | 200 | user; unbroadcast preparation only |
+| POST | `/me/wallet/withdrawals/:id/reconcile` | 200 | user; authoritative lookup only |
 | GET | `/insights/cohorts/:tier` | 200 | public |
 | GET | `/insights/cohorts/:tier/history` | 200 | public |
 | GET | `/insights/crowd` | 200 | public |

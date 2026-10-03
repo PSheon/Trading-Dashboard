@@ -1203,6 +1203,10 @@ export const ko: Messages = {
     rateLimited: "링크 요청이 너무 많습니다. 몇 분 후 다시 시도하세요.",
   },
   wallet: {
+    withdrawPrepared: "이 출금은 아직 전송되지 않았습니다. 주소나 금액을 변경하려면 준비를 취소하세요.",
+    cancelPreparation: "출금 준비 취소",
+    cancellingPreparation: "취소 중…",
+    withdrawRejected: "거래소가 이 출금을 거부했습니다. 출금 가능 잔액을 확인한 후 새 출금을 생성하세요.",
     withdrawRecovery: "출금 확인을 기다리고 있습니다. 원래 작업을 조회하세요. 기록이 없다고 실패한 것은 아닙니다. 조회는 출금을 다시 제출하지 않습니다.",
     checkWithdrawal: "원래 출금 조회",
     testnet: "테스트넷",

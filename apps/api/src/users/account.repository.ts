@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, count, eq, isNull, ne } from "drizzle-orm";
-import { copyStrategies, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, notificationChannels, favoriteGroups, userFavorites, users } from "@trading-dashboard/shared/database";
+import { copyStrategies, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, notificationChannels, favoriteGroups, userFavorites, users, walletWithdrawals } from "@trading-dashboard/shared/database";
 
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -42,7 +42,8 @@ export class AccountRepository {
     const [account] = await tx.select({ id: copyExecutionAccounts.id }).from(copyExecutionAccounts).where(eq(copyExecutionAccounts.userId, userId)).limit(1);
     const [wallet] = await tx.select({ id: copyExecutionWallets.id }).from(copyExecutionWallets).where(eq(copyExecutionWallets.userId, userId)).limit(1);
     const [execution] = await tx.select({ key: copyLiveExecutions.key }).from(copyLiveExecutions).where(eq(copyLiveExecutions.userId, userId)).limit(1);
-    return Boolean(account || wallet || execution);
+    const [withdrawal] = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals).where(eq(walletWithdrawals.userId, userId)).limit(1);
+    return Boolean(account || wallet || execution || withdrawal);
   }
 
   async lockUser(tx: DbTransaction, userId: number) {

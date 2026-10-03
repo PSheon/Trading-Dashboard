@@ -239,6 +239,13 @@
       "when": 1791003146350,
       "tag": "0033_copy_wallet_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791010659180,
+      "tag": "0034_wallet_withdrawals",
+      "breakpoints": true
     }
   ]
 }

@@ -1203,6 +1203,10 @@ export const es: Messages = {
     rateLimited: "Demasiados enlaces solicitados. Inténtalo de nuevo en unos minutos.",
   },
   wallet: {
+    withdrawPrepared: "Este retiro aún no se ha enviado. Cancela la preparación para cambiar el destino o el importe.",
+    cancelPreparation: "Cancelar preparación",
+    cancellingPreparation: "Cancelando…",
+    withdrawRejected: "El exchange rechazó este retiro. Revisa el saldo disponible y crea un nuevo retiro.",
     withdrawRecovery: "Este retiro espera confirmación. Consulta la operación original; no encontrar registros no demuestra un fallo. Consultar no enviará otro retiro.",
     checkWithdrawal: "Consultar retiro",
     testnet: "Red de prueba",

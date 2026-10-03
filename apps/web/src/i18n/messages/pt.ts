@@ -1203,6 +1203,10 @@ export const pt: Messages = {
     rateLimited: "Muitos links solicitados. Tente de novo em alguns minutos.",
   },
   wallet: {
+    withdrawPrepared: "Este saque ainda não foi enviado. Cancele a preparação para alterar o destino ou o valor.",
+    cancelPreparation: "Cancelar preparação",
+    cancellingPreparation: "Cancelando…",
+    withdrawRejected: "A corretora rejeitou este saque. Confira o saldo disponível e crie um novo saque.",
     withdrawRecovery: "Este saque aguarda confirmação. Consulte a operação original; a ausência de registro não prova uma falha. A consulta não enviará outro saque.",
     checkWithdrawal: "Consultar saque",
     testnet: "Testnet",

@@ -11,8 +11,9 @@ import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import type { WalletSummary } from "@/lib/contracts";
 import { WITHDRAW_FEE_USDC, networkConfig, usdcString } from "@/lib/hyperliquid-network";
+import { apiErrorCode } from "@/lib/api";
 import { amountInput } from "@/lib/amount-input";
-import { signErrorMessage, useWallet, useWithdraw, useWithdrawalRecovery } from "@/lib/wallet";
+import { signErrorMessage, useWallet, useWithdraw, useWithdrawalRecovery, useCancelWithdrawalPreparation } from "@/lib/wallet";
 import { NetworkBadge } from "./bits";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -71,6 +72,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   const toast = useToast();
   const { wallet } = useAuth();
   const withdraw = useWithdraw();
+  const cancel = useCancelWithdrawalPreparation();
   const [destinationInput, setDestination] = useState("");
   const [amountInputValue, setAmount] = useState("");
   const recovery = useWithdrawalRecovery(summary);
@@ -100,12 +102,12 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
       className="flex flex-col"
       onSubmit={(e) => {
         e.preventDefault();
-        if ((!ready && !recovering) || withdraw.isPending || recovery.isPending || recovery.isError) return;
+        if ((!ready && !recovering) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError) return;
         // CopyDog's three toasts: "Withdrawing $X…" (no icon) while signing,
         // then the submitted confirmation (and the modal closes) or the error.
-        const pending = toast.info(t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false });
+        const pending = toast.info(checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false });
         withdraw.mutate(
-          { summary, destination: destination.trim(), amount: amount.trim() },
+          { summary, destination: destination.trim(), amount: amount.trim(), operationId: pendingOperation?.id },
           {
             onSuccess: () => {
               toast.dismiss(pending);
@@ -115,13 +117,25 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
             onError: (err) => {
               toast.dismiss(pending);
               const error = signErrorMessage(err);
-              toast.error(error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message }));
+              const code = apiErrorCode(err) ?? (err instanceof Error ? err.message : "");
+              toast.error(code === "withdrawal_unknown" || code === "withdrawal_pending" ? recoveryText
+                : code === "withdrawal_rejected" ? t("wallet.withdrawRejected")
+                : code === "withdrawal_identity_mismatch" ? t("wallet.noWallet")
+                : error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message }));
             },
           },
         );
       }}
     >
-      {checking ? <p role="status" className="mb-4 rounded-xl bg-raised p-3 text-sm text-muted-foreground">{recoveryText}<span className="num mt-2 block text-xs">ID: {pendingOperation?.nonce}</span></p> : null}
+      {checking && !pendingOperation?.canCancel ? <p role="status" className="mb-4 rounded-xl bg-raised p-3 text-sm text-muted-foreground">{recoveryText}<span className="num mt-2 block text-xs">ID: {pendingOperation?.nonce}</span></p> : null}
+      {pendingOperation && (pendingOperation.status === "prepared" || pendingOperation.canCancel) ? (
+        <div className="mb-4 rounded-xl bg-raised p-3 text-sm text-muted-foreground">
+          <p>{t("wallet.withdrawPrepared")}</p>
+          <Button type="button" variant="secondary" size="sm" className="mt-3" disabled={cancel.isPending || withdraw.isPending || recovery.isError} onClick={() => cancel.mutate(pendingOperation.id, { onError: () => toast.error(t("common.error")) })}>
+            {cancel.isPending ? t("wallet.cancellingPreparation") : t("wallet.cancelPreparation")}
+          </Button>
+        </div>
+      ) : null}
       {recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
       <label htmlFor={destId} className="text-sm font-semibold">
         {t("wallet.destination")}
@@ -179,9 +193,9 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         {t("wallet.withdrawNote", { chain: network.chainLabel, fee: WITHDRAW_FEE_USDC })}
       </p>
 
-      <Button type="submit" size="xl" className="mt-5 w-full" disabled={(!ready && !recovering) || !wallet?.address || withdraw.isPending || recovery.isPending || recovery.isError}>
+      <Button type="submit" size="xl" className="mt-5 w-full" disabled={(!ready && !recovering) || (!wallet?.address && !checking) || withdraw.isPending || cancel.isPending || recovery.isPending || recovery.isError}>
         {withdraw.isPending ? <Loader2 className="animate-spin" /> : null}
-        {withdraw.isPending ? t("wallet.withdrawing") : checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawTitle")}
+        {withdraw.isPending ? checking ? t("common.loading") : t("wallet.withdrawing") : checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawTitle")}
       </Button>
       {!wallet ? <p className="mt-2 text-center text-xs text-muted-foreground">{t("wallet.unavailableDemo")}</p> : null}
     </form>

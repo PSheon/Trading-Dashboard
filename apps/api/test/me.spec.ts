@@ -14,6 +14,7 @@ import {
   notificationChannels,
   traderStats,
   userFavorites,
+  walletWithdrawals,
 } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
@@ -470,6 +471,14 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       auth.clearCache();
       await alice.delete("/me").expect(204);
       expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(0);
+    });
+
+    it("preserves pending withdrawal evidence and returns a controlled conflict on deletion", async () => {
+      const id = (await alice.get("/me").expect(200)).body.data.id as number;
+      await db.insert(walletWithdrawals).values({ id: "withdrawal-record", userId: id, network: "testnet", address: ADDR, destination: OTHER, amount: "12.5", nonce: Date.now(), origin: "legacy", status: "unknown" });
+      expect((await alice.delete("/me").expect(409)).body.error.code).toBe("execution_records_exist");
+      expect(await db.select().from(walletWithdrawals)).toHaveLength(1);
+      expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(1);
     });
 
     it("anonymous: 401; service token: 403", async () => {

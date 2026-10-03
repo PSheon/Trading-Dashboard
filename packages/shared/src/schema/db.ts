@@ -1345,6 +1345,29 @@ export const copyEquitySnapshots = pgTable("copy_equity_snapshots", {
   equity: numeric("equity"), totalPnl: numeric("total_pnl"), netDeposits: numeric("net_deposits").notNull(), exposureUsd: numeric("exposure_usd"),
 }, (t) => [primaryKey({ columns: [t.strategyId, t.time] })]);
 
+/** Durable intent and outcome evidence only; never keys or signatures. */
+export const walletWithdrawals = pgTable("wallet_withdrawals", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  network: text("network").$type<"testnet" | "mainnet">().notNull(), address: text("address").notNull(), destination: text("destination").notNull(),
+  amount: text("amount").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),
+  status: text("status").$type<"prepared" | "unknown" | "accepted" | "rejected" | "cancelled">().notNull(),
+  origin: text("origin").$type<"client" | "legacy">().notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }), attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+  evidenceHash: text("evidence_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("wallet_withdrawals_nonce_uq").on(t.network, t.address, t.nonce),
+  uniqueIndex("wallet_withdrawals_pending_uq").on(t.network, t.address).where(sql`${t.status} in ('prepared', 'unknown')`),
+  index("wallet_withdrawals_owner_idx").on(t.userId, t.network, t.nonce),
+  check("wallet_withdrawals_network_check", oneOf(t.network, ["testnet", "mainnet"])),
+  check("wallet_withdrawals_status_check", oneOf(t.status, ["prepared", "unknown", "accepted", "rejected", "cancelled"])),
+  check("wallet_withdrawals_origin_check", oneOf(t.origin, ["client", "legacy"])),
+  check("wallet_withdrawals_evidence_check", sql`${t.status} not in ('accepted', 'rejected') or (${t.evidenceHash} is not null and ${t.evidenceHash} ~ '^[0-9a-f]{64}$')`),
+  check("wallet_withdrawals_attempt_check", sql`${t.attemptedAt} is null or (${t.origin} = 'client' and ${t.claimedAt} is not null)`),
+  check("wallet_withdrawals_identity_check", sql`${t.address} ~ '^0x[0-9a-f]{40}$' and ${t.destination} ~ '^0x[0-9a-f]{40}$' and ${t.nonce} > 0 and ${t.nonce} <= 9007199254740991`),
+  check("wallet_withdrawals_amount_check", sql`${t.amount} ~ '^[0-9]+(\\.[0-9]{1,6})?$' and length(${t.amount}) <= 32 and ${t.amount}::numeric > 1 and ${t.amount}::numeric <= 1000000000000`),
+]);
+
 /** Durable user-owned master wallet preparation, separate from delegated agent
  * identities below. Preparing a wallet never switches a paper strategy to live. */
 export const copyExecutionAccounts = pgTable("copy_execution_accounts", {

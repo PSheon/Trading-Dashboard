@@ -1,5 +1,6 @@
 import { kolSchema, kolImportResponseSchema, kolPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
+import { walletWithdrawalSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { fixtureImportPreview, fixtureCommitImport } from "./import-preview";
@@ -580,6 +581,9 @@ export async function fixtureRequest<T>(
     case "GET /me/copy/strategies/:id/orders":
       requireUser(token);
       return wire(copyOrdersResponseSchema, fixtureCopyOrders(Number(parts[3]), search.get("before") ?? undefined));
+    case "GET /me/wallet/withdrawals/current":
+      requireUser(token);
+      return wire(walletWithdrawalSchema.nullable(), null);
     case "GET /me/wallet/history":
       requireUser(token);
       return wire(walletHistoryResponseSchema, fixtureWalletHistory());

@@ -1203,6 +1203,10 @@ export const zhCN: Messages = {
     rateLimited: "生成链接过于频繁，请几分钟后再试。",
   },
   wallet: {
+    withdrawPrepared: "此笔提款尚未送出。若要更改收款地址或金额，请先取消这笔准备中的提款。",
+    cancelPreparation: "取消提款准备",
+    cancellingPreparation: "取消中…",
+    withdrawRejected: "交易所已拒绝此笔提款。请确认可提现余额后重新建立提款。",
     withdrawRecovery: "这笔提款仍待确认。请查询原操作；查无记录不代表失败，查询不会重复提交提款。",
     checkWithdrawal: "查询原提款",
     testnet: "测试网",

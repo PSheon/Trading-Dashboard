@@ -24,9 +24,10 @@ import { TradeAnalyticsController } from "../traders/trade-analytics.controller.
 import { TradersController } from "../traders/traders.controller.js";
 import { MeController } from "../users/me.controller.js";
 import { WalletController } from "../wallet/wallet.controller.js";
+import { WithdrawalController } from "../wallet/withdrawal.controller.js";
 import { CopyController } from "../copy/copy.controller.js";
 import { CopyWalletController } from "../copy/copy-wallet.controller.js";
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
 export const documentationControllers = [AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
-  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, AdminHeartbeatController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, CopyController, CopyWalletController, AdminCopyController];
+  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, AdminHeartbeatController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, WithdrawalController, CopyController, CopyWalletController, AdminCopyController];

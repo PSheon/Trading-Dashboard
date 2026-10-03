@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
+import { api, sessionKey } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { WalletHistory, WalletSummary } from "@/lib/contracts";
 import {
@@ -11,12 +11,12 @@ import {
   networkConfig,
   usdcString,
   usdcToUnits,
-  withdraw3Request,
   withdraw3TypedData,
 } from "@/lib/hyperliquid-network";
 import { busyRetry } from "@/lib/query-policy";
 import { queryKeys } from "@/lib/query-keys";
-import { createWithdrawalJournal, runWithdrawal, withdrawalStorageKey } from "@/lib/withdrawal-operation";
+import { createWithdrawalJournal, migrateWithdrawalJournal, runDurableWithdrawal, withdrawalStorageKey } from "@/lib/withdrawal-operation";
+import { walletWithdrawalSchema, type WalletWithdrawal, type WalletWithdrawalClaim } from "@trading-dashboard/shared/contracts";
 
 /** The header pill, portfolio and modals share one read; the api caches
  * 15 s, so polling faster buys nothing. */
@@ -85,15 +85,51 @@ export function useBridgeDeposit() {
   });
 }
 
-/** Pending metadata is scoped by network and account, including across tabs. */
-export function useWithdrawalRecovery(summary: WalletSummary) {
+const WITHDRAWALS = "/me/wallet/withdrawals";
+type WalletIdentity = Pick<WalletSummary, "network" | "address">;
+async function withWithdrawalLock<T>(summary: WalletIdentity, work: () => Promise<T>): Promise<T> {
+  if (!navigator.locks) return work(); // Server CAS remains authoritative.
+  return navigator.locks.request(withdrawalStorageKey(summary.network, summary.address!), { ifAvailable: true }, async (lock) => {
+    if (!lock) throw new Error("withdrawal_pending");
+    return work();
+  });
+}
+async function migrateLegacyWithdrawal(summary: WalletIdentity, expectedSession = sessionKey()) {
+  if (sessionKey() !== expectedSession) throw new Error("withdrawal_identity_mismatch");
+  await migrateWithdrawalJournal(localStorage, summary.network, summary.address!, (input) => {
+    if (sessionKey() !== expectedSession) throw new Error("withdrawal_identity_mismatch");
+    return api.post<WalletWithdrawal>(`${WITHDRAWALS}/import`, input);
+  });
+}
+
+/** Pending metadata is scoped by network, account and the signed-in session;
+ * the authoritative journal survives browser and device changes. */
+export function useWithdrawalRecovery(summary: WalletIdentity) {
+  const { status } = useAuth();
   return useQuery({
     queryKey: [...queryKeys.wallet.all, "withdrawal", summary.network, summary.address],
-    queryFn: () => summary.address ? createWithdrawalJournal(localStorage, summary.network, summary.address).read() : null,
+    queryFn: async ({ signal }) => {
+      if (!summary.address) return null;
+      const expectedSession = sessionKey();
+      if (createWithdrawalJournal(localStorage, summary.network, summary.address).read()) await withWithdrawalLock(summary, () => migrateLegacyWithdrawal(summary, expectedSession));
+      const raw = await api.get<WalletWithdrawal | null>(`${WITHDRAWALS}/current`, signal);
+      if (!raw) return null;
+      const operation = walletWithdrawalSchema.parse(raw);
+      if (operation.network !== summary.network || operation.address !== summary.address.toLowerCase()) throw new Error("withdrawal_identity_mismatch");
+      return operation;
+    },
     staleTime: 0,
-    refetchInterval: 1_000,
-    enabled: Boolean(summary.address),
+    refetchInterval: 10_000,
+    enabled: status === "signedIn" && Boolean(summary.address),
     retry: false,
+  });
+}
+
+export function useCancelWithdrawalPreparation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<WalletWithdrawal>(`${WITHDRAWALS}/${encodeURIComponent(id)}/cancel`, {}),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.wallet.all }),
   });
 }
 
@@ -104,38 +140,27 @@ export function useWithdraw() {
   const { wallet } = useAuth();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ summary, destination, amount }: { summary: WalletSummary; destination: string; amount: string }) => {
-      if (!wallet?.address) throw new Error("No wallet");
-      if (!summary.address || summary.address !== wallet.address.toLowerCase()) throw new Error("Wallet mismatch");
-      if (!navigator.locks) throw new Error("Secure withdrawal locking is unavailable in this browser");
+    mutationFn: async ({ summary, destination, amount, operationId }: { summary: WalletSummary; destination: string; amount: string; operationId?: string }) => {
+      if (!summary.address) throw new Error("No wallet");
+      if (!operationId && (!wallet?.address || summary.address !== wallet.address.toLowerCase())) throw new Error("Wallet mismatch");
+      const startingSession = sessionKey();
       const network = networkConfig(summary.network);
-      const address = summary.address;
-      return navigator.locks.request(withdrawalStorageKey(summary.network, address), { ifAvailable: true }, async (lock) => {
-        if (!lock) throw new Error("withdrawal_pending");
-        return runWithdrawal({ destination, amount }, {
-          journal: createWithdrawalJournal(localStorage, summary.network, address),
-          now: Date.now,
-          sign: (op) => wallet.signTypedData(withdraw3TypedData(network, op.destination, op.amount, op.nonce)),
-          submit: async (op, signature) => {
-            const res = await fetch(network.exchangeUrl, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(withdraw3Request(network, op.destination, op.amount, op.nonce, signature)),
-              signal: AbortSignal.timeout(20_000),
-            });
-            const reply = await res.json();
-            if (!res.ok || !reply || !["ok", "err"].includes(reply.status)) throw new Error("withdrawal_unknown");
-            return reply;
+      return withWithdrawalLock(summary, async () => {
+        await migrateLegacyWithdrawal(summary, startingSession);
+        if (sessionKey() !== startingSession) throw new Error("withdrawal_identity_mismatch");
+        return runDurableWithdrawal({ destination, amount, operationId }, {
+          network: summary.network, address: summary.address!,
+          reserve: (input) => api.post<WalletWithdrawal>(WITHDRAWALS, input),
+          claim: (id) => api.post<WalletWithdrawalClaim>(`${WITHDRAWALS}/${encodeURIComponent(id)}/broadcast`, {}),
+          cancel: (id) => api.post<WalletWithdrawal>(`${WITHDRAWALS}/${encodeURIComponent(id)}/cancel`, {}),
+          reconcile: (id) => api.post<WalletWithdrawal>(`${WITHDRAWALS}/${encodeURIComponent(id)}/reconcile`, {}),
+          sign: (op) => {
+            if (!wallet?.address || summary.address !== wallet.address.toLowerCase() || sessionKey() !== startingSession) throw new Error("Wallet mismatch");
+            return wallet.signTypedData(withdraw3TypedData(network, op.destination, op.amount, op.nonce));
           },
-          lookup: async (op) => {
-            const res = await fetch(network.infoUrl, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "userNonFundingLedgerUpdates", user: address, startTime: Math.max(0, op.nonce - 60_000) }),
-              signal: AbortSignal.timeout(15_000),
-            });
-            if (!res.ok) throw new Error("Withdrawal status unavailable");
-            const rows: unknown = await res.json();
-            if (!Array.isArray(rows)) throw new Error("Withdrawal status unavailable");
-            return rows.some((row) => row?.delta?.type === "withdraw" && row.delta.nonce === op.nonce);
+          submit: async (op, signature) => {
+            if (sessionKey() !== startingSession) throw new Error("withdrawal_unknown");
+            return api.post<WalletWithdrawal>(`${WITHDRAWALS}/${encodeURIComponent(op.id)}/submit`, { signature });
           },
         });
       });

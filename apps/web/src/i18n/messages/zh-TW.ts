@@ -1887,6 +1887,10 @@ export const zhTW = {
     rateLimited: "產生連結太頻繁，請幾分鐘後再試。",
   },
   wallet: {
+    withdrawPrepared: "此筆提款尚未送出。若要更改收款地址或金額，請先取消這筆準備中的提款。",
+    cancelPreparation: "取消提款準備",
+    cancellingPreparation: "取消中…",
+    withdrawRejected: "交易所已拒絕此筆提款。請確認可提款餘額後重新建立提款。",
     withdrawRecovery: "這筆提款仍待確認。請查詢原操作狀態；查無紀錄不代表失敗，系統不會重複送出提款。",
     checkWithdrawal: "查詢原提款",
     testnet: "測試網",

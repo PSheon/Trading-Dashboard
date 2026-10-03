@@ -1203,6 +1203,10 @@ export const id: Messages = {
     rateLimited: "Terlalu banyak permintaan tautan. Coba lagi dalam beberapa menit.",
   },
   wallet: {
+    withdrawPrepared: "Penarikan ini belum dikirim. Batalkan persiapan untuk mengubah alamat tujuan atau jumlah.",
+    cancelPreparation: "Batalkan persiapan",
+    cancellingPreparation: "Membatalkan…",
+    withdrawRejected: "Bursa menolak penarikan ini. Periksa saldo yang tersedia dan buat penarikan baru.",
     withdrawRecovery: "Penarikan ini menunggu konfirmasi. Periksa operasi awal; tidak adanya catatan bukan bukti kegagalan. Pemeriksaan tidak mengirim penarikan baru.",
     checkWithdrawal: "Periksa penarikan",
     testnet: "Testnet",

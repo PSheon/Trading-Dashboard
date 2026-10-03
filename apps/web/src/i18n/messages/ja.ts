@@ -1203,6 +1203,10 @@ export const ja: Messages = {
     rateLimited: "リンクの作成回数が多すぎます。数分後にもう一度お試しください。",
   },
   wallet: {
+    withdrawPrepared: "この出金はまだ送信されていません。宛先や金額を変更するには、準備をキャンセルしてください。",
+    cancelPreparation: "出金準備をキャンセル",
+    cancellingPreparation: "キャンセル中…",
+    withdrawRejected: "取引所がこの出金を拒否しました。出金可能残高を確認して、新しい出金を作成してください。",
     withdrawRecovery: "出金は確認待ちです。元の操作を確認してください。記録がなくても失敗とは限りません。確認によって新たに出金されることはありません。",
     checkWithdrawal: "元の出金を確認",
     testnet: "テストネット",

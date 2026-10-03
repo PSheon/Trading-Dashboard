@@ -1883,6 +1883,10 @@ export const en: Messages = {
     rateLimited: "Too many links requested. Try again in a few minutes.",
   },
   wallet: {
+    withdrawPrepared: "This withdrawal has not been sent. Cancel this preparation to change the destination or amount.",
+    cancelPreparation: "Cancel preparation",
+    cancellingPreparation: "Cancelling…",
+    withdrawRejected: "The exchange rejected this withdrawal. Review the available balance and create a new withdrawal.",
     withdrawRecovery: "This withdrawal is awaiting confirmation. Check the original operation; no record does not prove failure. Checking will not submit another withdrawal.",
     checkWithdrawal: "Check withdrawal",
     testnet: "Testnet",

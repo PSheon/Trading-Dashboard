@@ -1203,6 +1203,10 @@ export const vi: Messages = {
     rateLimited: "Yêu cầu tạo liên kết quá nhiều. Hãy thử lại sau vài phút.",
   },
   wallet: {
+    withdrawPrepared: "Yêu cầu rút này chưa được gửi. Hủy bước chuẩn bị để thay đổi địa chỉ hoặc số tiền.",
+    cancelPreparation: "Hủy chuẩn bị",
+    cancellingPreparation: "Đang hủy…",
+    withdrawRejected: "Sàn giao dịch đã từ chối lần rút này. Kiểm tra số dư khả dụng và tạo yêu cầu rút mới.",
     withdrawRecovery: "Khoản rút đang chờ xác nhận. Kiểm tra thao tác ban đầu; không có bản ghi không chứng minh thất bại. Việc kiểm tra không gửi thêm yêu cầu rút.",
     checkWithdrawal: "Kiểm tra khoản rút",
     testnet: "Testnet",

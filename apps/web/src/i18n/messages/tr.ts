@@ -1203,6 +1203,10 @@ export const tr: Messages = {
     rateLimited: "Çok fazla bağlantı istendi. Birkaç dakika sonra tekrar deneyin.",
   },
   wallet: {
+    withdrawPrepared: "Bu çekim henüz gönderilmedi. Adresi veya tutarı değiştirmek için hazırlığı iptal edin.",
+    cancelPreparation: "Hazırlığı iptal et",
+    cancellingPreparation: "İptal ediliyor…",
+    withdrawRejected: "Borsa bu çekimi reddetti. Kullanılabilir bakiyeyi kontrol edip yeni bir çekim oluşturun.",
     withdrawRecovery: "Bu çekim onay bekliyor. Asıl işlemi kontrol edin; kayıt bulunmaması başarısızlık kanıtı değildir. Kontrol yeni bir çekim göndermez.",
     checkWithdrawal: "Çekimi kontrol et",
     testnet: "Test ağı",

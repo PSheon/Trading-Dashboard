@@ -387,7 +387,7 @@ export class CopyRepository {
    * and liquidations are not reactions and are neither capped nor counted. */
   async ordersLastMinute(tx: DbTransaction, strategyId: number): Promise<number> {
     const [row] = await tx.select({ n: count() }).from(copyOrders).where(and(eq(copyOrders.strategyId, strategyId),
-      gte(copyOrders.createdAt, new Date(Date.now() - 60_000)), ne(copyOrders.status, "rejected"), notInArray(copyOrders.leg, ["adopt", "liquidation"])));
+      gte(copyOrders.createdAt, sql`now() - interval '1 minute'`), ne(copyOrders.status, "rejected"), notInArray(copyOrders.leg, ["adopt", "liquidation"])));
     return Number(row?.n ?? 0);
   }
 
@@ -595,9 +595,10 @@ export class CopyRepository {
 
   // --- execution outbox and signal legs ------------------------------------------------------
 
-  /** Pending outbox rows, oldest first (no lock: the claim re-checks). */
+  /** Use the clock that stamps available_at, including its microseconds.
+   * Worker clock differences must neither postpone signals nor skip backoff. */
   pendingOutbox(limit: number) {
-    return this.db.select().from(copySignalOutbox).where(and(eq(copySignalOutbox.status, "pending"), lte(copySignalOutbox.availableAt, new Date())))
+    return this.db.select().from(copySignalOutbox).where(and(eq(copySignalOutbox.status, "pending"), lte(copySignalOutbox.availableAt, sql`now()`)))
       .orderBy(asc(copySignalOutbox.id)).limit(limit);
   }
 

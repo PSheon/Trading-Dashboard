@@ -1,5 +1,6 @@
 import { WatcherRepository } from "../src/watcher/watcher.repository.js";
 import { testConfig } from "./config-test-utils.js";
+import { currentBudgetConsumer, ESSENTIAL_RANK } from "../src/hyperliquid/request-budgeter.service.js";
 import { leaders } from "@trading-dashboard/shared/database";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -90,6 +91,16 @@ describe("WatcherService", () => {
     expect(new Set(sync.mock.calls[0][3] as Iterable<bigint>)).toEqual(new Set([10n, 11n]));
     // Background lane: no live rank is passed.
     expect(sync.mock.calls[0]).toHaveLength(4);
+  });
+
+  it("confirms as an essential budget consumer, so they wait for room in the shared lane instead of failing at once", async () => {
+    vi.useFakeTimers();
+    const consumers: Array<string | undefined> = [];
+    sync.mockImplementation(async () => { consumers.push(currentBudgetConsumer()); return ok(); });
+    watcher.onTrade("0xa", trade(10, T0, ["0xa", "0xz"]));
+    await vi.advanceTimersByTimeAsync(1000 + CONFIRM_DELAY_MS);
+    expect(consumers).toEqual(["confirm"]);
+    expect(ESSENTIAL_RANK.confirm).toBeLessThan(ESSENTIAL_RANK.sweep);
   });
 
   it("confirms an address that trades every second at most once per 15 s, covering every trade", async () => {

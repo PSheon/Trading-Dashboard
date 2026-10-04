@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModul
 
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
 import { WatcherRepository } from "./watcher.repository.js";
 import type { HlWsTrade } from "../hyperliquid/types.js";
@@ -257,7 +258,8 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     const start = Math.min(minTime, Math.max(minTime - CONFIRM_LOOKBACK_MS, (read ?? 0) - 1000));
     let missing: bigint[] = [...entry.keys()];
     try {
-      const result = await this.fillSync.sync(address, "confirm", start, entry.keys());
+      // An essential consumer: waits for room in the shared lane, never fails at once.
+      const result = await budgetConsumer("confirm", () => this.fillSync.sync(address, "confirm", start, entry.keys()));
       missing = result.missingTids;
       if (result.latestFillTime !== null) this.readThrough.set(address, Math.max(read ?? 0, result.latestFillTime));
     } catch (error) {

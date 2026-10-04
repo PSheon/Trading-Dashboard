@@ -201,8 +201,19 @@ export function validateEnvironment(source: Environment = process.env) {
     egressKey,
     apiUrl: urlValue("HYPERLIQUID_API_URL", source.HYPERLIQUID_API_URL, "https://api.hyperliquid.xyz/info", ["http:", "https:"]),
     wsUrl: urlValue("HYPERLIQUID_WS_URL", source.HYPERLIQUID_WS_URL, "wss://api.hyperliquid.xyz/ws", ["ws:", "wss:"]),
-    budgetPerMin: integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
-    burst: integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
+    /** This process's share of the per-IP REST limit. The api's and the
+     * worker's must add up (with their bursts) to what one IP may spend:
+     * both draw on the same meter, whose background lane holds 840
+     * (HYPERLIQUID_BACKGROUND_REST_CAP). A worker beside an api that reads the
+     * same environment (one .env on one machine) takes
+     * HYPERLIQUID_WORKER_WEIGHT_*, as it takes WORKER_PORT; a deployment
+     * sets each service's own HYPERLIQUID_WEIGHT_* instead. */
+    budgetPerMin: isWorker && source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN !== undefined
+      ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN, 360, 1, 1199)
+      : integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
+    burst: isWorker && source.HYPERLIQUID_WORKER_WEIGHT_BURST !== undefined
+      ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BURST", source.HYPERLIQUID_WORKER_WEIGHT_BURST, 100, 1, 1200)
+      : integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
     /** Share of the budget rate the page reserve keeps refilling at while
      * page work is over its share of the minute: the floor pages always get. */
     pageReserveShare: decimalValue("HYPERLIQUID_PAGE_RESERVE_SHARE", source.HYPERLIQUID_PAGE_RESERVE_SHARE, 0.25, 0.05, 0.9),

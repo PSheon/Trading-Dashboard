@@ -91,8 +91,11 @@ export const MAX_LIST_SURCHARGE = Math.ceil(MAX_LIST_ITEMS / 20) * EXTRA_WEIGHT_
 /** A dead connection must not hold a caller (and its per-address sync
  * chain) forever. */
 const REQUEST_TIMEOUT_MS = 20_000;
-/** Budget consumers whose calls wait for room in the shared background lane. */
-const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "sweep"]);
+/** Budget consumers whose calls wait for room in the shared background lane:
+ * snapshots and sweeps of watched leaders, and the confirms that store the
+ * fills the trade feed alerted on (they used to fail at once whenever the
+ * pool's loops held the lane, 85 times in two hours on 2026-10-04). */
+const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "confirm", "sweep"]);
 /** The budget consumer of a trade-analytics job a request started. */
 export const ANALYTICS_CONSUMER = "analytics";
 

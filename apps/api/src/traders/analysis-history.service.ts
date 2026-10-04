@@ -82,7 +82,7 @@ export class AnalysisHistoryService {
       const updated = await this.repository.state(job.address);
       return updated?.publishedThrough && updated.publishedThrough.getTime() !== job.publishedThrough?.getTime() ? job.address : undefined;
     }).catch((error: Error) => {
-      this.logger.warn(`History worker failed: ${error.name}`);
+      this.logger.warn(`History worker failed: ${error.name}${"code" in error && typeof error.code === "string" ? ` (${error.code})` : ""}`);
       return undefined;
     }).finally(() => { this.running = undefined; });
     return this.running;

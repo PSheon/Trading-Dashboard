@@ -192,8 +192,9 @@ export const INTERACTIVE_MAX_RANK = PAGE_RANK.portfolio;
 export const UNRANKED_BASE = 1_000;
 /** Default rank of the calls of essential consumers (by label): behind
  * pages, ahead of every other background job. The 5-minute snapshots go
- * first, then the sweeps, then the cohort's reads. */
-export const ESSENTIAL_RANK: Readonly<Record<string, number>> = { snapshots: 100, sweep: 110, cohort: 120 };
+ * first, then the fill confirms of watched leaders, then the sweeps, then
+ * the cohort's reads. */
+export const ESSENTIAL_RANK: Readonly<Record<string, number>> = { snapshots: 100, confirm: 105, sweep: 110, cohort: 120 };
 /** Background ranks up to this are on-demand page work (see above). */
 export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
 /** Share of the budget page work may spend, over `PAGE_SHARE_WINDOW_MS`,

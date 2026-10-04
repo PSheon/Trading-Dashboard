@@ -23,7 +23,7 @@ export class AdminWithdrawalController {
   @Get("unresolved")
   unresolved(): Promise<AdminUnresolvedWithdrawals> { return this.withdrawals.unresolved(); }
 
-  @ApiDoc("Resolve an unknown withdrawal from Hyperliquid's ledger", "Needs users.manage. Only after the nonce window (2 days + 1 hour after the nonce): a complete ledger read now → accepted when the withdraw is there, not_executed when it is not. 409 withdrawal_nonce_window_open / withdrawal_not_unknown / withdrawal_ledger_incomplete. Audited as wallet.withdrawal.resolve.")
+  @ApiDoc("Resolve an unknown withdrawal from Hyperliquid's ledger", "Needs users.manage. Only after the nonce window (2 days + 1 hour after the nonce): a complete ledger read now → accepted when the withdraw is there, not_executed when it is not. 409 withdrawal_nonce_window_open / withdrawal_not_unknown / withdrawal_ledger_incomplete / withdrawal_ledger_ambiguous (a withdraw with its nonce that does not match exactly). Audited as wallet.withdrawal.resolve.")
   @RequirePermissions("admin.access", "users.manage")
   @ResponseMessage("Withdrawal resolved")
   @Post(":id/resolve") @HttpCode(200)

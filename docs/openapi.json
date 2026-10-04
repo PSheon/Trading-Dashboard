@@ -23834,7 +23834,7 @@
     },
     "/admin/wallet/withdrawals/{id}/resolve": {
       "post": {
-        "description": "Needs users.manage. Only after the nonce window (2 days + 1 hour after the nonce): a complete ledger read now → accepted when the withdraw is there, not_executed when it is not. 409 withdrawal_nonce_window_open / withdrawal_not_unknown / withdrawal_ledger_incomplete. Audited as wallet.withdrawal.resolve.\n\nAccess: admin.access + users.manage; after the nonce window; audited wallet.withdrawal.resolve",
+        "description": "Needs users.manage. Only after the nonce window (2 days + 1 hour after the nonce): a complete ledger read now → accepted when the withdraw is there, not_executed when it is not. 409 withdrawal_nonce_window_open / withdrawal_not_unknown / withdrawal_ledger_incomplete / withdrawal_ledger_ambiguous (a withdraw with its nonce that does not match exactly). Audited as wallet.withdrawal.resolve.\n\nAccess: admin.access + users.manage; after the nonce window; audited wallet.withdrawal.resolve",
         "operationId": "AdminWithdrawalController_resolve",
         "parameters": [
           {

@@ -74,8 +74,8 @@ export class CopyLiveWorkerRepository {
           strategy.reduceOnly || strategy.controlRevision !== pending.controlRevision) return false;
         const controls = await tx.select().from(copyControls).where(sql`${copyControls.scope} = 'platform' or (${copyControls.scope} = 'user' and ${copyControls.scopeId} = ${m.userId})`);
         if (controls.some(row => row.pauseNewRisk || row.reduceOnly)) return false;
-        const funding = await tx.select({ status: copyFundingOperations.status }).from(copyFundingOperations).where(eq(copyFundingOperations.accountId, m.accountId));
-        if (!funding.some(f => f.status === 'credited') || funding.some(f => ['prepared', 'unknown', 'accepted'].includes(f.status))) return false;
+        const funding = await tx.select({ status: copyFundingOperations.status, direction: copyFundingOperations.direction }).from(copyFundingOperations).where(eq(copyFundingOperations.accountId, m.accountId));
+        if (!funding.some(f => f.status === 'credited' && f.direction === 'to_account') || funding.some(f => ['prepared', 'unknown', 'accepted'].includes(f.status))) return false;
         const stops = await tx.select({ id: copyLiveStopOperations.id }).from(copyLiveStopOperations)
           .where(and(eq(copyLiveStopOperations.accountId, m.accountId), ne(copyLiveStopOperations.state, 'stopped'))).limit(1);
         if (stops.length) return false;

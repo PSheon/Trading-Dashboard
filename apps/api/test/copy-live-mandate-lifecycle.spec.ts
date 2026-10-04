@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { eq } from 'drizzle-orm';
 import { privateKeyToAccount } from 'viem/accounts';
 import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopyMandateOwnerTypedData, liveCopyOverviewSchema } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyLiveActivations, leaders, copyControls, copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, copyLiveMandates,
+import { appSettings, copyLiveActivations, copyLiveBuilderApprovals, leaders, copyControls, copyAgentSetups, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, copyLiveMandates,
   copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, paperAccounts, users } from '@trading-dashboard/shared/database';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveMandateService } from '../src/copy/copy-live-mandate.service.js';
@@ -98,6 +98,16 @@ describe('dedicated testnet preparation', () => {
     await db.update(appSettings).set({ value: { ...(general!.value as object), maxWatchedAddresses: 2 } }).where(eq(appSettings.key, 'general'));
     expect(await service.create(uid, { ...draft(), idempotencyKey: 'mainnet-under-key-0001', leader: under, sourceNetwork: 'mainnet' })).toMatchObject({ sourceNetwork: 'mainnet' });
     expect((await db.select().from(leaders).where(eq(leaders.address, under)))[0]).toMatchObject({ active: true, source: 'copy' });
+  });
+  it('with a builder fee configured, consent preparation needs the account\'s approval of at least that fee', async () => {
+    const builder = `0x${'77'.repeat(20)}`, revenue = { ...adminSettingsSchema.shape.revenue.parse({}), builderAddress: builder, builderFeeTenthsBps: 10 };
+    await db.update(appSettings).set({ value: revenue }).where(eq(appSettings.key, 'revenue'));
+    await expect(challenge()).rejects.toMatchObject({ status: 409, response: { code: 'builder_fee_approval_required' } });
+    await db.insert(copyLiveBuilderApprovals).values({ id: '22222222-2222-4222-8222-222222222222', userId: uid, accountId, idempotencyKey: 'builder-approval-0001', network: 'testnet',
+      accountAddress: address, builderAddress: builder, maxFeeTenthsBps: 5, nonce: clock, state: 'approved', attemptedAt: new Date(clock), createdAt: new Date(clock), updatedAt: new Date(clock) });
+    await expect(challenge()).rejects.toMatchObject({ status: 409, response: { code: 'builder_fee_approval_required' } }); // approved below the fee
+    await db.update(copyLiveBuilderApprovals).set({ maxFeeTenthsBps: 10 });
+    expect((await challenge()).intent).toMatchObject({ builderAddress: builder, builderMaxFeeTenthsOfBps: 10 });
   });
   it('requires an explicitly stored complete risk policy, not schema default authority', async () => {
     await db.delete(copyRiskPolicies);

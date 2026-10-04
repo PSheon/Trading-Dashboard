@@ -22,6 +22,27 @@ export class CopyFundingExchangeClient {
     if (!value || typeof value !== "object" || !("withdrawable" in value) || typeof value.withdrawable !== "string") throw new Error("Funding balance unavailable");
     return withdrawalUnits(value.withdrawable) >= withdrawalUnits(operation.amount);
   }
+  /** The account's transferable perp USDC (clearinghouseState.withdrawable). */
+  async withdrawable(network: FundingRow["network"], address: string): Promise<string> {
+    const value = await this.read(WALLET_NETWORKS[network].infoUrl, { type: "clearinghouseState", user: address }, 2);
+    if (!value || typeof value !== "object" || !("withdrawable" in value) || typeof value.withdrawable !== "string" || !/^\d+(?:\.\d+)?$/.test(value.withdrawable)) throw new Error("Funding balance unavailable");
+    return value.withdrawable;
+  }
+  /** Sends an exact user-signed action (approveBuilderFee) from the account. */
+  async sendAction(network: FundingRow["network"], body: unknown, assertFreshProof: () => void): Promise<unknown> {
+    try {
+      const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(20000) };
+      const permit = this.global ? await this.global.currentQuota().acquireRest(1, Date.now() + 5000) : undefined;
+      const dispatch = () => { const result: unknown = assertFreshProof(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } permit?.assertFresh(); return fetch(WALLET_NETWORKS[network].exchangeUrl, request); };
+      const response = await (permit ? permit.dispatch(dispatch) : dispatch()); if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error(); }
+      return await readInfoJson(response, 'copy account action', 64 * 1024);
+    } catch { throw new LiveBoundaryError('account_action_submission_unknown'); }
+  }
+  async maxBuilderFee(network: FundingRow["network"], user: string, builder: string): Promise<number> {
+    const value = await this.read(WALLET_NETWORKS[network].infoUrl, { type: "maxBuilderFee", user, builder }, 20);
+    if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error("Builder approval unavailable");
+    return value as number;
+  }
   async send(rawOperation:FundingRow,signature:string,assertFreshProof?:()=>void):Promise<unknown>{
     const operation=Object.freeze(structuredClone(rawOperation));
     try{

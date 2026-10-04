@@ -9,7 +9,7 @@ import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.j
 import { z } from "zod";
 import { walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
 import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
-import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema } from "./copy-funding-contracts.js";
+import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema, copyReturnChallengeSchema, copyBuilderChallengeSchema, copyBuilderApprovalSchema } from "./copy-funding-contracts.js";
 import { copyAgentSetupSchema, copyAgentOverviewSchema, copyAgentChallengeSchema } from "./copy-agent-contracts.js";
 import { copyAccountModeOverviewSchema, copyAccountModeOperationSchema, copyAccountModeChallengeSchema } from "./copy-account-mode-contracts.js";
 import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
@@ -377,6 +377,11 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/funding/:id/submit", status: 200, auth: "user (owner); exact source signature; one attempt", response: copyFundingSchema },
   { method: "POST", path: "/me/copy/funding/:id/cancel", status: 200, auth: "user (owner); unattempted intent only", response: copyFundingSchema },
   { method: "POST", path: "/me/copy/funding/:id/reconcile", status: 200, auth: "user (owner); positive transaction and recipient evidence", response: copyFundingSchema },
+  { method: "POST", path: "/me/copy/live/execution-wallets/:id/returns", status: 200, auth: "user (owner); testnet; return to the main wallet, consent challenge only", response: copyReturnChallengeSchema },
+  { method: "POST", path: "/me/copy/live/returns/:id/approve", status: 200, auth: "user (owner); main-wallet consent and fresh session; one attempt", response: copyFundingSchema },
+  { method: "POST", path: "/me/copy/live/execution-wallets/:id/builder-approval", status: 200, auth: "user (owner); testnet; configured builder fee, consent challenge only", response: copyBuilderChallengeSchema },
+  { method: "POST", path: "/me/copy/live/builder-approvals/:id/approve", status: 200, auth: "user (owner); main-wallet consent and fresh session; one attempt", response: copyBuilderApprovalSchema },
+  { method: "POST", path: "/me/copy/live/builder-approvals/:id/reconcile", status: 200, auth: "user (owner); read only", response: copyBuilderApprovalSchema },
   { method: "POST", path: "/me/copy/strategies/:id/execution-wallet", status: 200, auth: "user (owner); configured wallet provider; deployment network only", response: copyExecutionAccountSchema },
   { method: "POST", path: "/me/copy/execution-wallets/:id/reconcile", status: 200, auth: "user (owner)", response: copyExecutionAccountSchema },
   { method: "POST", path: "/me/copy/wallet-authorizations/:id/revoke", status: 200, auth: "user (owner)", response: copyWalletGrantSchema },

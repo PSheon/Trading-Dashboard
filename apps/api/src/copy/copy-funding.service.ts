@@ -15,10 +15,11 @@ import { fundingCreditEvidence } from "./copy-funding-evidence.js";
 import { FUNDING_NONCE_SKEW_MS, fundingScanSchema, type FundingScan } from "./copy-funding-scan.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: row.accountId, strategyId: row.strategyId,
+export const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: row.accountId, strategyId: row.strategyId,
   network: row.network, address: row.address, destination: row.destination, amount: row.amount, nonce: row.nonce,
   status: row.status, canCancel: ["prepared", "unknown"].includes(row.status) && !row.attemptedAt,
-  transactionHash: row.transactionHash, creditedAmount: row.creditedAmount, fee: row.fee, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
+  transactionHash: row.transactionHash, creditedAmount: row.creditedAmount, fee: row.fee, direction: row.direction, stopId: row.stopId,
+  createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
 
 /** Testnet setup funds never become paper collateral. Mainnet stays disabled
  * until the complete live trading lifecycle is connected and verified. */
@@ -54,6 +55,7 @@ export class CopyFundingService {
   async claim(userId: number, id: string) {
     this.assertAvailable();
     const row = await this.repository.find(userId, id);
+    if (row.direction !== "to_account") throw new ConflictException("A return is approved through its own consent");
     await this.verified(userId, row.accountId);
     const claimed = await this.repository.claim(userId, id);
     return { operation: wire(claimed.row), claimed: claimed.claimed };
@@ -62,6 +64,7 @@ export class CopyFundingService {
   async submit(userId: number, id: string, signature: string) {
     this.assertAvailable();
     const row = await this.repository.find(userId, id);
+    if (row.direction !== "to_account") throw new ConflictException("A return is approved through its own consent");
     if (row.network !== this.config.value.hyperliquid.wallet.network) throw new ConflictException("Funding network changed");
     let valid = false;
     try { valid = /^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(signature) && await verifyTypedData({ ...usdSendTypedData(WALLET_NETWORKS[row.network], row.destination, row.amount, row.nonce), address: row.address as `0x${string}`, signature: signature as `0x${string}` }); } catch { /* Never log signing inputs. */ }

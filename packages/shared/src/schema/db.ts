@@ -1406,8 +1406,15 @@ export const copyFundingOperations = pgTable("copy_funding_operations", {
   claimedAt: timestamp("claimed_at", { withTimezone: true }), attemptedAt: timestamp("attempted_at", { withTimezone: true }),
   evidenceHash: text("evidence_hash"), transactionHash: text("transaction_hash"), creditedAmount: text("credited_amount"), fee: text("fee"),
   scanState: jsonb("scan_state").$type<unknown>(), scanRevision: integer("scan_revision").notNull().default(0),
+  /** to_account: the owner's main wallet funds the copy (signed in the
+   * browser). to_main: the copy's account returns USDC to the main wallet
+   * (signed by the account through Privy with the owner's session). */
+  direction: text("direction").$type<"to_account" | "to_main">().notNull().default("to_account"),
+  /** A return that ends a stop (its sweep). */
+  stopId: text("stop_id").references((): AnyPgColumn => copyLiveStopOperations.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  check("copy_funding_direction_check", sql`${oneOf(t.direction, ["to_account", "to_main"])} and (${t.stopId} is null or ${t.direction} = 'to_main')`),
   uniqueIndex("copy_funding_key_uq").on(t.userId, t.idempotencyKey),
   uniqueIndex("copy_funding_nonce_uq").on(t.network, t.address, t.nonce),
   uniqueIndex("copy_funding_pending_uq").on(t.network, t.address).where(sql`${t.status} in ('prepared', 'unknown', 'accepted')`),
@@ -1855,6 +1862,24 @@ export const copyLiveStopCancellations = pgTable("copy_live_stop_cancellations",
 }, (t) => [
   uniqueIndex("copy_live_stop_cancellations_attempt_uq").on(t.stopId, t.executionKey, t.attempt),
   check("copy_live_stop_cancellations_check", sql`${oneOf(t.state, ["claimed", "accepted", "unknown"])} and ${t.attempt} between 1 and 10 and ${t.nonce} > 0 and ${t.expiresAfter} > ${t.nonce} and ${t.consentDigest} ~ '^[0-9a-f]{64}$'`),
+]);
+
+/** The copy account's approval of the platform builder fee (Hyperliquid
+ * approveBuilderFee), signed by the account through Privy with the owner's
+ * consent and session. Only needed while the configured fee is above zero. */
+export const copyLiveBuilderApprovals = pgTable("copy_live_builder_approvals", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(), network: text("network").$type<"testnet">().notNull(),
+  accountAddress: text("account_address").notNull(), builderAddress: text("builder_address").notNull(),
+  maxFeeTenthsBps: integer("max_fee_tenths_bps").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),
+  state: text("state").$type<"prepared" | "unknown" | "accepted" | "rejected" | "approved">().notNull().default("prepared"),
+  attemptedAt: timestamp("attempted_at", { withTimezone: true }), evidenceDigest: text("evidence_digest"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_builder_approvals_key_uq").on(t.userId, t.idempotencyKey),
+  uniqueIndex("copy_live_builder_approvals_nonce_uq").on(t.network, t.accountAddress, t.nonce),
+  check("copy_live_builder_approvals_check", sql`${t.network} = 'testnet' and ${oneOf(t.state, ["prepared", "unknown", "accepted", "rejected", "approved"])} and ${t.maxFeeTenthsBps} between 1 and 100 and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.builderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.nonce} > 0 and (${t.state} = 'prepared' or ${t.attemptedAt} is not null)`),
 ]);
 
 /** Shared outbound provider capacity. Reservations are never refunded merely

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { adminSettingsSchema, generalSettingsSchema, copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS, liveCopyMandateIntentSchema, liveCopyMandateSchema, liveCopyStrategySchema, type CreateLiveCopyStrategy, type LiveCopyMandateIntent } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyLiveActivations, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+import { appSettings, copyLiveActivations, copyLiveBuilderApprovals, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyLiveMandates, copyLiveStrategyConfigs, copyRiskPolicies, copyStrategies, copyStrategyVersions, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbExecutor, DbTransaction } from '../db/unit-of-work.js';
@@ -144,6 +144,14 @@ export class CopyLiveMandateRepository {
     const context = await this.context(tx, userId, accountId, now);
     const [existing] = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), eq(copyLiveMandates.idempotencyKey, key)));
     if (existing) { if (existing.accountId !== accountId) conflict(); return existing; }
+    // A configured builder fee is charged on every order: the account must
+    // have approved at least that fee for that builder on the exchange.
+    const fee = await this.builder(tx);
+    if (fee.builderAddress && fee.builderMaxFeeTenthsOfBps > 0) {
+      const [approved] = await tx.select({ id: copyLiveBuilderApprovals.id }).from(copyLiveBuilderApprovals).where(and(eq(copyLiveBuilderApprovals.accountId, accountId),
+        eq(copyLiveBuilderApprovals.state, 'approved'), eq(copyLiveBuilderApprovals.builderAddress, fee.builderAddress), sql`${copyLiveBuilderApprovals.maxFeeTenthsBps} >= ${fee.builderMaxFeeTenthsOfBps}`)).limit(1);
+      if (!approved) throw new ConflictException({ statusCode: 409, code: 'builder_fee_approval_required', message: 'Approve the builder fee from the copy account first' });
+    }
     const current = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.accountId, accountId), sql`${copyLiveMandates.state} not in ('stopped','revoked','expired')`));
     for (const row of current) {
       if (row.expiresAt.getTime() <= now || (row.state === 'prepared' && row.consentExpiresAt.getTime() <= now)) await tx.update(copyLiveMandates).set({ state: 'expired', revision: row.revision + 1, updatedAt: new Date(now) }).where(eq(copyLiveMandates.id, row.id));

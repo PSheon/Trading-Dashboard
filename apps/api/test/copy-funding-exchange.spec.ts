@@ -3,7 +3,7 @@ import { CopyFundingExchangeClient } from "../src/copy/copy-funding-exchange.cli
 import type { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import type { FundingRow } from "../src/copy/copy-funding.repository.js";
 
-const op: FundingRow = { id: "test", userId: 1, accountId: "account", strategyId: 1, idempotencyKey: "test-key", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "unknown", claimedAt: new Date(), attemptedAt: new Date(), evidenceHash: null, transactionHash: null, creditedAmount: null, fee: null, scanState: null, scanRevision: 0, createdAt: new Date(), updatedAt: new Date() };
+const op: FundingRow = { id: "test", userId: 1, accountId: "account", strategyId: 1, idempotencyKey: "test-key", network: "testnet", address: `0x${"11".repeat(20)}`, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: 1780000000000, status: "unknown", direction: "to_account", stopId: null, claimedAt: new Date(), attemptedAt: new Date(), evidenceHash: null, transactionHash: null, creditedAmount: null, fee: null, scanState: null, scanRevision: 0, createdAt: new Date(), updatedAt: new Date() };
 const signature = `0x${"11".repeat(64)}1b`;
 function client() { const budget = { acquire: vi.fn(async () => {}) }; return { budget, transport: new CopyFundingExchangeClient(budget as unknown as RequestBudgeterService) }; }
 afterEach(() => vi.unstubAllGlobals());

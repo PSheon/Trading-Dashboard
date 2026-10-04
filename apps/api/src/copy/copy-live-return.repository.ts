@@ -1,0 +1,131 @@
+import { randomUUID } from 'node:crypto';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { copyExecutionAccounts, copyFundingOperations, copyLiveBuilderApprovals, copyLiveStopOperations, copyStrategies, users, walletWithdrawals } from '@trading-dashboard/shared/database';
+import { DRIZZLE_CLIENT } from '../db/db.constants.js';
+import type { DrizzleDb } from '../db/drizzle.provider.js';
+import type { DbTransaction } from '../db/unit-of-work.js';
+import { lockCopyUser } from './copy-user-lock.js';
+
+export type ReturnRow = typeof copyFundingOperations.$inferSelect;
+export type BuilderApprovalRow = typeof copyLiveBuilderApprovals.$inferSelect;
+const busy = () => new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'Resolve the pending wallet operation first' });
+
+/** Account context of a master-signed action: the owner, the copy's ready
+ * account and its strategy, and an unfinished stop if any. */
+export interface MasterContext {
+  owner: typeof users.$inferSelect; account: typeof copyExecutionAccounts.$inferSelect; strategy: typeof copyStrategies.$inferSelect;
+  stop: typeof copyLiveStopOperations.$inferSelect | null;
+}
+
+@Injectable()
+export class CopyLiveReturnRepository {
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  private locked<T>(userId: number, write: (tx: DbTransaction) => PromiseLike<T>): Promise<T> {
+    return this.db.transaction(async tx => { await lockCopyUser(tx, userId); return write(tx); });
+  }
+  async context(db: DrizzleDb | DbTransaction, userId: number, accountId: string): Promise<MasterContext> {
+    const [owner] = await db.select().from(users).where(and(eq(users.id, userId), isNull(users.disabledAt)));
+    const [account] = await db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId)));
+    if (!owner?.embeddedWalletAddress || !account) throw new NotFoundException('Execution account not found');
+    if (account.state !== 'ready' || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== 'testnet' ||
+      account.privyUserId !== owner.privyUserId || account.address === owner.embeddedWalletAddress) throw new ConflictException('Execution account is not ready');
+    const [strategy] = await db.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId)));
+    if (!strategy || strategy.mode !== 'testnet') throw new NotFoundException('Execution account not found');
+    const [stop] = await db.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.accountId, account.id), ne(copyLiveStopOperations.state, 'stopped')));
+    return { owner, account, strategy, stop: stop ?? null };
+  }
+  contextRead(userId: number, accountId: string): Promise<MasterContext> { return this.context(this.db, userId, accountId); }
+  reader(): DrizzleDb { return this.db; }
+  private async nonce(tx: DbTransaction, address: string): Promise<number> {
+    const clock = await tx.execute<{ nonce: number }>(sql`select greatest(floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
+      coalesce((select max(nonce) + 1 from copy_funding_operations where network = 'testnet' and address = ${address}), 0),
+      coalesce((select max(nonce) + 1 from copy_live_builder_approvals where network = 'testnet' and account_address = ${address}), 0))::float8 as nonce`);
+    return clock.rows[0]!.nonce;
+  }
+  /** A return of `amount` from the copy's account to the owner's main wallet.
+   * A sweep (`stopId`) belongs to the account's flat stop. One wallet
+   * operation of the account at a time. */
+  async reserve(userId: number, accountId: string, input: { idempotencyKey: string; amount: string; sweep: boolean }): Promise<ReturnRow> {
+    return this.locked(userId, async tx => {
+      const { owner, account, strategy, stop } = await this.context(tx, userId, accountId);
+      const [original] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.idempotencyKey, input.idempotencyKey)));
+      if (original) {
+        if (original.direction !== 'to_main' || original.accountId !== accountId || original.address !== account.address || original.destination !== owner.embeddedWalletAddress ||
+          (!input.sweep && original.amount !== input.amount)) throw new ConflictException('Idempotency payload changed');
+        return original;
+      }
+      if (input.sweep && stop?.state !== 'flat' && strategy.status !== 'stopped') throw new ConflictException({ statusCode: 409, code: 'return_requires_flat_stop', message: 'Stop the copy first; everything returns once it is flat' });
+      if (!input.sweep && (stop || ['stopping', 'stopped'].includes(strategy.status))) throw new ConflictException({ statusCode: 409, code: 'return_use_sweep', message: 'The copy is stopping: return everything once it is flat' });
+      const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
+        .where(and(eq(copyFundingOperations.accountId, accountId), inArray(copyFundingOperations.status, ['prepared', 'unknown', 'accepted']))).limit(1);
+      const hubPending = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals)
+        .where(and(eq(walletWithdrawals.network, 'testnet'), eq(walletWithdrawals.address, owner.embeddedWalletAddress!), inArray(walletWithdrawals.status, ['prepared', 'unknown']))).limit(1);
+      if (pendingRows.length || hubPending.length) throw busy();
+      const [row] = await tx.insert(copyFundingOperations).values({ id: randomUUID(), userId, accountId, strategyId: account.strategyId, idempotencyKey: input.idempotencyKey,
+        network: 'testnet', address: account.address!, destination: owner.embeddedWalletAddress!, amount: input.amount, nonce: await this.nonce(tx, account.address!),
+        direction: 'to_main', stopId: input.sweep ? stop?.id ?? null : null }).returning();
+      return row!;
+    });
+  }
+  async find(userId: number, id: string): Promise<ReturnRow> {
+    const [row] = await this.db.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.direction, 'to_main')));
+    if (!row) throw new NotFoundException('Return not found');
+    return row;
+  }
+  /** One attempt: prepared → unknown with its attempt time, still owned,
+   * the account ready, the destination still the owner's main wallet. */
+  async begin(userId: number, id: string): Promise<ReturnRow | null> {
+    return this.locked(userId, async tx => {
+      const [row] = await tx.select().from(copyFundingOperations).where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.direction, 'to_main'))).for('update');
+      if (!row) throw new NotFoundException('Return not found');
+      const { owner, account } = await this.context(tx, userId, row.accountId);
+      if (owner.embeddedWalletAddress !== row.destination || account.address !== row.address) throw new ConflictException('Wallet identity changed');
+      const [claimed] = await tx.update(copyFundingOperations).set({ status: 'unknown', claimedAt: new Date(), attemptedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.status, 'prepared'), isNull(copyFundingOperations.attemptedAt))).returning();
+      return claimed ?? null;
+    });
+  }
+  async finish(userId: number, id: string, status: 'accepted' | 'rejected', evidenceHash: string): Promise<ReturnRow> {
+    const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status, evidenceHash, updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, 'unknown'), sql`${copyFundingOperations.attemptedAt} is not null`)).returning());
+    return row ?? this.find(userId, id);
+  }
+  /** Whether a stop's sweep was credited to the main wallet. */
+  async swept(stopId: string): Promise<boolean> {
+    const [row] = await this.db.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
+      .where(and(eq(copyFundingOperations.stopId, stopId), eq(copyFundingOperations.direction, 'to_main'), eq(copyFundingOperations.status, 'credited'))).limit(1);
+    return row !== undefined;
+  }
+
+  // --- builder fee approval ---------------------------------------------------
+  async reserveBuilder(userId: number, accountId: string, input: { idempotencyKey: string; builderAddress: string; maxFeeTenthsBps: number; now: number }): Promise<BuilderApprovalRow> {
+    return this.locked(userId, async tx => {
+      const { account } = await this.context(tx, userId, accountId);
+      const [original] = await tx.select().from(copyLiveBuilderApprovals).where(and(eq(copyLiveBuilderApprovals.userId, userId), eq(copyLiveBuilderApprovals.idempotencyKey, input.idempotencyKey)));
+      if (original) {
+        if (original.accountId !== accountId || original.builderAddress !== input.builderAddress || original.maxFeeTenthsBps !== input.maxFeeTenthsBps) throw new ConflictException('Idempotency payload changed');
+        return original;
+      }
+      const [row] = await tx.insert(copyLiveBuilderApprovals).values({ id: randomUUID(), userId, accountId, idempotencyKey: input.idempotencyKey, network: 'testnet',
+        accountAddress: account.address!, builderAddress: input.builderAddress, maxFeeTenthsBps: input.maxFeeTenthsBps, nonce: await this.nonce(tx, account.address!),
+        createdAt: new Date(input.now), updatedAt: new Date(input.now) }).returning();
+      return row!;
+    });
+  }
+  async builder(userId: number, id: string): Promise<BuilderApprovalRow> {
+    const [row] = await this.db.select().from(copyLiveBuilderApprovals).where(and(eq(copyLiveBuilderApprovals.id, id), eq(copyLiveBuilderApprovals.userId, userId)));
+    if (!row) throw new NotFoundException('Approval not found');
+    return row;
+  }
+  async beginBuilder(userId: number, id: string): Promise<BuilderApprovalRow | null> {
+    const [row] = await this.locked(userId, tx => tx.update(copyLiveBuilderApprovals).set({ state: 'unknown', attemptedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(copyLiveBuilderApprovals.id, id), eq(copyLiveBuilderApprovals.userId, userId), eq(copyLiveBuilderApprovals.state, 'prepared'))).returning());
+    return row ?? null;
+  }
+  async finishBuilder(userId: number, id: string, state: 'accepted' | 'rejected' | 'approved', evidenceDigest: string | null): Promise<BuilderApprovalRow> {
+    const [row] = await this.locked(userId, tx => tx.update(copyLiveBuilderApprovals).set({ state, evidenceDigest, updatedAt: new Date() })
+      .where(and(eq(copyLiveBuilderApprovals.id, id), eq(copyLiveBuilderApprovals.userId, userId), inArray(copyLiveBuilderApprovals.state, ['unknown', 'accepted']))).returning());
+    return row ?? this.builder(userId, id);
+  }
+}

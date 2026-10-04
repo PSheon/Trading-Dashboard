@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, ConflictException, Injectable, Logger } from "@nestjs/common";
 import type { RequestUser } from "../common/auth/current-user.js";
 import { parseOr400 } from "../common/http/validation.js";
 import { createHash } from "node:crypto";
@@ -31,7 +31,15 @@ const evidenceHash = (value: unknown) => createHash("sha256").update(JSON.string
  * makes one submission, and persists outcome evidence without the signature. */
 @Injectable()
 export class WithdrawalService {
+  private readonly logger = new Logger("Withdrawal");
   private readonly lookupCache = new TtlCache<string | null>(30_000);
+  /** One line per state change of a withdrawal (the request id is added by
+   * the logger): what an incident needs when the database row is not enough.
+   * Never the signature or the destination address. */
+  private note(event: string, row: Pick<WithdrawalRow, "id" | "userId" | "network" | "nonce" | "status" | "amount"> & { evidenceHash?: string | null }, extra: Record<string, unknown> = {}, level: "log" | "warn" = "log") {
+    this.logger[level]({ event, withdrawalId: row.id, userId: row.userId, network: row.network, nonce: row.nonce, status: row.status, amount: row.amount,
+      ...(row.evidenceHash ? { evidenceHash: row.evidenceHash.slice(0, 16) } : {}), ...extra });
+  }
   constructor(private readonly config: AppConfig, private readonly wallet: WalletService, private readonly repository: WithdrawalRepository, private readonly info: HyperliquidInfoClient, private readonly exchange: WithdrawalExchangeClient) {}
   private get network() { return this.config.value.hyperliquid.wallet.network; }
   private async scope(userId: number) {
@@ -60,7 +68,9 @@ export class WithdrawalService {
   async reserve(userId: number, body: unknown) {
     const parsed = walletWithdrawalInputSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException("Invalid withdrawal");
-    return wire(await this.repository.reserve(await this.scope(userId), parsed.data));
+    const row = await this.repository.reserve(await this.scope(userId), parsed.data);
+    this.note("withdrawal.reserved", row);
+    return wire(row);
   }
   async import(userId: number, body: unknown) {
     const parsed = walletWithdrawalImportSchema.safeParse(body);
@@ -68,16 +78,21 @@ export class WithdrawalService {
     const { nonce, ...input } = parsed.data;
     // Old unknown metadata must survive upgrades, including records older than
     // the upstream ledger window. Never mint a fresh nonce for an import.
-    return wire(await this.repository.reserve(await this.scope(userId), input, nonce));
+    const row = await this.repository.reserve(await this.scope(userId), input, nonce);
+    this.note("withdrawal.imported", row, { origin: row.origin });
+    return wire(row);
   }
   async claim(userId: number, id: string) {
     await this.own(userId, id);
     const claim = await this.repository.claim(userId, id);
+    this.note("withdrawal.claimed", claim.row, { claimed: claim.claimed });
     return { operation: wire(claim.row), claimed: claim.claimed };
   }
   async cancel(userId: number, id: string) {
     await this.own(userId, id);
-    return wire(await this.repository.cancel(userId, id));
+    const row = await this.repository.cancel(userId, id);
+    this.note("withdrawal.cancelled", row);
+    return wire(row);
   }
   async submit(userId: number, id: string, signature: string) {
     const operation = await this.own(userId, id);
@@ -97,11 +112,13 @@ export class WithdrawalService {
       // No exchange bytes have been sent. The CAS cannot release an operation
       // whose competing request already started its actual attempt.
       await this.repository.restoreUnsent(userId, id);
+      this.note("withdrawal.submit.deferred", operation, { reason: "exchange_budget_busy" }, "warn");
       throw new BusyException(BUSY_RETRY_AFTER_MS);
     }
     const identityCheckedAt = Date.now();
     const claimed = await this.repository.beginSubmit(userId, id);
     if (!claimed) return wire(await this.repository.find(userId, id));
+    this.note("withdrawal.submit.started", claimed);
     let reply: unknown;
     try { reply = await this.exchange.send(claimed, signature, () => {
       const now = Date.now();
@@ -109,16 +126,26 @@ export class WithdrawalService {
         claimed.network !== this.network || claimed.address !== operation.address || claimed.destination !== operation.destination ||
         claimed.amount !== operation.amount || claimed.nonce !== operation.nonce) throw new ConflictException('withdrawal_identity_evidence_expired');
     }); }
-    catch { return wire(await this.repository.find(userId, id)); }
+    catch (error) {
+      // Sent or not, the outcome is unknown: never resent, reconciled by nonce.
+      this.note("withdrawal.submit.failed", claimed, { error: error instanceof Error ? error.name : "unknown", outcome: "unknown" }, "warn");
+      return wire(await this.repository.find(userId, id));
+    }
     if (reply && typeof reply === "object" && Object.keys(reply).length === 2 && "status" in reply && "response" in reply) {
       if (reply.status === "ok" && reply.response && typeof reply.response === "object" && "type" in reply.response && reply.response.type === "default" && Object.keys(reply.response).length === 1) {
-        return wire(await this.repository.finish(userId, id, "accepted", evidenceHash(reply)));
+        const row = await this.repository.finish(userId, id, "accepted", evidenceHash(reply));
+        this.note("withdrawal.submit.result", row, { exchange: "ok" });
+        return wire(row);
       }
       if (reply.status === "err" && typeof reply.response === "string" && reply.response.length > 0 && !/nonce/i.test(reply.response)) {
-        return wire(await this.repository.finish(userId, id, "rejected", evidenceHash(reply)));
+        const row = await this.repository.finish(userId, id, "rejected", evidenceHash(reply));
+        this.note("withdrawal.submit.result", row, { exchange: "err" }, "warn");
+        return wire(row);
       }
     }
-    return wire(await this.repository.find(userId, id));
+    const row = await this.repository.find(userId, id);
+    this.note("withdrawal.submit.result", row, { exchange: "unrecognised", outcome: "unknown" }, "warn");
+    return wire(row);
   }
   async reconcile(userId: number, id: string) {
     const operation = await this.own(userId, id);
@@ -133,7 +160,10 @@ export class WithdrawalService {
       if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
       throw new BadGatewayException("Withdrawal status unavailable");
     }
-    return wire(found ? await this.repository.finish(userId, id, "accepted", found) : await this.repository.find(userId, id));
+    if (!found) return wire(await this.repository.find(userId, id));
+    const row = await this.repository.finish(userId, id, "accepted", found);
+    this.note("withdrawal.reconciled", row, { source: "ledger" });
+    return wire(row);
   }
 
   /** Admin: every main-wallet withdrawal whose outcome is unknown. */
@@ -182,6 +212,7 @@ export class WithdrawalService {
     const hash = match ?? evidenceHash({ source: "operator", evidence, address: operation.address, nonce: operation.nonce, ledgerFrom: Math.max(0, operation.nonce - 60_000), ledgerTo: now, updates: rows.length });
     const resolved = await this.repository.resolve(operation, status, hash, actor, reason, evidence);
     if (!resolved) throw new ConflictException({ statusCode: 409, code: "withdrawal_not_unknown", message: "The withdrawal was resolved meanwhile" });
+    this.note("withdrawal.resolved", resolved, { evidence, actorUserId: actor.kind === "user" ? actor.id : null, ledgerUpdates: rows.length }, "warn");
     return { id, status, evidence };
   }
 }

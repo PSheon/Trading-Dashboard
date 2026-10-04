@@ -1,4 +1,4 @@
-import type { INestApplication } from "@nestjs/common";
+import { Logger, type INestApplication } from "@nestjs/common";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthService } from "../src/common/auth/auth.service.js";
@@ -82,6 +82,31 @@ describe("durable owner withdrawal metadata", () => {
     const res = await post(`/${op.id}/submit`, { signature: sig }).expect(200);
     expect(res.body.data.status).toBe('unknown'); expect(exchange.send.mock.calls[0][2]).toEqual(expect.any(Function)); expect(nativeCalls).toBe(0);
     await post(`/${op.id}/submit`, { signature: sig }).expect(200); expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs every state change of a withdrawal, with its id and nonce, never the signature or destination", async () => {
+    const lines: unknown[] = [];
+    vi.spyOn(Logger.prototype, "log").mockImplementation(function (this: Logger, message: unknown) { lines.push(message); });
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(function (this: Logger, message: unknown) { lines.push(message); });
+    const op = await unknown(), sig = await signature(op);
+    await post(`/${op.id}/submit`, { signature: sig }).expect(200);
+    const events = (lines as Array<{ event?: string; withdrawalId?: string; nonce?: number; status?: string }>).filter((line) => line?.event?.startsWith("withdrawal."));
+    expect(events.map((e) => [e.event, e.status])).toEqual([
+      ["withdrawal.reserved", "prepared"], ["withdrawal.claimed", "unknown"], ["withdrawal.submit.started", "unknown"], ["withdrawal.submit.result", "accepted"],
+    ]);
+    expect(events.every((e) => e.withdrawalId === op.id && e.nonce === op.nonce)).toBe(true);
+    const text = JSON.stringify(lines);
+    expect(text).not.toContain(sig.slice(2, 40));
+    expect(text).not.toContain(DEST);
+  });
+
+  it("logs a submission whose answer is lost as unknown", async () => {
+    const lines: unknown[] = [];
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(function (this: Logger, message: unknown) { lines.push(message); });
+    exchange.send.mockRejectedValueOnce(new Error("socket hang up"));
+    const op = await unknown();
+    await post(`/${op.id}/submit`, { signature: await signature(op) }).expect(200);
+    expect(lines).toContainEqual(expect.objectContaining({ event: "withdrawal.submit.failed", withdrawalId: op.id, outcome: "unknown" }));
   });
 
   it("reserves one canonical operation across devices and recovers it without provider side effects", async () => {

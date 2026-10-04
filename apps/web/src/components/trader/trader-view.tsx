@@ -1,12 +1,13 @@
 "use client";
 
-import type { TraderWindow } from "@/lib/contracts";
+import type { TraderActivityResponse, TraderProfileResponse, TraderWindow } from "@/lib/contracts";
 import { notFound } from "next/navigation";
 import { useState } from "react";
 
 import { Skeleton } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
 import {
+  type InitialRead,
   isComputing,
   useCopyScore,
   usePortfolio,
@@ -33,18 +34,31 @@ import {
 } from "./performance";
 import { ProfileCard } from "./profile-card";
 
-/** Trader page: profile | KPIs + chart + tabs | copy panel (Stage 2 §6). */
-export function TraderView({ address }: { address: string }) {
-  return <TraderLoaded address={address.toLowerCase()} />;
+/** What the page read on the server (`prefetchTrader`); either is null when
+ * the api did not answer in time, and the browser reads it as before. */
+export interface TraderInitial {
+  profile: InitialRead<TraderProfileResponse> | null;
+  activity: InitialRead<TraderActivityResponse> | null;
 }
 
-function TraderLoading() {
+/** Trader page: profile | KPIs + chart + tabs | copy panel (Stage 2 §6). */
+export function TraderView({ address, initial }: { address: string; initial?: TraderInitial }) {
+  return <TraderLoaded address={address.toLowerCase()} initial={initial} />;
+}
+
+/** Before the width is known (the server's HTML and hydration). With the
+ * profile at hand the desktop outline already carries the profile card
+ * (its h1, name and figures; no reads of its own), so the first HTML has
+ * them; the phone outline stays a skeleton until its own layout mounts. */
+function TraderLoading({ profile }: { profile?: TraderProfileResponse }) {
   return (
     <>
       {/* Both outlines, one shown by CSS: the width is not known yet. */}
       <div className="md:hidden"><Skeleton className="h-[640px] rounded-2xl" /></div>
       <div className="trader-grid -mx-1 md:mx-0">
-        <div data-area="profile"><Skeleton className="h-[640px] rounded-2xl" /></div>
+        <div data-area="profile">
+          {profile ? <ProfileCard profile={profile} allTimeVolume={null} trades={undefined} tradesComputing /> : <Skeleton className="h-[640px] rounded-2xl" />}
+        </div>
         <div data-area="main"><Skeleton className="h-[640px] rounded-2xl" /></div>
         <div data-area="copy"><Skeleton className="h-64 rounded-2xl" /></div>
       </div>
@@ -52,7 +66,7 @@ function TraderLoading() {
   );
 }
 
-function TraderLoaded({ address }: { address: string }) {
+function TraderLoaded({ address, initial }: { address: string; initial?: TraderInitial }) {
   const { t } = useI18n();
   // Only the layout on screen is mounted: the desktop page's rail, KPI
   // tiles and tables have their own reads (fills ×2000 every 30 s, a second
@@ -63,8 +77,8 @@ function TraderLoaded({ address }: { address: string }) {
 
   // The profile is the cheap first paint; activity (sample size, which
   // mutes the KPI tiles) costs the api fill lists and loads alongside it.
-  const profile = useTraderProfile(address);
-  const activity = useTraderActivity(address);
+  const profile = useTraderProfile(address, initial?.profile);
+  const activity = useTraderActivity(address, initial?.activity);
   const portfolio = usePortfolio(address, window, market);
   const allTimePerp = usePortfolio(address, "allTime", "perp");
   // Positions, account value, fills and marks straight from Hyperliquid's
@@ -98,8 +112,9 @@ function TraderLoaded({ address }: { address: string }) {
     );
   }
 
-  // The width is known once the page has hydrated; nothing has loaded by then.
-  if (desktop === undefined) return <TraderLoading />;
+  // The width is known once the page has hydrated; until then only what
+  // the server read (the profile) is drawn.
+  if (desktop === undefined) return <TraderLoading profile={live.profile} />;
   if (!desktop) {
     // Phones: CopyDog's app layout (chart first, 2×2 card, segmented tabs).
     return live.profile ? (

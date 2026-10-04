@@ -107,6 +107,21 @@ export function takeAnonymousReads(): boolean {
 }
 
 /**
+ * Whether an answer the server read without a token (a page's prefetch) is
+ * this visitor's own view of a public read. Signed in: no, it lacks their
+ * fields (a trader's favorite flag), so it is shown but asked again at once.
+ * Not known yet: it counts as a read made before the visitor was known
+ * (`takeAnonymousReads`), refetched if they turn out to be signed in.
+ */
+export function serverReadIsCallers(): boolean {
+  if (identityScope === "loading") {
+    anonymousReads = true;
+    return true;
+  }
+  return identityScope === null || identityScope === "anonymous";
+}
+
+/**
  * Registered by the auth provider (Privy's `getAccessToken`, or the fixture
  * login) during render. The getter itself returns null when signed out.
  *

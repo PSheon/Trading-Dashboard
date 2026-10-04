@@ -1,6 +1,7 @@
 /** Server side only: reads NEXT_API_URL, which never reaches the browser. */
-import { findHttpContract, successEnvelopeSchema, type JsonWire } from "@/lib/contracts";
+import { findHttpContract, successEnvelopeSchema, type JsonWire, type TraderActivityResponse, type TraderProfileResponse } from "@/lib/contracts";
 import { apiTarget } from "@/lib/share-card-data";
+import { traderIsUnknown } from "@/lib/trader-presence";
 
 /** A public read made while the page renders, to seed the browser's query
  * cache: the data and when it was read (the query's `initialDataUpdatedAt`). */
@@ -41,4 +42,28 @@ export async function prefetchPublic<T>(
   } catch {
     return null;
   }
+}
+
+/** What the trader page read on the server: the profile and the activity
+ * (both public, one budget), and whether together they show nothing on
+ * Hyperliquid for the address (`traderIsUnknown`: true → the 404, null →
+ * not known in time, the browser decides as before). */
+export interface PrefetchedTrader {
+  profile: Prefetched<TraderProfileResponse> | null;
+  activity: Prefetched<TraderActivityResponse> | null;
+  unknown: boolean | null;
+}
+
+/** Profile and activity in parallel within `PREFETCH_TIMEOUT_MS`. A slow
+ * api leaves either one null and the page reads it from the browser. */
+export async function prefetchTrader(
+  address: string,
+  options: { apiUrl?: string; fetchImpl?: typeof fetch; client?: string; timeoutMs?: number } = {},
+): Promise<PrefetchedTrader> {
+  const a = address.toLowerCase();
+  const [profile, activity] = await Promise.all([
+    prefetchPublic<TraderProfileResponse>(`/traders/${a}`, options),
+    prefetchPublic<TraderActivityResponse>(`/traders/${a}/activity`, options),
+  ]);
+  return { profile, activity, unknown: traderIsUnknown(profile?.data as TraderProfileResponse | undefined, activity?.data as TraderActivityResponse | undefined) };
 }

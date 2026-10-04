@@ -31,6 +31,7 @@ import type {
   SparklinesResponse,
   TraderActivityResponse,
   TraderAnalyticsResponse,
+  TraderProfileResponse,
   TraderTradesResponse,
   TradeWindow,
   TraderFill,
@@ -45,7 +46,7 @@ import { useState } from "react";
 import type { WireChartSnapshots } from "@trading-dashboard/shared/contracts";
 
 import { actionsQueryString, mergeFetched, type ActionsParams } from "@/lib/action-stream";
-import { api, isBusy } from "@/lib/api";
+import { api, isBusy, serverReadIsCallers } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useActionStream } from "@/lib/use-action-stream";
 import { isStreamingTrader } from "@/lib/use-live-trader";
@@ -67,6 +68,10 @@ export interface InitialRead<T> {
 }
 const seeded = <T,>(initial: InitialRead<T> | null | undefined) =>
   initial ? { initialData: initial.data, initialDataUpdatedAt: initial.fetchedAt } : {};
+/** `seeded` for a read whose answer has per-caller fields: a signed-in
+ * visitor sees the server's anonymous answer but asks again at once. */
+const seededForCaller = <T,>(initial: InitialRead<T> | null | undefined) =>
+  initial ? { initialData: initial.data, initialDataUpdatedAt: serverReadIsCallers() ? initial.fetchedAt : 0 } : {};
 
 export function useSiteSettings(initial?: InitialRead<PublicSettings> | null) {
   return useQuery({
@@ -280,9 +285,10 @@ const POLL_WHILE_LIVE_MS = 5 * 60_000;
 const livePoll = (address: string) => () => (isStreamingTrader(address) ? POLL_WHILE_LIVE_MS : POLL_MS);
 
 /** GET /traders/:address: the first paint (account, positions, stats). */
-export function useTraderProfile(address: string) {
+export function useTraderProfile(address: string, initial?: InitialRead<TraderProfileResponse> | null) {
   return useQuery({
     ...traderProfileOptions(address),
+    ...seededForCaller(initial),
     refetchInterval: query => query.state.data?.dataQuality?.partial ? 5_000 : livePoll(address)(),
     ...traderRetry,
   });
@@ -290,10 +296,11 @@ export function useTraderProfile(address: string) {
 
 /** GET /traders/:address/activity: sample size and last trade, loaded
  * alongside the profile (it costs the api more and arrives later). */
-export function useTraderActivity(address: string) {
+export function useTraderActivity(address: string, initial?: InitialRead<TraderActivityResponse> | null) {
   return useQuery({
     queryKey: queryKeys.trader.activity(address),
     queryFn: ({ signal }) => api.get<TraderActivityResponse>(`/traders/${address}/activity`, signal),
+    ...seeded(initial),
     refetchInterval: 60_000,
     ...traderRetry,
   });

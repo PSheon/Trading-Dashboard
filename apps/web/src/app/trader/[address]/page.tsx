@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 
 import { TraderView } from "@/components/trader/trader-view";
 import { getLocale, getMessages } from "@/i18n/server";
 import { clientAddress } from "@/lib/client-address";
 import { truncateAddress } from "@/lib/format";
 import { pageSeo } from "@/lib/seo";
+import { prefetchTrader } from "@/lib/server-prefetch";
 import { withApp } from "@/lib/seo-text";
 import { loadTraderName } from "@/lib/share-card-data";
 
@@ -22,6 +24,10 @@ function decodedSegment(segment: string): string {
   }
 }
 
+/** The profile and activity, read once per request (metadata and page),
+ * within the 1.5 s prefetch budget, counted against the visitor. */
+const traderRead = cache(async (address: string) => prefetchTrader(address, { client: clientAddress(await headers()) }));
+
 export async function generateMetadata({ params }: PageProps<"/trader/[address]">): Promise<Metadata> {
   const address = decodedSegment((await params).address);
   const locale = await getLocale();
@@ -30,15 +36,23 @@ export async function generateMetadata({ params }: PageProps<"/trader/[address]"
   // CopyDog's tab: "<name or short address> · Hyperliquid"; its description
   // names the trader; the canonical URL is the lowercase address.
   const client = clientAddress(await headers());
-  const name = (await loadTraderName(address, { client })) ?? truncateAddress(address);
+  const [found, read] = await Promise.all([loadTraderName(address, { client }), traderRead(address)]);
+  if (read.unknown) return {};
+  const name = found ?? truncateAddress(address);
   return pageSeo(locale, { path: `/trader/${address.toLowerCase()}`, title: `${name} · Hyperliquid`, description: withApp(messages.meta.pages.trader.replaceAll("{name}", name)) });
 }
 
 /** Anything that can't be an address (the search box sends whatever was
- * typed here, as CopyDog's does) is the 404. An address with nothing on
- * Hyperliquid becomes the 404 once the page has asked (TraderView). */
+ * typed here, as CopyDog's does) is the 404. The profile and activity are
+ * read here, before anything is sent (no Suspense, no loading.tsx: a
+ * streamed page can no longer answer 404): an address with nothing on
+ * Hyperliquid is a real 404, and a known one renders its profile in the
+ * first HTML. When the api is slow or down the page renders without them
+ * and the browser reads and decides, as before. */
 export default async function TraderPage({ params }: PageProps<"/trader/[address]">) {
   const address = decodedSegment((await params).address);
   if (!ADDRESS.test(address)) notFound();
-  return <TraderView address={address} />;
+  const { profile, activity, unknown } = await traderRead(address);
+  if (unknown) notFound();
+  return <TraderView address={address} initial={{ profile, activity }} />;
 }

@@ -13,6 +13,21 @@ export interface MasterTypedData {
   readonly message: Record<string, unknown>;
 }
 export const MASTER_ACTION_SIGNER = Symbol('MASTER_ACTION_SIGNER');
+
+/** The only actions a copy account signs here, with their exact fields: a
+ * USDC transfer (the return to the owner's main wallet) and the builder fee
+ * approval. Anything else (ApproveAgent, Withdraw3, …) is refused before
+ * Privy is asked. */
+const SIGNABLE: Readonly<Record<string, readonly { name: string; type: string }[]>> = {
+  'HyperliquidTransaction:UsdSend': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'destination', type: 'string' }, { name: 'amount', type: 'string' }, { name: 'time', type: 'uint64' }],
+  'HyperliquidTransaction:ApproveBuilderFee': [{ name: 'hyperliquidChain', type: 'string' }, { name: 'maxFeeRate', type: 'string' }, { name: 'builder', type: 'address' }, { name: 'nonce', type: 'uint64' }],
+};
+export function masterActionSignable(data: Pick<MasterTypedData, 'primaryType' | 'types' | 'message'>): boolean {
+  const fields = Object.hasOwn(SIGNABLE, data.primaryType) ? SIGNABLE[data.primaryType]! : null;
+  const declared = data.types[data.primaryType];
+  return Boolean(fields && declared && Object.keys(data.types).length === 1 && JSON.stringify(declared) === JSON.stringify(fields) &&
+    Object.keys(data.message).sort().join(',') === fields.map(f => f.name).sort().join(','));
+}
 export interface MasterActionSigner {
   readonly available: boolean;
   sign(account: MasterAccount, data: MasterTypedData, userJwt: string, deadline: number, assertFresh: () => void): Promise<string>;
@@ -39,7 +54,7 @@ export class PrivyMasterActionSigner implements MasterActionSigner {
       const account = Object.freeze(structuredClone(rawAccount)), data = structuredClone(rawData), started = this.now(), deadline = Math.min(started + 5000, rawDeadline);
       if (!this.credentials || typeof userJwt !== 'string' || !userJwt.trim() || userJwt.length > 32768 || typeof assertFresh !== 'function' ||
         data.domain.name !== 'HyperliquidSignTransaction' || data.domain.version !== '1' || data.domain.verifyingContract !== `0x${'00'.repeat(20)}` ||
-        !data.primaryType.startsWith('HyperliquidTransaction:') || Object.keys(data.types).length !== 1 || !data.types[data.primaryType]) throw new Error();
+        !masterActionSignable(data)) throw new Error();
       const remaining = () => { const now = this.now(); if (!Number.isSafeInteger(now) || now < started || now >= deadline || controller.signal.aborted) throw new Error(); return deadline - now; };
       const fresh = () => { const result: unknown = assertFresh(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } };
       fresh(); remaining(); timer = setTimeout(() => controller.abort(), remaining()); timer.unref();

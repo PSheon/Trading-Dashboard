@@ -82,6 +82,8 @@ describe("times are UTC", () => {
     }
     expect(createFormatter("en").date(at)).toBe("September 18, 2026");
     expect(createFormatter("zh-TW").dateTime(at)).toBe("2026/09/18 22:52");
+    // CI's ICU puts a thin space (U+2009) between date and time; the formatter
+    // makes it one plain space, so this exact string holds on both.
   });
 
   it("the PnL calendar's months are UTC months", () => {

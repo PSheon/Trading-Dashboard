@@ -182,7 +182,9 @@ export function createFormatter(locale: Locale): Formatter {
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
-      }).format(d);
+        // ICU versions differ on the gap between date and time (a thin space
+        // in newer ones); one plain space reads the same on every browser.
+      }).format(d).replace(/[\u2009\u202f]/g, " ");
     },
 
     stamp(value) {

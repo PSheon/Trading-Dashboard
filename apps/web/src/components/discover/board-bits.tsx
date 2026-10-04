@@ -131,6 +131,29 @@ export function CopyScoreBar({
   );
 }
 
+/** Orbit's copy-score ring: an orange arc on a well, the score inside. */
+export function ScoreRing({ score, size = 52, className }: { score: number | null; size?: number; className?: string }) {
+  const { t } = useI18n();
+  const value = score === null ? null : Math.max(0, Math.min(100, Math.round(score)));
+  const stroke = size >= 48 ? 6 : 5;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const label = t("discover.copyScoreOf", { score: value === null ? "—" : String(value) });
+  return (
+    <span role="img" aria-label={label} title={label} className={cn("relative inline-flex shrink-0", className)} style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--inset)" strokeWidth={stroke} />
+        {value ? (
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--primary)" strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${(c * value) / 100} ${c}`} />
+        ) : null}
+      </svg>
+      <span aria-hidden className="num absolute inset-0 flex items-center justify-center font-display" style={{ fontSize: Math.round(size * 0.33) }}>
+        {value ?? "—"}
+      </span>
+    </span>
+  );
+}
+
 /** A board sparkline (values only): the area chart with its end dot, drawn
  * as CopyDog's card charts are — a B-spline that rounds every corner. */
 export function BoardSparkline({ values, height, className, plain = false }: { values: number[]; height: number; className?: string; plain?: boolean }) {

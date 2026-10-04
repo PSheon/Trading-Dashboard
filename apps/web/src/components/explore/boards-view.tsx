@@ -124,28 +124,30 @@ export function BoardsView() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* CopyDog's desktop discover page has no visible title; one for assistive technology. */}
-      <h1 className="sr-only hidden md:block">{t("discover.title")}</h1>
-      {/* Phones: title, filter sheet and layout toggle (CopyDog's mobile header). */}
+      {/* Phones: title, filter sheet and layout toggle (M-Explore). */}
       <div className="flex items-center justify-between md:hidden">
-        <p role="heading" aria-level={1} className="text-[1.75rem] font-extrabold tracking-tight">{t("discover.title")}</p>
+        <p role="heading" aria-level={1} className="font-display text-[2rem] leading-tight">{t("discover.title")}</p>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setSheet(true)}
             aria-label={t("discover.filters")}
-            className="flex size-10 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press flex size-11 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ListFilter className="size-[18px]" />
+            <ListFilter className="size-[18px]" strokeWidth={2.4} />
           </button>
           <ViewToggle value={view === "grid" ? "grid" : "list"} onChange={setView} listFirst />
         </div>
       </div>
 
       {/* CopyDog's .hl-hero: a 42px row, 20px above the board chips. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 md:mb-1 md:min-h-[42px]">
-        <AssetSwitch value={market} onChange={switchMarket} />
-        <div className="hidden flex-wrap items-center gap-2 md:flex">
+      <div className="flex flex-wrap items-center justify-between gap-3 md:gap-4">
+        <div className="flex w-full items-center gap-4 md:w-auto">
+          {/* The desktop title (C-Explore): Fredoka 40 beside the asset switch. */}
+          <h1 className="hidden font-display text-[2.5rem] leading-[1.1] md:block">{t("discover.title")}</h1>
+          <AssetSwitch value={market} onChange={switchMarket} />
+        </div>
+        <div className="hidden flex-wrap items-center gap-2.5 md:flex">
           <PillMenu
             label={style === "any" ? t("discover.styleLabel") : STYLE_MENU[style]}
             active={style !== "any"}
@@ -161,7 +163,7 @@ export function BoardsView() {
             strong
           />
           {r.windowed ? (
-            <div className="flex h-[42px] items-center gap-0.5 rounded-full bg-raised p-[3px]" role="group" aria-label={t("discover.timeframe")}>
+            <div className="flex h-12 items-center gap-0.5 rounded-full bg-raised p-1" role="group" aria-label={t("discover.timeframe")}>
               {(["30d", "all"] as const).map((w) => (
                 <button
                   key={w}
@@ -169,8 +171,8 @@ export function BoardsView() {
                   aria-pressed={r.effectiveWindow === w}
                   onClick={() => setWindow(w)}
                   className={cn(
-                    "h-9 rounded-full px-3 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    r.effectiveWindow === w ? "bg-background text-foreground" : "text-subtle-foreground hover:text-foreground",
+                    "h-10 rounded-full px-4 text-sm outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                    r.effectiveWindow === w ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {t(`discover.window.${w}`)}
@@ -182,7 +184,7 @@ export function BoardsView() {
         </div>
       </div>
 
-      <div className="-mx-5 flex gap-2 overflow-x-auto px-5 py-0.5 no-scrollbar md:mx-0 md:flex-wrap md:px-0" role="tablist" aria-label={t("discover.boards")}>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 py-0.5 no-scrollbar md:mx-0 md:flex-wrap md:px-0" role="tablist" aria-label={t("discover.boards")}>
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -191,8 +193,8 @@ export function BoardsView() {
             aria-selected={board === tab.key}
             onClick={() => switchBoard(tab.key)}
             className={cn(
-              "flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm leading-none font-bold whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-              board === tab.key ? "bg-primary text-primary-foreground" : "bg-tile text-muted-foreground hover:bg-raised-hover hover:text-foreground",
+              "orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full border-2 px-[18px] text-sm leading-none whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              board === tab.key ? "border-primary bg-primary font-extrabold text-primary-foreground" : "border-input font-bold text-muted-foreground hover:bg-raised hover:text-foreground",
             )}
           >
             {tab.icon}
@@ -217,14 +219,14 @@ export function BoardsView() {
               rows on a phone and the table on desktop. (Until the width is
               known — never with data in practice — CSS picks, as before.) */}
           {view === "grid" || (view === "auto" && desktop !== false) ? (
-            <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
+            <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
               {items.map((trader) => (
                 <BoardCard key={trader.address} trader={trader} pnlLabel={pnlLabel} roiLabel={roiLabel} roiHint={roiHint} now={now} />
               ))}
             </div>
           ) : null}
           {view !== "grid" && desktop !== true ? (
-            <ul className={cn("divide-y divide-border md:hidden")}>
+            <ul className="flex flex-col gap-2 md:hidden">
               {items.map((trader) => (
                 <BoardMobileRow key={trader.address} trader={trader} />
               ))}
@@ -306,7 +308,7 @@ function BarsGlyph() {
 function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: BoardMarket) => void }) {
   const { t } = useI18n();
   return (
-    <div className="grid w-full grid-cols-2 rounded-full bg-raised p-1 md:inline-grid md:w-auto md:p-0" role="tablist" aria-label={t("discover.assetClass")}>
+    <div className="grid w-full grid-cols-2 gap-0.5 rounded-[28px] bg-raised p-[5px] md:inline-grid md:w-auto" role="tablist" aria-label={t("discover.assetClass")}>
       {(["crypto", "stocks"] as const).map((m) => (
         <button
           key={m}
@@ -315,8 +317,8 @@ function AssetSwitch({ value, onChange }: { value: BoardMarket; onChange: (v: Bo
           aria-selected={value === m}
           onClick={() => onChange(m)}
           className={cn(
-            "flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[0.9375rem] font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:h-10 md:min-w-[114px] md:px-4 md:text-sm md:leading-none md:font-semibold",
-            value === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+            "flex h-11 items-center justify-center gap-2 rounded-[22px] px-[22px] text-[0.9375rem] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring md:min-w-[108px]",
+            value === m ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
           )}
         >
           {m === "crypto" ? <CoinGlyph active={value === m} /> : <CandlesGlyph />}
@@ -335,7 +337,7 @@ export function ViewToggle({ value, onChange, listFirst = false }: {
 }) {
   const { t } = useI18n();
   return (
-    <div className="flex h-10 items-center gap-0.5 rounded-full bg-raised p-1 md:h-[42px] md:p-[3px]" role="group" aria-label={t("discover.layout")}>
+    <div className="flex h-11 items-center gap-0.5 rounded-full bg-raised p-1 md:h-12" role="group" aria-label={t("discover.layout")}>
       {(listFirst ? (["list", "grid"] as const) : (["grid", "list"] as const)).map((v) => {
         const Icon = v === "grid" ? GridGlyph : BarsGlyph;
         return (
@@ -346,8 +348,8 @@ export function ViewToggle({ value, onChange, listFirst = false }: {
             aria-label={t(`discover.${v}`)}
             onClick={() => onChange(v)}
             className={cn(
-              "flex h-8 w-9 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring md:size-9",
-              value === v ? "bg-background text-foreground" : "text-subtle-foreground hover:text-foreground",
+              "flex size-9 items-center justify-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring md:size-10",
+              value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
             <Icon />
@@ -373,12 +375,12 @@ function PillMenu({ label, value, options, onChange, active = false, strong = fa
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "group flex h-10 items-center rounded-full bg-raised px-4 text-sm leading-none font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
-          strong ? "gap-2 text-foreground" : active ? "gap-1.5 text-foreground" : "gap-1.5 text-subtle-foreground",
+          "group flex h-12 items-center gap-2 rounded-full bg-raised px-[18px] text-sm leading-none font-bold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring",
+          strong || active ? "text-foreground" : "text-muted-foreground",
         )}
       >
         {label}
-        <ChevronDown className="size-[13px] text-subtle-foreground transition-transform group-data-[state=open]:rotate-180" strokeWidth={2.4} />
+        <ChevronDown className="size-3.5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" strokeWidth={3} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[var(--radix-dropdown-menu-trigger-width)]">
         {options.map((o) => (
@@ -386,7 +388,7 @@ function PillMenu({ label, value, options, onChange, active = false, strong = fa
             key={o.value}
             onSelect={() => onChange(o.value)}
             aria-current={o.value === value ? "true" : undefined}
-            className={cn("text-[0.8125rem]", o.value === value ? "font-bold text-primary-text" : "font-medium")}
+            className={cn("text-[0.875rem]", o.value === value ? "font-extrabold text-primary-text" : "font-bold")}
           >
             {o.label}
           </DropdownMenuItem>
@@ -415,12 +417,12 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
   const head = (key: BoardSort, label: string, align: "left" | "right", title?: string) => {
     const sortable = sorts.includes(key);
     return (
-      <th className={cn("px-3 py-3 text-xs font-medium text-subtle-foreground", align === "right" ? "text-right" : "text-left")} aria-sort={sort === key ? "descending" : undefined} title={title}>
+      <th className={cn("px-3 pt-1 text-xs font-bold text-muted-foreground", align === "right" ? "text-right" : "text-left")} aria-sort={sort === key ? "descending" : undefined} title={title}>
         {sortable ? (
           <button
             type="button"
             onClick={() => onSort(key)}
-            className={cn("inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", sort === key && "font-bold text-foreground")}
+            className={cn("inline-flex items-center gap-1 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", sort === key && "font-extrabold text-foreground")}
           >
             {label}
             {sort === key ? <ChevronDown className="size-3" /> : null}
@@ -433,39 +435,39 @@ function BoardTable({ items, sorts, sort, onSort, pnlLabel, roiLabel, roiHint }:
   };
   return (
     <div className="hidden overflow-x-auto md:block">
-      <table className="w-full min-w-[860px] border-collapse text-sm">
-        <thead className="border-b border-border">
+      <table className="w-full min-w-[860px] border-separate border-spacing-y-2 text-sm font-bold">
+        <thead>
           <tr>
-            <th className="px-3 py-3 text-left text-xs font-medium text-subtle-foreground">{t("discover.trader")}</th>
+            <th className="px-3 pt-1 pl-[18px] text-left text-xs font-bold text-muted-foreground">{t("discover.trader")}</th>
             {head("copyScore", t("discover.copyScore"), "left")}
-            <th className="px-3 py-3 text-left text-xs font-medium text-subtle-foreground">{t("discover.assets")}</th>
+            <th className="px-3 pt-1 text-left text-xs font-bold text-muted-foreground">{t("discover.assets")}</th>
             {head("pnl", pnlLabel, "right")}
             {head("roi", roiLabel, "right", roiHint)}
             {head("accountValue", t("discover.equity"), "right")}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="data-rows">
           {items.map((trader) => (
-            <tr key={trader.address} className="border-b border-border transition-colors hover:bg-raised/50">
-              <td className="px-3 py-3">
-                <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <TraderAvatar trader={trader} size={24} />
-                  <span className="truncate font-semibold">{boardName(trader)}</span>
+            <tr key={trader.address}>
+              <td className="h-16 px-3 pl-[18px]">
+                <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <TraderAvatar trader={trader} size={36} />
+                  <span className="truncate font-extrabold">{boardName(trader)}</span>
                   {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
                   {trader.xHandle ? (
                     <span className="text-xs text-subtle-foreground" title={`@${trader.xHandle}`} aria-label={`X @${trader.xHandle}`}>𝕏</span>
                   ) : null}
                 </Link>
               </td>
-              <td className="px-3 py-3">
-                <CopyScoreBar score={trader.copyScore} />
+              <td className="px-3">
+                <CopyScoreBar score={trader.copyScore} layout="number-first" barClassName="w-28 bg-card" />
               </td>
-              <td className="px-3 py-3">
+              <td className="px-3">
                 <CoinStack coins={trader.topCoins} size={18} dash />
               </td>
-              <td className={cn("num px-3 py-3 text-right", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</td>
-              <td className={cn("num px-3 py-3 text-right", signTone(trader.roi))}>{boardRoi(trader.roi)}</td>
-              <td className="num px-3 py-3 text-right">{boardUsd(trader.accountValue)}</td>
+              <td className={cn("num px-3 text-right font-display text-[15px]", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</td>
+              <td className={cn("num px-3 text-right font-display text-[15px]", signTone(trader.roi))}>{boardRoi(trader.roi)}</td>
+              <td className="num px-3 pr-[18px] text-right font-display text-[15px]">{boardUsd(trader.accountValue)}</td>
             </tr>
           ))}
         </tbody>
@@ -478,17 +480,17 @@ function BoardSkeleton({ view }: { view: View }) {
   return (
     <>
       {view !== "list" ? (
-        <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
+        <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
           {Array.from({ length: 8 }, (_, i) => <BoardCardSkeleton key={i} />)}
         </div>
       ) : (
         <div className="hidden flex-col gap-2 md:flex">
-          {Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="h-12" />)}
+          {Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
         </div>
       )}
       {view !== "grid" ? (
-        <div className="flex flex-col gap-3 md:hidden">
-          {Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-16" />)}
+        <div className="flex flex-col gap-2 md:hidden">
+          {Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-[70px] rounded-[24px]" />)}
         </div>
       ) : null}
     </>
@@ -524,18 +526,18 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
   const focusRef = useModalFocus<HTMLDivElement>(true, onClose);
   return (
     <div ref={focusRef} className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label={t("discover.filters")}>
-      <button type="button" aria-label={t("discover.close")} className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-3xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)]">
-        <span className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-border-strong" aria-hidden />
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <h2 className="text-xl font-bold">{t("discover.filters")}</h2>
-          <button type="button" onClick={onClose} aria-label={t("discover.close")} className="flex size-10 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <X className="size-4" />
+      <button type="button" aria-label={t("discover.close")} className="absolute inset-0 bg-overlay animate-in fade-in-0 motion-reduce:animate-none" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-[32px] bg-card pb-[env(safe-area-inset-bottom)] shadow-[0_0_0_2px_var(--card-ring)] animate-in slide-in-from-bottom duration-300 motion-reduce:animate-none">
+        <span className="mx-auto mt-2.5 h-1.5 w-12 rounded-full bg-border" aria-hidden />
+        <div className="flex items-center justify-between px-5 pt-3 pb-2">
+          <h2 className="font-display text-[1.375rem]">{t("discover.filters")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("discover.close")} className="orbit-press flex size-11 items-center justify-center rounded-full bg-inset outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <X className="size-5" strokeWidth={2.4} />
           </button>
         </div>
         <div className="overflow-y-auto px-5">
           {rows.map((row) => (
-            <div key={row.key} className="border-b border-border">
+            <div key={row.key} className="border-b-2 border-dotted border-border">
               <button
                 type="button"
                 aria-expanded={open === row.key}
@@ -543,8 +545,8 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
                 className="flex w-full items-center justify-between py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span>
-                  <span className="block font-semibold">{row.label}</span>
-                  <span className="mt-0.5 block text-sm text-muted-foreground">{row.options.find((o) => o.value === row.value)?.label}</span>
+                  <span className="block font-extrabold">{row.label}</span>
+                  <span className="mt-0.5 block text-sm font-bold text-muted-foreground">{row.options.find((o) => o.value === row.value)?.label}</span>
                 </span>
                 <ChevronRight className={cn("size-4 text-subtle-foreground transition-transform", open === row.key && "rotate-90")} />
               </button>
@@ -557,8 +559,8 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
                       aria-pressed={row.value === o.value}
                       onClick={() => setDraft((d) => ({ ...d, [row.key]: o.value }))}
                       className={cn(
-                        "h-9 rounded-full px-3.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        row.value === o.value ? "bg-primary text-primary-foreground" : "bg-raised text-muted-foreground",
+                        "orbit-press h-11 rounded-full px-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        row.value === o.value ? "bg-primary font-extrabold text-primary-foreground" : "bg-inset font-bold text-muted-foreground",
                       )}
                     >
                       {o.label}
@@ -569,18 +571,18 @@ function FilterSheet({ sorts, windowed, sort, window, style, onClose, onApply }:
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-3 border-t border-border px-5 py-4">
+        <div className="grid grid-cols-2 gap-3 px-5 py-4">
           <button
             type="button"
             onClick={() => setDraft({ sort: "copyScore", window: "all", style: "any" })}
-            className="h-12 rounded-full bg-raised font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press h-[52px] rounded-full bg-inset font-extrabold outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("discover.reset")}
           </button>
           <button
             type="button"
             onClick={() => onApply({ ...draft, sort: sorts.includes(draft.sort) ? draft.sort : "pnl" })}
-            className="h-12 rounded-full bg-primary font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press h-[52px] rounded-full bg-primary font-extrabold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("discover.apply")}
           </button>

@@ -11,7 +11,7 @@ import { TraderName } from "@/components/traders/trader-name";
 import { useI18n } from "@/i18n/provider";
 import { agoShort, boardPnl, boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
-import { BoardSparkline, boardName, CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "./board-bits";
+import { BoardSparkline, boardName, CoinStack, ScoreRing, signTone, TraderAvatar, VerifiedTick } from "./board-bits";
 
 const traderHref = (address: string) => `/trader/${address}`;
 
@@ -40,75 +40,71 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   return (
     <Link
       href={traderHref(trader.address)}
-      className="group flex min-w-0 flex-col gap-3 rounded-xl border border-raised bg-tile px-4 py-3 outline-none transition-colors hover:border-border-strong hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring"
+      className="orbit-card orbit-lift group flex min-w-0 flex-col gap-3 p-[18px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex min-h-10 min-w-0 items-start gap-2.5">
-        <TraderAvatar trader={trader} size={40} />
-        {/* CopyDog's .hl-card__id: the name (14/21), 2px, the 14px coins. */}
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-0.5">
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="truncate text-[0.875rem] leading-[21px] font-bold tracking-[-0.14px]">{boardName(trader)}</span>
+      <div className="flex min-h-[52px] min-w-0 items-center gap-2.5">
+        <TraderAvatar trader={trader} size={44} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[0.9375rem] leading-5 font-extrabold">{boardName(trader)}</span>
             {trader.verified ? <VerifiedTick /> : null}
           </span>
-          <CoinStack coins={trader.topCoins} />
+          <CoinStack coins={trader.topCoins} size={16} />
           {tags}
         </div>
+        {accessory}
+        <ScoreRing score={trader.copyScore} />
+      </div>
+      <BoardSparkline values={trader.sparkline} height={72} plain />
+      <div className="flex min-w-0 items-end justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-bold text-muted-foreground">{pnlLabel}</div>
+          <div className={cn("num truncate font-display text-[1.625rem] leading-[1.1]", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</div>
+        </div>
+      </div>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className={cn("num inline-flex h-7 min-w-0 items-center gap-1 truncate rounded-md px-2.5 text-[13px] font-extrabold", (trader.roi ?? 0) >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+          {roiHint ? (
+            <Tooltip content={roiHint}>
+              <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2 outline-none">{roiLabel}</span>
+            </Tooltip>
+          ) : (
+            <span>{roiLabel}</span>
+          )}
+          {boardRoi(trader.roi)}
+        </span>
         {ago ? (
           <Tooltip variant="chip" side="top" content={`${t("discover.lastTrade")} · ${trader.lastTradeAt ? lastTradeStamp(trader.lastTradeAt) : ""}`}>
-            <span className="num flex shrink-0 items-center gap-1 text-[0.6875rem] leading-[16.5px] tracking-[0.3px] text-subtle-foreground uppercase">
-              <Clock3 className="size-[11px]" strokeWidth={2.2} aria-hidden />
+            <span className="num flex shrink-0 items-center gap-1 text-xs font-bold text-muted-foreground">
+              <Clock3 className="size-3" strokeWidth={2.4} aria-hidden />
               {ago}
             </span>
           </Tooltip>
         ) : null}
-        {accessory}
       </div>
-      <div className="flex min-w-0 items-center gap-3.5">
-        <div className="flex w-[130px] min-w-0 shrink-0 flex-col gap-3.5">
-          <div>
-            {/* CopyDog prints the card's PnL in white and colours only the ROI. */}
-            <div className="num text-[1.0625rem] leading-[1.1] font-extrabold text-foreground">{boardPnl(trader.pnl)}</div>
-            <div className="mt-0.5 text-[0.6875rem] leading-[16.5px] tracking-[0.4px] text-subtle-foreground">{pnlLabel}</div>
-          </div>
-          <div>
-            <div className={cn("num text-[1.0625rem] leading-[1.1] font-bold", signTone(trader.roi))}>{boardRoi(trader.roi)}</div>
-            {roiHint ? (
-              <Tooltip content={roiHint}>
-                <span tabIndex={0} className="mt-0.5 block cursor-help text-[0.6875rem] leading-[16.5px] tracking-[0.4px] text-subtle-foreground underline decoration-dotted underline-offset-2 outline-none">
-                  {roiLabel}
-                </span>
-              </Tooltip>
-            ) : (
-              <div className="mt-0.5 text-[0.6875rem] leading-[16.5px] tracking-[0.4px] text-subtle-foreground">{roiLabel}</div>
-            )}
-          </div>
-        </div>
-        <BoardSparkline values={trader.sparkline} height={90} className="min-w-0 flex-1" />
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        <CopyScoreBar score={trader.copyScore} />
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            router.push(`${traderHref(trader.address)}#copy-amount`);
-          }}
-          className="h-[34px] rounded-full bg-primary px-[11px] text-[0.8125rem] font-semibold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {t("discover.copy")}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          router.push(`${traderHref(trader.address)}#copy-amount`);
+        }}
+        className="orbit-press mt-auto h-12 w-full rounded-full bg-primary font-display text-base text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+      >
+        {t("discover.copy")}
+      </button>
     </Link>
   );
 }
 
 export function BoardCardSkeleton() {
   return (
-    <div aria-hidden="true" className="ui-skeleton flex h-[214px] flex-col gap-4 rounded-xl border border-raised bg-tile px-4 py-3">
-      <div className="flex items-center gap-2.5"><div className="size-10 rounded-full bg-raised" /><div className="h-3 w-24 rounded bg-raised" /></div>
-      <div className="flex flex-1 items-end gap-4"><div className="h-16 w-16 rounded-lg bg-raised" /><div className="h-20 flex-1 rounded-lg bg-raised/60" /></div>
-      <div className="flex justify-between"><div className="h-5 w-20 rounded bg-raised" /><div className="h-8 w-16 rounded-full bg-raised" /></div>
+    <div aria-hidden="true" className="orbit-card ui-skeleton flex h-[330px] flex-col gap-4 p-[18px]">
+      <div className="flex items-center gap-2.5"><div className="size-11 rounded-full bg-inset" /><div className="h-4 w-28 rounded-full bg-inset" /><div className="ml-auto size-[52px] rounded-full bg-inset" /></div>
+      <div className="h-[72px] rounded-2xl bg-inset" />
+      <div className="h-8 w-40 rounded-full bg-inset" />
+      <div className="h-7 w-32 rounded-full bg-inset" />
+      <div className="mt-auto h-12 rounded-full bg-inset" />
     </div>
   );
 }
@@ -165,25 +161,23 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
     <li>
-      <Link href={traderHref(trader.address)} className="flex items-center gap-3 rounded-xl py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Link href={traderHref(trader.address)} className="orbit-card orbit-press flex items-center gap-3 rounded-[24px]! px-3.5 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <TraderAvatar trader={trader} size={44} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1">
-            <span className="truncate text-[0.9375rem] font-semibold">{boardName(trader)}</span>
+            <span className="truncate text-[0.9375rem] font-extrabold">{boardName(trader)}</span>
             {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
           </span>
-          <span className="flex items-center gap-2">
-            <CoinStack coins={trader.topCoins.slice(0, 3)} size={14} />
-            <CopyScoreBar score={trader.copyScore} layout="bar-first" barClassName="w-11" />
-          </span>
+          <CoinStack coins={trader.topCoins.slice(0, 3)} size={14} />
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className={cn("num text-[0.9375rem] font-bold", signTone(trader.pnl))}>{format.usd(trader.pnl, { compact: true, sign: true })}</span>
-          <span className={cn("num inline-flex h-6 items-center gap-0.5 rounded-md px-1.5 text-[0.6875rem] font-bold", up ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
-            <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={cn("num font-display text-[1.0625rem] leading-5", signTone(trader.pnl))}>{format.usd(trader.pnl, { compact: true, sign: true })}</span>
+          <span className={cn("num inline-flex h-5 items-center gap-0.5 text-xs font-extrabold", up ? "text-positive" : "text-negative")}>
+            <Arrow className="size-3" strokeWidth={2.8} aria-hidden />
             {roiPillWhole(trader.roi)}
           </span>
         </div>
+        <ScoreRing score={trader.copyScore} size={40} />
       </Link>
     </li>
   );

@@ -107,6 +107,45 @@ describe("/admin/wallet/withdrawals — an unknown withdrawal's terminal state",
     const resolved = adminResolvedWithdrawalSchema.parse((await as("admin").post(`/admin/wallet/withdrawals/${ID}/resolve`, { reason: "check" }).expect(200)).body.data);
     expect(resolved.status).toBe("accepted");
     expect(info.userNonFundingLedgerUpdates).toHaveBeenCalledTimes(2);
-    expect((info.userNonFundingLedgerUpdates.mock.calls[1] as unknown[])[1]).toBe(nonce + 500);
+    // The next page starts at the last page's final millisecond again.
+    expect((info.userNonFundingLedgerUpdates.mock.calls[1] as unknown[])[1]).toBe(nonce + 499);
+  });
+
+  it("re-reads the millisecond a full page ended in, so a withdraw sharing it is not skipped", async () => {
+    const nonce = await seed(WITHDRAWAL_NONCE_WINDOW_MS + 60_000);
+    const last = nonce + 5000;
+    const page = Array.from({ length: 500 }, (_, i) => ({ time: i < 499 ? nonce + i : last, hash: `0x${"cd".repeat(32)}`, delta: { type: "deposit", usdc: String(i + 1) } }));
+    // The next read repeats the boundary row and then has the withdraw at the same millisecond.
+    info.userNonFundingLedgerUpdates.mockResolvedValueOnce(page)
+      .mockResolvedValueOnce([page[499], { time: last, hash: `0x${"ab".repeat(32)}`, delta: { type: "withdraw", usdc: "12.5", nonce } }]);
+    const resolved = adminResolvedWithdrawalSchema.parse((await as("admin").post(`/admin/wallet/withdrawals/${ID}/resolve`, { reason: "check" }).expect(200)).body.data);
+    expect(resolved.status).toBe("accepted");
+    expect((info.userNonFundingLedgerUpdates.mock.calls[1] as unknown[])[1]).toBe(last);
+  });
+
+  it("a full page that cannot move past its first millisecond is not a complete read", async () => {
+    const nonce = await seed(WITHDRAWAL_NONCE_WINDOW_MS + 60_000);
+    const start = nonce - 60_000;
+    info.userNonFundingLedgerUpdates.mockResolvedValue(Array.from({ length: 500 }, (_, i) => ({ time: start, hash: `0x${"cd".repeat(32)}`, delta: { type: "deposit", usdc: String(i + 1) } })));
+    const res = await as("admin").post(`/admin/wallet/withdrawals/${ID}/resolve`, { reason: "check" }).expect(409);
+    expect(res.body.error?.code ?? res.body.code).toBe("withdrawal_ledger_incomplete");
+    expect((await db.select().from(walletWithdrawals))[0]).toMatchObject({ status: "unknown" });
+  });
+
+  it("refuses to call it not executed when the ledger has a withdraw whose nonce is missing or unreadable", async () => {
+    const nonce = await seed(WITHDRAWAL_NONCE_WINDOW_MS + 60_000);
+    for (const delta of [{ type: "withdraw", usdc: "12.5" }, { type: "withdraw", usdc: "12.5", nonce: String(nonce) }, { type: "withdraw", usdc: "12.5", nonce: 1.5 }]) {
+      info.userNonFundingLedgerUpdates.mockResolvedValue([{ time: nonce + 1000, hash: `0x${"ab".repeat(32)}`, delta }]);
+      const res = await as("admin").post(`/admin/wallet/withdrawals/${ID}/resolve`, { reason: "check" }).expect(409);
+      expect(res.body.error?.code ?? res.body.code).toBe("withdrawal_ledger_ambiguous");
+    }
+    expect((await db.select().from(walletWithdrawals))[0]).toMatchObject({ status: "unknown" });
+  });
+
+  it("a withdraw with another readable nonce is another withdrawal: still not_executed", async () => {
+    const nonce = await seed(WITHDRAWAL_NONCE_WINDOW_MS + 60_000);
+    info.userNonFundingLedgerUpdates.mockResolvedValue([{ time: nonce + 1000, hash: `0x${"ab".repeat(32)}`, delta: { type: "withdraw", usdc: "12.5", nonce: (nonce + 7) * 1000 } }]);
+    const resolved = adminResolvedWithdrawalSchema.parse((await as("admin").post(`/admin/wallet/withdrawals/${ID}/resolve`, { reason: "check" }).expect(200)).body.data);
+    expect(resolved.status).toBe("not_executed");
   });
 });

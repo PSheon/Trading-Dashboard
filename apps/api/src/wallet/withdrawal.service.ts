@@ -189,17 +189,25 @@ export class WithdrawalService {
     if (operation.status !== "unknown") throw new ConflictException({ statusCode: 409, code: "withdrawal_not_unknown", message: "Only a withdrawal whose outcome is unknown can be resolved" });
     const now = Date.now();
     if (now < operation.nonce + WITHDRAWAL_NONCE_WINDOW_MS) throw new ConflictException({ statusCode: 409, code: "withdrawal_nonce_window_open", message: "Hyperliquid may still execute this withdrawal; resolve it after its nonce window" });
-    let rows: HlLedgerUpdate[] = [];
+    const rows: HlLedgerUpdate[] = [];
     try {
+      // A full page can end partway through a millisecond, so the next page
+      // starts at the page's last time again (not last + 1) and repeated
+      // updates are dropped; a page that cannot move past its start is not
+      // a complete read.
+      const seen = new Set<string>();
       let start = Math.max(0, operation.nonce - 60_000);
       for (let page = 0; ; page++) {
         if (page === LEDGER_MAX_PAGES) throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_incomplete", message: "Too many ledger updates to prove the withdrawal absent" });
         const batch = await this.info.userNonFundingLedgerUpdates(operation.address, start, now, "background", PAGE_RANK.fills, this.config.value.hyperliquid.wallet.infoUrl);
-        rows = rows.concat(batch);
+        for (const row of batch) {
+          const key = JSON.stringify(row);
+          if (!seen.has(key)) { seen.add(key); rows.push(row); }
+        }
         if (batch.length < LEDGER_PAGE) break;
         const last = Math.max(...batch.map((row) => row.time));
-        if (!Number.isSafeInteger(last) || last < start) throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_incomplete", message: "The ledger read did not advance" });
-        start = last + 1;
+        if (!Number.isSafeInteger(last) || last <= start) throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_incomplete", message: "The ledger read did not advance" });
+        start = last;
       }
     } catch (error) {
       if (error instanceof ConflictException) throw error;
@@ -207,11 +215,12 @@ export class WithdrawalService {
       throw new BadGatewayException("Withdrawal status unavailable");
     }
     const match = ledgerMatch(operation, rows, now);
-    // Fail closed: a withdraw with this nonce that does not match exactly
-    // (amount, fee, hash format) is not proof of absence.
-    if (!match && rows.some(row => row.delta.type === 'withdraw' && typeof row.delta.nonce === 'number' &&
-      (BigInt(Math.trunc(row.delta.nonce)) === BigInt(operation.nonce) || BigInt(Math.trunc(row.delta.nonce)) === BigInt(operation.nonce) * 1000n)))
-      throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_ambiguous", message: "The ledger has a withdrawal with this nonce that does not match; resolve it by hand" });
+    // Fail closed: only a withdraw with a different, readable nonce proves
+    // it is another withdrawal. One with this nonce that does not match
+    // exactly (amount, fee, hash format), or one whose nonce is missing or
+    // unreadable, is not proof of absence.
+    if (!match && rows.some(row => row.delta.type === 'withdraw' && !provablyOtherWithdrawal(row, operation.nonce)))
+      throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_ambiguous", message: "The ledger has a withdrawal that may be this one; resolve it by hand" });
     const evidence = match ? "ledger_match" as const : "ledger_absent_after_nonce_window" as const;
     const status = match ? "accepted" as const : "not_executed" as const;
     const hash = match ?? evidenceHash({ source: "operator", evidence, address: operation.address, nonce: operation.nonce, ledgerFrom: Math.max(0, operation.nonce - 60_000), ledgerTo: now, updates: rows.length });
@@ -220,6 +229,14 @@ export class WithdrawalService {
     this.note("withdrawal.resolved", resolved, { evidence, actorUserId: actor.kind === "user" ? actor.id : null, ledgerUpdates: rows.length }, "warn");
     return { id, status, evidence };
   }
+}
+
+/** A withdraw whose nonce is a safe integer that is neither this nonce in
+ * ms nor in µs. */
+function provablyOtherWithdrawal(row: HlLedgerUpdate, nonce: number): boolean {
+  const value = row.delta.nonce;
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) return false;
+  return BigInt(value) !== BigInt(nonce) && BigInt(value) !== BigInt(nonce) * 1000n;
 }
 
 /** The ledger's withdraw for this operation (its nonce, in ms or µs, and

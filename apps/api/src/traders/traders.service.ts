@@ -26,7 +26,7 @@ import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { TraderOrdersReader } from './trader-orders-reader.js';
 import { TraderTwapReader } from './trader-twap-reader.js';
-import { TraderAccountReader } from './trader-account-reader.js';
+import { ACCOUNT_READ_DEADLINE_MS, TraderAccountReader } from './trader-account-reader.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { activeTwaps, mergeOrders, toTraderTransfer } from "./trader-tabs.mappers.js";
 import { SettingsService } from "../settings/settings.service.js";
@@ -117,7 +117,13 @@ export class TradersService {
   private readonly logger = new Logger(TradersService.name);
   /** Settable for tests. */
   sparklineDeadlineMs = SPARKLINE_DEADLINE_MS;
+  /** How long an optional profile source may take before the profile is
+   * answered without it. */
   profileSourceDeadlineMs = 4_000;
+  /** The perps snapshot's own deadline: the account reader's whole bound
+   * (its turn on the socket plus the 5 s read), so the race never gives up
+   * on a read the reader would still answer. */
+  perpsSourceDeadlineMs = ACCOUNT_READ_DEADLINE_MS + 500;
 
   readonly profileCache = new TtlCache<SharedProfile>(PROFILE_TTL_MS);
   readonly portfolioCache = new TtlCache<HlPortfolioResponse>(PORTFOLIO_TTL_MS);
@@ -212,12 +218,12 @@ export class TradersService {
     const since = new Date(Date.now() - THIRTY_DAYS_MS);
     const sources: NonNullable<SharedProfile["dataQuality"]>["sources"] = {};
     const read = async <T>(key: string, load: () => Promise<T>, maxAgeMs: number,
-      optional = false, observedAt?: () => number | null): Promise<T | null> => {
+      optional = false, observedAt?: () => number | null, deadlineMs = this.profileSourceDeadlineMs): Promise<T | null> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const pending = load();
         const value = optional ? await Promise.race([pending, new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("Source deadline")), this.profileSourceDeadlineMs);
+          timer = setTimeout(() => reject(new Error("Source deadline")), deadlineMs);
         })]) : await pending;
         const observed = observedAt ? observedAt() : Date.now();
         sources[key] = { status: "available", asOf: observed === null ? null : new Date(observed).toISOString(), stale: false, maxAgeMs };
@@ -225,7 +231,8 @@ export class TradersService {
       } catch (error) {
         if (!optional) throw error;
         sources[key] = { status: "unavailable", asOf: null, stale: false, maxAgeMs };
-        this.logger.warn(`Profile source unavailable: ${key}`);
+        const reason = error instanceof LiveBoundaryError ? error.code : (error as Error).message;
+        this.logger.warn(`Profile source unavailable: ${key} (${reason})`);
         return null;
       } finally { clearTimeout(timer); }
     };
@@ -240,7 +247,7 @@ export class TradersService {
         const result = await this.accountReader!.read(address, dexes);
         receivedAt = result.observedAt;
         return result;
-      }, PROFILE_TTL_MS, true, () => receivedAt);
+      }, PROFILE_TTL_MS, true, () => receivedAt, this.perpsSourceDeadlineMs);
       return dexes.map(dex => {
         const state = snapshot?.states.get(dex) ?? null;
         const at = state ? state.time > 0 ? state.time : snapshot!.observedAt : null;

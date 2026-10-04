@@ -27,7 +27,7 @@ import { ChartSnapshotsService } from "../src/traders/chart-snapshots.service.js
 import { TradersService } from "../src/traders/traders.service.js";
 import type { TraderOrdersReader } from "../src/traders/trader-orders-reader.js";
 import type { TraderTwapReader } from "../src/traders/trader-twap-reader.js";
-import type { TraderAccountReader } from "../src/traders/trader-account-reader.js";
+import { ACCOUNT_READ_DEADLINE_MS, type TraderAccountReader } from "../src/traders/trader-account-reader.js";
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -160,6 +160,23 @@ describe("public discovery routes over HTTP", () => {
       expect(res.body.data.dataQuality.partial).toBe(true);
       expect(res.body.data.dataQuality.sources['perp:xyz']).toMatchObject({ status: 'unavailable', asOf: null });
     } finally { service.ordersDexCache.set('dexes', ['']); }
+  });
+
+  it('waits for the perps snapshot as long as the account reader may take, not the optional sources\' shorter deadline (audit A1)', async () => {
+    const address = `0x${'44'.repeat(20)}`, service = app.get(TradersService), previous = service.profileSourceDeadlineMs;
+    // The reader's turn on the socket plus its read outlast the deadline
+    // that bounds staking or stats; the snapshot still arrives in time.
+    service.profileSourceDeadlineMs = 20;
+    accountReader.read.mockImplementationOnce(async (_user, dexes) => {
+      await new Promise(resolve => setTimeout(resolve, 80));
+      return { states: new Map(dexes.map(dex => [dex, emptyState])), missingDexes: [], observedAt: Date.now() };
+    });
+    try {
+      const res = await request(app.getHttpServer()).get(`/traders/${address}`).expect(200);
+      expect(res.body.data.dataQuality.sources.perps.status).toBe('available');
+      expect(res.body.data.perpEquity).toBe(0);
+      expect(service.perpsSourceDeadlineMs).toBeGreaterThan(ACCOUNT_READ_DEADLINE_MS);
+    } finally { service.profileSourceDeadlineMs = previous; }
   });
 
   it("serves the 訂單 / TWAP / 轉帳 tabs through the wire contract, cached", async () => {

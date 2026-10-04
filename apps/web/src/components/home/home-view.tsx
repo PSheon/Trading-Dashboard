@@ -257,19 +257,25 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           <span className="truncate text-[17px] font-extrabold">{boardName(trader)}</span>
           {trader.verified ? <VerifiedTick /> : null}
         </Link>
-        <div className="ml-auto flex items-center gap-1.5" role="group" aria-label={t("home.nextTrader")}>
+        <div className="ml-auto flex items-center" role="group" aria-label={t("home.nextTrader")}>
           {traders.map((c, i) => (
+            // A 24px target around each 6px dot (WCAG 2.5.8).
             <button
               key={c.address}
               type="button"
               aria-label={t("home.traderN", { n: String(i + 1) })}
               aria-current={i === index % traders.length}
               onClick={() => { setIndex(i); setHover(null); }}
-              className={cn(
-                "relative h-1.5 rounded-full outline-none transition-[width,background-color] before:absolute before:-inset-x-[3px] before:-inset-y-3 focus-visible:ring-2 focus-visible:ring-ring",
-                i === index % traders.length ? "w-[18px] bg-foreground" : "w-1.5 bg-border",
-              )}
-            />
+              className="group flex h-6 min-w-6 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "block h-1.5 rounded-full transition-[width,background-color] duration-300 motion-reduce:transition-none",
+                  i === index % traders.length ? "w-[18px] bg-foreground" : "w-1.5 bg-border group-hover:bg-muted-foreground",
+                )}
+              />
+            </button>
           ))}
         </div>
         <button

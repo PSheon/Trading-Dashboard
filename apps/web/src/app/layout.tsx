@@ -30,11 +30,15 @@ const fredoka = Fredoka({
 });
 
 /** CJK after Nunito. Large: never preloaded; the browser fetches only the
- * unicode-range slices a page uses. */
+ * unicode-range slices a page uses. `optional`: a first visit on a slow
+ * connection keeps the system CJK face (PingFang / JhengHei / Noto CJK)
+ * instead of re-painting every heading seconds later — that late swap was
+ * the phone LCP (14 s in Lighthouse); the slices are cached for the next
+ * page. */
 const notoSansTc = Noto_Sans_TC({
   variable: "--font-noto-tc",
   weight: ["500", "700"],
-  display: "swap",
+  display: "optional",
   preload: false,
 });
 

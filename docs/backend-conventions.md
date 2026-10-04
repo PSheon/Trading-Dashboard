@@ -32,3 +32,14 @@ Inline comments explain why a local statement exists. Remove stale phase labels 
 For behavior changes, add regression coverage at the observable boundary. Preserve real PostgreSQL coverage for locking, rollback and concurrent writes. For behavior-preserving setup extraction, run existing HTTP tests and the compiled bootstrap smoke test; typecheck alone cannot prove wiring or middleware order. Avoid tests that merely mirror formatting or require a comment on every method.
 
 Keep current contract/architecture documentation and the execution ledger in sync. All current services keep direct Drizzle access behind repositories. The recursive `test/repository-boundary.spec.ts` gate covers every `.service.ts`, including future additions. It rejects ORM/schema imports and direct client/transaction queries; it is a source-level guard, not proof of domain correctness or cross-instance coordination. Shared persistence helpers and database infrastructure may still use Drizzle. Review transaction ownership and behavior with integration tests.
+
+## Indexes on large tables
+
+`scripts/migrate.mjs` runs Drizzle's migrator, which applies every pending migration in one transaction with `lock_timeout` 15 s. A plain `CREATE INDEX` holds a write lock on its table for the whole build, so on a large table (`history_fills`, `analysis_history_fills_retired`, `fills`, `trader_stats`, `position_snapshots`, `actions`, `trader_trades`, `equity_snapshots`, `history_accounts`) it either stops the worker's writes for minutes or fails the release. PostgreSQL refuses `CREATE INDEX CONCURRENTLY` inside a transaction, so it cannot go in a migration file either. For a new index on one of these tables:
+
+1. Generate the migration with drizzle-kit as usual, then edit the generated statement to `CREATE INDEX IF NOT EXISTS …` (same name, same definition). Editing is fine before the file is applied anywhere; never edit an applied migration (`0000`–`0060` are applied).
+2. Before the release, build the index with the same name and definition outside any transaction, on Stage first and then production: `CREATE INDEX CONCURRENTLY IF NOT EXISTS "<name>" ON "<table>" …;`
+3. Check it is valid: `SELECT indisvalid FROM pg_index WHERE indexrelid = '"<name>"'::regclass;`. A failed or cancelled concurrent build leaves an invalid index that `IF NOT EXISTS` would skip; drop it (`DROP INDEX CONCURRENTLY "<name>"`) and build again.
+4. Deploy. The migration's `IF NOT EXISTS` finds the index and returns at once. On a fresh or small database (tests, local) it simply builds it.
+
+`apps/api/scripts/migrate.test.mjs` fails CI when a migration after `0060` adds an index on one of these tables without `IF NOT EXISTS`, or uses `CONCURRENTLY` inside a migration. Add a table to its `LARGE_TABLES` list when it grows past a few hundred MB.

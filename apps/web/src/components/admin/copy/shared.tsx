@@ -20,6 +20,7 @@ const PAGES: { href: string; label: MessageKey }[] = [
   { href: "/admin/copy/users", label: "copyAdmin.nav.users" },
   { href: "/admin/copy/orders", label: "copyAdmin.nav.orders" },
   { href: "/admin/copy/risk", label: "copyAdmin.nav.risk" },
+  { href: "/admin/copy/live", label: "copyAdmin.nav.live" },
 ];
 
 /** The copy admin's own pages, under the admin section tabs. */

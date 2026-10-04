@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CopyControlCommand, CopyOrderStatus, CopyRiskLimits, CopyStrategyStatus } from "@trading-dashboard/shared/contracts";
+import type { AdminLiveAccounts, AdminLiveLatency, AdminLiveOrders, AdminLiveTransfers, AdminRevokedLiveGrant, CopyControlCommand, CopyOrderStatus, CopyRiskLimits,
+  CopyStrategyStatus } from "@trading-dashboard/shared/contracts";
 
 import type { MessageKey } from "@/i18n/messages";
 import type { Translate } from "@/i18n/provider";
@@ -72,6 +73,29 @@ export function useAdminCopyRisk() {
     // The form holds a draft against one version: no background refetch under it.
     refetchInterval: false,
     refetchOnWindowFocus: false,
+  });
+}
+
+/** Testnet copies (B16): execution wallets with agent and grant. */
+export function useAdminLiveAccounts() {
+  return useQuery({ queryKey: queryKeys.admin.copy.live.accounts, queryFn: ({ signal }) => api.get<AdminLiveAccounts>("/admin/copy/live/accounts", signal), refetchInterval: REFETCH_MS });
+}
+export function useAdminLiveTransfers() {
+  return useQuery({ queryKey: queryKeys.admin.copy.live.transfers, queryFn: ({ signal }) => api.get<AdminLiveTransfers>("/admin/copy/live/transfers", signal), refetchInterval: REFETCH_MS });
+}
+export function useAdminLiveOrders(state: "open" | "unknown" | "all") {
+  return useQuery({ queryKey: queryKeys.admin.copy.live.orders(state), queryFn: ({ signal }) => api.get<AdminLiveOrders>(`/admin/copy/live/orders?state=${state}`, signal), refetchInterval: REFETCH_MS });
+}
+/** B18: leader fill → signal → sent → answer → booked, P50/P95 in ms. */
+export function useAdminLiveLatency(window: "24h" | "7d") {
+  return useQuery({ queryKey: queryKeys.admin.copy.live.latency(window), queryFn: ({ signal }) => api.get<AdminLiveLatency>(`/admin/copy/live/latency?window=${window}`, signal), refetchInterval: REFETCH_MS });
+}
+/** POST /admin/copy/live/grants/:id/revoke (execution.pause; audited). */
+export function useRevokeLiveGrant() {
+  const client = useQueryClient();
+  return useMutation<AdminRevokedLiveGrant, ApiError, { id: string; reason: string }>({
+    mutationFn: ({ id, reason }) => api.post<AdminRevokedLiveGrant>(`/admin/copy/live/grants/${encodeURIComponent(id)}/revoke`, { reason }),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.admin.copy.live.accounts }),
   });
 }
 

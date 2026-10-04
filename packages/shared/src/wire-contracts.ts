@@ -17,6 +17,7 @@ import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.j
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
 import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
 import { liveCopyStopSchema, liveCopyStopsSchema, liveStopCancellationChallengeSchema } from './copy-live-stop-contracts.js';
+import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchema, adminLiveLatencySchema, adminRevokedLiveGrantSchema } from './admin-copy-live-contracts.js';
 import * as s from "./schema/zod.js";
 import { referralOverviewSchema, referralCodeSchema, referralCheckSchema, referralBindSchema, referralFriendsSchema, referralClaimSchema, referralClaimsSchema } from './referral-contracts.js';
 
@@ -396,6 +397,11 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/admin/copy/risk", status: 200, auth: "copy.read", response: wireAdminCopyRiskSchema },
   { method: "POST", path: "/admin/copy/controls", status: 201, auth: "copy.read + execution.pause (resume: execution.resume); 409 stale_revision", response: wireAdminCopyControlSchema },
   { method: "PUT", path: "/admin/copy/risk", status: 200, auth: "risk.manage; 409 stale_version", response: wireAdminCopyRiskSchema },
+  { method: "GET", path: "/admin/copy/live/accounts", status: 200, auth: "copy.read", response: adminLiveAccountsSchema },
+  { method: "GET", path: "/admin/copy/live/transfers", status: 200, auth: "copy.read", response: adminLiveTransfersSchema },
+  { method: "GET", path: "/admin/copy/live/orders", status: 200, auth: "copy.read", response: adminLiveOrdersSchema },
+  { method: "GET", path: "/admin/copy/live/latency", status: 200, auth: "copy.read", response: adminLiveLatencySchema },
+  { method: "POST", path: "/admin/copy/live/grants/:id/revoke", status: 200, auth: "copy.read + execution.pause; audited copy.grant.revoke", response: adminRevokedLiveGrantSchema },
   { method: "GET", path: "/kols/:address/avatar", status: 200, auth: "public; image bytes, 304 on If-None-Match", response: z.never(),
     binary: { contentTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"] } },
 ];

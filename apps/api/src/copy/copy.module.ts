@@ -24,6 +24,8 @@ import { PostgresWalletAuthorizationSource } from "./live/postgres-wallet-author
 import { CopyWalletController } from "./copy-wallet.controller.js";
 import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyWalletRepository } from "./copy-wallet.repository.js";
+import { CopyAdminLiveRepository } from "./copy-admin-live.repository.js";
+import { CopyAdminLiveService } from "./copy-admin-live.service.js";
 import { PrivyUserWalletProvisioner, USER_WALLET_PROVISIONER } from "./live/privy-wallet-provisioner.js";
 import { CopyFundingController } from "./copy-funding.controller.js";
 import { CopyFundingRepository } from "./copy-funding.repository.js";
@@ -85,7 +87,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController],
-  providers: [
+  providers: [CopyAdminLiveRepository, CopyAdminLiveService,
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService, CopyFundsRepository,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
@@ -116,7 +118,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (config: AppConfig, budget: RequestBudgeterService, transport:HyperliquidGlobalTransport) =>
       new PrivyAgentApprovalClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }),undefined,Date.now,transport) },
   ],
-  exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
+  exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     // For CopyWorkerModule's loops (the worker process only).
     CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
     // For the testnet execution engine (CopyWorkerModule).

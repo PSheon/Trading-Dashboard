@@ -36,3 +36,4 @@ export * from "./copy-follower-activity-contracts.js";
 export * from "./copy-follower-view-contracts.js";
 export * from "./referral-contracts.js";
 export * from "./copy-live-stop-contracts.js";
+export * from "./admin-copy-live-contracts.js";

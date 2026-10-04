@@ -77,6 +77,12 @@ export const queryKeys = {
       strategies: (qs: string) => ["admin", "copy", "strategies", qs] as const,
       strategy: (id: number) => ["admin", "copy", "strategy", id] as const,
       orders: (qs: string) => ["admin", "copy", "orders", qs] as const,
+      live: {
+        accounts: ["admin", "copy", "live", "accounts"] as const,
+        transfers: ["admin", "copy", "live", "transfers"] as const,
+        orders: (state: string) => ["admin", "copy", "live", "orders", state] as const,
+        latency: (window: string) => ["admin", "copy", "live", "latency", window] as const,
+      },
     },
   },
 };

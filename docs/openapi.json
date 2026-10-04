@@ -413,6 +413,618 @@
         "x-required-roles": []
       }
     },
+    "/me/copy/live/stops/{id}/cancellation/challenge": {
+      "post": {
+        "description": "Only while the stop is cancelling. Returns the exact intent to sign with the main wallet; never signs or cancels.\n\nAccess: user (owner); exact cancellation consent challenge of a cancelling stop; no signing",
+        "operationId": "CopyLiveStopController_cancellationChallenge",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Stop operation id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "stopId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "intent": {
+                          "type": "object",
+                          "properties": {
+                            "authorizationId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "stopId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "userId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "purpose": {
+                              "type": "string",
+                              "const": "cancel_tracked_orders"
+                            },
+                            "schemaVersion": {
+                              "type": "number",
+                              "const": 1
+                            },
+                            "capturedStopRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "targetDigest": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "accountWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "accountOwnerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "ownerPrivyUserId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "ownerAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "setupId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "setupRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "executionWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "agentWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "agentAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "agentOwnerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "workerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "grantId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "grantVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "grantValidFrom": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "grantExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "policyId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "policyFingerprint": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            }
+                          },
+                          "required": [
+                            "authorizationId",
+                            "stopId",
+                            "accountId",
+                            "strategyId",
+                            "userId",
+                            "network",
+                            "purpose",
+                            "schemaVersion",
+                            "capturedStopRevision",
+                            "targetDigest",
+                            "accountAddress",
+                            "accountRevision",
+                            "accountWalletId",
+                            "accountOwnerQuorumId",
+                            "ownerPrivyUserId",
+                            "ownerAddress",
+                            "setupId",
+                            "setupRevision",
+                            "executionWalletId",
+                            "agentWalletId",
+                            "agentAddress",
+                            "agentOwnerQuorumId",
+                            "workerQuorumId",
+                            "grantId",
+                            "grantVersion",
+                            "grantValidFrom",
+                            "grantExpiresAt",
+                            "policyId",
+                            "policyFingerprint",
+                            "nonce",
+                            "consentExpiresAt",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "consented": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "stopId",
+                        "intent",
+                        "consented"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare my consent to cancel a stop's tracked orders",
+        "tags": [
+          "CopyLiveStop"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/stops/{id}/cancellation": {
+      "post": {
+        "description": "Verifies the main wallet's signature over the exact current intent and records its digest. The worker then cancels only those orders.\n\nAccess: user (owner); verified owner consent to cancel the stop's tracked orders",
+        "operationId": "CopyLiveStopController_approveCancellation",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Stop operation id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveLiveStopCancellationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "stopId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "intent": {
+                          "type": "object",
+                          "properties": {
+                            "authorizationId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "stopId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "accountId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "userId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "purpose": {
+                              "type": "string",
+                              "const": "cancel_tracked_orders"
+                            },
+                            "schemaVersion": {
+                              "type": "number",
+                              "const": 1
+                            },
+                            "capturedStopRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "targetDigest": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "accountAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "accountRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "accountWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "accountOwnerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "ownerPrivyUserId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "ownerAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "setupId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "setupRevision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "executionWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "agentWalletId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "agentAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "agentOwnerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "workerQuorumId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "grantId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "grantVersion": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2147483647
+                            },
+                            "grantValidFrom": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "grantExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "policyId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                            },
+                            "policyFingerprint": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            },
+                            "expiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 8640000000000000
+                            }
+                          },
+                          "required": [
+                            "authorizationId",
+                            "stopId",
+                            "accountId",
+                            "strategyId",
+                            "userId",
+                            "network",
+                            "purpose",
+                            "schemaVersion",
+                            "capturedStopRevision",
+                            "targetDigest",
+                            "accountAddress",
+                            "accountRevision",
+                            "accountWalletId",
+                            "accountOwnerQuorumId",
+                            "ownerPrivyUserId",
+                            "ownerAddress",
+                            "setupId",
+                            "setupRevision",
+                            "executionWalletId",
+                            "agentWalletId",
+                            "agentAddress",
+                            "agentOwnerQuorumId",
+                            "workerQuorumId",
+                            "grantId",
+                            "grantVersion",
+                            "grantValidFrom",
+                            "grantExpiresAt",
+                            "policyId",
+                            "policyFingerprint",
+                            "nonce",
+                            "consentExpiresAt",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "consented": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "stopId",
+                        "intent",
+                        "consented"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Approve cancelling a stop's tracked orders",
+        "tags": [
+          "CopyLiveStop"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
     "/me/copy/live/stops": {
       "get": {
         "description": "Bounded to 100 operations with unfinished operations first. Read only.\n\nAccess: user (owner); bounded durable stop history; read only",
@@ -798,6 +1410,1575 @@
         "summary": "Recover my original stop operation by key",
         "tags": [
           "CopyLiveStop"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/execution-wallets/{id}/returns": {
+      "post": {
+        "description": "An amount of idle funds while copying, or \"all\" once the copy's stop is flat. Returns the exact consent to sign; moves nothing.\n\nAccess: user (owner); testnet; return to the main wallet, consent challenge only",
+        "operationId": "CopyLiveReturnController_reserve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyReturnInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "operation": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "accountId": {
+                              "type": "string"
+                            },
+                            "strategyId": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "network": {
+                              "type": "string",
+                              "enum": [
+                                "testnet",
+                                "mainnet"
+                              ]
+                            },
+                            "address": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "destination": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "amount": {
+                              "type": "string"
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "prepared",
+                                "unknown",
+                                "accepted",
+                                "credited",
+                                "rejected",
+                                "cancelled"
+                              ]
+                            },
+                            "canCancel": {
+                              "type": "boolean"
+                            },
+                            "transactionHash": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^0x[0-9a-f]{64}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "creditedAmount": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "fee": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "to_account",
+                                "to_main"
+                              ]
+                            },
+                            "stopId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "accountId",
+                            "strategyId",
+                            "network",
+                            "address",
+                            "destination",
+                            "amount",
+                            "nonce",
+                            "status",
+                            "canCancel",
+                            "transactionHash",
+                            "creditedAmount",
+                            "fee",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "consent": {
+                          "type": "object",
+                          "properties": {
+                            "operationId": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "account": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "destination": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "amount": {
+                              "type": "string"
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "operationId",
+                            "network",
+                            "account",
+                            "destination",
+                            "amount",
+                            "nonce",
+                            "consentExpiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "operation",
+                        "consent"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare returning USDC from a copy's account to my main wallet",
+        "tags": [
+          "CopyLiveReturn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/returns/{id}/approve": {
+      "post": {
+        "description": "Requires the main wallet's consent and a fresh session; the account signs the exact transfer through Privy, one attempt. Credit is confirmed from the main wallet's ledger.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
+        "operationId": "CopyLiveReturnController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCopyMasterActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "testnet",
+                            "mainnet"
+                          ]
+                        },
+                        "address": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "destination": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "amount": {
+                          "type": "string"
+                        },
+                        "nonce": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "unknown",
+                            "accepted",
+                            "credited",
+                            "rejected",
+                            "cancelled"
+                          ]
+                        },
+                        "canCancel": {
+                          "type": "boolean"
+                        },
+                        "transactionHash": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "creditedAmount": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "fee": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "to_account",
+                            "to_main"
+                          ]
+                        },
+                        "stopId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "network",
+                        "address",
+                        "destination",
+                        "amount",
+                        "nonce",
+                        "status",
+                        "canCancel",
+                        "transactionHash",
+                        "creditedAmount",
+                        "fee",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Send the return I consented to",
+        "tags": [
+          "CopyLiveReturn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/execution-wallets/{id}/builder-approval": {
+      "post": {
+        "description": "Only while a builder fee above zero is configured. Returns the exact consent to sign.\n\nAccess: user (owner); testnet; configured builder fee, consent challenge only",
+        "operationId": "CopyLiveReturnController_reserveBuilder",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyBuilderApprovalInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "approval": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "accountId": {
+                              "type": "string"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "prepared",
+                                "unknown",
+                                "accepted",
+                                "rejected",
+                                "approved"
+                              ]
+                            },
+                            "builderAddress": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "maxFeeTenthsBps": {
+                              "type": "integer"
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "accountId",
+                            "state",
+                            "builderAddress",
+                            "maxFeeTenthsBps",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "consent": {
+                          "type": "object",
+                          "properties": {
+                            "operationId": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "network": {
+                              "type": "string",
+                              "const": "testnet"
+                            },
+                            "account": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "builder": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "maxFeeTenthsBps": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100
+                            },
+                            "nonce": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "consentExpiresAt": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "operationId",
+                            "network",
+                            "account",
+                            "builder",
+                            "maxFeeTenthsBps",
+                            "nonce",
+                            "consentExpiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "approval",
+                        "consent"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Prepare my copy account's approval of the platform builder fee",
+        "tags": [
+          "CopyLiveReturn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/builder-approvals/{id}/approve": {
+      "post": {
+        "description": "Requires the main wallet's consent and a fresh session; approved once the exchange reports the fee.\n\nAccess: user (owner); main-wallet consent and fresh session; one attempt",
+        "operationId": "CopyLiveReturnController_approveBuilder",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCopyMasterActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "unknown",
+                            "accepted",
+                            "rejected",
+                            "approved"
+                          ]
+                        },
+                        "builderAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "maxFeeTenthsBps": {
+                          "type": "integer"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "state",
+                        "builderAddress",
+                        "maxFeeTenthsBps",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Send the builder fee approval I consented to",
+        "tags": [
+          "CopyLiveReturn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/builder-approvals/{id}/reconcile": {
+      "post": {
+        "description": "Read only; never resends.\n\nAccess: user (owner); read only",
+        "operationId": "CopyLiveReturnController_reconcileBuilder",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "prepared",
+                            "unknown",
+                            "accepted",
+                            "rejected",
+                            "approved"
+                          ]
+                        },
+                        "builderAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "maxFeeTenthsBps": {
+                          "type": "integer"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "state",
+                        "builderAddress",
+                        "maxFeeTenthsBps",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Check whether the exchange reports my builder fee approval",
+        "tags": [
+          "CopyLiveReturn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/portfolio": {
+      "get": {
+        "description": "Setup, deposit, funding, awaiting credit, starting, active or paused; stopping, sweeping and stopped. Database only; balances come from the account snapshot.\n\nAccess: user (owner); testnet copies with their funding and stop stage; read only",
+        "operationId": "CopyLivePortfolioController_portfolio",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "automaticExecution": {
+                          "type": "boolean"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "leaderAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "sourceNetwork": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "budgetUsd": {
+                                "type": "string",
+                                "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+                                "maxLength": 32
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "paused",
+                                  "stopping",
+                                  "stopped"
+                                ]
+                              },
+                              "stage": {
+                                "type": "string",
+                                "enum": [
+                                  "setup",
+                                  "needs_deposit",
+                                  "funding",
+                                  "awaiting_credit",
+                                  "starting",
+                                  "active",
+                                  "paused",
+                                  "stopping",
+                                  "sweeping",
+                                  "stopped"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "accountId": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "accountAddress": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{40}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "mandate": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128
+                                      },
+                                      "state": {
+                                        "type": "string",
+                                        "enum": [
+                                          "prepared",
+                                          "active",
+                                          "paused",
+                                          "stopping",
+                                          "stopped",
+                                          "revoked",
+                                          "expired"
+                                        ]
+                                      },
+                                      "revision": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 2147483647
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "state",
+                                      "revision"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "stop": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "state": {
+                                        "type": "string",
+                                        "enum": [
+                                          "requested",
+                                          "cancelling",
+                                          "closing",
+                                          "blocked",
+                                          "flat",
+                                          "stopped"
+                                        ]
+                                      },
+                                      "issue": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "revision": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 2147483647
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "state",
+                                      "issue",
+                                      "revision"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "pendingTransfer": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "direction": {
+                                        "type": "string",
+                                        "enum": [
+                                          "to_account",
+                                          "to_main"
+                                        ]
+                                      },
+                                      "status": {
+                                        "type": "string",
+                                        "enum": [
+                                          "prepared",
+                                          "unknown",
+                                          "accepted"
+                                        ]
+                                      },
+                                      "amount": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "direction",
+                                      "status",
+                                      "amount"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "lastRefusal": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "reason": {
+                                        "type": "string"
+                                      },
+                                      "at": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      }
+                                    },
+                                    "required": [
+                                      "reason",
+                                      "at"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "strategyId",
+                              "leaderAddress",
+                              "sourceNetwork",
+                              "budgetUsd",
+                              "status",
+                              "stage",
+                              "createdAt",
+                              "accountId",
+                              "accountAddress",
+                              "mandate",
+                              "stop",
+                              "pendingTransfer",
+                              "lastRefusal"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 50
+                        }
+                      },
+                      "required": [
+                        "network",
+                        "automaticExecution",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read my testnet copies and their stage",
+        "tags": [
+          "CopyLivePortfolio"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/execution-wallets/{id}/positions/close": {
+      "post": {
+        "description": "Recorded now; the worker sends reduce-only IOC orders by the approved agent until the position is flat. The copy keeps following its leader.\n\nAccess: user (owner); one position of a running testnet copy; executed by the worker",
+        "operationId": "CopyLiveCloseController_request",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestLiveManualCloseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "coin": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "requested",
+                            "done",
+                            "refused"
+                          ]
+                        },
+                        "reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orders": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "strategyId",
+                        "coin",
+                        "state",
+                        "reason",
+                        "orders",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Close one position of my running testnet copy",
+        "tags": [
+          "CopyLiveClose"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/execution-wallets/{id}/closes": {
+      "get": {
+        "description": "Read only.\n\nAccess: user (owner); read only",
+        "operationId": "CopyLiveCloseController_list",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "accountId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "requested",
+                                  "done",
+                                  "refused"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "orders": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "accountId",
+                              "strategyId",
+                              "coin",
+                              "state",
+                              "reason",
+                              "orders",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 50
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read my single-position closes of a copy",
+        "tags": [
+          "CopyLiveClose"
         ],
         "security": [
           {
@@ -3390,6 +5571,7 @@
                 "kol.import",
                 "copy.control",
                 "copy.risk",
+                "copy.grant.revoke",
                 "retention.run"
               ]
             }
@@ -26257,6 +28439,24 @@
                                   "null"
                                 ]
                               },
+                              "direction": {
+                                "type": "string",
+                                "enum": [
+                                  "to_account",
+                                  "to_main"
+                                ]
+                              },
+                              "stopId": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time"
@@ -26456,6 +28656,24 @@
                             "null"
                           ]
                         },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "to_account",
+                            "to_main"
+                          ]
+                        },
+                        "stopId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
@@ -26636,6 +28854,24 @@
                               "type": [
                                 "string",
                                 "null"
+                              ]
+                            },
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "to_account",
+                                "to_main"
+                              ]
+                            },
+                            "stopId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                {
+                                  "type": "null"
+                                }
                               ]
                             },
                             "createdAt": {
@@ -26839,6 +29075,24 @@
                             "null"
                           ]
                         },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "to_account",
+                            "to_main"
+                          ]
+                        },
+                        "stopId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
@@ -27016,6 +29270,24 @@
                           "type": [
                             "string",
                             "null"
+                          ]
+                        },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "to_account",
+                            "to_main"
+                          ]
+                        },
+                        "stopId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "createdAt": {
@@ -27197,6 +29469,24 @@
                           "type": [
                             "string",
                             "null"
+                          ]
+                        },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "to_account",
+                            "to_main"
+                          ]
+                        },
+                        "stopId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            {
+                              "type": "null"
+                            }
                           ]
                         },
                         "createdAt": {
@@ -36198,6 +38488,997 @@
         ],
         "x-required-roles": []
       }
+    },
+    "/admin/copy/live/accounts": {
+      "get": {
+        "operationId": "AdminCopyLiveController_accounts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "accountId": {
+                                "type": "string"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "userEmail": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "leaderAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "sourceNetwork": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "accountAddress": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{40}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "accountState": {
+                                "type": "string"
+                              },
+                              "strategyStatus": {
+                                "type": "string"
+                              },
+                              "agent": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "setupId": {
+                                        "type": "string"
+                                      },
+                                      "state": {
+                                        "type": "string"
+                                      },
+                                      "agentAddress": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "pattern": "^0x[0-9a-f]{40}$"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "expiresAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      }
+                                    },
+                                    "required": [
+                                      "setupId",
+                                      "state",
+                                      "agentAddress",
+                                      "expiresAt"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "grant": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "version": {
+                                        "type": "integer"
+                                      },
+                                      "scopes": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "expiresAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
+                                      "revokedAt": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "date-time"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "version",
+                                      "scopes",
+                                      "expiresAt",
+                                      "revokedAt"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "mandate": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "state": {
+                                        "type": "string"
+                                      },
+                                      "revision": {
+                                        "type": "integer"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "state",
+                                      "revision"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "stop": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "state": {
+                                        "type": "string"
+                                      },
+                                      "issue": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "state",
+                                      "issue"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "accountId",
+                              "userId",
+                              "userEmail",
+                              "strategyId",
+                              "leaderAddress",
+                              "sourceNetwork",
+                              "accountAddress",
+                              "accountState",
+                              "strategyStatus",
+                              "agent",
+                              "grant",
+                              "mandate",
+                              "stop",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 200
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Testnet execution wallets with their agent, trading grant, mandate and stop",
+        "tags": [
+          "AdminCopyLive"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/live/transfers": {
+      "get": {
+        "operationId": "AdminCopyLiveController_transfers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "accountId": {
+                                "type": "string"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "direction": {
+                                "type": "string",
+                                "enum": [
+                                  "to_account",
+                                  "to_main"
+                                ]
+                              },
+                              "status": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "destination": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "stopId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "transactionHash": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "attemptedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "userId",
+                              "accountId",
+                              "strategyId",
+                              "direction",
+                              "status",
+                              "amount",
+                              "source",
+                              "destination",
+                              "stopId",
+                              "transactionHash",
+                              "attemptedAt",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 200
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Testnet copy wallet transfers: deposits from and returns to main wallets, newest first",
+        "tags": [
+          "AdminCopyLive"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/live/orders": {
+      "get": {
+        "description": "open: not terminal yet; unknown: sent, outcome not yet confirmed (the worker reconciles by cloid; never placed after expiry + 30 s)\n\nAccess: copy.read",
+        "operationId": "AdminCopyLiveController_orders",
+        "parameters": [
+          {
+            "name": "state",
+            "required": false,
+            "in": "query",
+            "description": "open: not terminal yet; unknown: sent, outcome not confirmed by the exchange",
+            "schema": {
+              "default": "open",
+              "type": "string",
+              "enum": [
+                "open",
+                "unknown",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "accountAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "coin": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "side": {
+                                "type": "string",
+                                "enum": [
+                                  "B",
+                                  "A"
+                                ]
+                              },
+                              "size": {
+                                "type": "string"
+                              },
+                              "limitPrice": {
+                                "type": "string"
+                              },
+                              "reduceOnly": {
+                                "type": "boolean"
+                              },
+                              "state": {
+                                "type": "string"
+                              },
+                              "errorCode": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "purpose": {
+                                "type": "string",
+                                "enum": [
+                                  "copy",
+                                  "stop",
+                                  "close",
+                                  "other"
+                                ]
+                              },
+                              "leg": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "leg": {
+                                        "type": "string",
+                                        "enum": [
+                                          "open",
+                                          "close"
+                                        ]
+                                      },
+                                      "state": {
+                                        "type": "string"
+                                      },
+                                      "reason": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "leg",
+                                      "state",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "userId",
+                              "strategyId",
+                              "accountAddress",
+                              "coin",
+                              "side",
+                              "size",
+                              "limitPrice",
+                              "reduceOnly",
+                              "state",
+                              "errorCode",
+                              "purpose",
+                              "leg",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 200
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Testnet orders by journal state",
+        "tags": [
+          "AdminCopyLive"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": []
+      }
+    },
+    "/admin/copy/live/latency": {
+      "get": {
+        "operationId": "AdminCopyLiveController_latency",
+        "parameters": [
+          {
+            "name": "window",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "24h",
+              "type": "string",
+              "enum": [
+                "24h",
+                "7d"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "window": {
+                          "type": "string",
+                          "enum": [
+                            "24h",
+                            "7d"
+                          ]
+                        },
+                        "count": {
+                          "type": "integer"
+                        },
+                        "signal": {
+                          "type": "object",
+                          "properties": {
+                            "p50": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "p95": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "p50",
+                            "p95"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "sent": {
+                          "type": "object",
+                          "properties": {
+                            "p50": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "p95": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "p50",
+                            "p95"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "ack": {
+                          "type": "object",
+                          "properties": {
+                            "p50": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "p95": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "p50",
+                            "p95"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "settled": {
+                          "type": "object",
+                          "properties": {
+                            "p50": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "p95": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "p50",
+                            "p95"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "window",
+                        "count",
+                        "signal",
+                        "sent",
+                        "ack",
+                        "settled"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Copy latency P50/P95 in ms from the leader's fill: signal received, order sent, exchange answer, fill booked",
+        "tags": [
+          "AdminCopyLive"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read"
+        ],
+        "x-required-roles": [],
+        "description": "Access: copy.read"
+      }
+    },
+    "/admin/copy/live/grants/{id}/revoke": {
+      "post": {
+        "description": "Needs execution.pause. Every new order of that wallet is refused at once; audited as copy.grant.revoke.\n\nAccess: copy.read + execution.pause; audited copy.grant.revoke",
+        "operationId": "AdminCopyLiveController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminRevokeLiveGrantDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "revokedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "version",
+                        "revokedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Revoke a testnet copy's trading grant",
+        "tags": [
+          "AdminCopyLive"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "copy.read",
+          "execution.pause"
+        ],
+        "x-required-roles": []
+      }
     }
   },
   "info": {
@@ -36236,6 +39517,86 @@
         "required": [
           "idempotencyKey",
           "expectedMandateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveLiveStopCancellationDto": {
+        "type": "object",
+        "properties": {
+          "consentSignature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "Main-wallet EIP-712 signature over the exact cancellation intent"
+          }
+        },
+        "required": [
+          "consentSignature"
+        ],
+        "additionalProperties": false
+      },
+      "CopyReturnInputDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable key for this exact return"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Exact positive testnet USDC, at most six decimals, or \"all\" once the copy is stopped and flat"
+          }
+        },
+        "required": [
+          "idempotencyKey",
+          "amount"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveCopyMasterActionDto": {
+        "type": "object",
+        "properties": {
+          "consentSignature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$",
+            "description": "Main-wallet EIP-712 signature over the exact consent"
+          }
+        },
+        "required": [
+          "consentSignature"
+        ],
+        "additionalProperties": false
+      },
+      "CopyBuilderApprovalInputDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable key for this approval"
+          }
+        },
+        "required": [
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "RequestLiveManualCloseDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable key for this close"
+          },
+          "coin": {
+            "type": "string",
+            "description": "The position's market, as the account snapshot names it"
+          }
+        },
+        "required": [
+          "idempotencyKey",
+          "coin"
         ],
         "additionalProperties": false
       },
@@ -37621,6 +40982,20 @@
           "limits",
           "reason",
           "expectedVersion"
+        ],
+        "additionalProperties": false
+      },
+      "AdminRevokeLiveGrantDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
         ],
         "additionalProperties": false
       },

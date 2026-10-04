@@ -165,6 +165,8 @@ export const wireCopyPerformanceSchema = s.copyPerformanceResponseSchema.extend(
   coverage: s.copyPerformanceResponseSchema.shape.coverage.extend({ firstSnapshotAt: iso.nullable(), lastSnapshotAt: iso.nullable() }),
 });
 export const wireCopyEventsSchema = s.copyEventsResponseSchema.extend({ items: z.array(s.copyEventSchema.extend({ createdAt: iso })) });
+export const wireCopyPortfolioSchema = s.copyPortfolioResponseSchema.extend({ from: iso, to: iso, points: z.array(s.copyPortfolioResponseSchema.shape.points.element.extend({ time: iso })) });
+export const wireCopyTradesSchema = s.copyTradesResponseSchema.extend({ items: z.array(s.copyClosedTradeSchema.extend({ openedAt: iso, closedAt: iso })) });
 const wireCopyControlEventSchema = s.copyControlEventSchema.extend({ createdAt: iso });
 export const wireAdminCopyControlSchema = s.adminCopyControlResponseSchema.extend({ event: wireCopyControlEventSchema });
 export const wireAdminCopyOverviewSchema = s.adminCopyOverviewSchema.extend({
@@ -333,6 +335,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/strategies/:id/withdraw-funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "GET", path: "/me/copy/strategies/:id/performance", status: 200, auth: "user (owner)", response: wireCopyPerformanceSchema },
   { method: "GET", path: "/me/copy/events", status: 200, auth: "user", response: wireCopyEventsSchema },
+  { method: "GET", path: "/me/copy/portfolio", status: 200, auth: "user (own copies)", response: wireCopyPortfolioSchema },
+  { method: "GET", path: "/me/copy/trades", status: 200, auth: "user (own copies)", response: wireCopyTradesSchema },
   { method: "GET", path: "/me/copy/execution-wallets", status: 200, auth: "user (owner)", response: copyExecutionWalletsSchema },
   { method: "GET", path: "/me/copy/agents", status: 200, auth: "user (owner)", response: copyAgentOverviewSchema },
   { method: "GET", path: "/me/copy/account-modes", status: 200, auth: "user (owner)", response: copyAccountModeOverviewSchema },
@@ -403,6 +407,8 @@ export type WireCopyOrder = z.infer<typeof wireCopyOrderSchema>;
 export type WireCopyOrders = z.infer<typeof wireCopyOrdersSchema>;
 export type WireCopyPerformance = z.infer<typeof wireCopyPerformanceSchema>;
 export type WireCopyEvents = z.infer<typeof wireCopyEventsSchema>;
+export type WireCopyPortfolio = z.infer<typeof wireCopyPortfolioSchema>;
+export type WireCopyTrades = z.infer<typeof wireCopyTradesSchema>;
 export type WireAdminCopyOverview = z.infer<typeof wireAdminCopyOverviewSchema>;
 export type WireAdminCopyStrategies = z.infer<typeof wireAdminCopyStrategiesSchema>;
 export type WireAdminCopyStrategyDetail = z.infer<typeof wireAdminCopyStrategyDetailSchema>;

@@ -76,3 +76,17 @@ export class CopyEventsQueryDto extends CopyHistoryQueryDto {
   @ApiPropertyOptional({ type: String, pattern: "^(0|[1-9][0-9]{0,18})$", default: "0", description: "0 loads latest events; positive cursor replays newer events (maximum 9223372036854775807)" })
   @Optional() @Matches(/^(0|[1-9]\d{0,18})$/) declare after?: string;
 }
+
+export class CopyPortfolioQueryDto {
+  @ApiPropertyOptional({ type: String, enum: ["1d", "7d", "30d", "all"], default: "all", description: "CopyDog's 24H / 7D / 30D / ALL" })
+  @Optional() @IsIn(["1d", "7d", "30d", "all"]) declare window?: "1d" | "7d" | "30d" | "all";
+}
+
+export class CopyTradesQueryDto {
+  @ApiPropertyOptional({ type: String, enum: ["best", "worst", "recent"], default: "recent", description: "best: highest PnL first (wins only); worst: lowest first (losses only); recent: latest close first" })
+  @Optional() @IsIn(["best", "worst", "recent"]) declare sort?: "best" | "worst" | "recent";
+  @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 100, default: 20 })
+  @Optional() @ToNumber() @IsInt() @Min(1) @Max(100) declare limit?: number;
+  @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 2_147_483_647, description: "Only this copy's trades (must be the caller's)" })
+  @Optional() @ToNumber() @IsInt() @Min(1) @Max(2_147_483_647) declare strategyId?: number;
+}

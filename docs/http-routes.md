@@ -123,6 +123,8 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/strategies/:id/withdraw-funds` | 200 | user (owner) |
 | GET | `/me/copy/strategies/:id/performance` | 200 | user (owner) |
 | GET | `/me/copy/events` | 200 | user |
+| GET | `/me/copy/portfolio` | 200 | user (own copies) |
+| GET | `/me/copy/trades` | 200 | user (own copies) |
 | GET | `/me/copy/execution-wallets` | 200 | user (owner) |
 | GET | `/me/copy/agents` | 200 | user (owner) |
 | GET | `/me/copy/account-modes` | 200 | user (owner) |

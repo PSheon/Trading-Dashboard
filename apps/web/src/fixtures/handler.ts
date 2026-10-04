@@ -84,6 +84,10 @@ import {
   copyLedgerResponseSchema,
   copyFillsResponseSchema,
   copyPerformanceResponseSchema,
+  copyPortfolioQuerySchema,
+  copyPortfolioResponseSchema,
+  copyTradesQuerySchema,
+  copyTradesResponseSchema,
   copyEventsResponseSchema,
   copyEventsQuerySchema,
   copyPerformanceWindowSchema,
@@ -141,7 +145,7 @@ import {
 } from "./admin";
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
 import { fixtureBoard, fixtureCohort, fixtureCohortHistory, fixtureCoinBoard, fixtureCoinIndex, fixtureHome, fixtureSearch } from "./discovery";
-import { fixtureCopyAccounting, fixtureCopyEvents, fixtureCopyPerformance, fixtureWithdrawFunds, fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
+import { fixtureCopyAccounting, fixtureCopyEvents, fixtureCopyPerformance, fixtureCopyPortfolio, fixtureCopyTrades, fixtureWithdrawFunds, fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
 import { fixtureAdminCopyControl, fixtureAdminCopyExposure, fixtureAdminCopyOrders, fixtureAdminCopyOverview, fixtureAdminCopyPutRisk, fixtureAdminCopyRisk, fixtureAdminCopyStrategies, fixtureAdminCopyStrategy } from "./admin-copy";
 import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
 
@@ -577,6 +581,14 @@ export async function fixtureRequest<T>(
     case "POST /me/copy/strategies/:id/withdraw-funds":
       requireUser(token);
       return wire(copyStrategySchema, fixtureWithdrawFunds(Number(parts[3]), body as Record<string, unknown>));
+    case "GET /me/copy/portfolio":
+      requireUser(token);
+      return wire(copyPortfolioResponseSchema, fixtureCopyPortfolio(copyPortfolioQuerySchema.parse({ window: search.get("window") ?? undefined }).window));
+    case "GET /me/copy/trades": {
+      requireUser(token);
+      const q = copyTradesQuerySchema.parse({ sort: search.get("sort") ?? undefined, limit: search.get("limit") ?? undefined, strategyId: search.get("strategyId") ?? undefined });
+      return wire(copyTradesResponseSchema, fixtureCopyTrades(q.sort, q.limit, q.strategyId));
+    }
     case "GET /me/copy/strategies/:id/performance":
       requireUser(token);
       return wire(copyPerformanceResponseSchema, fixtureCopyPerformance(Number(parts[3]), copyPerformanceWindowSchema.parse(search.get("window") ?? "7d")));

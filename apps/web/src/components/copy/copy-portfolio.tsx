@@ -7,7 +7,8 @@ import { cn } from "cn";
 
 import { CopyAccountingHistory } from "@/components/copy/copy-accounting-history";
 import { PaperBadge } from "@/components/copy/paper-badge";
-import { CopyEquitySparkline, CopyPerformance } from "@/components/copy/copy-performance";
+import { CopyCompare } from "@/components/copy/copy-compare";
+import { CopySparkline } from "@/components/copy/portfolio-parts";
 import { TraderAvatar, boardName } from "@/components/discover/board-bits";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
@@ -17,7 +18,7 @@ import { useI18n } from "@/i18n/provider";
 import type { MessageKey } from "@/i18n/messages";
 import { amountInput } from "@/lib/amount-input";
 import { apiErrorCode } from "@/lib/api";
-import type { CopyOrderView, CopyOverview, CopyPositionView, CopyStrategyView } from "@/lib/contracts";
+import type { CopyOrderView, CopyPositionView, CopyStrategyView } from "@/lib/contracts";
 import { copyDays, useAddCopyFunds, useCopyCommand, useCopyOrders, usePatchCopy, useWithdrawCopyFunds } from "@/lib/copy";
 import { useTraderCards } from "@/lib/favorite-groups";
 import { coinLabel, truncateAddress } from "@/lib/format";
@@ -49,36 +50,6 @@ function StatusBadges({ s, className }: { s: CopyStrategyView; className?: strin
   );
 }
 
-/** The paper account beside the wallet's 總價值: virtual USDC only. */
-export function PaperAccountCard({ overview, className }: { overview: CopyOverview; className?: string }) {
-  const { t, format } = useI18n();
-  const p = overview.paper;
-  return (
-    <section className={cn("rounded-2xl border border-border bg-card p-6", className)} aria-label={t("portfolio.copy.paperAccount")}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[0.8125rem] text-muted-foreground">{t("portfolio.copy.paperAccount")}</p>
-        <PaperBadge />
-      </div>
-      <p className="num text-[2.5rem] leading-tight font-extrabold tracking-tight">{p.totalValue === null ? "—" : format.usd(p.totalValue, { digits: 2 })}</p>
-      <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
-        <div>
-          <dt className="text-muted-foreground">{t("portfolio.copy.paperBalance")}</dt>
-          <dd className="num mt-0.5 font-semibold">{format.usd(p.balance, { digits: 2 })}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">{t("portfolio.copy.allocated")}</dt>
-          <dd className="num mt-0.5 font-semibold">{format.usd(p.allocated, { digits: 2 })}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">{t("portfolio.copy.totalPnl")}</dt>
-          <dd className={cn("num mt-0.5 font-semibold", tone(p.totalPnl))}>{p.totalPnl === null ? "—" : format.usd(p.totalPnl, { sign: true, digits: 2 })}</dd>
-        </div>
-      </dl>
-      <p className="mt-3 text-[11px] text-subtle-foreground">{t("portfolio.copy.paperHint")}</p>
-    </section>
-  );
-}
-
 function PositionLine({ p, table }: { p: CopyPositionView; table: boolean }) {
   const { t, format } = useI18n();
   const long = p.size > 0;
@@ -106,12 +77,12 @@ function PositionLine({ p, table }: { p: CopyPositionView; table: boolean }) {
 }
 
 /** CopyDog's desktop list of copies: trader, days, positions, equity, curve, UPNL, P&L, ROI and the positions toggle. */
-export function CopyTable({ strategies, leaders, onSelect }: { strategies: CopyStrategyView[]; leaders: Map<string, Leader>; onSelect: (id: number) => void }) {
+export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = false }: { strategies: CopyStrategyView[]; leaders: Map<string, Leader>; onSelect: (id: number) => void; sparklines?: Map<number, ReadonlyArray<number | null>>; bare?: boolean }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState<Set<number>>(new Set());
   const cols = "grid grid-cols-[2.2fr_0.8fr_0.8fr_1.1fr_1fr_1.1fr_1.1fr_0.9fr_40px] items-center gap-3";
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+    <div className={cn("overflow-hidden", !bare && "rounded-2xl border border-border bg-card")}>
       <div className={cn(cols, "border-b border-border px-4 py-3 text-xs text-muted-foreground")}>
         <span>{t("portfolio.copy.cols.trader")}</span>
         <span className="text-right">{t("portfolio.copy.cols.days")}</span>
@@ -148,7 +119,7 @@ export function CopyTable({ strategies, leaders, onSelect }: { strategies: CopyS
               <span className="num text-right">{t("portfolio.copy.daysShort", { count: copyDays(s.createdAt) })}</span>
               <span className="num text-right">{s.positions.length}</span>
               <span className="num text-right">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
-              <span className="text-right text-muted-foreground"><CopyEquitySparkline strategyId={s.id} /></span>
+              <span className="flex justify-end"><CopySparkline points={sparklines?.get(s.id)} /></span>
               <span className={cn("num text-right", s.positions.length ? tone(s.unrealizedPnl) : "")}>
                 {s.positions.length && s.unrealizedPnl !== null ? format.usd(s.unrealizedPnl, { sign: true, digits: 2 }) : "—"}
               </span>
@@ -185,7 +156,7 @@ export function CopyTable({ strategies, leaders, onSelect }: { strategies: CopyS
 }
 
 /** CopyDog's phone copy card: avatar, name + badges, equity, P&L + ROI, and the UPNL row with coins. */
-export function CopyCards({ strategies, leaders, onSelect }: { strategies: CopyStrategyView[]; leaders: Map<string, Leader>; onSelect: (id: number) => void }) {
+export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strategies: CopyStrategyView[]; leaders: Map<string, Leader>; onSelect: (id: number) => void; sparklines?: Map<number, ReadonlyArray<number | null>> }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState<number | null>(null);
   return (
@@ -196,7 +167,7 @@ export function CopyCards({ strategies, leaders, onSelect }: { strategies: CopyS
           <div key={s.id} className="rounded-2xl border border-border bg-card">
             <button type="button" onClick={() => onSelect(s.id)} className="flex w-full items-center gap-3 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <TraderAvatar trader={leader} size={44} />
-              <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 <span className="truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
                 <span className="mt-1 flex min-w-0 items-center gap-1.5">
                   <span className="num text-xs text-muted-foreground">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
@@ -204,6 +175,7 @@ export function CopyCards({ strategies, leaders, onSelect }: { strategies: CopyS
                   <StatusBadges s={s} />
                 </span>
               </span>
+              {(sparklines?.get(s.id)?.filter((v) => v !== null).length ?? 0) > 1 ? <CopySparkline points={sparklines?.get(s.id)} width={56} height={34} className="shrink-0" /> : null}
               <span className="flex flex-col items-end gap-1">
                 <span className={cn("num text-[0.9375rem] font-bold", tone(s.totalPnl))}>{s.totalPnl === null ? "—" : format.usd(s.totalPnl, { sign: true, digits: 2 })}</span>
                 {s.roiPct === null ? null : <RoiPill value={s.roiPct / 100} />}
@@ -318,7 +290,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       ) : null}
       {error ? <p role="alert" className="text-xs font-semibold text-negative">{error}</p> : null}
 
-      <CopyPerformance strategyId={s.id} />
+      <CopyCompare strategy={s} traderName={boardName(leader)} />
 
       <div className="grid gap-4 md:grid-cols-[1fr_1.4fr]">
         <section className="rounded-2xl border border-border bg-card p-4">
@@ -589,131 +561,4 @@ export function WithdrawDialog({ strategy: s, open, onClose }: { strategy: CopyS
       }}>{withdraw.isPending ? (t("copyUpdates.processing")) : (t("copyUpdates.withdrawConfirm"))}</Button>
     </div>
   </Modal>;
-}
-
-/** Phone Insights: paper P&L split and each trader's contribution. */
-export function CopyInsights({ overview, leaders }: { overview: CopyOverview; leaders: Map<string, Leader> }) {
-  const { t, format } = useI18n();
-  const all = overview.strategies;
-  const realized = all.reduce((a, s) => a + s.realizedPnl, 0);
-  const unrealized = all.reduce<number | null>((a, s) => (a === null || s.unrealizedPnl === null ? null : a + s.unrealizedPnl), 0);
-  const costs = all.reduce((a, s) => a + s.fees + s.funding, 0);
-  const trades = all.reduce((a, s) => a + s.tradesCopied, 0);
-  const maxAbs = Math.max(1, ...all.map((s) => Math.abs(s.totalPnl ?? 0)));
-  return (
-    <div className="flex flex-col gap-4">
-      <section className="rounded-2xl border border-border bg-card p-4">
-        <h3 className="flex items-center justify-between text-sm font-bold">{t("portfolio.copy.insights.overview")} <PaperBadge /></h3>
-        <p className={cn("num mt-2 text-2xl font-extrabold", tone(overview.paper.totalPnl))}>{overview.paper.totalPnl === null ? "—" : format.usd(overview.paper.totalPnl, { sign: true, digits: 2 })}</p>
-        <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
-          {[
-            [t("portfolio.copy.insights.realized"), format.usd(realized, { sign: true, digits: 2 }), tone(realized)],
-            [t("portfolio.copy.insights.unrealized"), unrealized === null ? "—" : format.usd(unrealized, { sign: true, digits: 2 }), tone(unrealized)],
-            [t("portfolio.copy.insights.fees"), format.usd(costs ? -costs : 0, { digits: 2 }), ""],
-            [t("portfolio.copy.insights.tradesCopied"), format.num(trades), ""],
-          ].map(([k, v, c]) => (
-            <div key={k} className="rounded-xl bg-raised/50 p-3">
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className={cn("num mt-1 text-sm font-bold", c)}>{v}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-      <section className="rounded-2xl border border-border bg-card p-4">
-        <h3 className="text-sm font-bold">{t("portfolio.copy.insights.byTrader")}</h3>
-        <ul className="mt-3 flex flex-col gap-3">
-          {all.map((s) => {
-            const leader = leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null, avatarUrl: null };
-            const v = s.totalPnl ?? 0;
-            return (
-              <li key={s.id} className="flex items-center gap-2.5 text-xs">
-                <TraderAvatar trader={leader} size={24} />
-                <span className="w-24 truncate font-semibold">{boardName(leader)}</span>
-                <span className="relative h-2 flex-1 rounded-full bg-raised">
-                  <span className={cn("absolute inset-y-0 left-0 rounded-full", v >= 0 ? "bg-positive" : "bg-negative")} style={{ width: `${(Math.abs(v) / maxAbs) * 100}%` }} />
-                </span>
-                <span className={cn("num w-20 text-right font-semibold", tone(s.totalPnl))}>{s.totalPnl === null ? "—" : format.usd(s.totalPnl, { sign: true, digits: 2 })}</span>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-    </div>
-  );
-}
-
-/** Phone Exposure: long / short split, weighted leverage and each coin across every live copy. */
-export function CopyExposure({ overview }: { overview: CopyOverview }) {
-  const { t, format } = useI18n();
-  const live = overview.strategies.filter((s) => s.status !== "stopped");
-  const unknown = live.some((s) => s.equity === null || !Number.isFinite(s.equity) || s.positions.some((p) => p.notionalUsd === null || !Number.isFinite(p.notionalUsd) || !Number.isFinite(p.size)));
-  if (unknown) return <p role="status" className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.exposureUnknown")}</p>;
-  const byCoin = new Map<string, { long: number; short: number }>();
-  for (const s of live) for (const p of s.positions) {
-    const cur = byCoin.get(p.coin) ?? { long: 0, short: 0 };
-    if (p.size > 0) cur.long += Math.abs(p.notionalUsd ?? 0);
-    else if (p.size < 0) cur.short += Math.abs(p.notionalUsd ?? 0);
-    byCoin.set(p.coin, cur);
-  }
-  const long = [...byCoin.values()].reduce((a, c) => a + c.long, 0);
-  const short = [...byCoin.values()].reduce((a, c) => a + c.short, 0);
-  const equity = live.reduce((a, s) => a + (s.equity ?? 0), 0);
-  const leverage = equity > 0 ? (long + short) / equity : null;
-  const total = long + short;
-  const signedNet = long - short;
-  if (total === 0) return <p className="py-8 text-center text-sm text-muted-foreground">{t("portfolio.copy.exposure.none")}</p>;
-  const rows = [...byCoin.entries()].sort((a, b) => b[1].long + b[1].short - (a[1].long + a[1].short));
-  return (
-    <div className="flex flex-col gap-4">
-      <section className="rounded-2xl border border-border bg-card p-4">
-        <h3 className="flex items-center justify-between text-sm font-bold">{t("portfolio.copy.exposure.direction")} <PaperBadge /></h3>
-        {[...byCoin.values()].some((c) => c.long > 0 && c.short > 0) ? <p className="mt-2 text-xs text-warning">{t("copyUpdates.hedgeHint")}</p> : null}
-        <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-raised">
-          <span className="bg-positive" style={{ width: `${(long / total) * 100}%` }} />
-          <span className="bg-negative" style={{ width: `${(short / total) * 100}%` }} />
-        </div>
-        <div className="mt-2 flex justify-between text-xs">
-          <span className="text-positive">{t("portfolio.copy.exposure.long")} {format.usd(long, { sign: true, digits: 2 })}</span>
-          <span className="text-negative">{t("portfolio.copy.exposure.short")} {format.usd(-short, { sign: true, digits: 2 })}</span>
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">{t("copyUpdates.exposureLabels.exposureFormula")}</p>
-        <p className="mt-2 text-xs text-warning">{t("copyUpdates.exposureLabels.accountRisk")}</p>
-        <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
-          {([
-            ["grossExposure", total], ["netExposure", Math.abs(signedNet)], ["signedNet", signedNet],
-          ] as const).map(([label, value]) => <div key={label} className="rounded-xl bg-raised/50 p-3">
-            <dt className="text-muted-foreground">{t(`copyUpdates.exposureLabels.${label}`)}</dt>
-            <dd className="num mt-1 text-sm font-bold">{format.usd(value, { sign: label === "signedNet", digits: 2 })}</dd>
-          </div>)}
-          <div className="rounded-xl bg-raised/50 p-3">
-            <dt className="text-muted-foreground">{t("copyUpdates.exposureLabels.grossLeverage")}</dt>
-            <dd className="num mt-1 text-sm font-bold">{leverage === null ? "—" : `${leverage.toFixed(2)}×`}</dd>
-          </div>
-          <div className="rounded-xl bg-raised/50 p-3">
-            <dt className="text-muted-foreground">{t("portfolio.copy.exposure.equity")}</dt>
-            <dd className="num mt-1 text-sm font-bold">{format.usd(equity, { digits: 2 })}</dd>
-          </div>
-        </dl>
-      </section>
-      <section className="rounded-2xl border border-border bg-card p-4">
-        <h3 className="text-sm font-bold">{t("portfolio.copy.exposure.byAsset")}</h3>
-        <ul className="mt-2">
-          {rows.map(([coin, v]) => (
-            <li key={coin} className="flex items-center gap-2.5 border-b border-border py-2.5 text-xs last:border-b-0">
-              <CoinIcon coin={coin} size={20} />
-              <span className="w-16 font-semibold">{coinLabel(coin)}</span>
-              <span className="relative h-2 flex-1 rounded-full bg-raised">
-                <span className={cn("absolute inset-y-0 left-0 rounded-full", v.long >= v.short ? "bg-positive" : "bg-negative")} style={{ width: `${((v.long + v.short) / total) * 100}%` }} />
-              </span>
-              <dl className="num ml-auto text-right">
-                <div><dt className="inline text-muted-foreground">{t("copyUpdates.exposureLabels.grossExposure")}: </dt><dd className="inline font-semibold">{format.usd(v.long + v.short, { digits: 2 })}</dd></div>
-                <div><dt className="inline text-muted-foreground">{t("copyUpdates.exposureLabels.netExposure")}: </dt><dd className="inline font-semibold">{format.usd(Math.abs(v.long - v.short), { digits: 2 })}</dd></div>
-                <div><dt className="inline text-muted-foreground">{t("copyUpdates.exposureLabels.signedNet")}: </dt><dd className="inline font-semibold">{format.usd(v.long - v.short, { sign: true, digits: 2 })}</dd></div>
-              </dl>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
-  );
 }

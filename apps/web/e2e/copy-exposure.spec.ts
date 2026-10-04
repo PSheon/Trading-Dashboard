@@ -7,7 +7,7 @@ for (const width of [1440, 390]) test(`copy exposure separates gross and net at 
   await page.goto("/portfolio");
   await signIn(page);
   await page.getByRole("tab", { name: "Exposure", exact: true }).filter({ visible: true }).click();
-  for (const text of ["Gross exposure", "Net exposure", "Signed net", "Gross leverage"]) {
+  for (const text of ["Direction", "Net exposure", "Signed net", "Leverage", "Gross = long + short; net = |long − short|. Amounts are USD notionals."]) {
     await expect(page.getByText(text, { exact: true }).filter({ visible: true }).first()).toBeVisible();
   }
   await expect(page.getByText("Each copy retains its own collateral and liquidation risk. Opposing positions do not share margin.").filter({ visible: true })).toBeVisible();

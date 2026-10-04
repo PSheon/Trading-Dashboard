@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { PaperBadge } from "@/components/copy/paper-badge";
+import { HedgeNotice } from "@/components/copy/portfolio-parts";
 import { useToast } from "@/components/ui/toast";
 import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
@@ -14,7 +15,8 @@ import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
 import { useSiteSettings } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
-import { coinLabel } from "@/lib/format";
+import { hedgeWarning } from "@/lib/copy-portfolio";
+import { coinLabel, truncateAddress } from "@/lib/format";
 import { rovingFocus } from "@/lib/roving-focus";
 
 type Direction = "same" | "reverse";
@@ -44,7 +46,7 @@ let measureContext: CanvasRenderingContext2D | null = null;
  * `sheet` is the phone version: the amount is typed on CopyDog's keypad with
  * 25% / 50% / 75% / 最大 presets and a USDC row instead of the slider.
  */
-export function CopyPanel({ address, sheet = false }: { address: string; sheet?: boolean }) {
+export function CopyPanel({ address, sheet = false, leaderPositions, traderName }: { address: string; sheet?: boolean; leaderPositions?: ReadonlyArray<{ coin: string; szi: number }>; traderName?: string }) {
   const { t, format } = useI18n();
   const toast = useToast();
   const { status, login } = useAuth();
@@ -58,6 +60,8 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
   const [more, setMore] = useState(false);
   const [copyExisting, setCopyExisting] = useState(true);
   const [started, setStarted] = useState(false);
+  // CopyDog's hedge_warning: shown once a copy starts, until dismissed.
+  const [hedge, setHedge] = useState<{ coins: string[] } | null>(null);
   const startedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(startedTimer.current), []);
 
@@ -129,7 +133,9 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     }
     if (value > balance) return toast.error(t("trader.copy.errors.exceedsBalance"));
     try {
+      const others = overview.data?.strategies ?? [];
       const created = await start.mutateAsync({ leader: address, allocationUsd: value, direction, copyStartMode: copyExisting ? "adopt" : "delta" });
+      setHedge(hedgeWarning(leaderPositions ?? [], direction, others, address));
       // 跟單目前持倉: say which of the trader's positions were left out (a
       // market that is not copied, a position too small, a cap).
       const adoption = created.adoption ?? [];
@@ -188,11 +194,14 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
     </div>
   );
 
+  const hedgeNotice = hedge ? <HedgeNotice trader={traderName || truncateAddress(address)} coins={hedge.coins} onDismiss={() => setHedge(null)} /> : null;
+
   // Paper-started state: this user already copies the trader.
   if (existing && !started) {
     const pnl = existing.totalPnl;
     return (
       <Shell sheet={sheet}>
+        {hedgeNotice}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[0.9375rem] font-bold">{t("trader.copy.copying")}</p>
           <div className="flex items-center gap-1.5">
@@ -230,6 +239,7 @@ export function CopyPanel({ address, sheet = false }: { address: string; sheet?:
 
   return (
     <Shell sheet={sheet}>
+      {hedgeNotice}
       {directionPill}
 
       {sheet ? (

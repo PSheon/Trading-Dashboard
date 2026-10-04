@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { wireCopyEventsSchema, type WireCopyEvents, type CopyStrategyCommand, type CreateCopyStrategyRequest, type PatchCopyStrategyRequest, type WireCopyPerformance, type CopyPerformanceWindow } from "@trading-dashboard/shared/contracts";
+import { wireCopyEventsSchema, type WireCopyEvents, type CopyStrategyCommand, type CreateCopyStrategyRequest, type PatchCopyStrategyRequest, type WireCopyPerformance, type CopyPerformanceWindow, type WireCopyPortfolio, type WireCopyTrades } from "@trading-dashboard/shared/contracts";
 
 import { api, apiErrorCode, sessionKey } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -131,6 +131,37 @@ export function useCopyPerformance(strategyId: number, window: CopyPerformanceWi
   return useQuery({
     queryKey: [...queryKeys.copy.all, "performance", strategyId, window],
     queryFn: ({ signal }) => api.get<CopyPerformanceView>(`/me/copy/strategies/${strategyId}/performance?window=${window}`, signal),
+    enabled: status === "signedIn",
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    ...defaultRetry,
+  });
+}
+
+export type CopyPortfolioView = WireCopyPortfolio;
+export type CopyClosedTradeView = WireCopyTrades["items"][number];
+
+/** GET /me/copy/portfolio: every copy merged (CopyDog's portfolio chart),
+ * today's PnL and each copy's curve. */
+export function useCopyPortfolio(window: CopyPerformanceWindow = "all", enabled = true) {
+  const { status } = useAuth();
+  return useQuery({
+    queryKey: [...queryKeys.copy.all, "portfolio", window],
+    queryFn: ({ signal }) => api.get<CopyPortfolioView>(`/me/copy/portfolio?window=${window}`, signal),
+    enabled: status === "signedIn" && enabled,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    placeholderData: (previous) => previous,
+    ...defaultRetry,
+  });
+}
+
+/** GET /me/copy/trades: closed copy trades, best / worst / latest first. */
+export function useCopyTrades(sort: "best" | "worst" | "recent", limit = 5, strategyId?: number) {
+  const { status } = useAuth();
+  return useQuery({
+    queryKey: [...queryKeys.copy.all, "trades", sort, limit, strategyId ?? null],
+    queryFn: ({ signal }) => api.get<WireCopyTrades>(`/me/copy/trades?sort=${sort}&limit=${limit}${strategyId ? `&strategyId=${strategyId}` : ""}`, signal),
     enabled: status === "signedIn",
     staleTime: 30_000,
     refetchInterval: 60_000,

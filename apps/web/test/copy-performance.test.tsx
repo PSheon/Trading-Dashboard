@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { CopyPerformance, EquityHistory, equityPaths, performanceIsStale, performanceBucketMs } from "@/components/copy/copy-performance";
 import { createCopyOperation, type CopyPerformanceView } from "@/lib/copy";
-import { CopyExposure } from "@/components/copy/copy-portfolio";
+import { ExposurePanel } from "@/components/copy/portfolio-parts";
 import { fixtureCopyOverview } from "@/fixtures/copy";
 import type { CopyOverview } from "@/lib/contracts";
 import { I18nProvider } from "@/i18n/provider";
@@ -75,7 +75,7 @@ it("shows unknown daily P&L as unavailable while preserving a measured zero", ()
 
 it("keeps exposure unavailable when a mark is missing and warns only for own opposing positions", () => {
   const overview: CopyOverview = JSON.parse(JSON.stringify(fixtureCopyOverview()));
-  const render = () => renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyExposure overview={overview} /></I18nProvider>);
+  const render = () => renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ExposurePanel overview={overview} leaders={new Map()} desktop /></I18nProvider>);
   const position = overview.strategies[0].positions[0];
   const known = position.notionalUsd;
   position.notionalUsd = null;
@@ -84,6 +84,8 @@ it("keeps exposure unavailable when a mark is missing and warns only for own opp
   expect(render()).not.toContain("opposing positions");
   overview.strategies[1].positions.push({ ...position, size: -Math.abs(position.size) });
   expect(render()).toContain("Your paper copies hold opposing positions in the same asset");
+  // CopyDog's Hedged badge on the coin held both ways.
+  expect(render()).toMatch(/>Hedged</);
 });
 
 it("does not discard another control’s uncertain operation when one request succeeds", async () => {
@@ -126,17 +128,24 @@ it("releases a rejected withdrawal intent when no ledger mutation occurred", asy
 it("distinguishes gross and net opposing exposure and retains signed direction", () => {
   const overview: CopyOverview = JSON.parse(JSON.stringify(fixtureCopyOverview()));
   const position = overview.strategies[0].positions[0];
-  overview.strategies = overview.strategies.slice(0, 2).map((s, i) => ({ ...s, status: "active", equity: 100, positions: [{ ...position, size: i ? -2 : 1, notionalUsd: i ? 200 : 100 }] }));
-  const render = () => renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyExposure overview={overview} /></I18nProvider>);
+  overview.strategies = overview.strategies.slice(0, 2).map((s, i) => ({ ...s, status: "active", equity: 100, positions: [{ ...position, size: i ? -2 : 1, notionalUsd: i ? 200 : 100, unrealizedPnl: 0 }] }));
+  const render = () => renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ExposurePanel overview={overview} leaders={new Map()} desktop /></I18nProvider>);
   const html = render();
-  expect(html).toMatch(/Gross exposure<\/dt><dd[^>]*>\$300.00/);
+  // Direction: gross headline, long and short split; net and signed net beside.
+  expect(html).toMatch(/Direction<\/h3>.*?>\$300.00</);
+  expect(html).toMatch(/Long 33%<\/dt><dd[^>]*>\$100.00/);
+  expect(html).toMatch(/Short 67%<\/dt><dd[^>]*>\$200.00/);
   expect(html).toMatch(/Net exposure<\/dt><dd[^>]*>\$100.00/);
   expect(html).toMatch(/Signed net<\/dt><dd[^>]*>-\$100.00/);
-  expect(html).toMatch(/Gross leverage<\/dt><dd[^>]*>1.50×/);
+  // Leverage: gross ÷ the copies' equity (300 ÷ 200).
+  expect(html).toMatch(/Leverage<\/h3>.*?>1.5×</);
+  expect(html).toMatch(/Notional<\/dt><dd[^>]*>\$300.00/);
+  expect(html).toMatch(/Equity<\/dt><dd[^>]*>\$200.00/);
   expect(html).toContain("Each copy retains its own collateral and liquidation risk");
+  expect(html).toContain("100% exposure · 2 copies");
   overview.strategies[1].positions[0].notionalUsd = 100;
   expect(render()).toMatch(/Net exposure<\/dt><dd[^>]*>\$0.00/);
-  expect(render()).toMatch(/Gross exposure<\/dt><dd[^>]*>\$200.00/);
+  expect(render()).toMatch(/Direction<\/h3>.*?>\$200.00</);
   overview.strategies[1].positions[0].notionalUsd = null;
   expect(render()).toContain("Exposure valuation unavailable");
   expect(render()).not.toContain("$0.00");

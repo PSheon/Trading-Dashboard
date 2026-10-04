@@ -10,13 +10,14 @@ const state = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useSearchParams: () => new URLSearchParams(window.location.search), useRouter: () => ({ replace: state.replace, push: state.push }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: "signedIn" }) }));
-vi.mock("@/lib/copy", () => ({ useCopyOverview: () => ({ data: fixtureCopyOverview() }) }));
+vi.mock("@/lib/copy", () => ({ useCopyOverview: () => ({ data: fixtureCopyOverview() }), useCopyPortfolio: () => ({ data: undefined }) }));
+vi.mock("@/components/copy/portfolio-parts", () => ({ PortfolioChart: () => null, PaperSummary: () => null, InsightsPanel: () => null, ExposurePanel: () => null }));
 vi.mock("@/lib/wallet", () => ({ useWallet: () => ({ data: { totalValue: 0, network: "testnet" } }) }));
 vi.mock("@/components/wallet/wallet-modals", () => ({ useWalletModals: () => ({ openDeposit() {}, openWithdraw() {} }) }));
 vi.mock("@/components/copy/copy-activity", () => ({ CopyActivity: () => null }));
 // Isolate the selection boundary; the real cards/detail and responsive layouts run in Playwright.
 vi.mock("@/components/copy/copy-portfolio", () => ({
-  useLeaders: () => new Map(), PaperAccountCard: () => null, CopyExposure: () => null, CopyInsights: () => null,
+  useLeaders: () => new Map(),
   CopyTable: ({ onSelect }: { onSelect(id: number): void }) => <button onClick={() => onSelect(1)}>Select desktop copy</button>,
   CopyCards: ({ onSelect }: { onSelect(id: number): void }) => <button onClick={() => onSelect(1)}>Select mobile copy</button>,
   CopyDetail: ({ onBack }: { onBack(): void }) => <button onClick={onBack}>Back to copies</button>,

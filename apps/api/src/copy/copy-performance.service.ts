@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { copyEventsQuerySchema, copyPerformanceQuerySchema, type CopyEventsResponse, type CopyPerformanceResponse } from "@trading-dashboard/shared/contracts";
+import { copyEventsQuerySchema, copyPerformanceQuerySchema, copyPortfolioQuerySchema, copyTradesQuerySchema, type CopyEventsResponse, type CopyPerformanceResponse, type CopyPerformanceWindow, type CopyPortfolioResponse, type CopyTradesResponse } from "@trading-dashboard/shared/contracts";
 import { Dec } from "../common/decimal/dec.js";
 import { parseOr400 } from "../common/http/validation.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
@@ -10,6 +10,10 @@ import { CopyRepository } from "./copy.repository.js";
 
 export const COPY_SNAPSHOT_INTERVAL_MS = 60_000;
 const FRESH_MS = 2 * COPY_SNAPSHOT_INTERVAL_MS;
+/** The portfolio chart's resolution: about this many intervals per window. */
+export const PORTFOLIO_POINTS = 120;
+export const SPARKLINE_POINTS = 48;
+const WINDOW_MS: Record<Exclude<CopyPerformanceWindow, "all">, number> = { "1d": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000 };
 
 @Injectable()
 export class CopyPerformanceService {
@@ -67,6 +71,69 @@ export class CopyPerformanceService {
       && maxGap <= FRESH_MS && points.every((p) => p.equity !== null));
     return { strategyId, mode: "paper", window, from, to, points, todayPnl,
       coverage: { firstSnapshotAt: first?.time ?? null, lastSnapshotAt: last?.time ?? null, complete } };
+  }
+
+  /**
+   * The whole paper portfolio (CopyDog's `hl-portfolio/chart`): every copy
+   * the owner ever ran, merged. The window starts no earlier than the first
+   * copy; `todayPnl` is since 00:00 UTC (as each copy's own today figure).
+   */
+  async portfolio(userId: number, query: unknown, now = new Date()): Promise<CopyPortfolioResponse> {
+    const { window } = parseOr400(copyPortfolioQuerySchema, query);
+    const first = await this.repository.runtime.firstCopyAt(userId);
+    const to = now;
+    const start = window === "all" ? (first ?? to) : new Date(to.getTime() - WINDOW_MS[window]);
+    const from = new Date(Math.min(to.getTime(), Math.max(start.getTime(), first?.getTime() ?? to.getTime())));
+    const stepMs = Math.max(COPY_SNAPSHOT_INTERVAL_MS, Math.ceil((to.getTime() - from.getTime()) / PORTFOLIO_POINTS / 1000) * 1000);
+    const [rows, sparks, today] = await Promise.all([
+      first ? this.repository.runtime.portfolioSeries(userId, from, to, stepMs, FRESH_MS) : Promise.resolve([]),
+      this.repository.runtime.sparklines(userId, SPARKLINE_POINTS, FRESH_MS),
+      this.todayPnl(userId, now),
+    ]);
+    const points = rows.map((r) => ({ time: r.time, pnl: r.missing ? null : wire(r.pnl) }));
+    return {
+      mode: "paper", window, from, to, points, partial: points.some((p) => p.pnl === null), todayPnl: today,
+      sparklines: [...sparks.entries()].map(([strategyId, values]) => ({ strategyId, points: values.map((v) => (v === null ? null : wire(v))) })),
+    };
+  }
+
+  /** Change since 00:00 UTC over every copy that ran today: null while any
+   * of them has no valuation at the day's start or now. */
+  private async todayPnl(userId: number, now: Date): Promise<number | null> {
+    const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
+    const rows = await this.repository.runtime.todayInputs(userId, dayStart);
+    let sum = Dec.from(0);
+    for (const r of rows) {
+      const stopped = r.stoppedAt !== null && r.stoppedAt.getTime() <= now.getTime();
+      const base = r.createdAt.getTime() >= dayStart.getTime() ? "0"
+        : r.baseTime && r.basePnl !== null && dayStart.getTime() - r.baseTime.getTime() <= FRESH_MS ? r.basePnl : null;
+      const last = r.lastTime && r.lastPnl !== null && (stopped || now.getTime() - r.lastTime.getTime() <= FRESH_MS) ? r.lastPnl
+        : !r.lastTime && now.getTime() - r.createdAt.getTime() <= FRESH_MS ? "0" : null;
+      if (base === null || last === null) return null;
+      sum = sum.add(Dec.from(last).sub(base));
+    }
+    return wire(sum);
+  }
+
+  /** Closed copy trades (best, worst or latest), from the copies' fills. */
+  async trades(userId: number, query: unknown): Promise<CopyTradesResponse> {
+    const { sort, limit, strategyId } = parseOr400(copyTradesQuerySchema, query);
+    const rows = await this.repository.runtime.closedTrades(userId, sort, limit, strategyId);
+    return {
+      mode: "paper",
+      items: rows.map((r) => {
+        const entryNotional = Dec.from(r.entryNotional);
+        const net = Dec.from(r.net);
+        return {
+          id: r.openId, strategyId: r.strategyId, leaderAddress: r.leaderAddress, coin: r.coin,
+          side: Dec.from(r.firstSigned).isPositive ? "long" as const : "short" as const,
+          size: wire(r.entrySize), entryPx: wire(entryNotional.div(r.entrySize)), exitPx: wire(Dec.from(r.exitNotional).div(r.exitSize)),
+          entryNotional: wire(entryNotional), pnl: wire(net), fees: wire(r.fees),
+          roiPct: entryNotional.isPositive ? wire(net.div(entryNotional).mul(100)) : null,
+          openedAt: r.openedAt, closedAt: r.closedAt,
+        };
+      }),
+    };
   }
 
   async events(userId: number, query: unknown): Promise<CopyEventsResponse> {

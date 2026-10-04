@@ -14,6 +14,7 @@ import {
   useTraderAnalytics,
   useTraderProfile,
 } from "@/lib/queries";
+import { shareName } from "@/lib/share-card";
 import { traderIsUnknown } from "@/lib/trader-presence";
 import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useLiveTrader } from "@/lib/use-live-trader";
@@ -234,7 +235,7 @@ function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePe
       </div>
 
       <div data-area="copy">
-        {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel address={address} />}
+        {feedOpen ? <LiveFeed address={address} liveFills={live.fills} onCopy={() => setFeedOpen(false)} /> : <CopyPanel address={address} leaderPositions={live.profile?.positions} traderName={live.profile ? shareName(live.profile) : undefined} />}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { signIn } from "./helpers";
 
 const visible = (page: Page, text: string | RegExp) => page.getByText(text, { exact: typeof text === "string" }).filter({ visible: true });
 const action = (page: Page, name: string) => page.getByRole("button", { name, exact: true }).filter({ visible: true });
-const performance = (page: Page) => page.locator("section").filter({ has: page.getByRole("heading", { name: "Paper equity history", exact: true }) }).filter({ visible: true });
+const performance = (page: Page) => page.locator("section").filter({ has: page.getByRole("radiogroup", { name: "Performance view" }) }).filter({ visible: true });
 const activity = (page: Page) => page.getByRole("region", { name: "Paper copy activity" });
 
 test.beforeEach(async ({ context, baseURL }) => {
@@ -16,7 +16,7 @@ async function openObservedCopy(page: Page) {
   await page.goto("/portfolio");
   await signIn(page);
   await page.getByRole("button", { name: /^Machi is ugly dog/ }).filter({ visible: true }).first().click();
-  await expect(performance(page).getByRole("img", { name: "Paper copy equity history" })).toBeVisible();
+  await expect(performance(page).getByTestId("copy-coverage")).toBeVisible();
 }
 
 async function startIdleCopy(page: Page, width: number) {
@@ -49,8 +49,8 @@ for (const width of [1440, 390]) {
     test("per-copy history contains observed points, preserves unknown daily P&L and labels stale snapshots", async ({ page }) => {
       test.setTimeout(90000);
       await openObservedCopy(page);
-      const chart = performance(page).getByRole("img", { name: "Paper copy equity history" });
-      await expect(chart.locator("circle")).toHaveCount(1);
+      // One observation so far: no line is drawn from it.
+      await expect(performance(page)).toContainText("No chart data yet");
       await expect(performance(page)).toContainText("Partial history");
       await expect(performance(page).locator("strong")).toHaveText("—");
       await expect(performance(page)).toContainText("P&L excludes cash transfers");
@@ -66,9 +66,8 @@ for (const width of [1440, 390]) {
       const now = await page.evaluate(() => Date.now());
       await page.clock.install({ time: now });
       await page.clock.setSystemTime(now + 60_000);
-      await performance(page).getByRole("button", { name: "30d", exact: true }).click();
-      await expect(chart.locator("path")).toHaveCount(1);
-      await expect(chart.locator("path")).toHaveAttribute("d", /L/);
+      await performance(page).getByRole("radio", { name: /^30D$/i }).click();
+      await expect(performance(page).getByRole("img", { name: "Your copy's PnL history" })).toBeVisible();
       // Moving wall time leaves query timers untouched. Opening settings
       // rerenders the existing confirmed history without capturing a new point.
       await page.clock.setSystemTime(now + 5 * 60_000);

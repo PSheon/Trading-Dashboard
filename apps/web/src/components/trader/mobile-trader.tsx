@@ -349,7 +349,7 @@ export function MobileTrader({
             >
               <X className="size-4" />
             </button>
-            <CopyPanel address={profile.address} sheet />
+            <CopyPanel address={profile.address} sheet leaderPositions={profile.positions} traderName={shareName(profile)} />
           </div>
         </div>
       ) : null}

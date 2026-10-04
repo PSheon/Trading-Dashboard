@@ -314,3 +314,65 @@ export function fixtureCopyAccounting(id: number, kind: "ledger" | "fills", befo
     coin: null, orderId: null, createdAt: event.createdAt,
   })));
 }
+
+/** A smooth, deterministic PnL path from 0 at the copy's start to its PnL now
+ * (fixture mode only: there is no history behind the in-memory copies). */
+function fixturePnlAt(s: Strategy, t: number, now: number): number | null {
+  const start = s.createdAt.getTime();
+  if (t < start) return 0;
+  const end = s.stoppedAt?.getTime() ?? now;
+  const final = view(s).totalPnl;
+  const x = Math.min(1, (t - start) / Math.max(1, end - start));
+  const wiggle = Math.sin(x * 9 + s.id) * Math.cos(x * 3.7) * Math.abs(final) * 0.18 * (1 - x);
+  return Math.round((final * x + wiggle) * 100) / 100;
+}
+
+/** GET /me/copy/portfolio in fixture mode. */
+export function fixtureCopyPortfolio(window: "1d" | "7d" | "30d" | "all") {
+  const now = Date.now();
+  const first = strategies.length ? Math.min(...strategies.map((s) => s.createdAt.getTime())) : now;
+  const span = window === "all" ? now - first : (window === "1d" ? 1 : window === "7d" ? 7 : 30) * day;
+  const from = Math.min(now, Math.max(first, now - span));
+  const steps = 120;
+  const points = strategies.length
+    ? Array.from({ length: steps + 1 }, (_, i) => {
+        const t = from + ((now - from) * i) / steps;
+        return { time: new Date(t), pnl: Math.round(strategies.reduce((a, s) => a + (fixturePnlAt(s, t, now) ?? 0), 0) * 100) / 100 };
+      })
+    : [];
+  const midnight = new Date(now); midnight.setUTCHours(0, 0, 0, 0);
+  const todayPnl = strategies.reduce((a, s) => a + (fixturePnlAt(s, now, now) ?? 0) - (fixturePnlAt(s, midnight.getTime(), now) ?? 0), 0);
+  return {
+    mode: "paper" as const, window, from: new Date(from), to: new Date(now), points, partial: false, todayPnl: Math.round(todayPnl * 100) / 100,
+    sparklines: strategies.map((s) => ({
+      strategyId: s.id,
+      points: Array.from({ length: 48 }, (_, i) => fixturePnlAt(s, s.createdAt.getTime() + (((s.stoppedAt?.getTime() ?? now) - s.createdAt.getTime()) * i) / 47, now)),
+    })),
+  };
+}
+
+/** Closed trades of the seeded copies (their realized PnL adds up to each
+ * copy's realized figure). */
+const fixtureTrades = [
+  { id: "9001", strategyId: 1, coin: "SOL", side: "long" as const, size: 4.2, entryPx: 210.1, exitPx: 221.4, fees: 2.36, days: 3.2, held: 1.4 },
+  { id: "9002", strategyId: 1, coin: "HYPE", side: "long" as const, size: 21, entryPx: 43.6, exitPx: 45.2, fees: 2.23, days: 4.1, held: 0.6 },
+  { id: "9003", strategyId: 1, coin: "BTC", side: "short" as const, size: 0.01, entryPx: 117_200, exitPx: 117_700, fees: 2.55, days: 4.6, held: 0.2 },
+  { id: "9004", strategyId: 2, coin: "ETH", side: "long" as const, size: 0.4, entryPx: 4_640, exitPx: 4_590, fees: 4.1, days: 2.5, held: 1.1 },
+];
+export function fixtureCopyTrades(sort: "best" | "worst" | "recent", limit: number, strategyId?: number) {
+  const now = Date.now();
+  const items = fixtureTrades
+    .filter((x) => strategies.some((s) => s.id === x.strategyId) && (strategyId === undefined || x.strategyId === strategyId))
+    .map((x) => {
+      const gross = (x.exitPx - x.entryPx) * x.size * (x.side === "long" ? 1 : -1);
+      const pnl = Math.round((gross - x.fees) * 100) / 100;
+      const entryNotional = x.entryPx * x.size;
+      const leaderAddress = strategies.find((s) => s.id === x.strategyId)!.leaderAddress;
+      return { id: x.id, strategyId: x.strategyId, leaderAddress, coin: x.coin, side: x.side, size: x.size, entryPx: x.entryPx, exitPx: x.exitPx, entryNotional, pnl, fees: x.fees,
+        roiPct: (pnl / entryNotional) * 100, openedAt: new Date(now - (x.days + x.held) * day), closedAt: new Date(now - x.days * day) };
+    });
+  const sorted = sort === "best" ? items.filter((x) => x.pnl > 0).sort((a, b) => b.pnl - a.pnl)
+    : sort === "worst" ? items.filter((x) => x.pnl < 0).sort((a, b) => a.pnl - b.pnl)
+    : items.sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime());
+  return { mode: "paper" as const, items: sorted.slice(0, limit) };
+}

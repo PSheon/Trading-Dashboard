@@ -23300,6 +23300,380 @@
         "description": "Access: user (owner)"
       }
     },
+    "/me/copy/portfolio": {
+      "get": {
+        "operationId": "CopyController_portfolio",
+        "parameters": [
+          {
+            "name": "window",
+            "required": false,
+            "in": "query",
+            "description": "CopyDog's 24H / 7D / 30D / ALL",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "1d",
+                "7d",
+                "30d",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "window": {
+                          "type": "string",
+                          "enum": [
+                            "1d",
+                            "7d",
+                            "30d",
+                            "all"
+                          ]
+                        },
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "to": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "points": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "time": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "pnl": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "time",
+                              "pnl"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "partial": {
+                          "type": "boolean"
+                        },
+                        "todayPnl": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "sparklines": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "points": {
+                                "type": "array",
+                                "items": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "strategyId",
+                              "points"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "window",
+                        "from",
+                        "to",
+                        "points",
+                        "partial",
+                        "todayPnl",
+                        "sparklines"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get my whole paper portfolio's PnL history, today's PnL and each copy's curve",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (own copies)"
+      }
+    },
+    "/me/copy/trades": {
+      "get": {
+        "operationId": "CopyController_trades",
+        "parameters": [
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "best: highest PnL first (wins only); worst: lowest first (losses only); recent: latest close first",
+            "schema": {
+              "default": "recent",
+              "type": "string",
+              "enum": [
+                "best",
+                "worst",
+                "recent"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "strategyId",
+            "required": false,
+            "in": "query",
+            "description": "Only this copy's trades (must be the caller's)",
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "const": "paper"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "pattern": "^\\d+$"
+                              },
+                              "strategyId": {
+                                "type": "integer"
+                              },
+                              "leaderAddress": {
+                                "type": "string"
+                              },
+                              "coin": {
+                                "type": "string"
+                              },
+                              "side": {
+                                "type": "string",
+                                "enum": [
+                                  "long",
+                                  "short"
+                                ]
+                              },
+                              "size": {
+                                "type": "number"
+                              },
+                              "entryPx": {
+                                "type": "number"
+                              },
+                              "exitPx": {
+                                "type": "number"
+                              },
+                              "entryNotional": {
+                                "type": "number"
+                              },
+                              "pnl": {
+                                "type": "number"
+                              },
+                              "fees": {
+                                "type": "number"
+                              },
+                              "roiPct": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "openedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "closedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "strategyId",
+                              "leaderAddress",
+                              "coin",
+                              "side",
+                              "size",
+                              "entryPx",
+                              "exitPx",
+                              "entryNotional",
+                              "pnl",
+                              "fees",
+                              "roiPct",
+                              "openedAt",
+                              "closedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List my closed copy trades (best, worst or latest)",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (own copies)"
+      }
+    },
     "/me/copy/events": {
       "get": {
         "operationId": "CopyController_events",

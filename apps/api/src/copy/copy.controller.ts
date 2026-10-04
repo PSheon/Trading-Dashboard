@@ -5,7 +5,7 @@ import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/cur
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { CopyStrategyService } from "./copy-strategy.service.js";
 import { CopyPerformanceService } from "./copy-performance.service.js";
-import { AddCopyFundsDto, CopyEventsQueryDto, CopyHistoryQueryDto, CopyPerformanceQueryDto, CopyStrategyCommandDto, CopyStrategyParamsDto, CreateCopyStrategyDto, PatchCopyStrategyDto } from "./dto/copy.dto.js";
+import { AddCopyFundsDto, CopyEventsQueryDto, CopyHistoryQueryDto, CopyPerformanceQueryDto, CopyPortfolioQueryDto, CopyTradesQueryDto, CopyStrategyCommandDto, CopyStrategyParamsDto, CreateCopyStrategyDto, PatchCopyStrategyDto } from "./dto/copy.dto.js";
 
 /**
  * The signed-in user's paper copies (Stage 4 step 3). Not @Public: 401
@@ -55,6 +55,18 @@ export class CopyController {
   @Get("strategies/:id/performance")
   history(@Param() params: CopyStrategyParamsDto, @Query() query: CopyPerformanceQueryDto, @CurrentUser() user: RequestUser | null) {
     return this.performance.history(requireUserId(user), params.id, query);
+  }
+
+  @ApiDoc("Get my whole paper portfolio's PnL history, today's PnL and each copy's curve")
+  @Get("portfolio")
+  portfolio(@Query() query: CopyPortfolioQueryDto, @CurrentUser() user: RequestUser | null) {
+    return this.performance.portfolio(requireUserId(user), query);
+  }
+
+  @ApiDoc("List my closed copy trades (best, worst or latest)")
+  @Get("trades")
+  trades(@Query() query: CopyTradesQueryDto, @CurrentUser() user: RequestUser | null) {
+    return this.performance.trades(requireUserId(user), query);
   }
 
   @ApiDoc("Replay my confirmed copy events")

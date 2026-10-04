@@ -3,11 +3,12 @@
 import { ArrowUp, Bell, ChartPie, ChevronDown, Plus, Settings, ShoppingCart, UserPlus, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { CopyActivity } from "@/components/copy/copy-activity";
-import { CopyCards, CopyDetail, CopyExposure, CopyInsights, CopyTable, PaperAccountCard, useLeaders } from "@/components/copy/copy-portfolio";
+import { CopyCards, CopyDetail, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
+import { ExposurePanel, InsightsPanel, PaperSummary, PortfolioChart } from "@/components/copy/portfolio-parts";
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { NetworkBadge } from "@/components/wallet/bits";
@@ -15,7 +16,7 @@ import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import type { CopyOverview, WalletSummary } from "@/lib/contracts";
-import { useCopyOverview } from "@/lib/copy";
+import { useCopyOverview, useCopyPortfolio } from "@/lib/copy";
 import { useWallet } from "@/lib/wallet";
 
 type Tab = "copying" | "insights" | "exposure";
@@ -176,12 +177,20 @@ function useSelectedCopy(): [number | null, (id: number | null) => void] {
   return [Number.isInteger(raw) && raw > 0 ? raw : null, set];
 }
 
-/** The copy list, or the selected copy, of a loaded overview. */
+/** Each copy's PnL curve since it started (the list's equity-curve column). */
+function useSparklines(enabled: boolean): Map<number, ReadonlyArray<number | null>> {
+  const portfolio = useCopyPortfolio("all", enabled);
+  return useMemo(() => new Map((portfolio.data?.sparklines ?? []).map((s) => [s.strategyId, s.points])), [portfolio.data]);
+}
+
+/** The copy list, or the selected copy, of a loaded overview. Desktop:
+ * CopyDog's card with the COPYING (count) / INSIGHTS / EXPOSURE tabs. */
 function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: boolean }) {
   const { t } = useI18n();
   const [selected, select] = useSelectedCopy();
   const leaders = useLeaders(overview.strategies);
   const [tab, setTab] = useState<Tab>("copying");
+  const sparklines = useSparklines(overview.strategies.length > 0);
   const strategy = overview.strategies.find((s) => s.id === selected);
   if (strategy) {
     return (
@@ -194,23 +203,40 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
     );
   }
   if (overview.strategies.length === 0) return <EmptyCopying className={phone ? undefined : "mt-14 px-6"} />;
-  return phone ? (
-    <CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} />
-  ) : (
-    <section className="flex flex-col gap-3">
-      <div role="tablist" aria-label={t("portfolio.title")} className="flex gap-2">
-        {(["copying", "insights", "exposure"] as const).map((value) => <button key={value} id={`desktop-copy-tab-${value}`} type="button" role="tab" aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} aria-controls="desktop-copy-panel" onKeyDown={(event) => {
-          const values = ["copying", "insights", "exposure"] as const;
-          const index = values.indexOf(value);
-          const next = event.key === "ArrowRight" ? values[(index + 1) % values.length] : event.key === "ArrowLeft" ? values[(index + values.length - 1) % values.length] : event.key === "Home" ? values[0] : event.key === "End" ? values[values.length - 1] : null;
-          if (next) { event.preventDefault(); setTab(next); document.getElementById(`desktop-copy-tab-${next}`)?.focus(); }
-        }} onClick={() => setTab(value)} className={cn("rounded-full px-4 py-2 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", tab === value ? "bg-primary text-primary-foreground" : "bg-raised text-foreground")}>{t(`portfolio.tabs.${value}`)}</button>)}
+  if (phone) return <CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} />;
+  const values = ["copying", "insights", "exposure"] as const;
+  return (
+    <section className="overflow-hidden rounded-2xl border border-border bg-card">
+      <div role="tablist" aria-label={t("portfolio.title")} className="flex gap-6 border-b border-border px-4">
+        {values.map((value) => (
+          <button
+            key={value}
+            id={`desktop-copy-tab-${value}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            tabIndex={tab === value ? 0 : -1}
+            aria-controls="desktop-copy-panel"
+            onKeyDown={(event) => {
+              const index = values.indexOf(value);
+              const next = event.key === "ArrowRight" ? values[(index + 1) % values.length] : event.key === "ArrowLeft" ? values[(index + values.length - 1) % values.length] : event.key === "Home" ? values[0] : event.key === "End" ? values[values.length - 1] : null;
+              if (next) { event.preventDefault(); setTab(next); document.getElementById(`desktop-copy-tab-${next}`)?.focus(); }
+            }}
+            onClick={() => setTab(value)}
+            className={cn(
+              "-mb-px flex items-center gap-1.5 border-b-2 py-3.5 text-[0.8125rem] font-semibold tracking-wide uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              tab === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t(`portfolio.tabs.${value}`)}
+            {value === "copying" ? <span className="num rounded bg-raised px-1.5 text-[11px] text-muted-foreground">{overview.strategies.length}</span> : null}
+          </button>
+        ))}
       </div>
-      <div id="desktop-copy-panel" role="tabpanel" aria-labelledby={`desktop-copy-tab-${tab}`} className="pt-2">
-        {tab === "copying" ? <>
-          <h2 className="mb-3 text-base font-bold">{t("portfolio.copy.tradersTitle")}</h2>
-          <CopyTable strategies={overview.strategies} leaders={leaders} onSelect={select} />
-        </> : tab === "insights" ? <CopyInsights overview={overview} leaders={leaders} /> : <CopyExposure overview={overview} />}
+      <div id="desktop-copy-panel" role="tabpanel" aria-labelledby={`desktop-copy-tab-${tab}`}>
+        {tab === "copying" ? <CopyTable strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} bare />
+          : tab === "insights" ? <InsightsPanel overview={overview} leaders={leaders} onSelect={(id) => select(id)} desktop />
+          : <ExposurePanel overview={overview} leaders={leaders} desktop />}
       </div>
     </section>
   );
@@ -243,7 +269,8 @@ function DesktopPortfolio() {
           {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
           <FundButtons className="mt-1" />
         </section>
-        {copy.data ? <PaperAccountCard overview={copy.data} className="w-[340px]" /> : null}
+        {copy.data ? <PaperSummary overview={copy.data} className="w-[340px]" /> : null}
+        {copy.data && copy.data.strategies.length > 0 ? <PortfolioChart overview={copy.data} className="min-w-[420px] flex-1" /> : null}
       </div>
       {copy.data ? (
         <CopyingSection overview={copy.data} phone={false} />
@@ -378,16 +405,17 @@ function PhoneBody({
           ))}
         </div>
         <div role="tabpanel" className={copy.data?.strategies.length ? "pt-4 pb-6" : "pt-8"}>
-          <PhoneTab tab={tab} copy={copy} />
+          <PhoneTab tab={tab} copy={copy} setTab={setTab} />
         </div>
       </div>
     </>
   );
 }
 
-function PhoneTab({ tab, copy }: { tab: Tab; copy: ReturnType<typeof useCopyOverview> }) {
+function PhoneTab({ tab, copy, setTab }: { tab: Tab; copy: ReturnType<typeof useCopyOverview>; setTab: (tab: Tab) => void }) {
   const { t } = useI18n();
   const leaders = useLeaders(copy.data?.strategies ?? []);
+  const [, select] = useSelectedCopy();
   if (!copy.data) {
     return copy.isError ? <ErrorState onRetry={() => copy.refetch()} /> : <Skeleton className="h-40 w-full" />;
   }
@@ -395,13 +423,13 @@ function PhoneTab({ tab, copy }: { tab: Tab; copy: ReturnType<typeof useCopyOver
   if (tab === "copying") {
     return (
       <div className="flex flex-col gap-4">
-        {has ? <PaperAccountCard overview={copy.data} className="p-4" /> : null}
+        {has ? <PaperSummary overview={copy.data} className="p-4" collapsible /> : null}
         <CopyingSection overview={copy.data} phone />
       </div>
     );
   }
   if (tab === "insights") {
-    return has ? <CopyInsights overview={copy.data} leaders={leaders} /> : <TabEmpty icon={ChartPie} title={t("portfolio.insightsEmptyTitle")} body={t("portfolio.insightsEmptyBody")} />;
+    return has ? <InsightsPanel overview={copy.data} leaders={leaders} onSelect={(id) => { select(id); setTab("copying"); }} desktop={false} /> : <TabEmpty icon={ChartPie} title={t("portfolio.insightsEmptyTitle")} body={t("portfolio.insightsEmptyBody")} />;
   }
-  return has ? <CopyExposure overview={copy.data} /> : <TabEmpty icon={ChartPie} title={t("portfolio.exposureEmptyTitle")} body={t("portfolio.exposureEmptyBody")} />;
+  return has ? <ExposurePanel overview={copy.data} leaders={leaders} desktop={false} /> : <TabEmpty icon={ChartPie} title={t("portfolio.exposureEmptyTitle")} body={t("portfolio.exposureEmptyBody")} />;
 }

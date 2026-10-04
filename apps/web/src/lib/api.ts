@@ -160,8 +160,13 @@ async function currentToken(publicRead = false): Promise<string | null> {
   try {
     return await accessTokenGetter();
   } catch {
-    return null;
+    if (publicRead) return null;
+    throw authenticationRequired();
   }
+}
+
+function authenticationRequired(): ApiError {
+  return new ApiError(401, 'Sign in to continue', { code: 'authentication_required' });
 }
 
 /**
@@ -183,8 +188,13 @@ export interface PostOptions {
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, options?: PostOptions): Promise<JsonWire<T>> {
   const requestSignal = signal ? AbortSignal.any([signal, sessionController.signal]) : sessionController.signal;
-  const token = await currentToken(isPublicRead(method, path));
+  let token: string | null;
+  try { token = await currentToken(isPublicRead(method, path)); }
+  catch (error) { requestSignal.throwIfAborted(); throw error; }
   requestSignal.throwIfAborted();
+  // A known owner's write must never cross the dispatch boundary anonymously.
+  // In particular, beforeSend may record durable evidence that HTTP is possible.
+  if (method !== 'GET' && identityScope !== null && identityScope !== 'anonymous' && identityScope !== 'loading' && !token?.trim()) throw authenticationRequired();
 
   const beforeSend = () => {
     const result: unknown = options?.beforeSend?.();
@@ -286,7 +296,9 @@ async function readError(res: Response): Promise<ApiError> {
  */
 export async function openEventStream(path: string, options: { signal: AbortSignal; lastEventId?: string }): Promise<Response> {
   const signal = AbortSignal.any([options.signal, sessionController.signal]);
-  const token = await currentToken(isPublicRead("GET", path));
+  let token: string | null;
+  try { token = await currentToken(isPublicRead("GET", path)); }
+  catch (error) { signal.throwIfAborted(); throw error; }
   signal.throwIfAborted();
   const headers: Record<string, string> = { Accept: "text/event-stream", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
   if (token) headers.Authorization = `Bearer ${token}`;

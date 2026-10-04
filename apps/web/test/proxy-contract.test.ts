@@ -60,6 +60,39 @@ it("keeps a cached KOL avatar's caching headers and revalidates it, but never JS
   expect(json.headers.get("etag")).toBeNull();
 });
 
+it("relays an avatar's 304 with its validators and no response body", async () => {
+  vi.stubEnv("NEXT_API_URL", "http://api.test");
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 304, headers: {
+    etag: '"unchanged"', "cache-control": "public, max-age=2592000, immutable",
+    "x-content-type-options": "nosniff",
+  } }));
+  vi.stubGlobal("fetch", fetcher);
+  const avatar = { params: Promise.resolve({ path: ["kols", "0x" + "1".repeat(40), "avatar"] }) };
+  const result = await GET(new NextRequest("http://web.test/api/hl/kols/x/avatar", {
+    headers: { "if-none-match": '"unchanged"' },
+  }), avatar);
+  expect(new Headers(fetcher.mock.calls[0][1]!.headers).get("if-none-match")).toBe('"unchanged"');
+  expect(result.status).toBe(304);
+  expect(result.headers.get("etag")).toBe('"unchanged"');
+  expect(result.headers.get("cache-control")).toBe("public, max-age=2592000, immutable");
+  expect(result.body).toBeNull();
+  expect(await result.text()).toBe("");
+});
+
+it.each([301, 302, 303, 307, 308])("still refuses upstream redirect %i without exposing its location", async (status) => {
+  vi.stubEnv("NEXT_API_URL", "http://api.test");
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status, headers: {
+    location: "http://private.test/internal",
+  } }));
+  vi.stubGlobal("fetch", fetcher);
+  const result = await GET(req(), context);
+  expect(result.status).toBe(502);
+  expect(result.headers.get("location")).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls[0][1]!.redirect).toBe("manual");
+  expect(await result.text()).not.toContain("private.test");
+});
+
 describe("request bodies are bounded (review 31)", () => {
   const post = { params: Promise.resolve({ path: ["me", "favorites"] }) };
   const upstream = () => {

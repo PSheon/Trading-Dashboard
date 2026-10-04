@@ -35,3 +35,54 @@ export type LiveCopyStop = z.infer<typeof liveCopyStopSchema>;
 export const liveCopyStopsSchema = z.object({
   items: z.array(liveCopyStopSchema).max(100), truncated: z.boolean(),
 }).strict();
+
+/** Owner consent for the worker to cancel the exact orders a stop barrier
+ * tracked. It authorizes cancellation only: never new risk, closing orders,
+ * transfers or a different stop, account, agent, grant or network. */
+const MAX_TIME = 8640000000000000;
+const consentId = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
+const consentAddress = z.string().regex(/^0x[0-9a-f]{40}$/).refine(value => value !== `0x${'00'.repeat(20)}`, 'Nonzero address required');
+const consentTime = z.number().int().positive().max(MAX_TIME);
+const consentHash = z.string().regex(/^[0-9a-f]{64}$/);
+export const liveStopCancellationIntentSchema = z.object({
+  authorizationId: consentId, stopId: consentId, accountId: consentId, strategyId: revision, userId: revision,
+  network: z.literal('testnet'), purpose: z.literal('cancel_tracked_orders'), schemaVersion: z.literal(1),
+  capturedStopRevision: revision, targetDigest: consentHash, accountAddress: consentAddress,
+  accountRevision: revision, accountWalletId: consentId, accountOwnerQuorumId: consentId,
+  ownerPrivyUserId: consentId, ownerAddress: consentAddress,
+  setupId: consentId, setupRevision: revision, executionWalletId: consentId, agentWalletId: consentId,
+  agentAddress: consentAddress, agentOwnerQuorumId: consentId, workerQuorumId: consentId,
+  grantId: consentId, grantVersion: revision, grantValidFrom: consentTime, grantExpiresAt: consentTime,
+  policyId: consentId, policyFingerprint: consentHash,
+  nonce: consentTime, consentExpiresAt: consentTime, expiresAt: consentTime,
+}).strict().superRefine((value, ctx) => {
+  const issue = (path: string, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+  if (value.consentExpiresAt <= value.nonce || value.consentExpiresAt > value.nonce + 300000) issue('consentExpiresAt', 'Invalid approval window');
+  if (value.expiresAt <= value.consentExpiresAt || value.expiresAt > value.nonce + 1800000) issue('expiresAt', 'Invalid cancellation lifetime');
+  if (value.grantValidFrom > value.nonce || value.grantExpiresAt < value.expiresAt) issue('grantExpiresAt', 'Grant must cover the cancellation lifetime');
+  if (value.accountAddress === value.ownerAddress || value.agentAddress === value.accountAddress || value.agentAddress === value.ownerAddress)
+    issue('agentAddress', 'Separate owner, master and agent identities required');
+});
+export type LiveStopCancellationIntent = z.infer<typeof liveStopCancellationIntentSchema>;
+// Plain strings (not literal key names) keep viem's message typing loose,
+// as for the mandate's typed data: uint64 values are JS numbers here.
+const stopCancellationFields: [string, string][] = [
+  ['authorizationId', 'string'], ['stopId', 'string'], ['accountId', 'string'], ['strategyId', 'uint64'], ['userId', 'uint64'],
+  ['network', 'string'], ['purpose', 'string'], ['schemaVersion', 'uint64'], ['capturedStopRevision', 'uint64'], ['targetDigest', 'string'],
+  ['accountAddress', 'address'], ['accountRevision', 'uint64'], ['accountWalletId', 'string'], ['accountOwnerQuorumId', 'string'], ['ownerPrivyUserId', 'string'],
+  ['ownerAddress', 'address'], ['setupId', 'string'], ['setupRevision', 'uint64'], ['executionWalletId', 'string'], ['agentWalletId', 'string'],
+  ['agentAddress', 'address'], ['agentOwnerQuorumId', 'string'], ['workerQuorumId', 'string'], ['grantId', 'string'], ['grantVersion', 'uint64'],
+  ['grantValidFrom', 'uint64'], ['grantExpiresAt', 'uint64'], ['policyId', 'string'], ['policyFingerprint', 'string'], ['nonce', 'uint64'],
+  ['consentExpiresAt', 'uint64'], ['expiresAt', 'uint64'],
+];
+/** The owner's main wallet signs this; its domain is distinct from mandate,
+ * agent-consent and Hyperliquid exchange domains, so none can be replayed. */
+export function liveStopCancellationOwnerTypedData(value: LiveStopCancellationIntent) {
+  const input = liveStopCancellationIntentSchema.parse(value);
+  return {
+    domain: { name: 'Copy Stop Cancellation', version: '1', chainId: 421614, verifyingContract: `0x${'00'.repeat(20)}` as `0x${string}` },
+    primaryType: 'CopyStopCancellation' as const,
+    types: { CopyStopCancellation: stopCancellationFields.map(([name, type]) => ({ name, type })) },
+    message: { ...input },
+  };
+}

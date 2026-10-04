@@ -152,8 +152,11 @@ async function forward(
   }
 
   // Upstream redirects are not followed or relayed (they could point
-  // anywhere); surface them as a gateway error instead.
-  if (upstream.status >= 300 && upstream.status < 400) {
+  // anywhere); surface them as a gateway error instead. A 304 answering the
+  // avatar revalidation forwarded above is not a redirect: it is relayed
+  // with its validators and no body.
+  const notModified = upstream.status === 304 && headers.has("If-None-Match") && request.method === "GET";
+  if (upstream.status >= 300 && upstream.status < 400 && !notModified) {
     done();
     void upstream.body?.cancel().catch(() => undefined);
     return json(502, "api responded with a redirect", request, id);

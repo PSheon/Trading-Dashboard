@@ -7,6 +7,7 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "../copy/copy-user-lock.js";
+import { insertOwnerEvent } from "../copy/copy-runtime.repository.js";
 
 export type WithdrawalRow = typeof walletWithdrawals.$inferSelect;
 type Scope = { userId: number; network: "testnet" | "mainnet"; address: string };
@@ -107,9 +108,16 @@ export class WithdrawalRepository {
       .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"), isNull(walletWithdrawals.attemptedAt))));
   }
 
+  /** The exchange's answer to a hub withdrawal; the owner's live feed gets
+   * it once (the guarded update moves an `unknown` row only once). */
   async finish(userId: number, id: string, status: "accepted" | "rejected", evidenceHash: string) {
-    const [accepted] = await this.locked(userId, tx => tx.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })
-      .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "unknown"))).returning());
+    const [accepted] = await this.locked(userId, async tx => {
+      const rows = await tx.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })
+        .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.status, "unknown"))).returning();
+      const row = rows[0];
+      if (row) await insertOwnerEvent(tx, userId, null, "wallet_withdrawal", { mode: "hub", network: row.network, status, amount: row.amount, destination: row.destination });
+      return rows;
+    });
     return accepted ?? this.find(userId, id);
   }
 }

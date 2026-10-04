@@ -40,6 +40,7 @@ import { CopyRiskPolicyService } from "../src/copy/copy-risk-policy.service.js";
 import { CopySignalService } from "../src/copy/copy-signal.service.js";
 import { CopyStrategyService } from "../src/copy/copy-strategy.service.js";
 import { CopyPerformanceService } from "../src/copy/copy-performance.service.js";
+import { CopyStreamService } from "../src/copy/copy-stream.service.js";
 import { CopyController } from "../src/copy/copy.controller.js";
 import { CopyRepository } from "../src/copy/copy.repository.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
@@ -160,7 +161,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       controllers: [CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
+        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyStreamService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
         { provide: HyperliquidInfoClient, useValue: info },
         { provide: NotifyService, useValue: notify },
       ],

@@ -11,6 +11,7 @@ import { CopyControlService } from "../src/copy/copy-control.service.js";
 import { CopyExecutionService } from "../src/copy/copy-execution.service.js";
 import { CopyMarketService } from "../src/copy/copy-market.service.js";
 import { CopyPerformanceService, SPARKLINE_POINTS } from "../src/copy/copy-performance.service.js";
+import { CopyStreamService } from "../src/copy/copy-stream.service.js";
 import { CopyOrderPlanner } from "../src/copy/copy-planner.service.js";
 import { CopyRiskPolicyService } from "../src/copy/copy-risk-policy.service.js";
 import { CopySignalService } from "../src/copy/copy-signal.service.js";
@@ -54,7 +55,7 @@ describe("the whole paper portfolio: merged PnL history, today's PnL, each copy'
       controllers: [CopyController],
       providers: [
         CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
+        CopyControlService, CopyStrategyService, CopyPerformanceService, CopyStreamService, CopyAdminReadService, CopyAdoptionRepairService, FillSyncRepository, AccountRepository, AccountDeletionService,
         { provide: HyperliquidInfoClient, useValue: info },
         { provide: NotifyService, useValue: { sendSystemMessage: vi.fn() } },
       ],

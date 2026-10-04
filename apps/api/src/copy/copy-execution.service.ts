@@ -366,7 +366,7 @@ export class CopyExecutionService {
     await this.repository.insertPaperFill(tx, {
       orderId: order.id, strategyId: strategy.id, coin: order.coin, side: order.side, size: size.toString(), px: px.toString(), basePx: basePx.toString(),
       priceSource: source, slippageBps: dec(pricing.slippageBps), fee: fee.toString(), builderFee: builderFee.toString(), realizedPnl: realized,
-    });
+    }, { before: current.toString(), after: next.size.toString() });
     await this.repository.insertLedger(tx, [
       { strategyId: strategy.id, userId: strategy.userId, kind: "realized_pnl", amount: realized, coin: order.coin, orderId: order.id },
       { strategyId: strategy.id, userId: strategy.userId, kind: "fee", amount: fee.neg().toString(), coin: order.coin, orderId: order.id },

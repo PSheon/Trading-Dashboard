@@ -68,3 +68,33 @@ test.describe("portfolio parity", () => {
     await expectNoSidewaysScroll(page);
   });
 });
+
+/** CopyDog's phone Activity panel (the portfolio's bell). */
+test.describe("activity panel", () => {
+  test.beforeEach(async ({ context, baseURL }) => {
+    await context.addCookies([{ name: "locale", value: "en", url: baseURL! }]);
+  });
+
+  test("signed out it asks to sign in; signed in it lists copy fills, favorites' trades and wallet transfers at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/portfolio");
+    await page.getByRole("button", { name: "Activity" }).filter({ visible: true }).click();
+    const panel = page.getByRole("dialog", { name: /Activity/ });
+    await expect(panel.getByText("Sign in for alerts")).toBeVisible();
+    await panel.getByRole("button", { name: "Close" }).click();
+    await signIn(page);
+    await page.getByRole("button", { name: "Activity" }).filter({ visible: true }).click();
+    for (const chip of ["Copies", "Following", "Deposits"]) await expect(panel.getByRole("tab", { name: chip })).toBeVisible();
+    await expect(panel.getByText(/^Copy Long HYPE at/)).toBeVisible();
+    await expect(panel.getByText(/^Close Long SOL at/)).toBeVisible();
+    await expect(panel.getByText(/^via /).first()).toBeVisible();
+    await shot(page, "activity-copies-390");
+    await panel.getByRole("tab", { name: "Following" }).click();
+    await expect(panel.getByRole("tabpanel")).toBeVisible();
+    await shot(page, "activity-following-390");
+    await panel.getByRole("tab", { name: "Deposits" }).click();
+    await expect(panel.getByRole("tabpanel")).toBeVisible();
+    await shot(page, "activity-deposits-390");
+    await expectNoSidewaysScroll(page);
+  });
+});

@@ -596,13 +596,26 @@ export class CopyRepository {
     return this.db.select({ status: copyStrategies.status, n: count() }).from(copyStrategies).where(eq(copyStrategies.mode, "paper")).groupBy(copyStrategies.status);
   }
 
-  async insertPaperFill(tx: DbTransaction, values: typeof copyPaperFills.$inferInsert): Promise<void> {
+  /**
+   * A paper fill and its owner event (CopyDog's `portfolio-feed`): `action`
+   * says what the fill did to the copy's position — `open` (from flat),
+   * `increase`, `decrease` or `close` (back to flat) — from the position's
+   * size before and after (`change`); a liquidation is
+   * `position_liquidated`. `realizedPnl` is Hyperliquid-style (before fees).
+   */
+  async insertPaperFill(tx: DbTransaction, values: typeof copyPaperFills.$inferInsert, change?: { before: string; after: string }): Promise<void> {
     const input = structuredClone(values);
     await this.requirePaperStrategy(tx, input.strategyId);
     await tx.insert(copyPaperFills).values(input);
     const [order] = await tx.select({ userId: copyOrders.userId, leg: copyOrders.leg }).from(copyOrders).where(eq(copyOrders.id, input.orderId));
-    if (order) await this.runtime.appendEvent(tx, order.userId, input.strategyId, order.leg === "liquidation" ? "position_liquidated" : "order_filled", {
+    if (!order) return;
+    const before = change ? Dec.from(change.before) : null;
+    const after = change ? Dec.from(change.after) : null;
+    const action = before === null || after === null ? null : before.isZero ? "open" : after.isZero ? "close" : after.abs().gt(before.abs()) ? "increase" : "decrease";
+    await this.runtime.appendEvent(tx, order.userId, input.strategyId, order.leg === "liquidation" ? "position_liquidated" : "order_filled", {
       mode: "paper", orderId: String(input.orderId), coin: input.coin, side: input.side, size: input.size, px: input.px, leg: order.leg,
+      ...(action ? { action, positionSize: after!.toString() } : {}),
+      realizedPnl: input.realizedPnl, fee: Dec.from(input.fee ?? "0").add(input.builderFee ?? "0").toString(),
     });
   }
 

@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
 
+import { ActivityPanel } from "@/components/copy/activity-panel";
 import { CopyActivity } from "@/components/copy/copy-activity";
 import { CopyCards, CopyDetail, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
 import { ExposurePanel, InsightsPanel, PaperSummary, PortfolioChart } from "@/components/copy/portfolio-parts";
@@ -306,17 +307,21 @@ function PhonePortfolio() {
  * the gear is how settings are reached, as on CopyDog. */
 function PhoneHeader() {
   const { t } = useI18n();
+  const [activity, setActivity] = useState(false);
   return (
       <header className="flex items-center justify-between px-5 pt-4">
         <p role="heading" aria-level={1} className="text-[1.75rem] font-extrabold tracking-tight">{t("portfolio.title")}</p>
         <div className="flex items-center gap-1">
-          <Link
-            href="/settings?view=notifications"
-            aria-label={t("portfolio.notifications")}
+          {/* CopyDog: the bell opens the Activity panel (copies, following, deposits). */}
+          <button
+            type="button"
+            onClick={() => setActivity(true)}
+            aria-label={t("feed.title")}
             className="flex size-10 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Bell className="size-[22px]" />
-          </Link>
+          </button>
+          <ActivityPanel open={activity} onClose={() => setActivity(false)} />
           <Link
             href="/settings"
             aria-label={t("portfolio.settings")}

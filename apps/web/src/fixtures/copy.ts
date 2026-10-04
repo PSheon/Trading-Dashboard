@@ -289,6 +289,14 @@ export function fixtureWithdrawFunds(id: number, body: Record<string, unknown>) 
 
 let fixtureEventId = 0;
 const fixtureEvents: { id: string; strategyId: number | null; type: string; payload: Record<string, unknown>; createdAt: Date }[] = [];
+// The seeded copies' filled orders, as the feed carries them (oldest first).
+for (const { s, o } of strategies.flatMap((s) => s.orders.map((o) => ({ s, o }))).filter(({ o }) => o.status === "filled" && o.px !== null).sort((a, b) => a.o.at.getTime() - b.o.at.getTime())) {
+  const closing = o.leg === "close" || o.leg === "stop_close";
+  fixtureEvents.push({ id: String(++fixtureEventId), strategyId: s.id, type: "order_filled", createdAt: o.at, payload: {
+    mode: "paper", orderId: o.id, coin: o.coin, side: o.side, size: String(o.size), px: String(o.px), leg: o.leg,
+    action: closing ? "close" : "open", realizedPnl: closing ? "45.10" : "0", fee: String(o.fee),
+  } });
+}
 export function fixtureCopyEvents(after: string, limit: number, before?: string) {
   const eligible = fixtureEvents.filter((event) => before ? BigInt(event.id) < BigInt(before) : BigInt(event.id) > BigInt(after));
   const items = before || after === "0" ? eligible.slice(-Math.min(100, limit)) : eligible.slice(0, Math.min(100, limit));

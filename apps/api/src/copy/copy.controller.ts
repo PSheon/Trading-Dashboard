@@ -1,8 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req, Res } from "@nestjs/common";
+import { ApiHeader } from "@nestjs/swagger";
+import type { Request, Response } from "express";
 import type { CopyOrdersResponse, CopyOverviewResponse, CopyStrategy } from "@trading-dashboard/shared/contracts";
 
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
-import { ApiDoc } from "../common/decorators/http.decorator.js";
+import { ApiDoc, SkipTransform } from "../common/decorators/http.decorator.js";
+import { AuthService } from "../common/auth/auth.service.js";
+import { ResumeHeader, ResumeHeaderDto } from "../api/actions/dto/resume-header.dto.js";
+import { CopyStreamService } from "./copy-stream.service.js";
 import { CopyStrategyService } from "./copy-strategy.service.js";
 import { CopyPerformanceService } from "./copy-performance.service.js";
 import { AddCopyFundsDto, CopyEventsQueryDto, CopyHistoryQueryDto, CopyPerformanceQueryDto, CopyPortfolioQueryDto, CopyTradesQueryDto, CopyStrategyCommandDto, CopyStrategyParamsDto, CreateCopyStrategyDto, PatchCopyStrategyDto } from "./dto/copy.dto.js";
@@ -17,7 +22,34 @@ import { AddCopyFundsDto, CopyEventsQueryDto, CopyHistoryQueryDto, CopyPerforman
  */
 @Controller("me/copy")
 export class CopyController {
-  constructor(private readonly copies: CopyStrategyService, private readonly performance: CopyPerformanceService) {}
+  constructor(
+    private readonly copies: CopyStrategyService,
+    private readonly performance: CopyPerformanceService,
+    private readonly streams: CopyStreamService,
+    private readonly auth: AuthService,
+  ) {}
+
+  /**
+   * Server-sent events: the caller's own copy events as they commit
+   * (`event: copy`, SSE id = event id), a heartbeat comment every ~15 s.
+   * Resume with `Last-Event-ID` (replays up to 200 missed events; `reset`
+   * beyond). Browsers use fetch streaming, so the Authorization header goes
+   * along; it is rechecked before every delivery.
+   */
+  @SkipTransform()
+  @ApiHeader({ name: "Last-Event-ID", required: false, description: "Positive int64 copy event id; replays up to 200 missed events.", schema: { type: "string", pattern: "^[1-9]\\d{0,18}$" } })
+  @ApiDoc("Stream my copy events")
+  @Get("stream")
+  async stream(@CurrentUser() user: RequestUser | null, @ResumeHeader() resume: ResumeHeaderDto, @Req() req: Request, @Res() res: Response): Promise<void> {
+    const userId = requireUserId(user);
+    const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7).trim() : undefined;
+    const authorize = async () => {
+      if (!token) return false;
+      const outcome = await this.auth.authenticate(token);
+      return outcome.status === "user" && outcome.user.kind === "user" && outcome.user.id === userId;
+    };
+    await this.streams.open(req, res, userId, { lastEventId: resume.lastEventId ? BigInt(resume.lastEventId) : undefined, authorize });
+  }
 
   @ApiDoc("Get my paper copies")
   @Get()

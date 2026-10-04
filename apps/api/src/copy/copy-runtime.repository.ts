@@ -13,6 +13,22 @@ export function operationFingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(normalize(value))).digest("hex");
 }
 
+/** NOTIFY channel of committed owner events; the payload is the owner's user
+ * id only. The api's copy streams read the rows themselves (owner-scoped). */
+export const COPY_EVENTS_CHANNEL = "orbie_copy_events";
+
+/**
+ * Appends an owner event in the caller's transaction. IDs for the same
+ * owner's feed are allocated in commit order (otherwise a reader could pass
+ * an id still invisible in an earlier open transaction), and a NOTIFY goes
+ * out when the transaction commits (never for a rolled-back write).
+ */
+export async function insertOwnerEvent(tx: DbTransaction, userId: number, strategyId: number | null, type: string, payload: Record<string, unknown>): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`copy-events:${userId}`}, 0))`);
+  await tx.insert(copyEvents).values({ userId, strategyId, type, payload: structuredClone(payload) });
+  await tx.execute(sql`select pg_notify(${COPY_EVENTS_CHANNEL}, ${String(userId)})`);
+}
+
 @Injectable()
 export class CopyRuntimeRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
@@ -37,10 +53,7 @@ export class CopyRuntimeRepository {
   async appendEvent(tx: DbTransaction, userId: number, strategyId: number | null, type: string, payload: Record<string, unknown>): Promise<void> {
     const input = structuredClone(payload);
     if (strategyId !== null) await this.requirePaper(tx, strategyId, userId);
-    // IDs for the same owner's feed are allocated in commit order. Otherwise
-    // polling could pass an id still invisible in an earlier open transaction.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`copy-events:${userId}`}, 0))`);
-    await tx.insert(copyEvents).values({ userId, strategyId, type, payload: input });
+    await insertOwnerEvent(tx, userId, strategyId, type, input);
   }
 
   events(userId: number, after: bigint, limit: number, before?: bigint) {
@@ -49,6 +62,20 @@ export class CopyRuntimeRepository {
       sql`(${copyEvents.strategyId} is null or exists (select 1 from ${copyStrategies} where ${copyStrategies.id} = ${copyEvents.strategyId} and ${copyStrategies.mode} = 'paper'))`,
       before !== undefined ? lt(copyEvents.id, before) : replay ? gt(copyEvents.id, after) : undefined))
       .orderBy(replay ? asc(copyEvents.id) : desc(copyEvents.id)).limit(limit);
+  }
+
+  /** The owner's events after `after`, oldest first (the stream's reads;
+   * same owner and paper scope as `events`). */
+  eventsAfter(userId: number, after: bigint, limit: number) {
+    return this.db.select().from(copyEvents).where(and(eq(copyEvents.userId, userId), gt(copyEvents.id, after),
+      sql`(${copyEvents.strategyId} is null or exists (select 1 from ${copyStrategies} where ${copyStrategies.id} = ${copyEvents.strategyId} and ${copyStrategies.mode} = 'paper'))`))
+      .orderBy(asc(copyEvents.id)).limit(limit);
+  }
+
+  /** The owner's newest event id (0 with none): where a fresh stream starts. */
+  async latestEventId(userId: number): Promise<bigint> {
+    const [row] = await this.db.select({ id: sql<string | null>`max(${copyEvents.id})::text` }).from(copyEvents).where(eq(copyEvents.userId, userId));
+    return row?.id ? BigInt(row.id) : 0n;
   }
 
   activeStrategies() {

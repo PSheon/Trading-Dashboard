@@ -21069,6 +21069,110 @@
         "x-required-roles": []
       }
     },
+    "/me/copy/stream": {
+      "get": {
+        "operationId": "CopyController_stream",
+        "parameters": [
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "description": "Positive int64 copy event id; replays up to 200 missed events.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9]\\d{0,18}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent events. Errors before admission use the JSON error envelope.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "x-event-schemas": {
+              "copy": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^\\d+$"
+                  },
+                  "strategyId": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "id",
+                  "strategyId",
+                  "type",
+                  "payload",
+                  "createdAt"
+                ],
+                "additionalProperties": false
+              },
+              "reset": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "const": "replay_truncated"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Stream my copy events",
+        "tags": [
+          "Copy"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (own events); SSE"
+      }
+    },
     "/me/copy": {
       "get": {
         "operationId": "CopyController_overview",

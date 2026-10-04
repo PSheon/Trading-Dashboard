@@ -122,7 +122,12 @@ it("every production controller route has exactly one shared response contract",
 
 it("declares every streaming route's event schemas in the registry", () => {
   const streams = httpRouteContracts.filter((r) => r.stream);
-  expect(streams.map((r) => `${r.method} ${r.path}`)).toEqual(["GET /actions/stream"]);
+  expect(streams.map((r) => `${r.method} ${r.path}`)).toEqual(["GET /actions/stream", "GET /me/copy/stream"]);
+  const copy = streams[1].stream!.events;
+  expect(Object.keys(copy).sort()).toEqual(["copy", "reset"]);
+  expect(copy.copy.safeParse({ id: "12", strategyId: 3, type: "order_filled", payload: { mode: "paper", action: "open" }, createdAt: "2026-10-04T00:00:00.000Z" }).success).toBe(true);
+  expect(copy.copy.safeParse({ id: 12, strategyId: 3, type: "order_filled", payload: {}, createdAt: "2026-10-04T00:00:00.000Z" }).success).toBe(false);
+  expect(streams[1].response.safeParse(undefined).success).toBe(false);
   const events = streams[0].stream!.events;
   expect(Object.keys(events).sort()).toEqual(["action", "reset", "update"]);
   const wire = { id: "9007199254740993", chain: "hyperliquid", address: "0xabc", coin: "BTC", kind: "open", side: "long", notionalUsd: "1.01", avgPx: "1", fillIds: [], ts: "2026-01-01T00:00:00.000Z" };

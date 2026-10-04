@@ -17,6 +17,7 @@ import { OutboxModule } from "./outbox/outbox.module.js";
 import { ReferralModule } from "./referral/referral.module.js";
 import { RulesModule } from "./rules/rules.module.js";
 import { ActionRelayListener } from "./runtime/action-relay.js";
+import { CopyFeedListener } from "./runtime/copy-feed-relay.js";
 import { SettingsModule } from "./settings/settings.module.js";
 import { TelegramModule } from "./telegram/telegram.module.js";
 import { TradersModule } from "./traders/traders.module.js";
@@ -68,7 +69,7 @@ export class AppModule {
         InsightsModule,
         OutboxModule,
       ],
-      providers: [...AUTH_GUARD_PROVIDERS, ActionRelayListener],
+      providers: [...AUTH_GUARD_PROVIDERS, ActionRelayListener, CopyFeedListener],
     };
   }
 

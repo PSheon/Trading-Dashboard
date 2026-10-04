@@ -169,6 +169,26 @@ export function useCopyTrades(sort: "best" | "worst" | "recent", limit = 5, stra
   });
 }
 
+export type CopyStreamStatus = "connecting" | "live" | "down" | "off";
+let streamStatus: CopyStreamStatus = "off";
+const streamListeners = new Set<() => void>();
+/** Set by useCopyStream (GET /me/copy/stream). */
+export function setCopyStreamStatus(next: CopyStreamStatus) {
+  if (next === streamStatus) return;
+  streamStatus = next;
+  for (const notify of streamListeners) notify();
+}
+/** The copy stream's state: while it is live the events list stops polling. */
+export const copyStreamStatus = {
+  get: () => streamStatus,
+  subscribe(notify: () => void) { streamListeners.add(notify); return () => { streamListeners.delete(notify); }; },
+};
+
+/** The owner's events list key (the stream writes into the same entry). */
+export function copyEventsKey(status: string, mode: string, identity: string | null | undefined) {
+  return [...queryKeys.copy.all, "events", status, mode, identity, sessionKey()] as const;
+}
+
 function subscribeVisibility(notify: () => void) {
   document.addEventListener("visibilitychange", notify);
   return () => document.removeEventListener("visibilitychange", notify);
@@ -188,7 +208,8 @@ export function useCopyEvents() {
   const { status, identity, mode } = useAuth();
   const queryClient = useQueryClient();
   const visible = useSyncExternalStore(subscribeVisibility, () => document.visibilityState === "visible", () => false);
-  const queryKey = [...queryKeys.copy.all, "events", status, mode, identity, sessionKey()] as const;
+  const queryKey = copyEventsKey(status, mode, identity);
+  const live = useSyncExternalStore(copyStreamStatus.subscribe, () => copyStreamStatus.get() === "live", () => false);
   const catchingUp = useRef(false);
   const enabled = status === "signedIn" && visible;
   const query = useQuery({
@@ -212,7 +233,8 @@ export function useCopyEvents() {
     enabled,
     staleTime: 10_000,
     gcTime: 60_000,
-    refetchInterval: () => enabled ? (catchingUp.current ? 1_000 : 15_000) : false,
+    // The stream pushes events while it is live; polling covers it otherwise.
+    refetchInterval: () => enabled ? (catchingUp.current ? 1_000 : live ? false : 15_000) : false,
     refetchIntervalInBackground: false,
     ...defaultRetry,
   });

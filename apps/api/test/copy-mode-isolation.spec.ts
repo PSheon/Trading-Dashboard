@@ -11,6 +11,7 @@ import { CopyOrderPlanner } from '../src/copy/copy-planner.service.js';
 import { CopyControlService } from '../src/copy/copy-control.service.js';
 import { CopyExecutionService } from '../src/copy/copy-execution.service.js';
 import { CopyPerformanceService } from '../src/copy/copy-performance.service.js';
+import { CopyStreamService } from "../src/copy/copy-stream.service.js";
 import { CopyAdminReadService } from '../src/copy/copy-admin-read.service.js';
 import { CopySignalService } from '../src/copy/copy-signal.service.js';
 import { CopyAdoptionRepairService } from '../src/copy/copy-adoption-repair.service.js';
@@ -127,7 +128,7 @@ describe('paper strategy and read model isolation', () => {
   it('actual authenticated paper HTTP routes return404 for testnet without changing funds, settings or status', async () => {
     const before = await strategy(liveId);
     const { app } = await createAuthedApp({ db, privy: stubPrivy({ 'mode-owner-token': { privyUserId: did } }), controllers: [CopyController],
-      providers: [{ provide: CopyStrategyService, useValue: service }, { provide: CopyPerformanceService, useValue: performance }] });
+      providers: [{ provide: CopyStrategyService, useValue: service }, { provide: CopyPerformanceService, useValue: performance }, { provide: CopyStreamService, useValue: {} }] });
     try {
       const http = app.getHttpServer(), base = `/me/copy/strategies/${liveId}`, token = 'Bearer mode-owner-token';
       await request(http).get(`${base}/orders`).expect(401);

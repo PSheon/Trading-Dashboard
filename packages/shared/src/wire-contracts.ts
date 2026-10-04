@@ -164,7 +164,18 @@ export const wireCopyPerformanceSchema = s.copyPerformanceResponseSchema.extend(
   from: iso, to: iso, points: z.array(s.copyPerformancePointSchema.extend({ time: iso })),
   coverage: s.copyPerformanceResponseSchema.shape.coverage.extend({ firstSnapshotAt: iso.nullable(), lastSnapshotAt: iso.nullable() }),
 });
-export const wireCopyEventsSchema = s.copyEventsResponseSchema.extend({ items: z.array(s.copyEventSchema.extend({ createdAt: iso })) });
+export const wireCopyEventSchema = s.copyEventSchema.extend({ createdAt: iso });
+export const wireCopyEventsSchema = s.copyEventsResponseSchema.extend({ items: z.array(wireCopyEventSchema) });
+/** GET /me/copy/stream (text/event-stream): the owner's copy events as they
+ * commit (CopyDog's `portfolio-feed`), each exactly as GET /me/copy/events
+ * lists it. `copy`: its SSE `id:` is the event id (the resume cursor; send it
+ * back as `Last-Event-ID` to replay what was missed). `reset`: more were
+ * missed than the replay bound; reload the list. */
+export const copyStreamEventSchemas = {
+  copy: wireCopyEventSchema,
+  reset: z.object({ reason: z.literal("replay_truncated") }),
+} as const;
+export type CopyStreamEventName = keyof typeof copyStreamEventSchemas;
 export const wireCopyPortfolioSchema = s.copyPortfolioResponseSchema.extend({ from: iso, to: iso, points: z.array(s.copyPortfolioResponseSchema.shape.points.element.extend({ time: iso })) });
 export const wireCopyTradesSchema = s.copyTradesResponseSchema.extend({ items: z.array(s.copyClosedTradeSchema.extend({ openedAt: iso, closedAt: iso })) });
 const wireCopyControlEventSchema = s.copyControlEventSchema.extend({ createdAt: iso });
@@ -335,6 +346,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/strategies/:id/withdraw-funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "GET", path: "/me/copy/strategies/:id/performance", status: 200, auth: "user (owner)", response: wireCopyPerformanceSchema },
   { method: "GET", path: "/me/copy/events", status: 200, auth: "user", response: wireCopyEventsSchema },
+  { method: "GET", path: "/me/copy/stream", status: 200, auth: "user (own events); SSE", response: z.never(),
+    stream: { contentType: "text/event-stream", events: copyStreamEventSchemas } },
   { method: "GET", path: "/me/copy/portfolio", status: 200, auth: "user (own copies)", response: wireCopyPortfolioSchema },
   { method: "GET", path: "/me/copy/trades", status: 200, auth: "user (own copies)", response: wireCopyTradesSchema },
   { method: "GET", path: "/me/copy/execution-wallets", status: 200, auth: "user (owner)", response: copyExecutionWalletsSchema },

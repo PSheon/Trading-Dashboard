@@ -10,6 +10,7 @@ import { useIsAdmin } from "@/lib/auth";
 import { APP_NAME } from "@/lib/config";
 import { AnnouncementBanner } from "./announcement-banner";
 import { MaintenanceBanner } from "./maintenance-banner";
+import { CopyFeed } from "@/components/copy/copy-feed";
 import { AccountControls } from "./account-controls";
 import { AddressSearch } from "./address-search";
 import { PhoneMenu } from "./phone-menu";
@@ -124,6 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         <MaintenanceBanner />
         <AnnouncementBanner />
+        <CopyFeed />
         {/* CopyDog's .hl-page: 32px around with 16px on the right; its
             trader page sits 8px from the frame. */}
         <main

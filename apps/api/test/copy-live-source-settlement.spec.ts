@@ -5,7 +5,7 @@ import { copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence
   copyLiveSourceFills, copyLiveSourceStreams, copyStrategyVersions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyStrategies, users, copyWalletAuthorizations, copyAgentSetups } from '@trading-dashboard/shared/database';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
-import { NEVER_PLACED, NEVER_PLACED_GRACE_MS } from '../src/copy/live/live-execution.js';
+import { NEVER_PLACED, NEVER_PLACED_GRACE_MS, LIVE_CLOCK_SKEW_ALLOWANCE_MS, LIVE_HTTP_TIMEOUT_MS } from '../src/copy/live/live-execution.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { HyperliquidLiveMarketResolver } from '../src/copy/live/live-market-resolver.js';
@@ -116,7 +116,15 @@ describe('atomic source terminal settlement on one PostgreSQL connection',()=>{
     vi.mocked(observer.observe).mockImplementation(async()=>snapshot('0',clock));
     expect((await projected('0')).positions).toEqual({});
   });
+  it('declares never placed only after the HTTP timeout and a clock-skew allowance have both passed',()=>{
+    expect(NEVER_PLACED_GRACE_MS).toBeGreaterThanOrEqual(LIVE_HTTP_TIMEOUT_MS+LIVE_CLOCK_SKEW_ALLOWANCE_MS);
+    expect(LIVE_HTTP_TIMEOUT_MS).toBeGreaterThanOrEqual(20_000);
+  });
   it('never releases a never-placed attempt that has an attributed fill',async()=>{
+    // A generation that outlives the order's expiry window (as above).
+    const intent={...seed.consent,expiresAt:now+600000};seed.consent=intent;
+    await db.update(copyLiveMandates).set({intent,intentDigest:digest(intent),expiresAt:new Date(intent.expiresAt)});
+    await db.update(copyWalletAuthorizations).set({expiresAt:new Date(now+600000)});await db.update(copyAgentSetups).set({expiresAt:new Date(now+600000)});
     const p=await prepare(),attempted=await attempt(p,98);
     await new CopyFollowerLedger(db,new UnitOfWork(db)).bookFill('account',{coin:'BTC',oid:98,tid:198,side:p.intent.side,time:clock+1,sz:'0.1',px:'100',feeToken:'USDC',fee:'0.1',closedPnl:'0'});
     clock=attempted.record.expiresAfter+NEVER_PLACED_GRACE_MS+1;
@@ -126,6 +134,10 @@ describe('atomic source terminal settlement on one PostgreSQL connection',()=>{
     const result=await scope.run(identity(),async(_s,session)=>{await settlement.observe(session,{accountId:'account',key:p.record.key,evidence});return settlement.releaseNeverPlaced(session,{accountId:'account',key:p.record.key});});
     expect(result).toMatchObject({kind:'quarantine'});
     expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({state:'quarantined'});
+    // The defined path: the account is halted under the named quarantine
+    // reason (no further order is prepared) until an operator reconciles it.
+    vi.mocked(observer.observe).mockImplementation(async()=>snapshot('0.1',clock));
+    await expect(projected('0.1')).rejects.toThrow('live_risk_quarantined');
   });
   it('settles the original source leg and journal alongside its actual receipt certificate',async()=>{
     const p=await prepare();expect(p.intent.size).toBe('0.9');expect((await complete(p,10,'0.9','0.9')).result.kind).toBe('release');

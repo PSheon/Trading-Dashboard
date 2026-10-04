@@ -8,7 +8,15 @@ import type { LiveUnattemptedReleaseCertificate } from './live-unattempted-relea
 /** An attempted order the exchange still does not know by cloid once its
  * signed expiresAfter (plus this grace) has passed: it was never placed. */
 export const NEVER_PLACED = "exchange_order_never_placed";
-export const NEVER_PLACED_GRACE_MS = 30_000;
+/** How long an order request may still be on its way (the transport's HTTP
+ * timeout) … */
+export const LIVE_HTTP_TIMEOUT_MS = 20_000;
+/** … and how far this machine's clock may run ahead of the exchange's. */
+export const LIVE_CLOCK_SKEW_ALLOWANCE_MS = 60_000;
+/** Past expiresAfter by more than both together, an order unknown by cloid
+ * can no longer be in flight or accepted late (was 30 s: less than the
+ * timeout plus any skew). */
+export const NEVER_PLACED_GRACE_MS = LIVE_HTTP_TIMEOUT_MS + LIVE_CLOCK_SKEW_ALLOWANCE_MS;
 export type LiveExecutionState = "prepared" | "submitting" | "unknown" | "resting" | "filled" | "partial" | "cancelled" | "rejected";
 export interface ExchangeOutcome {
   state: Exclude<LiveExecutionState, "prepared" | "submitting" | "unknown">;

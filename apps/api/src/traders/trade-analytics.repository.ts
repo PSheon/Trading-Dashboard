@@ -242,12 +242,17 @@ export class TradeAnalyticsRepository {
    * repaired hole, a break found) once the backfill is not running. `fundingCursor`: how far its funding was read. The worker
    * refreshes these (`TradeAnalyticsService.refreshTracked`).
    */
-  async trackedDue(staleBefore: Date, limit: number): Promise<Array<{ address: string; fundingCursor: Date | null }>> {
+  async trackedDue(staleBefore: Date, limit: number, waiting: readonly string[] = []): Promise<Array<{ address: string; fundingCursor: Date | null }>> {
+    // Addresses whose last refresh failed and whose backoff has not run out
+    // (`TradeAnalyticsService.refreshTracked`) are left out, so they cannot
+    // hold every slot of a turn (a failed refresh writes nothing, and they
+    // would be the oldest for ever).
+    const skip = waiting.length > 0 ? sql`and l.address not in (${sql.join(waiting.map((address) => sql`${address}`), sql`, `)})` : sql``;
     const rows = await this.db.execute<{ address: string; funding_cursor: Date | string | null }>(sql`
       select l.address, ta.funding_cursor from ${leaders} l
       left join ${traderAnalytics} ta on ta.chain = l.chain and ta.address = l.address
       left join ${fillCoverage} fc on fc.chain = l.chain and fc.address = l.address
-      where l.chain = ${CHAIN_DEFAULT} and l.active
+      where l.chain = ${CHAIN_DEFAULT} and l.active ${skip}
         and (ta.address is null or ta.computed_at < ${staleBefore}
           or (fc.verified_from is not null and fc.verified_through is not null and fc.backfill_status <> 'pending'
             and (ta.source <> 'tracked' or fc.revised_at > ta.computed_at)))
@@ -262,8 +267,6 @@ export class TradeAnalyticsRepository {
     return row;
   }
 
-  /** A tracked address's stored perp fills in `[since, through]`, as
-   * Hyperliquid sent them (`raw` keeps startPosition, liquidation and twapId). */
   /** `trackedFills` oldest first in pages that never split a millisecond:
    * a full rebuild walks a span of any size without holding it at once. */
   trackedFillPages(address: string, since: Date, through: Date): AsyncGenerator<HlUserFill[]> {
@@ -272,6 +275,8 @@ export class TradeAnalyticsRepository {
   /** Settable for tests. */
   spanPageFills = SPAN_PAGE_FILLS;
 
+  /** A tracked address's stored perp fills in `[since, through]`, as
+   * Hyperliquid sent them (`raw` keeps startPosition, liquidation and twapId). */
   async trackedFills(address: string, since: Date, through: Date): Promise<HlUserFill[]> {
     const rows = await this.db
       .select({ raw: fills.raw })

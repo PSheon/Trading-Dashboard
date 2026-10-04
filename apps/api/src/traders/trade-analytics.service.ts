@@ -56,6 +56,11 @@ export const COLD_TWAP_CALLS = 8;
 /** Watched addresses one worker turn refreshes (one turn a minute: 60
  * watched addresses every `STALE_MS`). */
 export const TRACKED_REFRESH_PER_TICK = 6;
+/** A watched address whose refresh failed is left out of the worker's turns
+ * for this long, doubling with each failure in a row up to
+ * `TRACKED_BACKOFF_MAX_MS`; a success clears it. */
+export const TRACKED_BACKOFF_BASE_MS = 2 * 60_000;
+export const TRACKED_BACKOFF_MAX_MS = 60 * 60_000;
 /** A worker refresh reads a watched address's funding at most this often. */
 export const TRACKED_FUNDING_EVERY_MS = 60 * 60_000;
 /** Pages per incremental refresh (a refresh every ~10 min rarely needs 2). */
@@ -150,6 +155,9 @@ export class TradeAnalyticsService {
   /** Where each tracked address's last full rebuild started (this process).
    * A refresh at the same depth only extends the stored trades. */
   private readonly trackedDepth = new Map<string, number>();
+  /** Watched addresses whose last refresh failed: failures in a row and
+   * when the next turn may try again (the worker's own attempt marker). */
+  private readonly trackedBackoff = new Map<string, { failures: number; retryAt: number }>();
   readonly lastLog = new Map<string, ComputeLog[]>();
 
   constructor(
@@ -239,19 +247,31 @@ export class TradeAnalyticsService {
    * refreshed.
    */
   async refreshTracked(now = Date.now()): Promise<string[]> {
-    const due = await this.repository.trackedDue(new Date(now - STALE_MS), TRACKED_REFRESH_PER_TICK);
+    const waiting = [...this.trackedBackoff].filter(([, backoff]) => backoff.retryAt > now).map(([address]) => address);
+    const due = await this.repository.trackedDue(new Date(now - STALE_MS), TRACKED_REFRESH_PER_TICK, waiting);
     const done: string[] = [];
     for (const { address, fundingCursor } of due) {
       if (this.jobs.stopping) break;
       const funding = fundingCursor === null || now - fundingCursor.getTime() >= TRACKED_FUNDING_EVERY_MS;
       try {
         await this.compute(address, false, { rank: UNRANKED_BASE, funding });
+        this.trackedBackoff.delete(address);
         done.push(address);
       } catch (error) {
-        if (!(error instanceof BusyException)) this.logger.warn(`Tracked analytics for ${address} failed: ${(error as Error).message}`);
+        // Busy is this process's queue being full, not the address failing.
+        if (error instanceof BusyException) continue;
+        const failures = (this.trackedBackoff.get(address)?.failures ?? 0) + 1;
+        const waitMs = Math.min(TRACKED_BACKOFF_MAX_MS, TRACKED_BACKOFF_BASE_MS * 2 ** (failures - 1));
+        this.trackedBackoff.set(address, { failures, retryAt: now + waitMs });
+        this.logger.warn(`Tracked analytics for ${address} failed (${failures} in a row, next try in ${Math.round(waitMs / 60_000)} min): ${(error as Error).message}`);
       }
     }
     return done;
+  }
+
+  /** When a watched address's next refresh may run after failures (tests, health). */
+  trackedRetryAt(address: string): number | undefined {
+    return this.trackedBackoff.get(address)?.retryAt;
   }
 
   /** The watcher stored history inside an address's verified span. */

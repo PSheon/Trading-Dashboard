@@ -70,7 +70,7 @@ export function TradersTable({
           )}
         >
           {label}
-          {active ? <Arrow className="size-3 text-primary" /> : null}
+          {active ? <Arrow className="size-3 text-primary-text" /> : null}
         </button>
       </TableHead>
     );

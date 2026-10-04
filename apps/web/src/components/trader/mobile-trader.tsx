@@ -260,7 +260,7 @@ export function MobileTrader({
               onClick={() => onWindow(w)}
               className="group inline-flex min-h-[34px] flex-1 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <span className={cn("inline-flex rounded-full px-3 py-[5px] text-xs leading-[18px] font-semibold transition-colors", window === w ? "bg-primary-soft text-primary" : "text-muted-foreground")}>
+              <span className={cn("inline-flex rounded-full px-3 py-[5px] text-xs leading-[18px] font-semibold transition-colors", window === w ? "bg-primary-soft text-primary-text" : "text-muted-foreground")}>
                 {t(`windows.${w}`)}
               </span>
             </button>

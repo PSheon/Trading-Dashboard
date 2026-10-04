@@ -42,7 +42,7 @@
   --inset: #efe6d6;
   /* Raised surfaces on the page: nav capsules, search, data rows, panels. */
   --raised: #efe6d6;
-  --raised-hover: #e6dac6;
+  --raised-hover: #e9dfcc;
   /* Legacy name for the well colour. */
   --tile: #efe6d6;
   --popover: #ffffff;
@@ -53,23 +53,25 @@
   --primary-hover: #ff8a5b;
   --primary-soft: rgb(255 122 69 / 14%);
   /* Orange used as text (links, highlighted words): darker on light for AA. */
-  --primary-text: #b4441a;
+  --primary-text: #a33d16;
   /* Orange in display type (the hero's accented words): large text, 3:1. */
   --primary-display: #d9531e;
   --secondary: #efe6d6;
   --secondary-foreground: #15132b;
   --muted: #efe6d6;
-  --muted-foreground: #5a5674;
-  --subtle-foreground: #625e79;
+  --muted-foreground: #55516e;
+  --subtle-foreground: #5c5873;
   --accent: #efe6d6;
   --accent-foreground: #15132b;
 
-  --positive: #0a7046;
-  --positive-soft: rgb(11 122 75 / 12%);
-  --negative: #c22f4a;
-  --negative-soft: rgb(194 47 74 / 11%);
-  --destructive: #c22f4a;
-  --warning: #8a5a00;
+  /* Darker than the board's #0b7a4b / #c22f4a so a figure on a raised row
+     stays AA (4.5:1). */
+  --positive: #08653f;
+  --positive-soft: rgb(8 101 63 / 10%);
+  --negative: #a8263f;
+  --negative-soft: rgb(168 38 63 / 10%);
+  --destructive: #a8263f;
+  --warning: #7a5000;
 
   /* Tags (pastel fill, dark ink) — the same in both themes. */
   --tag-profit: #cdeedd;

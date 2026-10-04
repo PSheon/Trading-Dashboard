@@ -53,6 +53,6 @@ export function CopyActivity() {
     <p className="mt-2 text-[11px] text-muted-foreground">{t("copyUpdates.activityHint")}</p>
     {query.isError || query.olderError ? <p role="status" className="mt-3 text-xs text-warning">{t("copyUpdates.activityError")}</p> : null}
     {query.data ? <CopyActivityItems items={query.data.items} /> : <p className="py-6 text-center text-xs text-muted-foreground">{query.isPending ? (t("copyUpdates.activityLoading")) : "—"}</p>}
-    {query.data?.hasMore ? <button type="button" disabled={query.isLoadingOlder} onClick={() => query.loadOlder()} className="mt-3 rounded px-3 py-2 text-xs text-primary disabled:opacity-50">{t("copyUpdates.older")}</button> : null}
+    {query.data?.hasMore ? <button type="button" disabled={query.isLoadingOlder} onClick={() => query.loadOlder()} className="mt-3 rounded px-3 py-2 text-xs text-primary-text disabled:opacity-50">{t("copyUpdates.older")}</button> : null}
   </section>;
 }

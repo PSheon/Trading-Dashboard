@@ -76,7 +76,7 @@ export function AdminCopyOverview() {
         <div className="grid gap-3 lg:grid-cols-2">
           <Panel className="p-5" aria-labelledby="copy-backlog-title">
             <div className="mb-3 flex items-center gap-2">
-              <Activity className="size-4 text-primary" />
+              <Activity className="size-4 text-primary-text" />
               <h2 id="copy-backlog-title" className="text-[0.9375rem] font-bold">{t("copyAdmin.backlog.title")}</h2>
               <Chip tone={behind ? "bad" : "good"}>{t(behind ? "copyAdmin.backlog.behind" : "copyAdmin.backlog.ok")}</Chip>
             </div>
@@ -127,7 +127,7 @@ export function AdminCopyOverview() {
 
         <section aria-labelledby="copy-failures-title">
           <SectionHeader title={<span id="copy-failures-title">{t("copyAdmin.failures.title")}</span>}
-            action={<Link href="/admin/copy/orders?status=failed" className="text-sm font-semibold text-primary">{t("common.viewAll")}</Link>} />
+            action={<Link href="/admin/copy/orders?status=failed" className="text-sm font-semibold text-primary-text">{t("common.viewAll")}</Link>} />
           <Panel className="overflow-hidden">
             {failures.isError && !failures.data ? <ErrorState message={failures.error.message} onRetry={() => failures.refetch()} />
               : !failures.data ? <Skeleton className="m-5 h-32" />
@@ -138,7 +138,7 @@ export function AdminCopyOverview() {
 
         <section aria-labelledby="copy-recent-title">
           <SectionHeader title={<span id="copy-recent-title">{t("copyAdmin.recent.title")}</span>}
-            action={<Link href="/admin/copy/orders" className="text-sm font-semibold text-primary">{t("common.viewAll")}</Link>} />
+            action={<Link href="/admin/copy/orders" className="text-sm font-semibold text-primary-text">{t("common.viewAll")}</Link>} />
           <Panel className="overflow-hidden">
             {recent.isError && !recent.data ? <ErrorState message={recent.error.message} onRetry={() => recent.refetch()} />
               : !recent.data ? <Skeleton className="m-5 h-32" />

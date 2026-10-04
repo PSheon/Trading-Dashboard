@@ -20,7 +20,7 @@ export function CopyAccountingHistory({ strategyId }: { strategyId: number }) {
     <summary className="cursor-pointer text-sm font-semibold">{t("copyUpdates.accountingHistory")} <PaperBadge /></summary>
     {open ? <>
       <div className="my-3 flex gap-3" role="tablist" aria-label={t("copyUpdates.accountingHistory")}>
-        {(["ledger", "fills"] as const).map((value) => <button type="button" key={value} role="tab" aria-selected={kind === value} className={`rounded px-3 py-2 text-xs ${kind === value ? "bg-raised text-primary" : "text-muted-foreground"}`} onClick={() => setKind(value)}>{t(`copyUpdates.${value}`)}</button>)}
+        {(["ledger", "fills"] as const).map((value) => <button type="button" key={value} role="tab" aria-selected={kind === value} className={`rounded px-3 py-2 text-xs ${kind === value ? "bg-raised text-primary-text" : "text-muted-foreground"}`} onClick={() => setKind(value)}>{t(`copyUpdates.${value}`)}</button>)}
       </div>
       <AccountingPage key={`${strategyId}:${kind}`} strategyId={strategyId} kind={kind} />
     </> : null}
@@ -55,8 +55,8 @@ function AccountingPage({ strategyId, kind }: { strategyId: number; kind: "ledge
       </li>)}
     </ul>}
     <div className="mt-3 flex justify-end gap-3 text-xs">
-      {pages.length ? <button type="button" disabled={query.isFetching} className="rounded px-3 py-2 text-primary" onClick={() => setPages((value) => value.slice(0, -1))}>{t("portfolio.copy.detail.back")}</button> : null}
-      {data.hasMore && data.previousCursor ? <button type="button" disabled={query.isFetching} className="rounded px-3 py-2 text-primary" onClick={() => setPages((value) => [...value, data.previousCursor!])}>{t("copyUpdates.loadOlder")}</button> : null}
+      {pages.length ? <button type="button" disabled={query.isFetching} className="rounded px-3 py-2 text-primary-text" onClick={() => setPages((value) => value.slice(0, -1))}>{t("portfolio.copy.detail.back")}</button> : null}
+      {data.hasMore && data.previousCursor ? <button type="button" disabled={query.isFetching} className="rounded px-3 py-2 text-primary-text" onClick={() => setPages((value) => [...value, data.previousCursor!])}>{t("copyUpdates.loadOlder")}</button> : null}
     </div>
   </div>;
 }

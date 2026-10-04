@@ -22,7 +22,7 @@ export function LegalDocument({ page, locale }: { page: ContentPage; locale: Loc
   const date = first?.type === "paragraph" ? first : null;
   return (
     <article className="mx-auto w-full max-w-[800px] px-5 pt-10 pb-24">
-      <Link href="/" className="text-[0.9375rem] text-primary underline underline-offset-2 hover:text-primary/80">
+      <Link href="/" className="text-[0.9375rem] text-primary-text underline underline-offset-2 hover:text-primary-text/80">
         ← {APP_NAME}
       </Link>
       <h1 className="mt-[31px] text-[28px] leading-[1.6] font-bold">

@@ -472,7 +472,7 @@ export function PerformanceChart({
                         ? last[1] >= 0
                           ? "text-positive"
                           : "text-negative"
-                        : "text-primary",
+                        : "text-primary-text",
                   )}
                 >
                   {loading && !portfolio && !failed ? <Skeleton className="h-8 w-48" /> : headline}

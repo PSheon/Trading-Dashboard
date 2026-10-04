@@ -19,8 +19,8 @@ import { coinLabel, toNumber } from "@/lib/format";
 export const ACTION_KINDS: readonly ActionKind[] = ["open", "add", "reduce", "close", "flip", "liquidation"];
 
 const KIND_STYLE: Record<ActionKind, string> = {
-  open: "bg-primary-soft text-primary",
-  add: "bg-primary-soft text-primary",
+  open: "bg-primary-soft text-primary-text",
+  add: "bg-primary-soft text-primary-text",
   reduce: "bg-raised text-muted-foreground",
   close: "bg-raised text-foreground",
   flip: "bg-warning/12 text-warning",
@@ -105,7 +105,7 @@ export function ActionsTable({
                     <Link
                       href={`/trader/${row.address}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-2 rounded-md font-medium outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex items-center gap-2 rounded-md font-medium outline-none hover:text-primary-text focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <AddressAvatar seed={row.address} size={22} />
                       <span className="flex max-w-[9rem] min-w-0">

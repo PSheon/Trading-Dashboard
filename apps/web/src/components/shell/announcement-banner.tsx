@@ -21,7 +21,7 @@ export function AnnouncementBanner() {
   return (
     <div className="border-b border-primary/25 bg-primary-soft">
       <div className="mx-auto flex max-w-[1600px] items-start gap-3 px-4 py-2.5 md:items-center md:px-8">
-        <Megaphone aria-hidden className="mt-0.5 size-4 shrink-0 text-primary md:mt-0" />
+        <Megaphone aria-hidden className="mt-0.5 size-4 shrink-0 text-primary-text md:mt-0" />
         <p className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed text-foreground">
           <span className="sr-only">{t("topbar.announcement")}: </span>
           {text}

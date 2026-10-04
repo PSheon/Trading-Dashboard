@@ -65,7 +65,7 @@ export function RuleEditor({
     <fieldset disabled={readOnly} aria-label={rule.kind} className="flex flex-col gap-4 rounded-2xl bg-raised/60 p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="rounded-lg bg-background px-2 py-1 font-mono text-sm font-bold text-primary">{rule.kind}</span>
+          <span className="rounded-lg bg-background px-2 py-1 font-mono text-sm font-bold text-primary-text">{rule.kind}</span>
           <span className="text-xs text-muted-foreground">{t(`admin.rules.scopes.${rule.scope}`)}</span>
         </div>
         <button

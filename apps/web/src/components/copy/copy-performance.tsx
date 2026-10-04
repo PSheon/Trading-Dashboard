@@ -52,10 +52,10 @@ export function EquityHistory({ data, compact = false }: { data: CopyPerformance
   const stale = performanceIsStale(data);
   return <div>
     <svg viewBox="0 0 400 120" role="img" aria-label={t("copyUpdates.equityAria")} className={compact ? "h-8 w-full" : "h-36 w-full"} preserveAspectRatio="none">
-      {paths.map((d, i) => <path key={i} d={d} fill="none" stroke="currentColor" strokeWidth={compact ? 3 : 2} vectorEffect="non-scaling-stroke" className="text-primary" />)}
+      {paths.map((d, i) => <path key={i} d={d} fill="none" stroke="currentColor" strokeWidth={compact ? 3 : 2} vectorEffect="non-scaling-stroke" className="text-primary-text" />)}
       {paths.filter((path) => !path.includes("L")).map((path, i) => {
         const [x, y] = path.slice(1).split(",").map(Number);
-        return <circle key={`point-${i}`} cx={x} cy={y} r="3" fill="currentColor" className="text-primary" />;
+        return <circle key={`point-${i}`} cx={x} cy={y} r="3" fill="currentColor" className="text-primary-text" />;
       })}
     </svg>
     {!compact ? <div className="mt-2 flex flex-wrap justify-between gap-2 text-[11px] text-muted-foreground">

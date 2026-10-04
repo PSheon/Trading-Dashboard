@@ -29,17 +29,17 @@ function renderInline(nodes: Inline[]): React.ReactNode {
         );
       case "placeholder":
         return (
-          <mark key={i} className="rounded bg-primary/15 px-1 text-primary">
+          <mark key={i} className="rounded bg-primary/15 px-1 text-primary-text">
             {node.text}
           </mark>
         );
       case "link":
         return node.href.startsWith("/") ? (
-          <Link key={i} href={node.href} className="text-primary underline underline-offset-2 decoration-primary/50 hover:decoration-primary">
+          <Link key={i} href={node.href} className="text-primary-text underline underline-offset-2 decoration-primary/50 hover:decoration-primary">
             {renderInline(node.children)}
           </Link>
         ) : (
-          <a key={i} href={node.href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 decoration-primary/50 hover:decoration-primary">
+          <a key={i} href={node.href} target="_blank" rel="noopener noreferrer" className="text-primary-text underline underline-offset-2 decoration-primary/50 hover:decoration-primary">
             {renderInline(node.children)}
           </a>
         );

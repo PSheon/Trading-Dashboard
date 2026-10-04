@@ -259,7 +259,7 @@ export function AdminLists() {
             <TableBody>
               {lists.data.map((l) => (
                 <TableRow key={l.id}>
-                  <TableCell className="font-semibold text-primary">
+                  <TableCell className="font-semibold text-primary-text">
                     #{l.id}
                   </TableCell>
                   <TableCell className="max-w-56 truncate font-mono text-xs">

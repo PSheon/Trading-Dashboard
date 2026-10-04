@@ -23,7 +23,7 @@ const PAGE = 20;
 /** A role change or a disable / enable waiting for its confirmation. */
 type Pending = { user: AdminUser; role: UserRole } | { user: AdminUser; disabled: boolean };
 const ROLE_TONE: Record<UserRole, string> = {
-  admin: "bg-primary-soft text-primary",
+  admin: "bg-primary-soft text-primary-text",
   operator: "bg-warning/15 text-warning",
   user: "bg-raised text-muted-foreground",
 };
@@ -161,7 +161,7 @@ export function AdminUsers() {
                           <span className="flex items-center gap-1.5 font-semibold">
                             <span className="max-w-[10rem] truncate">{u.displayName ?? u.email ?? `#${u.id}`}</span>
                             {self ? (
-                              <span className="rounded-full bg-primary-soft px-1.5 text-[10px] font-semibold text-primary">
+                              <span className="rounded-full bg-primary-soft px-1.5 text-[10px] font-semibold text-primary-text">
                                 {t("common.you")}
                               </span>
                             ) : null}

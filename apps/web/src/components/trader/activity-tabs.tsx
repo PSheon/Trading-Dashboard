@@ -104,7 +104,7 @@ export function ActivityTabs({
               title={feedOpen ? t("trader.activity.hide") : t("trader.activity.pulse")}
               className={cn(
                 "hidden size-7 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex",
-                feedOpen ? "text-primary" : "text-muted-foreground hover:bg-raised hover:text-foreground",
+                feedOpen ? "text-primary-text" : "text-muted-foreground hover:bg-raised hover:text-foreground",
               )}
             >
               <Activity className="size-4" />

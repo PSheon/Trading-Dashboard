@@ -66,7 +66,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
       {detail.isError && !data ? (
         <div className="rounded-2xl border border-border bg-card py-10 text-center text-sm text-muted-foreground">
           {t("insights.cohort.loadError")}{" "}
-          <button type="button" className="text-primary underline" onClick={() => detail.refetch()}>{t("insights.cohort.retry")}</button>
+          <button type="button" className="text-primary-text underline" onClick={() => detail.refetch()}>{t("insights.cohort.retry")}</button>
         </div>
       ) : (
         <>
@@ -77,7 +77,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
             <div role="status" className="rounded-xl bg-raised/60 px-4 py-2.5 text-xs text-muted-foreground">
               <p>{t("insights.cohort.building")}</p>
               <p className="mt-1">{t("copyUpdates.coverage", { count: data.walletCount, total: data.memberCount })}</p>
-              <button type="button" className="mt-2 text-primary underline" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</button>
+              <button type="button" className="mt-2 text-primary-text underline" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</button>
             </div>
           ) : null}
           <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
@@ -128,7 +128,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
                       role="radio"
                       aria-checked={filter === f}
                       onClick={() => setFilter(f)}
-                      className={cn("rounded font-mono text-[11px] font-medium tracking-[0.2px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+                      className={cn("rounded font-mono text-[11px] font-medium tracking-[0.2px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "text-primary-text" : "text-muted-foreground hover:text-foreground")}
                     >
                       {t(`insights.cohort.filter.${f}`)}
                     </button>

@@ -67,7 +67,7 @@ export function LoadError({ onRetry }: { onRetry: () => void }) {
   return (
     <p className="py-12 text-center text-sm text-muted-foreground">
       {t("trader.analyticsFailed")}{" "}
-      <button type="button" className="text-primary underline" onClick={onRetry}>
+      <button type="button" className="text-primary-text underline" onClick={onRetry}>
         {t("trader.retry")}
       </button>
     </p>
@@ -273,7 +273,7 @@ export function PerfSwitch({ value, onChange }: { value: PerfView; onChange: (v:
           onClick={() => onChange(v)}
           className={cn(
             "rounded font-mono text-[11px] font-medium tracking-[0.2px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-            value === v ? "text-primary" : "text-muted-foreground hover:text-foreground",
+            value === v ? "text-primary-text" : "text-muted-foreground hover:text-foreground",
           )}
         >
           {label}

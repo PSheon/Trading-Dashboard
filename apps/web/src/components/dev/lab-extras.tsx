@@ -40,7 +40,7 @@ export function LabExtras({ base, numbers }: { base: string; numbers: Block[] })
         <p className="mt-2 text-sm text-muted-foreground">
           {en ? "The whole official leaderboard with Orbie's filters and the indexed-trader search; CopyDog shows the top 100 only." : "官方排行榜全部名單、Orbie 的篩選與已收錄交易員搜尋；CopyDog 只顯示前 100 名。"}
         </p>
-        <Link href="/dev/explore/all" className="mt-3 inline-block text-sm font-semibold text-primary underline underline-offset-2">
+        <Link href="/dev/explore/all" className="mt-3 inline-block text-sm font-semibold text-primary-text underline underline-offset-2">
           {t("explore.title")}
         </Link>
       </section>
@@ -49,7 +49,7 @@ export function LabExtras({ base, numbers }: { base: string; numbers: Block[] })
         <p className="mt-2 text-sm text-muted-foreground">
           {en ? "CopyDog serves 極度盈利 only; the other tiers' data stays in the api and the picker is on this lab's insights screen." : "CopyDog 只提供極度盈利；其他分層的資料仍在 api，選單放在本實驗室的洞察畫面。"}
         </p>
-        <Link href={`${base}/insights`} className="mt-3 inline-block text-sm font-semibold text-primary underline underline-offset-2">
+        <Link href={`${base}/insights`} className="mt-3 inline-block text-sm font-semibold text-primary-text underline underline-offset-2">
           {t("nav.insights")}
         </Link>
       </section>

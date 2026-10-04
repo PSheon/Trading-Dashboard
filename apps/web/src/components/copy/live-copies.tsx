@@ -16,8 +16,8 @@ import { cn } from '@/lib/utils';
 
 const SETTINGS = '/settings?tab=account';
 const stageTone: Record<LiveCopyItem['stage'], string> = {
-  setup: 'bg-raised text-muted-foreground', needs_deposit: 'bg-warning/15 text-warning', funding: 'bg-primary/15 text-primary', awaiting_credit: 'bg-primary/15 text-primary',
-  starting: 'bg-primary/15 text-primary', active: 'bg-positive/15 text-positive', paused: 'bg-raised text-muted-foreground', stopping: 'bg-warning/15 text-warning',
+  setup: 'bg-raised text-muted-foreground', needs_deposit: 'bg-warning/15 text-warning', funding: 'bg-primary/15 text-primary-text', awaiting_credit: 'bg-primary/15 text-primary-text',
+  starting: 'bg-primary/15 text-primary-text', active: 'bg-positive/15 text-positive', paused: 'bg-raised text-muted-foreground', stopping: 'bg-warning/15 text-warning',
   sweeping: 'bg-warning/15 text-warning', stopped: 'bg-raised text-muted-foreground',
 };
 
@@ -109,8 +109,8 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
         </>
       ) : item.accountId && item.stage !== 'setup' && item.stage !== 'stopped' ? <p className="text-xs text-muted-foreground">{text.unobserved}</p> : null}
       <div className="flex flex-wrap items-end gap-2">
-        {item.stage === 'setup' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary underline">{text.setup}</Link> : null}
-        {item.stage === 'needs_deposit' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary underline">{text.deposit}</Link> : null}
+        {item.stage === 'setup' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.setup}</Link> : null}
+        {item.stage === 'needs_deposit' ? <Link href={SETTINGS} className="text-xs font-semibold text-primary-text underline">{text.deposit}</Link> : null}
         {running && item.accountId && !item.pendingTransfer ? (
           <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); if (validAmount) actions.transfer.mutate({ accountId: item.accountId!, amount }); }}>
             <label className="text-xs">{text.amount}

@@ -269,7 +269,7 @@ export function BoardsView() {
 function CoinGlyph({ active }: { active: boolean }) {
   return (
     <span aria-hidden className="flex size-[18px] items-center justify-center rounded-full bg-current">
-      <Bitcoin className={cn("size-3", active ? "text-primary" : "text-raised")} strokeWidth={3} />
+      <Bitcoin className={cn("size-3", active ? "text-primary-text" : "text-raised")} strokeWidth={3} />
     </span>
   );
 }
@@ -386,7 +386,7 @@ function PillMenu({ label, value, options, onChange, active = false, strong = fa
             key={o.value}
             onSelect={() => onChange(o.value)}
             aria-current={o.value === value ? "true" : undefined}
-            className={cn("text-[0.8125rem]", o.value === value ? "font-bold text-primary" : "font-medium")}
+            className={cn("text-[0.8125rem]", o.value === value ? "font-bold text-primary-text" : "font-medium")}
           >
             {o.label}
           </DropdownMenuItem>

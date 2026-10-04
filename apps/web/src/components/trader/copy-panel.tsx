@@ -305,7 +305,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
                   onClick={() => setFromPct(p)}
                   className={cn(
                     "h-10 rounded-full text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    preset && amount === preset ? "bg-primary-soft text-primary" : "bg-raised text-foreground",
+                    preset && amount === preset ? "bg-primary-soft text-primary-text" : "bg-raised text-foreground",
                   )}
                 >
                   {p === 100 ? t("trader.copy.max") : `${p}%`}

@@ -99,9 +99,9 @@ export function AlertBell({
               : "h-8 gap-1.5 border px-2.5 text-xs font-semibold whitespace-nowrap",
             variant === "pill" &&
               (on
-                ? "border-primary/40 bg-primary-soft text-primary hover:bg-primary/20"
+                ? "border-primary/40 bg-primary-soft text-primary-text hover:bg-primary/20"
                 : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground"),
-            variant === "icon" && (on ? "text-primary" : "text-subtle-foreground hover:text-foreground"),
+            variant === "icon" && (on ? "text-primary-text" : "text-subtle-foreground hover:text-foreground"),
             className,
           )}
         >
@@ -195,12 +195,12 @@ function AlertEditor({ address, alert, onDone }: { address: string; alert: Favor
       }}
     >
       <div className="flex items-center gap-2">
-        <span className="flex size-7 items-center justify-center rounded-full bg-primary-soft text-primary">
+        <span className="flex size-7 items-center justify-center rounded-full bg-primary-soft text-primary-text">
           <BellRing className="size-3.5" />
         </span>
         <h3 className="text-sm font-bold">{t("alerts.title")}</h3>
         {alert.enabled ? (
-          <span className="ml-auto rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary">
+          <span className="ml-auto rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary-text">
             {t("alerts.enabled")}
           </span>
         ) : null}

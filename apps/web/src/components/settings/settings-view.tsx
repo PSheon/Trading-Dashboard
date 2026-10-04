@@ -452,7 +452,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                 </a>
               </Button>
             </div>
-            <MessageCircle className="size-9 shrink-0 fill-primary text-primary" aria-hidden />
+            <MessageCircle className="size-9 shrink-0 fill-primary text-primary-text" aria-hidden />
           </div>
 
           {signedIn ? (

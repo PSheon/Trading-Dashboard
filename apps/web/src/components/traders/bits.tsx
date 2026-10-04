@@ -185,7 +185,7 @@ export function FavoriteButton({
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
         solid ? "size-[30px] rounded-md" : size === "sm" ? "size-7" : "size-9",
-        favorite ? (solid ? "text-warning" : "text-primary") : solid ? "text-muted-foreground hover:text-foreground" : "text-subtle-foreground hover:text-foreground",
+        favorite ? (solid ? "text-warning" : "text-primary-text") : solid ? "text-muted-foreground hover:text-foreground" : "text-subtle-foreground hover:text-foreground",
         className,
       )}
     >

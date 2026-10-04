@@ -267,7 +267,7 @@ function Waiting({
       aria-live="polite"
     >
       <div className="flex items-start gap-2.5">
-        {expired ? null : <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />}
+        {expired ? null : <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary-text" />}
         <div className="min-w-0">
           <p className="text-[0.8125rem] font-semibold">{expired ? t("settings.expired") : t("settings.waitingTitle")}</p>
           {expired ? null : <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("settings.waitingBody")}</p>}

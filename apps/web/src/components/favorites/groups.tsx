@@ -215,7 +215,7 @@ export function GroupTags({ address, groups, className }: { address: string; gro
                   >
                     <span className="size-2 rounded-full" style={{ backgroundColor: g.color }} aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{g.name}</span>
-                    {member ? <Check className="size-4 text-primary" /> : null}
+                    {member ? <Check className="size-4 text-primary-text" /> : null}
                   </button>
                 </li>
               );

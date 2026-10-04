@@ -172,7 +172,7 @@ export function ProfileMock() {
       <div className="flex items-center gap-2.5 pb-3">
         {t ? <TraderAvatar trader={t} size={38} /> : <span className="size-[38px] rounded-full bg-raised" />}
         <span className="min-w-0 truncate text-[17px] font-[650] tracking-[-0.2px]">{t ? boardName(t) : "—"}</span>
-        <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-[3px] text-xs font-[650] text-primary">{t?.copyScore ?? 98}</span>
+        <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-[3px] text-xs font-[650] text-primary-text">{t?.copyScore ?? 98}</span>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-3.5 pt-1 pb-3.5">
         {[
@@ -218,7 +218,7 @@ export function PortfolioMock() {
       <div className="flex items-center gap-2.5 pb-3">
         {t ? <TraderAvatar trader={t} size={26} /> : <span className="size-[26px] rounded-full bg-raised" />}
         <span className="min-w-0 truncate text-[15px] font-[650]">{t ? boardName(t) : "—"}</span>
-        <span className={cn(K, "ml-auto inline-flex items-center gap-[5px] text-primary before:size-1.5 before:rounded-full before:bg-primary")}>Live</span>
+        <span className={cn(K, "ml-auto inline-flex items-center gap-[5px] text-primary-text before:size-1.5 before:rounded-full before:bg-primary")}>Live</span>
       </div>
       <Spark className="h-[52px]" />
       <div className="grid grid-cols-3 gap-3 pt-3">

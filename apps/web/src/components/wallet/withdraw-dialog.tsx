@@ -184,7 +184,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         <span className="num text-muted-foreground">{t("wallet.available", { amount: format.usd(withdrawable, { digits: 2 }) })}</span>
         <button
           type="button"
-          className="font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
+          className="font-semibold text-primary-text outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
           disabled={withdrawable <= 0 || recovering}
           onClick={() => setAmount(usdcString(withdrawable))}
         >

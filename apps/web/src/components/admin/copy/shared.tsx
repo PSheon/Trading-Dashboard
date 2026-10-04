@@ -57,7 +57,7 @@ export function Chip({ tone = "neutral", children }: { tone?: "neutral" | "good"
         tone === "good" && "bg-positive-soft text-positive",
         tone === "bad" && "bg-negative-soft text-negative",
         tone === "warn" && "bg-warning/15 text-warning",
-        tone === "info" && "bg-primary-soft text-primary",
+        tone === "info" && "bg-primary-soft text-primary-text",
         tone === "neutral" && "bg-raised text-muted-foreground",
       )}
     >

@@ -81,7 +81,7 @@ function Illustration({ icon: Icon, className }: { icon: LucideIcon; className?:
         className,
       )}
     >
-      <span className="flex size-24 items-center justify-center rounded-3xl bg-primary/12 text-primary shadow-[0_0_80px_-10px] shadow-primary/40">
+      <span className="flex size-24 items-center justify-center rounded-3xl bg-primary/12 text-primary-text shadow-[0_0_80px_-10px] shadow-primary/40">
         <Icon className="size-11" strokeWidth={1.6} />
       </span>
     </div>
@@ -198,7 +198,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
               if (smallPrint.length > 0) {
                 return (
                   <section key={s} className="mx-auto flex max-w-[620px] flex-col items-center text-center">
-                    <ShieldCheck aria-hidden className="size-12 text-primary" strokeWidth={1.6} fill="currentColor" fillOpacity={0.15} />
+                    <ShieldCheck aria-hidden className="size-12 text-primary-text" strokeWidth={1.6} fill="currentColor" fillOpacity={0.15} />
                     {/* CopyDog keeps this heading at 56px even on phones. */}
                     <h2 className="mt-6 text-[56px] leading-[1.05] font-[652] tracking-[-0.6px] text-balance">
                       <InlineText text={sec.heading.text} />
@@ -227,7 +227,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                   )}
                   <div className="grid content-center gap-4">
                     {label ? (
-                      <span className="inline-flex justify-self-start rounded-full bg-primary/10 px-3.5 py-[5px] text-[13px] font-semibold tracking-[0.4px] text-primary uppercase">
+                      <span className="inline-flex justify-self-start rounded-full bg-primary/10 px-3.5 py-[5px] text-[13px] font-semibold tracking-[0.4px] text-primary-text uppercase">
                         <InlineText text={label} />
                       </span>
                     ) : null}

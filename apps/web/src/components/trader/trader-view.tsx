@@ -105,7 +105,7 @@ function TraderLoaded({ address, initial }: { address: string; initial?: TraderI
     return (
       <div className="pt-8 text-center">
         <p className="text-muted-foreground">{t("trader.loadFailed")}</p>
-        <button type="button" className="mt-2 rounded text-primary underline outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => profile.refetch()}>
+        <button type="button" className="mt-2 rounded text-primary-text underline outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => profile.refetch()}>
           {t("common.retry")}
         </button>
       </div>

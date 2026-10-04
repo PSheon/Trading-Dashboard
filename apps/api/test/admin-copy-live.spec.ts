@@ -124,7 +124,7 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     expect(() => assertWalletAuthorization(plain, { ...request, reduceOnly: false }, now)).toThrow('wallet_scope_denied');
     expect((await new PostgresWalletAuthorizationSource(db).find('grant'))?.scopes).toEqual([]);
     // The stop executor: reductions only.
-    const stop = await new PostgresWalletAuthorizationSource(db, 'stop').find('grant');
+    const stop = await PostgresWalletAuthorizationSource.forPurpose(db, 'stop').find('grant');
     expect(() => assertWalletAuthorization(stop, { ...request, reduceOnly: true }, now)).not.toThrow();
     expect(() => assertWalletAuthorization(stop, { ...request, reduceOnly: false }, now)).toThrow('wallet_scope_denied');
     // A new mandate on it is refused.

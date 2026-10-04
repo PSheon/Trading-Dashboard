@@ -10,7 +10,16 @@ import { address, type WalletAuthorization, type WalletAuthorizationSource } fro
  * supply exchangeApprovedAt, owner quorum or wallet metadata. */
 @Injectable()
 export class PostgresWalletAuthorizationSource implements WalletAuthorizationSource {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly purpose?: GrantPurpose) {}
+  // Not a constructor parameter: Nest builds this provider with the
+  // database alone (the normal, purpose-less source).
+  private purpose?: GrantPurpose;
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  /** The stop executor's source (see GrantPurpose). */
+  static forPurpose(db: DrizzleDb, purpose?: GrantPurpose): PostgresWalletAuthorizationSource {
+    const source = new PostgresWalletAuthorizationSource(db);
+    source.purpose = purpose;
+    return source;
+  }
   async find(id: string): Promise<WalletAuthorization | null> {
     return findCurrentWalletAuthorization(this.db, id, this.purpose);
   }

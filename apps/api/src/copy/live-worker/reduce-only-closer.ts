@@ -76,7 +76,7 @@ export class TestnetReduceOnlyCloser {
     const { auth, copy } = this.config.value;
     if (!auth.appId || !auth.appSecret || !copy.agent || copy.agent.workerQuorumId !== account.workerQuorumId) throw new LiveBoundaryError('close_signing_configuration');
     const agent = copy.agent;
-    const authorizations = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(this.db, purpose),
+    const authorizations = new WalletAuthorizationService(PostgresWalletAuthorizationSource.forPurpose(this.db, purpose),
       new HyperliquidAgentApprovalVerifier('testnet', this.acquire, this.global.fetchInfo, this.now), this.now);
     const gate: LiveExecutionGate = { assertReady: async ({ phase, intent, record }) => {
       if (!intent.reduceOnly || intent.timeInForce !== 'Ioc' || intent.network !== 'testnet' || address(intent.accountAddress) !== address(account.accountAddress))

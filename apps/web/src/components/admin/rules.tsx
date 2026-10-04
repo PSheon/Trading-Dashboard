@@ -28,7 +28,7 @@ export function AdminRules() {
 
   return (
     <Panel className="p-5 md:p-6">
-      <h2 className="text-base font-bold tracking-tight">{t("admin.rules.title")}</h2>
+      <h2 className="text-base font-bold">{t("admin.rules.title")}</h2>
       <p className="mt-1 text-[0.8125rem] text-muted-foreground">{t("admin.rules.hint")}</p>
       <div className="mt-5 flex flex-col gap-3">
         {rules.isError ? (

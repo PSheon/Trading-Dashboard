@@ -38,7 +38,7 @@ function Column({ children }: { children: React.ReactNode }) {
 }
 
 // CopyDog's .data-table: mono caps headers (33px), 13px cells in 48–49px rows.
-const th = "px-3 py-2 text-left font-mono text-[11px] leading-[16.5px] font-semibold tracking-[0.4px] whitespace-nowrap text-muted-foreground uppercase";
+const th = "px-3 py-2 text-left font-mono text-[11px] leading-[16.5px] font-semibold whitespace-nowrap text-muted-foreground";
 const td = "px-3 py-3.5 text-[13px] leading-5 whitespace-nowrap";
 
 export function CoinIndexView() {
@@ -47,7 +47,7 @@ export function CoinIndexView() {
   return (
     <Column>
       <p className="cd-label">{t("coins.markets")}</p>
-      <h1 className="mt-2 text-[26px] leading-[1.25] font-bold tracking-[-0.65px]">{t("coins.indexTitle")}</h1>
+      <h1 className="mt-2 text-[26px] leading-[1.25] font-bold">{t("coins.indexTitle")}</h1>
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] text-muted-foreground">{t("coins.indexBody")}</p>
       <div className="mt-[31px]">
         {query.isError && !query.data ? (
@@ -57,7 +57,7 @@ export function CoinIndexView() {
         ) : (
           <table className="w-full border-collapse">
             <thead>
-              <tr className="border-b border-border">
+              <tr className="border-b-2 border-dotted border-border">
                 <th className={th}>{t("coins.colMarket")}</th>
                 <th className={cn(th, "text-right")}>{t("coins.colProfitable")}</th>
                 <th className={cn(th, "text-right")}>{t("coins.colProfit")}</th>
@@ -66,7 +66,7 @@ export function CoinIndexView() {
             <tbody>
               {query.data
                 ? query.data.items.map((row) => (
-                    <tr key={row.coin} className="relative border-b border-border transition-colors hover:bg-raised/50">
+                    <tr key={row.coin} className="relative border-b-2 border-dotted border-border transition-colors hover:bg-raised/50">
                       <td className={td}>
                         <Link
                           href={coinHref(row.coin)}
@@ -81,7 +81,7 @@ export function CoinIndexView() {
                     </tr>
                   ))
                 : Array.from({ length: 12 }, (_, i) => (
-                    <tr key={i} className="h-12 border-b border-border">
+                    <tr key={i} className="h-12 border-b-2 border-dotted border-border">
                       <td className={td}><Skeleton className="h-4 w-24" /></td>
                       <td className={td}><Skeleton className="ml-auto h-4 w-12" /></td>
                       <td className={td}><Skeleton className="ml-auto h-4 w-16" /></td>
@@ -115,7 +115,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
         <span aria-hidden> › </span>
         <span aria-current="page">{label}</span>
       </nav>
-      <h1 className="mt-4 text-[26px] leading-[1.25] font-bold tracking-[-0.65px]">{t("coins.title", { coin: label })}</h1>
+      <h1 className="mt-4 text-[26px] leading-[1.25] font-bold">{t("coins.title", { coin: label })}</h1>
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] text-muted-foreground">{t("coins.body", { coin: label })}</p>
 
       {noData ? (
@@ -146,7 +146,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
           <div className="-mx-5 overflow-x-auto px-5 md:mx-0 md:px-0">
             <table className="w-full min-w-[560px] border-collapse">
               <thead>
-                <tr className="border-b border-border">
+                <tr className="border-b-2 border-dotted border-border">
                   <th className={cn(th, "w-[88px]")}>{t("coins.colRank")}</th>
                   <th className={th}>{t("coins.colTrader")}</th>
                   <th className={cn(th, "text-right")}>{t("coins.colPnl")}</th>
@@ -158,7 +158,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
               <tbody>
                 {query.data
                   ? query.data.items.map((row, i) => (
-                      <tr key={row.address} className="relative border-b border-border transition-colors hover:bg-raised/50">
+                      <tr key={row.address} className="relative border-b-2 border-dotted border-border transition-colors hover:bg-raised/50">
                         <td className={cn(td, "num")}>{i + 1}</td>
                         <td className={cn(td, "max-w-[260px]")}>
                           <Link
@@ -176,7 +176,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
                       </tr>
                     ))
                   : Array.from({ length: 10 }, (_, i) => (
-                      <tr key={i} className="h-[49px] border-b border-border">
+                      <tr key={i} className="h-[49px] border-b-2 border-dotted border-border">
                         <td className={td} colSpan={6}><Skeleton className="h-4 w-full" /></td>
                       </tr>
                     ))}

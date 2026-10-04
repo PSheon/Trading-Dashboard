@@ -123,7 +123,7 @@ function Donut({ segments, icons = false }: { segments: PieSegment[]; icons?: bo
 
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="relative flex flex-col gap-4 border-t border-border pt-7 first:border-0 first:pt-0">
+    <section className="relative flex flex-col gap-4 border-t-2 border-dotted border-border pt-7 first:border-0 first:pt-0">
       <div className="flex min-h-9 items-center justify-between gap-3">
         <h2 className="text-lg leading-[27px] font-bold">{title}</h2>
         {action}
@@ -373,7 +373,7 @@ export function MobileInsights({
         ) : mostTraded.length > 0 ? (
           <ul className="overflow-hidden rounded-2xl bg-card">
             {mostTraded.map((coin) => (
-              <li key={coin.coin} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0">
+              <li key={coin.coin} className="flex items-center gap-3 border-b-2 border-dotted border-border px-4 py-3 last:border-0">
                 <CoinIcon coin={coin.coin} size={26} />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-sm font-semibold">{coinLabel(coin.coin)}</span>

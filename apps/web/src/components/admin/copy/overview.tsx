@@ -80,7 +80,7 @@ export function AdminCopyOverview() {
               <h2 id="copy-backlog-title" className="text-[0.9375rem] font-bold">{t("copyAdmin.backlog.title")}</h2>
               <Chip tone={behind ? "bad" : "good"}>{t(behind ? "copyAdmin.backlog.behind" : "copyAdmin.backlog.ok")}</Chip>
             </div>
-            <dl className="divide-y divide-border text-sm">
+            <dl className="divide-y-2 divide-dotted divide-border text-sm">
               <Row label={t("copyAdmin.backlog.pending")} value={format.num(d.outbox.pending, 0)} />
               <Row label={t("copyAdmin.backlog.lag")} value={lag === null ? t("copyAdmin.backlog.none") : lag < 120 ? t("copyAdmin.backlog.seconds", { seconds: lag }) : format.duration(lag)} bad={lag !== null && lag > LAG_WARN_SECONDS} />
               <Row label={t("copyAdmin.backlog.failed")} value={format.num(d.outbox.failed, 0)} bad={d.outbox.failed > 0} />
@@ -91,7 +91,7 @@ export function AdminCopyOverview() {
             <h2 id="copy-orders24-title" className="mb-3 text-[0.9375rem] font-bold">{t("copyAdmin.orders24h.title")}</h2>
             <dl className="grid grid-cols-2 gap-x-6 text-sm sm:grid-cols-3">
               {copyOrderStatusEnum.filter((s) => (d.orders24h[s] ?? 0) > 0 || s === "filled" || s === "rejected" || s === "cancelled").map((s) => (
-                <div key={s} className="flex items-center justify-between gap-2 border-b border-border py-2">
+                <div key={s} className="flex items-center justify-between gap-2 border-b-2 border-dotted border-border py-2">
                   <dt className="text-muted-foreground">{t(`copyAdmin.orderStatus.${s}`)}</dt>
                   <dd className={cn("num font-semibold", s === "rejected" && (d.orders24h[s] ?? 0) > 0 && "text-negative")}>{format.num(d.orders24h[s] ?? 0, 0)}</dd>
                 </div>
@@ -107,7 +107,7 @@ export function AdminCopyOverview() {
               <Chip tone="bad">{format.num(d.stuckOrders!.length, 0)}</Chip>
             </div>
             <p className="mb-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">{t("copyAdmin.stuck.hint", { attempts: STUCK_ORDER_ATTEMPTS })}</p>
-            <ul className="divide-y divide-border text-sm">
+            <ul className="divide-y-2 divide-dotted divide-border text-sm">
               {d.stuckOrders!.map((o) => (
                 <li key={o.id} className="grid gap-x-6 gap-y-1 py-2.5 sm:grid-cols-[auto_1fr_auto]">
                   <span className="num font-semibold">

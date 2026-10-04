@@ -174,10 +174,10 @@ function FormCard<S extends Section>({
   return (
     <Panel id={id} className="scroll-mt-24 p-5 md:p-6">
       <form onSubmit={submit} className="flex flex-col gap-5">
-        <h2 className="text-base font-bold tracking-tight">{title}</h2>
+        <h2 className="text-base font-bold">{title}</h2>
         <fieldset disabled={!canSave || save.isPending || reload.isPending} className="contents">{children}</fieldset>
         {dirty && <SettingsImpact section={section} original={original} value={value} />}
-        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t-2 border-dotted border-border pt-4">
           {clientError || save.isError || reload.isError ? (
             <p role="alert" className="mr-auto text-xs text-negative">
               {save.error?.status === 409 ? t("admin.settings.conflict") : t("admin.settings.failed", { message: clientError ?? reload.error?.message ?? save.error?.message ?? "" })}

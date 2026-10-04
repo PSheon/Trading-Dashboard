@@ -82,7 +82,7 @@ export function VaultBadge({ className }: { className?: string }) {
       <span
         tabIndex={0}
         className={cn(
-          "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-border-strong px-1.5 text-[0.625rem] font-semibold tracking-wide text-muted-foreground uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-border-strong px-1.5 text-[0.625rem] font-semibold text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
           className,
         )}
       >

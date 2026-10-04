@@ -295,7 +295,7 @@ function TraderEvidence({
             {d.imports.items.map((i) => (
               <li
                 key={i.id}
-                className="flex flex-wrap gap-x-4 gap-y-1 border-b border-border py-2 text-sm"
+                className="flex flex-wrap gap-x-4 gap-y-1 border-b-2 border-dotted border-border py-2 text-sm"
               >
                 <span>#{i.id}</span>
                 <span className="break-all">{i.source}</span>

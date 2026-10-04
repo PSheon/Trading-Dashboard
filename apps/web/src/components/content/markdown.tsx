@@ -60,7 +60,7 @@ export function MarkdownBlocks({ blocks, className }: { blocks: Block[]; classNa
           case "heading": {
             if (block.level <= 2)
               return (
-                <h2 key={i} className="mt-10 mb-3 text-xl font-bold tracking-tight text-foreground">
+                <h2 key={i} className="mt-10 mb-3 text-xl font-bold text-foreground">
                   <InlineText text={block.text} />
                 </h2>
               );
@@ -103,7 +103,7 @@ export function MarkdownBlocks({ blocks, className }: { blocks: Block[]; classNa
                   </thead>
                   <tbody>
                     {block.rows.map((row, j) => (
-                      <tr key={j} className="border-t border-border">
+                      <tr key={j} className="border-t-2 border-dotted border-border">
                         {row.map((cell, k) => (
                           <td key={k} className="px-3 py-2 align-top">
                             <InlineText text={cell} />

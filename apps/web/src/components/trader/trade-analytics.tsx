@@ -223,7 +223,7 @@ export function TradeCard({ trade, shareAddress = null }: { trade: RoundTrip; /*
   const pnl = shownPnl(trade);
   const roi = tradeReturnPct(trade);
   return (
-    <li className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-0">
+    <li className="flex items-start gap-3 border-b-2 border-dotted border-border px-4 py-3 last:border-0">
       <span className="mt-px shrink-0"><CoinIcon coin={trade.coin} size={26} /></span>
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
         <span className="flex min-w-0 items-center gap-1.5 text-[15px] leading-[23px] font-semibold">
@@ -272,7 +272,7 @@ export function PerfSwitch({ value, onChange }: { value: PerfView; onChange: (v:
           aria-checked={value === v}
           onClick={() => onChange(v)}
           className={cn(
-            "rounded font-mono text-[11px] font-medium tracking-[0.2px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+            "rounded font-mono text-[11px] font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
             value === v ? "text-primary-text" : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -388,7 +388,7 @@ function CoinTable({ rows }: { rows: TradeCoin[] }) {
     <>
       <ul className="overflow-hidden rounded-2xl bg-card sm:hidden">
         {sorted.map((c) => (
-          <li key={c.coin} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0">
+          <li key={c.coin} className="flex items-center gap-3 border-b-2 border-dotted border-border px-4 py-3 last:border-0">
             <CoinIcon coin={c.coin} size={26} />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-sm font-semibold">{coinLabel(c.coin)}</span>
@@ -605,7 +605,7 @@ export function TradesTab({ address }: { address: string }) {
             type="button"
             disabled={query.isFetchingNextPage}
             onClick={() => query.fetchNextPage()}
-            className="block w-full border-t border-border py-3 text-center text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            className="block w-full border-t-2 border-dotted border-border py-3 text-center text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
             {t("trader.showMore", { shown: rows.length, total: first.total })}
           </button>

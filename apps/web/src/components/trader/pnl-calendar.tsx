@@ -66,7 +66,7 @@ export function PnlCalendarView({ address, unit }: { address: string; unit: Cale
           <tr>
             <th className="w-[42px]" />
             {monthNames.map((name) => (
-              <th key={name} scope="col" className="pb-1.5 text-center font-mono text-[11px] leading-[14px] font-medium text-subtle-foreground uppercase">
+              <th key={name} scope="col" className="pb-1.5 text-center font-mono text-[11px] leading-[14px] font-medium text-subtle-foreground">
                 {name}
               </th>
             ))}
@@ -92,7 +92,7 @@ export function PnlCalendarView({ address, unit }: { address: string; unit: Cale
                     data-cell={cell ? (zero ? "zero" : "value") : "empty"}
                     style={cell ? tint(v, calendarShade(v, max)) : undefined}
                     className={cn(
-                      "num overflow-hidden rounded-md px-[3px] text-center text-[11px] font-semibold tracking-[-0.2px] text-ellipsis whitespace-nowrap",
+                      "num overflow-hidden rounded-md px-[3px] text-center text-[11px] font-semibold text-ellipsis whitespace-nowrap",
                       zero && "bg-raised text-subtle-foreground",
                     )}
                   >
@@ -105,7 +105,7 @@ export function PnlCalendarView({ address, unit }: { address: string; unit: Cale
                 title={calendarTitle({ pnl: row.pnl, roi: row.roi })}
                 data-cell="overall"
                 style={tint(pick(row), CALENDAR_OVERALL_SHADE)}
-                className="num overflow-hidden rounded-md bg-raised px-[3px] text-center text-[11px] font-bold tracking-[-0.2px] text-ellipsis whitespace-nowrap shadow-[inset_0_0_0_1px_var(--border)]"
+                className="num overflow-hidden rounded-md bg-raised px-[3px] text-center text-[11px] font-bold text-ellipsis whitespace-nowrap shadow-[inset_0_0_0_1px_var(--border)]"
               >
                 {show(pick(row))}
               </td>

@@ -23,7 +23,7 @@ function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExe
   const eligible = accounts.filter((item) => item.network === data?.network && item.state === "ready" && item.address);
   const busy = prepare.isPending || confirm.isPending || cancel.isPending;
   const valid = copyFundingInputSchema.safeParse({ amount, idempotencyKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }).success;
-  return <section className="mt-5 border-t border-border pt-5" aria-label={t("copyFunding.title")}>
+  return <section className="mt-5 border-t-2 border-dotted border-border pt-5" aria-label={t("copyFunding.title")}>
     <h4 className="text-sm font-bold">{t("copyFunding.title")}</h4>
     <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("copyFunding.hint")}</p>
     {query.isPending ? <p role="status" className="mt-3 text-xs">{t("executionWallets.loading")}</p> : null}
@@ -35,10 +35,10 @@ function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExe
       prepare.mutate({ accountId, amount, idempotencyKey }, { onSuccess: () => setKey(null) });
     }}>
       <div className="min-w-0 flex-1"><label htmlFor={selectId} className="block text-xs font-semibold">{t("executionWallets.strategy")}</label>
-        <select id={selectId} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" value={accountId} disabled={busy || pending || Boolean(key)} onChange={(e) => { setAccountId(e.target.value); prepare.reset(); }}>
+        <select id={selectId} className="mt-1 w-full rounded-xl bg-inset px-3 py-2 text-sm" value={accountId} disabled={busy || pending || Boolean(key)} onChange={(e) => { setAccountId(e.target.value); prepare.reset(); }}>
           <option value="">{t("executionWallets.selectStrategy")}</option>{eligible.map((a) => <option key={a.id} value={a.id}>{t("executionWallets.copyNumber", { id: a.strategyId })}</option>)}
         </select></div>
-      <div><label htmlFor={amountId} className="block text-xs font-semibold">{t("copyFunding.amount")}</label><input id={amountId} inputMode="decimal" className="mt-1 w-32 rounded-lg border border-border bg-background px-3 py-2 text-sm" value={amount} disabled={busy || pending || Boolean(key)} onChange={(e) => { setAmount(e.target.value); prepare.reset(); }} /></div>
+      <div><label htmlFor={amountId} className="block text-xs font-semibold">{t("copyFunding.amount")}</label><input id={amountId} inputMode="decimal" className="mt-1 w-32 rounded-xl bg-inset px-3 py-2 text-sm" value={amount} disabled={busy || pending || Boolean(key)} onChange={(e) => { setAmount(e.target.value); prepare.reset(); }} /></div>
       <Button size="sm" type="submit" disabled={!accountId || !valid || pending || busy || query.isError}>{t("copyFunding.prepare")}</Button>
       {key && !pending && !busy ? <Button size="sm" variant="secondary" type="button" onClick={() => { setKey(null); prepare.reset(); void query.refetch(); }}>{t("executionWallets.cancel")}</Button> : null}
     </form> : null}

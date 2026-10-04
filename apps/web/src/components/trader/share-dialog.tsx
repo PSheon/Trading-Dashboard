@@ -91,7 +91,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t("trader.share.title")} className="max-w-[680px]" bodyClassName="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-dotted border-border px-5 py-3">
         <div role="radiogroup" aria-label={t("trader.share.style")} className="flex items-center gap-2">
           {(Object.keys(SHARE_FORMATS) as ShareFormat[]).map((f) => {
             const d = SHARE_FORMATS[f];
@@ -146,7 +146,7 @@ export function ShareDialog({ open, onOpenChange, address, name }: { open: boole
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-border px-5 py-4">
+      <div className="flex flex-col gap-2 border-t-2 border-dotted border-border px-5 py-4">
         <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"

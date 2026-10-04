@@ -188,7 +188,7 @@ function ProfileAndWallet() {
   return (
     <>
       <SectionTitle>{t("settings.profile")}</SectionTitle>
-      <Row label={t("settings.email")} value={email ?? t("settings.noEmail")} className="border-b border-border" />
+      <Row label={t("settings.email")} value={email ?? t("settings.noEmail")} className="border-b-2 border-dotted border-border" />
       <Row
         label={t("settings.wallet")}
         value={
@@ -215,11 +215,11 @@ function FundsSummary() {
   const wallet = useWallet();
   const { openDeposit, openWithdraw } = useWalletModals();
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-border bg-card p-5">
+    <div className="flex flex-wrap items-end justify-between gap-4 orbit-card p-5">
       <div>
         <p className="text-xs text-muted-foreground">{t("portfolio.totalValue")}</p>
         {wallet.data ? (
-          <p className="num mt-1 text-3xl font-extrabold tracking-tight">{format.usd(wallet.data.totalValue, { digits: 2 })}</p>
+          <p className="num mt-1 text-3xl font-extrabold">{format.usd(wallet.data.totalValue, { digits: 2 })}</p>
         ) : (
           <Skeleton className="mt-2 h-8 w-32" />
         )}
@@ -283,8 +283,8 @@ function DesktopSettings() {
   return (
     // Flush against the icon rail, as on CopyDog (the menu starts at the rail).
     <div className="-mt-2 -ml-8">
-      <h1 className="pb-6 pl-4 text-xl font-bold tracking-tight">{t("settings.title")}</h1>
-      <div className="grid min-h-[calc(100dvh-200px)] grid-cols-[300px_1fr] border-t border-border lg:grid-cols-[360px_1fr]">
+      <h1 className="pb-6 pl-4 text-xl font-bold">{t("settings.title")}</h1>
+      <div className="grid min-h-[calc(100dvh-200px)] grid-cols-[300px_1fr] border-t-2 border-dotted border-border lg:grid-cols-[360px_1fr]">
         <nav aria-label={t("settings.title")} className="border-r border-border">
           <MenuItem icon={User} label={t("settings.menu.account")} active={tab === "account"} onClick={() => setTab("account")} />
           <MenuItem icon={ReceiptText} label={t("settings.menu.funds")} active={tab === "funds"} onClick={() => setTab("funds")} />
@@ -295,14 +295,14 @@ function DesktopSettings() {
             <>
               <div className="flex items-center gap-3.5 pt-5 pb-1">
                 <Avatar initial={initial} />
-                <h2 className="truncate text-xl font-bold tracking-tight">{name}</h2>
+                <h2 className="truncate text-xl font-bold">{name}</h2>
               </div>
               <ProfileAndWallet />
               <ExecutionWalletSettings />
               <SectionTitle className="pt-8">{t("settings.language")}</SectionTitle>
               <Row label={t("settings.language")} value={t("settings.languageHint")} action={<LanguageSelect />} />
               <SectionTitle className="pt-8">{t("settings.notifications")}</SectionTitle>
-              <TradingBotRow className="border-b border-border" />
+              <TradingBotRow className="border-b-2 border-dotted border-border" />
               <AlertBotRow />
               <DesktopDeleteRow />
             </>
@@ -350,7 +350,7 @@ function PhoneRow({ icon: Icon, label, value, onClick }: { icon: LucideIcon; lab
     <button
       type="button"
       onClick={onClick}
-      className="flex h-[54px] w-full items-center gap-4 border-b border-border text-left outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-[54px] w-full items-center gap-4 border-b-2 border-dotted border-border text-left outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Icon className="size-6" strokeWidth={1.75} />
       <span className="flex-1 text-base font-semibold">{label}</span>
@@ -434,7 +434,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
             </>
           )}
 
-          <p className="mt-[22px] text-xs leading-[18px] font-semibold tracking-[0.6px] text-muted-foreground uppercase">{t("settings.general")}</p>
+          <p className="mt-[22px] text-xs leading-[18px] font-semibold text-muted-foreground">{t("settings.general")}</p>
           <div className="mt-1">
             {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => open("notifications")} /> : null}
             <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => open("language")} />
@@ -444,7 +444,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
 
           <div className="mt-6 flex items-center gap-4 rounded-[20px] bg-card p-5">
             <div className="min-w-0 flex-1">
-              <p className="text-xl leading-6 font-bold tracking-tight">{t("settings.feedbackTitle")}</p>
+              <p className="text-xl leading-6 font-bold">{t("settings.feedbackTitle")}</p>
               <p className="mt-2 text-sm leading-[21px] text-muted-foreground">{t("settings.feedbackBody")}</p>
               <Button asChild size="sm" className="mt-4 h-[37px] px-3.5 text-sm font-semibold">
                 <a href="https://t.me/orbie_fun_bot" target="_blank" rel="noreferrer">
@@ -509,7 +509,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
               </>
             ) : view === "notifications" ? (
               <div className="pt-3">
-                <TradingBotRow className="border-b border-border" />
+                <TradingBotRow className="border-b-2 border-dotted border-border" />
                 <AlertBotRow />
               </div>
             ) : view === "referral" ? <ReferralSettings /> : view === "language" ? (
@@ -539,7 +539,7 @@ function LanguageList() {
           role="radio"
           aria-checked={l === locale}
           onClick={() => changeLocale(l)}
-          className="flex h-[54px] w-full items-center border-b border-border text-left text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-[54px] w-full items-center border-b-2 border-dotted border-border text-left text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="flex-1">{LOCALE_NAMES[l]}</span>
           {l === locale ? <span className="size-2.5 rounded-full bg-primary" /> : null}

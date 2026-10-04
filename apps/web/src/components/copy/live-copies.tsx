@@ -34,16 +34,16 @@ export function LiveCopies({ className }: { className?: string }) {
   const items = portfolio.data?.items ?? [];
   // The read failed: say so, with a retry, instead of hiding the section.
   if (portfolio.enabled && portfolio.isError && !items.length) return (
-    <section className={cn('rounded-2xl border border-border bg-card', className)} aria-label={text.title}>
-      <h2 className="border-b border-border px-4 py-3.5 text-[0.8125rem] font-semibold tracking-wide uppercase">{text.title}</h2>
+    <section className={cn('orbit-card', className)} aria-label={text.title}>
+      <h2 className="border-b-2 border-dotted border-border px-4 py-3.5 text-[0.8125rem] font-semibold">{text.title}</h2>
       <ErrorState onRetry={() => void portfolio.refetch()} />
     </section>
   );
   if (!items.length) return null;
   return (
-    <section className={cn('rounded-2xl border border-border bg-card', className)} aria-label={text.title}>
-      <h2 className="border-b border-border px-4 py-3.5 text-[0.8125rem] font-semibold tracking-wide uppercase">{text.title}</h2>
-      <ul className="divide-y divide-border">
+    <section className={cn('orbit-card', className)} aria-label={text.title}>
+      <h2 className="border-b-2 border-dotted border-border px-4 py-3.5 text-[0.8125rem] font-semibold">{text.title}</h2>
+      <ul className="divide-y-2 divide-dotted divide-border">
         {items.map(item => (
           <li key={item.strategyId}>
             <LiveCopyRow item={item} text={text} account={wallets.data?.accounts.find(a => a.id === item.accountId) ?? null}
@@ -89,7 +89,7 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
           <div>
             <p className="text-xs font-semibold">{text.positions}</p>
             {observed.positions.length === 0 ? <p className="text-xs text-muted-foreground">{text.noPositions}</p> : (
-              <ul className="mt-1 divide-y divide-border">
+              <ul className="mt-1 divide-y-2 divide-dotted divide-border">
                 {observed.positions.map(p => (
                   <li key={p.coin} className="flex flex-wrap items-center gap-3 py-1.5 text-xs">
                     <span className="font-semibold">{p.coin}</span>
@@ -115,7 +115,7 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
           <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); if (validAmount) actions.transfer.mutate({ accountId: item.accountId!, amount }); }}>
             <label className="text-xs">{text.amount}
               <input name="withdraw" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value.trim())} disabled={busy}
-                className="mt-1 block w-28 rounded-lg border border-border bg-background px-2 py-1.5 text-sm" autoComplete="off" />
+                className="mt-1 block w-28 rounded-xl bg-inset px-2 py-1.5 text-sm" autoComplete="off" />
             </label>
             <Button type="submit" size="sm" variant="secondary" disabled={busy || !validAmount}>{text.withdraw}</Button>
           </form>

@@ -28,7 +28,7 @@ export function KpiCard({
         </span>
         {label}
       </div>
-      <div className="num text-[1.75rem] leading-none font-bold tracking-tight">{value}</div>
+      <div className="num text-[1.75rem] leading-none font-bold">{value}</div>
       {sub ? <div className="num text-xs text-subtle-foreground">{sub}</div> : null}
     </Panel>
   );

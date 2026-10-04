@@ -16,7 +16,7 @@ export function CopyAccountingHistory({ strategyId }: { strategyId: number }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<"ledger" | "fills">("ledger");
-  return <details className="rounded-2xl border border-border bg-card p-4" onToggle={(e) => setOpen(e.currentTarget.open)}>
+  return <details className="orbit-card p-4" onToggle={(e) => setOpen(e.currentTarget.open)}>
     <summary className="cursor-pointer text-sm font-semibold">{t("copyUpdates.accountingHistory")} <PaperBadge /></summary>
     {open ? <>
       <div className="my-3 flex gap-3" role="tablist" aria-label={t("copyUpdates.accountingHistory")}>
@@ -45,7 +45,7 @@ function AccountingPage({ strategyId, kind }: { strategyId: number; kind: "ledge
   if (!query.data) return <p role="status" className="py-3 text-xs text-muted-foreground">{t("common.loading")}</p>;
   const data = query.data;
   return <div role="tabpanel">
-    {data.items.length === 0 ? <p className="py-3 text-xs text-muted-foreground">{t("copyUpdates.activityEmpty")}</p> : <ul className="divide-y divide-border">
+    {data.items.length === 0 ? <p className="py-3 text-xs text-muted-foreground">{t("copyUpdates.activityEmpty")}</p> : <ul className="divide-y-2 divide-dotted divide-border">
       {data.kind === "ledger" ? data.items.map((row) => <li key={row.id} className="flex flex-wrap justify-between gap-2 py-3 text-xs">
         <div className="min-w-0"><p>{copyRecordLabel("ledgerKinds", row.kind, t)}{row.coin ? ` · ${row.coin}` : ""}</p><time className="text-muted-foreground" dateTime={row.createdAt}>{format.dateTime(row.createdAt)}</time><p className="text-muted-foreground">#{row.id}{row.orderId ? ` · ${t("trader.tabs.orders")} #${row.orderId}` : ""}</p></div>
         <span className="num break-all" title={row.amount}>{row.amount} USDC</span>

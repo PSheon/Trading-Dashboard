@@ -74,9 +74,9 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
   }, [markets]);
 
   return (
-    <section className="flex min-w-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
-      <div className="flex min-h-10 items-center border-b border-border px-3">
-        <h2 className="text-[13px] font-semibold tracking-[-0.12px]">{title}</h2>
+    <section className="flex min-w-0 flex-col overflow-hidden orbit-card">
+      <div className="flex min-h-10 items-center border-b-2 border-dotted border-border px-3">
+        <h2 className="text-[13px] font-semibold">{title}</h2>
       </div>
       <div ref={box} className="relative m-2.5 h-[300px] md:h-[380px]" role="figure" aria-label={title}>
         {loading && !markets ? <Skeleton className="absolute inset-0" /> : null}
@@ -103,7 +103,7 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
                 style={{ backgroundColor: `rgb(${base} / ${(0.22 + strength * 0.45).toFixed(2)})` }}
               >
                 <div className="min-w-0">
-                  <div className={cn("flex min-w-0 items-center font-bold tracking-[-0.3px]", full ? "gap-2 text-[17px]" : "gap-[5px] text-[12.5px] font-semibold")}>
+                  <div className={cn("flex min-w-0 items-center font-bold", full ? "gap-2 text-[17px]" : "gap-[5px] text-[12.5px] font-semibold")}>
                     <CoinIcon coin={c.coin} size={full ? 20 : 14} />
                     <span className="truncate">{coinLabel(c.coin)}</span>
                   </div>

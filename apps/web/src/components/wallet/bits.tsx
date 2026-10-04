@@ -69,7 +69,7 @@ export function NetworkBadge({ network, className }: { network: WalletNetwork | 
       <span
         tabIndex={0}
         className={cn(
-          "inline-flex h-6 items-center gap-1 rounded-full bg-warning/15 px-2 text-[11px] font-bold tracking-wide text-warning outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "inline-flex h-6 items-center gap-1 rounded-full bg-warning/15 px-2 text-[11px] font-bold text-warning outline-none focus-visible:ring-2 focus-visible:ring-ring",
           className,
         )}
       >

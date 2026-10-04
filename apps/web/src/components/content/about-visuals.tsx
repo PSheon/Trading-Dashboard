@@ -30,7 +30,7 @@ function MarqueeRow({ traders, reverse }: { traders: BoardTrader[]; reverse?: bo
       {traders.map((t) => (
         <Link key={t.address} href={`/trader/${t.address}`} className="flex items-center gap-4 outline-none focus-visible:ring-2 focus-visible:ring-ring" tabIndex={-1}>
           <TraderAvatar trader={t} size={64} className="size-10 rounded-xl md:size-16 md:rounded-2xl" />
-          <span className="text-[26px] font-[650] tracking-[-0.2px] whitespace-nowrap">{boardName(t)}</span>
+          <span className="text-[26px] font-[650] whitespace-nowrap">{boardName(t)}</span>
         </Link>
       ))}
     </div>
@@ -127,7 +127,7 @@ function Mock({ className, children }: { className?: string; children: React.Rea
   );
 }
 
-const K = "font-mono text-[10px] tracking-[0.6px] text-muted-foreground uppercase";
+const K = "font-mono text-[10px] text-muted-foreground";
 
 function Spark({ className }: { className?: string }) {
   return (
@@ -147,13 +147,13 @@ export function BoardMock() {
     <Mock>
       <div className="flex items-center gap-2.5 pb-3">
         <CoinIcon coin="BTC" size={26} />
-        <span className="text-[17px] font-[650] tracking-[-0.2px]">BTC</span>
+        <span className="text-[17px] font-[650]">BTC</span>
         <span className={cn(K, "ml-auto")}>Top traders</span>
       </div>
       {[0, 1, 2].map((i) => {
         const t = sample(featured, i);
         return (
-          <div key={i} className="flex items-center gap-2.5 border-t border-border py-2.5">
+          <div key={i} className="flex items-center gap-2.5 border-t-2 border-dotted border-border py-2.5">
             {t ? <TraderAvatar trader={t} size={32} /> : <span className="size-8 rounded-full bg-raised" />}
             <span className="min-w-0 truncate text-sm font-semibold">{t ? boardName(t) : "—"}</span>
             <span className="ml-auto shrink-0 text-sm font-[650] text-positive">{t && t.pnl !== null ? usdCompact(t.pnl, { sign: true }) : ["+$9.9M", "+$2.7M", "+$1.0M"][i]}</span>
@@ -171,7 +171,7 @@ export function ProfileMock() {
     <Mock>
       <div className="flex items-center gap-2.5 pb-3">
         {t ? <TraderAvatar trader={t} size={38} /> : <span className="size-[38px] rounded-full bg-raised" />}
-        <span className="min-w-0 truncate text-[17px] font-[650] tracking-[-0.2px]">{t ? boardName(t) : "—"}</span>
+        <span className="min-w-0 truncate text-[17px] font-[650]">{t ? boardName(t) : "—"}</span>
         <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-[3px] text-xs font-[650] text-primary-text">{t?.copyScore ?? 98}</span>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-3.5 pt-1 pb-3.5">
@@ -183,7 +183,7 @@ export function ProfileMock() {
         ].map(([k, v, pos]) => (
           <div key={String(k)} className="grid min-w-0 gap-[5px]">
             <span className={K}>{k}</span>
-            <span className={cn("text-[17px] font-[650] tracking-[-0.3px] whitespace-nowrap", pos && "text-positive")}>{v}</span>
+            <span className={cn("text-[17px] font-[650] whitespace-nowrap", pos && "text-positive")}>{v}</span>
           </div>
         ))}
       </div>
@@ -196,16 +196,16 @@ export function ProfileMock() {
 export function CopyMock() {
   return (
     <Mock className="overflow-hidden p-0">
-      <div className="flex items-baseline gap-2 px-4 pt-5 pb-3.5 text-[34px] leading-none font-[650] tracking-[-1px]">
+      <div className="flex items-baseline gap-2 px-4 pt-5 pb-3.5 text-[34px] leading-none font-[650]">
         <span>250</span>
         <span className="text-muted-foreground">USDC</span>
       </div>
-      <div className="grid grid-cols-4 gap-px border-t border-border bg-border text-center text-[13px] font-semibold">
+      <div className="grid grid-cols-4 gap-px border-t-2 border-dotted border-border bg-border text-center text-[13px] font-semibold">
         {["$100", "$250", "$500", "Max"].map((v) => (
           <span key={v} className={cn("py-2.5", v === "$250" ? "bg-raised text-foreground" : "bg-card text-muted-foreground")}>{v}</span>
         ))}
       </div>
-      <div className="bg-primary py-[15px] text-center text-[15px] font-bold tracking-[-0.1px] text-primary-foreground">Copy Trade</div>
+      <div className="bg-primary py-[15px] text-center text-[15px] font-bold text-primary-foreground">Copy Trade</div>
     </Mock>
   );
 }
@@ -250,18 +250,18 @@ export function AlertsMock() {
       {lines.map(([coin, long, size, ago], i) => {
         const t = sample(featured, i);
         return (
-          <div key={i} className={cn("flex items-center gap-[11px] py-[13px]", i > 0 && "border-t border-border")}>
+          <div key={i} className={cn("flex items-center gap-[11px] py-[13px]", i > 0 && "border-t-2 border-dotted border-border")}>
             {t ? <TraderAvatar trader={t} size={30} /> : <span className="size-[30px] rounded-full bg-raised" />}
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate text-[13px] font-semibold">{t ? boardName(t) : "—"}</span>
-                <span className={cn("shrink-0 font-mono text-[10px] tracking-[0.6px]", long ? "text-positive" : "text-negative")}>{long ? "LONG" : "SHORT"}</span>
+                <span className={cn("shrink-0 font-mono text-[10px]", long ? "text-positive" : "text-negative")}>{long ? "LONG" : "SHORT"}</span>
                 <CoinIcon coin={coin} size={14} />
                 <span className="text-[13px] font-semibold">{coin}</span>
               </div>
               <p className="mt-[3px] text-xs text-muted-foreground">{size}</p>
             </div>
-            <span className="ml-auto shrink-0 font-mono text-[10px] tracking-[0.4px] text-muted-foreground">{ago}</span>
+            <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">{ago}</span>
           </div>
         );
       })}

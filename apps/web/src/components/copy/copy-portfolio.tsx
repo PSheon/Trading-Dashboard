@@ -89,8 +89,8 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
   const [open, setOpen] = useState<Set<number>>(new Set());
   const cols = "grid grid-cols-[2.2fr_0.8fr_0.8fr_1.1fr_1fr_1.1fr_1.1fr_0.9fr_40px] items-center gap-3";
   return (
-    <div className={cn("overflow-hidden", !bare && "rounded-2xl border border-border bg-card")}>
-      <div className={cn(cols, "border-b border-border px-4 py-3 text-xs text-muted-foreground")}>
+    <div className={cn("flex flex-col gap-2", !bare && "orbit-card p-3")}>
+      <div className={cn(cols, "px-[18px] pt-2 text-xs font-bold text-muted-foreground")}>
         <span>{t("portfolio.copy.cols.trader")}</span>
         <span className="text-right">{t("portfolio.copy.cols.days")}</span>
         <span className="text-right">{t("portfolio.copy.cols.positions")}</span>
@@ -105,18 +105,18 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
         const leader = leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null, avatarUrl: null };
         const expanded = open.has(s.id);
         return (
-          <div key={s.id} className="border-b border-border last:border-b-0">
+          <div key={s.id} className={cn("overflow-hidden rounded-xl", bare ? "bg-raised" : "bg-inset")}>
             {/* The whole row opens the copy (mouse); the name is the keyboard / screen-reader control. */}
-            <div onClick={() => onSelect(s.id)} className={cn(cols, "cursor-pointer px-4 py-3 text-[0.875rem] hover:bg-raised/40")}>
+            <div onClick={() => onSelect(s.id)} className={cn(cols, "min-h-16 cursor-pointer px-[18px] py-3 text-[0.875rem] font-bold transition-colors hover:bg-raised-hover")}>
               <span className="flex min-w-0 items-center gap-2.5">
-                <TraderAvatar trader={leader} size={30} />
+                <TraderAvatar trader={leader} size={36} />
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelect(s.id);
                   }}
-                  className="truncate rounded font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                  className="truncate rounded font-extrabold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {boardName(leader)}
                 </button>
@@ -125,12 +125,12 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
               </span>
               <span className="num text-right">{t("portfolio.copy.daysShort", { count: copyDays(s.createdAt) })}</span>
               <span className="num text-right">{s.positions.length}</span>
-              <span className="num text-right">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
+              <span className="num text-right font-display text-[15px]">{s.equity === null ? "—" : format.usd(s.equity, { digits: 2 })}</span>
               <span className="flex justify-end"><CopySparkline points={sparklines?.get(s.id)} /></span>
               <span className={cn("num text-right", s.positions.length ? tone(s.unrealizedPnl) : "")}>
                 {s.positions.length && s.unrealizedPnl !== null ? format.usd(s.unrealizedPnl, { sign: true, digits: 2 }) : "—"}
               </span>
-              <span className={cn("num text-right font-semibold", tone(s.totalPnl))}>{s.totalPnl === null ? "—" : format.usd(s.totalPnl, { sign: true, digits: 2 })}</span>
+              <span className={cn("num text-right font-display text-[15px]", tone(s.totalPnl))}>{s.totalPnl === null ? "—" : format.usd(s.totalPnl, { sign: true, digits: 2 })}</span>
               <span className="text-right">{s.roiPct === null ? "—" : <RoiPill value={s.roiPct / 100} />}</span>
               <span className="flex justify-end">
                 {s.positions.length ? (
@@ -147,14 +147,14 @@ export function CopyTable({ strategies, leaders, onSelect, sparklines, bare = fa
                         return next;
                       });
                     }}
-                    className="inline-flex size-8 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="orbit-press inline-flex size-10 items-center justify-center rounded-full bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} />
+                    <ChevronDown className={cn("size-4 transition-transform duration-200", expanded && "rotate-180")} strokeWidth={2.4} />
                   </button>
                 ) : null}
               </span>
             </div>
-            {expanded ? <div className="border-t border-border bg-raised/25">{s.positions.map((p) => <PositionLine key={p.coin} p={p} table />)}</div> : null}
+            {expanded ? <div className="flex flex-col gap-1.5 px-2 pb-2">{s.positions.map((p) => <div key={p.coin} className="rounded-lg bg-card"><PositionLine p={p} table /></div>)}</div> : null}
           </div>
         );
       })}
@@ -171,7 +171,7 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
       {strategies.map((s) => {
         const leader = leaders.get(s.leaderAddress) ?? { address: s.leaderAddress, displayName: null, avatarUrl: null };
         return (
-          <div key={s.id} className="rounded-2xl border border-border bg-card">
+          <div key={s.id} className="orbit-card">
             <button type="button" onClick={() => onSelect(s.id)} className="flex w-full items-center gap-3 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <TraderAvatar trader={leader} size={44} />
               <span className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -188,7 +188,7 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
                 {s.roiPct === null ? null : <RoiPill value={s.roiPct / 100} />}
               </span>
             </button>
-            <div className="flex items-center gap-2 border-t border-border px-4 py-2.5 text-xs">
+            <div className="flex items-center gap-2 border-t-2 border-dotted border-border px-4 py-2.5 text-xs">
               {s.positions.length ? (
                 <>
                   <span className="text-muted-foreground">{t("portfolio.copy.cols.upnl")}</span>
@@ -208,7 +208,7 @@ export function CopyCards({ strategies, leaders, onSelect, sparklines }: { strat
                 <span className="text-muted-foreground">{t("portfolio.copy.noOpenPositions")}</span>
               )}
             </div>
-            {open === s.id ? <div className="border-t border-border px-4">{s.positions.map((p) => <PositionLine key={p.coin} p={p} table={false} />)}</div> : null}
+            {open === s.id ? <div className="border-t-2 border-dotted border-border px-4">{s.positions.map((p) => <PositionLine key={p.coin} p={p} table={false} />)}</div> : null}
           </div>
         );
       })}
@@ -301,7 +301,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
       <CopyCompare strategy={s} traderName={boardName(leader)} />
 
       <div className="grid gap-4 md:grid-cols-[1fr_1.4fr]">
-        <section className="rounded-2xl border border-border bg-card p-4">
+        <section className="orbit-card p-4">
           <h3 className="flex items-center justify-between text-sm font-bold">
             {t("portfolio.copy.detail.copySettings")}
             <span className="text-[11px] font-normal text-muted-foreground">{t("portfolio.copy.detail.version", { version: s.version })}</span>
@@ -323,14 +323,14 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
             ))}
           </dl>
         </section>
-        <section className="rounded-2xl border border-border bg-card">
-          <h3 className="border-b border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.positions")}</h3>
+        <section className="orbit-card">
+          <h3 className="border-b-2 border-dotted border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.positions")}</h3>
           {s.positions.length ? s.positions.map((p) => <PositionLine key={p.coin} p={p} table onShare={p.unrealizedPnl === null ? undefined : () => setCard(copyCardSource("position", { strategyId: s.id, coin: p.coin }, coinLabel(p.coin)))} />) : <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t("portfolio.copy.noOpenPositions")}</p>}
         </section>
       </div>
 
-      <section className="rounded-2xl border border-border bg-card">
-        <h3 className="border-b border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.orders")}</h3>
+      <section className="orbit-card">
+        <h3 className="border-b-2 border-dotted border-border px-4 py-3 text-sm font-bold">{t("portfolio.copy.detail.orders")}</h3>
         {orders.data && orders.data.items.length === 0 ? (
           <div className="px-4 py-8 text-center">
             <p className="text-sm font-bold">{t("portfolio.copy.detail.noOrders")}</p>
@@ -351,7 +351,7 @@ export function CopyDetail({ strategy: s, leader, balance, onBack }: { strategy:
               </thead>
               <tbody>
                 {(orders.data?.items ?? []).map((o) => (
-                  <tr key={o.id} className="border-t border-border [&>td]:px-4 [&>td]:py-2">
+                  <tr key={o.id} className="border-t-2 border-dotted border-border [&>td]:px-4 [&>td]:py-2">
                     <td className="num whitespace-nowrap text-muted-foreground">{format.dateTime(o.createdAt)}</td>
                     <td className="font-semibold">{coinLabel(o.coin)}</td>
                     <td className="whitespace-nowrap">

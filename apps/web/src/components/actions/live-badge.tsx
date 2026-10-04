@@ -18,7 +18,7 @@ export function LiveBadge({ status, className }: { status: StreamStatus; classNa
       data-stream={status}
       title={live ? t("actions.liveHint") : t("actions.pollingHint")}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-[11px] font-semibold tracking-wide",
+        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-[11px] font-semibold",
         live ? "bg-tag-profit text-tag-profit-foreground" : "bg-raised text-muted-foreground",
         className,
       )}

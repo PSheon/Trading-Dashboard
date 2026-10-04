@@ -199,7 +199,7 @@ function StackedBars({ daily }: { daily: AdminRevenueResponse["daily"] }) {
         ))}
       </div>
       {hovered ? (
-        <div className="pointer-events-none absolute top-0 right-0 rounded-xl border border-border-strong bg-popover px-3 py-2 text-xs shadow-xl">
+        <div className="pointer-events-none absolute top-0 right-0 rounded-2xl bg-popover shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] px-3 py-2 text-xs shadow-xl">
           <div className="num font-semibold">{hovered.day}</div>
           <div className="num mt-1" style={{ color: "var(--chart-builder)" }}>
             {format.usd(hovered.builder, { digits: 2 })}

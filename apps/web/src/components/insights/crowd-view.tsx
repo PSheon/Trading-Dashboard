@@ -38,9 +38,9 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
 
   return (
     <Panel className="overflow-hidden">
-      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border px-5 py-4">
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b-2 border-dotted border-border px-5 py-4">
         <div>
-          <h2 className="text-base font-bold tracking-tight">{t("insights.crowdTitle")}</h2>
+          <h2 className="text-base font-bold">{t("insights.crowdTitle")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {t("insights.crowdSubtitle", { count: crowd.data.trackedTraders })}
           </p>
@@ -145,7 +145,7 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
         </div>
       )}
       {coins.length > COLLAPSED ? (
-        <div className="border-t border-border px-5 py-3 text-center">
+        <div className="border-t-2 border-dotted border-border px-5 py-3 text-center">
           <Button variant="ghost" size="sm" onClick={() => setAll((a) => !a)}>
             {all ? t("common.collapse") : `${t("common.expand")} (${coins.length})`}
           </Button>

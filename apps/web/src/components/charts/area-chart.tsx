@@ -434,7 +434,7 @@ export function AreaChart({
 
       {geo && hovered ? (
         <div
-          className="pointer-events-none absolute top-1 z-10 rounded-xl border border-border-strong bg-popover/95 px-3 py-2 shadow-xl shadow-black/40 backdrop-blur"
+          className="pointer-events-none absolute top-1 z-10 rounded-2xl bg-popover shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)]/95 px-3 py-2 shadow-xl shadow-black/40 backdrop-blur"
           style={
             geo.x(hovered[0]) > width / 2
               ? { right: width - geo.x(hovered[0]) + 12 }

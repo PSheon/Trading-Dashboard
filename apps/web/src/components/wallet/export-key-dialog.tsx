@@ -57,7 +57,7 @@ export function ExportKeyDialog({ open, onOpenChange, target = null }: { open: b
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={target ? t("funds.exportCopyTitle", { id: target.strategyId }) : t("wallet.exportTitle")} className="max-w-[440px]" bodyClassName="p-7" bare>
       <Lockup markSize={28} />
-      <h2 className="mt-5 text-2xl font-extrabold tracking-tight" aria-hidden>{target ? t("funds.exportCopyTitle", { id: target.strategyId }) : t("wallet.exportTitle")}</h2>
+      <h2 className="mt-5 text-2xl font-extrabold" aria-hidden>{target ? t("funds.exportCopyTitle", { id: target.strategyId }) : t("wallet.exportTitle")}</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{target ? t("funds.exportCopyBody", { id: target.strategyId }) : t("wallet.exportBody")}</p>
       {ready ? (
         <div className="mt-4 rounded-xl border border-border bg-raised/50 p-3">
@@ -80,7 +80,7 @@ export function ExportKeyDialog({ open, onOpenChange, target = null }: { open: b
       ) : null}
       <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-subtle-foreground">
         {t("wallet.protectedBy")}
-        <span className="font-bold tracking-tight text-muted-foreground">privy</span>
+        <span className="font-bold text-muted-foreground">privy</span>
       </p>
     </Modal>
   );

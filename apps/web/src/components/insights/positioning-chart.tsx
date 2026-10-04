@@ -148,9 +148,9 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
   }
 
   return (
-    <section className="flex min-w-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border px-3">
-        <h2 className="truncate text-[13px] font-semibold tracking-[-0.12px]">{title}</h2>
+    <section className="flex min-w-0 flex-col overflow-hidden orbit-card">
+      <div className="flex min-h-10 items-center justify-between gap-3 border-b-2 border-dotted border-border px-3">
+        <h2 className="truncate text-[13px] font-semibold">{title}</h2>
         <div className="flex items-center gap-3" role="radiogroup" aria-label={title}>
           {WINDOWS.map((w) => (
             <button
@@ -160,7 +160,7 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
               aria-checked={window === w}
               onClick={() => onWindow(w)}
               className={cn(
-                "num rounded font-mono text-[11px] leading-[16.5px] font-medium tracking-[0.2px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                "num rounded font-mono text-[11px] leading-[16.5px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                 window === w ? "text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -214,10 +214,10 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           // Both lines sit on the card's colour, so a curve that climbs
           // into the corner passes behind the figure instead of through it.
           <div className="pointer-events-none absolute top-[13px] left-3 flex flex-col items-start gap-[3px]">
-            <div className="rounded-[3px] bg-card/90 py-[3px] pr-2 pl-1 font-mono text-[10px] leading-[15px] tracking-[0.4px] text-muted-foreground uppercase">
+            <div className="rounded-[3px] bg-card/90 py-[3px] pr-2 pl-1 font-mono text-[10px] leading-[15px] text-muted-foreground">
               {window} - {t(`insights.cohort.sentiment.${tone.key}`)}
             </div>
-            <div className={cn("num rounded-[3px] bg-card/90 pr-2 pl-1 text-[19px] leading-[28.5px] font-semibold tracking-[-0.3px]", tone.dir > 0 ? "text-positive" : tone.dir < 0 ? "text-negative" : "text-foreground")}>
+            <div className={cn("num rounded-[3px] bg-card/90 pr-2 pl-1 text-[19px] leading-[28.5px] font-semibold", tone.dir > 0 ? "text-positive" : tone.dir < 0 ? "text-negative" : "text-foreground")}>
               {value.toFixed(1)}% {t("insights.cohort.long")}
             </div>
           </div>

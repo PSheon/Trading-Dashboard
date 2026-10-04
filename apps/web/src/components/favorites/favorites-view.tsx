@@ -95,7 +95,7 @@ function SignedOut() {
       </div>
       <div className="md:hidden">
         <div className="-mt-[7px] flex items-center justify-between">
-          <p role="heading" aria-level={1} className="text-[28px] leading-[1.15] font-bold tracking-[-0.5px]">{t("favorites.title")}</p>
+          <p role="heading" aria-level={1} className="text-[28px] leading-[1.15] font-bold">{t("favorites.title")}</p>
           <div role="tablist" aria-label={t("favorites.title")} className="flex rounded-full bg-raised p-1">
             {(["saved", "alerts"] as const).map((key) => {
               const Icon = key === "saved" ? Star : Bell;
@@ -176,7 +176,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-[1.75rem] font-extrabold tracking-tight md:text-[2rem]">{t("favorites.title")}</h1>
+      <h1 className="text-[1.75rem] font-extrabold md:text-[2rem]">{t("favorites.title")}</h1>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 overflow-x-auto rounded-full bg-raised p-1" role="tablist" aria-label={t("favorites.title")}>
           {TABS.map((key) => (
@@ -247,7 +247,7 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
   if (!favorites) return <SavedSkeleton view={view} />;
   if (favorites.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-5 rounded-2xl border border-border bg-card px-6 py-14 text-center">
+      <div className="flex flex-col items-center gap-5 orbit-card px-6 py-14 text-center">
         <Bookmark className="size-14 text-border-strong" strokeWidth={1.25} aria-hidden />
         <div className="flex flex-col gap-2">
           <h2 className="text-2xl font-bold">{t("favorites.emptyTitle")}</h2>
@@ -267,7 +267,7 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
       ) : !cards.data ? (
         <SavedSkeleton view={view} />
       ) : items.length === 0 ? (
-        <p className="rounded-2xl border border-border bg-card py-12 text-center text-muted-foreground">{t("favorites.emptyGroup")}</p>
+        <p className="orbit-card py-12 text-center text-muted-foreground">{t("favorites.emptyGroup")}</p>
       ) : view === "grid" ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {items.map((card) => (
@@ -365,13 +365,13 @@ function WatchlistTable({ items, groups, sort, onSort }: { items: TraderCard[]; 
   );
   const plain = (v: string) => <span className="num text-sm font-medium">{v}</span>;
   return (
-    <div className="hidden overflow-x-auto rounded-2xl border border-border bg-card md:block">
+    <div className="hidden overflow-x-auto orbit-card md:block">
       <table className="w-full min-w-[1080px] table-fixed border-collapse">
         <colgroup>
           <col style={{ width: "19%" }} /><col style={{ width: "10%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} />
           <col style={{ width: "8%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "12%" }} />
         </colgroup>
-        <thead className="border-b border-border">
+        <thead className="border-b-2 border-dotted border-border">
           <tr>
             <th className="px-3 py-3 text-left text-[0.8125rem] font-semibold text-subtle-foreground">{t("favorites.cols.trader")}</th>
             {head("copyScore", t("favorites.cols.copyScore"))}
@@ -388,7 +388,7 @@ function WatchlistTable({ items, groups, sort, onSort }: { items: TraderCard[]; 
         </thead>
         <tbody>
           {items.map((c) => (
-            <tr key={c.address} className="border-b border-border transition-colors last:border-0 hover:bg-raised/50">
+            <tr key={c.address} className="border-b-2 border-dotted border-border transition-colors last:border-0 hover:bg-raised/50">
               <td className="px-3 py-3"><TraderCell card={c} subtitle={<GroupTags address={c.address} groups={groups} className="mt-1.5" />} /></td>
               <td className="px-3 py-3"><CopyScoreBar score={c.copyScore} layout="bar-first" barClassName="w-10" className="justify-end" /></td>
               <td className="px-3 py-3 text-right">{plain(boardUsd(c.accountValue))}</td>
@@ -412,7 +412,7 @@ function WatchlistTable({ items, groups, sort, onSort }: { items: TraderCard[]; 
 function MobileRow({ card, groups }: { card: TraderCard; groups: FavoriteGroup[] }) {
   const { t } = useI18n();
   return (
-    <li className="rounded-2xl border border-border bg-card p-3">
+    <li className="orbit-card p-3">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <TraderCell
@@ -470,14 +470,14 @@ function AlertsTab({ favorites }: { favorites: Favorite[] | undefined }) {
   return (
     <div className="flex flex-col gap-5">
       {on.length === 0 ? (
-        <EmptyState icon={Bell} title={t("favorites.alerts.empty")} className="rounded-2xl border border-border bg-card" />
+        <EmptyState icon={Bell} title={t("favorites.alerts.empty")} className="orbit-card" />
       ) : (
-        <ul className="divide-y divide-border rounded-2xl border border-border bg-card">{on.map((f) => row(f, true))}</ul>
+        <ul className="divide-y-2 divide-dotted divide-border orbit-card">{on.map((f) => row(f, true))}</ul>
       )}
       {off.length > 0 ? (
         <section className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-muted-foreground">{t("favorites.alerts.others")}</h2>
-          <ul className="divide-y divide-border rounded-2xl border border-border bg-card">{off.map((f) => row(f, false))}</ul>
+          <ul className="divide-y-2 divide-dotted divide-border orbit-card">{off.map((f) => row(f, false))}</ul>
         </section>
       ) : null}
     </div>
@@ -507,10 +507,10 @@ function FeedTab({ rows, loading, highlight, favorites, hasFavorites }: {
   const cardNames = useMemo(() => new Map((cards.data?.items ?? []).map((c) => [c.address, c.displayName])), [cards.data]);
   if (loading) return <div className="flex flex-col gap-2">{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-12" />)}</div>;
   if (rows.length === 0) {
-    return <EmptyState icon={Zap} title={hasFavorites ? t("favorites.feed.emptyWaiting") : t("favorites.feed.emptyNoAlerts")} className="rounded-2xl border border-border bg-card" />;
+    return <EmptyState icon={Zap} title={hasFavorites ? t("favorites.feed.emptyWaiting") : t("favorites.feed.emptyNoAlerts")} className="orbit-card" />;
   }
   return (
-    <ul className="divide-y divide-border rounded-2xl border border-border bg-card">
+    <ul className="divide-y-2 divide-dotted divide-border orbit-card">
       {rows.map((row) => {
         const id = String(row.id);
         const buy = isBuy(row);

@@ -370,10 +370,10 @@ export function AddressSearch({ compact = false, buttonClassName }: {
                     ) : name ? (
                       <>
                         <span className="truncate text-[13.5px] leading-[1.25] font-semibold"><Highlighted text={name} query={q} /></span>
-                        <span className="truncate font-mono text-[11px] leading-[1.2] tracking-[-0.01em] text-muted-foreground">{truncateAddress(row.address)}</span>
+                        <span className="truncate font-mono text-[11px] leading-[1.2] text-muted-foreground">{truncateAddress(row.address)}</span>
                       </>
                     ) : (
-                      <span className="truncate font-mono text-[13px] leading-[1.25] font-semibold tracking-[-0.01em]"><Highlighted text={truncateAddress(row.address)} query={q} /></span>
+                      <span className="truncate font-mono text-[13px] leading-[1.25] font-semibold"><Highlighted text={truncateAddress(row.address)} query={q} /></span>
                     )}
                   </div>
                   {!direct && row.pnl !== null ? (

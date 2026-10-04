@@ -88,7 +88,7 @@ function CopiesList() {
   const items = [...events.data.items].reverse().filter((e) => describeCopyEvent(e).kind !== "other");
   if (!items.length) return <Empty title={t("feed.emptyCopies")} body={t("feed.emptyCopiesDesc")} />;
   return (
-    <ul className="divide-y divide-border">
+    <ul className="divide-y-2 divide-dotted divide-border">
       {items.map((event) => {
         const d = describeCopyEvent(event);
         const who = leaderOf(event.strategyId);
@@ -139,7 +139,7 @@ function FollowingList({ onNavigate }: { onNavigate: () => void }) {
   if (!feed.data) return feed.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <div className="flex flex-col gap-3 py-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}</div>;
   if (!feed.data.length) return <Empty title={t("feed.followingEmpty")} body={t("feed.followingWaiting")} />;
   return (
-    <ul className="divide-y divide-border">
+    <ul className="divide-y-2 divide-dotted divide-border">
       {feed.data.map((a) => {
         const buy = buys(a);
         const who = a.leaderLabel?.trim() || truncateAddress(a.address);
@@ -166,7 +166,7 @@ function DepositsList() {
   if (!history.data) return history.isError ? <p className="py-8 text-center text-sm text-muted-foreground">{t("copyUpdates.activityError")}</p> : <div className="flex flex-col gap-3 py-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}</div>;
   if (!rows.length) return <Empty title={t("feed.emptyDeposits")} />;
   return (
-    <ul className="divide-y divide-border">
+    <ul className="divide-y-2 divide-dotted divide-border">
       {rows.map((x) => {
         const deposit = x.kind === "deposit";
         return (

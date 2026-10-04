@@ -38,7 +38,7 @@ export function UnresolvedWithdrawals() {
         <h2 id="withdrawals-in-doubt" className="text-sm font-semibold">{t("admin.withdrawals.title")}</h2>
         <p className="text-xs leading-5 text-muted-foreground">{t("admin.withdrawals.hint")}</p>
         {outcome ? <p role="status" className="text-xs text-positive">{outcome}</p> : null}
-        <ul className="divide-y divide-border">
+        <ul className="divide-y-2 divide-dotted divide-border">
           {items.map((item) => {
             const open = new Date(item.resolvableAt).getTime() > now;
             return (

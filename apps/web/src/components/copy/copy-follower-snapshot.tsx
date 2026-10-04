@@ -37,7 +37,7 @@ function SnapshotView({ account }: { account: CopyExecutionAccount }) {
   const fresh = view?.status === 'observed' && view.freshness === 'fresh' && view.lastReadIssue === null && Boolean(clock) && clock?.timing === timing && !clock?.expired && clock!.now <= view.asOf.freshUntil;
   const balances = (values: { equity: string; marginUsed: string; exposureUsd: string; withdrawable: string }) => <dl className="grid gap-3 sm:grid-cols-2">{([['equity', 'equity'], ['margin', 'marginUsed'], ['exposure', 'exposureUsd'], ['withdrawable', 'withdrawable']] as const).map(([label, key]) => <div key={key}><dt className="text-muted-foreground">{t(`copyFollowerSnapshot.${label}`)}</dt><dd className="mt-1 break-all font-mono tabular-nums">{amount(values[key])}</dd></div>)}</dl>;
   const detail = (label: string, value: string) => <div><dt className="text-muted-foreground">{label}</dt><dd className="break-all font-mono tabular-nums">{value}</dd></div>;
-  return <section className="mt-5 border-t border-border pt-5" aria-label={t('copyFollowerSnapshot.title')}>
+  return <section className="mt-5 border-t-2 border-dotted border-border pt-5" aria-label={t('copyFollowerSnapshot.title')}>
     <h4 className="text-sm font-bold">{t('copyFollowerSnapshot.title')}</h4><p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerSnapshot.hint')}</p>
     {account.network !== 'testnet' ? <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerSnapshot.unsupported')}</p> : <>
       {query.isPending ? <p role="status" className="mt-3 text-xs">{t('copyFollowerSnapshot.loading')}</p> : null}

@@ -254,7 +254,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
               readOnly
               placeholder="0"
               value={amount}
-              className="num min-w-0 bg-transparent leading-none font-bold tracking-tight outline-none placeholder:text-foreground"
+              className="num min-w-0 bg-transparent leading-none font-bold outline-none placeholder:text-foreground"
               style={{ width: `${Math.max(1, (amount || "0").length) + 0.15}ch`, fontSize: `${fit.number}rem` }}
             />
             <span className="leading-none font-bold text-muted-foreground" style={{ fontSize: `${fit.unit}rem` }}>USDC</span>

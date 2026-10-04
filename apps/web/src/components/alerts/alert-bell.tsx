@@ -132,7 +132,7 @@ export function AlertHistory({ address }: { address: string }) {
   const alerts = useAlerts(address);
   const rows = (alerts.data ?? []).slice(0, ALERT_HISTORY_ROWS);
   return (
-    <section className="mt-4 border-t border-border pt-3" aria-label={t("alerts.recent")}>
+    <section className="mt-4 border-t-2 border-dotted border-border pt-3" aria-label={t("alerts.recent")}>
       <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{t("alerts.recent")}</h4>
       {alerts.isError && !alerts.data ? (
         <p className="text-xs text-negative">{t("common.error")}</p>

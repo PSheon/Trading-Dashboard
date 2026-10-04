@@ -105,7 +105,7 @@ export function WalletHistoryList({ className }: { className?: string }) {
       {recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
       {history.data.from && history.data.fetchedAt ? <p className="mb-2 text-xs text-muted-foreground">{t("wallet.historyCoverage", { from: format.dateTime(history.data.from), time: format.dateTime(history.data.fetchedAt) })}</p> : null}
       {history.data.truncated ? <p className="mb-2 text-xs text-warning">{t("wallet.historyPartial")}</p> : null}
-      {!history.data.transfers.length ? <EmptyState icon={ReceiptText} title={t("wallet.historyEmpty")} body={t("wallet.historyEmptyBody")} /> : <ul className="divide-y divide-border">
+      {!history.data.transfers.length ? <EmptyState icon={ReceiptText} title={t("wallet.historyEmpty")} body={t("wallet.historyEmptyBody")} /> : <ul className="divide-y-2 divide-dotted divide-border">
         {history.data.transfers.map((row) => {
           const kind = kindOf(row);
           const Icon = ICON[kind];

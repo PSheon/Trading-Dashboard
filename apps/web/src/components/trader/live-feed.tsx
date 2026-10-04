@@ -43,12 +43,12 @@ function FillRow({ ev }: { ev: FillGroup }) {
   const key = eventKey(ev);
   const headline = key ? t(`trader.activity.evt.${key}`, { value, coin }) : t("trader.activity.evt.other", { value, coin, dir: ev.dir });
   return (
-    <li className="flex gap-3 border-b border-border py-3 last:border-0" title={ev.partial ? t("trader.activity.partial") : undefined}>
+    <li className="flex gap-3 border-b-2 border-dotted border-border py-3 last:border-0" title={ev.partial ? t("trader.activity.partial") : undefined}>
       <CoinIcon coin={ev.coin} size={22} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className={cn("truncate text-[13px] font-semibold", ev.liquidation && "text-negative")}>{headline}</span>
-          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground uppercase">{feedTime(ev.time)}</span>
+          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground">{feedTime(ev.time)}</span>
         </div>
         <div className="num font-mono text-[11px] text-muted-foreground">
           {ev.partial ? "≥" : ""}
@@ -65,12 +65,12 @@ function FillRow({ ev }: { ev: FillGroup }) {
 function TransferRow({ ev }: { ev: TraderTransfer }) {
   const { t } = useI18n();
   return (
-    <li className="flex gap-3 border-b border-border py-3 last:border-0">
+    <li className="flex gap-3 border-b-2 border-dotted border-border py-3 last:border-0">
       <CoinIcon coin={ev.token} size={22} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate text-[13px] font-semibold">{t(`trader.activity.xfer.${ev.kind}`, { asset: ev.token })}</span>
-          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground uppercase">{feedTime(ev.time)}</span>
+          <span className="num shrink-0 font-mono text-[10px] text-subtle-foreground">{feedTime(ev.time)}</span>
         </div>
         {ev.amount > 0 ? (
           <div className="num font-mono text-[11px] text-muted-foreground">{ev.usd ? usd2(ev.amount) : `${qty(ev.amount)} ${ev.token}`}</div>
@@ -113,7 +113,7 @@ export function LiveFeed({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="orbit-card p-4">
         <button
           type="button"
           onClick={onCopy}
@@ -122,7 +122,7 @@ export function LiveFeed({
           {t("trader.copyTrade")}
         </button>
       </div>
-      <section className="rounded-2xl border border-border bg-card px-4 pt-3 pb-1" aria-label={t("trader.activity.title")}>
+      <section className="orbit-card px-4 pt-3 pb-1" aria-label={t("trader.activity.title")}>
         <div className="flex items-center justify-between pb-1">
           <h2 className="text-sm font-semibold">{t("trader.activity.title")}</h2>
           <span className="flex items-center gap-1.5 text-xs font-semibold text-positive">

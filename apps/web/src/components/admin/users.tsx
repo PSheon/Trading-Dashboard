@@ -214,7 +214,7 @@ export function AdminUsers() {
           </Table>
         )}
         {users.data && total > PAGE ? (
-          <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <div className="flex items-center justify-between border-t-2 border-dotted border-border px-4 py-3">
             <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
               <ChevronLeft />
               {t("common.prev")}

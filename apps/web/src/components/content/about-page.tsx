@@ -113,7 +113,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                   button and the "built for" line, then the trader marquee. */}
               <section className="flex flex-col items-center px-5 py-10 text-center md:py-[120px]">
                 {hero.heading ? (
-                  <h1 className="mx-auto mt-8 max-w-[300px] text-[36px] leading-none font-[652] tracking-[-0.6px] text-balance sm:max-w-[500px] md:text-[56px] lg:max-w-[700px] lg:text-[79px]">
+                  <h1 className="mx-auto mt-8 max-w-[300px] text-[36px] leading-none font-[652] text-balance sm:max-w-[500px] md:text-[56px] lg:max-w-[700px] lg:text-[79px]">
                     <InlineText text={hero.heading.text} />
                   </h1>
                 ) : null}
@@ -121,7 +121,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                   if (eyebrowOf(b)) return null;
                   const cta = ctaOf(b);
                   if (cta) return <Cta key={i} {...cta} className="mt-8" />;
-                  if (b.type === "small") return <p key={i} className="mt-10 text-[13px] font-medium tracking-[0.4px] text-subtle-foreground"><InlineText text={b.text} /></p>;
+                  if (b.type === "small") return <p key={i} className="mt-10 text-[13px] font-medium text-subtle-foreground"><InlineText text={b.text} /></p>;
                   if (b.type === "paragraph") return <p key={i} className="mx-auto mt-6 max-w-[240px] text-xl leading-[26px] font-[440] text-muted-foreground sm:max-w-[380px] lg:max-w-[560px]"><InlineText text={b.text} /></p>;
                   return <MarkdownBlocks key={i} blocks={[b]} />;
                 })}
@@ -141,7 +141,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
           return (
             <section key={p} className="mx-auto flex w-full flex-col items-center gap-10 px-5 py-10 md:gap-20 md:py-[120px] lg:px-[116px]">
               {title ? (
-                <h2 className="text-center text-[28px] leading-[1.05] font-[652] tracking-[-0.6px] text-balance md:text-[56px]">
+                <h2 className="text-center text-[28px] leading-[1.05] font-[652] text-balance md:text-[56px]">
                   <InlineText text={title.text} />
                 </h2>
               ) : null}
@@ -154,7 +154,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                         <Picture />
                       </div>
                       <figcaption>
-                        <h3 className="text-xl font-[650] tracking-[-0.2px]">
+                        <h3 className="text-xl font-[650]">
                           <InlineText text={item.title} />
                         </h3>
                         <MarkdownBlocks blocks={item.body} className="pt-2 text-base leading-[1.5] text-muted-foreground [&_p]:my-0" />
@@ -175,7 +175,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
             <section key={p} className="mx-auto flex flex-col items-center px-5 py-10 text-center md:py-[120px]">
               {/* CopyDog's rotating trader avatar above the closing line. */}
               <AvatarStack />
-              <h2 className="mt-6 max-w-[900px] text-[36px] leading-none font-[652] tracking-[-0.6px] text-balance lg:text-[80px]">
+              <h2 className="mt-6 max-w-[900px] text-[36px] leading-none font-[652] text-balance lg:text-[80px]">
                 <InlineText text={secs[0].heading.text} />
               </h2>
               {lede ? (
@@ -200,7 +200,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                   <section key={s} className="mx-auto flex max-w-[620px] flex-col items-center text-center">
                     <ShieldCheck aria-hidden className="size-12 text-primary-text" strokeWidth={1.6} fill="currentColor" fillOpacity={0.15} />
                     {/* CopyDog keeps this heading at 56px even on phones. */}
-                    <h2 className="mt-6 text-[56px] leading-[1.05] font-[652] tracking-[-0.6px] text-balance">
+                    <h2 className="mt-6 text-[56px] leading-[1.05] font-[652] text-balance">
                       <InlineText text={sec.heading.text} />
                     </h2>
                     <MarkdownBlocks blocks={text} className="mt-6 max-w-[420px] text-base leading-[1.5] text-muted-foreground" />
@@ -227,11 +227,11 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
                   )}
                   <div className="grid content-center gap-4">
                     {label ? (
-                      <span className="inline-flex justify-self-start rounded-full bg-primary/10 px-3.5 py-[5px] text-[13px] font-semibold tracking-[0.4px] text-primary-text uppercase">
+                      <span className="inline-flex justify-self-start rounded-full bg-primary/10 px-3.5 py-[5px] text-[13px] font-semibold text-primary-text">
                         <InlineText text={label} />
                       </span>
                     ) : null}
-                    <h2 className="mt-1 text-[28px] leading-[1.05] font-[652] tracking-[-0.6px] text-balance md:text-[56px]">
+                    <h2 className="mt-1 text-[28px] leading-[1.05] font-[652] text-balance md:text-[56px]">
                       <InlineText text={title} />
                     </h2>
                     <MarkdownBlocks blocks={text} className="mt-1 max-w-[520px] text-base leading-[1.6] text-muted-foreground" />

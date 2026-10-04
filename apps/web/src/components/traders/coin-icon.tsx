@@ -92,7 +92,7 @@ function CoinGlyph({ coin, size, className }: { coin: string; size: number; clas
     <span
       aria-hidden
       className={cn(
-        "inline-flex shrink-0 items-center justify-center font-bold leading-none tracking-tight",
+        "inline-flex shrink-0 items-center justify-center font-bold leading-none",
         dex ? "rounded-[30%]" : "rounded-full",
         className,
       )}

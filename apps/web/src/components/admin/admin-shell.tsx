@@ -89,7 +89,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {allowed ? (
         <nav
           aria-label={t("admin.title")}
-          className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 no-scrollbar md:mx-0 md:px-0"
+          className="-mx-4 flex gap-1 overflow-x-auto border-b-2 border-dotted border-border px-4 no-scrollbar md:mx-0 md:px-0"
         >
           {SECTIONS.filter((s) => hasPermission(me.data, s.permission)).map((s) => {
             const active = s.href === "/admin" ? pathname === "/admin" : pathname.startsWith(s.href);

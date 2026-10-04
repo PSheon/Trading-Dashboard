@@ -37,7 +37,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
   const worker = d.worker.sample;
   const budget = (v: AdminSystemOverview["api"]["budget"] | null) => <>
     <p className="mt-4 text-xs font-semibold text-muted-foreground">{t("monitoring.budget")}</p>
-    <dl className="mt-1 divide-y divide-border text-xs">
+    <dl className="mt-1 divide-y-2 divide-dotted divide-border text-xs">
       <Metric label={t("monitoring.consumed")} value={v?.weightLastMinute ?? t("monitoring.unknown")} />
       <Metric label={t("monitoring.effective")} value={v ? `${v.effectiveBudgetPerMin} / ${v.configuredBudgetPerMin}` : t("monitoring.unknown")} />
       <Metric label={t("monitoring.queued")} value={v ? `${v.queued.live} / ${v.queued.background}` : t("monitoring.unknown")} />
@@ -55,7 +55,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
     </div>
     <div className="grid items-start gap-4 xl:grid-cols-2">
       <Panel className="p-5"><h3 className="font-semibold">{t("monitoring.data")}</h3>
-        {!d.data ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.dataMissing")}</p> : <dl className="mt-3 divide-y divide-border text-sm">
+        {!d.data ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.dataMissing")}</p> : <dl className="mt-3 divide-y-2 divide-dotted divide-border text-sm">
           <Metric label={t("monitoring.leaderboard")} value={format.num(d.data.leaderboardCount, 0)} />
           <Metric label={t("monitoring.leaderboardAt")} value={time(d.data.leaderboardUpdatedAt)} />
           <Metric label={t("monitoring.watched")} value={d.data.watched} />
@@ -74,7 +74,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
       <Panel className="p-5"><h3 className="font-semibold">{t("monitoring.outbox")}</h3>
         {d.outbox === null ? <p className="mt-4 text-sm text-muted-foreground">{t("monitoring.outboxMissing")}</p> : d.outbox.map(q => <div key={q.kind} className="mt-4">
           <h4 className="text-sm font-medium">{t(`monitoring.${q.kind}`)}</h4>
-          <dl className="mt-1 divide-y divide-border text-xs">
+          <dl className="mt-1 divide-y-2 divide-dotted divide-border text-xs">
             {(["pending", "processing", "failed", "due"] as const).map(key => <Metric key={key} label={t(`monitoring.${key}`)} value={q[key]} />)}
             <Metric label={t("monitoring.expired")} value={q.expiredLeases} />
             <Metric label={t("monitoring.oldestDue")} value={time(q.oldestDueAt)} />
@@ -92,7 +92,7 @@ export function RetentionPanel({ retention: r }: { retention: NonNullable<AdminS
   const time = (v: string | null) => v ? format.dateTime(v) : t("adminOps.retention.never");
   return <Panel className="p-5" data-testid="retention-panel"><h3 className="font-semibold">{t("adminOps.retention.title")}</h3>
     {r === null ? <p className="mt-4 text-sm text-muted-foreground">{t("adminOps.retention.missing")}</p> : <div className="grid items-start gap-x-8 gap-y-4 xl:grid-cols-2">
-      <dl className="mt-3 divide-y divide-border text-sm">
+      <dl className="mt-3 divide-y-2 divide-dotted divide-border text-sm">
         <Metric label={t("adminOps.retention.status")} value={r.running ? t("adminOps.retention.running") : r.lastStatus ? t(`adminOps.retention.statuses.${r.lastStatus}`) : t("adminOps.retention.never")} />
         <Metric label={t("adminOps.retention.lastStarted")} value={time(r.lastStartedAt)} />
         <Metric label={t("adminOps.retention.lastFinished")} value={time(r.lastFinishedAt)} />
@@ -101,7 +101,7 @@ export function RetentionPanel({ retention: r }: { retention: NonNullable<AdminS
       </dl>
       <div className="mt-3">
         <h4 className="text-sm font-medium">{t("adminOps.retention.removed")}</h4>
-        <dl className="mt-1 divide-y divide-border text-xs">
+        <dl className="mt-1 divide-y-2 divide-dotted divide-border text-xs">
           {RETENTION_TABLES.map((table) => <Metric key={table}
             label={<>{t(`adminOps.retention.tables.${table}`)}{r.cutoffs?.[table] ? <span className="ml-2 text-subtle-foreground">{t("adminOps.retention.keptSince", { time: format.dateTime(r.cutoffs[table]) })}</span> : null}</>}
             value={r.removed === null ? "—" : r.removed[table] === undefined ? t("adminOps.retention.notReached") : format.num(r.removed[table], 0)} />)}

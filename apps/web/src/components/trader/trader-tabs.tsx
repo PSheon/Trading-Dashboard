@@ -154,7 +154,7 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
           ) : null}
         </div>
       </div>
-      <dl className="num grid grid-cols-4 gap-2 border-t border-border pt-3">
+      <dl className="num grid grid-cols-4 gap-2 border-t-2 border-dotted border-border pt-3">
         {[
           [t("trader.cols.value"), usd2(p.positionValue), ""],
           [t("trader.cols.entry"), price(p.entryPx), ""],
@@ -162,7 +162,7 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
           [t("trader.cols.liqFlag"), p.liqPx === null ? "—" : price(p.liqPx), p.liqPx === null ? "" : "text-negative"],
         ].map(([label, value, tone]) => (
           <div key={label} className="flex min-w-0 flex-col gap-0.5">
-            <dt className="text-[10px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{label}</dt>
+            <dt className="text-[10px] font-semibold text-muted-foreground">{label}</dt>
             <dd className={cn("truncate text-[13px] leading-5 font-semibold", tone)}>{value}</dd>
           </div>
         ))}

@@ -14,10 +14,10 @@ export function WorkerHeartbeat({ data: d }: { data: HeartbeatResponse }) {
 
   return (
     <Panel className="p-5 md:p-6">
-      <h2 className="text-base font-bold tracking-tight">{t("admin.statusTitle")}</h2>
+      <h2 className="text-base font-bold">{t("admin.statusTitle")}</h2>
       <p className="mt-1 text-[0.8125rem] text-muted-foreground">{t("monitoring.feedHint")}</p>
       <div className="mt-5">
-          <dl className="num divide-y divide-border text-[0.8125rem]">
+          <dl className="num divide-y-2 divide-dotted divide-border text-[0.8125rem]">
             <Row label={t("admin.status.feed")}>
               <span
                 className={cn(

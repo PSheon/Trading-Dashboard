@@ -203,7 +203,7 @@ export function JobCard({
       {expired && (
         <p className="mt-3 text-xs text-warning">{t("jobs.expired")}</p>
       )}
-      <dl className="mt-3 divide-y divide-border text-xs">
+      <dl className="mt-3 divide-y-2 divide-dotted divide-border text-xs">
         <Metric
           label={t("jobs.attempts")}
           value={`${job.runAttempts} / 3 · ${job.attempts}`}

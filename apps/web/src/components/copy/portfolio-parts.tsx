@@ -27,7 +27,7 @@ const tone = (v: number | null | undefined) => (v === null || v === undefined ? 
 /** CopyDog's text segments (mono, uppercase, no pill). */
 export function Seg<T extends string>({ value, onChange, options, label }: { value: T; onChange: (value: T) => void; options: Array<[T, React.ReactNode]>; label: string }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex items-center gap-3">
+    <div role="radiogroup" aria-label={label} className="flex items-center gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
       {options.map(([v, text]) => (
         <button
           key={v}
@@ -36,8 +36,8 @@ export function Seg<T extends string>({ value, onChange, options, label }: { val
           aria-checked={v === value}
           onClick={() => onChange(v)}
           className={cn(
-            "rounded-sm font-mono text-[11px] leading-[16.5px] font-medium tracking-[0.2px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-            v === value ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+            "h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+            v === value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
           )}
         >
           {text}
@@ -91,20 +91,20 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
   const span = known.length > 1 ? (known.at(-1)![0] - known[0]![0] > 60 * 86_400_000 ? "months" : known.at(-1)![0] - known[0]![0] > 2 * 86_400_000 ? "days" : "hours") : "days";
   const fmtUsd = (v: number) => format.usd(v, { sign: true, digits: 2 });
   return (
-    <section className={cn("flex min-w-0 flex-col rounded-2xl border border-border bg-card", className)} aria-label={t("pf.chart.aria")}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2.5">
+    <section className={cn("flex min-w-0 flex-col rounded-2xl bg-raised p-3 [--seg-track:var(--background)] md:p-[18px]", className)} aria-label={t("pf.chart.aria")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Seg label={t("pf.chart.metric")} value={roi ? "roi" : "pnl"} onChange={setMetric} options={roiOk ? [["pnl", t("pf.chart.pnl")], ["roi", t("pf.chart.roi")]] : [["pnl", t("pf.chart.pnl")]]} />
           <PaperBadge />
         </div>
         <Seg label={t("copyUpdates.historyWindow")} value={window} onChange={setWindow} options={PORTFOLIO_WINDOWS.map(([w, key]) => [w, t(`windows.${key}`)])} />
       </div>
-      <div className="flex items-start justify-between gap-3 px-3 pt-3">
+      <div className="flex items-start justify-between gap-3 pt-3">
         <div className="flex min-w-0 flex-col items-start gap-2">
           {query.isPending && !query.data ? (
             <Skeleton className="h-8 w-40" />
           ) : (
-            <p className={cn("num text-[26px] leading-[1.1] font-bold tracking-[-0.3px]", last ? tone(last[1]) : "text-muted-foreground")}>
+            <p className={cn("num font-display text-[1.75rem] leading-[1.1]", last ? tone(last[1]) : "text-muted-foreground")}>
               {!last ? "—" : roi ? format.pct(lastRoi!, { sign: true, digits: 2 }) : fmtUsd(last[1])}
             </p>
           )}
@@ -116,7 +116,7 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
             )
           ) : null}
         </div>
-        {last ? <p className="num mt-1 shrink-0 font-mono text-[11px] font-medium tracking-[0.2px] whitespace-nowrap text-muted-foreground uppercase">{format.stamp(last[0])}</p> : null}
+        {last ? <p className="num mt-1 shrink-0 font-mono text-[11px] font-medium whitespace-nowrap text-muted-foreground">{format.stamp(last[0])}</p> : null}
       </div>
       <div className="flex-1 px-1.5 pt-1.5 pb-2">
         {series.length > 1 ? (
@@ -161,13 +161,13 @@ export function PaperSummary({ overview, className, collapsible = false }: { ove
     [t("pf.legend.totalPnl"), p.totalPnl, true],
   ];
   return (
-    <section className={cn("flex flex-col rounded-2xl border border-border bg-card p-6", className)} aria-label={t("portfolio.copy.paperAccount")}>
+    <section className={cn("flex flex-col rounded-2xl bg-raised p-6", className)} aria-label={t("portfolio.copy.paperAccount")}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[0.8125rem] text-muted-foreground">{t("portfolio.copy.paperAccount")}</p>
+        <p className="font-display text-xl">{t("portfolio.copy.paperAccount")}</p>
         <PaperBadge />
       </div>
       <div className="flex items-center justify-between gap-2">
-        <p className="num text-[2.5rem] leading-tight font-extrabold tracking-tight">{p.totalValue === null ? "—" : format.usd(p.totalValue, { digits: 2 })}</p>
+        <p className="num font-display text-[2.5rem] leading-tight">{p.totalValue === null ? "—" : format.usd(p.totalValue, { digits: 2 })}</p>
         {collapsible ? (
           <button type="button" aria-expanded={open} aria-label={t("portfolio.breakdown")} onClick={() => setOpen((v) => !v)} className="inline-flex size-8 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
@@ -184,16 +184,16 @@ export function PaperSummary({ overview, className, collapsible = false }: { ove
         <p className="num mt-1 text-sm text-muted-foreground" data-testid="paper-today">— <span className="text-xs">{t("pf.today")}</span></p>
       ) : null}
       {open ? (
-        <dl className="mt-5 grid gap-3.5 text-[0.9375rem]">
+        <dl className="mt-5 grid grid-cols-1 gap-2 text-[0.9375rem] xl:grid-cols-2">
           {rows.map(([label, value, signed]) => (
-            <div key={label} className="flex items-center justify-between gap-3">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className={cn("num font-semibold", signed ? tone(value) : "")}>{value === null ? "—" : format.usd(value, { sign: signed, digits: 2 })}</dd>
+            <div key={label} className="flex flex-col gap-0.5 rounded-xl bg-card px-4 py-3">
+              <dt className="text-xs font-bold text-muted-foreground">{label}</dt>
+              <dd className={cn("num font-display text-xl", signed ? tone(value) : "")}>{value === null ? "—" : format.usd(value, { sign: signed, digits: 2 })}</dd>
             </div>
           ))}
         </dl>
       ) : null}
-      <p className="mt-auto pt-4 text-[11px] text-subtle-foreground">{t("portfolio.copy.paperHint")}</p>
+      <p className="mt-auto pt-4 text-xs font-bold text-muted-foreground">{t("portfolio.copy.paperHint")}</p>
     </section>
   );
 }
@@ -201,7 +201,7 @@ export function PaperSummary({ overview, className, collapsible = false }: { ove
 function SecHead({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="mb-3 flex min-h-8 items-center justify-between gap-3">
-      <h3 className="text-[0.8125rem] font-bold tracking-wide uppercase">{title}</h3>
+      <h3 className="font-display text-[17px]">{title}</h3>
       {children}
     </div>
   );
@@ -209,9 +209,9 @@ function SecHead({ title, children }: { title: string; children?: React.ReactNod
 
 function Pills<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: Array<[T, string]>; label: string }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex rounded-full border border-border bg-raised p-0.5">
+    <div role="radiogroup" aria-label={label} className="flex gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1">
       {options.map(([v, text]) => (
-        <button key={v} type="button" role="radio" aria-checked={v === value} onClick={() => onChange(v)} className={cn("h-7 rounded-full px-3 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", v === value ? "bg-background text-foreground" : "text-muted-foreground")}>
+        <button key={v} type="button" role="radio" aria-checked={v === value} onClick={() => onChange(v)} className={cn("h-8 rounded-full px-3 text-xs outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", v === value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground")}>
           {text}
         </button>
       ))}
@@ -270,7 +270,7 @@ function BestWorst({ leaders }: { leaders: Map<string, Leader> }) {
       </SecHead>
       {list.data ? (
         list.data.items.length ? (
-          <ul className="divide-y divide-border">{list.data.items.map((trade) => <TradeRow key={trade.id} trade={trade} leaders={leaders} />)}</ul>
+          <ul className="divide-y-2 divide-dotted divide-border">{list.data.items.map((trade) => <TradeRow key={trade.id} trade={trade} leaders={leaders} />)}</ul>
         ) : (
           <p className="py-4 text-sm text-muted-foreground">{which === "best" ? t("pf.insights.noWins") : t("pf.insights.noLosses")}</p>
         )
@@ -342,7 +342,7 @@ export function InsightsPanel({ overview, leaders, onSelect, desktop }: { overvi
   const overviewBlock = (
     <section>
       <SecHead title={t("pf.insights.overview")} />
-      <dl className="divide-y divide-border">
+      <dl className="divide-y-2 divide-dotted divide-border">
         {kpis.map(([k, v, c]) => (
           <div key={k} className="flex items-center justify-between gap-3 py-2.5 text-sm">
             <dt className="text-muted-foreground">{k}</dt>
@@ -394,7 +394,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
       <dl className="mt-3 grid gap-2 text-sm">
         <div className="flex justify-between gap-3"><dt className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full bg-positive" />{t("pf.exposure.long")} {Math.round(e.longPct)}%</dt><dd className="num font-semibold">{format.usd(e.long, { digits: 2 })}</dd></div>
         <div className="flex justify-between gap-3"><dt className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full bg-negative" />{t("pf.exposure.short")} {Math.round(e.shortPct)}%</dt><dd className="num font-semibold">{format.usd(e.short, { digits: 2 })}</dd></div>
-        <div className="flex justify-between gap-3 border-t border-border pt-2"><dt className="text-muted-foreground">{t("copyUpdates.exposureLabels.netExposure")}</dt><dd className="num font-semibold">{format.usd(Math.abs(net), { digits: 2 })}</dd></div>
+        <div className="flex justify-between gap-3 border-t-2 border-dotted border-border pt-2"><dt className="text-muted-foreground">{t("copyUpdates.exposureLabels.netExposure")}</dt><dd className="num font-semibold">{format.usd(Math.abs(net), { digits: 2 })}</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t("copyUpdates.exposureLabels.signedNet")}</dt><dd className="num font-semibold">{format.usd(net, { sign: true, digits: 2 })}</dd></div>
       </dl>
       <p className="mt-3 text-[11px] text-muted-foreground">{t("copyUpdates.exposureLabels.exposureFormula")}</p>
@@ -415,7 +415,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
   const byAsset = (
     <section>
       <SecHead title={t("pf.exposure.byAsset")} />
-      <ul className="divide-y divide-border">
+      <ul className="divide-y-2 divide-dotted divide-border">
         {e.assets.map((a) => {
           const share = e.gross > 0 ? a.grossNotional / e.gross : 0;
           const expanded = open.has(a.coin);
@@ -432,7 +432,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
                   <span className="flex items-center gap-1.5">
                     <span className="text-sm font-semibold">{coinLabel(a.coin)}</span>
                     {a.hedged ? (
-                      <span className="rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-warning uppercase bg-warning/15">{t("pf.exposure.hedged")}</span>
+                      <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-warning bg-warning/15">{t("pf.exposure.hedged")}</span>
                     ) : (
                       <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", a.isLong ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{a.isLong ? t("pf.exposure.long") : t("pf.exposure.short")}</span>
                     )}

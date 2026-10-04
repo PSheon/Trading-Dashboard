@@ -53,7 +53,7 @@ export function AdminActivity() {
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="mr-2 flex items-center gap-2 text-lg font-bold tracking-tight">
+          <h2 className="mr-2 flex items-center gap-2 text-lg font-bold">
             {t("insights.liveFeed")}
             <LiveBadge status={streamStatus} />
           </h2>

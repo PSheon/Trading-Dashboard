@@ -106,7 +106,7 @@ export function AdminLists() {
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       <Panel className="flex min-w-0 flex-col gap-4 p-5 md:p-6">
         <div>
-          <h2 className="text-base font-bold tracking-tight">
+          <h2 className="text-base font-bold">
             {t("admin.importTitle")}
           </h2>
           <p className="mt-1 text-[0.8125rem] leading-relaxed text-muted-foreground">
@@ -224,8 +224,8 @@ export function AdminLists() {
       </Panel>
 
       <Panel className="overflow-hidden">
-        <div className="border-b border-border px-5 py-4">
-          <h2 className="text-base font-bold tracking-tight">
+        <div className="border-b-2 border-dotted border-border px-5 py-4">
+          <h2 className="text-base font-bold">
             {t("admin.listsTitle")}
           </h2>
         </div>
@@ -295,7 +295,7 @@ function ImportImpact({ data: d }: { data: ImportPreview }) {
   return (
     <section
       aria-label={t("importOps.impact")}
-      className="space-y-3 border-t border-border pt-4"
+      className="space-y-3 border-t-2 border-dotted border-border pt-4"
     >
       <h3 className="font-semibold">{t("importOps.impact")}</h3>
       <p className="text-xs text-muted-foreground">{t("importOps.hint")}</p>

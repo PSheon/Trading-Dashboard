@@ -54,9 +54,9 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
 
   return (
     <div className="flex flex-col gap-2 max-md:-mx-1 max-md:mt-3">
-      <header className="relative mb-2.5 flex flex-col gap-3.5 rounded-[12px] border border-border bg-card p-[18px] md:flex-row md:items-center md:justify-between md:px-6 md:pt-[18px] md:pb-[17px]">
+      <header className="relative mb-2.5 flex flex-col gap-3.5 orbit-card p-[18px] md:flex-row md:items-center md:justify-between md:px-6 md:pt-[18px] md:pb-[17px]">
         <HyperliquidWordmark className="flex h-[41px] md:hidden" />
-        <h1 className="text-[21px] leading-[1.2] font-bold tracking-[-0.6px] md:text-[26px]">{t("insights.cohort.bannerTitle")}</h1>
+        <h1 className="text-[21px] leading-[1.2] font-bold md:text-[26px]">{t("insights.cohort.bannerTitle")}</h1>
         <div className="flex items-center gap-4 max-md:absolute max-md:top-[18px] max-md:right-[18px] md:order-3">
           {tierPicker ? <TierPicker value={tier} onChange={setTier} /> : null}
           <HyperliquidWordmark className="hidden md:flex" />
@@ -64,7 +64,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
       </header>
 
       {detail.isError && !data ? (
-        <div className="rounded-2xl border border-border bg-card py-10 text-center text-sm text-muted-foreground">
+        <div className="orbit-card py-10 text-center text-sm text-muted-foreground">
           {t("insights.cohort.loadError")}{" "}
           <button type="button" className="text-primary-text underline" onClick={() => detail.refetch()}>{t("insights.cohort.retry")}</button>
         </div>
@@ -83,7 +83,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
           <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
             {history.errorUpdateCount > 0 && !history.data ? (
               // Not a placeholder without end: the history could not be read.
-              <section className="flex min-h-[300px] items-center justify-center rounded-[12px] border border-border bg-card">
+              <section className="flex min-h-[300px] items-center justify-center orbit-card">
                 <ErrorState onRetry={() => void history.refetch()} />
               </section>
             ) : (
@@ -100,8 +100,8 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
             )}
             <MarketTreemap title={t("insights.cohort.byMarket")} markets={ready ? data?.markets : undefined} loading={!ready} />
           </div>
-          <section className="overflow-hidden rounded-[12px] border border-border bg-card">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3.5">
+          <section className="overflow-hidden orbit-card">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-dotted border-border px-3.5">
               <div className="flex" role="tablist">
                 {(["wallets", "markets"] as const).map((key) => (
                   <button
@@ -111,7 +111,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
                     aria-selected={tab === key}
                     onClick={() => setTab(key)}
                     className={cn(
-                      "-mb-px mr-[22px] border-b-2 px-0.5 py-3 font-mono text-xs leading-[18px] font-semibold tracking-[0.4px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                      "-mb-px mr-[22px] border-b-2 px-0.5 py-3 font-mono text-xs leading-[18px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                       tab === key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
                     )}
                   >
@@ -128,7 +128,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
                       role="radio"
                       aria-checked={filter === f}
                       onClick={() => setFilter(f)}
-                      className={cn("rounded font-mono text-[11px] font-medium tracking-[0.2px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "text-primary-text" : "text-muted-foreground hover:text-foreground")}
+                      className={cn("rounded font-mono text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "text-primary-text" : "text-muted-foreground hover:text-foreground")}
                     >
                       {t(`insights.cohort.filter.${f}`)}
                     </button>
@@ -179,7 +179,7 @@ function TierPicker({ value, onChange }: { value: CohortTier; onChange: (tier: C
  * italic); text, not their logo file. */
 function HyperliquidWordmark({ className }: { className?: string }) {
   return (
-    <span className={cn("items-center gap-2 text-[1.75rem] leading-none tracking-tight text-foreground select-none", className)} aria-hidden>
+    <span className={cn("items-center gap-2 text-[1.75rem] leading-none text-foreground select-none", className)} aria-hidden>
       <svg viewBox="0 0 32 20" className="h-5 w-8" fill="currentColor">
         <path d="M6 0C2.7 0 0 3.6 0 10s2.7 10 6 10c2.4 0 3.9-1.9 5.6-4.2C13 13.9 14.5 12 16 12s3 1.9 4.4 3.8C22.1 18.1 23.6 20 26 20c3.3 0 6-3.6 6-10S29.3 0 26 0c-2.4 0-3.9 1.9-5.6 4.2C19 6.1 17.5 8 16 8s-3-1.9-4.4-3.8C9.9 1.9 8.4 0 6 0Z" />
       </svg>
@@ -194,7 +194,7 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
     return (
       <>
         {[0, 1].map((i) => (
-          <div key={i} className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4">
+          <div key={i} className="flex flex-col gap-4 orbit-card p-4">
             <Skeleton className="h-4 w-28" />
             <Skeleton className="h-1.5 w-full" />
             <div className="flex justify-between"><Skeleton className="h-4 w-32" /><Skeleton className="h-4 w-32" /></div>
@@ -228,11 +228,11 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
 
 function HeroCard({ title, pos, left, right }: { title: string; pos: number | null; left: React.ReactNode; right: React.ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-[12px] border border-border bg-card">
-      <h2 className="flex h-8 items-center border-b border-border px-3 text-xs leading-4 font-medium tracking-[-0.12px] text-muted-foreground">{title}</h2>
+    <section className="overflow-hidden orbit-card">
+      <h2 className="flex h-8 items-center border-b-2 border-dotted border-border px-3 text-xs leading-4 font-medium text-muted-foreground">{title}</h2>
       <div className="flex flex-col gap-3 p-3.5">
         <SplitBar pos={pos} className="cd-bar h-2 rounded-[2px] [&>*]:rounded-none" />
-        <div className="flex items-center justify-between gap-1.5 text-[11px] leading-[17px] font-medium tracking-[-0.2px] whitespace-nowrap text-muted-foreground [&_.font-semibold]:font-medium">
+        <div className="flex items-center justify-between gap-1.5 text-[11px] leading-[17px] font-medium whitespace-nowrap text-muted-foreground [&_.font-semibold]:font-medium">
           <span className="flex items-center gap-1">{left}</span>
           <span className="flex items-center gap-1">{right}</span>
         </div>

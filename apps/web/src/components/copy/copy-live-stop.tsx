@@ -40,7 +40,7 @@ function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null 
       {attempts.length > 0 && <ul className="space-y-3" aria-label={text.recover}>{attempts.map((attempt, index) => {
         const observed = items.some(item => item.mandateId === attempt.mandateId && item.accountId === attempt.accountId && item.originalMandateRevision === attempt.request.expectedMandateRevision);
         const unsent = attempt.dispatchState === 'unsent', action = unsent ? resumeText.resume : text.recover;
-        return <li key={attempt.request.idempotencyKey} className="min-w-0 space-y-2 border-t border-border pt-3">
+        return <li key={attempt.request.idempotencyKey} className="min-w-0 space-y-2 border-t-2 border-dotted border-border pt-3">
           <p className="break-all text-sm">{text.mandate}: {attempt.mandateId} · {text.account}: {attempt.accountAddress}</p>
           <p className="text-sm">{discardText.revision}: {attempt.request.expectedMandateRevision}</p>
           {!observed && <p role="status" className="text-sm text-muted-foreground">{unsent ? resumeText.unsent : text.unknown}</p>}

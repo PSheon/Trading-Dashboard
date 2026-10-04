@@ -20,12 +20,12 @@ export function FaqAccordion({ items }: { items: FaqItem[] }) {
   const [open, setOpen] = useState<number | null>(0);
   const base = useId();
   return (
-    <div className="border-t border-border">
+    <div className="border-t-2 border-dotted border-border">
       {items.map((item, index) => {
         const expanded = open === index;
         const panel = `${base}-answer-${index}`;
         return (
-          <div key={index} className="border-b border-border">
+          <div key={index} className="border-b-2 border-dotted border-border">
             <button
               type="button"
               aria-expanded={expanded}

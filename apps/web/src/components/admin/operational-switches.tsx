@@ -62,9 +62,9 @@ export function OperationalSwitchesPanel({ api, worker, archive }: { api?: Opera
           ))}
         </TableBody>
       </Table>
-      <div className="border-t border-border p-5">
+      <div className="border-t-2 border-dotted border-border p-5">
         <h4 className="text-sm font-semibold">{t("adminOps.system.archiveTitle")}</h4>
-        <dl className="mt-2 divide-y divide-border text-xs">
+        <dl className="mt-2 divide-y-2 divide-dotted divide-border text-xs">
           <Fact label={t("adminOps.system.archiveState")} value={t(`adminOps.system.archiveStates.${state}`)} />
           {archive?.enabled ? (
             <>

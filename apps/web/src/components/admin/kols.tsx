@@ -38,7 +38,7 @@ export function AdminKols() {
       <div className="flex min-w-0 flex-col gap-4">
         <Panel className="flex flex-col gap-4 p-5 md:p-6">
           <div>
-            <h2 className="text-base font-bold tracking-tight">{editing ? t("admin.kols.editTitle") : t("admin.kols.addTitle")}</h2>
+            <h2 className="text-base font-bold">{editing ? t("admin.kols.editTitle") : t("admin.kols.addTitle")}</h2>
             <p className="mt-1 text-[0.8125rem] leading-relaxed text-muted-foreground">{t("admin.kols.hint")}</p>
           </div>
           <form
@@ -96,8 +96,8 @@ export function AdminKols() {
       </div>
 
       <Panel className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-base font-bold tracking-tight">{t("admin.kols.listTitle", { count: String(kols.data?.length ?? 0) })}</h2>
+        <div className="flex items-center justify-between border-b-2 border-dotted border-border px-5 py-4">
+          <h2 className="text-base font-bold">{t("admin.kols.listTitle", { count: String(kols.data?.length ?? 0) })}</h2>
         </div>
         {kols.isError ? (
           <ErrorState message={kols.error.message} onRetry={() => kols.refetch()} />

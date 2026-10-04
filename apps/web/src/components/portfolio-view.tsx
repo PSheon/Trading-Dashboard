@@ -74,9 +74,9 @@ function SignedOut() {
   const { status, login } = useAuth();
   return (
     <div className="flex flex-col items-center gap-3 px-6 pt-16 text-center md:pt-[88px] md:pr-10">
-      <ShoppingCart className="mb-1 size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-      <h1 className="text-2xl font-semibold md:text-[28px] md:leading-[42px]">{t("portfolio.signInTitle")}</h1>
-      <p className="text-base leading-6 text-muted-foreground">{t("portfolio.signInBody")}</p>
+      <span className="mb-2 flex size-24 items-center justify-center rounded-full bg-raised"><ShoppingCart className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
+      <h1 className="font-display text-2xl md:text-[2rem] md:leading-[42px]">{t("portfolio.signInTitle")}</h1>
+      <p className="text-base leading-6 font-bold text-muted-foreground">{t("portfolio.signInBody")}</p>
       <Button size="xl" className="mt-5 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
@@ -87,9 +87,9 @@ function SignedOut() {
 function TotalValue({ wallet, className }: { wallet: ReturnType<typeof useWallet>; className?: string }) {
   const { format } = useI18n();
   if (wallet.data) {
-    return <p className={cn("num font-extrabold tracking-tight", className)}>{format.usd(wallet.data.totalValue, { digits: 2 })}</p>;
+    return <p className={cn("num font-extrabold", className)}>{format.usd(wallet.data.totalValue, { digits: 2 })}</p>;
   }
-  if (wallet.isError) return <p className={cn("num font-extrabold tracking-tight text-muted-foreground", className)}>—</p>;
+  if (wallet.isError) return <p className={cn("num font-extrabold text-muted-foreground", className)}>—</p>;
   return <Skeleton className="mt-1 h-10 w-36" />;
 }
 
@@ -98,11 +98,11 @@ function FundButtons({ className }: { className?: string }) {
   const { openDeposit, openWithdraw } = useWalletModals();
   return (
     <div className={cn("grid grid-cols-2 gap-3", className)}>
-      <Button size="lg" className="h-12 text-base" onClick={openDeposit}>
+      <Button size="lg" className="h-[52px] font-display text-base" onClick={openDeposit}>
         <Plus />
         {t("portfolio.deposit")}
       </Button>
-      <Button size="lg" variant="secondary" className="h-12 text-base" onClick={openWithdraw}>
+      <Button size="lg" variant="secondary" className="h-[52px] bg-inset font-display text-base" onClick={openWithdraw}>
         <ArrowUp />
         {t("portfolio.withdraw")}
       </Button>
@@ -118,7 +118,7 @@ function Breakdown({ summary }: { summary: WalletSummary }) {
     { label: t("portfolio.arbitrum"), value: summary.arbitrum?.usdc ?? 0 },
   ];
   return (
-    <dl className="mt-3 grid gap-1.5 rounded-xl bg-raised/60 p-3 text-xs">
+    <dl className="mt-3 grid gap-1.5 rounded-xl bg-inset p-3 text-xs font-bold">
       {rows.map((r) => (
         <div key={r.label} className="flex justify-between gap-3">
           <dt className="text-muted-foreground">{r.label}</dt>
@@ -155,9 +155,9 @@ function TabEmpty({
 }) {
   return (
     <div className={cn("flex flex-col items-center text-center", className)}>
-      <Icon className="size-8 text-muted-foreground" strokeWidth={1.5} aria-hidden />
-      <p className="mt-3 text-[0.9375rem] font-bold">{title}</p>
-      <p className="mt-2 text-[0.8125rem] text-muted-foreground">{body}</p>
+      <span className="flex size-20 items-center justify-center rounded-full bg-raised"><Icon className="size-9 text-primary-text" strokeWidth={2} aria-hidden /></span>
+      <p className="mt-4 font-display text-xl">{title}</p>
+      <p className="mt-2 text-sm font-bold text-muted-foreground">{body}</p>
       {children}
     </div>
   );
@@ -212,8 +212,8 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
   return (
     <>
     {live}
-    <section className="overflow-hidden rounded-2xl border border-border bg-card">
-      <div role="tablist" aria-label={t("portfolio.title")} className="flex gap-6 border-b border-border px-4">
+    <section>
+      <div role="tablist" aria-label={t("portfolio.title")} className="mb-1 flex gap-1">
         {values.map((value) => (
           <button
             key={value}
@@ -230,12 +230,12 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
             }}
             onClick={() => setTab(value)}
             className={cn(
-              "-mb-px flex items-center gap-1.5 border-b-2 py-3.5 text-[0.8125rem] font-semibold tracking-wide uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+              "flex h-11 items-center gap-2 rounded-full px-4 text-[15px] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+              tab === value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:bg-raised hover:text-foreground",
             )}
           >
             {t(`portfolio.tabs.${value}`)}
-            {value === "copying" ? <span className="num rounded bg-raised px-1.5 text-[11px] text-muted-foreground">{overview.strategies.length}</span> : null}
+            {value === "copying" ? <span className={cn("num inline-flex size-6 items-center justify-center rounded-full font-display text-xs", tab === value ? "bg-card/80 text-foreground" : "bg-raised text-foreground")}>{overview.strategies.length}</span> : null}
           </button>
         ))}
       </div>
@@ -255,11 +255,12 @@ function DesktopPortfolio() {
   const copy = useCopyOverview();
   const [open, setOpen] = useState(false);
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
+      <h1 className="font-display text-[2.5rem] leading-[1.1]">{t("portfolio.title")}</h1>
       <div className="flex flex-wrap items-stretch gap-4">
-        <section className="w-[340px] rounded-2xl border border-border bg-card p-6" aria-label={t("portfolio.totalValue")}>
+        <section className="orbit-card flex w-[340px] flex-col gap-2 p-6" aria-label={t("portfolio.totalValue")}>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[0.8125rem] text-muted-foreground">{t("portfolio.totalValue")}</p>
+            <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
             <NetworkBadge network={wallet.data?.network} />
           </div>
           <button
@@ -270,11 +271,11 @@ function DesktopPortfolio() {
             onClick={() => setOpen((v) => !v)}
             disabled={!wallet.data}
           >
-            <TotalValue wallet={wallet} className="text-[2.5rem] leading-tight" />
+            <TotalValue wallet={wallet} className="font-display text-[2.5rem] leading-tight" />
           </button>
           {open && wallet.data ? <Breakdown summary={wallet.data} /> : null}
           {wallet.isError && !wallet.data ? <ErrorState onRetry={() => wallet.refetch()} /> : null}
-          <FundButtons className="mt-1" />
+          <FundButtons className="mt-auto pt-2" />
         </section>
         {copy.data ? <PaperSummary overview={copy.data} className="w-[340px]" /> : null}
         {copy.data && copy.data.strategies.length > 0 ? <PortfolioChart overview={copy.data} className="min-w-[420px] flex-1" /> : null}
@@ -316,24 +317,24 @@ function PhoneHeader() {
   const [activity, setActivity] = useState(false);
   return (
       <header className="flex items-center justify-between px-5 pt-4">
-        <p role="heading" aria-level={1} className="text-[1.75rem] font-extrabold tracking-tight">{t("portfolio.title")}</p>
+        <p role="heading" aria-level={1} className="font-display text-[2rem] leading-tight">{t("portfolio.title")}</p>
         <div className="flex items-center gap-1">
           {/* CopyDog: the bell opens the Activity panel (copies, following, deposits). */}
           <button
             type="button"
             onClick={() => setActivity(true)}
             aria-label={t("feed.title")}
-            className="flex size-10 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press flex size-11 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Bell className="size-[22px]" />
+            <Bell className="size-[18px]" strokeWidth={2.4} />
           </button>
           <ActivityPanel open={activity} onClose={() => setActivity(false)} />
           <Link
             href="/settings"
             aria-label={t("portfolio.settings")}
-            className="flex size-10 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press flex size-11 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Settings className="size-[22px]" />
+            <Settings className="size-[18px]" strokeWidth={2.4} />
           </Link>
         </div>
       </header>
@@ -347,9 +348,9 @@ function PhoneSignedOut() {
     <div className="-mx-5 -mt-5">
       <PhoneHeader />
       <div className="flex flex-col items-center px-6 pt-14 text-center">
-        <ChartPie className="size-10 text-muted-foreground" strokeWidth={1.5} aria-hidden />
-        <p className="mt-4 text-base font-semibold">{t("portfolio.signInTitlePhone")}</p>
-        <p className="mt-3 text-sm text-muted-foreground">{t("portfolio.signInBodyPhone")}</p>
+        <span className="flex size-20 items-center justify-center rounded-full bg-raised"><ChartPie className="size-9 text-primary-text" strokeWidth={2} aria-hidden /></span>
+        <p className="mt-4 font-display text-xl">{t("portfolio.signInTitlePhone")}</p>
+        <p className="mt-3 text-sm font-bold text-muted-foreground">{t("portfolio.signInBodyPhone")}</p>
         <Button size="lg" className="mt-3 h-[52px] px-6 text-[15px] font-semibold" onClick={login} disabled={status === "disabled"}>
           {t("common.signIn")}
         </Button>
@@ -397,7 +398,7 @@ function PhoneBody({
         <FundButtons className="mt-3" />
       </div>
 
-      <div className="mt-4 border-t border-border px-5 pt-4">
+      <div className="mt-4 border-t-2 border-dotted border-border px-5 pt-4">
         <div role="tablist" aria-label={t("portfolio.title")} className="flex gap-2">
           {tabs.map((item) => (
             <button

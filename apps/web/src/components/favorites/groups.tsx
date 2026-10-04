@@ -148,7 +148,7 @@ export function Dialog({ title, onClose, children, className }: { title: string;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" aria-label={title} className="absolute inset-0 bg-black/60" onClick={onClose} tabIndex={-1} />
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cn("relative w-full max-w-sm rounded-2xl border border-border-strong bg-popover p-6 shadow-2xl", className)}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cn("relative w-full max-w-sm rounded-2xl bg-popover shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] p-6 shadow-2xl", className)}>
         <h2 className="mb-2 text-lg font-bold">{title}</h2>
         {children}
       </div>

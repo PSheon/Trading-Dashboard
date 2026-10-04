@@ -335,7 +335,7 @@ function ReferralView() {
               {t("referral.customCode")}
               <input
                 name="referralCode"
-                className="rounded-md border border-border bg-card p-2"
+                className="orbit-card rounded-xl! p-2"
                 value={code}
                 minLength={3}
                 maxLength={16}

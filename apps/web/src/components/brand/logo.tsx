@@ -100,7 +100,7 @@ export function OrbieMark({
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span
-      className={cn("font-wordmark leading-none font-semibold tracking-[-0.03em]", className)}
+      className={cn("font-wordmark leading-none font-semibold", className)}
     >
       {APP_NAME}
     </span>

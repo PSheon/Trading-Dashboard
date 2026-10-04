@@ -133,7 +133,7 @@ export function TradeShareDialog({ source, onClose }: { source: TradeCardSource;
 
   return (
     <Modal open onOpenChange={(open) => { if (!open) onClose(); }} title={t(source.kind === "trade" ? "shareCard.tradeTitle" : "shareCard.positionTitle")} className="max-w-[680px]" bodyClassName="p-0">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3" role="radiogroup" aria-label={t("trader.share.style")}>
+      <div className="flex flex-wrap items-center gap-2 border-b-2 border-dotted border-border px-5 py-3" role="radiogroup" aria-label={t("trader.share.style")}>
         {(["landscape", "portrait"] as const).flatMap((format) => TRADE_CARD_STYLES.map(({ key }) => (
           <Thumb key={`${key}-${format}`} source={source} style={key} format={format} active={choice.style === key && choice.format === format}
             label={`${styleLabel(key)} · ${SHARE_FORMATS[format].label}`} onPick={() => pick(key, format)} />
@@ -161,7 +161,7 @@ export function TradeShareDialog({ source, onClose }: { source: TradeCardSource;
           ) : null}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2.5 border-t border-border px-5 py-4">
+      <div className="grid grid-cols-2 gap-2.5 border-t-2 border-dotted border-border px-5 py-4">
         <button type="button" onClick={copy} disabled={busy !== null || !ready}
           className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-raised text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
           <Copy className="size-4" />{busy === "copy" ? t("trader.share.copying") : t("trader.share.copy")}

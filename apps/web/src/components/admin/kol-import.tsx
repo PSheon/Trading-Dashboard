@@ -202,7 +202,7 @@ function KolReview({ data: d }: { data: KolPreview }) {
   return (
     <section
       aria-label={t("kolReview.title")}
-      className="space-y-3 border-t border-border pt-4"
+      className="space-y-3 border-t-2 border-dotted border-border pt-4"
     >
       <h3 className="font-semibold">{t("kolReview.title")}</h3>
       <p className="text-xs text-muted-foreground">
@@ -251,7 +251,7 @@ function KolReview({ data: d }: { data: KolPreview }) {
                   item.before?.[f] !== item.after?.[f],
               )
               .map((f) => (
-                <div key={f} className="space-y-1 border-t border-border pt-2">
+                <div key={f} className="space-y-1 border-t-2 border-dotted border-border pt-2">
                   <p className="font-medium">{t(`admin.kols.${labels[f]}`)}</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="min-w-0">

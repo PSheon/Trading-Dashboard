@@ -51,7 +51,7 @@ export function FundsHistory({ className }: { className?: string }) {
       ) : shown.length === 0 ? (
         <EmptyState icon={ReceiptText} title={t("funds.empty")} body={t("wallet.historyEmptyBody")} />
       ) : (
-        <ul className="divide-y divide-border" data-testid="funds-history">
+        <ul className="divide-y-2 divide-dotted divide-border" data-testid="funds-history">
           {shown.map((row) => <Row key={row.id} row={row} />)}
         </ul>
       )}

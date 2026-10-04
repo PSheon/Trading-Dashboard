@@ -17,7 +17,7 @@ export function CopyFollowerActivity({ account }: { account: CopyExecutionAccoun
 function ActivityView({ account }: { account: CopyExecutionAccount }) {
   const { t, format } = useI18n(), [before, setBefore] = useState<string>();
   const query = useCopyFollowerActivity(account, before), page = query.data;
-  return <section className="mt-5 border-t border-border pt-5" aria-label={t('copyFollowerActivity.title')}>
+  return <section className="mt-5 border-t-2 border-dotted border-border pt-5" aria-label={t('copyFollowerActivity.title')}>
     <h4 className="text-sm font-bold">{t('copyFollowerActivity.title')}</h4>
     <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerActivity.hint')}</p>
     <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerStatement.deltaHint')}</p>

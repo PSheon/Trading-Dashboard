@@ -66,8 +66,8 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
   const today = mine.data?.todayPnl;
 
   return (
-    <section className="rounded-2xl border border-border bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
+    <section className="orbit-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-dotted border-border p-3">
         <div role="radiogroup" aria-label={t("pf.detail.switchAria")} className="grid grid-cols-2 rounded-full border border-border bg-raised p-0.5">
           {(["yours", "trader"] as const).map((v) => (
             <button key={v} type="button" role="radio" aria-checked={view === v} onClick={() => setView(v)} className={cn("h-8 rounded-full px-4 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring", view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
@@ -92,7 +92,7 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
           {metric === "roi" && pnlLast ? <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm font-semibold", pnlLast[1] >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{usdCompact(pnlLast[1], { sign: true, digits: 2 })}</span> : null}
         </div>
         <div className="flex flex-col items-end gap-1 text-right">
-          {last ? <p className="num font-mono text-[11px] text-muted-foreground uppercase">{format.stamp(last[0])}</p> : null}
+          {last ? <p className="num font-mono text-[11px] text-muted-foreground">{format.stamp(last[0])}</p> : null}
           {view === "yours" ? <p className="text-xs text-muted-foreground">{t("copyUpdates.todayPnl")} <strong className={cn("num ml-1", tone(today))}>{today === null || today === undefined ? "—" : format.usd(today, { sign: true, digits: 2 })}</strong></p> : null}
         </div>
       </div>
@@ -120,7 +120,7 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
           </p>
         ) : null}
       </div>
-      <div className="border-t border-border p-3" data-testid="copy-compare">
+      <div className="border-t-2 border-dotted border-border p-3" data-testid="copy-compare">
         <p className="text-xs font-semibold">{t("pf.detail.sameWindow", { date: format.dateTime(from) })}</p>
         <dl className="mt-2 grid grid-cols-2 gap-2">
           {([["yours", t("pf.detail.yourCopy"), yours], ["trader", traderName, theirs]] as const).map(([key, label, v]) => (

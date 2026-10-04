@@ -94,7 +94,7 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
     <Modal open={open} onOpenChange={change} title={t("deleteAccount.title")} className="max-w-[480px]" bodyClassName="p-6">
       <p className="text-sm leading-relaxed text-muted-foreground">{t("deleteAccount.intro")}</p>
 
-      <div className="mt-4 rounded-xl border border-border bg-card p-4">
+      <div className="mt-4 orbit-card rounded-[24px]! p-4">
         <p className="flex items-center gap-2 text-sm font-semibold">
           <ShieldCheck className="size-4 text-positive" />
           {t("deleteAccount.fundsTitle")}

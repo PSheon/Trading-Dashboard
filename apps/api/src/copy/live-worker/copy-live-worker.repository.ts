@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
+import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
   copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyRiskPolicies } from '@trading-dashboard/shared/database';
 import { copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
@@ -134,6 +134,17 @@ export class CopyLiveWorkerRepository {
     const [row] = await this.db.select({ id: copyLiveDispatches.id }).from(copyLiveDispatches)
       .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.coin, coin), eq(copyLiveDispatches.leg, 'open'), inArray(copyLiveDispatches.state, ['submitted', 'settled']))).limit(1);
     return row !== undefined;
+  }
+  /** Whether the owner closed `coin` by hand after this generation's latest
+   * open of it: the leader's later reductions have nothing left to reduce. */
+  async closedByOwner(mandateId: string, accountId: string, coin: string): Promise<boolean> {
+    const [open] = await this.db.select({ at: copyLiveDispatches.createdAt }).from(copyLiveDispatches)
+      .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.coin, coin), eq(copyLiveDispatches.leg, 'open'), inArray(copyLiveDispatches.state, ['submitted', 'settled'])))
+      .orderBy(sql`${copyLiveDispatches.createdAt} desc`).limit(1);
+    if (!open) return false;
+    const [closed] = await this.db.select({ id: copyLiveManualCloses.id }).from(copyLiveManualCloses)
+      .where(and(eq(copyLiveManualCloses.accountId, accountId), eq(copyLiveManualCloses.coin, coin), eq(copyLiveManualCloses.state, 'done'), gt(copyLiveManualCloses.updatedAt, open.at))).limit(1);
+    return closed !== undefined;
   }
   async sourceNetwork(strategyId: number): Promise<LiveSourceNetwork | null> {
     const [row] = await this.db.select({ network: copyLiveStrategyConfigs.sourceNetwork }).from(copyLiveStrategyConfigs).where(eq(copyLiveStrategyConfigs.strategyId, strategyId));

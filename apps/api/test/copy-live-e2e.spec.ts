@@ -23,7 +23,9 @@ import { CopyLiveEngine } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
-import { CopyLiveStopper } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveManualCloser, CopyLiveStopper } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
+import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import { TestnetReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import { CopyLiveStopService } from '../src/copy/copy-live-stop.service.js';
@@ -147,8 +149,11 @@ function engine(midPrice = '100', egress = global, withStopper = false) {
   const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
   const reference = { read: vi.fn(async () => ({ midPrice, midObservedAt: Date.now(), leaderEquity: null, leaderEquityObservedAt: null })) };
   const options = { slippageBps: '30', extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100, maxSourceDeviationBps: '500' };
-  const stopper = withStopper ? new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db)), canceller: null, swept: async () => false,
-    closer: new TestnetReduceOnlyCloser(pool, db, new UnitOfWork(db), config, egress, budget, 100, clock), log: message => logs.push(message) }, clock) : undefined;
+  const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db)), closer = new TestnetReduceOnlyCloser(pool, db, new UnitOfWork(db), config, egress, budget, 100, clock);
+  const stopOnly = new CopyLiveStopper({ repository: stops, canceller: null, swept: async () => false, closer, log: message => logs.push(message) }, clock);
+  const manual = new CopyLiveManualCloser(stops, closer, new CopyFollowerReconciler(new CopyFollowerScanRepository(db), new CopyFollowerLedger(db, new UnitOfWork(db)),
+    new HyperliquidFollowerReceiptReader('testnet', weight => budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), egress.fetchInfo, clock)), message => logs.push(message));
+  const stopper = withStopper ? { tick: async () => { await stopOnly.tick(); await manual.tick(); } } : undefined;
   return new CopyLiveEngine({ stopper,
     repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db)), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, clock), testnetSource: { read: vi.fn() } as never,
@@ -224,6 +229,28 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect((await db.select().from(schema.copyLiveStopOperations))[0]).toMatchObject({ state: 'stopped' });
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopped' });
     expect(exchangeBodies).toHaveLength(2);
+  });
+  it('the owner closes one position while copying: a reduce-only IOC by the agent, then the copy keeps mirroring the leader', async () => {
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
+    const close = await new CopyLiveCloseService(new CopyLiveCloseRepository(db)).request(1, 'account', { idempotencyKey: '55555555-5555-4555-8555-555555555555', coin: 'BTC' });
+    expect(close).toMatchObject({ state: 'requested', coin: 'BTC', orders: 0 });
+    const fresh = (name: string) => new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: name, ownerId: name }, raw);
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config); e = engine('100', fresh('e2e-manual-close'), true);
+    await e.tick();
+    expect(logs).toEqual([]);
+    expect(exchangeBodies[1]).toMatchObject({ action: { orders: [{ b: false, s: '0.19', r: true, t: { limit: { tif: 'Ioc' } } }] } });
+    expect(shared.position).toBe('0');
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config); e = engine('100', fresh('e2e-manual-done'), true);
+    await e.tick();
+    expect((await db.select().from(schema.copyLiveManualCloses))[0]).toMatchObject({ state: 'done' });
+    // The next leader open still sizes and sends: the projection counts the owner's close.
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config); e = engine('100', fresh('e2e-after-close'));
+    await leaderOpens(1002); await e.tick();
+    expect(logs).toEqual([]);
+    expect(exchangeBodies).toHaveLength(3);
+    expect(exchangeBodies[2]).toMatchObject({ action: { orders: [{ b: true, s: '0.19', r: false }] } });
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'active' });
   });
   it('refuses the open when the testnet mid strays from mainnet beyond the threshold; nothing is signed or sent', async () => {
     const e = engine('120'); await e.tick(); await leaderOpens(); await e.tick();

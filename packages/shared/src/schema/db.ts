@@ -1882,6 +1882,25 @@ export const copyLiveBuilderApprovals = pgTable("copy_live_builder_approvals", {
   check("copy_live_builder_approvals_check", sql`${t.network} = 'testnet' and ${oneOf(t.state, ["prepared", "unknown", "accepted", "rejected", "approved"])} and ${t.maxFeeTenthsBps} between 1 and 100 and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.builderAddress} ~ '^0x[0-9a-f]{40}$' and ${t.nonce} > 0 and (${t.state} = 'prepared' or ${t.attemptedAt} is not null)`),
 ]);
 
+/** The owner's request to close one position of a running testnet copy
+ * (CopyDog's close-position), executed by the worker as reduce-only IOC
+ * orders signed by the approved agent; every attempt's order key is kept so
+ * the copy's position projection can account for those fills. */
+export const copyLiveManualCloses = pgTable("copy_live_manual_closes", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(), coin: text("coin").notNull(),
+  state: text("state").$type<"requested" | "done" | "refused">().notNull().default("requested"), reason: text("reason"),
+  executionKeys: jsonb("execution_keys").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_manual_closes_key_uq").on(t.userId, t.idempotencyKey),
+  uniqueIndex("copy_live_manual_closes_open_uq").on(t.accountId, t.coin).where(sql`${t.state} = 'requested'`),
+  index("copy_live_manual_closes_account_idx").on(t.accountId, t.createdAt),
+  check("copy_live_manual_closes_check", sql`${oneOf(t.state, ["requested", "done", "refused"])} and length(${t.coin}) between 1 and 129 and jsonb_typeof(${t.executionKeys}) = 'array' and jsonb_array_length(${t.executionKeys}) <= 10 and (${t.state} <> 'refused' or ${t.reason} is not null)`),
+]);
+
 /** Shared outbound provider capacity. Reservations are never refunded merely
  * because the process cannot determine whether a request was delivered. */
 export const hyperliquidEgressQuota = pgTable("hyperliquid_egress_quota", {

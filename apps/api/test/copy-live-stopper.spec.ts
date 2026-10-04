@@ -5,6 +5,8 @@ import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
 import { CopyLiveStopService } from '../src/copy/copy-live-stop.service.js';
+import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
+import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
 import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import { closeCloid, type CloseRequest, type TestnetReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
@@ -131,6 +133,19 @@ describe('testnet stop execution', () => {
     const foreign = await privateKeyToAccount(`0x${'09'.repeat(32)}`).signTypedData(liveStopCancellationOwnerTypedData(challenge.intent));
     await expect(service.approveCancellation(1, stop.id, { consentSignature: foreign })).rejects.toMatchObject({ status: 403 });
     expect((await db.select().from(schema.copyLiveStopConsents))[0]).toMatchObject({ consentDigest: null, verifiedAt: null });
+  });
+
+  it('a single-position close is refused while a stop runs; outside a stop one open close per market', async () => {
+    const closes = new CopyLiveCloseService(new CopyLiveCloseRepository(db), () => clock);
+    await expect(closes.request(1, 'account', { idempotencyKey: '66666666-6666-4666-8666-666666666666', coin: 'BTC' })).rejects.toMatchObject({ status: 409, response: { code: 'copy_stopping' } });
+    await db.delete(schema.copyLiveStopOperations); await db.update(schema.copyStrategies).set({ status: 'active', pauseNewRisk: false, reduceOnly: false });
+    const first = await closes.request(1, 'account', { idempotencyKey: '77777777-7777-4777-8777-777777777777', coin: 'BTC' });
+    expect(first).toMatchObject({ state: 'requested', coin: 'BTC' });
+    expect(await closes.request(1, 'account', { idempotencyKey: '77777777-7777-4777-8777-777777777777', coin: 'BTC' })).toEqual(first);
+    await expect(closes.request(1, 'account', { idempotencyKey: '88888888-8888-4888-8888-888888888888', coin: 'BTC' })).rejects.toMatchObject({ status: 409, response: { code: 'close_pending' } });
+    await expect(closes.request(1, 'account', { idempotencyKey: '99999999-9999-4999-8999-999999999999', coin: 'bad coin' })).rejects.toMatchObject({ status: 400 });
+    expect((await closes.list(1, 'account')).items).toHaveLength(1);
+    expect((await closes.list(2, 'account')).items).toHaveLength(0);
   });
 });
 

@@ -64,6 +64,8 @@ export interface LiveGenerationManifestV1 {
   readonly conflicts: readonly LiveGenerationSqlRow<typeof copyFollowerReceiptConflicts.$inferSelect>[];
   readonly accountState: LiveGenerationSqlRow<typeof copyFollowerAccountState.$inferSelect> | null;
   readonly carry: readonly LiveGenerationSqlRow<typeof copyLiveReductionCarry.$inferSelect>[];
+  /** Order keys of the owner's single-position closes on this account. */
+  readonly manualCloses?: readonly string[];
 }
 
 function requireGeneration(value: unknown): asserts value { if (!value) throw new LiveBoundaryError('live_generation_unproven'); }
@@ -95,6 +97,15 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
     let firstFound=false;
     for(const entry of manifest.journals){
       const {journal:j,provenance:p,leg,fill:fillRow,reservation:r,evidence:e}=entry,record=j.record as unknown as LiveExecutionRecord;
+      if(manifest.manualCloses?.includes(j.key)){
+        // The owner's close of one position: a reduce-only IOC by the approved
+        // agent on this account, never a source leg. Its fills reduce.
+        requireGeneration(j.network==='testnet'&&j.accountAddress===id.accountAddress&&j.userId===id.userId&&j.strategyId===id.strategyId&&record.key===j.key&&
+          record.authorization.network==='testnet'&&record.authorization.accountAddress===id.accountAddress&&record.authorization.signerAddress===j.signerAddress&&
+          record.market&&record.action.orders[0].r===true&&record.action.orders[0].t.limit.tif==='Ioc'&&!p&&!leg&&!r&&record.createdAt>=baseline.createdAt);
+        for(const row of manifest.receipts.filter(row=>row.executionKey===j.key))certified.set(row.key,{side:record.action.orders[0].b?'B':'A',reduceOnly:true,coin:record.market!.coin});
+        continue;
+      }
       requireGeneration(j.network==='testnet'&&j.accountAddress===id.accountAddress&&j.userId===id.userId&&j.strategyId===id.strategyId&&
         record.key===j.key&&record.nonce===j.nonce&&record.state===j.state&&record.updatedAt===millis(j.updatedAt)&&record.authorization.id===id.authorizationId&&record.authorization.userId===id.userId&&
         record.authorization.strategyId===id.strategyId&&record.authorization.network==='testnet'&&record.authorization.accountAddress===id.accountAddress&&record.authorization.signerAddress===j.signerAddress&&

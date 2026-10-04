@@ -149,6 +149,9 @@ export class CopyLiveEngine {
       await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'copy_stopping' }); return;
     }
     if (m.strategyStatus !== 'active') return; // paused: new legs wait, then expire.
+    if (row.leg === 'close' && await this.deps.repository.closedByOwner(row.mandateId, row.accountId, row.coin)) {
+      await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'position_closed_by_owner' }); return;
+    }
     if (row.leg === 'close' && !await this.deps.repository.everOpened(row.mandateId, row.coin)) {
       await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'no_follower_position' }); return;
     }

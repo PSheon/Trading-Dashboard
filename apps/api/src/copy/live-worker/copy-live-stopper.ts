@@ -194,3 +194,47 @@ export class StopCanceller {
     return 'attempted';
   }
 }
+
+/**
+ * Executes owner single-position closes on running copies: reduce-only IOC
+ * orders by the approved agent until the observation shows no position in
+ * that market. Each attempt's key is recorded before its order, attempt n has
+ * a fixed cloid, and an unfinished order is only reconciled. A stop takes
+ * over (and closes everything) if one starts.
+ */
+export class CopyLiveManualCloser {
+  constructor(private readonly repository: CopyLiveStopWorkerRepository, private readonly closer: TestnetReduceOnlyCloser,
+    /** Books the account's fills now, so the copy's next order sees the close. */
+    private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly log?: (message: string) => void) {}
+  async tick(): Promise<void> {
+    for (const row of await this.repository.manualCloses()) {
+      try { await this.step(row); }
+      catch (error) { this.log?.(`close ${row.id} kept for the next pass: ${reason(error)}`); }
+    }
+  }
+  private async step(row: Awaited<ReturnType<CopyLiveStopWorkerRepository['manualCloses']>>[number]): Promise<void> {
+    const status = await this.repository.strategyStatus(row.strategyId);
+    if (status === 'stopping' || status === 'stopped') { await this.repository.finishManual(row.id, 'refused', 'copy_stopping'); return; }
+    const account = await this.repository.closeAccountOf(row);
+    if (!account) { await this.repository.finishManual(row.id, 'refused', 'agent_unavailable'); return; }
+    const stillWanted = async () => (await this.repository.manualClose(row.id))?.state === 'requested' && !['stopping', 'stopped'].includes(await this.repository.strategyStatus(row.strategyId) ?? 'stopped');
+    const last = row.executionKeys.at(-1);
+    if (last) {
+      const state = await this.repository.journalState(last);
+      if (state !== null && !TERMINAL.has(state)) {
+        await this.closer.close({ account, coin: row.coin, seed: `manual:${row.id}:${row.executionKeys.length - 1}`, stillWanted }); return;
+      }
+    }
+    const snapshot = await this.closer.observe(account.accountAddress);
+    const position = snapshot.positions.find(p => p.coin === row.coin && !Dec.from(p.size).isZero);
+    if (!position) {
+      // The close's own fills must be booked before the copy trades again.
+      if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
+      await this.repository.finishManual(row.id, 'done', null); return;
+    }
+    if (row.executionKeys.length >= MAX_CLOSE_ATTEMPTS) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }
+    const seed = `manual:${row.id}:${row.executionKeys.length}`, key = `testnet:${address(account.accountAddress)}:${closeCloid(seed)}`;
+    if (!await this.repository.appendManualKey(row.id, row.executionKeys.length, key)) return;
+    await this.closer.close({ account, coin: row.coin, seed, stillWanted });
+  }
+}

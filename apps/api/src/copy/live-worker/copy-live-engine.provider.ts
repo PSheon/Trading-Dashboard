@@ -23,7 +23,7 @@ import { CopyLiveSettler } from './copy-live-settler.js';
 import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
 import { CopyLiveStopWorkerRepository } from './copy-live-stop-worker.repository.js';
-import { CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
+import { CopyLiveManualCloser, CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
 import { TestnetReduceOnlyCloser } from './reduce-only-closer.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
@@ -51,18 +51,20 @@ export const liveEngineProvider: Provider = {
     const reference = new MainnetSourceReferenceReader(market);
     const options = { slippageBps: String(live.slippageBps), extraRiskBufferBps: EXTRA_RISK_BUFFER_BPS,
       restingOrderBuilderFeeCapTenthsBps: RESTING_BUILDER_FEE_CAP_TENTHS_BPS, maxSourceDeviationBps: String(live.maxSourceDeviationBps) };
+    const scanner = new CopyFollowerReconciler(scans, ledger,
+      new HyperliquidFollowerReceiptReader('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo));
     const closer = new TestnetReduceOnlyCloser(pool, db, uow, testnetConfig, testnetGlobal, testnetBudget, Math.max(100, live.slippageBps * 3));
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message),
       canceller: new StopCanceller(pool, db, testnetConfig, testnetGlobal, testnetBudget, stops, (account, key) => closer.reconcile(account, key)),
       // Returning funds to the main wallet is the owner's signed transfer; the
       // stop ends once that sweep is credited.
       swept: stop => returns.swept(stop.id) });
-    return new CopyLiveEngine({ stopper,
+    const manual = new CopyLiveManualCloser(stops, closer, scanner, message => logger.warn(message));
+    return new CopyLiveEngine({ stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       repository, sources, uow, watched: new WatchedMainnetSource(db),
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo),
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),
-      settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, new CopyFollowerReconciler(scans, ledger,
-        new HyperliquidFollowerReceiptReader('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo))),
+      settler: new CopyLiveSettler(pool, testnetGlobal, testnetBudget, scanner),
       log: message => logger.warn(message),
     }, DEFAULT_ENGINE_OPTIONS);
   },

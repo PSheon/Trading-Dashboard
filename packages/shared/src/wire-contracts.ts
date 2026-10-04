@@ -15,7 +15,7 @@ import { copyAccountModeOverviewSchema, copyAccountModeOperationSchema, copyAcco
 import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
 import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.js";
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
-import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyPortfolioSchema } from "./copy-live-mandate-contracts.js";
+import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyPortfolioSchema, liveManualCloseSchema, liveManualClosesSchema } from "./copy-live-mandate-contracts.js";
 import { liveCopyStopSchema, liveCopyStopsSchema, liveStopCancellationChallengeSchema } from './copy-live-stop-contracts.js';
 import * as s from "./schema/zod.js";
 import { referralOverviewSchema, referralCodeSchema, referralCheckSchema, referralBindSchema, referralFriendsSchema, referralClaimSchema, referralClaimsSchema } from './referral-contracts.js';
@@ -337,6 +337,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/live/mandates/:id/pause", status: 200, auth: "user (owner); local new-risk barrier", response: liveCopyMandateSchema },
   { method: "POST", path: "/me/copy/live/mandates/:id/revoke", status: 200, auth: "user (owner); local consent revocation preserves liabilities", response: liveCopyMandateSchema },
   { method: 'POST', path: '/me/copy/live/mandates/:id/stop', status: 200, auth: 'user (owner); durable local risk barrier; no financial execution', response: liveCopyStopSchema },
+  { method: 'POST', path: '/me/copy/live/execution-wallets/:id/positions/close', status: 200, auth: 'user (owner); one position of a running testnet copy; executed by the worker', response: liveManualCloseSchema },
+  { method: 'GET', path: '/me/copy/live/execution-wallets/:id/closes', status: 200, auth: 'user (owner); read only', response: liveManualClosesSchema },
   { method: 'GET', path: '/me/copy/live/portfolio', status: 200, auth: 'user (owner); testnet copies with their funding and stop stage; read only', response: liveCopyPortfolioSchema },
   { method: 'GET', path: '/me/copy/live/stops', status: 200, auth: 'user (owner); bounded durable stop history; read only', response: liveCopyStopsSchema },
   { method: 'GET', path: '/me/copy/live/stops/by-key/:key', status: 200, auth: 'user (owner); exact original stop recovery; read only', response: liveCopyStopSchema },

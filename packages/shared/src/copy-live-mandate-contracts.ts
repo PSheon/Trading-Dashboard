@@ -103,3 +103,13 @@ export const liveCopyPortfolioItemSchema = z.object({
 }).strict();
 export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
 export const liveCopyPortfolioSchema = z.object({ network: z.literal('testnet'), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();
+
+/** Close one position of a running testnet copy (CopyDog's close-position). */
+export const requestLiveManualCloseSchema = z.object({
+  idempotencyKey: z.string().uuid(), coin: z.string().min(1).max(129).regex(/^(?:[^:\s/@\p{Cc}\p{Cf}]{1,40}:)?[^:\s/@\p{Cc}\p{Cf}]{1,80}$/u),
+}).strict();
+export const liveManualCloseSchema = z.object({
+  id: z.string().uuid(), accountId: id, strategyId: version, coin: z.string(), state: z.enum(['requested', 'done', 'refused']),
+  reason: z.string().nullable(), orders: z.number().int().min(0).max(10), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+}).strict();
+export const liveManualClosesSchema = z.object({ items: z.array(liveManualCloseSchema).max(50) }).strict();

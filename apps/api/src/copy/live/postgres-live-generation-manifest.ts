@@ -1,6 +1,6 @@
 import { and,eq, or, sql } from 'drizzle-orm';
 import { copyLivePositionBaselines,copyLiveExecutions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceFills,copyLiveRiskReservations,copyLiveExecutionEvidence,
-  copyFollowerReceipts,copyFollowerLedger,copyFollowerScans,copyFollowerReceiptConflicts,copyFollowerAccountState,copyLiveReductionCarry,copyLiveMandates,copyStrategyVersions,copyRiskPolicies } from '@trading-dashboard/shared/database';
+  copyFollowerReceipts,copyFollowerLedger,copyFollowerScans,copyFollowerReceiptConflicts,copyFollowerAccountState,copyLiveReductionCarry,copyLiveManualCloses,copyLiveMandates,copyStrategyVersions,copyRiskPolicies } from '@trading-dashboard/shared/database';
 import {copyRiskLimitsSchema,copyStrategySettingsSchema} from '@trading-dashboard/shared/contracts';
 import type { DbExecutor } from '../../db/unit-of-work.js';
 import { assertOriginalLiveRiskSession,type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
@@ -39,6 +39,8 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
   const conflicts=await read(db.select().from(copyFollowerReceiptConflicts).where(sql`${copyFollowerReceiptConflicts.receiptKey} in (select key from copy_follower_receipts where account_id=${a.id} or account_address=${a.address})`).limit(1));
   const [accountState]=await read(db.select().from(copyFollowerAccountState).where(eq(copyFollowerAccountState.accountId,a.id)));
   const carry=await read(db.select().from(copyLiveReductionCarry).where(eq(copyLiveReductionCarry.mandateId,m.id)).orderBy(copyLiveReductionCarry.coin).limit(1025));
+  const manual=await read(db.select({keys:copyLiveManualCloses.executionKeys}).from(copyLiveManualCloses).where(eq(copyLiveManualCloses.accountId,a.id)).limit(1001));
+  check(manual.length<=1000,'live_risk_generation_unbounded');const manualCloses=[...new Set(manual.flatMap(row=>row.keys))].sort();
   check(receipts.length<=10000&&ledger.length<=30000&&carry.length<=1024,'live_risk_generation_unbounded');
   const journals:LiveGenerationJournalV1[]=[];
   for(const {provenance,...entry} of entries){
@@ -62,6 +64,6 @@ export async function loadLiveGenerationManifest(session:LiveRiskDatabaseSession
     }
     journals.push(canonical({...entry,provenance:p}));
   }
-  const manifest:LiveGenerationManifestV1=canonical({version:1,accountId:a.id,mandateId:m.id,checkedAt:input.now,baseline,journals,receipts,ledger,scan:scan??null,conflicts,accountState:accountState??null,carry});
+  const manifest:LiveGenerationManifestV1=canonical({version:1,accountId:a.id,mandateId:m.id,checkedAt:input.now,baseline,journals,receipts,ledger,scan:scan??null,conflicts,accountState:accountState??null,carry,...(manualCloses.length?{manualCloses}:{})});
   check(Buffer.byteLength(JSON.stringify(manifest))<=2*1024*1024,'live_risk_generation_unbounded');session.scope.assertFresh();return freezeLiveReservation(manifest);
 }

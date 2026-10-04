@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates, copyLiveStopCancellations,
+import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
   copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
@@ -39,6 +39,36 @@ export class CopyLiveStopWorkerRepository {
     if (!row?.setup.authorizationId || !row.setup.agentWalletId || row.account.address !== stop.accountAddress) return null;
     return { userId: stop.userId, strategyId: stop.strategyId, accountId: stop.accountId, accountAddress: stop.accountAddress,
       authorizationId: row.setup.authorizationId, walletId: row.setup.agentWalletId, workerQuorumId: row.setup.workerQuorumId };
+  }
+  /** The approved agent of an account, for a single-position close. */
+  async closeAccountOf(row: { userId: number; strategyId: number; accountId: string }): Promise<CloseAccount | null> {
+    const [found] = await this.db.select({ setup: copyAgentSetups, account: copyExecutionAccounts }).from(copyAgentSetups)
+      .innerJoin(copyExecutionAccounts, eq(copyExecutionAccounts.id, copyAgentSetups.accountId))
+      .where(and(eq(copyAgentSetups.accountId, row.accountId), eq(copyAgentSetups.state, 'active')));
+    if (!found?.setup.authorizationId || !found.setup.agentWalletId || !found.account.address || found.account.userId !== row.userId) return null;
+    return { userId: row.userId, strategyId: row.strategyId, accountId: row.accountId, accountAddress: found.account.address,
+      authorizationId: found.setup.authorizationId, walletId: found.setup.agentWalletId, workerQuorumId: found.setup.workerQuorumId };
+  }
+  async manualCloses() {
+    return this.db.select().from(copyLiveManualCloses).where(eq(copyLiveManualCloses.state, 'requested')).orderBy(asc(copyLiveManualCloses.createdAt)).limit(50);
+  }
+  async manualClose(id: string) {
+    const [row] = await this.db.select().from(copyLiveManualCloses).where(eq(copyLiveManualCloses.id, id));
+    return row ?? null;
+  }
+  async strategyStatus(id: number): Promise<string | null> {
+    const [row] = await this.db.select({ status: copyStrategies.status }).from(copyStrategies).where(eq(copyStrategies.id, id));
+    return row?.status ?? null;
+  }
+  /** Records the next attempt's order key before the order exists, so the
+   * position projection always knows the close's orders. */
+  async appendManualKey(id: string, expected: number, key: string): Promise<boolean> {
+    const rows = await this.db.update(copyLiveManualCloses).set({ executionKeys: sql`${copyLiveManualCloses.executionKeys} || ${JSON.stringify([key])}::jsonb`, updatedAt: new Date() })
+      .where(and(eq(copyLiveManualCloses.id, id), eq(copyLiveManualCloses.state, 'requested'), sql`jsonb_array_length(${copyLiveManualCloses.executionKeys}) = ${expected}`)).returning({ id: copyLiveManualCloses.id });
+    return rows.length === 1;
+  }
+  async finishManual(id: string, state: 'done' | 'refused', reason: string | null): Promise<void> {
+    await this.db.update(copyLiveManualCloses).set({ state, reason, updatedAt: new Date() }).where(and(eq(copyLiveManualCloses.id, id), eq(copyLiveManualCloses.state, 'requested')));
   }
   /** Orders on the account that are not finished: they block the close. */
   async inflight(accountAddress: string): Promise<{ record: LiveExecutionRecord; intent: LiveOrderIntent | null }[]> {

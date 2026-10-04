@@ -3,6 +3,7 @@ import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common"
 import { CHAIN_DEFAULT, cohortHeadlineReady, cohortTierSchema, type CohortDetailResponse, type CohortHistoryResponse, type CohortTier, type CohortWindow } from "@trading-dashboard/shared/contracts";
 
 import { pnlTier } from "../analytics/trade-metrics.js";
+import { DiscoveryService } from "../discovery/discovery.service.js";
 import { AppConfig } from "../config/app-config.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
@@ -10,7 +11,7 @@ import { ESSENTIAL_RANK, PAGE_RANK } from "../hyperliquid/request-budgeter.servi
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
-import { COHORT_TIERS, aggregate, candleInterval, dexOf, positionsFrom, WINDOW_MS, type MemberSnapshot } from "./cohorts.js";
+import { COHORT_TIERS, aggregate, candleInterval, cohortEligible, cohortHistoryReady, dexOf, positionsFrom, WINDOW_MS, type MemberSnapshot } from "./cohorts.js";
 import { CohortRepository, type CohortCandidate, type CohortMemberRow } from "./cohort.repository.js";
 
 /** Weight of one `clearinghouseState` (per dex). */
@@ -70,6 +71,8 @@ export class CohortService {
   readonly detailCache = new TtlCache<CohortDetailResponse>(DETAIL_TTL_MS);
   readonly candleCache = new TtlCache<Array<[number, number]>>(CANDLES_TTL_MS);
   private readonly dexCache = new TtlCache<string[]>(DEX_LIST_TTL_MS, 1);
+  /** The last BTC closes read per candle size, served while Hyperliquid is busy. */
+  private readonly lastBtc = new Map<string, Array<[number, number]>>();
 
   constructor(
     private readonly config: AppConfig,
@@ -77,6 +80,7 @@ export class CohortService {
     private readonly info: HyperliquidInfoClient,
     private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
+    @Optional() private readonly discovery?: DiscoveryService,
   ) {}
 
   /** Cron entry point: one tick at a time, never in tests. */
@@ -116,16 +120,21 @@ export class CohortService {
   }
 
   /**
-   * Chooses each tier's members: pool traders by perp PnL tier, largest
-   * account value first, up to `perTier`; a short tier is topped up with the
-   * leaderboard's largest active accounts in that PnL range.
+   * Chooses each tier's members: eligible pool traders (`cohortEligible`:
+   * no vaults, no wallet above the perp-equity ceiling) by perp PnL tier, largest perp equity first (the whole account's
+   * value while the perp figure is not known yet), up to `perTier`; a short
+   * tier is topped up with the leaderboard's largest active accounts in that
+   * PnL range.
    */
   async build(perTier: number): Promise<{ total: number; added: number; removed: number }> {
     const pool = await this.repository.poolFigures();
     const byTier = new Map<CohortTier, typeof pool>();
+    const num = (v: string | null) => (v === null ? null : Number(v));
+    const size = (row: (typeof pool)[number]) => num(row.perpEquity) ?? num(row.accountValue) ?? 0;
     for (const row of pool) {
       const tier = pnlTier(Number(row.pnlAll));
       if (!tier) continue;
+      if (!cohortEligible({ isVault: row.isVault, perpEquity: num(row.perpEquity) })) continue;
       const list = byTier.get(tier) ?? [];
       list.push(row);
       byTier.set(tier, list);
@@ -133,7 +142,7 @@ export class CohortService {
     const candidates: CohortCandidate[] = [];
     const taken = new Set<string>();
     for (const tier of COHORT_TIERS) {
-      const rows = (byTier.get(tier) ?? []).sort((a, b) => Number(b.accountValue ?? 0) - Number(a.accountValue ?? 0)).slice(0, perTier);
+      const rows = (byTier.get(tier) ?? []).sort((a, b) => size(b) - size(a) || a.address.localeCompare(b.address)).slice(0, perTier);
       rows.forEach((row, i) => {
         taken.add(row.address);
         const dexes = [...new Set(Object.keys(row.coinStats ?? {}).map(dexOf).filter(Boolean))];
@@ -207,8 +216,9 @@ export class CohortService {
 
   /** One history row per tier whose last row is `intervalMs` old, once
    * enough of the tier is fresh for the figure to be the tier's
-   * (`cohortHeadlineReady`). A point from a fifth of the members would
-   * stay on the 倉位傾向 chart for good. */
+   * (`cohortHistoryReady`: 95 % of the members and of their perp equity). A
+   * point from part of the members would stay on the 倉位傾向 chart for good;
+   * one missing whale moved it by 30 points. */
   async writeSnapshots(intervalMs: number, now = new Date()): Promise<number> {
     this.lastSnapshot ??= await this.repository.lastSnapshotAt();
     let written = 0;
@@ -216,8 +226,9 @@ export class CohortService {
       const last = this.lastSnapshot.get(tier);
       if (last && now.getTime() - last.getTime() < intervalMs - 30_000) continue;
       const members = await this.snapshots(tier);
-      const detail = aggregate(tier, members, this.freshSince(intervalMs, now));
-      if (!cohortHeadlineReady(detail.walletCount, detail.memberCount)) continue;
+      const freshSince = this.freshSince(intervalMs, now);
+      const detail = aggregate(tier, members, freshSince);
+      if (!cohortHeadlineReady(detail.walletCount, detail.memberCount) || !cohortHistoryReady(members, freshSince)) continue;
       const h = detail.hero;
       // Use the exact selected set aggregated above, not a later mutable membership read.
       // Coverage still describes the fresh subset; identity alone does not imply identical contributors.
@@ -235,7 +246,10 @@ export class CohortService {
     return written;
   }
 
-  private async snapshots(tier: CohortTier): Promise<MemberSnapshot[]> {
+  /** The tier's members as the aggregation reads them. With `scores`, each
+   * carries the copy score the trader page and every board show (the pool
+   * snapshot's percentile); without, none (history rows do not use it). */
+  private async snapshots(tier: CohortTier, scores?: ReadonlyMap<string, number>): Promise<MemberSnapshot[]> {
     const members = await this.repository.membersOf(tier);
     const ids = new Map((await this.repository.identities(members.map((m) => m.address))).map((r) => [r.address, r]));
     const num = (v: string | null) => (v === null ? null : Number(v));
@@ -252,7 +266,7 @@ export class CohortService {
         displayName: (kol ? id!.kolName : null) ?? id?.leaderboardName ?? null,
         avatarUrl: kol ? kolAvatarPath(m.address, id!.kolAvatarEtag) : null,
         verified: kol ? Boolean(id!.kolVerified) : false,
-        copyScore: id?.copyScore ?? null,
+        copyScore: scores?.get(m.address) ?? null,
       };
     });
   }
@@ -262,8 +276,22 @@ export class CohortService {
   async detail(tier: string): Promise<CohortDetailResponse> {
     const parsed = parseTier(tier);
     const discovery = await this.settings.get("discovery");
-    return this.detailCache.get(parsed, async () =>
-      aggregate(parsed, await this.snapshots(parsed), this.freshSince(discovery.cohortRefreshMinutes * 60_000, new Date())));
+    return this.detailCache.get(parsed, async () => {
+      const scores = await this.copyScores();
+      return aggregate(parsed, await this.snapshots(parsed, scores), this.freshSince(discovery.cohortRefreshMinutes * 60_000, new Date()));
+    });
+  }
+
+  /** The pool snapshot's copy scores; empty when unavailable, so a failing
+   * score read never takes the tier down. */
+  private async copyScores(): Promise<ReadonlyMap<string, number>> {
+    if (!this.discovery) return new Map();
+    try {
+      return await this.discovery.copyScoreMap();
+    } catch (error) {
+      this.logger.warn(`Cohort copy scores unavailable: ${(error as Error).message}`);
+      return new Map();
+    }
   }
 
   /**
@@ -298,8 +326,12 @@ export class CohortService {
           const candles = await this.info.candleSnapshot("BTC", interval, from, now, Math.ceil((now - from) / ms) + 1, "background", PAGE_RANK.portfolio);
           return candles.map((c) => [c.t, Number(c.c)] as [number, number]);
         });
+        if (btc.length > 0) this.lastBtc.set(interval, btc);
       } catch (error) {
-        this.logger.warn(`BTC candles unavailable: ${(error as Error).message}`);
+        // Hyperliquid busy (the shared per-IP budget): draw the last candles
+        // read at this size, cut to the window, instead of no BTC line.
+        btc = (this.lastBtc.get(interval) ?? []).filter(([t]) => t >= from);
+        this.logger.warn(`BTC candles unavailable${btc.length > 0 ? " (serving the last read)" : ""}: ${(error as Error).message}`);
       }
     }
     return { tier: parsed, window, series, btc };

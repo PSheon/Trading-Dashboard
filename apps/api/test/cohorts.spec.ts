@@ -1,5 +1,5 @@
 import type { INestApplication } from "@nestjs/common";
-import { cohortMembers, cohortSnapshots, discoveryTraders, kolTraders, traderStats } from "@trading-dashboard/shared/database";
+import { cohortMembers, cohortSnapshots, discoveryTraders, kolTraders, traderAnalytics, traderStats } from "@trading-dashboard/shared/database";
 import { COHORT_HEADLINE_MIN_COVERAGE, cohortHeadlineReady, discoverySettingsSchema, wireCohortDetailSchema, wireCohortHistorySchema } from "@trading-dashboard/shared/contracts";
 import { eq } from "drizzle-orm";
 import request from "supertest";
@@ -9,7 +9,8 @@ import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.
 import type { HlClearinghouseStateResponse } from "../src/hyperliquid/types.js";
 import { CohortRepository } from "../src/insights/cohort.repository.js";
 import { CohortService, SWEEP_MS } from "../src/insights/cohort.service.js";
-import { aggregate, candleInterval, downsample, positionsFrom, walletOf } from "../src/insights/cohorts.js";
+import { aggregate, candleInterval, cohortEligible, cohortHistoryReady, COHORT_MAX_PERP_EQUITY, downsample, positionsFrom, walletOf } from "../src/insights/cohorts.js";
+import type { DiscoveryService } from "../src/discovery/discovery.service.js";
 import { InsightsController } from "../src/insights/insights.controller.js";
 import { InsightsRepository } from "../src/insights/insights.repository.js";
 import { InsightsService } from "../src/insights/insights.service.js";
@@ -58,6 +59,27 @@ describe("cohort aggregation (CopyDog's cohorts)", () => {
     expect(walletOf(members[3])).toMatchObject({ positionValue: 0, biasPct: null, leverage: 0 });
   });
 
+  it("applies CopyDog's member eligibility: no vaults, no whale above the perp-equity ceiling", () => {
+    expect(cohortEligible({ isVault: null, perpEquity: 30_400_000 })).toBe(true); // CopyDog's largest member
+    expect(cohortEligible({ isVault: null, perpEquity: null })).toBe(true);
+    expect(cohortEligible({ isVault: true, perpEquity: 1 })).toBe(false);
+    expect(cohortEligible({ isVault: false, perpEquity: COHORT_MAX_PERP_EQUITY })).toBe(true);
+    expect(cohortEligible({ isVault: false, perpEquity: 56_500_000 })).toBe(false); // CopyDog's smallest absent whale
+  });
+
+  it("writes a history point only when 95 % of the members and of their perp equity are fresh", () => {
+    const now = new Date("2026-10-01T15:45:00Z");
+    const since = new Date(now.getTime() - 3_600_000);
+    const stale = new Date(now.getTime() - 5 * 3_600_000);
+    const members = Array.from({ length: 40 }, () => ({ fetchedAt: now, perpEquity: 1_000_000 }));
+    expect(cohortHistoryReady(members, since)).toBe(true);
+    // One whale holding most of the equity is stale: 39 of 40 by count, not by equity.
+    expect(cohortHistoryReady([...members.slice(1), { fetchedAt: stale, perpEquity: 170_000_000 }], since)).toBe(false);
+    // Three of forty stale is under 95 % by count.
+    expect(cohortHistoryReady(members.map((m, i) => (i < 3 ? { ...m, fetchedAt: stale } : m)), since)).toBe(false);
+    expect(cohortHistoryReady([], since)).toBe(false);
+  });
+
   it("downsamples history and picks candle sizes per window", () => {
     const pts = Array.from({ length: 1000 }, (_, i) => ({ t: new Date(i * 60_000), pctLong: i % 100 }));
     const out = downsample(pts, 100);
@@ -83,6 +105,9 @@ describe("cohort job and endpoints (real Postgres)", () => {
   };
   const config = { value: { ...testConfig().value, app: { ...testConfig().value.app, nodeEnv: "development" } } } as ReturnType<typeof testConfig>;
   let service: CohortService;
+  // The pool snapshot's percentile, as the trader page shows it (not the
+  // stored legacy column, which is 91 for addr(1) in the seed).
+  const discovery = { copyScoreMap: vi.fn(async () => new Map([[addr(1), 77]])) };
   const stat = (address: string, pnl: number, accountValue: number, extra: Partial<typeof traderStats.$inferInsert> = {}) => ({
     address, displayName: null, accountValue: String(accountValue), pnlDay: "0", pnlWeek: "0", pnlMonth: "0", pnlAllTime: String(pnl),
     roiDay: "0", roiWeek: "0", roiMonth: "0", roiAllTime: "0.1", volumeDay: "0", volumeWeek: "0", volumeMonth: "1000", volumeAllTime: "1",
@@ -92,7 +117,7 @@ describe("cohort job and endpoints (real Postgres)", () => {
   beforeEach(async () => {
     await truncateAll(db);
     vi.clearAllMocks();
-    service = new CohortService(config, repository, info as unknown as HyperliquidInfoClient, settings);
+    service = new CohortService(config, repository, info as unknown as HyperliquidInfoClient, settings, undefined, discovery as unknown as DiscoveryService);
   });
   afterAll(async () => {
     await closeTestDb();
@@ -143,6 +168,30 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect((await db.select().from(cohortMembers).where(eq(cohortMembers.address, addr(1))))[0].fetchedAt).not.toBeNull();
   });
 
+  it("leaves out whales above the perp-equity ceiling and vaults, largest perp equity first", async () => {
+    const now = new Date();
+    const analytics = (address: string, perp: number) => ({ address, source: "hyperliquid" as const, summary: {}, classification: { perpAccountValue: perp },
+      coverageFrom: new Date(now.getTime() - 86_400_000), fillCursor: now, fillsRead: 100, truncated: true, computedAt: now });
+    await db.insert(traderStats).values([
+      stat(addr(20), 96e6, 250e6), stat(addr(21), 44e6, 60e6), stat(addr(22), 73e6, 100e6), stat(addr(23), 50e6, 12e6), stat(addr(24), 3e6, 9e6, { isVault: true }), stat(addr(25), 2e6, 15e6),
+    ]);
+    await db.insert(discoveryTraders).values([20, 21, 22, 23, 24, 25].map((n, i) => ({ address: addr(n), poolRank: i + 1, pnlAll: "2000000", roiAll: "1", portfolioAt: now })));
+    await db.insert(traderAnalytics).values([
+      analytics(addr(20), 170e6), // whale: absent from CopyDog's members
+      analytics(addr(21), 30e6), // CopyDog's largest member
+      analytics(addr(22), 0), // spot-heavy: large account, no perp equity
+      analytics(addr(23), 10e6),
+    ]);
+    await service.build(3);
+    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(21), addr(25), addr(23)]);
+    await service.build(10);
+    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(21), addr(25), addr(23), addr(22)]);
+    // A cohort snapshot's perp equity is newer than the ledger's: addr(21) grew past the ceiling.
+    await db.update(cohortMembers).set({ perpEquity: "60000000" }).where(eq(cohortMembers.address, addr(21)));
+    await service.build(10);
+    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(25), addr(23), addr(22)]);
+  });
+
   it("refreshes positions on known dexes, sweeps every dex daily, writes history and serves the tier", async () => {
     await seed();
     await service.build(2);
@@ -166,11 +215,23 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect(await service.writeSnapshots(15 * 60_000)).toBe(0); // not due again yet
     const detail = await service.detail("extremely_profitable");
     expect(detail).toMatchObject({ memberCount: 2, walletCount: 2 });
-    expect(detail.wallets[0]).toMatchObject({ address: addr(1), displayName: "KOL One", verified: true, copyScore: 91, totalPnl: 4_000_000 });
+    expect(detail.wallets[0]).toMatchObject({ address: addr(1), displayName: "KOL One", verified: true, copyScore: 77, totalPnl: 4_000_000 });
+    expect(detail.wallets[1]).toMatchObject({ address: addr(2), copyScore: null });
     expect(detail.hero).toMatchObject({ notionalLong: 21_000, notionalShort: 20_000 }); // both swept: TSLA on xyz each
     const history = await service.history("extremely_profitable", "7d");
     expect(history.series).toHaveLength(1);
     expect(history.btc).toEqual([[1, 84000]]);
+    // Hyperliquid busy: the last candles read are still drawn.
+    service.candleCache.clear();
+    info.candleSnapshot.mockRejectedValueOnce(new Error("hyperliquid_quota_exhausted"));
+    expect((await service.history("extremely_profitable", "7d")).btc).toEqual([]); // t=1 is before the 7-day window
+    service.candleCache.clear();
+    const recent = Date.now() - 3_600_000;
+    info.candleSnapshot.mockResolvedValueOnce([{ t: recent, T: recent + 1, s: "BTC", i: "1h", o: "1", c: "85000", h: "1", l: "1", v: "1", n: 1 }]);
+    expect((await service.history("extremely_profitable", "7d")).btc).toEqual([[recent, 85000]]);
+    service.candleCache.clear();
+    info.candleSnapshot.mockRejectedValueOnce(new Error("hyperliquid_quota_exhausted"));
+    expect((await service.history("extremely_profitable", "7d")).btc).toEqual([[recent, 85000]]);
     const [snap] = await db.select().from(cohortSnapshots);
     expect(snap).toMatchObject({ tier: "extremely_profitable", walletCount: 2, walletsInProfit: 1, walletsInLoss: 1 });
   });
@@ -235,9 +296,13 @@ describe("cohort job and endpoints (real Postgres)", () => {
     // A row written before this rule, from 33 of 150 members, is not drawn on the chart.
     await db.insert(cohortSnapshots).values({ tier: "extremely_profitable", ts: new Date(Date.now() - 3_600_000), memberCount: 150, walletCount: 33,
       notionalLong: "6.9", notionalShort: "93.1", longPct: "6.9", upnlProfit: "0", upnlLoss: "0", walletsInProfit: 0, walletsInLoss: 0 });
+    // Nor one from 140 of 150 (93 %): under the history's 95 %.
+    await db.insert(cohortSnapshots).values({ tier: "extremely_profitable", ts: new Date(Date.now() - 1_800_000), memberCount: 150, walletCount: 140,
+      notionalLong: "71.6", notionalShort: "28.4", longPct: "71.6", upnlProfit: "0", upnlLoss: "0", walletsInProfit: 0, walletsInLoss: 0 });
     const history = await service.history("extremely_profitable", "7d");
     expect(history.series).toHaveLength(1);
     expect(history.series[0]!.pctLong).not.toBe(6.9);
+    expect(history.series[0]!.pctLong).not.toBe(71.6);
   });
 
   it("preserves legacy unknown identity and hidden membership changes when capping history", async () => {

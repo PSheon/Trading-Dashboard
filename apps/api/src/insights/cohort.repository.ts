@@ -1,11 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, lt, lte, notInArray, sql, type SQL } from "drizzle-orm";
-import { cohortMembers, cohortSnapshots, discoveryTraders, kolAvatars, kolTraders, traderStats, type CohortPosition } from "@trading-dashboard/shared/database";
-import { CHAIN_DEFAULT, COHORT_HEADLINE_MIN_COVERAGE, type CohortTier } from "@trading-dashboard/shared/contracts";
+import { cohortMembers, cohortSnapshots, discoveryTraders, kolAvatars, kolTraders, traderAnalytics, traderStats, type CohortPosition } from "@trading-dashboard/shared/database";
+import { CHAIN_DEFAULT, type CohortTier } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
-import { COHORT_TIERS, TIER_BOUNDS } from "./cohorts.js";
+import { COHORT_HISTORY_MIN_COVERAGE, COHORT_MAX_PERP_EQUITY, COHORT_TIERS, TIER_BOUNDS } from "./cohorts.js";
 
 export type CohortMemberRow = typeof cohortMembers.$inferSelect;
 export type CohortSnapshotRow = typeof cohortSnapshots.$inferSelect;
@@ -56,8 +56,10 @@ function bounds(column: typeof discoveryTraders.pnlAll, tier: CohortTier): SQL |
 export class CohortRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
-  /** Pool rows with figures: address, perp PnL / ROI, account value and the
-   * coins they traded. */
+  /** Pool rows with figures: address, perp PnL / ROI, account value (whole
+   * account), the coins they traded, and what the eligibility rule reads
+   * (`cohortEligible`): vault flag and perp equity (latest cohort snapshot,
+   * else the ledger's classification). */
   poolFigures() {
     return this.db
       .select({
@@ -66,9 +68,13 @@ export class CohortRepository {
         roiAll: discoveryTraders.roiAll,
         accountValue: sql<string | null>`coalesce(${traderStats.accountValue}, ${discoveryTraders.accountValue})`,
         coinStats: discoveryTraders.coinStats,
+        isVault: traderStats.isVault,
+        perpEquity: sql<string | null>`coalesce(${cohortMembers.perpEquity}, case when jsonb_typeof(${traderAnalytics.classification}->'perpAccountValue') = 'number' then (${traderAnalytics.classification}->>'perpAccountValue')::numeric end)`,
       })
       .from(discoveryTraders)
       .leftJoin(traderStats, and(eq(traderStats.chain, discoveryTraders.chain), eq(traderStats.address, discoveryTraders.address)))
+      .leftJoin(cohortMembers, and(eq(cohortMembers.chain, discoveryTraders.chain), eq(cohortMembers.address, discoveryTraders.address)))
+      .leftJoin(traderAnalytics, and(eq(traderAnalytics.chain, discoveryTraders.chain), eq(traderAnalytics.address, discoveryTraders.address)))
       .where(and(eq(discoveryTraders.chain, CHAIN_DEFAULT), eq(discoveryTraders.inPool, true), isNotNull(discoveryTraders.pnlAll)));
   }
 
@@ -81,9 +87,12 @@ export class CohortRepository {
       .select({ address: traderStats.address, pnlAll: discoveryTraders.pnlAll, roiAll: discoveryTraders.roiAll })
       .from(traderStats)
       .innerJoin(discoveryTraders, and(eq(discoveryTraders.chain, traderStats.chain), eq(discoveryTraders.address, traderStats.address)))
+      .leftJoin(traderAnalytics, and(eq(traderAnalytics.chain, traderStats.chain), eq(traderAnalytics.address, traderStats.address)))
       .where(and(
         eq(traderStats.chain, CHAIN_DEFAULT),
         eq(traderStats.isVault, false),
+        // The perp-equity ceiling of `cohortEligible`, where the ledger knows it.
+        sql`coalesce(case when jsonb_typeof(${traderAnalytics.classification}->'perpAccountValue') = 'number' then (${traderAnalytics.classification}->>'perpAccountValue')::numeric end, 0) <= ${COHORT_MAX_PERP_EQUITY}`,
         gt(traderStats.volumeMonth, "0"),
         gt(traderStats.accountValue, "0"),
         isNotNull(discoveryTraders.portfolioAt),
@@ -193,15 +202,15 @@ export class CohortRepository {
   }
 
   /** History rows of a tier since `since` (null: all), oldest first. Rows
-   * recorded while less than COHORT_HEADLINE_MIN_COVERAGE of the tier was
-   * fresh (written before that rule existed) are left out: each is the
-   * long share of a few members, not of the tier. */
+   * recorded while less than COHORT_HISTORY_MIN_COVERAGE of the tier was
+   * fresh are left out: each is the long share of part of the members, and a
+   * missing whale moves it by tens of points (the chart's spikes). */
   history(tier: CohortTier, since: Date | null): Promise<Array<{ ts: Date; longPct: string | null; membershipVersion: string | null }>> {
     return this.db
       .select({ ts: cohortSnapshots.ts, longPct: cohortSnapshots.longPct, membershipVersion: cohortSnapshots.membershipVersion })
       .from(cohortSnapshots)
       .where(and(eq(cohortSnapshots.chain, CHAIN_DEFAULT), eq(cohortSnapshots.tier, tier), since ? gte(cohortSnapshots.ts, since) : undefined,
-        sql`${cohortSnapshots.walletCount} >= ${COHORT_HEADLINE_MIN_COVERAGE}::numeric * ${cohortSnapshots.memberCount}`))
+        sql`${cohortSnapshots.walletCount} >= ${COHORT_HISTORY_MIN_COVERAGE}::numeric * ${cohortSnapshots.memberCount}`))
       .orderBy(asc(cohortSnapshots.ts));
   }
 }

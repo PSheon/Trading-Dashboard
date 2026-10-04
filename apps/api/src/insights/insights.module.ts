@@ -1,6 +1,7 @@
 import { Injectable, Module } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 
+import { DiscoveryModule } from "../discovery/discovery.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
 import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { CohortRepository } from "./cohort.repository.js";
@@ -13,7 +14,7 @@ import { InsightsService } from "./insights.service.js";
  * cohorts (Stage 3 §3). Public. The cohort refresh's cron binding lives in
  * InsightsWorkerModule, so importing this starts no background work. */
 @Module({
-  imports: [HyperliquidModule],
+  imports: [HyperliquidModule, DiscoveryModule],
   controllers: [InsightsController],
   providers: [InsightsService, InsightsRepository, CohortRepository, CohortService],
   exports: [CohortService],

@@ -20,6 +20,67 @@ export const TIER_BOUNDS: Record<PnlTier, { gte?: number; gt?: number; lt?: numb
   rekt: { lte: -1_000_000 },
 };
 
+/**
+ * Member eligibility, from CopyDog's 極度盈利 cohort as its public API serves it
+ * (`api.copydog.xyz/api/hyperliquid/discover/cohorts/extremely_profitable`,
+ * 2026-10-04: 353 members, 312 listed; checked against
+ * `/traders/<address>/summary` of members and of the tier's largest absent
+ * wallets):
+ *
+ * - the tier is all-time **perp** PnL ≥ $1M: absent wallets whose combined
+ *   PnL is ≥ $1M but perp PnL is not are non-members;
+ * - no member holds more than $30.4M perp equity, while every tier wallet at
+ *   $56.5M–$170.6M is absent (isMM false, copy scores 81–96): a perp-equity
+ *   ceiling, here $50M (CopyDog does not publish the number; any value in
+ *   $30.4M–$56.5M fits what it serves);
+ * - vaults are not traders.
+ *
+ * Rows are sorted by perp equity, largest first, as CopyDog's are. Other
+ * absent wallets (e.g. $24.9M with 1,744 trades) are not explained by a
+ * figure Orbie has; no trade-count or fill-rate rule separates CopyDog's
+ * members (one has 4,235 trades) from them, so none is applied.
+ */
+export const COHORT_MAX_PERP_EQUITY = 50_000_000;
+
+/** What the eligibility rule reads of a candidate; null = not known. */
+export interface CohortEligibilityInput {
+  isVault: boolean | null;
+  /** Perp account value (latest cohort snapshot or ledger classification). */
+  perpEquity: number | null;
+}
+
+/** False for a vault or a wallet above the perp-equity ceiling. Unknown
+ * figures do not exclude. */
+export function cohortEligible(c: CohortEligibilityInput): boolean {
+  if (c.isVault === true) return false;
+  return c.perpEquity === null || c.perpEquity <= COHORT_MAX_PERP_EQUITY;
+}
+
+/** History rows drawn on the chart need this share of the tier's members
+ * fresh. At the headline's 80 % one missing whale still moved the long share
+ * by 30 points (dev, 2026-10-01 15:45Z: 133 of 150 read, 71.6 % long between
+ * 40.8 % and 40.9 %). */
+export const COHORT_HISTORY_MIN_COVERAGE = 0.95;
+/** …and fresh members must hold this share of the tier's known perp equity. */
+export const COHORT_HISTORY_MIN_EQUITY_COVERAGE = 0.95;
+
+/** Whether a history row may be written from these members: enough of them
+ * fresh by count and by perp equity (`COHORT_HISTORY_MIN_*`). Members whose
+ * equity is not known yet count by number only. */
+export function cohortHistoryReady(members: Array<Pick<MemberSnapshot, "fetchedAt" | "perpEquity">>, freshSince: Date): boolean {
+  if (members.length === 0) return false;
+  const fresh = (m: Pick<MemberSnapshot, "fetchedAt">) => m.fetchedAt !== null && m.fetchedAt >= freshSince;
+  if (members.filter(fresh).length < COHORT_HISTORY_MIN_COVERAGE * members.length) return false;
+  let known = 0;
+  let freshEquity = 0;
+  for (const m of members) {
+    const equity = Math.max(0, m.perpEquity ?? 0);
+    known += equity;
+    if (fresh(m)) freshEquity += equity;
+  }
+  return known === 0 || freshEquity >= COHORT_HISTORY_MIN_EQUITY_COVERAGE * known;
+}
+
 /** Window lengths of the 倉位傾向 chart. */
 export const WINDOW_MS: Record<CohortWindow, number> = {
   "7d": 7 * 86_400_000,

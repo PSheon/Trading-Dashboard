@@ -70,6 +70,12 @@ export class DiscoveryService {
     });
   }
 
+  /** Every pool trader's copy score in the current snapshot: the figure the
+   * trader page, the boards and the insights wallet table share. */
+  async copyScoreMap(): Promise<ReadonlyMap<string, number>> {
+    return (await this.snapshot()).scores.values;
+  }
+
   async board(query: BoardQuery): Promise<BoardResponse> {
     const { candidates, scores, pool } = await this.snapshot();
     return buildBoard(candidates, query, pool, undefined, scores);

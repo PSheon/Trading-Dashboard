@@ -20,7 +20,7 @@ import { KolService } from "./kol.service.js";
   imports: [HyperliquidModule, TradersModule, KolAvatarModule],
   controllers: [DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController],
   providers: [DiscoveryRepository, DiscoveryService, DiscoveryPoolService, KolRepository, KolService],
-  exports: [DiscoveryPoolService, KolService, KolAvatarModule],
+  exports: [DiscoveryPoolService, DiscoveryService, KolService, KolAvatarModule],
 })
 export class DiscoveryModule {}
 

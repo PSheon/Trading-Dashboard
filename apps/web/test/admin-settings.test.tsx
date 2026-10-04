@@ -6,6 +6,7 @@ import { expect, it, vi } from "vitest";
 import { adminSettingsSchema, type AdminSettingsSnapshot } from "@trading-dashboard/shared/contracts";
 import { ApiError, api } from "../src/lib/api";
 import { AdminSettingsForm } from "../src/components/admin/settings-form";
+import { settleQueries } from "./query-settle";
 vi.mock("@/lib/auth", () => ({ usePermission: () => true }));
 vi.mock("@/i18n/provider", () => ({ useT: () => (key: string) => key, useI18n: () => ({ t: (key: string) => key, format: { num: String } }) }));
 const rev = (n: number) => String(n).padStart(64, "0");
@@ -30,7 +31,8 @@ it("preserves another section's draft and revision after a save, then explicitly
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
-  const flush = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
+  // Waits for the settings reads and saves to answer, then lets React commit.
+  const flush = () => settleQueries(client, { ms: 25 });
   const toggle = async (label: string) => act(async () => { (container.querySelector(`[aria-label="${label}"]`) as HTMLButtonElement).click(); });
   const submit = async (section: string) => {
     await act(async () => { container.querySelector(`#${section} form`)!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
@@ -96,7 +98,7 @@ it("retention periods are edited in the general section and saved as one whole v
     expect(container.querySelector('[aria-label="adminOps.retention.enabled"]')?.getAttribute("aria-checked")).toBe("true");
     await type("retention-snapshotDays", "120");
     await act(async () => { container.querySelector("#general form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+    await settleQueries(client, { ms: 25 });
     expect(patch.mock.calls[0]?.[1]).toEqual({
       general: { retention: { enabled: true, snapshotDays: 120, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 } },
       expectedRevisions: { general: rev(0) },

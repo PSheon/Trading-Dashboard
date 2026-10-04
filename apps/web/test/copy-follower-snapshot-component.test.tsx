@@ -9,6 +9,7 @@ import { catalogs } from '@/i18n/messages';
 import { LOCALES, type Locale } from '@/i18n/config';
 import { activityAccount as account, otherActivityAccount as other } from './copy-follower-activity-fixtures';
 import { followerSnapshot } from './copy-follower-snapshot-fixtures';
+import { flush as flushFor, settleQueries } from './query-settle';
 const state = vi.hoisted(() => ({ get: vi.fn(), status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ ...state, wallet: null }) }));
 vi.mock('@/lib/api', () => ({ api: { get: state.get }, sessionKey: () => state.session }));
@@ -16,8 +17,11 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {} }) }));
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); Object.assign(state, { status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }); state.get.mockReset().mockResolvedValue(followerSnapshot()); client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.useRealTimers(); });
-async function settle() { await act(async () => { if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(25); else await new Promise(resolve => setTimeout(resolve, 20)); }); }
-async function render(a: typeof account | null = account, locale: Locale = 'en') { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyFollowerSnapshot account={a}/></I18nProvider></QueryClientProvider>)); await settle(); }
+// Waits for the snapshot read to answer (advancing fake timers when on); flush() is
+// a plain wait for the tests that hold a read open.
+const settle = () => settleQueries(client, { ms: vi.isFakeTimers() ? 25 : 20 });
+const flush = () => flushFor(vi.isFakeTimers() ? 25 : 20);
+async function render(a: typeof account | null = account, locale: Locale = 'en', wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyFollowerSnapshot account={a}/></I18nProvider></QueryClientProvider>)); await wait(); }
 it('shows actual observed equity with no fake ROI or capital balance and collapsible venue data', async () => {
   await render(); expect(container.textContent).toContain('100 USDC'); expect(container.textContent).toContain('Fresh observation'); expect(container.textContent).toContain('Paper money is separate');
   expect(container.textContent).toContain('historical baseline and capital flows are unproven'); expect(container.textContent).toContain('do not approve trading or transfers'); expect(container.textContent).not.toContain('0%');
@@ -46,7 +50,7 @@ it('expires freshness while idle and stays stale on wake even if the local wall 
 });
 it('does not refresh a delayed observation lease when a slow GET arrives and the client clock is behind the server', async () => {
   vi.useFakeTimers(); const original = followerSnapshot(account, Date.now() + 600000); let finish!: (v: unknown) => void;
-  state.get.mockImplementation(() => new Promise(resolve => { finish = resolve; })); await render(); await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); await act(async () => finish(original)); await settle();
+  state.get.mockImplementation(() => new Promise(resolve => { finish = resolve; })); await render(account, 'en', flush); await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); await act(async () => finish(original)); await settle();
   expect(container.textContent).toContain('Last observation stale'); expect(container.textContent).not.toContain('Fresh observation');
 });
 it('renders explicit unavailable and failed-refresh states without zero placeholders', async () => {
@@ -56,7 +60,7 @@ it('renders explicit unavailable and failed-refresh states without zero placehol
 });
 it('hides previous account values while switching and refuses a late original response', async () => {
   let finish!: (v: unknown) => void; state.get.mockImplementation((path: string) => path.includes('/account/') ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(followerSnapshot(other)));
-  await render(); await render(other); await act(async () => finish(followerSnapshot())); await settle(); expect(container.textContent).toContain(other.address!); expect(container.textContent).not.toContain(account.address!);
+  await render(account, 'en', flush); await render(other, 'en', flush); await act(async () => finish(followerSnapshot())); await settle(); expect(container.textContent).toContain(other.address!); expect(container.textContent).not.toContain(account.address!);
 });
 it('keeps mainnet booked history separate and never asks for a fabricated testnet snapshot', async () => { await render({ ...account, network: 'mainnet' }); expect(container.textContent).toContain('Only testnet observations are supported'); expect(state.get).not.toHaveBeenCalled(); expect(container.textContent).not.toContain('0 USDC'); });
 it.each([{ status: 'signedOut' }, { mode: 'fixture' }])('does not render or fetch actual observations for %j', async change => { Object.assign(state, change); await render(); expect(container.querySelector('section')).toBeNull(); expect(state.get).not.toHaveBeenCalled(); });

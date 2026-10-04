@@ -8,6 +8,7 @@ import { I18nProvider } from '@/i18n/provider';
 import { catalogs } from '@/i18n/messages';
 import { LOCALES, type Locale } from '@/i18n/config';
 import { activityAccount as account, activityPage, otherActivityAccount as other } from './copy-follower-activity-fixtures';
+import { flush as flushFor, settleQueries } from './query-settle';
 const state = vi.hoisted(() => ({ get: vi.fn(), status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ ...state, wallet: null }) }));
 vi.mock('@/lib/api', () => ({ api: { get: state.get }, sessionKey: () => state.session }));
@@ -15,8 +16,11 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {} }) }));
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); Object.assign(state, { status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }); state.get.mockReset().mockResolvedValue(activityPage()); client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
-async function settle() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); }
-async function render(a: typeof account | null = account, locale: Locale = 'en') { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyFollowerActivity account={a}/></I18nProvider></QueryClientProvider>)); await settle(); }
+// Waits for the activity reads to answer; flush() is a plain wait for the tests
+// that hold a page read open.
+const settle = () => settleQueries(client, { ms: 20 });
+const flush = () => flushFor(20);
+async function render(a: typeof account | null = account, locale: Locale = 'en', wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyFollowerActivity account={a}/></I18nProvider></QueryClientProvider>)); await wait(); }
 async function click(label: string) { await act(async () => [...container.querySelectorAll('button')].find(b => b.textContent === label)!.click()); await settle(); }
 it('shows booked signed amounts, exact fill details and financial caveats without claiming equity or return', async () => {
   await render(); expect(container.textContent).toContain('+2.000000000000000001 USDC'); expect(container.textContent).toContain('+0.000000000000000001 USDC'); expect(container.textContent).toContain('-0.37 USDC');
@@ -31,11 +35,11 @@ it('uses before-only history and refreshes the recent page without merging stale
 });
 it('discards old-account late data and never shows the previous account while a new one loads', async () => {
   let finish!: (v: unknown) => void; state.get.mockImplementation((path: string) => path.includes('/account/') ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(activityPage(other)));
-  await render(); await render(other); await act(async () => finish(activityPage())); await settle(); expect(container.textContent).toContain(other.address!); expect(container.textContent).not.toContain(account.address!);
+  await render(account, 'en', flush); await render(other, 'en', flush); await act(async () => finish(activityPage())); await settle(); expect(container.textContent).toContain(other.address!); expect(container.textContent).not.toContain(account.address!);
 });
 it.each(['identity', 'session'] as const)('drops the old pending page after %s changes', async field => {
   let finish!: (v: unknown) => void; state.get.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockImplementation(() => new Promise(() => {}));
-  await render(); state[field] = 'changed'; await render(); await act(async () => finish(activityPage())); await settle(); expect(container.textContent).not.toContain('+2.000000000000000001 USDC');
+  await render(account, 'en', flush); state[field] = 'changed'; await render(account, 'en', flush); await act(async () => finish(activityPage())); await flush(); expect(container.textContent).not.toContain('+2.000000000000000001 USDC');
 });
 it('treats an empty booked page as unknown history rather than no exchange activity', async () => {
   const empty = activityPage(); empty.items = []; empty.previousCursor = null; empty.hasMore = false; state.get.mockResolvedValue(empty); await render();

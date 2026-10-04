@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { expect, it } from "vitest";
 import { SessionQueries } from "../src/lib/session-queries";
+import { settleQueries } from "./query-settle";
 
 it("remounts private cache and descendant state on direct account switch and logout under StrictMode", async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -21,7 +22,7 @@ it("remounts private cache and descendant state on direct account switch and log
     await act(async () => { root.render(createElement(StrictMode, null,
       createElement(SessionQueries, { key: identity }, createElement(Probe, { identity }))));
     });
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    await settleQueries(clients.get(identity)!, { ms: 20 });
   }
   try {
     await render("alice");

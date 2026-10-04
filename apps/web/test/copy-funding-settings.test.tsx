@@ -7,6 +7,7 @@ import { CopyFundingSettings } from "@/components/settings/copy-funding";
 import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
 import type { CopyExecutionAccount, CopyFunding, CopyFundingOverview } from "@trading-dashboard/shared/contracts";
+import { settleQueries, type SettleOptions } from "./query-settle";
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), status: "signedIn", identity: "owner", session: "1", wallet: true, walletAddress: `0x${"11".repeat(20)}` }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, identity: state.identity, mode: "privy", wallet: state.wallet ? { address: state.walletAddress, signTypedData: state.sign } : null }) }));
@@ -24,10 +25,13 @@ beforeEach(() => {
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
-async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 15)); }); }
-async function render(accounts = [account]) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><CopyFundingSettings accounts={accounts} /></I18nProvider></QueryClientProvider>)); await settle(); }
+// Waits for the funding queries and mutations to answer; settleHeld() waits for
+// queries only, while a test holds the wallet prompt or the final POST open.
+const settle = (options?: SettleOptions) => settleQueries(client, { ms: 15, ...options });
+const settleHeld = () => settle({ mutations: false });
+async function render(accounts = [account], wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><CopyFundingSettings accounts={accounts} /></I18nProvider></QueryClientProvider>)); await wait(); }
 function button(text: string) { const found = [...container.querySelectorAll("button")].find((item) => item.textContent === text); if (!found) throw new Error(`Missing button ${text}`); return found; }
-async function click(text: string) { await act(async () => button(text).click()); await settle(); }
+async function click(text: string, wait: () => Promise<void> = settle) { await act(async () => button(text).click()); await wait(); }
 async function selectAccount() { await act(async () => { const select = container.querySelector("select")!; select.value = account.id; select.dispatchEvent(new Event("change", { bubbles: true })); }); }
 
 it("loads without a transfer or signature and requires separate preparation and explicit signing", async () => {
@@ -67,8 +71,8 @@ it("recovers a persisted reservation after response loss instead of preparing a 
 });
 it("prevents old-owner submission when login changes during the signing prompt", async () => {
   data.operations = [op]; let complete!: (value: string) => void; state.sign.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
-  await render(); await click("Confirm and sign transfer");
-  state.session = "2"; state.identity = "another-owner"; data.operations = []; await render();
+  await render(); await click("Confirm and sign transfer", settleHeld);
+  state.session = "2"; state.identity = "another-owner"; data.operations = []; await render([account], settleHeld);
   await act(async () => complete(`0x${"11".repeat(64)}1b`)); await settle();
   expect(state.post).not.toHaveBeenCalled(); expect(container.textContent).not.toContain(op.address);
 });
@@ -85,17 +89,17 @@ it("does not load private funding while signed out", async () => {
 });
 it.each(['wallet', 'account', 'nonce', 'state'] as const)('blocks %s changing within one session during a held funding wallet prompt', async change => {
   data.operations = [op]; let finish!: (signature: string) => void; state.sign.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-  await render(); await click('Confirm and sign transfer'); let accounts = [account];
+  await render(); await click('Confirm and sign transfer', settleHeld); let accounts = [account];
   if (change === 'wallet') state.walletAddress = `0x${'44'.repeat(20)}`;
   if (change === 'account') accounts = [{ ...account, updatedAt: '2026-10-04T00:00:00Z' }];
   if (change === 'nonce') data.operations = [{ ...op, nonce: op.nonce + 1 }];
   if (change === 'state') data.operations = [{ ...op, status: 'cancelled', canCancel: false }];
-  await render(accounts); await act(async () => { await client.invalidateQueries(); }); await settle(); await act(async () => finish(`0x${'11'.repeat(64)}1b`)); await settle(); expect(state.post).not.toHaveBeenCalled();
+  await render(accounts, settleHeld); await act(async () => { await client.invalidateQueries(); }); await settleHeld(); await act(async () => finish(`0x${'11'.repeat(64)}1b`)); await settle(); expect(state.post).not.toHaveBeenCalled();
 });
 it.each(['wallet', 'account', 'operation'] as const)('blocks %s changing during the final funding token wait', async change => {
   data.operations = [op]; let send!: () => void; const sent = vi.fn();
   state.post.mockImplementation((path: string, _body: unknown, options?: { beforeSend?: () => void }) => { if (path.endsWith('/broadcast')) return Promise.resolve({ claimed: true, operation: { ...op, status: 'unknown', canCancel: true } }); return new Promise((resolve, reject) => { send = () => { try { options?.beforeSend?.(); sent(); resolve({ ...op, status: 'accepted', canCancel: false }); } catch (error) { reject(error); } }; }); });
-  await render(); await click('Confirm and sign transfer'); let accounts = [account]; if (change === 'wallet') state.walletAddress = `0x${'44'.repeat(20)}`; if (change === 'account') accounts = [{ ...account, updatedAt: '2026-10-04T00:00:00Z' }]; if (change === 'operation') data.operations = [{ ...op, nonce: op.nonce + 1, status: 'unknown', canCancel: false }]; await render(accounts); if (change === 'operation') { await act(async () => { await client.invalidateQueries(); }); await settle(); } await act(async () => send()); await settle(); expect(sent).not.toHaveBeenCalled(); expect(state.sign).toHaveBeenCalledOnce();
+  await render(); await click('Confirm and sign transfer', settleHeld); let accounts = [account]; if (change === 'wallet') state.walletAddress = `0x${'44'.repeat(20)}`; if (change === 'account') accounts = [{ ...account, updatedAt: '2026-10-04T00:00:00Z' }]; if (change === 'operation') data.operations = [{ ...op, nonce: op.nonce + 1, status: 'unknown', canCancel: false }]; await render(accounts, settleHeld); if (change === 'operation') { await act(async () => { await client.invalidateQueries(); }); await settleHeld(); } await act(async () => send()); await settle(); expect(sent).not.toHaveBeenCalled(); expect(state.sign).toHaveBeenCalledOnce();
 });
 it('keeps uncertain original claim across remount even when overview is stale prepared', async () => {
   window.sessionStorage.clear(); data.operations = [op]; state.post.mockRejectedValue(new Error('lost claim')); await render(); await click('Confirm and sign transfer'); await act(async () => root.unmount()); client.clear(); root = createRoot(container); await render(); expect([...container.querySelectorAll('button')].some(b => b.textContent === 'Confirm and sign transfer')).toBe(false); expect([...container.querySelectorAll('button')].some(b => b.textContent === 'Cancel')).toBe(false); state.post.mockResolvedValue({ ...op, status: 'unknown', canCancel: false }); const before = state.post.mock.calls.length; await click('Check original transfer'); expect(state.post.mock.calls.slice(before).map(([path]) => path)).toEqual([`/me/copy/funding/${op.id}/reconcile`]); expect(state.sign).toHaveBeenCalledOnce();

@@ -23,14 +23,20 @@ it("refreshes a mounted ledger after background funding becomes available", asyn
   const container = document.createElement("div");
   const root = createRoot(container);
   const flush = () => new Promise(resolve => setTimeout(resolve, 20));
+  // Wait until the ledger read has answered, then let React commit. (setTimeout is
+  // real here, so this does not use the fake-timer-aware settle helper.)
+  const settle = async () => {
+    await act(async () => { await vi.waitFor(() => { if (client.isFetching() > 0) throw new Error("still fetching"); }, { timeout: 5000, interval: 10 }); });
+    await act(flush);
+  };
   upstream.funding = null;
   try {
     await act(async () => { root.render(<QueryClientProvider client={client}><Ledger /></QueryClientProvider>); });
-    await act(flush);
+    await settle();
     expect(container.textContent).toBe("pending");
     upstream.funding = -0.75;
     await act(async () => { vi.advanceTimersByTime(120000); await flush(); });
-    await act(flush);
+    await settle();
     expect(container.textContent).toBe("-0.75");
   } finally { await act(async () => root.unmount()); client.clear(); vi.useRealTimers(); }
 });

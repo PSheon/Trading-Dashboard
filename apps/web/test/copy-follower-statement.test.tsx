@@ -10,6 +10,7 @@ import { catalogs } from '@/i18n/messages';
 import { LOCALES, type Locale } from '@/i18n/config';
 import { followerSnapshot } from './copy-follower-snapshot-fixtures';
 import { activityPage } from './copy-follower-activity-fixtures';
+import { flush as flushFor, settleQueries } from './query-settle';
 const state = vi.hoisted(() => ({ get: vi.fn(), activity: vi.fn(), snapshot: vi.fn(), status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ ...state, wallet: null }) }));
 vi.mock('@/lib/api', () => ({ api: { get: (path: string, ...args: unknown[]) => path.endsWith('/snapshot') ? state.snapshot(path, ...args) : path.includes('/activity?') ? state.activity(path, ...args) : state.get(path, ...args) }, sessionKey: () => state.session }));
@@ -20,9 +21,12 @@ function statement(a = account): CopyFollowerStatement { return { accountId: a.i
 let root: Root, container: HTMLDivElement, client: QueryClient;
 beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); Object.assign(state, { status: 'signedIn', mode: 'privy', identity: 'owner', session: '1' }); state.get.mockReset().mockResolvedValue(statement()); state.snapshot.mockReset().mockImplementation((path: string) => { const a = path.includes('/other/') ? other : account; return Promise.resolve({ mode: 'actual', network: 'testnet', accountId: a.id, strategyId: a.strategyId, accountAddress: a.address, status: 'unavailable', observation: null, reason: 'not_observed' }); }); state.activity.mockReset().mockImplementation((path: string) => Promise.resolve({ ...activityPage(path.includes('/other/') ? other : account), items: [], hasMore: false, previousCursor: null })); client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
-async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); }); }
-async function render(accounts = [account, other], locale: Locale = 'en') { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyFollowerStatementSettings accounts={accounts}/></I18nProvider></QueryClientProvider>)); await settle(); }
-async function select(id = account.id) { await act(async () => { const el = container.querySelector('select')!; el.value = id; el.dispatchEvent(new Event('change', { bubbles: true })); }); await settle(); }
+// Waits for the statement, activity and snapshot reads to answer; flush() is a
+// plain wait for the tests that hold a statement read open.
+const settle = () => settleQueries(client, { ms: 20 });
+const flush = () => flushFor(20);
+async function render(accounts = [account, other], locale: Locale = 'en', wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyFollowerStatementSettings accounts={accounts}/></I18nProvider></QueryClientProvider>)); await wait(); }
+async function select(id = account.id, wait: () => Promise<void> = settle) { await act(async () => { const el = container.querySelector('select')!; el.value = id; el.dispatchEvent(new Event('change', { bubbles: true })); }); await wait(); }
 it('requires account selection and displays exact booked components with financial limits and accessible details', async () => {
   await render(); expect(state.get).not.toHaveBeenCalled(); await select(); expect(state.get).toHaveBeenCalledOnce();
   expect(container.textContent).toContain('+0.000001 USDC'); expect(container.textContent).toContain('-0.25 USDC'); expect(container.textContent).toContain('-1 USDC'); expect(container.textContent).toContain('+11.250001 USDC');
@@ -46,20 +50,20 @@ it('mounts exact selected-account observations separately from booked cash delta
 });
 it('removes the previous account amounts immediately and ignores a late previous account response', async () => {
   let finish!: (value: CopyFollowerStatement) => void; state.get.mockImplementation((path: string) => path.includes('/account/') ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve({ ...statement(other), actual: { realizedPnl: '7', exchangeFee: '0', builderFee: '0', funding: '0', tradingCashDelta: '7' } }));
-  await render(); await select(); expect(container.textContent).toContain('Loading statement'); await select(other.id); expect(container.textContent).toContain('+7 USDC');
+  await render(); await select(account.id, flush); expect(container.textContent).toContain('Loading statement'); await select(other.id, flush); expect(container.textContent).toContain('+7 USDC');
   await act(async () => finish(statement())); await settle(); expect(container.textContent).not.toContain('+12.5 USDC'); expect(container.textContent).toContain('+7 USDC');
 });
 it('hides already displayed data on selection change while the new account is loading', async () => {
-  await render(); await select(); expect(container.textContent).toContain('+12.5 USDC'); state.get.mockImplementation(() => new Promise(() => {})); await select(other.id); expect(container.textContent).not.toContain('+12.5 USDC'); expect(container.textContent).toContain('Loading statement');
+  await render(); await select(); expect(container.textContent).toContain('+12.5 USDC'); state.get.mockImplementation(() => new Promise(() => {})); await select(other.id, flush); expect(container.textContent).not.toContain('+12.5 USDC'); expect(container.textContent).toContain('Loading statement');
 });
 it.each(['identity', 'session'] as const)('resets selection and discards private late data after %s changes', async (field) => {
-  let finish!: (value: CopyFollowerStatement) => void; state.get.mockImplementation(() => new Promise((resolve) => { finish = resolve; })); await render(); await select(); state[field] = 'changed'; await render(); await act(async () => finish(statement())); await settle(); expect(container.textContent).not.toContain('+12.5 USDC'); expect(container.querySelector('select')?.value).toBe(''); expect(state.get).toHaveBeenCalledOnce();
+  let finish!: (value: CopyFollowerStatement) => void; state.get.mockImplementation(() => new Promise((resolve) => { finish = resolve; })); await render(); await select(account.id, flush); state[field] = 'changed'; await render([account, other], 'en', flush); await act(async () => finish(statement())); await settle(); expect(container.textContent).not.toContain('+12.5 USDC'); expect(container.querySelector('select')?.value).toBe(''); expect(state.get).toHaveBeenCalledOnce();
 });
 it('discards account data when the current list removes the selected account', async () => { await render(); await select(); await render([other]); expect(container.textContent).not.toContain('+12.5 USDC'); expect(state.get).toHaveBeenCalledOnce(); });
 it.each(['address', 'strategyId', 'network'] as const)('does not reuse cached statement totals after same-id %s changes', async (field) => {
   await render(); await select(); state.get.mockImplementation(() => new Promise(() => {}));
   const updated = { ...account, [field]: field === 'address' ? other.address : field === 'strategyId' ? 11 : 'mainnet' } as CopyExecutionAccount;
-  await render([updated]); expect(container.textContent).not.toContain('+12.5 USDC'); expect(container.textContent).toContain('Loading statement'); expect(state.get).toHaveBeenCalledTimes(2);
+  await render([updated], 'en', flush); expect(container.textContent).not.toContain('+12.5 USDC'); expect(container.textContent).toContain('Loading statement'); expect(state.get).toHaveBeenCalledTimes(2);
 });
 it('labels a known empty ledger without claiming no activity or complete scan coverage', async () => {
   const zero = statement(); zero.receiptCount = '0'; zero.latestReceipts = []; for (const key of Object.keys(zero.actual) as (keyof typeof zero.actual)[]) zero.actual[key] = '0';

@@ -12,6 +12,7 @@ import {
 import { I18nProvider } from "@/i18n/provider";
 import { catalogs } from "@/i18n/messages";
 import { LOCALES, type Locale } from "@/i18n/config";
+import { flush as flushFor, settleQueries } from "./query-settle";
 const state = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -105,7 +106,15 @@ afterEach(async () => {
   el.remove();
   vi.restoreAllMocks();
 });
-async function render(node = <ReferralSettings />, locale: Locale = "en") {
+// Waits for the referral reads and the automatic bind to answer; flush() is a
+// plain wait for the test that holds the prior owner's read open.
+const settle = () => settleQueries(client, { ms: 25 });
+const flush = () => flushFor(25);
+async function render(
+  node = <ReferralSettings />,
+  locale: Locale = "en",
+  wait: () => Promise<void> = settle,
+) {
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
@@ -115,9 +124,7 @@ async function render(node = <ReferralSettings />, locale: Locale = "en") {
       </QueryClientProvider>,
     ),
   );
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 25));
-  });
+  await wait();
 }
 it("shows unconfirmed reward terms, precise confirmed balances and disabled payout without implying testnet fees are earned", async () => {
   await render();
@@ -156,11 +163,11 @@ it("a held prior-owner response cannot appear after identity switch", async () =
           copying: 0,
         }),
   );
-  await render();
+  await render(<ReferralSettings />, "en", flush);
   state.identity = "bob";
   state.session = "2";
   state.get.mockResolvedValue({ ...overview, code: "BOB", link: "/r/BOB" });
-  await render();
+  await render(<ReferralSettings />, "en", flush);
   await act(async () => release(overview));
   expect(el.textContent).not.toContain("ALICE");
   expect(

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api, setAccessTokenGetter, takeAnonymousReads } from "../src/lib/api";
 import type { AuthStatus } from "../src/lib/auth";
 import { useIdentityRefetch } from "../src/lib/use-identity-refetch";
+import { settleQueries } from "./query-settle";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,7 +26,7 @@ let container: HTMLDivElement;
 let client: QueryClient;
 async function render(status: AuthStatus) {
   await act(async () => { root.render(<QueryClientProvider client={client}><Page status={status} /></QueryClientProvider>); });
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  await settleQueries(client, { ms: 20 });
 }
 
 beforeEach(() => {

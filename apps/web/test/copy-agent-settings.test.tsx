@@ -9,6 +9,7 @@ import { en } from "@/i18n/messages/en";
 import { catalogs } from "@/i18n/messages";
 import { LOCALES, type Locale } from "@/i18n/config";
 import type { CopyAgentOverview, CopyAgentSetup, CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
+import { settleQueries, type SettleOptions } from "./query-settle";
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), status: "signedIn", mode: "privy", identity: "owner", session: "1", walletAddress: `0x${"11".repeat(20)}` as string | null }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, mode: state.mode, identity: state.identity, wallet: state.walletAddress ? { address: state.walletAddress, signTypedData: state.sign } : null }) }));
 vi.mock("@/lib/api", () => ({ api: { get: state.get, post: state.post }, sessionKey: () => state.session }));
@@ -19,10 +20,13 @@ function setup(state: CopyAgentSetup["state"] = "ready"): CopyAgentSetup { retur
 let root: Root, container: HTMLDivElement, client: QueryClient, data: CopyAgentOverview;
 beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); window.sessionStorage.clear(); Object.assign(state, { status: "signedIn", mode: "privy", identity: "owner", session: "1", walletAddress: `0x${"11".repeat(20)}` }); state.get.mockReset(); state.post.mockReset(); state.sign.mockReset().mockResolvedValue(`0x${"aa".repeat(65)}`); data = { available: true, network: "testnet", setups: [] }; state.get.mockImplementation(async () => data); client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); container = document.createElement("div"); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.useRealTimers(); });
-async function settle() { await act(async () => { if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(20); else await new Promise((resolve) => setTimeout(resolve, 20)); }); }
-async function render(locale: Locale = "en", accounts = [account]) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyAgentSettings accounts={accounts} /></I18nProvider></QueryClientProvider>)); await settle(); }
+// Waits for the agent queries and mutations to answer (advancing fake timers when on);
+// settleHeld() waits for queries only, while a test holds a signature or POST open.
+const settle = (options?: SettleOptions) => settleQueries(client, { ms: 20, ...options });
+const settleHeld = () => settle({ mutations: false });
+async function render(locale: Locale = "en", accounts = [account], wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyAgentSettings accounts={accounts} /></I18nProvider></QueryClientProvider>)); await wait(); }
 function button(label: string) { const found = [...container.querySelectorAll("button")].find((item) => item.textContent === label); if (!found) throw new Error(`Missing button ${label}`); return found; }
-async function click(label: string) { await act(async () => button(label).click()); await settle(); }
+async function click(label: string, wait: () => Promise<void> = settle) { await act(async () => button(label).click()); await wait(); }
 async function selectAccount() { await act(async () => { const select = container.querySelector("select")!; select.value = account.id; select.dispatchEvent(new Event("change", { bubbles: true })); }); await settle(); }
 async function acknowledge() { await act(async () => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click()); await settle(); }
 
@@ -49,7 +53,7 @@ it.each(["approval_unknown", "wallet_unknown", "revoked", "expired"] as const)("
 it("guards the session while signing and hides the former owner's controls", async () => {
   data.setups = [setup()]; let complete!: (value: string) => void; state.sign.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
   const op = data.setups[0]; const nonce = Date.now(); state.post.mockResolvedValue({ operation: op, intent: { id: op.id, strategyId: 9, network: "testnet", accountAddress: op.accountAddress, agentAddress: op.agentAddress, policyId: "policy", workerQuorumId: "worker", nonce, expiresAt: Date.parse(op.expiresAt), consentExpiresAt: nonce + 300000 } });
-  await render(); await acknowledge(); await click("Confirm and sign approval"); state.session = "2"; state.identity = "other"; data.setups = []; await render(); await act(async () => complete(`0x${"aa".repeat(65)}`)); await settle(); expect(state.post).toHaveBeenCalledExactlyOnceWith("/me/copy/agents/agent/challenge", {}, { beforeSend: expect.any(Function) }); expect(container.textContent).not.toContain(op.agentAddress);
+  await render(); await acknowledge(); await click("Confirm and sign approval", settleHeld); state.session = "2"; state.identity = "other"; data.setups = []; await render("en", [account], settleHeld); await act(async () => complete(`0x${"aa".repeat(65)}`)); await settle(); expect(state.post).toHaveBeenCalledExactlyOnceWith("/me/copy/agents/agent/challenge", {}, { beforeSend: expect.any(Function) }); expect(container.textContent).not.toContain(op.agentAddress);
 });
 it("provides labelled controls and recovery without a main signing wallet", async () => {
   data.setups = [setup("approval_unknown")]; state.walletAddress = null; state.post.mockResolvedValue(data.setups[0]); await render(); const section = container.querySelector("section")!; expect(section.getAttribute("aria-label")).toBe("Strategy agent approval"); await click("Check original setup"); expect(state.post).toHaveBeenCalledExactlyOnceWith("/me/copy/agents/agent/reconcile", {}, { beforeSend: expect.any(Function) }); expect(state.sign).not.toHaveBeenCalled();
@@ -66,8 +70,8 @@ it("does not discard a replacement setup identity after a timeout", async () => 
 it.each(["wallet", "account"] as const)("blocks approval when the %s changes during signing without a session generation change", async (change) => {
   const op = setup(); data.setups = [op]; let complete!: (value: string) => void; state.sign.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
   const nonce = Date.now(); state.post.mockResolvedValue({ operation: op, intent: { id: op.id, strategyId: 9, network: "testnet", accountAddress: op.accountAddress, agentAddress: op.agentAddress, policyId: "policy", workerQuorumId: "worker", nonce, expiresAt: Date.parse(op.expiresAt), consentExpiresAt: nonce + 300000 } });
-  await render(); await acknowledge(); await click("Confirm and sign approval"); if (change === "wallet") state.walletAddress = `0x${"44".repeat(20)}`;
-  await render("en", change === "account" ? [{ ...account, address: `0x${"55".repeat(20)}` }] : [account]); await act(async () => complete(`0x${"aa".repeat(65)}`)); await settle(); expect(state.post).toHaveBeenCalledExactlyOnceWith("/me/copy/agents/agent/challenge", {}, { beforeSend: expect.any(Function) });
+  await render(); await acknowledge(); await click("Confirm and sign approval", settleHeld); if (change === "wallet") state.walletAddress = `0x${"44".repeat(20)}`;
+  await render("en", change === "account" ? [{ ...account, address: `0x${"55".repeat(20)}` }] : [account], settleHeld); await act(async () => complete(`0x${"aa".repeat(65)}`)); await settle(); expect(state.post).toHaveBeenCalledExactlyOnceWith("/me/copy/agents/agent/challenge", {}, { beforeSend: expect.any(Function) });
 });
 it.each(LOCALES)("renders translated states and associated form labels in %s", async (locale) => {
   data.setups = [setup("revoked")]; await render(locale); expect(container.querySelector("section")!.getAttribute("aria-label")).toBe(catalogs[locale].copyAgents.title); expect(container.textContent).toContain(catalogs[locale].copyAgents.states.revoked);
@@ -92,12 +96,12 @@ it.each(transitionCases)("blocks the held $gate after a current $change transiti
     ? gate === "challenge" ? new Promise((resolve) => { finishChallenge = resolve; }) : Promise.resolve(challenge)
     : Promise.resolve({ ...op, state: "active", authorizationId: "grant" }));
   if (gate === "signature") state.sign.mockImplementation(() => new Promise((resolve) => { finishSignature = resolve; }));
-  await render(); await acknowledge(); await click("Confirm and sign approval");
+  await render(); await acknowledge(); await click("Confirm and sign approval", settleHeld);
   const changed = change === "address" ? { ...op, agentAddress: `0x${"44".repeat(20)}` }
     : change === "expiry" ? { ...op, expiresAt: new Date(Date.parse(op.expiresAt) - 1000).toISOString() }
     : { ...op, state: change };
   data = { ...data, setups: [changed] };
-  await act(async () => { await client.invalidateQueries(); }); await settle();
+  await act(async () => { await client.invalidateQueries(); }); await settleHeld();
   await act(async () => { if (gate === "challenge") finishChallenge(challenge); else finishSignature(`0x${"aa".repeat(65)}`); }); await settle();
   expect(state.post).toHaveBeenCalledExactlyOnceWith("/me/copy/agents/agent/challenge", {}, { beforeSend: expect.any(Function) });
   expect(state.sign).toHaveBeenCalledTimes(gate === "challenge" ? 0 : 1);
@@ -132,10 +136,10 @@ it("accepts an already submitted approval response after the overview observes a
   state.post.mockImplementation((path: string) => path.endsWith("/challenge")
     ? Promise.resolve({ operation: op, intent: { id: op.id, strategyId: op.strategyId, network: op.network, accountAddress: op.accountAddress, agentAddress: op.agentAddress, policyId: "policy", workerQuorumId: "worker", nonce, expiresAt: Date.parse(op.expiresAt), consentExpiresAt: nonce + 300000 } })
     : new Promise((resolve) => { finish = resolve; }));
-  await render(); await acknowledge(); await click("Confirm and sign approval");
+  await render(); await acknowledge(); await click("Confirm and sign approval", settleHeld);
   expect(state.post).toHaveBeenCalledTimes(2);
   data = { ...data, setups: [active] };
-  await act(async () => { await client.invalidateQueries(); }); await settle();
+  await act(async () => { await client.invalidateQueries(); }); await settleHeld();
   await act(async () => finish(active)); await settle();
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(container.textContent).not.toContain(en.copyAgents.pendingHint);
@@ -144,5 +148,5 @@ it("accepts an already submitted approval response after the overview observes a
 it("blocks the final approval boundary when a still-ready account version changes during token wait", async () => {
   const op = setup(); data.setups = [op]; let send!: () => void;
   state.post.mockImplementation((path: string, _body: unknown, options?: { beforeSend?: () => void }) => { if (path.endsWith('/challenge')) { const nonce = Date.now(); return Promise.resolve({ operation: op, intent: { id: op.id, strategyId: op.strategyId, network: op.network, accountAddress: op.accountAddress, agentAddress: op.agentAddress, policyId: 'policy', workerQuorumId: 'worker', nonce, expiresAt: Date.parse(op.expiresAt), consentExpiresAt: nonce + 300000 } }); } return new Promise((resolve, reject) => { send = () => { try { options?.beforeSend?.(); resolve({ ...op, state: 'active', authorizationId: 'grant' }); } catch (error) { reject(error); } }; }); });
-  await render(); await acknowledge(); await click('Confirm and sign approval'); await render('en', [{ ...account, updatedAt: '2026-10-04T00:00:00Z' }]); await act(async () => send()); await settle(); expect(container.textContent).not.toContain(en.copyAgents.states.active); expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  await render(); await acknowledge(); await click('Confirm and sign approval', settleHeld); await render('en', [{ ...account, updatedAt: '2026-10-04T00:00:00Z' }], settleHeld); await act(async () => send()); await settle(); expect(container.textContent).not.toContain(en.copyAgents.states.active); expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });

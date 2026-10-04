@@ -10,6 +10,7 @@ import { catalogs } from '@/i18n/messages';
 import { liveStopMessages, liveStopResumeMessages, liveStopDiscardMessages } from '@/i18n/copy-live-stop';
 import { LOCALES, type Locale } from '@/i18n/config';
 import { liveAccount, liveMandate, liveNow } from './copy-live-fixtures';
+import { flush as flushFor, settleQueries, type SettleOptions } from './query-settle';
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), sign: vi.fn(), status: 'signedIn', mode: 'privy', identity: 'owner@email', session: '1', ownerId: 'did:privy:owner' }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ ...state, wallet: null }) }));
 vi.mock('@privy-io/react-auth', () => ({ usePrivy: () => ({ user: { id: state.ownerId } }) }));
@@ -23,12 +24,16 @@ beforeEach(() => {
   selection = structuredClone({ account: liveAccount, mandate: { ...liveMandate, state: 'active', revision: 2, activationCursor: new Date(liveNow).toISOString() } }); client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.restoreAllMocks(); });
-async function settle() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 15)); }); }
-async function render(locale: Locale = 'en') { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyLiveStop selection={selection}/></I18nProvider></QueryClientProvider>)); await settle(); }
+// Waits for the stop queries and mutations to answer; flush() is a plain wait for
+// the test that holds the history read open, settleHeld() for a held stop POST.
+const settle = (options?: SettleOptions) => settleQueries(client, { ms: 15, ...options });
+const settleHeld = () => settle({ mutations: false });
+const flush = () => flushFor(15);
+async function render(locale: Locale = 'en', wait: () => Promise<void> = settle) { await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale={locale} messages={catalogs[locale]}><CopyLiveStop selection={selection}/></I18nProvider></QueryClientProvider>)); await wait(); }
 function button(label: string) { const b = [...container.querySelectorAll('button')].find(b => b.textContent === label); expect(b).toBeTruthy(); return b!; }
-async function click(label: string) { await act(async () => button(label).click()); await settle(); }
+async function click(label: string, wait: () => Promise<void> = settle) { await act(async () => button(label).click()); await wait(); }
 it('loads history without automatically creating or signing and describes the boundary', async () => {
-  let resolve!: (v: unknown) => void; state.get.mockReturnValue(new Promise(r => { resolve = r; })); await render(); expect(container.textContent).toContain('Loading stop history'); expect(state.post).not.toHaveBeenCalled();
+  let resolve!: (v: unknown) => void; state.get.mockReturnValue(new Promise(r => { resolve = r; })); await render('en', flush); expect(container.textContent).toContain('Loading stop history'); expect(state.post).not.toHaveBeenCalled();
   await act(async () => resolve({ items: [], truncated: false })); await settle(); expect(container.textContent).toContain('No recorded stop requests'); expect(container.textContent).toContain('returned funds are not confirmed'); expect(state.sign).not.toHaveBeenCalled();
 });
 it('sends only explicit stop metadata and leaves the request disabled after success', async () => {
@@ -38,7 +43,7 @@ it('sends only explicit stop metadata and leaves the request disabled after succ
 });
 it('prevents a second stop POST from a same-turn double click', async () => {
   let release!: () => void; state.post.mockImplementation(async (_path, _body, options) => { options.beforeSend(); await new Promise<void>(r => { release = r; }); return stop(); });
-  await render(); const b = button('Request stop'); await act(async () => { b.click(); b.click(); }); await settle(); expect(state.post).toHaveBeenCalledOnce();
+  await render(); const b = button('Request stop'); await act(async () => { b.click(); b.click(); }); await settleHeld(); expect(state.post).toHaveBeenCalledOnce();
   await act(async () => release()); await settle(); expect(state.post).toHaveBeenCalledOnce();
 });
 it('requires the actual Privy owner ID even when the display identity is available', async () => { state.ownerId = ''; await render(); expect(state.get).not.toHaveBeenCalled(); expect(state.post).not.toHaveBeenCalled(); expect(container.textContent).toContain('Sign in'); });
@@ -50,12 +55,12 @@ it('recovers a lost response after remount and treats a missing GET as unknown w
 });
 it('fences final dispatch when owner changes after a token wait and hides old recovery', async () => {
   let release!: () => void; const dispatched = vi.fn(); state.post.mockImplementation(async (_path, _body, options) => { await new Promise<void>(r => { release = r; }); options.beforeSend(); dispatched(); return stop(); });
-  await render(); await click('Request stop'); state.ownerId = 'did:privy:other'; state.session = '2'; await render(); await act(async () => release()); await settle();
+  await render(); await click('Request stop', settleHeld); state.ownerId = 'did:privy:other'; state.session = '2'; await render('en', settleHeld); await act(async () => release()); await settle();
   expect(dispatched).not.toHaveBeenCalled(); expect(container.textContent).not.toContain('Recover original request');
 });
 it('fences selected mandate changes after token wait and disables unsent resume for a different mandate', async () => {
   let release!: () => void; const dispatched = vi.fn(); state.post.mockImplementation(async (_path, _body, options) => { await new Promise<void>(r => { release = r; }); options.beforeSend(); dispatched(); return stop(); });
-  await render(); await click('Request stop'); selection = { ...selection, mandate: { ...selection.mandate, id: 'other', revision: 2 } }; await render(); await act(async () => release()); await settle();
+  await render(); await click('Request stop', settleHeld); selection = { ...selection, mandate: { ...selection.mandate, id: 'other', revision: 2 } }; await render('en', settleHeld); await act(async () => release()); await settle();
   expect(dispatched).not.toHaveBeenCalled(); expect(button('Resume unsent request').disabled).toBe(true); await click('Resume unsent request'); expect(state.post).toHaveBeenCalledOnce(); expect(state.get.mock.calls.some(([path]) => path.includes('/by-key/'))).toBe(false);
 });
 it('explicitly resumes a token failure after remount in the new session with the original key and revision', async () => {
@@ -67,7 +72,7 @@ it('explicitly resumes a token failure after remount in the new session with the
 it('resumes an aborted account refresh only by explicit click and with fresh final fences', async () => {
   let release!: () => void; const dispatched = vi.fn(); const uuid = vi.spyOn(crypto, 'randomUUID');
   state.post.mockImplementationOnce(async (_path, _body, options) => { await new Promise<void>(r => { release = r; }); options.beforeSend(); dispatched(); return stop(); });
-  await render(); await click('Request stop'); const original = state.post.mock.calls[0][1]; selection = { ...selection, account: { ...selection.account, updatedAt: new Date(liveNow + 1000).toISOString() } }; await render(); await act(async () => release()); await settle();
+  await render(); await click('Request stop', settleHeld); const original = state.post.mock.calls[0][1]; selection = { ...selection, account: { ...selection.account, updatedAt: new Date(liveNow + 1000).toISOString() } }; await render('en', settleHeld); await act(async () => release()); await settle();
   expect(dispatched).not.toHaveBeenCalled(); expect(button('Resume unsent request').disabled).toBe(false); expect(state.post).toHaveBeenCalledOnce(); await click('Resume unsent request'); expect(state.post).toHaveBeenCalledTimes(2); expect(state.post.mock.calls[1][1]).toEqual(original); expect(uuid).toHaveBeenCalledOnce();
 });
 it('does not bypass prepared or changed-revision guards to resume an unsent request', async () => {

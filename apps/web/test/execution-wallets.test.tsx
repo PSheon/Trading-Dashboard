@@ -8,6 +8,7 @@ import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
 import { fixtureCopyOverview } from "@/fixtures/copy";
 import type { ExecutionWallet, ExecutionWalletOverview, WalletAuthorization } from "@/lib/copy-execution-wallets";
+import { flush as flushFor, settleQueries, type SettleOptions } from "./query-settle";
 
 const state = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), status: "signedIn" }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: state.status, identity: "wallet-owner", mode: "fixture" }) }));
@@ -35,17 +36,21 @@ beforeEach(() => {
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
-async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 15)); }); }
-async function render() {
+// Waits for the wallet queries and mutations to answer; flush() is a plain wait
+// for the one test that holds a read open, settleHeld() for a held POST.
+const settle = (options?: SettleOptions) => settleQueries(client, { ms: 15, ...options });
+const settleHeld = () => settle({ mutations: false });
+const flush = () => flushFor(15);
+async function render(wait: () => Promise<void> = settle) {
   await act(async () => root.render(<QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><ExecutionWalletSettings /></I18nProvider></QueryClientProvider>));
-  await settle();
+  await wait();
 }
 function button(text: string): HTMLButtonElement {
   const found = [...container.querySelectorAll("button")].find((item) => item.textContent === text);
   if (!found) throw new Error(`Button not found: ${text}`);
   return found;
 }
-async function click(text: string) { await act(async () => button(text).click()); await settle(); }
+async function click(text: string, wait: () => Promise<void> = settle) { await act(async () => button(text).click()); await wait(); }
 async function selectCopy() {
   await act(async () => {
     const select = container.querySelector("select")!;
@@ -72,7 +77,7 @@ it("loads without preparing a wallet, requires a selected owned copy and sends t
 it("shows loading and read failures with a working retry", async () => {
   let reject!: (error: Error) => void;
   state.get.mockImplementation((path: string) => path === "/me/copy" ? Promise.resolve(copies) : new Promise((_, rejectPromise) => { reject = rejectPromise; }));
-  await render();
+  await render(flush);
   expect(container.textContent).toContain("Loading execution wallets");
   expect(state.post).not.toHaveBeenCalled();
   await act(async () => reject(new Error("provider details must stay private"))); await settle();
@@ -112,10 +117,10 @@ it("prevents duplicate preparation while the initial request is pending", async 
   await render(); await selectCopy();
   let complete!: (value: ExecutionWallet) => void;
   state.post.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
-  await click("Prepare dedicated wallet");
+  await click("Prepare dedicated wallet", settleHeld);
   expect(button("Preparing…").disabled).toBe(true);
   expect(container.querySelector("select")?.disabled).toBe(true);
-  await click("Preparing…");
+  await click("Preparing…", settleHeld);
   expect(state.post).toHaveBeenCalledOnce();
   overview = { ...overview, accounts: [account] };
   await act(async () => complete(account)); await settle();

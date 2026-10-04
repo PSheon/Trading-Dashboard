@@ -280,7 +280,8 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             className="num min-w-[1ch] bg-transparent p-0 font-display leading-none outline-none placeholder:text-foreground"
             style={{ width: `${Math.max(1, (amount || "0").length)}ch`, fontSize: amountPx, height: Math.round(amountPx * 1.328) }}
           />
-          <span className="shrink-0 font-display leading-none text-muted-foreground" style={{ fontSize: amountPx }}>USDC</span>
+          {/* Orbit: the amount is the big figure, the unit a quiet suffix. */}
+          <span className="shrink-0 font-display leading-none text-muted-foreground" style={{ fontSize: Math.max(18, Math.round(amountPx * 0.38)) }}>USDC</span>
           <button
             type="button"
             onClick={() => setFromPct(100)}

@@ -50,6 +50,15 @@ A3、A4、A5、A8、C 三項 Low，以及 31aaa38 的 portfolio 功能（新端�
 | 低 | `traders.service.ts:293-296`（fb3922b） | `perpEquity` 是「已讀到的 dex 總和」的部分值，欄位本身無標示，只有 `unavailableParts` | 新消費者可能把部分當完整；cohort／classification 已排除 partial，安全 |
 | 低 | `me.controller.ts`（28370e8） | `X-Confirm-Delete` 為固定常數 | 擋誤觸與 CSRF，不是二次驗證；可接受，但別當成重驗證 |
 
+### 第二輪處理狀態（主 session，2026-10-04 晚）
+
+- **A1**（已修，`a48fe7f`）：實測確認主因是 (b) 單飛 `busy`：用獨立資料庫的測試 build 同時開三個冷地址，兩個 perps `unavailable`（9 秒後再開又失敗一個）；配額層 (c) 不在這些失敗裡。讀取改為排隊輪流（每筆最多等 4 秒、最多 16 筆在等），profile 對 perps 的期限改為讀取器的完整上限（排隊＋5 秒＋0.5 秒），不再是 4 秒。修後三個、五個冷地址同時開都有 perps，持倉與權益和 Hyperliquid `clearinghouseState` 一致。
+- **A2**：見上表。
+- **worker 被共享配額餓死**（已修，`50c631d`）：本機 api 與 worker 讀同一份 `.env`，都是 840/分，而兩者共用一個背景通道只有 840 的計量；worker 自己就塞滿（`/health` 816/分）。設計本來就是各行程預算加總（Stage：api 480/200＋worker 360/100）。新增 `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN`／`_BURST`（worker 與 api 共用一份環境時使用，如 `WORKER_PORT`）；本機 `.env` 改為 api 480/200、worker 360/100；Stage 不需改。成交 confirm 改為必要消費者，背景通道滿時等待最多 15 秒。模擬十分鐘（真實 budgeter、info client、transport 與計量規則）：167 次 exhausted → 0。重啟後的實機十分鐘量測未做。
+- **trackedDue 無退避**（已修，`a553b89`）：重算失敗的追蹤地址 2 分鐘內不再排入，連續失敗加倍到 1 小時，成功即清除；標記在 worker 記憶體內。
+- **沒有 worker 時追蹤交易員永遠「更新中」**（已修，`742e120`）：分析超過三個 worker 週期（30 分鐘）未更新時，頁面讀取自己在背景重算；10–30 分鐘之間仍交給 worker。
+- **三項低**（已修，`5ced18a`）：icon 市場清單讀不到時一分鐘後才重試；cohort 補位改按 perp 權益排序；卡片 `source:"leaderboard"` 只代表帳戶價值（契約與搜尋註解已更正，無行為變化）。
+
 待驗證：coin-icon 只允許 perp 市場名，現貨專屬代幣 icon 可能 404；19eb97c 冷地址 32 calls 串列、每 call 最多等 40 s，首次 503 busy 時間可能拉長。
 
 本機狀態（17:25）：api 3100、web 3000、worker 3010、e2e 3109；41 個 Chromium 程序 2.2 GB；swap 22.5/23.5 GB，剩 1 GB。web 日誌裡 zh-TW.ts 語法錯誤是編輯中的暫時狀態，現在可解析。

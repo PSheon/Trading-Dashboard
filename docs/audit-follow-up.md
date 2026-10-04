@@ -201,6 +201,8 @@ Paul's decisions, done in `dev` (one commit each; details in the commit messages
 
 From `docs/copydog-gap-audit-2026-10-04.md` second round: A1 concurrent profile reads (4 s deadline shorter than the 5 s account read; single-flight busy flag in `live-account-ws-source.ts` fails a concurrent second read); A2 REST backfill cap 365 d / 50,000 fills still in place (status: partial); local worker starved by the shared quota (api and worker both budgeted 840 on one IP); `trackedDue` retries failed addresses first with no backoff; a stale watched trader never recomputes without a worker; coin-icon catalog retry, `boards.ts` leaderboard source with null figures, cohort top-up ordered by whole-account value.
 
+Done 2026-10-04 evening, one commit each (status in the audit's second round): A1 reads take turns on the account socket; A2 backfill cap 500,000 with paged span reads; per-process Hyperliquid budgets (`HYPERLIQUID_WORKER_WEIGHT_*`, local api 480/200 + worker 360/100) and essential confirms; `trackedDue` backoff; a read refreshes watched figures older than 30 minutes; the three lows.
+
 Stage at `cb79f66` since 2026-10-04 09:25Z: `IS_WORKER=true` on the worker (start command still `node dist/worker.js`, a shim; clear it in the Railway UI when convenient), `APP_ROLE` still set on both services and tolerated while it agrees; worker `S3_ARCHIVE_MAX_DAILY_USD=2`; 90-day archive backfill complete (volume 44 GB).
 
 ## Roadmap (Paul, 2026-10-04)

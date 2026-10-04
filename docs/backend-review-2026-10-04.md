@@ -23,6 +23,8 @@
 
 ## 1. 上線阻斷項
 
+**狀態更新（HEAD `df6be0d`）**：H1（stop executor）、H2（never-placed 終態）與修復順序第 5 項（revoke barrier）已在 testnet 執行流落地，核對見 [testnet-regression-review-2026-10-04.md](testnet-regression-review-2026-10-04.md)；狀態機表中「stopping→stopped 無路徑」與「unknown 無終態（H2）」已過時。回主錢包的 unknown 仍無終態（修復順序第 4 項同類）。
+
 **對目前的 paper-only production：0 項。** 以下兩項阻斷的是 testnet／真實資金執行流上線，而這條流正是主 session 現在在做的（B1–B6），必須在它落地前閉合。
 
 ### H1 testnet 的「停止」沒有執行器：倉位留在交易所、stop operation 永遠 `requested`

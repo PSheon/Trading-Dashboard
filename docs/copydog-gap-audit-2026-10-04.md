@@ -63,6 +63,10 @@ A3、A4、A5、A8、C 三項 Low，以及 31aaa38 的 portfolio 功能（新端�
 
 本機狀態（17:25）：api 3100、web 3000、worker 3010、e2e 3109；41 個 Chromium 程序 2.2 GB；swap 22.5/23.5 GB，剩 1 GB。web 日誌裡 zh-TW.ts 語法錯誤是編輯中的暫時狀態，現在可解析。
 
+## 第三輪核對（側線 session，2026-10-04 晚，HEAD `df6be0d`）
+
+testnet 跟單執行流落地後的回歸審查見 [testnet-regression-review-2026-10-04.md](testnet-regression-review-2026-10-04.md)。B1、B2、B3、B4、B7、B16、B18 在 testnet 範圍內已完成（mainnet 仍在啟動時拒絕）；B6 部分（HIP-3 市場有 resolver 無測試）；B5 未做。下方 B 表的這些列以該文件為準。
+
 ## A. 數字：Orbie 必修（以 Hyperliquid 為準）
 
 | # | 問題 | 證據 | 誰對 | 優先 |

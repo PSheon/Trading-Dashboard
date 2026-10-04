@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { Pool, PoolClient } from "pg";
+import { ReconnectBackoff } from "./reconnect-backoff.js";
 
 import { COPY_EVENTS_CHANNEL } from "../copy/copy-runtime.repository.js";
 import { DATABASE_POOL } from "../db/drizzle.provider.js";
@@ -21,6 +22,7 @@ export class CopyFeedListener implements OnApplicationBootstrap, OnModuleDestroy
   private readonly logger = new Logger(CopyFeedListener.name);
   private client?: PoolClient;
   private retry?: ReturnType<typeof setTimeout>;
+  private readonly backoff = new ReconnectBackoff();
   private stopped = false;
   private connecting?: Promise<void>;
   constructor(@Inject(DATABASE_POOL) private readonly pool: Pool, private readonly events: EventEmitter2) {}
@@ -44,7 +46,8 @@ export class CopyFeedListener implements OnApplicationBootstrap, OnModuleDestroy
         this.events.emit(COPY_FEED_EVENT, { userId: Number(msg.payload) } satisfies CopyFeedEvent);
       });
       await client.query(`LISTEN ${COPY_EVENTS_CHANNEL}`);
-      this.logger.log("Copy feed listening");
+      if (this.backoff.connected()) this.logger.log("Copy feed listening again");
+      else this.logger.log("Copy feed listening");
     } catch {
       if (this.client) { const c = this.client; this.client = undefined; c.release(true); }
       this.reconnect();
@@ -61,8 +64,9 @@ export class CopyFeedListener implements OnApplicationBootstrap, OnModuleDestroy
 
   private reconnect(): void {
     if (this.stopped || this.retry) return;
-    this.logger.warn("Copy feed disconnected; retrying");
-    this.retry = setTimeout(() => { this.retry = undefined; void this.connect(); }, 1000);
+    const { delayMs, transition } = this.backoff.failed();
+    if (transition) this.logger.warn("Copy feed disconnected; retrying (backing off up to 30 s)");
+    this.retry = setTimeout(() => { this.retry = undefined; void this.connect(); }, delayMs);
     this.retry.unref();
   }
 

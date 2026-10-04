@@ -25,8 +25,17 @@ export function servicePermissions(raw: string | undefined): Permission[] {
   if (names.some((name) => !(PERMISSIONS as readonly string[]).includes(name))) {
     throw new Error("AUTH_SERVICE_PERMISSIONS contains an unknown permission");
   }
+  // A shared secret must not be able to make anyone an admin or change the
+  // site's settings: those stay with signed-in admins (audited by person).
+  const forbidden = names.filter((name) => (SERVICE_FORBIDDEN as readonly string[]).includes(name));
+  if (forbidden.length) throw new Error(`AUTH_SERVICE_PERMISSIONS may not grant ${forbidden.join(", ")} to the service token`);
   return [...new Set(names)] as Permission[];
 }
+
+/** Grants a service token never gets (backend review: users.manage could
+ * promote anyone to admin, settings.write could reopen signups or switch
+ * maintenance off). */
+export const SERVICE_FORBIDDEN = ["users.manage", "settings.write"] as const;
 
 export function databaseUrl(raw: string | undefined): string {
   if (!raw?.trim()) throw new Error("DATABASE_URL is required");

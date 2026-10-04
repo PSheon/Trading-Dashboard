@@ -74,7 +74,7 @@ describe("maintenance mode (review finding 17)", () => {
 
   beforeAll(async () => {
     vi.stubEnv("AUTH_SERVICE_TOKEN", SERVICE_TOKEN);
-    vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "admin.access,settings.read,settings.write");
+    vi.stubEnv("AUTH_SERVICE_PERMISSIONS", "admin.access,settings.read");
     ({ app, auth, settings } = await createAuthedApp({
       db, privy, imports: [PoolModule],
       controllers: [AdminController, PublicSettingsController, MeController, ProbeController],
@@ -131,9 +131,10 @@ describe("maintenance mode (review finding 17)", () => {
     expect(pub.maintenance).toEqual(maintenance({ endsAt }));
     // The health routes, whatever the method.
     await as().post("/health/probe").expect(201);
-    // Admins (a person or a service token with admin.access) keep working.
+    // Admins keep working. A service token cannot hold settings.write
+    // (refused at startup), so it waits like everyone else.
     await as("admin-token").patch("/me", { displayName: "Ops" }).expect(200);
-    await as(SERVICE_TOKEN).post("/probe/write").expect(201);
+    await as(SERVICE_TOKEN).post("/probe/write").expect(503);
 
     const audit = await db.select().from(adminAuditLogs);
     expect(audit).toHaveLength(1);

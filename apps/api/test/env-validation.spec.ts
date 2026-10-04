@@ -109,6 +109,13 @@ describe("startup environment", () => {
     expect(env.telegramBotToken()).toBeUndefined();
   });
 
+  it("never lets the service token make admins or change site settings", () => {
+    const token = { AUTH_SERVICE_TOKEN: "service-token-0123456789abcdef0123456789" };
+    expect(() => validateEnvironment({ ...base, ...token, AUTH_SERVICE_PERMISSIONS: "admin.access,users.manage" })).toThrow("users.manage");
+    expect(() => validateEnvironment({ ...base, ...token, AUTH_SERVICE_PERMISSIONS: "settings.write" })).toThrow("settings.write");
+    expect(validateEnvironment({ ...base, ...token, AUTH_SERVICE_PERMISSIONS: "admin.access,users.read" }).auth.permissions).toEqual(["admin.access", "users.read"]);
+  });
+
   it("accepts explicit service permissions without implicitly granting all permissions", () => {
     const result = validateEnvironment({ ...base, AUTH_SERVICE_TOKEN: "test-token", AUTH_SERVICE_PERMISSIONS: "users.read, users.read,settings.read" });
     expect(result.auth.permissions).toEqual(["users.read", "settings.read"]);

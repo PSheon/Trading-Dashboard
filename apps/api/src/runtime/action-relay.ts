@@ -4,6 +4,7 @@ import { Pool, type PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import { DATABASE_POOL } from "../db/drizzle.provider.js";
 import { ACTION_CREATED_EVENT, ACTION_CORRECTED_EVENT, type ActionCreatedEvent, type ActionCorrectedEvent } from "../watcher/action-created.event.js";
+import { ReconnectBackoff } from "./reconnect-backoff.js";
 
 const CHANNEL = "orbie_actions";
 export interface RemoteActions { created: string[]; updated: string[] }
@@ -18,6 +19,7 @@ export class ActionRelay implements OnModuleDestroy {
   private readonly origin = randomUUID();
   private client?: PoolClient;
   private retry?: ReturnType<typeof setTimeout>;
+  private readonly backoff = new ReconnectBackoff();
   private stopped = false;
   private connecting?: Promise<void>;
   constructor(@Inject(DATABASE_POOL) private readonly pool: Pool, private readonly events: EventEmitter2) {}
@@ -43,7 +45,8 @@ export class ActionRelay implements OnModuleDestroy {
         } catch { /* Unrecognized payloads cannot reach stream subscribers. */ }
       });
       await client.query(`LISTEN ${CHANNEL}`);
-      this.logger.log("Action relay listening");
+      if (this.backoff.connected()) this.logger.log("Action relay listening again");
+      else this.logger.log("Action relay listening");
     } catch {
       if (this.client) { const c = this.client; this.client = undefined; c.release(true); }
       this.reconnect();
@@ -58,8 +61,9 @@ export class ActionRelay implements OnModuleDestroy {
   }
   private reconnect() {
     if (this.stopped || this.retry) return;
-    this.logger.warn("Action relay disconnected; retrying");
-    this.retry = setTimeout(() => { this.retry = undefined; void this.connect(); }, 1000);
+    const { delayMs, transition } = this.backoff.failed();
+    if (transition) this.logger.warn("Action relay disconnected; retrying (backing off up to 30 s)");
+    this.retry = setTimeout(() => { this.retry = undefined; void this.connect(); }, delayMs);
     this.retry.unref();
   }
   @OnEvent(ACTION_CREATED_EVENT)

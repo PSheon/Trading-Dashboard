@@ -107,3 +107,13 @@ it('validates code and pagination inputs and exposes no private route as public'
   await request(app.getHttpServer()).get('/me/referral/friends?cursor=invalid').auth('a', { type: 'bearer' }).expect(400);
   await request(app.getHttpServer()).get('/me/referral/claims').expect(401);
 });
+
+it("does not let a disabled owner's code refer anyone (lock() refuses a disabled owner), as the public check says", async () => {
+  const owner = await insertUser(db, { privyUserId: `did:privy:ref-disabled-${randomUUID()}` });
+  await repository.setCode(owner.id, 'GONEOWNER');
+  await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, owner.id));
+  expect(await repository.check('GONEOWNER')).toBe(false);
+  const fresh = await insertUser(db, { privyUserId: `did:privy:ref-fresh-${randomUUID()}` });
+  await expect(repository.bind(fresh.id, 'GONEOWNER')).rejects.toThrow('Referral owner not found');
+  expect(await db.select().from(referralAttributions).where(eq(referralAttributions.referredUserId, fresh.id))).toEqual([]);
+});

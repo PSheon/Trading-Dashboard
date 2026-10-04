@@ -37,8 +37,8 @@ export function CopyAdminNav() {
             href={page.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "shrink-0 rounded-full px-3.5 py-1.5 text-[0.8125rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active ? "bg-raised text-foreground" : "text-muted-foreground hover:text-foreground",
+              "flex h-10 shrink-0 items-center rounded-full border-2 px-4 text-[0.8125rem] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              active ? "border-primary bg-primary font-extrabold text-primary-foreground" : "border-input font-bold text-muted-foreground hover:bg-raised hover:text-foreground",
             )}
           >
             {t(page.label)}

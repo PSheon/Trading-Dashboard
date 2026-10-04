@@ -89,7 +89,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {allowed ? (
         <nav
           aria-label={t("admin.title")}
-          className="-mx-4 flex gap-1 overflow-x-auto border-b-2 border-dotted border-border px-4 no-scrollbar md:mx-0 md:px-0"
+          className="flex gap-0.5 overflow-x-auto rounded-[28px] bg-raised p-1 no-scrollbar"
         >
           {SECTIONS.filter((s) => hasPermission(me.data, s.permission)).map((s) => {
             const active = s.href === "/admin" ? pathname === "/admin" : pathname.startsWith(s.href);
@@ -99,12 +99,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 href={s.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative shrink-0 px-3 py-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  active ? "text-foreground" : "text-subtle-foreground hover:text-muted-foreground",
+                  "flex h-11 shrink-0 items-center rounded-[22px] px-4 text-sm whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                  active ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:bg-raised-hover hover:text-foreground",
                 )}
               >
                 {t(s.label)}
-                {active ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-primary" /> : null}
               </Link>
             );
           })}

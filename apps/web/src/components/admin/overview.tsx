@@ -21,16 +21,16 @@ export function KpiCard({
   sub?: React.ReactNode;
 }) {
   return (
-    <Panel className="flex flex-col gap-3 p-5">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+    <section className="flex flex-col gap-2 rounded-[24px] bg-raised px-4 py-4">
+      <div className="flex items-center gap-2 text-[13px] font-extrabold text-muted-foreground">
         <span className="flex size-7 items-center justify-center rounded-lg bg-tag-alert text-tag-alert-foreground">
           <Icon className="size-4" />
         </span>
         {label}
       </div>
-      <div className="num text-[1.75rem] leading-none font-bold">{value}</div>
-      {sub ? <div className="num text-xs text-subtle-foreground">{sub}</div> : null}
-    </Panel>
+      <div className="num font-display text-[1.75rem] leading-tight">{value}</div>
+      {sub ? <div className="num text-xs font-bold text-muted-foreground">{sub}</div> : null}
+    </section>
   );
 }
 

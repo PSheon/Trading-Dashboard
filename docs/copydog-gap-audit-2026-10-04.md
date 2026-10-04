@@ -12,7 +12,7 @@ Paul 的三條規則：CopyDog 有的功能要有；CopyDog 錯的數字要改�
 
 ## 處理狀態（主 session，2026-10-04 下午）
 
-- **A2**（已修）：追蹤地址的分析由 worker 每分鐘補算（過期 10 分鐘、回補結束或成交修訂即到期），頁面讀取不再觸發；快照與補掃在背景通道滿時等待而非直接失敗；有 S3 封存時歷史從封存第一個小時起算（不受 365 天／5 萬筆限制），兩者都不涵蓋時勝率卡寫明「N 筆交易自某日起」。
+- **A2**（過期已修；深度 2026-10-04 晚修，見第二輪表）：追蹤地址的分析由 worker 每分鐘補算（過期 10 分鐘、回補結束或成交修訂即到期），頁面讀取不再觸發；快照與補掃在背景通道滿時等待而非直接失敗；有 S3 封存時歷史從封存第一個小時起算（不受 365 天限制），兩者都不涵蓋時勝率卡寫明「N 筆交易自某日起」。REST 回補上限由 5 萬筆提高到 50 萬筆並分頁讀取，被舊上限停住的地址自動續補到 REST 保留起點。
 - **A3、A4、A5**（已修）：清單與 `profile.stats` 的全帳戶數字改名為 `accountPnl`／`accountRoi`，所有標成 PnL／ROI 的地方都是 perp；`pnlTier` 用全期 perp PnL，`sizeTier` 用全帳戶價值；cohort 權益未知者不再以全帳戶價值排序。
 - **A6**：D10 文件已更新為母體百分位；母體大小差距仍在。
 - **A8**（已修）：缺一個 dex 時顯示已知部分並列出缺少的 dex／質押。
@@ -32,7 +32,7 @@ A3、A4、A5、A8、C 三項 Low，以及 31aaa38 的 portfolio 功能（新端�
 | # | 狀態 | 殘留 | 證據 |
 | --- | --- | --- | --- |
 | A1 | **部分** | 19eb97c 只改配額層，機制 (c) 緩解；(a) `traders.service.ts:120` 4 s deadline 仍短於 `trader-account-reader.ts:20` 的 5 s；(b) `live-account-ws-source.ts:115,120` 單飛 `busy` 仍讓並發第二個讀取立即 fail。**實測 09:25:58Z：三個不同地址同時請求，兩個 `perps: unavailable`、持倉 0；6 秒後再試 Bholu 仍 unavailable。** 兩個使用者同時開不同交易員頁就會發生 | `profileCache`（`traders.service.ts:183`）只對同一地址去重 |
-| A2 | **部分**（處理狀態寫「已修」，應改） | 過期部分已修：worker 每分鐘 `refreshTracked`，0x469e computedAt 已到 09:20Z。深度未改善：`fill-sync.service.ts:34-35` 仍 365 天／50,000 筆，只有 S3 封存涵蓋時才繞過，而封存預設關（A7）。本機 0x469e 仍 17 筆、76.5%、`truncated:true`（CopyDog 647 筆） | `trade-analytics.service.ts:478-493` |
+| A2 | **已修**（2026-10-04 晚，深度） | 過期部分已修：worker 每分鐘 `refreshTracked`。深度：實查本機 20 個追蹤地址，REST 回補多半停在 Hyperliquid 自己的保留起點（`retention` 7 個），5 萬筆上限真正截短的是 0x30af（REST 還保留到 09-07，上限在 09-26 停住，少 19 天）。修法：`BACKFILL_MAX_FILLS` 50,000 → 500,000（只作單一地址的儲存上限，呼叫仍受 backfill 預算上限節流）；worker 啟動後把舊上限停住、跨度內少於新上限的 `capped` 地址改回 `pending` 續補；追蹤重算與完整連續性檢查改為分頁讀取（每頁 2 萬筆、不切開同一毫秒），跨度大小不再受記憶體限制；樣本隨 watcher 新存的成交持續變長（0x469e 已 77,143 筆、從 09-26 起）。仍有的限制：REST 只保留有限歷史，忙碌地址的深度只能靠封存（A7）；分析與回補都只看一年（`LOOKBACK_MS`）。「N 筆交易自某日起」取自實際計入的第一筆成交（`coverage.from`），`truncated` 在回補未完成或停在保留起點時為真，標示仍正確。0x469e 從 09-26 起 77,143 筆成交只重建出 17 筆已平倉交易（倉位很少歸零），與 CopyDog 647 筆的差異本輪未核對原因 | `fill-sync.service.ts` `BACKFILL_MAX_FILLS`、`stored-fill-pages.ts` |
 | A4 殘留 | 小 | `cohort.repository.ts:102` leaderboard top-up 仍按全帳戶 `accountValue` 排序，與 6b70bc4 說明「never by the whole account」不一致（只在 pool 不夠時補位） | — |
 | A6 | 部分 | cohort 上限 500/2000、取全部合格者；Copy Score 母體仍 `candidate_pool`，`candidatePoolSize` 預設 1000（`zod.ts:1550`） | — |
 | A7 | 未修 | `S3_ARCHIVE_ENABLED` 預設 false | `runtime-config.ts:96` |

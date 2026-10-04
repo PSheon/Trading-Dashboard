@@ -35,6 +35,7 @@ import type { HistoryCaller } from "./analysis-history.repository.js";
 import type { HistorySnapshot } from "./analysis-history.repository.js";
 import type { ArchiveSpan } from "../analytics/history-checkpoint.js";
 import { positionBreaks } from "../analytics/fill-integrity.js";
+import { lastMillisecondPerCoin } from "../watcher/stored-fill-pages.js";
 import { TradeAnalyticsRepository, type AnalyticsInsert, type AnalyticsRow, type FillCoverage, type TradeAnalyticsTx } from "./trade-analytics.repository.js";
 import { portfolioSeries } from "./traders.mappers.js";
 import { FILLS_TTL_MS, TradersService } from "./traders.service.js";
@@ -475,9 +476,11 @@ export class TradeAnalyticsService {
    * ahead of the cursor, rows on the far side of a hole) are not counted,
    * so the figures never run across a gap. Where the S3 archive's
    * certified span reaches the verified one, the history starts at the
-   * archive's first hour instead (the REST backfill stops at 50,000 fills
-   * or 365 days, about 8 days of a 10,000-fills-a-day account): the archive
-   * is walked page by page, so its depth is not bounded by memory.
+   * archive's first hour instead (the REST backfill reaches only as far as
+   * REST retains, a week or two of a 10,000-fills-a-day account). Both the
+   * archive and our span are walked page by page, so the depth is not
+   * bounded by memory, and the span keeps growing with every fill the
+   * watcher stores.
    *
    * Once built, a later refresh only applies the fills after the cursor to
    * the open trades, unless the depth or the history below the cursor
@@ -522,7 +525,9 @@ export class TradeAnalyticsService {
     if (archiveFrom !== null) {
       for await (const page of this.history!.archivedFillPages(address, archiveFrom, verifiedFrom)) consume(page);
     }
-    consume(dedupe(await this.repository.trackedFills(address, coverage.verifiedFrom!, through)));
+    // Our own span, page by page: it grows with every fill stored and is no
+    // longer held to a 50,000-fill backfill cap.
+    for await (const page of this.repository.trackedFillPages(address, new Date(Math.max(start, verifiedFrom)), through)) consume(dedupe(page));
     const trades = [...touched.values()];
     const persist = async (tx: TradeAnalyticsTx) => {
       // Funding already read stays with its trade across the rebuild.
@@ -961,13 +966,6 @@ function latestOf(fills: HlUserFill[]): { time: number | null; tids: string[] } 
   let time: number | null = null;
   for (const f of fills) if (time === null || f.time > time) time = f.time;
   return { time, tids: time === null ? [] : fills.filter((f) => f.time === time).map((f) => String(f.tid)) };
-}
-
-/** Each coin's fills at its latest millisecond (where a next page continues). */
-function lastMillisecondPerCoin(fills: HlUserFill[]): HlUserFill[] {
-  const latest = new Map<string, number>();
-  for (const f of fills) latest.set(f.coin, Math.max(latest.get(f.coin) ?? -Infinity, f.time));
-  return fills.filter((f) => f.time === latest.get(f.coin));
 }
 
 function dedupe(fills: HlUserFill[]): HlUserFill[] {

@@ -19,7 +19,7 @@
  *   --weight N          REST weight limit per minute, at most 150 (default 150;
  *                       the sustained rate is N − 50, see HEADROOM)
  *   --max-windows N     backward windows per address this run (default 400)
- *   --max-fills N       stop an address's backfill once its span holds N fills (default 50000)
+ *   --max-fills N       stop an address's backfill once its span holds N fills (default 500000, BACKFILL_MAX_FILLS)
  *   --untracked N       unbacked untracked addresses to complete now (default 0)
  *   --untracked-addresses a,b   complete exactly these
  *   --dry-run           report what would be done; no REST call, no write

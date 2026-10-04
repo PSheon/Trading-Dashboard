@@ -10,6 +10,7 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { fromScaled, toScaled } from "../watcher/action-classifier.js";
+import { SPAN_PAGE_FILLS, storedFillPages } from "../watcher/stored-fill-pages.js";
 
 export type AnalyticsRow = typeof traderAnalytics.$inferSelect;
 export type AnalyticsInsert = typeof traderAnalytics.$inferInsert;
@@ -263,6 +264,14 @@ export class TradeAnalyticsRepository {
 
   /** A tracked address's stored perp fills in `[since, through]`, as
    * Hyperliquid sent them (`raw` keeps startPosition, liquidation and twapId). */
+  /** `trackedFills` oldest first in pages that never split a millisecond:
+   * a full rebuild walks a span of any size without holding it at once. */
+  trackedFillPages(address: string, since: Date, through: Date): AsyncGenerator<HlUserFill[]> {
+    return storedFillPages(this.db, address, since, through, { perpOnly: true, pageSize: this.spanPageFills });
+  }
+  /** Settable for tests. */
+  spanPageFills = SPAN_PAGE_FILLS;
+
   async trackedFills(address: string, since: Date, through: Date): Promise<HlUserFill[]> {
     const rows = await this.db
       .select({ raw: fills.raw })

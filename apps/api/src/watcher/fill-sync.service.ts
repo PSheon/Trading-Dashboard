@@ -29,10 +29,15 @@ export const INITIAL_LOOKBACK_MS = 75 * 60_000;
 /** A completed read certifies fills only up to this long before it was
  * sent: the fill index trails the exchange by seconds (p90 1.5 s). */
 export const INDEX_LAG_MS = 60_000;
-/** Backward backfill stops at this age, or once the span holds this many
- * fills (analytics read a year; the cap bounds a market maker's cost). */
+/** Backward backfill stops at this age (analytics read a year), where
+ * REST's retention starts, or once the span holds this many fills. The
+ * cap bounds a market maker's storage, not the sample: at 50,000 it
+ * stopped a 10,000-fills-a-day address after a week while REST still held
+ * three more (audit A2); the span is read in pages (`storedFillPages`), so
+ * its size is not bounded by memory. The calls are paced by the backfill's
+ * budget cap (`discovery.backfillWeightPerMinute`). */
 export const BACKFILL_LOOKBACK_MS = 365 * 86_400_000;
-export const BACKFILL_MAX_FILLS = 50_000;
+export const BACKFILL_MAX_FILLS = 500_000;
 /** Most pages per endpoint in one backward window or targeted re-read.
  * Windows aim at a page and a half; the headroom lets a busier one finish
  * instead of being read for nothing. */
@@ -154,6 +159,8 @@ export class FillSyncService {
   /** When a sync last found TWAP slice fills for each address. */
   private readonly twapSeenAt = new Map<string, number>();
   private backfilling = false;
+  /** Coverage capped under an earlier, smaller cap was re-opened (`backfillTick`). */
+  private reopened = false;
   /** Each endpoint's retention start, read when this process began an address's backfill. */
   private readonly retention = new Map<string, { regular: RetentionProbe | null; twap: RetentionProbe | null }>();
 
@@ -428,6 +435,12 @@ export class FillSyncService {
   /** The scheduler's backfill turn: one window for the address that has waited longest. */
   async backfillTick(): Promise<string | undefined> {
     if (this.jobs.stopping || this.backfilling) return undefined;
+    if (!this.reopened) {
+      // Spans stopped at the old 50,000 cap carry on (once per process).
+      const reopened = await this.repository.reopenCapped(BACKFILL_MAX_FILLS);
+      this.reopened = true;
+      if (reopened.length > 0) this.logger.log(`Backfill resumed under the ${BACKFILL_MAX_FILLS}-fill cap: ${reopened.join(", ")}`);
+    }
     const address = await this.repository.nextBackfill();
     if (!address) return undefined;
     this.backfilling = true;
@@ -452,7 +465,12 @@ export class FillSyncService {
     if (!state?.verifiedFrom || !state.verifiedThrough) return { breaks: 0, repaired: 0, unexplained: 0 };
     const from = full || !state.checkedThrough || state.checkedThrough < state.verifiedFrom ? state.verifiedFrom : state.checkedThrough;
     const known = new Set(state.breaks.map((b) => b.tid));
-    const load = async () => positionBreaks(await this.repository.fillsForCheck(address, state.verifiedFrom!, from, state.verifiedThrough!)).filter((b) => !known.has(b.tid));
+    // Page by page: a span is no longer bounded by a 50,000-fill backfill cap.
+    const load = async () => {
+      const breaks: ReturnType<typeof positionBreaks> = [];
+      for await (const batch of this.repository.fillPagesForCheck(address, state.verifiedFrom!, from, state.verifiedThrough!)) breaks.push(...positionBreaks(batch));
+      return breaks.filter((b) => !known.has(b.tid));
+    };
     const found = await load();
     if (found.length === 0) {
       await this.repository.patchCoverage(address, { checkedThrough: state.verifiedThrough });

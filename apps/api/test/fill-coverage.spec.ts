@@ -14,7 +14,7 @@ import { AccountStateService } from "../src/watcher/account-state.service.js";
 import type { FeedActionsService } from "../src/watcher/feed-actions.service.js";
 import { toFillRow } from "../src/watcher/fill-row.js";
 import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
-import { BACKFILL_LOOKBACK_MS, FillSyncService, INDEX_LAG_MS, INITIAL_LOOKBACK_MS, PAGE_SIZE } from "../src/watcher/fill-sync.service.js";
+import { BACKFILL_LOOKBACK_MS, BACKFILL_MAX_FILLS, FillSyncService, INDEX_LAG_MS, INITIAL_LOOKBACK_MS, PAGE_SIZE } from "../src/watcher/fill-sync.service.js";
 import type { TradeFeedService } from "../src/watcher/trade-feed.service.js";
 import { WatcherRepository } from "../src/watcher/watcher.repository.js";
 import { WatcherService } from "../src/watcher/watcher.service.js";
@@ -467,6 +467,76 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
       expect(after.summary).toMatchObject({ trades: 22 });
       expect(after.coverage.fills).toBe(upstream.length);
       expect(after.coverage.from!.getTime()).toBe(upstream[0].time);
+    });
+  });
+
+  describe("history depth (audit A2)", () => {
+    it("a span the old 50,000-fill cap stopped short of REST's retention carries on to it", async () => {
+      const now = Date.now();
+      const retained = now - 20 * DAY;
+      upstream = [fill("BTC", 3, -1, retained), ...roundTrips("BTC", 500, retained + HOUR, now - 2 * HOUR)];
+      const sync = service();
+      await sync.catchUp(A);
+      // Where the old cap left it: a recent span marked capped, REST holding twenty days more.
+      const stoppedAt = (await coverage()).verifiedFrom!.getTime();
+      await db.update(fillCoverage).set({ backfillStatus: "capped", backfillFloor: new Date(retained) });
+      expect(BACKFILL_MAX_FILLS).toBeGreaterThanOrEqual(500_000);
+      for (let step = 0; step < 40 && (await coverage()).backfillStatus !== "retention"; step++) await sync.backfillTick();
+      const row = await coverage();
+      expect(row.backfillStatus).toBe("retention");
+      expect(row.verifiedFrom!.getTime()).toBe(retained);
+      expect(row.verifiedFrom!.getTime()).toBeLessThan(stoppedAt);
+      expect(await storedTids()).toHaveLength(upstream.length);
+    });
+
+    it("a span at the cap stays capped", async () => {
+      const now = Date.now();
+      await db.insert(fills).values(roundTrips("BTC", 3, now - 5 * HOUR, now - 2 * HOUR).map((f) => toFillRow(A, f)));
+      await span(now - DAY, now - HOUR, { backfillStatus: "capped" });
+      expect(await repository.reopenCapped(6)).toEqual([]);
+      expect(await repository.reopenCapped(7)).toEqual([A]);
+      expect((await coverage()).backfillStatus).toBe("pending");
+    });
+
+    it("a full continuity check walks the span in pages, never splits a millisecond and still sees a break across pages", async () => {
+      const now = Date.now();
+      const t = (minutes: number) => now - DAY + minutes * 60_000;
+      const eth = fill("ETH", 0, 1, t(1));
+      // Eight BTC fills in one millisecond (more than a page), a chain of their own.
+      const burst = Array.from({ length: 8 }, (_, i) => fill("BTC", i + 1, 1, t(3)));
+      const btc = [fill("BTC", 0, 1, t(2)), ...burst, ...Array.from({ length: 12 }, (_, i) => fill("BTC", 9 + (i % 2), i % 2 === 0 ? 1 : -1, t(4 + i)))];
+      // ETH comes back pages later from 3, not from the 1 it was left at.
+      const jump = fill("ETH", 3, -3, t(30));
+      await db.insert(fills).values([eth, ...btc, jump].map((f) => toFillRow(A, f)));
+      await span(now - DAY, now - HOUR);
+      repository.spanPageFills = 5;
+      const sync = service();
+      const pages: number[][] = [];
+      for await (const page of repository.fillPagesForCheck(A, new Date(now - DAY), new Date(now - DAY), new Date(now - HOUR))) pages.push(page.map((f) => f.time));
+      expect(pages.length).toBeGreaterThan(3);
+      // The burst is in one page, whole.
+      expect(pages.filter((times) => times.includes(t(3))).every((times) => times.filter((x) => x === t(3)).length === 8)).toBe(true);
+      expect(await sync.checkContinuity(A, true)).toEqual({ breaks: 1, repaired: 0, unexplained: 1 });
+      expect((await coverage()).breaks.map((b) => b.tid)).toEqual([jump.tid]);
+    });
+
+    it("a tracked rebuild over a span larger than a page gives the figures of one read", async () => {
+      const now = Date.now();
+      const chain = [...roundTrips("BTC", 20, now - 9 * DAY, now - 2 * DAY), ...roundTrips("ETH", 2, now - 5 * HOUR, now - 2 * HOUR)];
+      await db.insert(fills).values(chain.map((f) => toFillRow(A, f)));
+      await span(now - 10 * DAY, now - HOUR);
+      const store = new TradeAnalyticsRepository(db);
+      store.spanPageFills = 3;
+      const traders = { isTracked: vi.fn(async () => true), rawPortfolio: vi.fn(async () => []), perpDexes: vi.fn(async () => [""]),
+        latestFills: vi.fn(async (): Promise<[HlUserFill[], HlUserFill[]]> => [[], []]),
+        portfolioCache: { peek: () => undefined }, dexCache: { peek: () => undefined },
+        profileCache: { peek: () => undefined }, userFillsCache: { peek: () => undefined }, twapFillsCache: { peek: () => undefined } };
+      const paged = new TradeAnalyticsService(store, traders as unknown as TradersService, info as unknown as HyperliquidInfoClient);
+      const result = await paged.analytics(A, "all");
+      await paged.settled();
+      expect(result.summary).toMatchObject({ trades: 22 });
+      expect(result.coverage).toMatchObject({ source: "tracked", fills: chain.length, truncated: false });
+      expect(result.coverage.from!.getTime()).toBe(chain[0].time);
     });
   });
 

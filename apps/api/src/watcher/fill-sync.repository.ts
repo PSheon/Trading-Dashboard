@@ -10,6 +10,7 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 import type { ActionDraft } from "./action-classifier.js";
 import { actionsCovering, chunks, draftToRow, insertActions, lockActions, storedFills } from "./action-store.js";
 import { toFillRow } from "./fill-row.js";
+import { lastMillisecondPerCoin, SPAN_PAGE_FILLS, storedFillPages } from "./stored-fill-pages.js";
 import { LIVE_STRATEGY_STATUSES, enqueueCopySignals, lockCopyLeader } from "../copy/copy-outbox.js";
 
 export type { ActionRow } from "./action-store.js";
@@ -20,6 +21,8 @@ const covered = (address: string) => and(eq(fillCoverage.chain, CHAIN_DEFAULT), 
 @Injectable()
 export class FillSyncRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  /** Fills per page of a full continuity check; settable for tests. */
+  spanPageFills = SPAN_PAGE_FILLS;
 
   /** Whether a live copy follows `address`: its stored fills become copy signals. */
   async isCopied(address: string): Promise<boolean> {
@@ -136,6 +139,17 @@ export class FillSyncRepository {
     return row?.address;
   }
 
+  /** Coverage rows the backfill stopped at an earlier, smaller fill cap
+   * whose span still holds fewer than `maxFills`: back to `pending`, so the
+   * backfill carries on to REST's retention or the lookback. Returns them. */
+  async reopenCapped(maxFills: number): Promise<string[]> {
+    const rows = await this.db.update(fillCoverage).set({ backfillStatus: "pending", updatedAt: new Date() })
+      .where(and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.backfillStatus, "capped"),
+        sql`(select count(*) from ${fills} where ${fills.chain} = ${fillCoverage.chain} and ${fills.address} = ${fillCoverage.address} and ${fills.ts} >= ${fillCoverage.verifiedFrom}) < ${maxFills}`))
+      .returning({ address: fillCoverage.address });
+    return rows.map((row) => row.address);
+  }
+
   async countFillsSince(address: string, since: Date): Promise<number> {
     const [row] = await this.db.select({ n: sql<number>`count(*)::int` }).from(fills)
       .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address), gte(fills.ts, since)));
@@ -160,6 +174,19 @@ export class FillSyncRepository {
           WHERE f.chain = ${CHAIN_DEFAULT} AND f.address = ${address}`)
       : { rows: [] as Array<{ raw: HlUserFill }> };
     return [...seeds.rows.map((r) => r.raw), ...window.map((r) => r.raw as unknown as HlUserFill)];
+  }
+
+  /** `fillsForCheck` in pages (see `storedFillPages`): each page is
+   * preceded by every coin's last millisecond before it (in the span), so
+   * a check of each page continues every coin from its known position and
+   * a whole span is never in memory at once. */
+  async *fillPagesForCheck(address: string, spanFrom: Date, from: Date, through: Date): AsyncGenerator<HlUserFill[]> {
+    let tail = from > spanFrom ? await this.fillsForCheck(address, spanFrom, from, new Date(from.getTime() - 1)) : [];
+    tail = lastMillisecondPerCoin(tail.filter((f) => f.time < from.getTime()));
+    for await (const page of storedFillPages(this.db, address, from, through, { pageSize: this.spanPageFills })) {
+      yield [...tail, ...page];
+      tail = lastMillisecondPerCoin([...tail, ...page]);
+    }
   }
 }
 

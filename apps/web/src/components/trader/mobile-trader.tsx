@@ -83,10 +83,10 @@ function TopBar({ profile }: { profile: TraderProfileResponse }) {
         <ArrowLeft className="size-5" strokeWidth={2.4} />
       </Link>
       {/* CopyDog centres the title across the bar, between 116px gutters. */}
-      <h1 className="pointer-events-none absolute inset-x-0 truncate px-[150px] text-center font-display text-lg leading-6" title={profile.address}>
+      <h1 className="pointer-events-none absolute inset-x-0 truncate px-[150px] text-center font-display text-lg leading-6 max-[374px]:px-[128px] max-[374px]:text-base" title={profile.address}>
         {profile.kol ? profile.displayName?.trim() || truncateAddress(profile.address) : truncateAddress(profile.address)}
       </h1>
-      <span className="ml-auto flex shrink-0 items-center gap-1.5 [&_button]:size-10 [&_button]:rounded-full [&_button]:bg-raised [&_button]:text-foreground [&_svg]:size-[18px]">
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 max-[374px]:gap-1 max-[374px]:[&_button]:size-9 [&_button]:size-10 [&_button]:rounded-full [&_button]:bg-raised [&_button]:text-foreground [&_svg]:size-[18px]">
         <FavoriteButton address={profile.address} favorite={profile.favorite} size="sm" />
         <AlertBell address={profile.address} history />
         <ShareButton

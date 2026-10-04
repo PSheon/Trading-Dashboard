@@ -65,6 +65,7 @@ export const zhTW = {
       "budget": "風險預算（USDC）",
       "create": "準備暫停策略",
       "automaticUnavailable": "自動執行尚不可用。確認授權後策略仍維持暫停。",
+      "automaticAvailable": "Hyperliquid 測試網自動執行：此跟單帳戶入金後，Orbie 的代理會跟隨交易員下單。",
       "unavailable": "目前無法準備",
       "empty": "尚未準備實際策略。",
       "pending": "原始請求尚未確認。請查詢原始紀錄，不要建立或簽署另一個請求。",
@@ -84,7 +85,7 @@ export const zhTW = {
       "original": "原始簽署條款",
       "states": {
           "prepared": "已準備；等待擁有者授權",
-          "active": "已確認授權；策略仍暫停",
+          "active": "已確認授權；入金後開始跟單",
           "paused": "授權已暫停",
           "stopping": "停止中",
           "stopped": "已停止",

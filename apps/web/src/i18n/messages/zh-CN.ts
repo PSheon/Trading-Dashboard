@@ -63,6 +63,7 @@ export const zhCN: Messages = {
       "budget": "风险预算（USDC）",
       "create": "准备暂停策略",
       "automaticUnavailable": "自动执行尚不可用。确认授权后策略仍保持暂停。",
+      "automaticAvailable": "Hyperliquid 测试网自动执行：此跟单账户入金后，Orbie 的代理会跟随交易员下单。",
       "unavailable": "目前无法准备",
       "empty": "尚未准备实际策略。",
       "pending": "原始请求尚未确认。请查询原始记录，不要创建或签署另一个请求。",
@@ -82,7 +83,7 @@ export const zhCN: Messages = {
       "original": "原始签署条款",
       "states": {
           "prepared": "已准备；等待所有者授权",
-          "active": "已确认授权；策略仍暂停",
+          "active": "已确认授权；入金后开始跟单",
           "paused": "授权已暂停",
           "stopping": "停止中",
           "stopped": "已停止",

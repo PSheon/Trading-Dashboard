@@ -20,8 +20,8 @@ export const copyFundingSchema = z.object({
   canCancel: z.boolean(), transactionHash: z.string().regex(/^0x[0-9a-f]{64}$/).nullable(),
   creditedAmount: z.string().nullable(), fee: z.string().nullable(),
   /** to_main: a return from the copy's account to the main wallet. */
-  direction: z.enum(["to_account", "to_main"]).default("to_account"),
-  stopId: z.string().uuid().nullable().default(null),
+  direction: z.enum(["to_account", "to_main"]).optional(),
+  stopId: z.string().uuid().nullable().optional(),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 });
 export const copyFundingOverviewSchema = z.object({ available: z.boolean(), network: z.enum(["testnet", "mainnet"]), operations: z.array(copyFundingSchema) });

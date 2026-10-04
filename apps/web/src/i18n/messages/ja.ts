@@ -63,6 +63,7 @@ export const ja: Messages = {
       "budget": "リスク予算（USDC）",
       "create": "停止中の戦略を準備",
       "automaticUnavailable": "自動実行は利用できません。同意後も戦略は停止したままです。",
+      "automaticAvailable": "Hyperliquid テストネットで自動実行：このコピー口座に入金すると、Orbie のエージェントがトレーダーの取引をコピーします。",
       "unavailable": "準備できません",
       "empty": "実際の戦略はまだありません。",
       "pending": "元の要求は未確認です。別の要求を作成・署名せず、元の記録を確認してください。",
@@ -82,7 +83,7 @@ export const ja: Messages = {
       "original": "元の署名条件",
       "states": {
           "prepared": "準備済み・所有者の同意待ち",
-          "active": "同意確認済み・戦略は停止中",
+          "active": "同意確認済み・入金後に取引開始",
           "paused": "同意は停止中",
           "stopping": "停止処理中",
           "stopped": "停止済み",

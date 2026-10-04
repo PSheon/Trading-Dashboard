@@ -63,6 +63,7 @@ export const tr: Messages = {
       "budget": "Risk bütçesi (USDC)",
       "create": "Duraklatılmış stratejiyi hazırla",
       "automaticUnavailable": "Otomatik yürütme kullanılamıyor. Onaydan sonra strateji duraklatılmış kalır.",
+      "automaticAvailable": "Hyperliquid testnet’te otomatik yürütme: bu kopyanın hesabı fonlandığında Orbie ajanı trader’ın işlemlerini kopyalar.",
       "unavailable": "Hazırlık kullanılamıyor",
       "empty": "Hazırlanmış gerçek strateji yok.",
       "pending": "Asıl istek doğrulanmadı. Asıl kaydı kontrol edin; yeni istek oluşturmayın veya imzalamayın.",
@@ -82,7 +83,7 @@ export const tr: Messages = {
       "original": "Asıl imza koşulları",
       "states": {
           "prepared": "Hazır; sahip onayı bekleniyor",
-          "active": "Onaylandı; strateji duraklatılmış",
+          "active": "Onay alındı; fonlandıktan sonra işlem başlar",
           "paused": "Onay duraklatıldı",
           "stopping": "Durduruluyor",
           "stopped": "Durduruldu",

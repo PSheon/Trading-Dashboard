@@ -63,6 +63,7 @@ export const vi: Messages = {
       "budget": "Ngân sách rủi ro (USDC)",
       "create": "Chuẩn bị chiến lược tạm dừng",
       "automaticUnavailable": "Chưa có thực thi tự động. Xác nhận đồng ý vẫn giữ chiến lược tạm dừng.",
+      "automaticAvailable": "Tự động thực thi trên Hyperliquid testnet: khi tài khoản sao chép được nạp tiền, tác nhân của Orbie sẽ sao chép giao dịch của trader.",
       "unavailable": "Không thể chuẩn bị",
       "empty": "Chưa chuẩn bị chiến lược thực tế.",
       "pending": "Yêu cầu gốc chưa được xác nhận. Kiểm tra bản ghi gốc; không tạo hoặc ký yêu cầu khác.",
@@ -82,7 +83,7 @@ export const vi: Messages = {
       "original": "Điều khoản ký gốc",
       "states": {
           "prepared": "Đã chuẩn bị; chờ đồng ý",
-          "active": "Đã xác nhận; chiến lược vẫn tạm dừng",
+          "active": "Đã xác nhận đồng ý; giao dịch bắt đầu sau khi nạp tiền",
           "paused": "Đồng ý tạm dừng",
           "stopping": "Đang dừng",
           "stopped": "Đã dừng",

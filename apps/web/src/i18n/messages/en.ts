@@ -62,6 +62,7 @@ export const en: Messages = {
       "budget": "Risk budget (USDC)",
       "create": "Prepare paused strategy",
       "automaticUnavailable": "Automatic execution is unavailable. Acknowledging consent keeps the strategy paused.",
+      "automaticAvailable": "Automatic execution on Hyperliquid testnet: once this copy’s account is funded, Orbie’s agent mirrors the leader’s trades.",
       "unavailable": "Preparation unavailable",
       "empty": "No actual strategies prepared.",
       "pending": "Original request unconfirmed. Check its original record; do not create or sign another request.",
@@ -81,7 +82,7 @@ export const en: Messages = {
       "original": "Original signed terms",
       "states": {
           "prepared": "Prepared; awaiting owner consent",
-          "active": "Consent acknowledged; strategy remains paused",
+          "active": "Consent acknowledged; trading starts once funded",
           "paused": "Consent paused",
           "stopping": "Stopping",
           "stopped": "Stopped",

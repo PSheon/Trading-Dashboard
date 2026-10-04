@@ -63,6 +63,7 @@ export const ko: Messages = {
       "budget": "위험 예산(USDC)",
       "create": "일시정지 전략 준비",
       "automaticUnavailable": "자동 실행은 사용할 수 없습니다. 동의 확인 후에도 전략은 일시정지 상태입니다.",
+      "automaticAvailable": "Hyperliquid 테스트넷 자동 실행: 이 카피 계정에 입금하면 Orbie 에이전트가 트레이더의 거래를 따라 주문합니다.",
       "unavailable": "준비할 수 없음",
       "empty": "준비된 실제 전략이 없습니다.",
       "pending": "원래 요청이 확인되지 않았습니다. 새 요청을 만들거나 서명하지 말고 원래 기록을 확인하세요.",
@@ -82,7 +83,7 @@ export const ko: Messages = {
       "original": "원래 서명 조건",
       "states": {
           "prepared": "준비됨; 소유자 동의 대기",
-          "active": "동의 확인됨; 전략 일시정지 유지",
+          "active": "동의 확인됨; 입금 후 거래 시작",
           "paused": "동의 일시정지",
           "stopping": "중지 중",
           "stopped": "중지됨",

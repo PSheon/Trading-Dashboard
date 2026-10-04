@@ -7,6 +7,8 @@ import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
 import { fixtureCopyOverview } from "@/fixtures/copy";
 const state = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
+// Testnet copies have their own tests (live-copies.test.tsx).
+vi.mock("@/components/copy/live-copies", () => ({ LiveCopies: () => null }));
 vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname, useSearchParams: () => new URLSearchParams(window.location.search), useRouter: () => ({ replace: state.replace, push: state.push }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ status: "signedIn" }) }));

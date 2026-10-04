@@ -9,6 +9,7 @@ import { cn } from "cn";
 import { ActivityPanel } from "@/components/copy/activity-panel";
 import { CopyActivity } from "@/components/copy/copy-activity";
 import { CopyCards, CopyDetail, CopyTable, useLeaders } from "@/components/copy/copy-portfolio";
+import { LiveCopies } from "@/components/copy/live-copies";
 import { ExposurePanel, InsightsPanel, PaperSummary, PortfolioChart } from "@/components/copy/portfolio-parts";
 import { ErrorState, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -203,10 +204,14 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
       />
     );
   }
-  if (overview.strategies.length === 0) return <EmptyCopying className={phone ? undefined : "mt-14 px-6"} />;
-  if (phone) return <CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} />;
+  // Testnet copies (real orders on Hyperliquid testnet) list above the paper ones.
+  const live = <LiveCopies className="mb-4" />;
+  if (overview.strategies.length === 0) return <>{live}<EmptyCopying className={phone ? undefined : "mt-14 px-6"} /></>;
+  if (phone) return <>{live}<CopyCards strategies={overview.strategies} leaders={leaders} onSelect={select} sparklines={sparklines} /></>;
   const values = ["copying", "insights", "exposure"] as const;
   return (
+    <>
+    {live}
     <section className="overflow-hidden rounded-2xl border border-border bg-card">
       <div role="tablist" aria-label={t("portfolio.title")} className="flex gap-6 border-b border-border px-4">
         {values.map((value) => (
@@ -240,6 +245,7 @@ function CopyingSection({ overview, phone }: { overview: CopyOverview; phone: bo
           : <ExposurePanel overview={overview} leaders={leaders} desktop />}
       </div>
     </section>
+    </>
   );
 }
 

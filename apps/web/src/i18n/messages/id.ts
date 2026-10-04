@@ -63,6 +63,7 @@ export const id: Messages = {
       "budget": "Anggaran risiko (USDC)",
       "create": "Siapkan strategi dijeda",
       "automaticUnavailable": "Eksekusi otomatis belum tersedia. Persetujuan tetap membuat strategi dijeda.",
+      "automaticAvailable": "Eksekusi otomatis di testnet Hyperliquid: setelah akun salinan ini didanai, agen Orbie menyalin trading trader.",
       "unavailable": "Persiapan tidak tersedia",
       "empty": "Belum ada strategi aktual.",
       "pending": "Permintaan awal belum dikonfirmasi. Periksa catatan awal; jangan buat atau tanda tangani permintaan lain.",
@@ -82,7 +83,7 @@ export const id: Messages = {
       "original": "Ketentuan tanda tangan awal",
       "states": {
           "prepared": "Disiapkan; menunggu persetujuan",
-          "active": "Persetujuan diakui; strategi tetap dijeda",
+          "active": "Persetujuan dikonfirmasi; trading dimulai setelah didanai",
           "paused": "Persetujuan dijeda",
           "stopping": "Menghentikan",
           "stopped": "Dihentikan",

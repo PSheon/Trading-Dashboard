@@ -63,6 +63,7 @@ export const pt: Messages = {
       "budget": "Orçamento de risco (USDC)",
       "create": "Preparar estratégia pausada",
       "automaticUnavailable": "A execução automática está indisponível. Confirmar consentimento mantém a estratégia pausada.",
+      "automaticAvailable": "Execução automática na testnet da Hyperliquid: quando a conta desta cópia tiver fundos, o agente da Orbie replica as operações do trader.",
       "unavailable": "Preparação indisponível",
       "empty": "Nenhuma estratégia real preparada.",
       "pending": "Pedido original não confirmado. Consulte o registro original; não crie nem assine outro pedido.",
@@ -82,7 +83,7 @@ export const pt: Messages = {
       "original": "Termos originais da assinatura",
       "states": {
           "prepared": "Preparado; aguardando consentimento",
-          "active": "Consentimento confirmado; estratégia pausada",
+          "active": "Consentimento confirmado; opera após o depósito",
           "paused": "Consentimento pausado",
           "stopping": "Parando",
           "stopped": "Parado",

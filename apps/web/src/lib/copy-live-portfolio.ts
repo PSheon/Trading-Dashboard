@@ -21,7 +21,7 @@ function usePortfolioKey() {
 export function useLiveCopyPortfolio() {
   const auth = useAuth();
   const enabled = auth.status === 'signedIn' && auth.mode === 'privy' && Boolean(auth.identity);
-  const query = useQuery({ queryKey: usePortfolioKey(), enabled, staleTime: 0, retry: false, refetchInterval: 10_000,
+  const query = useQuery({ queryKey: usePortfolioKey(), enabled, staleTime: 0, retry: false, refetchInterval: 10_000, refetchOnWindowFocus: true,
     queryFn: async ({ signal }) => liveCopyPortfolioSchema.parse(await api.get(`${ROOT}/portfolio`, signal)) });
   return { ...query, data: enabled && !query.isError ? query.data : undefined };
 }

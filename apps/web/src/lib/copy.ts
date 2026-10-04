@@ -23,6 +23,7 @@ export function useCopyOverview() {
     enabled: status === "signedIn",
     staleTime: 5_000,
     refetchInterval: COPY_REFETCH_MS,
+    refetchOnWindowFocus: true,
     ...defaultRetry,
   });
 }
@@ -151,6 +152,7 @@ export function useCopyPortfolio(window: CopyPerformanceWindow = "all", enabled 
     enabled: status === "signedIn" && enabled,
     staleTime: 30_000,
     refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
     placeholderData: (previous) => previous,
     ...defaultRetry,
   });

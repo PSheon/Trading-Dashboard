@@ -31,6 +31,7 @@ export function useWallet() {
     enabled: status === "signedIn",
     staleTime: 10_000,
     refetchInterval: WALLET_REFETCH_MS,
+    refetchOnWindowFocus: true, // figures the user reads: fresh when the tab comes back
     ...busyRetry,
   });
 }
@@ -43,6 +44,7 @@ export function useWalletHistory() {
     queryFn: ({ signal }) => api.get<WalletHistory>("/me/wallet/history", signal),
     enabled: status === "signedIn",
     staleTime: 30_000,
+    refetchOnWindowFocus: true,
     ...busyRetry,
   });
 }

@@ -18,7 +18,7 @@ function useFundingKey() {
 export function useCopyFunding() {
   const { status } = useAuth();
   return useQuery({ queryKey: useFundingKey(), queryFn: async ({ signal }) => copyFundingOverviewSchema.parse(await api.get(ROOT, signal)),
-    enabled: status === "signedIn", staleTime: 5_000, refetchInterval: 15_000, ...defaultRetry });
+    enabled: status === "signedIn", staleTime: 5_000, refetchInterval: 15_000, refetchOnWindowFocus: true, ...defaultRetry });
 }
 function assertSession(start: string) { if (sessionKey() !== start) throw new Error("funding_session_changed"); }
 export function useReserveCopyFunding() {

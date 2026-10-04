@@ -185,7 +185,7 @@ export function useLiveCopyOverview() {
   const enabled = auth.status === 'signedIn' && auth.mode === 'privy' && Boolean(auth.identity);
   const query = useQuery({ queryKey: useLiveKey(), enabled, queryFn: async ({ signal }) => {
     const captured = snapshot(); const guard = () => { signal.throwIfAborted(); if (JSON.stringify(captured) !== JSON.stringify(snapshot())) throw new Error('live_session_changed'); }; guard(); const result = await api.get(ROOT, signal); guard(); return liveCopyOverviewSchema.parse(result);
-  }, staleTime: 0, gcTime: 0, retry: false, refetchInterval: 15000 });
+  }, staleTime: 0, gcTime: 0, retry: false, refetchInterval: 15000, refetchOnWindowFocus: true });
   return { ...query, data: enabled && !query.isError ? query.data : undefined };
 }
 export function useLiveCopyActions(accounts: readonly CopyExecutionAccount[], overview: z.infer<typeof liveCopyOverviewSchema> | undefined, setups: readonly CopyAgentSetup[], selected: string, draft: Omit<CreateLiveCopyStrategy, 'idempotencyKey'> | null, grants?: readonly CopyWalletGrant[]) {

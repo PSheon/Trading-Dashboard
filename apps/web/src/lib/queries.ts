@@ -290,6 +290,7 @@ export function useTraderProfile(address: string, initial?: InitialRead<TraderPr
     ...traderProfileOptions(address),
     ...seededForCaller(initial),
     refetchInterval: query => query.state.data?.dataQuality?.partial ? 5_000 : livePoll(address)(),
+    refetchOnWindowFocus: true,
     ...traderRetry,
   });
 }
@@ -325,6 +326,7 @@ export function usePortfolio(address: string, window: TraderWindow, market: "all
       api.get<PortfolioResponse>(`/traders/${address}/portfolio?window=${window}&market=${market}`, signal),
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
     ...traderRetry,
   });
 }
@@ -410,6 +412,7 @@ export function useTraderTransfers(address: string, enabled = true) {
     queryFn: ({ signal }) => api.get<TraderTransfersResponse>(`/traders/${address}/transfers`, signal),
     enabled,
     refetchInterval: 5 * 60_000,
+    refetchOnWindowFocus: true,
     ...traderRetry,
   });
 }

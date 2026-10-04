@@ -45,6 +45,7 @@ describe("maintenance mode (review finding 17)", () => {
   const privy = stubPrivy({
     "admin-token": { privyUserId: "did:privy:m-admin", profile: { email: "ops@example.com", walletAddress: null } },
     "user-token": { privyUserId: "did:privy:m-user", profile: { email: "user@example.com", walletAddress: null } },
+    "operator-token": { privyUserId: "did:privy:m-operator", profile: { email: "op@example.com", walletAddress: null } },
   });
   let app: INestApplication;
   let auth: AuthService;
@@ -92,6 +93,7 @@ describe("maintenance mode (review finding 17)", () => {
     settings.invalidate();
     adminId = (await insertUser(db, { privyUserId: "did:privy:m-admin", email: "ops@example.com", role: "admin" })).id;
     await insertUser(db, { privyUserId: "did:privy:m-user", email: "user@example.com" });
+    await insertUser(db, { privyUserId: "did:privy:m-operator", email: "op@example.com", role: "operator" });
   });
 
   afterAll(async () => {
@@ -151,6 +153,14 @@ describe("maintenance mode (review finding 17)", () => {
     expect(refused.headers["retry-after"]).toBeUndefined();
     // Not by a user either: the 503 comes before the permission check.
     await as("user-token").patch("/admin/settings", { general: { maintenance: maintenance({ enabled: false }) } }).expect(503);
+  });
+
+  it("a read-only operator is not exempt: their own writes wait like everyone's", async () => {
+    expect((await save("admin-token", maintenance())).status).toBe(200);
+    // admin.access lets an operator into the admin pages; it is not the exemption.
+    expect((await as("operator-token").patch("/me", { displayName: "Op" }).expect(503)).body.error.code).toBe("maintenance");
+    await as("operator-token").get("/admin/settings").expect(200);
+    await as("admin-token").patch("/me", { displayName: "Ops" }).expect(200);
   });
 
   it("the whole value is required and validated", async () => {

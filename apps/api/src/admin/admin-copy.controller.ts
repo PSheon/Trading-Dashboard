@@ -76,6 +76,10 @@ export class AdminCopyController {
   }
 
   @ApiDoc("Platform- or user-level stop / resume command", "pause_new_risk, reduce_only, cancel_pending and close_positions need execution.pause; resume needs execution.resume. 409 stale_revision when expectedRevision is not the scope's current revision.")
+  // Checked here, before the body is read: the service checks again per
+  // command (resume also needs execution.resume), so a command added later
+  // without its own mapping still needs execution.pause.
+  @RequirePermissions("admin.access", "copy.read", "execution.pause")
   @ResponseMessage("Copy control applied")
   @Post("controls")
   control(@Body() body: AdminCopyControlDto, @CurrentUser() user: RequestUser | null): Promise<AdminCopyControlResponse> {

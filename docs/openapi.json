@@ -10523,6 +10523,7 @@
     },
     "/alerts": {
       "get": {
+        "description": "Your own alerts; with alerts.readAll everyone's, without other recipients' Telegram chat ids\n\nAccess: user own; alerts.readAll for all",
         "operationId": "AlertsController_findAll",
         "parameters": [
           {
@@ -10758,8 +10759,7 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
-        "description": "Access: user own; alerts.readAll for all"
+        "x-required-roles": []
       }
     },
     "/health": {
@@ -38755,7 +38755,8 @@
         ],
         "x-required-permissions": [
           "admin.access",
-          "copy.read"
+          "copy.read",
+          "execution.pause"
         ],
         "x-required-roles": []
       }

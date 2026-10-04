@@ -190,10 +190,16 @@ describe("route access on the existing controllers", () => {
       { ruleId: defaultRule.id, userId: bob.id, address: WHALE, coin: "BTC", payloadJson: { chatId: "b" }, sendStatus: "sent", sentAt: new Date() },
     ]);
 
-    const mine = (await call("get", "/alerts", "alice-token").expect(200)).body.data as { userId: number }[];
+    const mine = (await call("get", "/alerts", "alice-token").expect(200)).body.data as { userId: number; payloadJson: Record<string, unknown> }[];
     expect(mine.map((a) => a.userId)).toEqual([alice.id]);
-    expect((await call("get", "/alerts", "boss-token").expect(200)).body.data).toHaveLength(2);
-    expect((await call("get", "/alerts", SERVICE_TOKEN).expect(200)).body.data).toHaveLength(2);
+    // Their own alert in full.
+    expect(mine[0].payloadJson.chatId).toBe("a");
+    // Everyone's (alerts.readAll), but never another recipient's Telegram chat id.
+    for (const token of ["boss-token", SERVICE_TOKEN]) {
+      const everyone = (await call("get", "/alerts", token).expect(200)).body.data as { payloadJson: Record<string, unknown> }[];
+      expect(everyone).toHaveLength(2);
+      expect(everyone.map((a) => a.payloadJson.chatId)).toEqual([undefined, undefined]);
+    }
   });
 
   it("leader detail: alert history is the caller's own (none when anonymous, all for admins)", async () => {
@@ -206,6 +212,9 @@ describe("route access on the existing controllers", () => {
     expect(mine).toHaveLength(1);
     expect(mine[0].payloadJson.privateRecipient).toBe("did:privy:alice");
     expect((await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.data.alerts).toHaveLength(2);
+    await db.update(alerts).set({ payloadJson: { chatId: "private-chat" } });
+    const seen = (await call("get", `/leaders/hyperliquid/${WHALE}`, "boss-token").expect(200)).body.data.alerts as { payloadJson: Record<string, unknown> }[];
+    expect(seen.every((a) => !("chatId" in a.payloadJson))).toBe(true);
   });
 
   it("an unscoped service cannot read another user's alert payload", async () => {

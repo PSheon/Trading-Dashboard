@@ -9,7 +9,7 @@ import type { Leader, LeaderDetailResponse, LeaderSummary, PublicLeaderSummary }
 
 import { CurrentUser, type RequestUser } from "../../common/auth/current-user.js";
 import { Public } from "../../common/auth/public.decorator.js";
-import { alertsVisibleTo } from "../../common/auth/alerts-scope.js";
+import { alertsVisibleTo, redactAlerts } from "../../common/auth/alerts-scope.js";
 import { LeadersService } from "./leaders.service.js";
 
 /** What a caller sees of leaders: full rows only with `leaders.manage`. */
@@ -37,18 +37,19 @@ export class LeadersController {
   @Public()
   @ApiDoc("Find detail")
   @Get(":chain/:address")
-  findDetail(
+  async findDetail(
     @CurrentUser() user: RequestUser | null,
     @Param() params: LeaderParamsDto,
     @Query() query: LeaderDetailQueryDto,
   ): Promise<LeaderDetailResponse> {
-    return this.leadersService.findDetail(
+    const detail = await this.leadersService.findDetail(
       params.chain,
       params.address,
       query.equityInterval ?? "hour",
       alertsVisibleTo(user),
       viewOf(user),
     );
+    return { ...detail, alerts: redactAlerts(detail.alerts, user) };
   }
 
   /** A3: label/tier/notes/active. */

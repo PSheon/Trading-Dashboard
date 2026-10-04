@@ -13,8 +13,9 @@ const MAX_RETRY_AFTER_SECONDS = 86_400;
  * Maintenance mode (review finding 17), after AuthGuard. While
  * `general.maintenance.enabled` every request that is not a read is
  * refused with 503 `maintenance`, before its handler runs. Exempt: a
- * caller with `admin.access` (an admin must be able to work, and to switch
- * maintenance off) and the health routes. Reads are untouched. The setting
+ * caller with `settings.write` (an admin must be able to work, and to
+ * switch maintenance off; a read-only operator has `admin.access` but is
+ * stopped like everyone else) and the health routes. Reads are untouched. The setting
  * comes from SettingsService, whose cache every process drops when it is
  * saved (SettingsRelay), so switching it on or off applies at once.
  *
@@ -32,7 +33,7 @@ export class MaintenanceGuard implements CanActivate {
     if (READS.has(request.method) || request.path === "/health" || request.path.startsWith("/health/")) return true;
     const { maintenance } = await this.settings.get("general");
     if (!maintenance.enabled) return true;
-    if (hasPermission(request.user ?? null, "admin.access")) return true;
+    if (hasPermission(request.user ?? null, "settings.write")) return true;
     const seconds = maintenance.endsAt ? Math.ceil((Date.parse(maintenance.endsAt) - Date.now()) / 1000) : 0;
     if (seconds > 0) http.getResponse<Response>().setHeader("Retry-After", String(Math.min(seconds, MAX_RETRY_AFTER_SECONDS)));
     throw new ServiceUnavailableException({ statusCode: 503, code: "maintenance", message: "Orbie is under maintenance; changes can't be saved right now" });

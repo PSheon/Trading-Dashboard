@@ -49,10 +49,10 @@ describe("the read-only operator role (review finding 14)", () => {
     const writes = all.filter((r) => r.method !== "GET" && r.permissions.length > 0);
     expect(writes.length).toBeGreaterThan(10);
     const open = writes.filter((r) => r.permissions.every((p) => operator.has(p)));
-    // The two copy routes are decided by their services from the parsed body
-    // (execution.pause / execution.resume / risk.manage); test/admin-copy-http.spec.ts
-    // proves a copy.read caller gets 403 from both. The import and KOL previews change nothing.
-    expect(open.map((r) => `${r.method} ${r.path}`).sort()).toEqual(["POST /admin/copy/controls"]);
+    // POST /admin/copy/controls needs execution.pause on the route itself
+    // (backend review: the service's per-command check came after the body
+    // was parsed, and a command added without its mapping would be open).
+    expect(open.map((r) => `${r.method} ${r.path}`).sort()).toEqual([]);
   });
 
   it("every admin route requires a permission, and the operator can read each admin page except the KOL registry", () => {

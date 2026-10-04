@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agoShort, boardCoinLabel, homeTileOrder, boardPnl, boardRoi, boardUsd, roiPillShort, roiPillWhole } from "../src/lib/board-format";
+import { agoShort, boardCoinLabel, homeTiles, boardPnl, boardRoi, boardUsd, roiPillShort, roiPillWhole } from "../src/lib/board-format";
 
 describe("CopyDog board formats", () => {
   it("formats the grid card, list and home card figures as CopyDog does", () => {
@@ -29,10 +29,9 @@ describe("CopyDog board formats", () => {
     expect(boardCoinLabel("xyz:CL", t, "home")).toBe("Oil");
   });
 
-  it("orders home tiles as CopyDog's home does, keeping unknown boards after", () => {
-    expect(homeTileOrder(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"])).toEqual(["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR"]);
-    expect(homeTileOrder(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]))
-      .toEqual(["xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"]);
-    expect(homeTileOrder(["PEPE", "BTC"])).toEqual(["BTC", "PEPE"]);
+  it("lists the fixed home tiles, then trending markets not already there", () => {
+    expect(homeTiles(["BTC", "ETH", "SOL", "HYPE", "DOGE"], ["ZEC", "PUMP"])).toEqual(["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "PUMP"]);
+    expect(homeTiles(["xyz:SP500", "xyz:GOLD"], ["xyz:GOLD", "xyz:CBRS"])).toEqual(["xyz:SP500", "xyz:GOLD", "xyz:CBRS"]);
+    expect(homeTiles(["BTC"], undefined)).toEqual(["BTC"]);
   });
 });

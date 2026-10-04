@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { HomeView } from "@/components/home/home-view";
 import { clientAddress } from "@/lib/client-address";
 import { APP_NAME } from "@/lib/config";
-import type { HomeBoardsResponse, PublicSettings } from "@/lib/contracts";
+import type { HomeBoardsResponse } from "@/lib/contracts";
 import { seo } from "@/lib/seo";
 import { prefetchPublic } from "@/lib/server-prefetch";
 
@@ -24,9 +24,6 @@ export default function HomePage() {
 
 async function PrefetchedHome() {
   const client = clientAddress(await headers());
-  const [home, settings] = await Promise.all([
-    prefetchPublic<HomeBoardsResponse>("/discover/home", { client }),
-    prefetchPublic<PublicSettings>("/settings", { client }),
-  ]);
-  return <HomeView initial={{ home, settings }} />;
+  const home = await prefetchPublic<HomeBoardsResponse>("/discover/home", { client });
+  return <HomeView initial={{ home }} />;
 }

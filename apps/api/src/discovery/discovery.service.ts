@@ -13,6 +13,7 @@ import type {
   DiscoverSearchResponse,
 } from "@trading-dashboard/shared/contracts";
 
+import { HOME_TILE_CRYPTO, HOME_TILE_STOCKS } from "@trading-dashboard/shared/contracts";
 import { MarketCatalogService } from "../hyperliquid/market-catalog.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { TradersService } from "../traders/traders.service.js";
@@ -166,7 +167,7 @@ export class DiscoveryService {
     const calculator = (large.length > 0 ? large : eligible).sort((a, b) => (b.roi ?? 0) - (a.roi ?? 0)).slice(0, 6);
     const dates = candidates.map((c) => c.row.portfolioAt).filter((d): d is Date => d !== null);
     const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
-    return { featured, crypto, stocks, markets, calculator, updatedAt, pool, rankingScope: "candidate_pool",
+    return { featured, crypto, stocks, markets, calculator, trending: trendingTiles(trending), updatedAt, pool, rankingScope: "candidate_pool",
       freshness: boardFreshness([...featured, ...crypto, ...stocks, ...markets.flatMap(m => m.items), ...calculator]) };
   }
 
@@ -232,4 +233,23 @@ export class DiscoveryService {
     return { address: normalized, copyScore: scores.values.get(normalized) ?? null, components,
       version: "candidate-pool-percentile-v1", rankingScope: "candidate_pool", scoreEligibleCount: scores.eligibleCount };
   }
+}
+
+/** Trending tiles shown per kind after CopyDog's fixed ones. */
+export const TRENDING_TILES = 2;
+
+/**
+ * 依市場瀏覽's trending tiles, as CopyDog's `leaderboard/trending-coins` picks
+ * them: of the markets by 24h exchange volume (`MarketCatalogService.trending`,
+ * largest first), the first two main-dex coins and the first two stock
+ * markets that are not already fixed tiles. On 2026-10-04 that gives ZEC and
+ * PUMP, as CopyDog served (NEAR, third, was a static Orbie tile).
+ */
+export function trendingTiles(byVolume: readonly string[]): { coins: string[]; stocks: string[] } {
+  const fixedCrypto = new Set<string>(HOME_TILE_CRYPTO);
+  const fixedStocks = new Set<string>(HOME_TILE_STOCKS);
+  return {
+    coins: byVolume.filter((coin) => !coin.includes(":") && !fixedCrypto.has(coin)).slice(0, TRENDING_TILES),
+    stocks: byVolume.filter((coin) => isStockCoin(coin) && !fixedStocks.has(coin)).slice(0, TRENDING_TILES),
+  };
 }

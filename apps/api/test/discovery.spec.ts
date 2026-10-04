@@ -14,7 +14,7 @@ import { isStockCoin, portfolioNumbers } from "../src/discovery/discovery-figure
 import { AdminKolController, CopyScoreController, DiscoveryController } from "../src/discovery/discovery.controller.js";
 import { DiscoveryPoolService, LEDGER_RANK } from "../src/discovery/discovery-pool.service.js";
 import { DiscoveryRepository, type PoolQueueRow } from "../src/discovery/discovery.repository.js";
-import { DiscoveryService } from "../src/discovery/discovery.service.js";
+import { DiscoveryService, trendingTiles } from "../src/discovery/discovery.service.js";
 import { parseKolCsv } from "../src/discovery/kol-csv.js";
 import { KolRepository } from "../src/discovery/kol.repository.js";
 import { KolService } from "../src/discovery/kol.service.js";
@@ -330,6 +330,21 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(rows.find(row => row.address === addr(1))?.lastTradeAt).toEqual(watched);
       expect(rows.find(row => row.address === addr(2))?.lastTradeAt).toEqual(recent);
       expect(rows.find(row => row.address === addr(3))?.lastTradeAt).toEqual(old);
+    });
+
+    it("picks CopyDog's trending tiles: two coins and two stock markets by 24h volume beyond the fixed tiles", async () => {
+      // Hyperliquid's 24h volume ranking at 05:20Z on 2026-10-04, largest first.
+      // CopyDog served ZEC, PUMP and xyz:CBRS, xyz:BRENTOIL; volume alone puts
+      // xyz:XYZ100 before BRENTOIL (see the report: CopyDog's stock pick is not
+      // reproduced exactly).
+      const byVolume = ["BTC", "ZEC", "ETH", "PUMP", "HYPE", "NEAR", "SAND", "SOL", "xyz:SP500", "xyz:CBRS", "xyz:XYZ100", "xyz:CL", "xyz:SKHX", "xyz:BRENTOIL"];
+      expect(trendingTiles(byVolume)).toEqual({ coins: ["ZEC", "PUMP"], stocks: ["xyz:CBRS", "xyz:XYZ100"] });
+      expect(trendingTiles([])).toEqual({ coins: [], stocks: [] });
+      await seedPool();
+      catalog.trending.mockResolvedValueOnce(byVolume);
+      const home = await new DiscoveryService(repository, settings, traders as unknown as TradersService, catalog as unknown as MarketCatalogService).home();
+      expect(home.trending).toEqual({ coins: ["ZEC", "PUMP"], stocks: ["xyz:CBRS", "xyz:XYZ100"] });
+      expect(wireHomeBoardsSchema.parse(JSON.parse(JSON.stringify(home))).trending).toEqual(home.trending);
     });
 
     it("uses volume-ranked populated markets in the configured category slots", async () => {

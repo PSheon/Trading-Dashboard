@@ -71,11 +71,11 @@ export function boardCoinLabel(
 /** CopyDog's home tiles order the same boards differently from its explore
  * tabs (HYPE before DOGE, Oil after TSLA); unknown coins keep their place
  * after the known ones. */
-const HOME_ORDER = ["BTC", "ETH", "SOL", "HYPE", "DOGE", "ZEC", "NEAR", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL", "xyz:BRENTOIL", "xyz:SILVER"];
-export function homeTileOrder(coins: readonly string[]): string[] {
-  const rank = (c: string) => {
-    const i = HOME_ORDER.indexOf(c);
-    return i < 0 ? HOME_ORDER.length : i;
-  };
-  return coins.map((c, i) => [c, i] as const).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([c]) => c);
+/**
+ * 依市場瀏覽's tiles, in CopyDog's order: its fixed tiles, then the trending
+ * markets the api picked (`HomeBoardsResponse.trending`) that are not already
+ * there.
+ */
+export function homeTiles(fixed: readonly string[], trending: readonly string[] | undefined): string[] {
+  return [...new Set([...fixed, ...(trending ?? [])])];
 }

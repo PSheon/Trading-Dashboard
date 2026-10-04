@@ -13,13 +13,11 @@ import { AuthButton } from "@/components/shell/account-controls";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
-import { boardCoinLabel, homeTileOrder, roiPillShort } from "@/lib/board-format";
-import type { BoardTrader, HomeBoardsResponse, PublicSettings } from "@/lib/contracts";
-import { useHomeBoards, useSiteSettings, type InitialRead } from "@/lib/queries";
+import { boardCoinLabel, homeTiles, roiPillShort } from "@/lib/board-format";
+import { HOME_TILE_CRYPTO, HOME_TILE_STOCKS, type BoardTrader, type HomeBoardsResponse } from "@/lib/contracts";
+import { useHomeBoards, type InitialRead } from "@/lib/queries";
 import { historicalSimulation } from "@/lib/historical-simulation";
 
-const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
-const DEFAULT_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"];
 
 const exploreHref = (board: string, sort: string, market?: "stocks") =>
   `/explore?${new URLSearchParams({ ...(market ? { market } : {}), ...(board !== "top100" ? { board } : {}), ...(sort !== "copyScore" ? { sort } : {}) })}`;
@@ -33,12 +31,12 @@ const exploreHref = (board: string, sort: string, market?: "stocks") =>
  * Phones: compact title, two tile rows, no calculator, three compact cards
  * per screen.
  */
-export function HomeView({ initial }: { initial?: { home: InitialRead<HomeBoardsResponse> | null; settings: InitialRead<PublicSettings> | null } } = {}) {
+export function HomeView({ initial }: { initial?: { home: InitialRead<HomeBoardsResponse> | null } } = {}) {
   const { t } = useI18n();
   const home = useHomeBoards(initial?.home);
-  const settings = useSiteSettings(initial?.settings);
-  const crypto = homeTileOrder(settings.data?.cryptoBoards ?? DEFAULT_CRYPTO);
-  const stocks = homeTileOrder(settings.data?.stockBoards ?? DEFAULT_STOCKS);
+  // CopyDog's tiles: five fixed per kind, then the two trending markets.
+  const crypto = homeTiles(HOME_TILE_CRYPTO, home.data?.trending?.coins);
+  const stocks = homeTiles(HOME_TILE_STOCKS, home.data?.trending?.stocks);
   const label = (coin: string) => boardCoinLabel(coin, t, "home");
 
   const rows = home.data

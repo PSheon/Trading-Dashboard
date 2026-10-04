@@ -1850,8 +1850,16 @@ export const homeBoardsResponseSchema = z.object({
   markets: z.array(z.object({ coin: z.string(), market: boardMarketSchema, items: z.array(boardTraderSchema) })),
   /** The calculator card's six traders (all-time ROI). */
   calculator: z.array(boardTraderSchema),
+  /** 依市場瀏覽's trending tiles (CopyDog's `leaderboard/trending-coins`): the
+   * two crypto and two stock markets with the most 24h exchange volume
+   * beyond the fixed tiles (`HOME_TILE_CRYPTO`, `HOME_TILE_STOCKS`). Absent
+   * from an api built before the field existed. */
+  trending: z.object({ coins: z.array(z.string()), stocks: z.array(z.string()) }).optional(),
   updatedAt: z.coerce.date().nullable(),
 });
+/** CopyDog's fixed home tiles; the trending ones follow them. */
+export const HOME_TILE_CRYPTO = ["BTC", "ETH", "SOL", "HYPE", "DOGE"] as const;
+export const HOME_TILE_STOCKS = ["xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA", "xyz:CL"] as const;
 export type HomeBoardsResponse = z.infer<typeof homeBoardsResponseSchema>;
 
 // --- Coin leaderboards (CopyDog's 市場 pages) -----------------------------------

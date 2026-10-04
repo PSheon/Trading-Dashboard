@@ -17562,6 +17562,28 @@
                             "additionalProperties": false
                           }
                         },
+                        "trending": {
+                          "type": "object",
+                          "properties": {
+                            "coins": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "stocks": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "coins",
+                            "stocks"
+                          ],
+                          "additionalProperties": false
+                        },
                         "updatedAt": {
                           "anyOf": [
                             {

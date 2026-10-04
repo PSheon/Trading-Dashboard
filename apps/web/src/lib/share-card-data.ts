@@ -31,21 +31,71 @@ export function apiTarget(apiUrl: string | undefined, path: string): URL | null 
  * server, whose one bucket every visitor would otherwise share. */
 const onBehalfOf = (client: string | undefined): Record<string, string> => (client ? { "X-Forwarded-For": client } : {});
 
+/**
+ * Reads every visitor shares, kept here for SHARE_REVALIDATE_S. Not Next's
+ * fetch cache: its key includes the request headers, so the X-Forwarded-For
+ * above made every visitor's card a miss of its own (four api reads each)
+ * and filled the cache with one copy per address. Here the key is the api
+ * URL alone: the visitor whose request misses is the one the read is
+ * counted against, and everyone after them gets the same answer. Concurrent
+ * misses share one read; a failed read (null) is not kept. Keyed per fetch
+ * implementation as well, so an injected one (tests) never sees another's.
+ * A read made for nobody in particular (the sitemap) has no visitor in its
+ * key and stays in Next's cache, which keeps that route static.
+ */
+interface SharedEntry { expires: number; value: Promise<unknown> }
+const MAX_SHARED_JSON = 1_000;
+/** Avatars are data URIs of up to 1 MB each, so far fewer are kept. */
+const MAX_SHARED_AVATARS = 64;
+const sharedJson = new WeakMap<Fetch, Map<string, SharedEntry>>();
+const sharedAvatars = new WeakMap<Fetch, Map<string, SharedEntry>>();
+
+function sharedRead<T>(store: WeakMap<Fetch, Map<string, SharedEntry>>, max: number, fetchImpl: Fetch, key: string, load: () => Promise<T | null>): Promise<T | null> {
+  let reads = store.get(fetchImpl);
+  if (!reads) {
+    reads = new Map();
+    store.set(fetchImpl, reads);
+  }
+  const now = Date.now();
+  const hit = reads.get(key);
+  if (hit && hit.expires > now) return hit.value as Promise<T | null>;
+  reads.delete(key);
+  const entry: SharedEntry = { expires: now + SHARE_REVALIDATE_S * 1000, value: Promise.resolve(null) };
+  const table = reads;
+  entry.value = load().then((value) => {
+    if (value === null && table.get(key) === entry) table.delete(key);
+    return value;
+  });
+  reads.set(key, entry);
+  if (reads.size > max) {
+    for (const [k, e] of reads) if (e.expires <= now) reads.delete(k);
+    // Oldest first (insertion order) until the table fits again.
+    for (const k of reads.keys()) {
+      if (reads.size <= max) break;
+      reads.delete(k);
+    }
+  }
+  return entry.value as Promise<T | null>;
+}
+
 async function getJson<T>(fetchImpl: Fetch, apiUrl: string | undefined, path: string, timeoutMs = TIMEOUT_MS, client?: string, fresh = false): Promise<T | null> {
   const url = apiTarget(apiUrl, path);
   if (!url) return null;
-  try {
-    const res = await fetchImpl(url, {
-      headers: { Accept: "application/json", "x-api-contract": "1", ...onBehalfOf(client) },
-      signal: AbortSignal.timeout(timeoutMs),
-      ...(fresh ? { cache: "no-store" as const } : { next: { revalidate: SHARE_REVALIDATE_S } }),
-    } as RequestInit);
-    if (!res.ok) return null;
-    const body = (await res.json()) as { success?: boolean; data?: T };
-    return body?.success ? (body.data ?? null) : null;
-  } catch {
-    return null;
-  }
+  const read = async (): Promise<T | null> => {
+    try {
+      const res = await fetchImpl(url, {
+        headers: { Accept: "application/json", "x-api-contract": "1", ...onBehalfOf(client) },
+        signal: AbortSignal.timeout(timeoutMs),
+        ...(fresh || client ? { cache: "no-store" as const } : { next: { revalidate: SHARE_REVALIDATE_S } }),
+      } as RequestInit);
+      if (!res.ok) return null;
+      const body = (await res.json()) as { success?: boolean; data?: T };
+      return body?.success ? (body.data ?? null) : null;
+    } catch {
+      return null;
+    }
+  };
+  return fresh || !client ? read() : sharedRead(sharedJson, MAX_SHARED_JSON, fetchImpl, url.href, read);
 }
 
 /** A cached KOL avatar (an api path) as a data URI the renderer can embed;
@@ -54,16 +104,23 @@ async function avatarDataUri(fetchImpl: Fetch, apiUrl: string | undefined, path:
   if (!path) return null;
   const url = apiTarget(apiUrl, path);
   if (!url) return null;
-  try {
-    const res = await fetchImpl(url, { headers: onBehalfOf(client), signal: AbortSignal.timeout(TIMEOUT_MS), next: { revalidate: SHARE_REVALIDATE_S } } as RequestInit);
-    const type = res.headers.get("content-type")?.split(";")[0].trim();
-    if (!res.ok || (type !== "image/png" && type !== "image/jpeg")) return null;
-    const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length > 1_000_000) return null;
-    return `data:${type};base64,${bytes.toString("base64")}`;
-  } catch {
-    return null;
-  }
+  const read = async (): Promise<string | null> => {
+    try {
+      const res = await fetchImpl(url, {
+        headers: onBehalfOf(client),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        ...(client ? { cache: "no-store" as const } : { next: { revalidate: SHARE_REVALIDATE_S } }),
+      } as RequestInit);
+      const type = res.headers.get("content-type")?.split(";")[0].trim();
+      if (!res.ok || (type !== "image/png" && type !== "image/jpeg")) return null;
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.length > 1_000_000) return null;
+      return `data:${type};base64,${bytes.toString("base64")}`;
+    } catch {
+      return null;
+    }
+  };
+  return client ? sharedRead(sharedAvatars, MAX_SHARED_AVATARS, fetchImpl, url.href, read) : read();
 }
 
 /** The trader's name for the browser tab (KOL or leaderboard name), from

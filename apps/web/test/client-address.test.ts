@@ -71,6 +71,33 @@ describe("share and link-preview images act for the caller (review 28)", () => {
     for (const [, init] of fetchImpl.mock.calls) expect(new Headers(init!.headers).get("x-forwarded-for")).toBeNull();
   });
 
+  it("the card is cached for everyone, not per visitor: a second address reuses the first one's reads", async () => {
+    const reads: string[] = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      reads.push(`${new URL(String(input)).pathname} ${new Headers(init!.headers).get("x-forwarded-for")}`);
+      return Response.json({ success: true, data: { pnl: [[0, 0], [1, 5]], roi: 1, summary: { winRate: 0.5 }, displayName: "Farm", items: [] } });
+    });
+    const first = await loadShareCard(ADDRESS, "week", { apiUrl: "http://api.test", fetchImpl, client: "203.0.113.9" });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(reads.every((r) => r.endsWith(" 203.0.113.9"))).toBe(true);
+    const second = await loadShareCard(ADDRESS, "week", { apiUrl: "http://api.test", fetchImpl, client: "198.51.100.7" });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(second).toEqual(first);
+    // Concurrent misses share one read.
+    await Promise.all([
+      loadTraderName(ADDRESS, { apiUrl: "http://api.test", fetchImpl, client: "198.51.100.7" }),
+      loadTraderName(ADDRESS, { apiUrl: "http://api.test", fetchImpl, client: "198.51.100.8" }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+  });
+
+  it("a failed read is not kept: the next visitor asks the api again", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response("busy", { status: 503 }));
+    await loadTraderName(ADDRESS, { apiUrl: "http://api.test", fetchImpl, client: "203.0.113.9" });
+    await loadTraderName(ADDRESS, { apiUrl: "http://api.test", fetchImpl, client: "198.51.100.7" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("one client gets 30 images a minute, then 429 with Retry-After; another client is not affected", () => {
     const now = 1_000_000;
     for (let i = 0; i < IMAGES_PER_MINUTE; i++) expect(imageRetryAfter("203.0.113.9", now + i)).toBe(0);

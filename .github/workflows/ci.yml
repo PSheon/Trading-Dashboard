@@ -64,6 +64,8 @@ jobs:
           node --test scripts/openapi.test.mjs
       - name: Test database URL guards
         run: node --test scripts/test-database.test.mjs
+      - name: Safe release migration diagnostics
+        run: node --test apps/api/scripts/migrate.test.mjs
       - name: API tests with disposable migrated database
         run: pnpm test:api:isolated
       - name: Concurrent release migration smoke

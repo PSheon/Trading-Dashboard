@@ -36,6 +36,10 @@ API／worker 已設定同一出站配額識別；實際交易 mode 仍為 paper�
 
 本地重新建置 production image 通過，容器內的直接執行依賴版本逐一比對 frozen workspace 安裝一致，沒有開發工具或環境檔，非 root 執行。隔離 PostgreSQL 的容器 release migration、readiness 200、正常 exit 0 通過，測試資料庫已移除。CI 新增同一 image smoke，包含 Linux host mapping。這是本地映像驗證，尚不能代替 Railway 新 deployment 成功。
 
+修正後的 worker deployment `07f3ab08-1fb9-4f77-8f50-a24e9d29f441` 完成映像建置，但 pre-deploy migration 失敗，尚未切换服務。Stage 無公開 DB proxy，也未登錄 SSH key。暫時 SSH key 登錄被自動安全審核拒絕，沒有新增 SSH 授權；改為 release hook 輸出限定的 PostgreSQL／連線代碼，以及只由已打包 migration SQL 比對產生的 timestamp／statement 編號，不輸出錯誤訊息、SQL、參數或 DSN。
+
+診斷代碼四項回歸通過；合成資料庫實際製造 journal／schema duplicate-column 衝突，release 退出 1 且輸出 `42701` 與正確步驟，沒有 SQL 或連線值。正常並行／重複 migration 亦通過，資料庫已移除。真實 Stage 失敗原因須在後續 deployment 取得這些受限診斷後才可判定。
+
 ## 仍需接通的流程
 
 1. 財務 worker 的訊號、送單、成交同步、settlement 與 restart supervision；目前只有未註冊的 testnet runtime。

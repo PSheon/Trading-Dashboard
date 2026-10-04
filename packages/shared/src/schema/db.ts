@@ -1788,8 +1788,10 @@ export const hyperliquidEgressQuota = pgTable("hyperliquid_egress_quota", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 }, (t) => [check("hyperliquid_quota_value_check", sql`length(${t.egressKey}) between 1 and 160 and ${t.revision} > 0 and jsonb_typeof(${t.events}) = 'array' and jsonb_array_length(${t.events}) <= 4096`)]);
 
-/** Expiry is uncertainty, not proof of a provider disconnect. Nonclosed
- * leases continue reserving capacity until their original socket is closed. */
+/** Expiry is uncertainty, not proof of a provider disconnect. A nonclosed
+ * lease keeps reserving capacity until its original socket is closed or its
+ * `lease_until` is more than the stale margin in the past (the planner's
+ * HYPERLIQUID_STALE_LEASE_RECLAIM_MS); the row and its evidence are kept. */
 export const hyperliquidWsLeases = pgTable("hyperliquid_ws_leases", {
   id: text("id").primaryKey(), egressKey: text("egress_key").notNull().references(() => hyperliquidEgressQuota.egressKey, { onDelete: "restrict" }),
   socketId: text("socket_id").notNull(), fenceToken: text("fence_token").notNull(), ownerId: text("owner_id").notNull(),

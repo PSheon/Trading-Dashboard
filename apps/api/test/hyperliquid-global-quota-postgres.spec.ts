@@ -65,6 +65,35 @@ describe('durable shared egress meter, never provider I/O',()=>{
   await expect(meter.bindUnscoped({...identity,ownerId:'worker-b'}).reserveSocket(Date.now()+5000)).rejects.toThrow('hyperliquid_quota_connections');
   expect(await db.select().from(schema.hyperliquidWsLeases)).toHaveLength(10);
  });
+ it('admits a new connection past ten leases left uncertain beyond the stale margin and keeps their evidence',async()=>{
+  const bound=meter.bindUnscoped(identity);for(let i=0;i<10;i++)await bound.reserveSocket(Date.now()+5000);
+  const T=schema.hyperliquidWsLeases,evidence={version:1,kind:'test_prior_crash'};
+  await db.update(T).set({state:'uncertain',createdAt:sql`now() - interval '11 minutes'`,leaseUntil:sql`now() - interval '10 minutes'`,latestAllowedSendAt:sql`now() - interval '11 minutes'`,updatedAt:sql`now() - interval '10 minutes'`,cleanupEvidence:evidence,cleanupEvidenceDigest:liveSourceDigest(evidence)});
+  const before=await db.select().from(T);
+  const events=(await db.select().from(schema.hyperliquidEgressQuota))[0]!.events;
+  const fresh=await meter.bindUnscoped({...identity,ownerId:'worker-b'}).reserveSocket(Date.now()+5000);
+  const after=await db.select().from(T);expect(after).toHaveLength(11);
+  for(const row of before)expect(after.find(r=>r.id===row.id)).toEqual(row);
+  expect(after.filter(r=>r.ownerId==='worker-b')[0]!.state).toBe('reserved');
+  // Every connection attempt stays charged, the reclaimed ones included.
+  expect((await db.select().from(schema.hyperliquidEgressQuota))[0]!.events.slice(0,events.length)).toEqual(events);
+  await fresh.connection.cancelBeforeConnect();
+ });
+ it('still refuses an eleventh connection with ten live leases when more stale leases than the scan bound exist',async()=>{
+  const bound=meter.bindUnscoped(identity),T=schema.hyperliquidWsLeases;
+  const age=()=>db.update(T).set({state:'uncertain',createdAt:sql`now() - interval '11 minutes'`,leaseUntil:sql`now() - interval '10 minutes'`,latestAllowedSendAt:sql`now() - interval '11 minutes'`,updatedAt:sql`now() - interval '10 minutes'`}).where(sql`${T.state} <> 'uncertain'`);
+  for(let i=0;i<10;i++)await bound.reserveSocket(Date.now()+5000);await age();
+  for(let i=0;i<2;i++)await bound.reserveSocket(Date.now()+5000);await age();
+  for(let i=0;i<10;i++)await bound.reserveSocket(Date.now()+5000);
+  expect((await db.select().from(T)).filter(r=>r.state==='uncertain')).toHaveLength(12);
+  await expect(meter.bindUnscoped({...identity,ownerId:'worker-b'}).reserveSocket(Date.now()+5000)).rejects.toThrow('hyperliquid_quota_connections');
+ });
+ it('lets the original owner of a reclaimed lease still record its close evidence',async()=>{
+  const result=await meter.bindUnscoped(identity).reserveSocket(Date.now()+5000);const T=schema.hyperliquidWsLeases;
+  await db.update(T).set({createdAt:sql`now() - interval '11 minutes'`,leaseUntil:sql`now() - interval '10 minutes'`,latestAllowedSendAt:sql`now() - interval '11 minutes'`,updatedAt:sql`now() - interval '10 minutes'`});
+  await result.connection.cancelBeforeConnect();
+  const row=(await db.select().from(T))[0]!;expect(row.state).toBe('closed');expect(row.cleanupEvidence?.kind).toBe('connect_not_dispatched');
+ });
  it('counts all subscription messages before ACK, and exact cleanup frees capacity without refund',async()=>{
   const socket=await meter.bindUnscoped(identity).reserveSocket(Date.now()+5000);const transport=socket.connect.dispatch(()=>new WebSocket('wss://api.hyperliquid-testnet.xyz/ws'));socket.connection.attach(transport);await socket.connection.whenIdle();
   const sub=quotaSubscription('testnet',{type:'openOrders',user,dex:'i<3fl'}),permit=await socket.connection.subscribe([sub],Date.now()+5000,true);

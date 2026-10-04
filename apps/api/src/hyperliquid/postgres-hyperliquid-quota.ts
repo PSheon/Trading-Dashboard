@@ -3,12 +3,12 @@ import {isDeepStrictEqual} from 'node:util';
 import {performance} from 'node:perf_hooks';
 import {TLSSocket} from 'node:tls';
 import WebSocket from 'ws';
-import {and,eq,ne,sql} from 'drizzle-orm';
+import {and,eq,gt,ne,sql} from 'drizzle-orm';
 import {hyperliquidEgressQuota as quota,hyperliquidWsLeases as leases} from '@trading-dashboard/shared/database';
 import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
-import {planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 
@@ -76,16 +76,22 @@ export class PostgresHyperliquidQuota {
         await tx.execute(sql`set local idle_in_transaction_session_timeout = '5000ms'`);await held();
         await tx.insert(quota).values({egressKey:binding.egressKey,events:[],updatedAt:sql`date_trunc('milliseconds',clock_timestamp())`}).onConflictDoNothing();await held();
         const rows=await tx.select().from(quota).where(eq(quota.egressKey,binding.egressKey)).for('update');await held();
-        const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'))).limit(11);await held();
-        // A close/ACK operation can reference a nonclosed row only. Closed
-        // historical rows are retained but never scanned as active capacity.
         const localBeforeClock=this.now();
         const clock=await tx.execute<{now:string}>(sql`select floor(extract(epoch from clock_timestamp())*1000)::bigint as now`);await held();
         const dbNow=Number(clock.rows[0]?.now);if(!Number.isSafeInteger(dbNow)||dbNow<=0||rows.length!==1)fail('hyperliquid_quota_invalid');
         const localAfterClock=this.now();if(Math.abs(dbNow-localBeforeClock)>1000||Math.abs(dbNow-localAfterClock)>1000)fail('hyperliquid_quota_clock_skew');
         const remaining=deadline===undefined?0:deadline-localBeforeClock;if(deadline!==undefined&&(remaining<=0||remaining>5000))fail('hyperliquid_quota_expired');
+        const planned=request(dbNow,dbNow+remaining),referenced='leaseId'in planned?planned.leaseId:undefined;
+        // A close/ACK operation can reference a nonclosed row only. Closed
+        // historical rows are retained but never scanned as active capacity.
+        // Leases past the stale margin no longer count, so they are not scanned
+        // either (they would otherwise fill the bounded scan and hide live rows);
+        // the one a request names is still read so its owner can record close
+        // evidence for it.
+        const stored=await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),gt(leases.leaseUntil,new Date(dbNow-HYPERLIQUID_STALE_LEASE_RECLAIM_MS)))).limit(11);await held();
+        if(referenced!==undefined&&!stored.some(l=>l.id===referenced)){stored.push(...await tx.select().from(leases).where(and(eq(leases.egressKey,binding.egressKey),ne(leases.state,'closed'),eq(leases.id,referenced))).limit(1));await held();}
         const previous=rows[0]!,state={egressKey:previous.egressKey,revision:previous.revision,events:previous.events,updatedAt:previous.updatedAt.getTime()},captured:HyperliquidQuotaLease[]=stored.map(({cleanupEvidence:_cleanupEvidence,cleanupEvidenceDigest:_cleanupEvidenceDigest,...l})=>({...l,leaseUntil:l.leaseUntil.getTime(),latestAllowedSendAt:l.latestAllowedSendAt.getTime(),createdAt:l.createdAt.getTime(),updatedAt:l.updatedAt.getTime(),closedAt:l.closedAt?.getTime()??null}));
-        const plan=planHyperliquidQuota({now:dbNow,state,leases:captured,request:request(dbNow,dbNow+remaining)});
+        const plan=planHyperliquidQuota({now:dbNow,state,leases:captured,request:planned});
         const result=await tx.update(quota).set({revision:plan.state.revision,events:structuredClone(plan.state.events) as typeof previous.events,updatedAt:new Date(dbNow)}).where(and(eq(quota.egressKey,binding.egressKey),eq(quota.revision,previous.revision))).returning({key:quota.egressKey});await held();if(result.length!==1)fail('hyperliquid_quota_conflict');
         for(const l of plan.leases){
           const old=stored.find(s=>s.id===l.id);if(old&&old.revision===l.revision)continue;

@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {LiveBoundaryError} from '../src/copy/live/wallet-authorization.js';
-import {planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaState,type HyperliquidQuotaLease,type HyperliquidQuotaRequest} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import {HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaState,type HyperliquidQuotaLease,type HyperliquidQuotaRequest} from '../src/hyperliquid/hyperliquid-global-quota.js';
 const now=1790000000000,egressKey='shared-egress-a',user=`0x${'22'.repeat(20)}`;
 const state=():HyperliquidQuotaState=>({egressKey,revision:1,events:[],updatedAt:now});
 const lease=(id='socket-a'):HyperliquidQuotaLease=>({id,egressKey,socketId:id,fenceToken:`fence-${id}`,ownerId:'api-a',state:'open',revision:1,leaseUntil:now+5000,latestAllowedSendAt:now+5000,subscriptions:[],createdAt:now,updatedAt:now,closedAt:null});
@@ -65,6 +65,32 @@ describe('pure shared per-IP Hyperliquid quota accounting',()=>{
  it('holds expired socket slots uncertain instead of reclaiming ten provider connections by TTL',()=>{
   const leases=Array.from({length:10},(_,i)=>({...lease(`socket-${i}`),createdAt:now-5000,leaseUntil:now-1,latestAllowedSendAt:now-1}));const l=lease('eleventh');
   expect(()=>plan({kind:'connect',id:'connection-attempt',sendUntil:now+5000,lease:{id:l.id,egressKey,socketId:l.socketId,fenceToken:l.fenceToken,ownerId:l.ownerId,leaseUntil:l.leaseUntil,latestAllowedSendAt:l.latestAllowedSendAt}},{leases})).toThrow('hyperliquid_quota_connections');
+ });
+ it('stops counting leases expired past the stale margin, keeping their rows, subscriptions and charges',()=>{
+  const users=Array.from({length:10},(_,i)=>`0x${String(i+1).padStart(40,'0')}`);
+  const stale=users.map((u,i)=>({...lease(`stale-${i}`),state:'uncertain' as const,createdAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS-60000,updatedAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS,leaseUntil:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS,latestAllowedSendAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS-55000,subscriptions:[quotaSubscription('testnet',{type:'openOrders',user:u,dex:''})]}));
+  const s={...state(),events:[{id:'prior-connect',kind:'ws_connect' as const,units:3,reservedAt:now-1000,expiresAt:now+59000}]};
+  const l=lease('fresh');
+  const result=plan({kind:'connect',id:'connection-attempt',sendUntil:now+5000,lease:{id:l.id,egressKey,socketId:l.socketId,fenceToken:l.fenceToken,ownerId:l.ownerId,leaseUntil:now+60000,latestAllowedSendAt:now+5000}},{state:s,leases:stale});
+  expect(result.leases).toHaveLength(11);expect(result.leases.find(x=>x.id==='fresh')).toMatchObject({state:'reserved'});
+  for(const old of stale)expect(result.leases.find(x=>x.id===old.id)).toEqual(old);
+  expect(result.state.events.map(e=>e.id)).toEqual(['prior-connect','connection-attempt']);
+  // Subscriptions and distinct users held by reclaimed leases are not counted either.
+  const fresh=result.leases.find(x=>x.id==='fresh')!;
+  const opened=plan({kind:'opened',leaseId:'fresh',fenceToken:fresh.fenceToken,ownerId:fresh.ownerId},{state:result.state,leases:[...result.leases]});
+  expect(plan({kind:'subscribe',id:'sub-new',leaseId:'fresh',fenceToken:fresh.fenceToken,ownerId:fresh.ownerId,sendUntil:now+5000,subscriptions:[quotaSubscription('testnet',{type:'openOrders',user,dex:''})],prepayCleanup:false},{state:opened.state,leases:[...opened.leases]}).charged).toBe(1);
+ });
+ it('keeps counting an expired lease until the full stale margin has passed',()=>{
+  const leases=Array.from({length:10},(_,i)=>({...lease(`socket-${i}`),state:'uncertain' as const,createdAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS-60000,updatedAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS,leaseUntil:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS+1,latestAllowedSendAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS-55000}));const l=lease('eleventh');
+  expect(()=>plan({kind:'connect',id:'connection-attempt',sendUntil:now+5000,lease:{id:l.id,egressKey,socketId:l.socketId,fenceToken:l.fenceToken,ownerId:l.ownerId,leaseUntil:now+60000,latestAllowedSendAt:now+5000}},{leases})).toThrow('hyperliquid_quota_connections');
+ });
+ it('still refuses an eleventh connection while ten leases are live',()=>{
+  const leases=Array.from({length:10},(_,i)=>lease(`socket-${i}`));const l=lease('eleventh');
+  expect(()=>plan({kind:'connect',id:'connection-attempt',sendUntil:now+5000,lease:{id:l.id,egressKey,socketId:l.socketId,fenceToken:l.fenceToken,ownerId:l.ownerId,leaseUntil:now+60000,latestAllowedSendAt:now+5000}},{leases})).toThrow('hyperliquid_quota_connections');
+ });
+ it('lets the owner of a reclaimed lease still record its close',()=>{
+  const old={...lease('stale'),state:'uncertain' as const,createdAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS-60000,updatedAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS,leaseUntil:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS,latestAllowedSendAt:now-HYPERLIQUID_STALE_LEASE_RECLAIM_MS-55000};
+  expect(plan({kind:'closed',leaseId:'stale',fenceToken:old.fenceToken,ownerId:old.ownerId},{leases:[old]}).leases[0]).toMatchObject({state:'closed',closedAt:now});
  });
  it('persists uncertain expiration without dropping subscriptions',()=>{
   const sub=quotaSubscription('testnet',{type:'openOrders',user,dex:''});

@@ -59,8 +59,24 @@ export function quotaSubscription(suppliedNetwork:LiveNetwork,suppliedBody:Reado
   }catch{throw new LiveBoundaryError('hyperliquid_quota_invalid');}
 }
 function validateSub(sub:HyperliquidQuotaSubscription){requireQuota(isDeepStrictEqual(quotaSubscription(sub.network,sub.subscription),sub));}
+/** How long after `leaseUntil` an unclosed lease still counts toward the
+ * connection, subscription and user limits. An owner cannot send anything but a
+ * close frame once its lease has passed (every send permit is bounded by
+ * `latestAllowedSendAt <= leaseUntil`, at most 5 s after reservation, and renewals
+ * need a live lease), and Hyperliquid closes any connection that has sent it no
+ * message for 60 s. Five minutes is well past both, plus the 1 s clock-skew
+ * bound, so a lease left by a killed or partitioned process can no longer hold a
+ * provider connection. The row, its subscriptions and its cleanup evidence are
+ * kept as they are (state stays `uncertain`, never forged to `closed`), and no
+ * charged unit is refunded. */
+export const HYPERLIQUID_STALE_LEASE_RECLAIM_MS=300_000;
+/** True when an unclosed lease no longer counts toward provider capacity. */
+export function hyperliquidLeaseReclaimed(lease:Pick<HyperliquidQuotaLease,'state'|'leaseUntil'>,now:number):boolean {
+  return lease.state!=='closed'&&lease.leaseUntil+HYPERLIQUID_STALE_LEASE_RECLAIM_MS<=now;
+}
 /** Pure accounting only. The DAL must durably commit the complete plan before
- * issuing a private finite outbound capability. No refunds or TTL slot release. */
+ * issuing a private finite outbound capability. No refunds; an expired lease
+ * keeps its slot until HYPERLIQUID_STALE_LEASE_RECLAIM_MS has passed. */
 export function planHyperliquidQuota(raw:{readonly now:number;readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly request:HyperliquidQuotaRequest}):HyperliquidQuotaPlan {
   try{
     const now=integer.positive().parse(raw.now),s=stateSchema.parse(structuredClone(raw.state)),leases=z.array(leaseSchema).max(100).parse(structuredClone(raw.leases)),request=requestSchema.parse(structuredClone(raw.request));
@@ -92,7 +108,7 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       requireQuota(missing<=0,'hyperliquid_quota_exhausted');
       events.push({id,kind,units,reservedAt:now,expiresAt:sendUntil+60000});charged=units;
     };
-    const active=()=>leases.filter(l=>l.state!=='closed');
+    const active=()=>leases.filter(l=>l.state!=='closed'&&!hyperliquidLeaseReclaimed(l,now));
     const limits=()=>{requireQuota(active().length<=10,'hyperliquid_quota_connections');requireQuota(active().reduce((sum,l)=>sum+l.subscriptions.length,0)<=1000,'hyperliquid_quota_subscriptions');
       requireQuota(new Set(active().flatMap(l=>l.subscriptions.filter(sub=>sub.user!==null).map(sub=>`${sub.network}:${sub.user}`))).size<=10,'hyperliquid_quota_users');};
     limits();

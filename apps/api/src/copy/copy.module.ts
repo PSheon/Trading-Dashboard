@@ -62,6 +62,8 @@ import { CopyLiveStopController } from './copy-live-stop.controller.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 import { CopyLiveStopService } from './copy-live-stop.service.js';
 import { CopyLiveReturnController } from './copy-live-return.controller.js';
+import { CopyLivePortfolioController } from './copy-live-portfolio.controller.js';
+import { CopyLivePortfolioRepository } from './copy-live-portfolio.repository.js';
 import { CopyLiveReturnRepository } from './copy-live-return.repository.js';
 import { CopyLiveReturnService } from './copy-live-return.service.js';
 import { MASTER_ACTION_SIGNER, PrivyMasterActionSigner } from './live/privy-master-signer.js';
@@ -79,7 +81,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
-  controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController],
+  controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService, CopyFundsRepository,
@@ -101,7 +103,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,
-    CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveReturnRepository, CopyLiveReturnService,
+    CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository,
     { provide: MASTER_ACTION_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyMasterActionSigner(config.value.auth) },
     { provide: HyperliquidFollowerReceiptReader, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
       new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo) },

@@ -35,9 +35,10 @@ import { CopyFollowerController } from "../copy/copy-follower.controller.js";
 import { CopyFollowerSnapshotController } from "../copy/copy-follower-snapshot.controller.js";
 import { CopyLiveMandateController } from "../copy/copy-live-mandate.controller.js";
 import { CopyLiveReturnController } from "../copy/copy-live-return.controller.js";
+import { CopyLivePortfolioController } from "../copy/copy-live-portfolio.controller.js";
 import { CopyLiveStopController } from "../copy/copy-live-stop.controller.js";
 import { ReferralController, ReferralPublicController } from '../referral/referral.controller.js';
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
-export const documentationControllers = [CopyFundsController, CopyLiveStopController, CopyLiveReturnController, ReferralController, ReferralPublicController, AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
+export const documentationControllers = [CopyFundsController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, ReferralController, ReferralPublicController, AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
   AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, AdminHeartbeatController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, WithdrawalController, CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyAccountModeController, CopyFollowerController, CopyFollowerSnapshotController, CopyLiveMandateController, AdminCopyController];

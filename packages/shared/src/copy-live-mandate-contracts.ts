@@ -85,3 +85,21 @@ export function liveCopyMandateOwnerTypedData(value: LiveCopyMandateIntent) {
     message: { ...input, builderAddress: input.builderAddress ?? `0x${'00'.repeat(20)}` },
   };
 }
+
+/** Where a testnet copy stands, as CopyDog's portfolio shows it: setup →
+ * needs_deposit → funding → awaiting_credit → starting → active (or paused);
+ * a stop: stopping → sweeping (flat, returning funds) → stopped. */
+export const liveCopyStageSchema = z.enum(['setup', 'needs_deposit', 'funding', 'awaiting_credit', 'starting', 'active', 'paused', 'stopping', 'sweeping', 'stopped']);
+export type LiveCopyStage = z.infer<typeof liveCopyStageSchema>;
+export const liveCopyPortfolioItemSchema = z.object({
+  strategyId: version, leaderAddress: address, sourceNetwork: z.enum(['testnet', 'mainnet']), budgetUsd: liveCopyBudgetSchema,
+  status: copyStrategyStatusSchema, stage: liveCopyStageSchema, createdAt: z.string().datetime(),
+  accountId: id.nullable(), accountAddress: address.nullable(),
+  mandate: z.object({ id, state: liveCopyMandateStateSchema, revision: version }).strict().nullable(),
+  stop: z.object({ id: z.string().uuid(), state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']), issue: z.string().nullable(), revision: version }).strict().nullable(),
+  pendingTransfer: z.object({ id: z.string().uuid(), direction: z.enum(['to_account', 'to_main']), status: z.enum(['prepared', 'unknown', 'accepted']), amount: z.string() }).strict().nullable(),
+  /** The latest leg the worker refused, with its reason (e.g. a price deviation). */
+  lastRefusal: z.object({ reason: z.string(), at: z.string().datetime() }).strict().nullable(),
+}).strict();
+export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
+export const liveCopyPortfolioSchema = z.object({ network: z.literal('testnet'), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();

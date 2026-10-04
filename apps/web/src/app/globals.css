@@ -54,6 +54,8 @@
   --primary-soft: rgb(255 122 69 / 14%);
   /* Orange used as text (links, highlighted words): darker on light for AA. */
   --primary-text: #b4441a;
+  /* Orange in display type (the hero's accented words): large text, 3:1. */
+  --primary-display: #d9531e;
   --secondary: #efe6d6;
   --secondary-foreground: #15132b;
   --muted: #efe6d6;
@@ -86,7 +88,8 @@
   --ring: #ff7a45;
 
   --chart-1: #ff7a45;
-  --chart-2: #c22f4a;
+  /* Orbit draws a trend line orange on both sides of zero. */
+  --chart-2: #ff7a45;
   --chart-3: #5a5674;
   --chart-4: #8b7bff;
   --chart-5: #cbbfa9;
@@ -127,6 +130,7 @@
   --popover-foreground: #fbf6ee;
   --primary-foreground: #1a1533;
   --primary-text: #ff7a45;
+  --primary-display: #ff7a45;
   --secondary: #24204a;
   --secondary-foreground: #fbf6ee;
   --muted: #24204a;
@@ -143,7 +147,6 @@
   --border: #3d3870;
   --border-strong: #4a4580;
   --input: #3a3568;
-  --chart-2: #ff8fa3;
   --chart-3: #c9c5e6;
   --chart-5: #4a4580;
   --chart-grid: #3d3870;
@@ -171,6 +174,7 @@
     --popover-foreground: #fbf6ee;
     --primary-foreground: #1a1533;
     --primary-text: #ff7a45;
+    --primary-display: #ff7a45;
     --secondary: #24204a;
     --secondary-foreground: #fbf6ee;
     --muted: #24204a;
@@ -187,7 +191,6 @@
     --border: #3d3870;
     --border-strong: #4a4580;
     --input: #3a3568;
-    --chart-2: #ff8fa3;
     --chart-3: #c9c5e6;
     --chart-5: #4a4580;
     --chart-grid: #3d3870;
@@ -257,6 +260,7 @@
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
   --color-primary-text: var(--primary-text);
+  --color-primary-display: var(--primary-display);
   --color-chart-builder: var(--chart-builder);
   --color-chart-referral: var(--chart-referral);
   --color-popover-foreground: var(--popover-foreground);

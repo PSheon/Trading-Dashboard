@@ -1337,8 +1337,8 @@ export const zhTW = {
     allTime: "全部",
   },
   home: {
-    heroTitle: "跟單最優秀的加密貨幣與股票交易員",
-    heroTitleMobile: "跟單\n頂尖交易員",
+    heroTitle: "跟單最優秀的\n*加密貨幣*與*股票*交易員",
+    heroTitleMobile: "跟單最優秀的\n*加密貨幣*與*股票*交易員",
     heroBrowse: "瀏覽",
     cardPnl: "損益",
     cardRoi: "報酬率",

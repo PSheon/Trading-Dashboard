@@ -20,7 +20,7 @@ export function TraderAvatar({ trader, size, className }: { trader: Pick<BoardTr
   const [failed, setFailed] = useState(false);
   if (!trader.avatarUrl || failed) {
     return (
-      <span aria-hidden className={cn("inline-flex shrink-0 items-center justify-center rounded-full bg-raised-hover", className)} style={{ width: size, height: size }}>
+      <span aria-hidden className={cn("inline-flex shrink-0 items-center justify-center rounded-full bg-tag-alert", className)} style={{ width: size, height: size }}>
         <OrbieMark size={Math.round(size * 0.56)} />
       </span>
     );
@@ -48,7 +48,7 @@ export function boardName(trader: Pick<BoardTrader, "displayName" | "address">):
 
 export function VerifiedTick({ className }: { className?: string }) {
   const { t } = useI18n();
-  return <BadgeCheck aria-label={t("discover.verified")} className={cn("size-4 shrink-0 fill-sky-500 text-background", className)} />;
+  return <BadgeCheck aria-label={t("discover.verified")} className={cn("size-4 shrink-0 fill-[#2f6fe0] text-card", className)} />;
 }
 
 /** A KOL's 𝕏 profile link (CopyDog's small 𝕏 after the name). */
@@ -113,7 +113,7 @@ export function CopyScoreBar({
   const { t } = useI18n();
   const value = score === null ? null : Math.max(0, Math.min(100, Math.round(score)));
   const bar = (
-    <span className={cn("relative h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-foreground/10", barClassName)} aria-hidden>
+    <span className={cn("relative h-2 w-14 shrink-0 overflow-hidden rounded-full bg-inset", barClassName)} aria-hidden>
       <span className={cn("absolute inset-y-0 left-0 rounded-full", scoreTone(value))} style={{ width: `${value ?? 0}%` }} />
     </span>
   );
@@ -122,7 +122,7 @@ export function CopyScoreBar({
   return (
     <span className={cn("inline-flex items-center gap-2", className)} title={label}>
       {layout === "bar-first" ? bar : null}
-      <span className="num text-[0.8125rem] font-semibold">
+      <span className="num font-display text-[0.875rem]">
         {value ?? "—"}
         {layout === "value-first" ? <span className="text-subtle-foreground">/100</span> : null}
       </span>
@@ -171,7 +171,7 @@ export function HScroll({ children, className, label }: { children: React.ReactN
   const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.85, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
   // CopyDog's arrows sit on the row's edges and show only while the row is
   // hovered or focused (never on touch screens).
-  const arrow = "absolute top-1/2 z-10 hidden size-[38px] -translate-y-1/2 items-center justify-center rounded-full border border-border-strong bg-popover text-foreground opacity-0 shadow-lg shadow-black/40 outline-none transition-opacity group-hover/hscroll:opacity-100 group-focus-within/hscroll:opacity-100 hover:bg-raised-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:pointer-fine:flex";
+  const arrow = "absolute top-1/2 z-10 hidden size-11 -translate-y-1/2 items-center justify-center rounded-full bg-card text-foreground opacity-0 shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] outline-none transition-opacity group-hover/hscroll:opacity-100 group-focus-within/hscroll:opacity-100 hover:bg-raised-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:pointer-fine:flex";
   return (
     <div className="group/hscroll relative">
       {!atStart ? (
@@ -179,7 +179,7 @@ export function HScroll({ children, className, label }: { children: React.ReactN
           <ChevronLeft className="size-[22px]" />
         </button>
       ) : null}
-      <div ref={ref} role="group" aria-label={label} className={cn("-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 no-scrollbar md:pb-0.5 md:mx-0 md:scroll-px-0 md:px-0", className)}>
+      <div ref={ref} role="group" aria-label={label} className={cn("-mx-4 -my-1 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 py-1 no-scrollbar md:mx-0 md:scroll-px-0.5 md:px-0.5", className)}>
         {children}
       </div>
       {!atEnd ? (

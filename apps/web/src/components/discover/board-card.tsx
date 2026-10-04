@@ -120,46 +120,41 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   const up = (trader.roi ?? 0) >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   const pill = (
-    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num inline-flex h-[26px] shrink-0 items-center gap-0.5 rounded-md px-1 text-xs font-semibold md:h-6 md:px-1.5", up ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
-      <Arrow className="size-[9px] md:size-[11px]" strokeWidth={2.5} aria-hidden />
+    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num inline-flex h-6 w-fit shrink-0 items-center gap-0.5 rounded-md px-2 text-xs font-extrabold", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+      <Arrow className="size-[11px]" strokeWidth={2.8} aria-hidden />
       {roiPillShort(trader.roi)}
     </span>
   );
   return (
     <Link
       href={traderHref(trader.address)}
-      className="flex w-[116px] shrink-0 snap-start flex-col gap-2 rounded-xl border border-transparent bg-tile p-[7px] outline-none transition-colors hover:border-border-strong hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring md:w-[190px] md:gap-[11px] md:p-[13px]"
+      className="orbit-card orbit-lift flex w-[164px] shrink-0 snap-start flex-col gap-2 rounded-[24px]! p-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring md:w-[190px]"
     >
       <div className="flex min-w-0 items-center gap-2">
         <TraderAvatar trader={trader} size={32} />
-        <span className="ml-auto md:hidden">{pill}</span>
         <span className="hidden min-w-0 items-center gap-1 md:flex">
-          <span className="truncate text-sm font-semibold">{boardName(trader)}</span>
+          <span className="truncate text-sm font-extrabold">{boardName(trader)}</span>
+          {trader.verified ? <VerifiedTick className="size-[14px]" /> : null}
+        </span>
+        {/* A phone card is narrow: TraderName cuts an address once, in the
+            middle, and always shows its end ("0x9871…0…" never). */}
+        <span className="flex min-w-0 items-center gap-1 md:hidden">
+          <TraderName trader={trader} className="text-sm font-extrabold" />
           {trader.verified ? <VerifiedTick className="size-[13px]" /> : null}
         </span>
       </div>
-      <span className="flex min-w-0 items-center gap-1 md:hidden">
-        {/* A phone card is 116px wide: a short address does not fit, and
-            cutting it again read "0x9871…0…". TraderName cuts an address
-            once, in the middle, and always shows its end. */}
-        <TraderName trader={trader} className="text-base font-semibold" />
-        {trader.verified ? <VerifiedTick className="size-[11px]" /> : null}
+      <BoardSparkline values={trader.sparkline} height={52} plain />
+      <span className={cn("num block truncate font-display text-xl leading-7", signTone(trader.pnl))} title={t("home.cardPnl")}>
+        {format.usd(trader.pnl, { compact: true, sign: true })}
       </span>
-      <BoardSparkline values={trader.sparkline} height={26} className="md:hidden" plain />
-      <BoardSparkline values={trader.sparkline} height={74} className="hidden md:block" />
-      <div className="flex items-center justify-between gap-1.5">
-        <span className={cn("num block truncate text-base leading-[26px] font-bold md:leading-6", signTone(trader.pnl))} title={t("home.cardPnl")}>
-          {format.usd(trader.pnl, { compact: true, sign: true })}
-        </span>
-        <span className="hidden md:inline-flex">{pill}</span>
-      </div>
+      {pill}
     </Link>
   );
 }
 
 /** CopyDog's hl-fcard--skel: one shimmering block the size of the card. */
 export function HomeCardSkeleton() {
-  return <div aria-hidden="true" className="ui-skeleton h-[148px] w-[116px] shrink-0 rounded-xl bg-tile md:h-[180px] md:w-[190px]" />;
+  return <div aria-hidden="true" className="ui-skeleton h-[176px] w-[164px] shrink-0 rounded-[24px] bg-raised md:w-[190px]" />;
 }
 
 /** Mobile list row (CopyDog's dense list): avatar, name, coins and score;

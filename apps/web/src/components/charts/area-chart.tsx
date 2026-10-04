@@ -9,7 +9,7 @@ import { cn } from "cn";
  *
  *   the series is Orbie orange; wherever it dips below zero it turns red.
  *
- * Line + a soft gradient with a diagonal hatch underneath, a glowing end
+ * Line + a soft gradient underneath, a glowing end
  * dot, and (when `interactive`) a crosshair with a tooltip. Width follows
  * the container so strokes and labels stay crisp at any size.
  */
@@ -255,8 +255,6 @@ export function AreaChart({
     below: `below-${uid}`,
     gradUp: `grad-up-${uid}`,
     gradDown: `grad-down-${uid}`,
-    hatchUp: `hatch-up-${uid}`,
-    hatchDown: `hatch-down-${uid}`,
   };
 
   return (
@@ -280,24 +278,18 @@ export function AreaChart({
               <rect x={0} y={geo.zeroY} width={width} height={Math.max(0, height - geo.zeroY + 20)} />
             </clipPath>
             <linearGradient id={ids.gradUp} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.32} />
-              <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
+              <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.26} />
+              <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.08} />
             </linearGradient>
             <linearGradient id={ids.gradDown} x1="0" y1="1" x2="0" y2="0">
-              <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.32} />
-              <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.02} />
+              <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.26} />
+              <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.08} />
             </linearGradient>
-            <pattern id={ids.hatchUp} width={5} height={5} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1={0} y1={0} x2={0} y2={5} stroke="var(--chart-1)" strokeOpacity={0.22} strokeWidth={1} />
-            </pattern>
-            <pattern id={ids.hatchDown} width={5} height={5} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1={0} y1={0} x2={0} y2={5} stroke="var(--chart-2)" strokeOpacity={0.22} strokeWidth={1} />
-            </pattern>
           </defs>
 
           {grid > 0
             ? Array.from({ length: grid }, (_, i) => pad.top + ((height - pad.top - pad.bottom) * i) / Math.max(1, grid - 1)).map((gy) => (
-                <line key={gy} x1={0} x2={width} y1={gy} y2={gy} stroke="var(--border-strong)" strokeOpacity={0.6} strokeDasharray="1.5 3" />
+                <line key={gy} x1={0} x2={width} y1={gy} y2={gy} stroke="var(--chart-grid)" strokeWidth={1.5} strokeDasharray="1.5 4" strokeLinecap="round" />
               ))
             : null}
           {axes
@@ -307,7 +299,7 @@ export function AreaChart({
                   x={yAxis === "right" ? width - pad.right + 10 : pad.left + 2}
                   y={geo.y(v)}
                   dy={yAxis === "right" ? "0.32em" : i === geo.yTicks.length - 1 ? "0.9em" : "-0.35em"}
-                  className="fill-subtle-foreground font-mono text-[10.5px]"
+                  className="fill-muted-foreground text-[11px] font-bold"
                 >
                   {(formatTick ?? formatValue)(v)}
                 </text>
@@ -320,7 +312,7 @@ export function AreaChart({
                   x={geo.x(t)}
                   y={height - 8}
                   textAnchor={i === geo.xTicks.length - 1 ? "end" : "middle"}
-                  className="fill-subtle-foreground font-mono text-[10.5px]"
+                  className="fill-muted-foreground text-[11px] font-bold"
                 >
                   {formatAxisTime(t)}
                 </text>
@@ -341,14 +333,15 @@ export function AreaChart({
               x2={width}
               y1={geo.zeroY}
               y2={geo.zeroY}
-              stroke="var(--border-strong)"
-              strokeDasharray="1.5 3"
+              stroke="var(--chart-grid)"
+              strokeWidth={2}
+              strokeDasharray="2 4"
+              strokeLinecap="round"
             />
           ) : null}
 
           <g clipPath={`url(#${ids.above})`}>
             <path d={geo.area} fill={`url(#${ids.gradUp})`} />
-            {plain ? null : <path d={geo.area} fill={`url(#${ids.hatchUp})`} />}
             <path
               d={geo.line}
               fill="none"
@@ -361,7 +354,6 @@ export function AreaChart({
           {zeroBaseline ? (
             <g clipPath={`url(#${ids.below})`}>
               <path d={geo.area} fill={`url(#${ids.gradDown})`} />
-              {plain ? null : <path d={geo.area} fill={`url(#${ids.hatchDown})`} />}
               <path
                 d={geo.line}
                 fill="none"

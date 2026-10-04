@@ -1333,8 +1333,8 @@ export const en: Messages = {
     allTime: "All",
   },
   home: {
-    heroTitle: "Copy the Best Crypto & Stock Traders",
-    heroTitleMobile: "Copy the\nBest Traders",
+    heroTitle: "Copy the Best\n*Crypto* & *Stock* Traders",
+    heroTitleMobile: "Copy the Best\n*Crypto* & *Stock* Traders",
     heroBrowse: "Browse",
     cardPnl: "PnL",
     cardRoi: "ROI",

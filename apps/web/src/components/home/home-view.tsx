@@ -67,35 +67,40 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
     : null;
 
   return (
-    <div className="flex flex-col gap-6 md:gap-[34px]">
+    <div className="flex flex-col gap-7 md:gap-8">
       {/* Phones: the compact two-line title (登入 is in the phone header). The
           page's one <h1> is the desktop hero's; this is the same level-1
           heading where that one is not displayed. */}
       <div className="md:hidden">
-        <p role="heading" aria-level={1} className="font-display text-[1.75rem] leading-[1.15] whitespace-pre-line">{t("home.heroTitleMobile")}</p>
+        <p role="heading" aria-level={1} className="font-display text-[1.875rem] leading-[1.18] whitespace-pre-line">
+          <Accented text={t("home.heroTitleMobile")} />
+        </p>
       </div>
 
-      <section className="hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
+      <section className="hidden items-center gap-8 pt-4 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)]">
         <div>
-          <h1 className="max-w-[11.5em] text-[clamp(2.25rem,3.25vw,3.5rem)] leading-[1.05] font-extrabold tracking-tight">{t("home.heroTitle")}</h1>
+          <h1 className="max-w-[12em] font-display text-[clamp(2.5rem,4vw,3.625rem)] leading-[1.15] text-balance whitespace-pre-line">
+            <Accented text={t("home.heroTitle")} />
+          </h1>
           <Link
             href="/explore"
-            className="mt-[26px] inline-flex h-[47px] items-center rounded-full bg-raised px-5 text-sm font-bold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press mt-6 inline-flex h-14 items-center gap-2.5 rounded-full bg-primary px-7 text-[1.0625rem] font-extrabold text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             {t("home.heroBrowse")}
+            <ArrowRight className="size-5" strokeWidth={2.6} aria-hidden />
           </Link>
         </div>
-        <div className="hidden lg:block">
+        <div className="md:max-lg:mt-2">
           {home.data ? <Calculator traders={home.data.calculator} /> : !home.isError ? <CalculatorSkeleton /> : null}
         </div>
       </section>
 
       <section>
-        <h2 className="mb-4 text-[1.375rem] font-bold tracking-tight md:mb-3.5 md:text-lg md:leading-[27px] md:tracking-normal">{t("home.byMarket")}</h2>
+        <h2 className="mb-3.5 font-display text-[1.375rem] leading-tight">{t("home.byMarket")}</h2>
         {/* Desktop: one scrolling row of square tiles. */}
         <div className="hidden md:block">
           <HScroll label={t("home.byMarket")}>
-            <Tile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<BoardIcon kind="top100" />} />
+            <Tile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<BoardIcon kind="top100" />} featured />
             <Tile href={exploreHref("kol", "copyScore")} label={t("home.kols")} icon={<BoardIcon kind="kol" />} />
             {crypto.map((c) => <Tile key={c} href={exploreHref(c, "pnl")} label={label(c)} icon={<CoinIcon coin={c} size={34} />} />)}
             {stocks.map((c) => <Tile key={c} href={exploreHref(c, "pnl", "stocks")} label={label(c)} icon={<CoinIcon coin={c} size={34} />} />)}
@@ -104,14 +109,14 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
         {/* Phones: Top 100 and KOL pills, then a crypto and a stock row. */}
         <div className="flex flex-col gap-4 md:hidden">
           <div className="grid grid-cols-2 gap-3">
-            <WideTile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<Trophy className="size-5 text-primary" />} />
-            <WideTile href={exploreHref("kol", "copyScore")} label={t("home.kols")} icon={<UserRound className="size-5 text-primary" />} />
+            <WideTile href={exploreHref("top100", "copyScore")} label={t("home.markets.top100")} icon={<Trophy className="size-5" strokeWidth={2.4} />} featured />
+            <WideTile href={exploreHref("kol", "copyScore")} label={t("home.kols")} icon={<UserRound className="size-5" strokeWidth={2.4} />} />
           </div>
           {/* Two rows that scroll sideways, the fifth tile peeking in. */}
-          <div className="-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 no-scrollbar" data-testid="phone-crypto-tiles">
+          <div className="-mx-4 flex snap-x scroll-px-4 gap-2.5 overflow-x-auto px-4 no-scrollbar" data-testid="phone-crypto-tiles">
             {crypto.map((c) => <Tile key={c} href={exploreHref(c, "pnl")} label={label(c)} icon={<CoinIcon coin={c} size={30} />} small />)}
           </div>
-          <div className="-mx-5 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 no-scrollbar" data-testid="phone-stock-tiles">
+          <div className="-mx-4 flex snap-x scroll-px-4 gap-2.5 overflow-x-auto px-4 no-scrollbar" data-testid="phone-stock-tiles">
             {stocks.map((c) => <Tile key={c} href={exploreHref(c, "pnl", "stocks")} label={label(c)} icon={<CoinIcon coin={c} size={30} />} small />)}
           </div>
         </div>
@@ -133,16 +138,16 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
         : !home.isError
           ? Array.from({ length: 3 }, (_, i) => (
               <section key={i}>
-                <Skeleton className="mb-3 h-[33px] w-40 md:mb-3.5 md:h-[30px]" />
-                <div className="-mx-5 flex gap-3 overflow-hidden px-5 md:mx-0 md:px-0 md:pb-0.5">
+                <Skeleton className="mb-3.5 h-11 w-40" />
+                <div className="-mx-4 flex gap-3 overflow-hidden px-4 py-1 md:mx-0 md:px-0.5">
                   {Array.from({ length: 7 }, (_, j) => <HomeCardSkeleton key={j} />)}
                 </div>
               </section>
             ))
           : null}
 
-      {/* CopyDog's phone home ends with the last row (no footer). */}
-      <SiteFooter className="hidden md:block" />
+      {/* The phone home ends with the last row (M-Home: no footer). */}
+      <SiteFooter className="hidden md:flex" />
     </div>
   );
 }
@@ -150,54 +155,74 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
 function BoardIcon({ kind }: { kind: "top100" | "kol" }) {
   const Icon = kind === "top100" ? Trophy : UserRound;
   return (
-    <span className="flex size-[34px] items-center justify-center rounded-full bg-primary-soft text-primary">
-      <Icon className="size-[18px]" />
+    <span className="flex size-9 items-center justify-center rounded-full bg-card text-foreground">
+      <Icon className="size-[18px]" strokeWidth={2.4} />
     </span>
   );
 }
 
-function Tile({ href, label, icon, small = false }: { href: string; label: string; icon: React.ReactNode; small?: boolean }) {
+/** A market tile (C-Home): a raised 26px-cornered block, the icon on a
+ * card-coloured disc; Top 100 is the orange one. */
+function Tile({ href, label, icon, small = false, featured = false }: { href: string; label: string; icon: React.ReactNode; small?: boolean; featured?: boolean }) {
   return (
     <Link
       href={href}
       className={cn(
-        "flex shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[12px] border border-border bg-card font-semibold outline-none transition-colors hover:border-border-strong hover:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring",
-        small ? "size-[78px] text-xs" : "size-[104px] text-[0.8125rem]",
+        "orbit-press flex shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-[26px] font-extrabold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        featured ? "bg-primary text-primary-foreground hover:bg-primary-hover" : "bg-raised hover:bg-raised-hover",
+        small ? "h-[84px] w-[76px] text-xs" : "h-24 w-[108px] text-[0.8125rem]",
       )}
     >
-      {icon}
+      <span className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-card">{icon}</span>
       <span className="max-w-[90%] truncate">{label}</span>
     </Link>
   );
 }
 
-function WideTile({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
+function WideTile({ href, label, icon, featured = false }: { href: string; label: string; icon: React.ReactNode; featured?: boolean }) {
   return (
     <Link
       href={href}
-      className="flex h-[52px] items-center gap-2.5 rounded-[12px] border border-border bg-card px-4 text-[0.9375rem] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "orbit-press flex h-[56px] items-center gap-2.5 rounded-[26px] px-4 text-[0.9375rem] font-extrabold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        featured ? "bg-primary text-primary-foreground" : "bg-raised",
+      )}
     >
-      {icon}
+      <span className={cn("flex size-9 items-center justify-center rounded-full bg-card", featured ? "text-foreground" : "text-primary-text")}>{icon}</span>
       {label}
     </Link>
+  );
+}
+
+/** Text with `*accented*` words in Orbie orange (the hero's 加密貨幣 / 股票). */
+function Accented({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(\*[^*]+\*)/).map((part, i) =>
+        part.startsWith("*") && part.endsWith("*") && part.length > 2 ? (
+          <span key={i} className="text-primary-display">{part.slice(1, -1)}</span>
+        ) : (
+          part
+        ),
+      )}
+    </>
   );
 }
 
 function RowHeader({ title, coin, href }: { title: string; coin?: string; href: string }) {
   const { t } = useI18n();
   return (
-    <div className="mb-3 flex items-center justify-between gap-3 md:mb-3.5">
-      <h2 className="flex items-center gap-2 text-[1.375rem] font-bold tracking-tight md:text-lg md:leading-[27px] md:tracking-normal">
+    <div className="mb-3.5 flex items-center justify-between gap-3">
+      <h2 className="flex items-center gap-2 font-display text-[1.375rem] leading-tight">
         {coin ? <CoinIcon coin={coin} size={24} /> : null}
         {title}
       </h2>
       <Link
         href={href}
         aria-label={`${t("home.seeAll")} · ${title}`}
-        className="flex items-center justify-center rounded-full bg-raised text-[0.8125rem] font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring max-md:size-8 md:h-[30px] md:px-4"
+        className="orbit-press flex h-11 items-center justify-center rounded-full bg-raised px-4 text-[0.8125rem] font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className="hidden md:inline">{t("home.seeAll")}</span>
-        <ArrowRight className="size-4 md:hidden" />
+        {t("home.seeAll")}
       </Link>
     </div>
   );
@@ -206,7 +231,7 @@ function RowHeader({ title, coin, href }: { title: string; coin?: string; href: 
 /** CopyDog's hero placeholder: one shimmering block the size of the card. */
 function CalculatorSkeleton() {
   const { t } = useI18n();
-  return <div role="status" aria-label={t("common.loading")} className="ui-skeleton h-[267px] rounded-xl bg-card" />;
+  return <div role="status" aria-label={t("common.loading")} className="ui-skeleton h-[288px] rounded-3xl bg-raised" />;
 }
 
 /** "If you invested $1,000 … you would have today": six traders, all-time ROI. */
@@ -225,11 +250,11 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
   const up = change !== null && change >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex h-[70px] items-center gap-3 border-b border-border px-[23px]">
-        <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <TraderAvatar trader={trader} size={32} />
-          <span className="truncate font-semibold">{boardName(trader)}</span>
+    <section className="orbit-card flex flex-col gap-4 overflow-hidden rounded-3xl! p-5">
+      <div className="flex items-center gap-3">
+        <Link href={`/trader/${trader.address}`} className="flex min-w-0 items-center gap-2.5 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <TraderAvatar trader={trader} size={40} />
+          <span className="truncate text-[17px] font-extrabold">{boardName(trader)}</span>
           {trader.verified ? <VerifiedTick /> : null}
         </Link>
         <div className="ml-auto flex items-center gap-1.5" role="group" aria-label={t("home.nextTrader")}>
@@ -242,7 +267,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
               onClick={() => { setIndex(i); setHover(null); }}
               className={cn(
                 "relative h-1.5 rounded-full outline-none transition-[width,background-color] before:absolute before:-inset-x-[3px] before:-inset-y-3 focus-visible:ring-2 focus-visible:ring-ring",
-                i === index % traders.length ? "w-[18px] bg-muted-foreground" : "w-1.5 bg-muted-foreground/35",
+                i === index % traders.length ? "w-[18px] bg-foreground" : "w-1.5 bg-border",
               )}
             />
           ))}
@@ -251,33 +276,33 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           type="button"
           aria-label={t("home.nextTrader")}
           onClick={() => { setIndex((i) => (i + 1) % traders.length); setHover(null); }}
-          className="-ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+          className="orbit-press ml-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-inset outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <ChevronRight className="size-[19px]" />
+          <ChevronRight className="size-5" strokeWidth={2.4} />
         </button>
       </div>
-      <div className="grid grid-cols-[163px_minmax(0,1fr)] gap-5 px-[23px] py-[19px]">
-        <div className="flex flex-col gap-2">
-          <label htmlFor="calc-amount" className="text-xs text-muted-foreground">{t("home.ifInvested")}</label>
-          <div className="flex h-[46px] items-center rounded-2xl bg-raised px-4 focus-within:ring-2 focus-within:ring-ring">
-            <span className="text-lg font-semibold text-subtle-foreground">$</span>
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="calc-amount" className="text-[13px] font-bold text-muted-foreground">{t("home.ifInvested")}</label>
+          <div className="flex h-[52px] items-center rounded-[26px] border-2 border-transparent bg-inset px-4 transition-colors focus-within:border-primary">
+            <span className="font-display text-[22px] text-muted-foreground">$</span>
             <input
               id="calc-amount"
               inputMode="numeric"
               value={amount.toLocaleString("en-US")}
               onChange={(e) => { setAmount(Math.min(1_000_000, Number(e.target.value.replace(/[^0-9]/g, "")) || 0)); setHover(null); }}
-              className="num ml-1.5 w-full bg-transparent text-xl font-bold outline-none"
+              className="num ml-1.5 w-full bg-transparent font-display text-[22px] outline-none"
             />
           </div>
-          <span className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+          <span className="mt-2.5 flex items-center gap-1 text-[13px] font-bold text-muted-foreground">
             {hover !== null ? t("home.youWouldHaveHad") : t("home.youWouldHave")}
           </span>
-          <div className={cn("flex h-[46px] items-center rounded-2xl px-4", shown === null ? "bg-raised" : up ? "bg-positive-soft" : "bg-negative-soft")} aria-live="polite">
-            <span className={cn("num truncate text-xl font-bold", shown === null ? "text-muted-foreground" : up ? "text-positive" : "text-negative")}>{shown === null ? "—" : `$${Math.round(shown).toLocaleString("en-US")}`}</span>
+          <div className={cn("flex h-[52px] items-center rounded-[26px] px-4", shown === null ? "bg-inset" : up ? "bg-tag-profit" : "bg-tag-loss")} aria-live="polite">
+            <span className={cn("num truncate font-display text-[22px]", shown === null ? "text-muted-foreground" : up ? "text-tag-profit-foreground" : "text-tag-loss-foreground")}>{shown === null ? "—" : `$${Math.round(shown).toLocaleString("en-US")}`}</span>
           </div>
         </div>
-        <div className="relative min-h-[150px]" onMouseLeave={() => setHover(null)}>
-          {change !== null ? <span className={cn("num absolute top-0 left-0 z-10 inline-flex h-6 items-center gap-0.5 rounded-md px-1.5 text-xs font-bold", up ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+        <div className="relative min-h-[150px] pt-8" onMouseLeave={() => setHover(null)}>
+          {change !== null ? <span className={cn("num absolute top-0 left-0 z-10 inline-flex h-7 items-center gap-0.5 rounded-md px-2.5 text-xs font-extrabold", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
             <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
             {roiPillShort(change)}
           </span> : null}
@@ -291,7 +316,7 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
 function HoverChartOrEmpty({ series, hover, onHover, missingRoi }: { series: Array<readonly [number, number]>; hover: number | null; onHover: (i: number | null) => void; missingRoi: boolean }) {
   const { t } = useI18n();
   return series.length > 0 ? <HoverChart series={series} hover={hover} onHover={onHover} /> : (
-    <p className="flex h-[157px] items-center justify-center px-3 text-center text-xs text-muted-foreground" role="status">
+    <p className="flex h-[150px] items-center justify-center px-3 text-center text-xs font-bold text-muted-foreground" role="status">
       {t(missingRoi ? "home.calculatorMissingRoi" : "home.calculatorMissingCurve")}
     </p>
   );
@@ -309,7 +334,7 @@ function HoverChart({ series, hover, onHover }: { series: Array<readonly [number
       }}
     >
       {/* CopyDog's crosshair: a dashed line and a dot on the hovered point. */}
-      <AreaChart data={series} height={157} strokeWidth={2} zeroBaseline={false} grid={4} marker={hover} formatValue={(v) => format.usd(v, { compact: true })} />
+      <AreaChart data={series} height={150} strokeWidth={3} zeroBaseline={false} grid={0} marker={hover} formatValue={(v) => format.usd(v, { compact: true })} />
     </div>
   );
 }

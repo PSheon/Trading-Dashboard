@@ -102,7 +102,12 @@ export class AuthService {
     const key = tokenKey(token);
     const now = Date.now();
     const cached = this.cache.get(key);
-    if (cached) {
+    // A cached sign-ups refusal follows the switch: once sign-ups are open
+    // again (the settings snapshot is dropped on save in every process) the
+    // visitor gets in at once. While they stay closed the refusal is served
+    // from the cache, so repeating requests does not repeat verification.
+    if (cached?.outcome.status === "signups_closed" && cached.expiresAt > now && (await this.settings.get("general")).signupsOpen) this.cache.delete(key);
+    else if (cached) {
       if (cached.expiresAt > now) {
         const current = await this.currentAuthorization(cached.outcome);
         // Crossing the cache TTL only affects the next verification lookup.
@@ -132,10 +137,7 @@ export class AuthService {
     // this user. Re-read after that work before publishing an authorization.
     const current = await this.currentAuthorization(outcome);
     if (verified.expiresAt.getTime() <= Date.now()) return { status: "invalid" };
-    // A sign-ups refusal is not kept by token: it follows a site switch that
-    // an admin can flip at any moment (the settings cache is dropped on save
-    // in every process), and the visitor should get in as soon as it opens.
-    if (current.status !== "invalid" && current.status !== "signups_closed") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS), verified.expiresAt.getTime());
+    if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS), verified.expiresAt.getTime());
     return current;
   }
 

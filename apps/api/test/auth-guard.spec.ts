@@ -510,8 +510,11 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(res.body.user).toMatchObject({ kind: "user", role: "admin" });
     });
 
-    it("opening sign-ups again lets the same token in at once (the refusal is not cached by token)", async () => {
-      await get("/t/protected", "newbie-token").expect(403);
+    it("a refused token is verified once within the cache window, and opening sign-ups lets it in at once", async () => {
+      privy.verifyAccessToken.mockClear();
+      for (let i = 0; i < 5; i++) await get("/t/protected", "newbie-token").expect(403);
+      // The refusal is a cost cap too: repeated requests do not re-verify.
+      expect(privy.verifyAccessToken).toHaveBeenCalledTimes(1);
       await settings.patch({ general: { signupsOpen: true } }, null);
       await get("/t/protected", "newbie-token").expect(200);
     });

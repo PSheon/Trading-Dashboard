@@ -122,9 +122,26 @@ describe('testnet copy execution engine', () => {
     clock = now + 1000; await engine().tick();
     const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db)), [row] = await dispatches();
     await db.update(schema.copyLiveDispatches).set({ state: 'settled', settledAt: new Date(clock) });
-    expect(await repository.update(row!.id, 'submitted', { state: 'refused', reason: 'late_writer' })).toBe(false);
-    expect(await repository.update(row!.id, 'pending', { attempts: 99 })).toBe(false);
+    expect(await repository.update({ ...row!, state: 'submitted' }, { state: 'refused', reason: 'late_writer' })).toBe(false);
+    expect(await repository.update({ ...row!, state: 'pending' }, { attempts: 99 })).toBe(false);
     expect((await dispatches())[0]).toMatchObject({ sourceFillId: fill, state: 'settled', reason: null });
+  });
+
+  it('two passes that read the same attempt cannot both count it, nor overwrite each other\'s reason', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    await leaderFill(11, now + 100, 'B', '1', '0');
+    clock = now + 1000; await engine().tick();
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db));
+    await db.update(schema.copyLiveDispatches).set({ state: 'pending', attempts: 1, reason: 'exchange_busy' });
+    const [read] = await dispatches();
+    expect(await repository.update(read!, { attempts: read!.attempts + 1, reason: 'exchange_timeout' })).toBe(true);
+    // The second pass still holds the row as it was before the first wrote.
+    expect(await repository.update(read!, { attempts: read!.attempts + 1, reason: 'exchange_busy' })).toBe(false);
+    expect((await dispatches())[0]).toMatchObject({ state: 'pending', attempts: 2, reason: 'exchange_timeout' });
+    // A pass that read the row after the first write moves it on.
+    const [fresh] = await dispatches();
+    expect(await repository.update(fresh!, { attempts: fresh!.attempts + 1, reason: null })).toBe(true);
+    expect((await dispatches())[0]).toMatchObject({ attempts: 3, reason: null });
   });
 
   it('ingests only the span the watcher proved, then mirrors each new leg once with its latency timings', async () => {

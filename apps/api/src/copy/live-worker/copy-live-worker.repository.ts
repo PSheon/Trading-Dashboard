@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { copyControls, copyExecutionAccounts, copyFundingOperations, copyLiveManualCloses, copyLiveActivations, copyLiveDispatches, copyLiveExecutions, copyLiveMandates,
   copyLiveSourceFills, copyLiveSourceStreams, copyLiveStopOperations, copyLiveStrategyConfigs, copyStrategies, copyRiskPolicies } from '@trading-dashboard/shared/database';
 import { copyRiskLimitsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
@@ -116,12 +116,18 @@ export class CopyLiveWorkerRepository {
     const [row] = await this.db.select().from(copyLiveDispatches).where(eq(copyLiveDispatches.id, id));
     return row ?? null;
   }
-  /** Moves a work row on from the state its caller read, never from a
-   * terminal one (settled, refused): a stale pass changes nothing. */
-  async update(id: string, from: 'pending' | 'submitted', patch: Partial<typeof copyLiveDispatches.$inferInsert>): Promise<boolean> {
+  /** Moves a work row on from exactly the row its caller read (compare and
+   * set on state, attempts and reason), never from a terminal one (settled,
+   * refused): a stale or concurrent pass changes nothing, so two passes that
+   * read the same attempt cannot both count it, and neither can overwrite
+   * the other's reason. */
+  async update(read: Pick<DispatchRow, 'id' | 'state' | 'attempts' | 'reason'>, patch: Partial<typeof copyLiveDispatches.$inferInsert>): Promise<boolean> {
+    if (read.state !== 'pending' && read.state !== 'submitted') return false;
     const { id: _id, mandateId: _m, sourceFillId: _f, leg: _l, ...allowed } = patch;
     const rows = await this.db.update(copyLiveDispatches).set({ ...allowed, updatedAt: new Date() })
-      .where(and(eq(copyLiveDispatches.id, id), eq(copyLiveDispatches.state, from))).returning({ id: copyLiveDispatches.id });
+      .where(and(eq(copyLiveDispatches.id, read.id), eq(copyLiveDispatches.state, read.state), eq(copyLiveDispatches.attempts, read.attempts),
+        read.reason === null ? isNull(copyLiveDispatches.reason) : eq(copyLiveDispatches.reason, read.reason)))
+      .returning({ id: copyLiveDispatches.id });
     return rows.length === 1;
   }
   async journalState(key: string): Promise<string | null> {

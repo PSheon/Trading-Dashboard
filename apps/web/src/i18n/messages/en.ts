@@ -655,6 +655,7 @@ export const en: Messages = {
         revoked: "revoked {date}",
         revokePending: "revoke requested {date}: kept for the stop's closes, revoked when it ends",
         revoke: "Revoke grant",
+        revokeNow: "Revoke now",
       },
       revoke: {
         title: "Revoke trading grant",
@@ -666,6 +667,10 @@ export const en: Messages = {
         cancel: "Cancel",
         sending: "Revoking…",
         failed: "Not revoked: {message}",
+        forceTitle: "Revoke now, without waiting for the stop",
+        forceHelp: "This grant is waiting for its copy's stop, which closes the positions with it. Revoking now ends that: any position or resting order still on the copy account stays open, and Orbie can no longer close or cancel it. It is revoked anyway after the deadline, or when the stop is blocked. Audited.",
+        forceConfirm: "I understand that positions may remain open on the copy account with nobody to close them.",
+        forceSubmit: "Revoke now",
       },
       transfers: {
         title: "Wallet transfers",

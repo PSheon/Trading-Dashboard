@@ -93,4 +93,17 @@ it('shows a revoke that waits for the copy\'s stop, and offers no second revoke'
   expect(text()).toContain("revoke requested");
   expect(text()).toContain("kept for the stop's closes, revoked when it ends");
   expect(button('Revoke grant')).toBeUndefined();
+  // Revoking now, without the stop, needs the explicit confirmation.
+  await act(async () => button('Revoke now')!.click());
+  expect(text()).toContain('any position or resting order still on the copy account stays open');
+  await act(async () => {
+    const area = document.querySelector('#copy-live-revoke-reason') as HTMLTextAreaElement;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(area, 'stop is stuck'); area.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const submit = () => [...document.querySelectorAll('button')].filter(b => b.textContent === 'Revoke now').at(-1) as HTMLButtonElement;
+  expect(submit().disabled).toBe(true);
+  await act(async () => (document.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+  expect(submit().disabled).toBe(false);
+  await act(async () => submit().click()); await settle();
+  expect(state.post).toHaveBeenCalledWith('/admin/copy/live/grants/grant-1/revoke', { reason: 'stop is stuck', force: true });
 });

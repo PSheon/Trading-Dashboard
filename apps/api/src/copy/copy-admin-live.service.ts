@@ -30,54 +30,72 @@ export class CopyAdminLiveService {
    * would strand them: the stop executor closes and cancels with that grant,
    * so with it revoked a stop stays in closing forever and the owner can
    * neither pause, prepare a new mandate nor close by hand (testnet
-   * regression review, 6a). So a revoke never leaves a copy without a way
-   * out:
-   * - the copy is stopped or never traded (no generation, or one that was
-   *   never activated): the grant is revoked at once;
-   * - otherwise the copy is stopped now (strategy stopping, new risk and
-   *   reductions only: no new order can open risk), with the account's stop
-   *   if one is running or a new one, and the grant is marked revoke
-   *   requested; the stop executor revokes it when that stop ends. Until
-   *   then it signs only the stop's reduce-only closes and the cancellations
-   *   the owner consents to.
-   * Audited as copy.grant.revoke either way, with the reason.
+   * regression review, 6a). So:
+   * - `force`: revoked now, whatever the copy holds (audited with
+   *   positionsMayRemain);
+   * - the copy has ended or never traded (no activated generation on the
+   *   account and no open stop): revoked now;
+   * - otherwise the copy is stopped now (with the account's open stop, or a
+   *   new one) and the grant marked revoke requested: from then on it
+   *   authorises only that stop's reduce-only closes and owner-consented
+   *   cancellations (effectiveGrantScopes), and it is revoked when the stop
+   *   ends, when the stop is blocked or gone, or after the deadline,
+   *   whichever comes first (CopyLiveStopWorkerRepository.expirePendingRevokes);
+   * - asked again while pending: revoked now if the stop it waited for is
+   *   blocked or no longer open, else the same pending answer.
+   * Audited as copy.grant.revoke, with the reason.
    */
   async revoke(id: string, input: unknown, actor: RequestUser): Promise<AdminRevokedLiveGrant> {
-    const { reason } = parseOr400(adminRevokeLiveGrantSchema, input);
+    const { reason, force } = parseOr400(adminRevokeLiveGrantSchema, input);
     return this.uow.run(async tx => {
       const row = await this.repository.lockedGrant(tx, id);
       if (!row) throw new NotFoundException('Wallet authorization not found');
-      const answer = (grant: typeof row.grant, stopId: string | null): AdminRevokedLiveGrant => ({ id, version: grant.version, revokedAt: grant.revokedAt?.toISOString() ?? null,
-        revokeRequestedAt: grant.revokedAt ? null : grant.revokeRequestedAt?.toISOString() ?? null, stopId: grant.revokedAt ? null : stopId });
-      const copy = await this.repository.grantCopy(tx, id);
-      if (row.grant.revokedAt || row.grant.revokeRequestedAt) return answer(row.grant, copy?.stop?.id ?? null);
+      const pendingAnswer = (grant: typeof row.grant, stopId: string): AdminRevokedLiveGrant =>
+        ({ id, version: grant.version, revokedAt: null, revokeRequestedAt: grant.revokeRequestedAt!.toISOString(), stopId });
+      if (row.grant.revokedAt) return { id, version: row.grant.version, revokedAt: row.grant.revokedAt.toISOString(), revokeRequestedAt: null, stopId: null };
       if (row.grant.version === 2_147_483_647) throw new ConflictException('authorization_version_exhausted');
       const now = this.now();
-      const before = { version: row.grant.version, revokedAt: null, userId: row.wallet.userId, strategyId: row.wallet.strategyId };
+      const before = { version: row.grant.version, revokedAt: null, revokeRequestedAt: row.grant.revokeRequestedAt?.toISOString() ?? null, userId: row.wallet.userId, strategyId: row.wallet.strategyId };
+      const copy = await this.repository.grantCopy(tx, id);
       let stop = copy?.stop ?? null;
-      const live = copy && copy.strategy.status !== 'stopped' && copy.mandate.activationCursor !== null && copy.mandate.state !== 'prepared';
-      if (copy && live && !stop) {
+      const revokeNow = async (why: string) => {
+        const grant = await this.repository.revokeGrant(tx, id, row.grant.version + 1, now);
+        await this.repository.recordRevocation(tx, { id: randomUUID(), authorizationId: id, userId: row.wallet.userId, version: grant.version, action: 'revoked', createdAt: now });
+        await recordAdminAudit(tx, actor, 'copy.grant.revoke', `grant:${id}`, before,
+          { version: grant.version, revokedAt: now.toISOString(), reason, forced: Boolean(force), why, stopState: stop?.state ?? null, positionsMayRemain: why !== 'copy_ended' });
+        return { id, version: grant.version, revokedAt: now.toISOString(), revokeRequestedAt: null, stopId: null };
+      };
+      if (force) return revokeNow('forced_by_admin');
+      if (row.grant.revokeRequestedAt) {
+        if (stop && stop.state !== 'blocked') return pendingAnswer(row.grant, stop.id);
+        return revokeNow(stop ? 'stop_blocked' : 'stop_not_open');
+      }
+      const live = Boolean(copy?.strategy && copy.strategy.status !== 'stopped' && copy.activated);
+      if (!live && !stop) return revokeNow('copy_ended');
+      if (!stop && copy?.activated) {
         try {
-          stop = await this.stops.request(tx, copy.mandate.userId, copy.mandate.id,
-            { idempotencyKey: `admin-revoke-${id}-${row.grant.version}`.slice(0, 128), expectedMandateRevision: copy.mandate.revision }, () => now.getTime());
+          // Keyed by the generation, not the grant version (which a pending
+          // revoke does not change): a later revoke of a later generation
+          // must not get back an old, already stopped stop.
+          stop = await this.stops.request(tx, copy.activated.userId, copy.activated.id,
+            { idempotencyKey: `admin-revoke-${id}-${copy.activated.id}-${copy.activated.revision}`.slice(0, 128), expectedMandateRevision: copy.activated.revision }, () => now.getTime());
         } catch (error) {
           // The copy cannot be stopped from here (its records disagree): do
-          // not revoke into a stranded account; the admin sees why.
+          // not revoke into a stranded account; the admin sees why (force
+          // remains available).
           if (error instanceof HttpException) throw new ConflictException({ statusCode: 409, code: 'live_revoke_needs_stop',
-            message: 'This copy could not be stopped, so its grant was not revoked (a stop needs it to close the positions). Check the copy\'s stop.' });
+            message: 'This copy could not be stopped, so its grant was not revoked (a stop needs it to close the positions). Check the copy\'s stop, or revoke now (force) if positions may stay open.' });
           throw error;
         }
       }
-      if (copy && (live || stop)) {
-        const grant = await this.repository.requestRevoke(tx, id, now);
-        await recordAdminAudit(tx, actor, 'copy.grant.revoke', `grant:${id}`, before,
-          { version: grant.version, revokedAt: null, revokeRequestedAt: now.toISOString(), stopId: stop?.id ?? null, reason });
-        return answer(grant, stop?.id ?? null);
-      }
-      const grant = await this.repository.revokeGrant(tx, id, row.grant.version + 1, now);
-      await this.repository.recordRevocation(tx, { id: randomUUID(), authorizationId: id, userId: row.wallet.userId, version: grant.version, action: 'revoked', createdAt: now });
-      await recordAdminAudit(tx, actor, 'copy.grant.revoke', `grant:${id}`, before, { version: grant.version, revokedAt: now.toISOString(), reason });
-      return answer(grant, null);
+      // A stop that cannot run (blocked: its tracking is unproven) or has
+      // already ended cannot use the grant: revoke now, said so in the audit.
+      if (!stop || stop.state === 'stopped') return revokeNow('stop_not_open');
+      if (stop.state === 'blocked') return revokeNow('stop_blocked');
+      const grant = await this.repository.requestRevoke(tx, id, now);
+      await recordAdminAudit(tx, actor, 'copy.grant.revoke', `grant:${id}`, before,
+        { version: grant.version, revokedAt: null, revokeRequestedAt: now.toISOString(), stopId: stop.id, reason });
+      return pendingAnswer(grant, stop.id);
     });
   }
 }

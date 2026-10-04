@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
-  copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+  copyExecutionWallets, copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
+import { recordAdminAudit } from '../../common/audit/admin-audit.js';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
@@ -119,6 +120,39 @@ export class CopyLiveStopWorkerRepository {
         await tx.insert(copyWalletAuthorizationEvents).values({ id: randomUUID(), authorizationId: grant.id, userId: stop.userId, version: grant.version + 1, action: 'revoked', createdAt: at });
       }
       return true;
+    });
+  }
+
+  /**
+   * Revokes every grant whose admin-requested revocation is still pending
+   * when its stop can no longer end it: the deadline passed, or the
+   * account's stop is blocked or no longer open. Audited as
+   * copy.grant.revoke by the system, with the reason and that positions may
+   * remain.
+   */
+  async expirePendingRevokes(now: number, deadlineMs: number): Promise<Array<{ id: string; reason: string }>> {
+    return this.uow.run(async tx => {
+      const pending = await tx.select({ grant: copyWalletAuthorizations, wallet: copyExecutionWallets }).from(copyWalletAuthorizations)
+        .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))
+        .where(and(sql`${copyWalletAuthorizations.revokeRequestedAt} is not null`, sql`${copyWalletAuthorizations.revokedAt} is null`))
+        .for('update', { of: copyWalletAuthorizations }).limit(100);
+      const forced: Array<{ id: string; reason: string }> = [];
+      for (const { grant, wallet } of pending) {
+        const accounts = await tx.selectDistinct({ id: copyLiveMandates.accountId }).from(copyLiveMandates).where(eq(copyLiveMandates.authorizationId, grant.id));
+        const [stop] = accounts.length ? await tx.select({ state: copyLiveStopOperations.state }).from(copyLiveStopOperations)
+          .where(and(inArray(copyLiveStopOperations.accountId, accounts.map(a => a.id)), sql`${copyLiveStopOperations.state} <> 'stopped'`)).limit(1) : [];
+        const reason = grant.revokeRequestedAt!.getTime() <= now - deadlineMs ? 'revoke_deadline_passed'
+          : !stop ? 'stop_not_open' : stop.state === 'blocked' ? 'stop_blocked' : null;
+        if (!reason) continue;
+        const at = new Date(now), version = grant.version + 1;
+        await tx.update(copyWalletAuthorizations).set({ revokedAt: at, version }).where(eq(copyWalletAuthorizations.id, grant.id));
+        await tx.insert(copyWalletAuthorizationEvents).values({ id: randomUUID(), authorizationId: grant.id, userId: wallet.userId, version, action: 'revoked', createdAt: at });
+        await recordAdminAudit(tx, null, 'copy.grant.revoke', `grant:${grant.id}`,
+          { version: grant.version, revokedAt: null, revokeRequestedAt: grant.revokeRequestedAt!.toISOString(), userId: wallet.userId, strategyId: wallet.strategyId },
+          { version, revokedAt: at.toISOString(), forced: true, reason, stopState: stop?.state ?? null, positionsMayRemain: Boolean(stop) });
+        forced.push({ id: grant.id, reason });
+      }
+      return forced;
     });
   }
 

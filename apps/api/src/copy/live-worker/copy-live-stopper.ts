@@ -34,7 +34,11 @@ export interface StopperDependencies {
   /** True once a transfer back to the owner's main wallet has been credited. */
   readonly swept: (stop: StopRow) => Promise<boolean>;
   readonly log?: (message: string) => void;
+  /** A revoke-requested grant is revoked anyway after this long. */
+  readonly revokeDeadlineMs?: number;
 }
+/** Default bound on a pending admin revoke (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
+export const REVOKE_DEADLINE_MS = 30 * 60_000;
 const reason = (error: unknown) => (error instanceof LiveBoundaryError ? error.code : 'stop_step_failed').replace(/[^a-z0-9_]/g, '_').slice(0, 80);
 
 /**
@@ -54,6 +58,12 @@ export class CopyLiveStopper {
   constructor(private readonly deps: StopperDependencies, private readonly now: () => number = Date.now) {}
 
   async tick(): Promise<void> {
+    // A pending admin revoke never outlives its bound: past the deadline, or
+    // once the stop it waits for is blocked or gone, the grant is revoked
+    // (audited by the system, positions may remain).
+    for (const forced of await this.deps.repository.expirePendingRevokes(this.now(), this.deps.revokeDeadlineMs ?? REVOKE_DEADLINE_MS)) {
+      this.deps.log?.(`grant ${forced.id} revoked without its stop ending (${forced.reason}); positions may remain on the copy account`);
+    }
     for (const stop of await this.deps.repository.open()) {
       try { await this.step(stop); }
       catch (error) { this.deps.log?.(`stop ${stop.id} kept for the next pass: ${reason(error)}`); await this.deps.repository.issue(stop, reason(error)); }
@@ -174,7 +184,7 @@ export class StopCanceller {
     const operation: PreparedTrackedCancellation = { ...base, fingerprint: trackedCancellationFingerprint({ ...base, fingerprint: '' }) };
     const verifier = new HyperliquidAgentApprovalVerifier('testnet', this.acquire, this.global.fetchInfo, this.now);
     const authority: TrackedCancellationAuthority = { authorize: async (op, phase) => {
-      const current = await this.repository.get(stop.id), consent = await this.repository.consent(stop.id), grant = await findCurrentWalletAuthorization(this.db, account.authorizationId);
+      const current = await this.repository.get(stop.id), consent = await this.repository.consent(stop.id), grant = await findCurrentWalletAuthorization(this.db, account.authorizationId, 'stop');
       if (current?.state !== 'cancelling' || current.revision !== intent.capturedStopRevision || consent?.consentDigest !== consentRow.consentDigest || !await this.repository.ownerEnabled(stop.userId) ||
         !grant || grant.revokedAt !== null || grant.expiresAt <= this.now() || address(grant.signerAddress) !== authorization.signerAddress) throw new LiveBoundaryError('cancel_current_authority_invalid');
       const exchangeApproval = await verifier.verify(grant), checkedAt = this.now();

@@ -93,8 +93,8 @@ export function useAdminLiveLatency(window: "24h" | "7d") {
 /** POST /admin/copy/live/grants/:id/revoke (execution.pause; audited). */
 export function useRevokeLiveGrant() {
   const client = useQueryClient();
-  return useMutation<AdminRevokedLiveGrant, ApiError, { id: string; reason: string }>({
-    mutationFn: ({ id, reason }) => api.post<AdminRevokedLiveGrant>(`/admin/copy/live/grants/${encodeURIComponent(id)}/revoke`, { reason }),
+  return useMutation<AdminRevokedLiveGrant, ApiError, { id: string; reason: string; force?: boolean }>({
+    mutationFn: ({ id, reason, force }) => api.post<AdminRevokedLiveGrant>(`/admin/copy/live/grants/${encodeURIComponent(id)}/revoke`, force ? { reason, force: true } : { reason }),
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.admin.copy.live.accounts }),
   });
 }

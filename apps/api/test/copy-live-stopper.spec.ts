@@ -95,7 +95,8 @@ describe('testnet stop execution', () => {
     positions = [{ coin: 'BTC', size: '0.5' }];
     await stopper().tick(); await stopper().tick();
     expect(closes.map(c => c.coin)).toEqual(['BTC']);
-    expect((await findCurrentWalletAuthorization(db, 'grant'))?.scopes).toEqual(['copy:reduce']);
+    expect((await findCurrentWalletAuthorization(db, 'grant', 'stop'))?.scopes).toEqual(['copy:reduce']);
+    expect((await findCurrentWalletAuthorization(db, 'grant'))?.scopes).toEqual([]);
     positions = []; await stopper().tick(); await stopper().tick();
     expect(await stopRow()).toMatchObject({ state: 'stopped' });
     expect((await db.select().from(schema.copyWalletAuthorizations))[0]).toMatchObject({ version: 5, revokedAt: expect.any(Date) });

@@ -141,8 +141,10 @@ function Accounts() {
                     <TableCell className="whitespace-nowrap">{a.mandate ? `${a.mandate.state} · r${a.mandate.revision}` : "—"}</TableCell>
                     <TableCell className="whitespace-nowrap">{a.stop ? <>{a.stop.state}{a.stop.issue ? <span className="block text-xs text-warning">{a.stop.issue}</span> : null}</> : "—"}</TableCell>
                     <TableCell className="text-right">
-                      {canRevoke && a.grant && !a.grant.revokedAt && !a.grant.revokeRequestedAt ? (
-                        <Button size="sm" variant="secondary" onClick={() => setTarget(a)}>{t("copyAdmin.live.accounts.revoke")}</Button>
+                      {canRevoke && a.grant && !a.grant.revokedAt ? (
+                        <Button size="sm" variant="secondary" onClick={() => setTarget(a)}>
+                          {a.grant.revokeRequestedAt ? t("copyAdmin.live.accounts.revokeNow") : t("copyAdmin.live.accounts.revoke")}
+                        </Button>
                       ) : null}
                     </TableCell>
                   </TableRow>
@@ -151,34 +153,44 @@ function Accounts() {
             </Table>
           )}
       </Panel>
-      <Modal open={target !== null} onOpenChange={(open) => { if (!open) setTarget(null); }} title={t("copyAdmin.live.revoke.title")}>
-        {target?.grant ? <RevokeForm key={target.grant.id} grant={target.grant} onClose={() => setTarget(null)} /> : null}
+      <Modal open={target !== null} onOpenChange={(open) => { if (!open) setTarget(null); }} title={t(target?.grant?.revokeRequestedAt ? "copyAdmin.live.revoke.forceTitle" : "copyAdmin.live.revoke.title")}>
+        {target?.grant ? <RevokeForm key={target.grant.id} grant={target.grant} force={Boolean(target.grant.revokeRequestedAt)} onClose={() => setTarget(null)} /> : null}
       </Modal>
     </section>
   );
 }
 
-function RevokeForm({ grant, onClose }: { grant: NonNullable<AdminLiveAccount["grant"]>; onClose: () => void }) {
+/** The revoke, or (`force`, while a requested revoke waits for the copy's
+ * stop) the immediate revoke, which needs an explicit confirmation that
+ * positions may remain open with nobody to close them. */
+function RevokeForm({ grant, force, onClose }: { grant: NonNullable<AdminLiveAccount["grant"]>; force: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const revoke = useRevokeLiveGrant();
   const [reason, setReason] = useState("");
-  const ok = reason.trim().length >= 3;
+  const [understood, setUnderstood] = useState(false);
+  const ok = reason.trim().length >= 3 && (!force || understood);
   return (
     <form className="flex flex-col gap-4" onSubmit={(event) => {
       event.preventDefault();
-      if (ok && !revoke.isPending) revoke.mutate({ id: grant.id, reason: reason.trim() }, { onSuccess: onClose });
+      if (ok && !revoke.isPending) revoke.mutate({ id: grant.id, reason: reason.trim(), force }, { onSuccess: onClose });
     }}>
-      <p className="text-sm leading-relaxed text-muted-foreground">{t("copyAdmin.live.revoke.help")}</p>
+      <p className="text-sm leading-relaxed text-muted-foreground">{t(force ? "copyAdmin.live.revoke.forceHelp" : "copyAdmin.live.revoke.help")}</p>
       <p className="num rounded-xl bg-raised p-3 text-xs font-semibold">{t("copyAdmin.live.revoke.target", { id: grant.id, version: grant.version })}</p>
       <div className="grid gap-2">
         <Label htmlFor="copy-live-revoke-reason">{t("copyAdmin.live.revoke.reason")}</Label>
         <Textarea id="copy-live-revoke-reason" required minLength={3} maxLength={500} rows={3} value={reason} onChange={(event) => setReason(event.target.value)}
           placeholder={t("copyAdmin.live.revoke.reasonHint")} className="font-sans" />
       </div>
+      {force ? (
+        <label className="flex items-start gap-2.5 text-sm">
+          <input type="checkbox" checked={understood} onChange={(event) => setUnderstood(event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--color-negative)]" />
+          <span>{t("copyAdmin.live.revoke.forceConfirm")}</span>
+        </label>
+      ) : null}
       {revoke.isError ? <p role="alert" className="rounded-xl bg-negative-soft px-3.5 py-2.5 text-sm text-negative">{t("copyAdmin.live.revoke.failed", { message: revoke.error.message })}</p> : null}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onClose}>{t("copyAdmin.live.revoke.cancel")}</Button>
-        <Button type="submit" disabled={!ok || revoke.isPending}>{revoke.isPending ? t("copyAdmin.live.revoke.sending") : t("copyAdmin.live.revoke.confirm")}</Button>
+        <Button type="submit" disabled={!ok || revoke.isPending}>{revoke.isPending ? t("copyAdmin.live.revoke.sending") : t(force ? "copyAdmin.live.revoke.forceSubmit" : "copyAdmin.live.revoke.confirm")}</Button>
       </div>
     </form>
   );

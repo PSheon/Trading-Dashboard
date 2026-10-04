@@ -10,15 +10,28 @@ import { address, type WalletAuthorization, type WalletAuthorizationSource } fro
  * supply exchangeApprovedAt, owner quorum or wallet metadata. */
 @Injectable()
 export class PostgresWalletAuthorizationSource implements WalletAuthorizationSource {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
+  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly purpose?: GrantPurpose) {}
   async find(id: string): Promise<WalletAuthorization | null> {
-    return findCurrentWalletAuthorization(this.db, id);
+    return findCurrentWalletAuthorization(this.db, id, this.purpose);
   }
+}
+
+/** Who loads the grant for signing. Only the stop executor ('stop': the
+ * stop's reduce-only closes and its owner-consented cancellations) may use a
+ * grant whose revocation an admin requested. */
+export type GrantPurpose = 'stop';
+
+/** The scopes a grant authorises for `purpose`: all of them normally; once
+ * an admin requested its revocation, nothing, except copy:reduce for the
+ * stop executor (the copy is being stopped with it). */
+export function effectiveGrantScopes<T extends string>(scopes: readonly T[], revokeRequestedAt: Date | null, purpose?: GrantPurpose): T[] {
+  if (!revokeRequestedAt) return [...scopes];
+  return purpose === 'stop' ? scopes.filter(scope => scope === 'copy:reduce') : [];
 }
 
 /** The caller supplies its transaction/connection. This query never opens a
  * second pool while the actual execution's original session owns user locks. */
-export async function findCurrentWalletAuthorization(db: DbExecutor, id: string): Promise<WalletAuthorization | null> {
+export async function findCurrentWalletAuthorization(db: DbExecutor, id: string, purpose?: GrantPurpose): Promise<WalletAuthorization | null> {
     const [row] = await db.select({ grant: copyWalletAuthorizations, wallet: copyExecutionWallets, disabledAt: users.disabledAt }).from(copyWalletAuthorizations)
       .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))
       .innerJoin(users, eq(users.id, copyExecutionWallets.userId))
@@ -39,7 +52,7 @@ export async function findCurrentWalletAuthorization(db: DbExecutor, id: string)
     const { grant, wallet } = row;
     return { id: grant.id, version: grant.version, userId: wallet.userId, strategyId: wallet.strategyId, walletId: wallet.privyWalletId,
       privyOwnerId: wallet.privyOwnerId, accountAddress: address(wallet.accountAddress), signerAddress: address(wallet.signerAddress), network: wallet.network,
-      // Revoke requested by an admin: kept for the stop's reduce-only closes only.
-      scopes: grant.revokeRequestedAt ? grant.scopes.filter(scope => scope === 'copy:reduce') : grant.scopes, validFrom: grant.validFrom.getTime(), expiresAt: grant.expiresAt.getTime(), revokedAt: grant.revokedAt?.getTime() ?? null,
+      // Revoke requested by an admin: nothing, or the stop's reduce-only closes.
+      scopes: effectiveGrantScopes(grant.scopes, grant.revokeRequestedAt, purpose), validFrom: grant.validFrom.getTime(), expiresAt: grant.expiresAt.getTime(), revokedAt: grant.revokedAt?.getTime() ?? null,
       exchangeApprovedAt: grant.exchangeApprovedAt?.getTime() ?? null };
 }

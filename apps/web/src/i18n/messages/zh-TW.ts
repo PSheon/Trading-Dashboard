@@ -658,6 +658,7 @@ export const zhTW = {
         revoked: "{date} 已撤銷",
         revokePending: "{date} 已要求撤銷：保留給停止流程平倉，停止結束時撤銷",
         revoke: "撤銷授權",
+        revokeNow: "立即撤銷",
       },
       revoke: {
         title: "撤銷交易授權",
@@ -669,6 +670,10 @@ export const zhTW = {
         cancel: "取消",
         sending: "撤銷中…",
         failed: "未撤銷：{message}",
+        forceTitle: "立即撤銷，不等停止流程",
+        forceHelp: "此授權正在等待跟單的停止流程用它平倉。立即撤銷會中止這件事：跟單帳戶上仍有的持倉或掛單會維持開啟，Orbie 將無法再平倉或撤單。期限到或停止流程受阻時也會自動撤銷。此操作會記錄於稽核。",
+        forceConfirm: "我了解跟單帳戶上的持倉可能維持開啟，且不會有人平倉。",
+        forceSubmit: "立即撤銷",
       },
       transfers: {
         title: "錢包轉帳",

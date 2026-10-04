@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsIn, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
 
 import { Trim } from "../../common/decorators/input.decorator.js";
 
@@ -22,4 +22,6 @@ export class AdminLiveGrantParamsDto {
 export class AdminRevokeLiveGrantDto {
   @ApiProperty({ type: String, minLength: 3, maxLength: 500 })
   @Trim() @IsString() @MinLength(3) @MaxLength(500) declare reason: string;
+  @ApiPropertyOptional({ type: Boolean, description: "Revoke now even while the copy's stop has not ended; positions may remain on the copy account" })
+  @IsOptional() @IsBoolean() force?: boolean;
 }

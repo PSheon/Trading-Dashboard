@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
-import { adminAuditLogs, copyFundingOperations, copyLiveDispatches, copyLiveExecutions, copyLiveManualCloses, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
-import { adminLiveAccountsSchema, adminLiveLatencySchema, adminLiveOrdersSchema, adminLiveTransfersSchema, adminRevokedLiveGrantSchema } from '@trading-dashboard/shared/contracts';
+import { adminAuditLogs, copyFundingOperations, copyLiveDispatches, copyLiveExecutions, copyLiveManualCloses, copyLiveMandates, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
+import { liveCopyMandateIntentSchema, adminLiveAccountsSchema, adminLiveLatencySchema, adminLiveOrdersSchema, adminLiveTransfersSchema, adminRevokedLiveGrantSchema } from '@trading-dashboard/shared/contracts';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,7 +10,11 @@ import { CopyAdminLiveRepository } from '../src/copy/copy-admin-live.repository.
 import { CopyAdminLiveService } from '../src/copy/copy-admin-live.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
-import { findCurrentWalletAuthorization } from '../src/copy/live/postgres-wallet-authorizations.js';
+import { effectiveGrantScopes, findCurrentWalletAuthorization, PostgresWalletAuthorizationSource } from '../src/copy/live/postgres-wallet-authorizations.js';
+import { assertWalletAuthorization } from '../src/copy/live/wallet-authorization.js';
+import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
+import { UnitOfWork } from '../src/db/unit-of-work.js';
+import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.js';
 import { createAuthedApp, stubPrivy } from './auth-test-utils.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
@@ -95,8 +99,9 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: 'stopping', pauseNewRisk: true, reduceOnly: true });
     expect(await db.select({ id: copyLiveStopOperations.id, state: copyLiveStopOperations.state }).from(copyLiveStopOperations)).toEqual([{ id: first.stopId, state: 'requested' }]);
     expect((await db.select().from(copyWalletAuthorizations).where(eq(copyWalletAuthorizations.id, 'grant')))[0]).toMatchObject({ version: 4, revokedAt: null, revokeRequestedAt: new Date(now) });
-    // Until then it signs reductions only.
-    expect((await findCurrentWalletAuthorization(db, 'grant'))?.scopes).toEqual(['copy:reduce']);
+    // Until then it signs nothing but the stop's reductions.
+    expect((await findCurrentWalletAuthorization(db, 'grant'))?.scopes).toEqual([]);
+    expect((await findCurrentWalletAuthorization(db, 'grant', 'stop'))?.scopes).toEqual(['copy:reduce']);
     expect(await db.select().from(copyWalletAuthorizationEvents)).toEqual([]);
     const audit = await db.select().from(adminAuditLogs);
     expect(audit).toHaveLength(1);
@@ -105,6 +110,67 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     const accounts = (await as('admin-token').get('/admin/copy/live/accounts').expect(200)).body.data;
     expect(accounts.items[0].grant).toMatchObject({ version: 4, revokedAt: null, revokeRequestedAt: new Date(now).toISOString() });
     expect(accounts.items[0].stop).toMatchObject({ id: first.stopId, state: 'requested' });
+  });
+
+  it('a revoke-requested grant authorises nothing but the stop executor\'s reduce-only closes, wherever it is loaded for signing', async () => {
+    await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200);
+    const request = { authorizationId: 'grant', userId: 1, strategyId: 9, walletId: 'agent', network: 'testnet' as const, accountAddress: seed.f.identity.accountAddress as `0x${string}` };
+    // The engine, a single-position close, any other signer: nothing.
+    const plain = await findCurrentWalletAuthorization(db, 'grant');
+    expect(plain?.scopes).toEqual([]);
+    expect(() => assertWalletAuthorization(plain, { ...request, reduceOnly: true }, now)).toThrow('wallet_scope_denied');
+    expect(() => assertWalletAuthorization(plain, { ...request, reduceOnly: false }, now)).toThrow('wallet_scope_denied');
+    expect((await new PostgresWalletAuthorizationSource(db).find('grant'))?.scopes).toEqual([]);
+    // The stop executor: reductions only.
+    const stop = await new PostgresWalletAuthorizationSource(db, 'stop').find('grant');
+    expect(() => assertWalletAuthorization(stop, { ...request, reduceOnly: true }, now)).not.toThrow();
+    expect(() => assertWalletAuthorization(stop, { ...request, reduceOnly: false }, now)).toThrow('wallet_scope_denied');
+    // A new mandate on it is refused.
+    const [grant] = await db.select().from(copyWalletAuthorizations);
+    expect(effectiveGrantScopes(grant!.scopes, grant!.revokeRequestedAt)).toEqual([]);
+  });
+
+  it('a paused copy, or one whose renewal is still prepared, is stopped first, not revoked at once', async () => {
+    await db.update(copyStrategies).set({ status: 'paused' });
+    // The activated generation has expired (its positions may remain); a
+    // renewal on the same grant is prepared and was never activated.
+    await db.update(copyLiveMandates).set({ state: 'expired' });
+    const [old] = await db.select().from(copyLiveMandates);
+    const renewal = liveCopyMandateIntentSchema.parse({ ...(old!.intent as Record<string, unknown>), mandateId: 'mandate-renewal', nonce: old!.nonce + 1 });
+    await db.insert(copyLiveMandates).values({ ...old!, id: 'mandate-renewal', idempotencyKey: 'source-live-mandate-0002', nonce: old!.nonce + 1, intent: renewal as never, intentDigest: mandateDigest(renewal),
+      consentDigest: null, state: 'prepared', revision: 1, activationCursor: null,
+      createdAt: new Date(now + 1), updatedAt: new Date(now + 1) });
+    const answer = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200)).body.data);
+    expect(answer).toMatchObject({ revokedAt: null, revokeRequestedAt: new Date(now).toISOString() });
+    expect(await db.select({ mandateId: copyLiveStopOperations.mandateId }).from(copyLiveStopOperations)).toEqual([{ mandateId: 'mandate' }]);
+  });
+
+  it('a pending revoke is bounded: revoked by the worker past the deadline, when its stop is blocked, or at once on force (with positions-may-remain in the audit)', async () => {
+    const first = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200)).body.data);
+    const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db));
+    // Within the deadline, with its stop running: still pending.
+    expect(await stops.expirePendingRevokes(now + 60_000, 30 * 60_000)).toEqual([]);
+    // Past it: revoked by the system, audited.
+    expect(await stops.expirePendingRevokes(now + 31 * 60_000, 30 * 60_000)).toEqual([{ id: 'grant', reason: 'revoke_deadline_passed' }]);
+    expect((await db.select().from(copyWalletAuthorizations))[0]).toMatchObject({ version: 5, revokedAt: new Date(now + 31 * 60_000) });
+    const audit = await db.select().from(adminAuditLogs).orderBy(adminAuditLogs.id);
+    expect(audit.at(-1)).toMatchObject({ actorKind: 'system', event: 'copy.grant.revoke', afterJson: { forced: true, reason: 'revoke_deadline_passed', stopState: 'requested', positionsMayRemain: true } });
+    expect(first.stopId).toBeTruthy();
+  });
+
+  it('a second revoke while pending revokes at once once the stop it waited for is blocked; force revokes at once', async () => {
+    await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200);
+    await db.update(copyLiveStopOperations).set({ state: 'blocked', issue: 'tracked_execution_unproven' });
+    const again = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'stop is stuck' }).expect(200)).body.data);
+    expect(again).toMatchObject({ version: 5, revokedAt: new Date(now).toISOString(), revokeRequestedAt: null, stopId: null });
+    expect((await db.select().from(adminAuditLogs).orderBy(adminAuditLogs.id)).at(-1)).toMatchObject({ afterJson: { why: 'stop_blocked', positionsMayRemain: true } });
+  });
+
+  it('force revokes a running copy\'s grant at once and records that positions may remain', async () => {
+    const forced = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'agent key leaked', force: true }).expect(200)).body.data);
+    expect(forced).toEqual({ id: 'grant', version: 5, revokedAt: new Date(now).toISOString(), revokeRequestedAt: null, stopId: null });
+    expect(await db.select().from(copyLiveStopOperations)).toEqual([]);
+    expect((await db.select().from(adminAuditLogs))[0]).toMatchObject({ afterJson: { forced: true, why: 'forced_by_admin', positionsMayRemain: true, reason: 'agent key leaked' } });
   });
 
   it('revokes at once when the copy has ended (nothing left for the grant to close)', async () => {

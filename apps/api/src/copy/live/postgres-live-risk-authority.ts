@@ -1,4 +1,5 @@
 import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { effectiveGrantScopes } from './postgres-wallet-authorizations.js';
 import { isDeepStrictEqual } from 'node:util';
 import { adminSettingsSchema, copyRiskLimitsSchema, copyStrategySettingsSchema } from '@trading-dashboard/shared/contracts';
 import { appSettings, copyAgentSetups, copyControls, copyExecutionAccounts, copyExecutionWallets, copyFollowerAccountState, copyFundingOperations,
@@ -48,7 +49,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
     w.userId===a.userId&&w.strategyId===s.id&&w.network===a.network&&w.accountAddress===a.address&&w.privyOwnerId===a.ownerQuorumId&&w.retiredAt===null&&
     w.privyWalletId===consent.agentWalletId&&w.signerAddress===consent.agentAddress&&g.walletId===w.id&&g.version===consent.authorizationVersion&&setup.expiresAt.getTime()===g.expiresAt.getTime(),'live_risk_grant_changed');
   const current={id:g.id,version:g.version,userId:a.userId,strategyId:s.id,walletId:w.privyWalletId,privyOwnerId:w.privyOwnerId,signerAddress:address(w.signerAddress),
-    accountAddress:address(a.address),network:a.network,scopes:g.scopes,validFrom:g.validFrom.getTime(),expiresAt:g.expiresAt.getTime(),revokedAt:g.revokedAt?.getTime()??null,exchangeApprovedAt:g.exchangeApprovedAt?.getTime()??null};
+    accountAddress:address(a.address),network:a.network,scopes:effectiveGrantScopes(g.scopes,g.revokeRequestedAt),validFrom:g.validFrom.getTime(),expiresAt:g.expiresAt.getTime(),revokedAt:g.revokedAt?.getTime()??null,exchangeApprovedAt:g.exchangeApprovedAt?.getTime()??null};
   const currentAuthorization=assertWalletAuthorization(current,{authorizationId:g.id,userId:a.userId,strategyId:s.id,walletId:w.privyWalletId,network:a.network,accountAddress:address(a.address),reduceOnly:false},now);
   riskSourceRequire(settings.copyStartMode==='delta','live_risk_adoption_unproven');
   const [policy]=await read(db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1));

@@ -63,6 +63,9 @@ function agentSigning(source: Environment): AgentSigningConfig | undefined {
   } catch { throw new Error("PRIVY_AGENT_AUTHORIZATION_KEY must be a canonical base64 P256 PKCS8 private key"); }
 }
 export interface LiveCopyConfig {
+  /** How long a grant whose revocation an admin requested stays usable for
+   * its copy's stop before it is revoked anyway (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
+  revokeDeadlineMs?: number;
   /** Largest testnet/mainnet mid difference at which a mainnet leader's open
    * is still mirrored on testnet (COPY_TESTNET_MAX_PRICE_DEVIATION_BPS). */
   maxSourceDeviationBps: number;
@@ -95,6 +98,7 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
       slippageBps: integerValue("COPY_LIVE_SLIPPAGE_BPS", source.COPY_LIVE_SLIPPAGE_BPS, 30, 0, 500),
       intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),
       weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 400),
+      revokeDeadlineMs: integerValue("COPY_LIVE_REVOKE_DEADLINE_MINUTES", source.COPY_LIVE_REVOKE_DEADLINE_MINUTES, 30, 1, 1440) * 60_000,
     };
   }
   return {

@@ -203,7 +203,19 @@ for (const width of [1440, 390]) {
       // A running copy is stopped first; the grant is revoked when the stop ends.
       await expect(wallets).toContainText("revoke requested");
       await expect(wallets).toContainText("requested");
-      await expect(wallets.getByRole("button", { name: "Revoke grant", exact: true })).toHaveCount(0);
+      // Revoking now, without the stop, needs an explicit confirmation.
+      await wallets.getByRole("button", { name: "Revoke now", exact: true }).click();
+      const force = page.getByRole("dialog", { name: "Revoke now, without waiting for the stop" });
+      await settled(page);
+      await expectAccessible(page);
+      await force.getByLabel("Reason").fill("Drill: stop is stuck");
+      const now = force.getByRole("button", { name: "Revoke now", exact: true });
+      await expect(now).toBeDisabled();
+      await force.getByLabel("I understand that positions may remain open on the copy account with nobody to close them.").check();
+      await now.click();
+      await expect(force).toBeHidden();
+      await expect(wallets).toContainText("revoked");
+      await expect(wallets.getByRole("button", { name: /^Revoke (grant|now)$/ })).toHaveCount(0);
       expect(errors).toEqual([]);
     });
 

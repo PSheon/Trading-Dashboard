@@ -112,16 +112,23 @@ export class CopyAdminLiveRepository {
       .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))
       .where(and(eq(copyWalletAuthorizations.id, id), eq(copyExecutionWallets.network, 'testnet'))).for('update', { of: copyWalletAuthorizations }))[0];
   }
-  /** The newest generation trading under this grant, with its strategy, and
-   * the account's stop that has not ended (if any). */
+  /** The copy behind this grant: its strategy, the account's newest
+   * generation that was ever activated and not stopped (active, paused,
+   * revoked or expired: its positions may still be there), and the stop that
+   * has not ended. Decided by the account, not by the newest mandate: a
+   * renewal still prepared must not hide an older activated generation's
+   * positions. */
   async grantCopy(tx: DbTransaction, id: string) {
-    const [mandate] = await tx.select({ mandate: copyLiveMandates, strategy: copyStrategies }).from(copyLiveMandates)
-      .innerJoin(copyStrategies, eq(copyStrategies.id, copyLiveMandates.strategyId))
+    const [first] = await tx.select({ accountId: copyLiveMandates.accountId, strategyId: copyLiveMandates.strategyId }).from(copyLiveMandates)
       .where(eq(copyLiveMandates.authorizationId, id)).orderBy(desc(copyLiveMandates.createdAt)).limit(1);
-    if (!mandate) return null;
+    if (!first) return null;
+    const [strategy] = await tx.select().from(copyStrategies).where(eq(copyStrategies.id, first.strategyId));
+    const [activated] = await tx.select().from(copyLiveMandates)
+      .where(and(eq(copyLiveMandates.accountId, first.accountId), sql`${copyLiveMandates.activationCursor} is not null`, sql`${copyLiveMandates.state} <> 'stopped'`))
+      .orderBy(desc(copyLiveMandates.createdAt)).limit(1);
     const [stop] = await tx.select().from(copyLiveStopOperations)
-      .where(and(eq(copyLiveStopOperations.accountId, mandate.mandate.accountId), sql`${copyLiveStopOperations.state} <> 'stopped'`)).limit(1);
-    return { ...mandate, stop: stop ?? null };
+      .where(and(eq(copyLiveStopOperations.accountId, first.accountId), sql`${copyLiveStopOperations.state} <> 'stopped'`)).limit(1);
+    return { strategy: strategy ?? null, activated: activated ?? null, stop: stop ?? null };
   }
   /** Not a new version: the stop's closes are signed under the version the
    * copy's orders carry; the version moves when the grant is revoked. */

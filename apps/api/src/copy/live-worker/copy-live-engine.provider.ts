@@ -54,7 +54,7 @@ export const liveEngineProvider: Provider = {
     const scanner = new CopyFollowerReconciler(scans, ledger,
       new HyperliquidFollowerReceiptReader('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo));
     const closer = new TestnetReduceOnlyCloser(pool, db, uow, testnetConfig, testnetGlobal, testnetBudget, Math.max(100, live.slippageBps * 3));
-    const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message),
+    const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs,
       canceller: new StopCanceller(pool, db, testnetConfig, testnetGlobal, testnetBudget, stops, (account, key) => closer.reconcile(account, key)),
       // Returning funds to the main wallet is the owner's signed transfer; the
       // stop ends once that sweep is credited.

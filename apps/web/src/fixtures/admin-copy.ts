@@ -278,9 +278,11 @@ export function fixtureAdminLiveRevoke(id: string, body: unknown) {
   const reason = (body as { reason?: unknown } | null)?.reason;
   if (typeof reason !== "string" || reason.trim().length < 3) throw new ApiError(400, "reason is required", { code: "validation_failed" });
   if (id !== liveGrant.id) throw new ApiError(404, "Wallet authorization not found");
-  if (!liveGrant.revokedAt && !liveGrant.revokeRequestedAt) {
+  if (!liveGrant.revokedAt && (body as { force?: unknown }).force === true) {
+    liveGrant.version += 1; liveGrant.revokedAt = new Date().toISOString(); liveGrant.revokeRequestedAt = null;
+  } else if (!liveGrant.revokedAt && !liveGrant.revokeRequestedAt) {
     liveGrant.revokeRequestedAt = new Date().toISOString();
     liveCopy = { strategyStatus: "stopping", stop: { id: "7a1c2a4e-3b7d-4c8e-9a1f-2d3e4f5a6b70", state: "requested", issue: null } };
   }
-  return { id, version: liveGrant.version, revokedAt: liveGrant.revokedAt, revokeRequestedAt: liveGrant.revokeRequestedAt, stopId: liveCopy.stop?.id ?? null };
+  return { id, version: liveGrant.version, revokedAt: liveGrant.revokedAt, revokeRequestedAt: liveGrant.revokedAt ? null : liveGrant.revokeRequestedAt, stopId: liveGrant.revokedAt ? null : liveCopy.stop?.id ?? null };
 }

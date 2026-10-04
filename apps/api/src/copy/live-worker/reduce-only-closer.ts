@@ -17,7 +17,7 @@ import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-mar
 import type { LiveOrderIntent } from '../live/live-order.js';
 import { HyperliquidLiveTransport } from '../live/hyperliquid-live-transport.js';
 import { PostgresLiveExecutionJournal } from '../live/postgres-live-journal.js';
-import { PostgresWalletAuthorizationSource } from '../live/postgres-wallet-authorizations.js';
+import { PostgresWalletAuthorizationSource, type GrantPurpose } from '../live/postgres-wallet-authorizations.js';
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { PrivyOrderSigner } from '../live/privy-order-signer.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from '../live/wallet-authorization.js';
@@ -64,11 +64,11 @@ export class TestnetReduceOnlyCloser {
     } finally { await sockets.close(); }
   }
 
-  private executor(account: CloseAccount, stillWanted: () => Promise<boolean>) {
+  private executor(account: CloseAccount, stillWanted: () => Promise<boolean>, purpose?: GrantPurpose) {
     const { auth, copy } = this.config.value;
     if (!auth.appId || !auth.appSecret || !copy.agent || copy.agent.workerQuorumId !== account.workerQuorumId) throw new LiveBoundaryError('close_signing_configuration');
     const agent = copy.agent;
-    const authorizations = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(this.db),
+    const authorizations = new WalletAuthorizationService(new PostgresWalletAuthorizationSource(this.db, purpose),
       new HyperliquidAgentApprovalVerifier('testnet', this.acquire, this.global.fetchInfo, this.now), this.now);
     const gate: LiveExecutionGate = { assertReady: async ({ phase, intent, record }) => {
       if (!intent.reduceOnly || intent.timeInForce !== 'Ioc' || intent.network !== 'testnet' || address(intent.accountAddress) !== address(account.accountAddress))
@@ -107,7 +107,9 @@ export class TestnetReduceOnlyCloser {
    * Null when the account holds no position in it. */
   async close(request: CloseRequest): Promise<LiveExecutionRecord | null> {
     const { account } = request, cloid = closeCloid(request.seed), key = `testnet:${address(account.accountAddress)}:${cloid}`;
-    const { executor, resolver, journal } = this.executor(account, request.stillWanted);
+    // A stop's close (seed stop:…) may use a grant whose revocation was
+    // requested; a single-position close may not.
+    const { executor, resolver, journal } = this.executor(account, request.stillWanted, request.seed.startsWith('stop:') ? 'stop' : undefined);
     const existing = await journal.get(key);
     if (existing) return ['submitting', 'unknown', 'resting'].includes(existing.state) ? executor.reconcile(key) : existing;
     // The caller's observation of a moment ago (same pass) is reused: every

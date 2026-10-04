@@ -41317,6 +41317,10 @@
             "type": "string",
             "minLength": 3,
             "maxLength": 500
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Revoke now even while the copy's stop has not ended; positions may remain on the copy account"
           }
         },
         "required": [

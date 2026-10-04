@@ -36,7 +36,8 @@ export const adminLiveLatencySchema = z.object({
   window: z.enum(['24h', '7d']), count: z.number().int(), signal: percentiles, sent: percentiles, ack: percentiles, settled: percentiles,
 }).strict();
 export const adminLiveLatencyQuerySchema = z.object({ window: z.enum(['24h', '7d']).default('24h') }).strict();
-export const adminRevokeLiveGrantSchema = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
+/** force: revoke now even while the copy's stop has not ended (positions may remain). */
+export const adminRevokeLiveGrantSchema = z.object({ reason: z.string().trim().min(3).max(500), force: z.boolean().optional() }).strict();
 /** revokedAt: revoked now (the copy holds nothing it needs the grant for).
  * Otherwise revokeRequestedAt and stopId: the copy is being stopped with the
  * grant and it is revoked when that stop ends. */

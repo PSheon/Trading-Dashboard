@@ -31,6 +31,8 @@ describe("home historical illustration", () => {
   it("shows losses below half the principal without changing the ending value", () => {
     const html = render(-0.8);
     expect(html).toContain("$200");
-    expect(html).toContain("text-negative");
+    // The result is drawn in the loss colours (Orbit's loss tag), never as a gain.
+    expect(html).toMatch(/bg-tag-loss[^"]*"[^>]*><span[^>]*text-tag-loss-foreground[^>]*>\$200</);
+    expect(html).not.toContain("bg-tag-profit");
   });
 });

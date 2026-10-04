@@ -3,13 +3,13 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { cn } from "cn";
 
-import { useT } from "@/i18n/provider";
+import { useI18n } from "@/i18n/provider";
 import type { ThemeChoice } from "@/lib/theme";
 import { useTheme } from "@/lib/use-theme";
 
 /** The header's round theme button: flips light ↔ dark and remembers it. */
 export function ThemeToggle({ className }: { className?: string }) {
-  const t = useT();
+  const { t } = useI18n();
   const { theme, toggle } = useTheme();
   const next = theme === "dark" ? t("theme.light") : t("theme.dark");
   return (
@@ -40,7 +40,7 @@ const CHOICES: { value: ThemeChoice; icon: typeof Sun; label: "theme.system" | "
 
 /** 跟隨系統 / 淺色 / 深色 — the phone menu and Settings. */
 export function ThemeChoiceControl({ className }: { className?: string }) {
-  const t = useT();
+  const { t } = useI18n();
   const { choice, setChoice } = useTheme();
   return (
     <div role="radiogroup" aria-label={t("theme.label")} className={cn("grid grid-cols-3 gap-2", className)}>

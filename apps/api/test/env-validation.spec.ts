@@ -27,6 +27,12 @@ describe("startup environment", () => {
     expect(validateEnvironment(base).hyperliquid.egressKey).toBeUndefined();
     expect(validateEnvironment({ ...base, HYPERLIQUID_EGRESS_KEY: 'project-stage-shared-ip' }).hyperliquid.egressKey).toBe('project-stage-shared-ip');
   });
+  it('refuses to start a deployment without the shared egress alias, instead of failing on first use', () => {
+    for (const NODE_ENV of ['production', 'staging']) {
+      expect(() => validateEnvironment({ ...base, NODE_ENV })).toThrow('HYPERLIQUID_EGRESS_KEY is required');
+    }
+    expect(validateEnvironment({ ...base, NODE_ENV: 'test' }).hyperliquid.egressKey).toBeUndefined();
+  });
   it.each(['', ' ', 'different process', 'x'.repeat(129), 'hidden\u200b', 'host/path'])('rejects invalid shared egress alias %j', value => {
     expect(() => validateEnvironment({ ...base, HYPERLIQUID_EGRESS_KEY: value })).toThrow('HYPERLIQUID_EGRESS_KEY');
   });

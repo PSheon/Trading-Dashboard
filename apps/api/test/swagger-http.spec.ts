@@ -9,7 +9,7 @@ import { validateEnvironment } from "../src/config/runtime-config.js";
 it.each(["development", "test", "staging", "production"])("serves Swagger only in local environments: %s", async nodeEnv => {
   const module = await Test.createTestingModule({ controllers: documentationControllers }).useMocker(() => ({})).compile();
   const app = module.createNestApplication({ logger: false });
-  configureHttpSecurity(app, validateEnvironment({ NODE_ENV: nodeEnv, DATABASE_URL: "postgres://test:test@127.0.0.1:5432/test" }));
+  configureHttpSecurity(app, validateEnvironment({ NODE_ENV: nodeEnv, DATABASE_URL: "postgres://test:test@127.0.0.1:5432/test", HYPERLIQUID_EGRESS_KEY: "test-egress" }));
   setupSwagger(app, nodeEnv);
   await app.listen(0, "127.0.0.1");
   try {

@@ -229,6 +229,12 @@ export function validateEnvironment(source: Environment = process.env) {
   };
   const egressKey = optional(source.HYPERLIQUID_EGRESS_KEY);
   if (source.HYPERLIQUID_EGRESS_KEY !== undefined && (!egressKey || !/^[A-Za-z0-9:._-]{1,128}$/.test(egressKey))) throw new Error('HYPERLIQUID_EGRESS_KEY must be a canonical shared egress identifier');
+  // Every Hyperliquid info call goes through the shared quota, which refuses
+  // to run without the alias: a deployment that forgot it would start, pass
+  // its readiness check, and then fail every trader page, snapshot and
+  // discovery read. It fails here instead (staging and production; local
+  // development and tests may run without it, public reads then fail).
+  if (production && !egressKey) throw new Error("HYPERLIQUID_EGRESS_KEY is required in staging and production (the same value on the api and the worker)");
   const hyperliquid = {
     /** All application processes sharing outbound capacity use this exact
      * alias. Missing configuration never grants unmetered actual execution. */

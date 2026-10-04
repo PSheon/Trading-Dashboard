@@ -62,6 +62,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | `API_CORS_ORIGINS` | `https://stage.orbie.fun` | production origin | exact origins |
 | `API_TRUSTED_PROXY_CIDRS` | as set on Stage (`http-security-and-logs.md`) | same rule | explicit addresses or CIDRs only |
 | `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `480` / `200` | `480` / `200` | page traffic; api + worker share one IP limit of 1,200/min and one meter whose background lane holds 840: the two rates add up to 840, rates + bursts stay under 1,200 |
+| `HYPERLIQUID_EGRESS_KEY` | as set on Stage | one value per outbound IP | **required** in staging and production (startup fails without it); the same value on the api and the worker: the shared Hyperliquid quota is keyed by it |
 | `HYPERLIQUID_STARTUP_PACE_SECONDS` | `60` (default) | `60` | api and worker: a new process starts with empty buckets at half its rate for this long, so a redeploy that overlaps the old instance does not double the spend on the shared IP limit |
 | `HYPERLIQUID_NETWORK` | `testnet` | `testnet` until mainnet signing is approved | user wallet only |
 | `COPY_TRADING_MODE` | `paper` | `paper` | `testnet`/`live` are refused at startup |

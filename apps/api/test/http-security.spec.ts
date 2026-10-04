@@ -11,7 +11,7 @@ it("sets security headers and exposes metadata only to explicitly allowed browse
   @Controller("probe") class Probe { @Get() read() { return { ok: true }; } }
   const ref = await Test.createTestingModule({ controllers: [Probe] }).compile();
   const app = ref.createNestApplication({ logger: false });
-  configureHttpSecurity(app, validateEnvironment({ NODE_ENV: "production", DATABASE_URL: "postgres://test@localhost/test", API_CORS_ORIGINS: "https://app.example.com" }));
+  configureHttpSecurity(app, validateEnvironment({ NODE_ENV: "production", DATABASE_URL: "postgres://test@localhost/test", API_CORS_ORIGINS: "https://app.example.com", HYPERLIQUID_EGRESS_KEY: "test-egress" }));
   app.use(requestContext(new BackgroundJobs()));
   await app.listen(0, "127.0.0.1");
   try {

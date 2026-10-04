@@ -640,6 +640,14 @@ export const traderProfileResponseSchema = z.object({
   /** Sum of `marginSummary.accountValue` over every perp dex. Leverage and
    * margin usage are relative to this. */
   perpEquity: z.number().nullable(),
+  /** Parts that could not be read just now and are left out of the figures
+   * above, never counted as 0: perp dexes ("" is the main dex; out of
+   * `perpEquity`, and out of `accountValue` for a standard account, whose
+   * perp equity it adds) and staked HYPE (out of `accountValue`). Null when
+   * every part was read. `accountValue` / `perpEquity` are null only when no
+   * perp dex at all could be read (a standard account). Optional while older
+   * api builds roll out. */
+  unavailableParts: z.object({ perpDexes: z.array(z.string()), staking: z.boolean() }).nullable().optional(),
   /** Spot balances at their USDC marks. */
   spotValue: z.number(),
   /** Staked HYPE (delegated, undelegated and pending withdrawal). */

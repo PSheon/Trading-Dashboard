@@ -27,6 +27,7 @@ import { useCopyOf } from "@/lib/copy";
 import { signedPctCd, WINDOWS } from "./performance";
 import { PerformanceTab, TradesTab, type PerfView } from "./trade-analytics";
 import { PositionsTab } from "./trader-tabs";
+import { unavailableNote } from "./profile-card";
 
 /** A row of pills, the active one filled with the brand colour (CopyDog's
  * mobile segmented controls). */
@@ -164,6 +165,7 @@ export function MobileTrader({
   const sampleSince = partialSampleSince(analytics?.coverage, allTime?.pnl);
   const sharpe = allTime?.sharpe ?? null;
   const mdd = allTime?.maxDrawdownPct ?? null;
+  const accountGap = unavailableNote(profile, t, format.locale);
 
   useEffect(() => {
     if (!sheet) return;
@@ -265,6 +267,7 @@ export function MobileTrader({
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-[10px] leading-[15px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{t("trader.accountValue")}</dt>
           <dd className="num text-xl leading-[30px] font-bold">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
+          {accountGap ? <p role="status" className="text-[10px] leading-[14px] text-warning">{accountGap}</p> : null}
         </div>
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-[10px] leading-[15px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{t("trader.kpi.sharpe")}</dt>

@@ -145,13 +145,14 @@ describe("public discovery routes over HTTP", () => {
     } finally { service.ordersDexCache.set('dexes', ['']); }
   });
 
-  it('keeps missing profile venues unknown instead of presenting invented zero equity', async () => {
+  it('names a missing venue and shows the known parts instead of inventing zero equity or nulling the account', async () => {
     const address = `0x${'43'.repeat(20)}`, service = app.get(TradersService), observedAt = Date.now();
     service.ordersDexCache.set('dexes', ['', 'xyz']);
     accountReader.read.mockResolvedValueOnce({ states: new Map([['', emptyState]]), missingDexes: ['xyz'], observedAt });
     try {
       const res = await request(app.getHttpServer()).get(`/traders/${address}`).expect(200);
-      expect(res.body.data.perpEquity).toBeNull(); expect(res.body.data.accountValue).toBeNull();
+      expect(res.body.data.perpEquity).toBe(0); expect(res.body.data.unavailableParts).toEqual({ perpDexes: ['xyz'], staking: false });
+      expect(res.body.data.accountValue).not.toBeNull();
       expect(res.body.data.dataQuality.partial).toBe(true);
       expect(res.body.data.dataQuality.sources['perp:xyz']).toMatchObject({ status: 'unavailable', asOf: null });
     } finally { service.ordersDexCache.set('dexes', ['']); }

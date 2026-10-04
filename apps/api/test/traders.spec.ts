@@ -508,13 +508,21 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       expect(await service.isTracked(B)).toBe(false);
     });
 
-    it("retains verified positions when one perp dex fails without publishing partial totals", async () => {
+    it("when one perp dex fails, shows the known parts and names the missing dex instead of nulling the account (audit A8)", async () => {
+      const complete = await controller.profile(UNKNOWN, null);
+      service.profileCache.clear();
       info.clearinghouseState.mockRejectedValueOnce(new Error("dex unavailable"));
       const res = await controller.profile(UNKNOWN, null);
+      expect(complete.unavailableParts).toBeNull();
       expect(res.positions.length).toBeGreaterThan(0);
       expect(res.positions.every(p => p.coin.startsWith("xyz:"))).toBe(true);
-      expect(res.perpEquity).toBeNull();
-      expect(res.accountValue).toBeNull();
+      expect(res.unavailableParts).toEqual({ perpDexes: [""], staking: false });
+      // The xyz dex's equity alone, never the main dex's as 0 silently.
+      expect(res.perpEquity).not.toBeNull();
+      expect(res.perpEquity).toBeLessThan(complete.perpEquity!);
+      expect(res.accountMode).toBe("standard");
+      expect(res.accountValue).toBeCloseTo(res.perpEquity! + res.spotValue + res.stakedValue!, 6);
+      // Ratios over a partial book stay unknown.
       expect(res.longNotional).toBeNull();
       expect(res.spotValue).toBe(1400);
       expect(res.dataQuality?.partial).toBe(true);
@@ -525,7 +533,9 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       info.delegatorSummary.mockRejectedValueOnce(new Error("staking unavailable"));
       const res = await controller.profile(UNKNOWN, null);
       expect(res.stakedValue).toBeNull();
-      expect(res.accountValue).toBeNull();
+      // Perp and spot, with staked HYPE named as left out.
+      expect(res.unavailableParts).toEqual({ perpDexes: [], staking: true });
+      expect(res.accountValue).toBeCloseTo(res.perpEquity! + res.spotValue, 6);
       expect(res.perpEquity).not.toBeNull();
       expect(res.positions.length).toBeGreaterThan(0);
       expect(res.dataQuality?.sources.staking.status).toBe("unavailable");

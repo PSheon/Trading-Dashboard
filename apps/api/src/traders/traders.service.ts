@@ -277,18 +277,23 @@ export class TradersService {
     }
     const perp = summarizeAccount(states.filter(state => state !== null));
     const completePerps = states.every(state => state !== null);
+    // A dex that could not be read is left out and named, not taken as 0
+    // (audit A8): the known parts are still the account's.
+    const anyPerp = states.some(state => state !== null);
+    const missingDexes = dexes.filter((_, i) => states[i] === null);
     const { spotValue, balances } = this.spotPrices.value(spot.balances ?? [], book);
     const stakedValue = staked === null ? null : staked * hypePrice(book);
     const accountMode = toAccountMode(abstraction, spot.portfolioMarginEnabled ?? false);
     return {
       address, displayName: stats?.displayName ?? null, stats, ...perp,
-      perpEquity: completePerps ? perp.perpEquity : null,
+      perpEquity: anyPerp ? perp.perpEquity : null,
       marginUsed: completePerps ? perp.marginUsed : null,
       maintenanceMarginUsed: completePerps ? perp.maintenanceMarginUsed : null,
       withdrawable: completePerps ? perp.withdrawable : null,
       longNotional: completePerps ? perp.longNotional : null,
       shortNotional: completePerps ? perp.shortNotional : null,
-      accountValue: vault ? tvl : completePerps && stakedValue !== null ? totalAccountValue(accountMode, perp.perpEquity, spotValue, stakedValue) : null,
+      accountValue: vault ? tvl : accountMode === "standard" && !anyPerp ? null : totalAccountValue(accountMode, perp.perpEquity, spotValue, stakedValue ?? 0),
+      unavailableParts: vault || (completePerps && stakedValue !== null) ? null : { perpDexes: missingDexes, staking: stakedValue === null },
       spotValue, stakedValue, accountMode, spotBalances: balances, perpDexes: dexes, tracked,
       isVault: vault, analytics,
       dataQuality: { partial: Object.values(sources).some(source => source.status === "unavailable"), sources },

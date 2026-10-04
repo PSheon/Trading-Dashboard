@@ -72,3 +72,17 @@ it("reads CopyDog's 現貨 (spot free of holds), leverage over the whole account
   expect(mild).toContain("看漲");
   expect(mild).not.toContain("極度看漲");
 });
+
+it("shows the known parts of an account value and names what is missing (audit A8)", () => {
+  const partial = { ...base(), accountMode: "standard" as const, accountValue: 120_000, unavailableParts: { perpDexes: ["xyz"], staking: true } };
+  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ProfileCard profile={partial} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
+  expect(html).toContain("$120,000.00");
+  expect(html).toContain("Not included (unavailable right now): xyz perps and staked HYPE");
+  const zh = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={{ ...partial, unavailableParts: { perpDexes: [""], staking: false } }} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
+  expect(zh).toContain("未計入（暫時無法取得）：主永續");
+  // A unified account's value does not add perp equity: a missing dex is not missing from it.
+  const unified = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ProfileCard profile={{ ...partial, accountMode: "unified" as const, unavailableParts: { perpDexes: ["xyz"], staking: false } }} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
+  expect(unified).not.toContain("Not included");
+  const complete = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><ProfileCard profile={{ ...partial, unavailableParts: null }} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
+  expect(complete).not.toContain("Not included");
+});

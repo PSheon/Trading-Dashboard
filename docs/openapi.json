@@ -13611,6 +13611,32 @@
                             "null"
                           ]
                         },
+                        "unavailableParts": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "perpDexes": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "staking": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "perpDexes",
+                                "staking"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "spotValue": {
                           "type": "number"
                         },

@@ -89,12 +89,29 @@ export function freeSpot(profile: Pick<TraderProfileResponse, "spotBalances">): 
   return profile.spotBalances.reduce((sum, b) => sum + (b.total > 0 ? (b.value * Math.max(0, b.total - (b.hold ?? 0))) / b.total : 0), 0);
 }
 
+type Translate = ReturnType<typeof useI18n>["t"];
+
+/** What the account value leaves out because it could not be read just now
+ * (audit A8): perp dexes (for a standard account, whose perp equity it
+ * adds) and staked HYPE. Null when nothing is missing. */
+export function unavailableNote(profile: Pick<TraderProfileResponse, "unavailableParts" | "accountMode" | "isVault">, t: Translate, locale: string): string | null {
+  const gaps = profile.unavailableParts;
+  if (!gaps || profile.isVault) return null;
+  const parts = [
+    ...(profile.accountMode === "standard" ? gaps.perpDexes.map((dex) => (dex === "" ? t("trader.partMainDex") : t("trader.partPerpDex", { dex }))) : []),
+    ...(gaps.staking ? [t("trader.partStaking")] : []),
+  ];
+  if (parts.length === 0) return null;
+  return t("trader.accountValuePartial", { parts: new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(parts) });
+}
+
 /** 帳戶價值 as CopyDog's: the total with a chevron; opening it lists the
  * parts (永續 / 現貨 free of holds / 質押), full precision. A vault shows its
  * TVL alone. */
 function AccountValue({ profile }: { profile: TraderProfileResponse }) {
   const { t, format } = useI18n();
   const [open, setOpen] = useState(false);
+  const note = unavailableNote(profile, t, format.locale);
   const value = (
     <span className="num text-[23px] leading-[30px] font-semibold" data-testid="account-value">
       {format.usd(profile.accountValue, { digits: 2 })}
@@ -123,6 +140,11 @@ function AccountValue({ profile }: { profile: TraderProfileResponse }) {
           <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
         </span>
       </button>
+      {note ? (
+        <p role="status" className="mt-1.5 text-[11px] leading-4 text-warning" data-testid="account-value-partial">
+          {note}
+        </p>
+      ) : null}
       {open ? (
         <div id="account-value-parts" className="mt-3">
           <Row label={t("trader.accountPerp")}>

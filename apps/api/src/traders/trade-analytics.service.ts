@@ -798,8 +798,9 @@ export class TradeAnalyticsService {
     const perpAccountValue = live?.perpAccountValue ?? null;
     // The profile's total (perp + spot + staked) when the page just read it;
     // else the portfolio's latest whole-account value.
-    const profile = this.traders.profileCache.peek(address)?.value as { accountValue?: number | null } | undefined;
-    const accountValue = profile?.accountValue ?? (raw ? (portfolioSeries(raw, "allTime", "all").accountValue.at(-1)?.[1] ?? null) : null);
+    const profile = this.traders.profileCache.peek(address)?.value as { accountValue?: number | null; unavailableParts?: unknown } | undefined;
+    const whole = profile && !profile.unavailableParts ? profile.accountValue : null;
+    const accountValue = whole ?? (raw ? (portfolioSeries(raw, "allTime", "all").accountValue.at(-1)?.[1] ?? null) : null);
     return { allTimePnl, perpAccountValue, accountValue, pnlTier: pnlTier(allTimePnl), sizeTier: sizeTier(accountValue) };
   }
 

@@ -16,6 +16,26 @@ export function validateTestAdminUrl(raw) {
   return url;
 }
 
+/** pg-pool resolves `end()` once its clients are detached, not once the
+ * server has seen them go: each client's Terminate can still be in flight. A
+ * FORCE drop in that window signals the backend, which answers the departing
+ * client with FATAL 57P01, and pg-pool re-emits that on the already-ended pool
+ * as an unhandled 'error' that kills the caller. Wait (bounded) until the
+ * database has no backends left; FORCE then only reaches a connection the
+ * caller genuinely left open, which is a real leak and stays loud. */
+async function waitForDisconnect(admin, name, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { rows } = await admin.query("SELECT count(*)::int AS open FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [name]);
+    if (rows[0].open === 0) return;
+    if (Date.now() >= deadline) {
+      console.warn(`Isolated test database ${name} still has ${rows[0].open} connection(s) open; dropping with FORCE`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 /** Creates only a random owned database; never migrates/truncates the parent.
  * The caller owns its processes/pools and must close them before returning. */
 export async function withTestDatabase(work) {
@@ -35,6 +55,7 @@ export async function withTestDatabase(work) {
   } finally {
     try {
       if (created) {
+        await waitForDisconnect(admin, name);
         await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
         console.log(`Isolated test database removed: ${name}`);
       }

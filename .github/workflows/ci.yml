@@ -86,13 +86,35 @@ jobs:
         run: pnpm --filter @trading-dashboard/web test
       - name: Compiled API bootstrap and shutdown
         run: pnpm test:bootstrap
-      - name: Install Chromium
-        run: pnpm --filter @trading-dashboard/web exec playwright install --with-deps chromium
-      - name: Browser smoke tests
-        run: pnpm --filter @trading-dashboard/web test:e2e
       - name: Production builds
         run: pnpm build
       - name: API runtime image
         run: docker build -f apps/api/Dockerfile -t orbie-api:ci .
       - name: Frozen runtime dependencies, container migration and readiness
         run: node scripts/image-smoke.mjs orbie-api:ci
+  # The browser suite needs no database (its server answers from fixtures),
+  # so it runs beside verify instead of after the 20-minute api tests,
+  # which pushed the single job past its timeout.
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NEXT_ALLOW_ANONYMOUS_BUILD: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          run_install: false
+      - name: Install from lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Build shared contracts
+        run: pnpm --filter @trading-dashboard/shared build
+      - name: Install Chromium
+        run: pnpm --filter @trading-dashboard/web exec playwright install --with-deps chromium
+      - name: Browser smoke tests
+        run: pnpm --filter @trading-dashboard/web test:e2e

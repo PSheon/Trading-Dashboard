@@ -27,6 +27,11 @@ jobs:
           --health-retries 20
     env:
       TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      # CI has no Privy app: its web builds are compile checks, and
+      # `next typegen` (the typecheck) loads next.config.ts in the build
+      # phase too. next.config.ts refuses such a build unless it says it is
+      # anonymous on purpose; Railway's web build has the app id.
+      NEXT_ALLOW_ANONYMOUS_BUILD: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -87,10 +92,6 @@ jobs:
         run: pnpm --filter @trading-dashboard/web test:e2e
       - name: Production builds
         run: pnpm build
-        env:
-          # A compile check with no Privy app (next.config.ts refuses that
-          # by default).
-          NEXT_ALLOW_ANONYMOUS_BUILD: "1"
       - name: API runtime image
         run: docker build -f apps/api/Dockerfile -t orbie-api:ci .
       - name: Frozen runtime dependencies, container migration and readiness

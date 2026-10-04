@@ -155,7 +155,9 @@ export function validateEnvironment(source: Environment = process.env) {
   if (!["api", "worker", "combined"].includes(role)) throw new Error("APP_ROLE must be api, worker or combined");
   if (role === "api" && !source.WORKER_URL) throw new Error("WORKER_URL is required for APP_ROLE=api");
   const workerUrl = source.WORKER_URL ? urlValue("WORKER_URL", source.WORKER_URL, "", ["http:", "https:"]) : undefined;
-  const app = { role, workerUrl, nodeEnv, trustedProxyCidrs, port: integerValue("PORT", source.PORT, 3000, 1, 65535) };
+  const app = { role, workerUrl, nodeEnv, trustedProxyCidrs, // A worker beside an api on one machine needs its own port: WORKER_PORT
+  // wins for APP_ROLE=worker (Railway sets PORT per service and leaves it unset).
+  port: role === "worker" && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };
   const database = { url: databaseUrl(source.DATABASE_URL) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
   const permissions = servicePermissions(source.AUTH_SERVICE_PERMISSIONS);

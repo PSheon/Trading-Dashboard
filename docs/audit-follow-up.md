@@ -202,3 +202,12 @@ Paul's decisions, done in `dev` (one commit each; details in the commit messages
 From `docs/copydog-gap-audit-2026-10-04.md` second round: A1 concurrent profile reads (4 s deadline shorter than the 5 s account read; single-flight busy flag in `live-account-ws-source.ts` fails a concurrent second read); A2 REST backfill cap 365 d / 50,000 fills still in place (status: partial); local worker starved by the shared quota (api and worker both budgeted 840 on one IP); `trackedDue` retries failed addresses first with no backoff; a stale watched trader never recomputes without a worker; coin-icon catalog retry, `boards.ts` leaderboard source with null figures, cohort top-up ordered by whole-account value.
 
 Stage at `cb79f66` since 2026-10-04 09:25Z: `IS_WORKER=true` on the worker (start command still `node dist/worker.js`, a shim; clear it in the Railway UI when convenient), `APP_ROLE` still set on both services and tolerated while it agrees; worker `S3_ARCHIVE_MAX_DAILY_USD=2`; 90-day archive backfill complete (volume 44 GB).
+
+## Roadmap (Paul, 2026-10-04)
+
+1. Feature parity with CopyDog (current: portfolio/sharing/notifications stream → audit second round → testnet copy execution → automatic deposit and other-chain deposit; scaling to ~23k wallets with visible traders refreshed first).
+2. Verification.
+3. Orbie's own UI design (mockups drawn by another session as claude.ai Artifacts).
+4. Move into the Orbie repo (`~/Desktop/Paul/Orbie`, PSheon/Orbie) and deploy.
+
+Card on-ramp: CopyDog's code has it behind a server-side `available` flag (`wallet/onramp-url`, falling back to Privy's card flow); Paul does not see it, so it is not required for parity.

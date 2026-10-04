@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { PrivyAccountModeClient, accountModeTypedData, type AccountModeIntent, type AccountModeOwnedMaster } from '../src/copy/live/privy-account-mode-client.js';
+import { offlineGlobalTransport } from './hyperliquid-global-test-utils.js';
 
 // Real installed SDK, including HPKE JWT exchange/request authorization. Only HTTP is replaced.
 const require = createRequire(import.meta.url);
@@ -69,6 +70,20 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(
 const client = (credentials = true) => new PrivyAccountModeClient(credentials ? { appId: 'test-app', appSecret: 'test-secret' } : {}, budget, transport, () => now);
 
 describe('dedicated testnet standard-mode principal provider', () => {
+  it('requires the current caller proof before any production-configured signing request', async () => {
+    const global = offlineGlobalTransport(transport, () => now).transport;
+    const provider = new PrivyAccountModeClient({ appId: 'test-app', appSecret: 'test-secret' }, budget, transport, () => now, global);
+    await expect(provider.signMaster(master, intent, 'jwt')).rejects.toThrow('account_mode_master_signature_unavailable');
+    expect(requests).toHaveLength(0);
+  });
+  it('signs with the production-configured transport only after its synchronous caller proof', async () => {
+    const global = offlineGlobalTransport(transport, () => now).transport;
+    const provider = new PrivyAccountModeClient({ appId: 'test-app', appSecret: 'test-secret' }, budget, transport, () => now, global);
+    const proof = vi.fn(() => undefined);
+    await expect(provider.signMaster(master, intent, 'jwt', proof)).resolves.toMatch(/^0x[0-9a-f]{130}$/i);
+    expect(proof).toHaveBeenCalledTimes(1);
+    expect(requests.map(r => r.path)).toEqual(['/v1/wallets/master', '/v1/wallets/authenticate', '/v1/wallets/master/rpc']);
+  });
   it('builds immutable canonical principal typed data, not agent or multisig wire aliases', () => {
     const data = accountModeTypedData(intent);
     expect(data.domain).toEqual(expectedDomain); expect(data.types).toEqual(expectedTypes);

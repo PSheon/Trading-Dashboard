@@ -42,7 +42,9 @@ API／worker 已設定同一出站配額識別；實際交易 mode 仍為 paper�
 
 API 診斷 deployment `27b01a5f-b0e6-422c-b9a5-58baee13d959` 確認真實失敗是 `0026_check_constraints` 的第 48 步，PostgreSQL `57014`：歷史成交表 origin CHECK 的同步驗證超過 120 秒。Stage 尚有本輪之前的 migrations 未部署，不能只計算新增的 0049–0052。
 
-已加入只針對原始 0026 SHA-256／60 條 CHECK 的在線執行計畫：先以 NOT VALID 安裝並提交 prefix，新寫入立即受到檢查；0026 此時只記入獨立的 pending marker，保留原檔，尚不寫入 Drizzle 完成 journal。再以允許一般讀寫的鎖，分表合併驗證既有資料，全部完成後才原子提交原始 hash 的 journal 與 validated marker，並執行其餘 migrations。失敗仍禁止發布，新版可接續未驗證 CHECK，舊版 Drizzle 則因已存在的 CHECK 拒絕繼續，避免跳過驗證。隔離 PostgreSQL 真實測試涵蓋舊資料違規、拒絕新違規寫入、舊 runner 拒絕發布、修正後恢復、原始 hash 一致、validation 等待時一般讀寫可完成，以及全新 schema 的完整 journal／CHECK 驗證；全部通過。尚待此修正的真實 Stage deployment 驗證。
+已加入只針對原始 0026 SHA-256／60 條 CHECK 的在線執行計畫：先以 NOT VALID 安裝並提交 prefix，新寫入立即受到檢查；0026 此時只記入獨立的 pending marker，保留原檔，尚不寫入 Drizzle 完成 journal。再以允許一般讀寫的鎖，分表合併驗證既有資料，全部完成後才原子提交原始 hash 的 journal 與 validated marker，並執行其餘 migrations。失敗仍禁止發布，新版可接續未驗證 CHECK，舊版 Drizzle 則因已存在的 CHECK 拒絕繼續，避免跳過驗證。隔離 PostgreSQL 真實測試涵蓋舊資料違規、拒絕新違規寫入、舊 runner 拒絕發布、修正後恢復、原始 hash 一致、validation 等待時一般讀寫可完成，以及全新 schema 的完整 journal／CHECK 驗證；全部通過。此修正已提交並推送 dev `96f219f`；Stage API deployment `01166b5a-0832-44b6-9fb6-b8cd820728d9` 為 SUCCESS，正式 `/api/hl/health/ready` 回傳 200。尚待 worker／web 更新及公開 API 契約測試；不等同實盤跟單驗收。
+
+後續權限與資料呈現修正：正式配置的 account-mode master 簽署必須提供當下有效的 caller proof，缺少時在任何 Privy HTTP 請求前拒絕；真實 SDK＋隔離 PostgreSQL 的 client／lifecycle／routes／global transport 共 139 項通過。提款紀錄保留已接受的原始 nonce、金額、目的地與更新時間，十一種語言的提示均改成提交已接受、到帳待確認；不再隱藏 accepted 紀錄或保證五分鐘到帳。帳本顯示查詢起點、擷取時間及供應商截斷提示，失敗重整仍保留快取資料並可重試。策略入金顯示可複製的實際交易 hash、更新時間與最多 100 筆／未解決優先的範圍提示。前端完整 106 檔／935 項通過，API／web typecheck 與修改檔 lint 通過。這些是提交及本地驗證證據，不等同提款到帳或實盤跟單驗收。
 
 ## 仍需接通的流程
 

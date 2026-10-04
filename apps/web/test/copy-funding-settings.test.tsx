@@ -52,6 +52,8 @@ it("recovers a pending server transfer without the signing SDK and shows actual 
   await render(); await click("Check original transfer");
   expect(state.post).toHaveBeenCalledExactlyOnceWith(`/me/copy/funding/${op.id}/reconcile`, {}, { beforeSend: expect.any(Function) }); expect(state.sign).not.toHaveBeenCalled();
   expect(container.textContent).toContain("Credit confirmed"); expect(container.textContent).toContain("9 USDC"); expect(container.textContent).toContain("Transfer fee: 1 USDC");
+  expect(container.textContent).toContain(`0x${"aa".repeat(32)}`);
+  expect(container.textContent).toContain('Last updated');
 });
 it("preserves the same reservation key when its response is lost", async () => {
   state.post.mockRejectedValue(new Error("private provider error")); await render(); await selectAccount(); await click("Prepare funding");

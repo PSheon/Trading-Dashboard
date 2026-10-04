@@ -91,7 +91,7 @@ export function useCopy(onCopied?: () => void): [boolean, (value: string) => voi
         setCopied(true);
         setTimeout(() => setCopied(false), 1_500);
         onCopied?.();
-      });
+      }).catch(() => undefined);
     },
   ];
 }

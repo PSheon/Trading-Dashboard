@@ -113,6 +113,7 @@ export class PrivyAccountModeClient {
   async signMaster(rawMaster: AccountModeOwnedMaster, rawIntent: AccountModeIntent, userJwt: string, assertFreshProof?: () => void): Promise<string> {
     const controller = new AbortController(); let timer: NodeJS.Timeout | undefined;
     try {
+      if (this.global && typeof assertFreshProof !== 'function') throw new Error();
       const intent = capture(rawIntent), master = frozen(masterSchema.parse(structuredClone(rawMaster)));
       const data = accountModeTypedData(intent), started = this.now();
       live(intent, started);

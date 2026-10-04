@@ -40,6 +40,7 @@ export function WalletHistoryList({ className }: { className?: string }) {
   const recovery = useWithdrawalRecovery({ network: history.data?.network ?? "testnet", address: history.data?.address ?? null });
   const { openWithdraw } = useWalletModals();
   const pending = recovery.data?.status === "prepared" || recovery.data?.status === "unknown" ? recovery.data : null;
+  const accepted = recovery.data?.status === "accepted" ? recovery.data : null;
   const pendingNotice = pending ? (
     <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
       <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {pending.amount} USDC</p>
@@ -48,6 +49,13 @@ export function WalletHistoryList({ className }: { className?: string }) {
       <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={openWithdraw}>{t("wallet.checkWithdrawal")}</Button>
     </div>
   ) : null;
+  const acceptedNotice = accepted ? <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
+    <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {accepted.amount} USDC</p>
+    <p className="mt-1 text-xs text-muted-foreground">{t("wallet.withdrawSent")}</p>
+    <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{accepted.destination}</p>
+    <p className="mt-1 break-all font-mono text-xs text-muted-foreground">ID: {accepted.nonce}</p>
+    <p className="mt-1 text-xs text-muted-foreground">{format.dateTime(accepted.updatedAt)}</p>
+  </div> : null;
 
   if (history.isError && !history.data) {
     return <ErrorState onRetry={() => history.refetch()} />;
@@ -61,15 +69,15 @@ export function WalletHistoryList({ className }: { className?: string }) {
       </div>
     );
   }
-  if (history.data.transfers.length === 0) {
-    return <div className={className}>{pendingNotice}{recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}<EmptyState icon={ReceiptText} title={t("wallet.historyEmpty")} body={t("wallet.historyEmptyBody")} /></div>;
-  }
-
   return (
     <div className={className}>
       {pendingNotice}
+      {acceptedNotice}
+      {history.isError ? <ErrorState onRetry={() => void history.refetch()} /> : null}
       {recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
-      <ul className="divide-y divide-border">
+      {history.data.from && history.data.fetchedAt ? <p className="mb-2 text-xs text-muted-foreground">{t("wallet.historyCoverage", { from: format.dateTime(history.data.from), time: format.dateTime(history.data.fetchedAt) })}</p> : null}
+      {history.data.truncated ? <p className="mb-2 text-xs text-warning">{t("wallet.historyPartial")}</p> : null}
+      {!history.data.transfers.length ? <EmptyState icon={ReceiptText} title={t("wallet.historyEmpty")} body={t("wallet.historyEmptyBody")} /> : <ul className="divide-y divide-border">
         {history.data.transfers.map((row) => {
           const kind = kindOf(row);
           const Icon = ICON[kind];
@@ -95,7 +103,7 @@ export function WalletHistoryList({ className }: { className?: string }) {
             </li>
           );
         })}
-      </ul>
+      </ul>}
     </div>
   );
 }

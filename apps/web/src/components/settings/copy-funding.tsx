@@ -7,6 +7,7 @@ import { sessionKey } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCopyFunding, useReserveCopyFunding, useConfirmCopyFunding, useCancelCopyFunding } from "@/lib/copy-funding";
 import { copyFundingInputSchema, type CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
+import { CopyIconButton } from "@/components/wallet/bits";
 
 /** Funding is explicit, testnet-only, and independent of paper collateral. */
 export function CopyFundingSettings({ accounts }: { accounts: CopyExecutionAccount[] }) {
@@ -44,6 +45,7 @@ function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExe
     {prepare.isError || confirm.isError || confirm.recovery.isError || cancel.isError ? <p role="alert" className="mt-3 text-xs text-warning">{t("copyFunding.error")}</p> : null}
     {pending ? <p className="mt-3 text-xs text-muted-foreground">{t("copyFunding.pendingHint")}</p> : null}
     {!operations.length && data ? <p className="mt-3 text-xs text-muted-foreground">{t("copyFunding.empty")}</p> : null}
+    {operations.length ? <p className="mt-3 text-xs text-muted-foreground">{t("copyFunding.historyHint")}</p> : null}
     <div className="mt-3 space-y-3">{operations.map((op) => <article key={op.id} className="rounded-xl bg-raised/50 p-3">
       <div className="flex flex-wrap justify-between gap-2 text-xs font-semibold"><h5>{t("executionWallets.copyNumber", { id: op.strategyId })} · {t(`executionWallets.networks.${op.network}`)}</h5><span>{t(`copyFunding.states.${op.status === "prepared" && confirm.recovery.data?.includes(op.id) ? "unknown" : op.status}`)}</span></div>
       <dl className="mt-2 space-y-2 text-xs">
@@ -52,6 +54,8 @@ function FundingForm({ accounts, walletAddress, t, format }: { accounts: CopyExe
         <div><dt className="text-muted-foreground">{t("copyFunding.amount")}</dt><dd>{op.amount} USDC</dd></div>
         {op.creditedAmount !== null ? <div><dt className="text-muted-foreground">{t("copyFunding.received")}</dt><dd>{op.creditedAmount} USDC · {t("copyFunding.fee")}: {op.fee} USDC</dd></div> : null}
         <div><dt className="text-muted-foreground">{t("copyFunding.created")}</dt><dd>{format.dateTime(op.createdAt)}</dd></div>
+        <div><dt className="text-muted-foreground">{t("copyFunding.updated")}</dt><dd>{format.dateTime(op.updatedAt)}</dd></div>
+        {op.transactionHash ? <div><dt className="text-muted-foreground">{t("copyFunding.hash")}</dt><dd className="flex items-center gap-2"><span className="min-w-0 break-all font-mono">{op.transactionHash}</span><CopyIconButton value={op.transactionHash} /></dd></div> : null}
       </dl>
       <div className="mt-3 flex flex-wrap gap-2">
         {op.status === "prepared" && !confirm.recovery.data?.includes(op.id) ? <Button size="sm" disabled={busy || query.isError || !data?.available || !confirm.recovery.isSuccess || !accounts.some(a => a.id === op.accountId && a.strategyId === op.strategyId && a.network === op.network && a.address === op.destination && a.state === "ready") || walletAddress !== op.address || op.network !== "testnet"} onClick={() => confirm.mutate(op)}>{confirm.isPending ? t("copyFunding.signing") : t("copyFunding.confirm")}</Button> : null}

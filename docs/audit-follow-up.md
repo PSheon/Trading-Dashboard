@@ -213,3 +213,7 @@ Stage at `cb79f66` since 2026-10-04 09:25Z: `IS_WORKER=true` on the worker (star
 4. Move into the Orbie repo (`~/Desktop/Paul/Orbie`, PSheon/Orbie) and deploy.
 
 Card on-ramp: CopyDog's code has it behind a server-side `available` flag (`wallet/onramp-url`, falling back to Privy's card flow); Paul does not see it, so it is not required for parity.
+
+## Queued after testnet copy execution (2026-10-04)
+
+From `docs/frontend-review-2026-10-04.md`: H1 `robots.ts` disallows `/api/` and so blocks the same-origin `/api/hl` reads Googlebot needs (allow the public discover/traders/kols reads, keep `/api/hl/me`, `/copy`, `/admin` disallowed, or prefetch public reads server-side like the home page); H2 `/trader/<unknown>` is a 200 soft-404 and the trader page's server HTML has no h1, name or figures (prefetch profile and activity within 1.5 s, server `notFound()` when unknown, hand the rest to the client). Medium: home Suspense fallback double-fetches; withdraw dialog loses its result toast when closed after signing; global `refetchOnWindowFocus: false` leaves portfolio figures stale; an empty Privy app id ships silently (throw at production build); Privy SDK statically imported on every public page; no e2e for withdrawal submit and mandate stop. Low items in the review's section 2.8.

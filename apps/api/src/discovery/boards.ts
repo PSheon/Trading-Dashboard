@@ -141,7 +141,7 @@ function compare(sort: BoardSort) {
 
 /**
  * One board from the pool: crypto top 100 (perp figures of the window),
- * KOL (the registry's traders), a coin (that coin's realized PnL and PnL ÷
+ * KOL (the registry's traders that have a copy score), a coin (that coin's realized PnL and PnL ÷
  * volume, all-time), or the stocks top 100 (realized figures over every
  * stock market). Only traders with an account value above 0, and matching
  * `style` when given; at most `limit`.
@@ -166,7 +166,12 @@ export function buildBoard(
     if (style && c.card.style !== style) continue;
     const t = figures(c, query.market, kind, coin, window);
     if (!t) continue;
-    items.push({ ...t, copyScore: scores.values.get(t.address) ?? null });
+    const copyScore = scores.values.get(t.address) ?? null;
+    // CopyDog's KOL board (`leaderboard?focus=tagged`, also its home 精選 row)
+    // lists only tagged traders that have a copy score: 51 of its 168 tagged
+    // on 2026-10-04, every one scored, none of the other 117.
+    if (kind === "kol" && copyScore === null) continue;
+    items.push({ ...t, copyScore });
     const at = c.row.portfolioAt;
     if (at && (!updatedAt || at > updatedAt)) updatedAt = at;
   }

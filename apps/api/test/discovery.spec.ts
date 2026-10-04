@@ -394,6 +394,20 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       await request(app.getHttpServer()).get("/discover/boards?sort=volume").expect(400);
     });
 
+    it("lists only KOLs with a copy score on the KOL board and the home 精選 row, as CopyDog's focus=tagged does", async () => {
+      await seedPool();
+      // addr(1) becomes a KOL with no recent activity: on the boards, but outside the scored universe.
+      await kols.upsert({ address: addr(1), displayName: "Quiet KOL" }, null);
+      await db.update(traderStats).set({ volumeMonth: "0", updatedAt: new Date(Date.now() - 60 * 86_400_000) }).where(eq(traderStats.address, addr(1)));
+      await db.update(discoveryTraders).set({ lastTradeAt: new Date(Date.now() - 60 * 86_400_000) }).where(eq(discoveryTraders.address, addr(1)));
+      const service = new DiscoveryService(repository, settings, traders as unknown as TradersService, catalog as unknown as MarketCatalogService);
+      const top = await service.board({ market: "crypto", board: "top100", sort: "copyScore", window: "all" });
+      expect(top.items.find((t) => t.address === addr(1))).toMatchObject({ kol: true, copyScore: null });
+      const kol = await service.board({ market: "crypto", board: "kol", sort: "copyScore", window: "all" });
+      expect(kol.items.map((t) => t.address)).toEqual([addr(2)]);
+      expect((await service.home()).featured.map((t) => t.address)).toEqual([addr(2)]);
+    });
+
     it("serves every home row in one read", async () => {
       await seedPool();
       const res = await request(app.getHttpServer()).get("/discover/home").expect(200);

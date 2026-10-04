@@ -184,7 +184,11 @@ export class CopySignalService {
     const raw = await this.repository.leaderFills(tx, address, rows.map((r) => r.tid));
     if (raw.length < rows.length) this.logger.warn(`${rows.length - raw.length} outbox fills of ${address} are not stored; skipped`);
     const fills = raw.map(toLeaderFill).sort((a, b) => a.time - b.time || (a.tid < b.tid ? -1 : a.tid > b.tid ? 1 : 0));
-    const strategies = await this.repository.liveStrategiesOf([address], tx);
+    // One transaction takes several owners' locks here: always in ascending
+    // owner, then strategy, order, so two leaders' passes (or a pass and an
+    // owner's command) that share owners cannot take them in opposite orders
+    // and deadlock.
+    const strategies = (await this.repository.liveStrategiesOf([address], tx)).sort((a, b) => a.userId - b.userId || a.id - b.id);
     let orders = 0;
     for (const s of strategies) {
       // Lock order: controls (share), then the strategy (update); see CopyControlService.

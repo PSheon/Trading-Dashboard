@@ -566,6 +566,32 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       expect(await position(a.id)).toBeCloseTo(0.05);
       expect(await position(b)).toBeCloseTo(0.1);
     });
+
+    it("a leader's pass takes its followers' locks in ascending owner order, whatever order the copies started in", async () => {
+      // Alice signs up first (lower user id); Bob copies first (lower strategy id).
+      await alice.get("/me/copy").expect(200);
+      const bob = api("bob-token");
+      await bob.get("/me/copy").expect(200);
+      const b = (await bob.post("/me/copy/strategies", { leader: LEADER, allocationUsd: 2_000, copyStartMode: "delta" }).expect(201)).body.data.id as number;
+      const a = await startCopy();
+      expect(b).toBeLessThan(a.id);
+      const repository = app.get(CopyRepository);
+      const locked: number[] = [];
+      const spy = vi.spyOn(repository, "readControls").mockImplementation(async function (this: CopyRepository, userId, lock, ex) {
+        if (lock === "share") locked.push(userId);
+        return CopyRepository.prototype.readControls.call(this, userId, lock, ex);
+      });
+      try {
+        await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: Date.now() + 1_000 })]);
+        await signals.drain();
+      } finally { spy.mockRestore(); }
+      const [aliceRow] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:alice"));
+      const [bobRow] = await db.select().from(users).where(eq(users.privyUserId, "did:privy:bob"));
+      expect(aliceRow!.id).toBeLessThan(bobRow!.id);
+      expect(locked).toEqual([aliceRow!.id, bobRow!.id]);
+      expect(await orders(a.id)).toHaveLength(1);
+      expect(await orders(b)).toHaveLength(1);
+    });
   });
 
   describe("reduce-only", () => {

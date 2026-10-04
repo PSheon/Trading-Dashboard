@@ -3,11 +3,12 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { NotifyRepository } from "../src/notify/notify.repository.js";
-import { NotifyService } from "../src/notify/notify.service.js";
+import { ALERT_MAX_AGE_MS, NotifyService } from "../src/notify/notify.service.js";
 import { TelegramApiError, type TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 import { TelegramLinkRepository } from "../src/telegram/telegram-link.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { copyStrategies, users } from "@trading-dashboard/shared/database";
 
 describe("confirmed copy notifications with durable delivery", () => {
   const db = getTestDb();
@@ -20,7 +21,7 @@ describe("confirmed copy notifications with durable delivery", () => {
     await truncateAll(db);
     sendMessage.mockReset();
     vi.stubEnv("TELEGRAM_DRY_RUN", "false");
-    owner = (await insertUser(db)).id;
+    owner = (await insertUser(db, { locale: "en" })).id;
     await db.insert(notificationChannels).values({ userId: owner, kind: "telegram", target: "123" });
   });
   afterEach(() => vi.unstubAllEnvs());
@@ -40,7 +41,7 @@ describe("confirmed copy notifications with durable delivery", () => {
     await Promise.all([service().deliverAction(), service().deliverAction()]);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0][0]).toBe("123");
-    expect(sendMessage.mock.calls[0][1]).toContain("PAPER / simulated funds");
+    expect(sendMessage.mock.calls[0][1]).toContain("PAPER copy (simulated funds, not real money)");
     expect(sendMessage.mock.calls[0][1]).toContain(`Event #${confirmed.id}`);
     expect((await db.select().from(notificationOutbox))[0]).toMatchObject({ actionId: null, copyEventId: confirmed.id, status: "sent" });
     await db.delete(notificationOutbox); // retention cannot erase the event's dedup marker
@@ -58,10 +59,10 @@ describe("confirmed copy notifications with durable delivery", () => {
     await service().deliverAction();
     expect(sendMessage).toHaveBeenCalledTimes(2);
     const messages = sendMessage.mock.calls.map(call => call[1]).join("\n");
-    expect(messages).toContain("Order rejected");
+    expect(messages).toContain("Order not executed");
     expect(messages).toContain("Order cancelled");
-    expect(messages).toContain("Reason: stale_signal");
-    expect(messages).toContain("Reason: order_not_executed");
+    expect(messages).toContain("Reason: market data missing or the price moved (stale_signal)");
+    expect(messages).toContain("Reason: not executed (order_not_executed)");
     expect(messages).not.toContain("DATABASE_PASSWORD");
     expect(messages).not.toContain("DO_NOT_RENDER");
     expect(await db.select().from(notificationOutbox)).toHaveLength(2);
@@ -93,7 +94,7 @@ describe("confirmed copy notifications with durable delivery", () => {
   it("rechecks ownership and channel target, and exposes only allowlisted payload fields", async () => {
     await link.setCopyAlerts(owner, true);
     const e = await event("strategy_stopped", { secret: "DO_NOT_RENDER" });
-    const candidates = await repository.copyCandidates();
+    const candidates = await repository.copyCandidates(ALERT_MAX_AGE_MS);
     expect(candidates).toHaveLength(1);
     await service().deliverAction();
     expect(sendMessage.mock.calls[0][1]).not.toContain("DO_NOT_RENDER");
@@ -105,5 +106,40 @@ describe("confirmed copy notifications with durable delivery", () => {
     expect(await repository.copyEvent(e.id, other.id)).toBeUndefined();
     expect(await link.setCopyAlerts(other.id, true)).toBe(false);
     expect((await db.select().from(copyEvents).where(eq(copyEvents.id, e.id)))[0].notificationQueuedAt).not.toBeNull();
+  });
+
+  it("writes in the owner's language, names the copied trader and what the fill did, and the P&L after fees", async () => {
+    await db.update(users).set({ locale: "ko" }).where(eq(users.id, owner));
+    const [strategy] = await db.insert(copyStrategies).values({ userId: owner, leaderAddress: "0x" + "ab".repeat(20), allocated: "1000", cash: "1000", activatedAt: new Date() }).returning();
+    await link.setCopyAlerts(owner, true);
+    await db.insert(copyEvents).values({ userId: owner, strategyId: strategy!.id, type: "order_filled", payload: { mode: "paper", coin: "BTC", side: "A", size: "0.1000", px: "51000", action: "close", realizedPnl: "100", fee: "2.5" } });
+    await service().deliverAction();
+    const text = sendMessage.mock.calls[0]![1];
+    expect(text.split("\n")).toEqual([
+      "Orbie · 모의 카피 (가상 자금, 실제 돈이 아님)",
+      "⚪ 포지션 청산",
+      "카피 대상 0xabab…abab",
+      "매도 0.1 BTC @ $51,000",
+      "실현 손익 +$97.5 (수수료 차감 후)",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/),
+      expect.stringMatching(/^이벤트 #\d+$/),
+      `포트폴리오: ${testConfig().value.telegram.linkBaseUrl}/portfolio?copy=${strategy!.id}`,
+    ]);
+  });
+
+  it("drops events older than the trade alerts' cut-off instead of sending them late, at queueing and at delivery", async () => {
+    await link.setCopyAlerts(owner, true);
+    await db.update(notificationChannels).set({ copyAlertsSince: new Date(Date.now() - 60 * 60_000) });
+    const old = await event("order_filled", { action: "open" });
+    await db.update(copyEvents).set({ createdAt: new Date(Date.now() - ALERT_MAX_AGE_MS - 60_000) }).where(eq(copyEvents.id, old!.id));
+    expect(await repository.copyCandidates(ALERT_MAX_AGE_MS)).toHaveLength(0);
+    // Queued in time, but Telegram kept refusing past the cut-off: dropped as expired.
+    await event("order_filled", { action: "increase" });
+    sendMessage.mockRejectedValueOnce(new TelegramApiError("sendMessage", 429, "limited", 120));
+    await service().deliverAction();
+    await db.update(notificationOutbox).set({ availableAt: sql`now()`, createdAt: new Date(Date.now() - ALERT_MAX_AGE_MS - 1000) });
+    await service().deliverAction();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect((await db.select().from(notificationOutbox))[0]).toMatchObject({ status: "failed", lastError: "expired" });
   });
 });

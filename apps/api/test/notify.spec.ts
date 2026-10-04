@@ -103,11 +103,13 @@ describe("message template", () => {
     expect(
       renderAlertMessage({ locale: "zh-TW", traderName: null, action: { ...base, kind: "flip", side: "short" }, dashboardUrl: url }),
     ).toContain("🔴 賣出 · 翻倉 多→空 BTC");
-    // Telegram speaks 繁中 and English only: every other UI language reads English.
-    for (const locale of ["ko", "ja", "ru", "zh-CN"] as const) {
-      expect(renderAlertMessage({ locale, traderName: null, action: { ...base, kind: "close", side: "long" }, dashboardUrl: url }))
-        .toContain("🔴 Sell · Close long BTC");
-    }
+    // Every site language has its own Telegram wording (the catalogs).
+    const close = (locale: Parameters<typeof renderAlertMessage>[0]["locale"]) => renderAlertMessage({ locale, traderName: null, action: { ...base, kind: "close", side: "long" }, dashboardUrl: url }).split("\n")[0];
+    expect(close("ko")).toBe("🔴 매도 · 롱 청산 BTC");
+    expect(close("ja")).toBe("🔴 売り · ロング決済 BTC");
+    expect(close("ru")).toBe("🔴 Продажа · Закрыт лонг BTC");
+    expect(close("zh-CN")).toBe("🔴 卖出 · 平多 BTC");
+    expect(close("es")).toBe("🔴 Venta · Cierra long BTC");
   });
 });
 

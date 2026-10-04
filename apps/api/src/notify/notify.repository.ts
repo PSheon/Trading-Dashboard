@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
-  actions, alerts, copyEvents, notificationOutbox, notificationChannels, userFavorites, appSettings, users,
+  actions, alerts, copyEvents, copyStrategies, notificationOutbox, notificationChannels, userFavorites, appSettings, users,
 } from "@trading-dashboard/shared/database";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -19,12 +19,17 @@ export const DELIVERY_BATCH = 100;
 export class NotifyRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
-  copyCandidates() {
-    return this.db.select({ event: copyEvents, chatId: notificationChannels.target }).from(copyEvents)
+  /** Owner events to queue for the trade bot: opted in (and only events
+   * since), linked and enabled chat, at most `maxAgeMs` old (the trade alerts'
+   * cut-off: a fill message is about now), with the owner's language and the
+   * copied trader. */
+  copyCandidates(maxAgeMs: number) {
+    return this.db.select({ event: copyEvents, chatId: notificationChannels.target, locale: users.locale, leaderAddress: copyStrategies.leaderAddress }).from(copyEvents)
       .innerJoin(users, and(eq(users.id, copyEvents.userId), isNull(users.disabledAt)))
       .innerJoin(notificationChannels, and(eq(notificationChannels.userId, copyEvents.userId), eq(notificationChannels.kind, "telegram")))
+      .leftJoin(copyStrategies, eq(copyStrategies.id, copyEvents.strategyId))
       .where(and(isNull(copyEvents.notificationQueuedAt), eq(notificationChannels.enabled, true), eq(notificationChannels.copyAlertsEnabled, true),
-        gte(copyEvents.createdAt, notificationChannels.copyAlertsSince), sql`${copyEvents.createdAt} >= now() - interval '24 hours'`,
+        gte(copyEvents.createdAt, notificationChannels.copyAlertsSince), sql`${copyEvents.createdAt} >= now() - make_interval(secs => ${maxAgeMs / 1000})`,
         inArray(copyEvents.type, [...COPY_NOTIFICATION_TYPES]), sql`${copyEvents.payload}->>'mode' = 'paper'`))
       .orderBy(copyEvents.id).limit(DELIVERY_BATCH);
   }

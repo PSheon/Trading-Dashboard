@@ -126,9 +126,9 @@ export class NotifyService {
    */
   async deliverAction(actionId?: bigint): Promise<void> {
     if (actionId === undefined) {
-      for (const { event, chatId } of await this.repository.copyCandidates()) {
+      for (const { event, chatId, locale, leaderAddress } of await this.repository.copyCandidates(ALERT_MAX_AGE_MS)) {
         const payload = copyDeliveryPayloadSchema.parse({ version: 2, kind: "copy", mode: "paper", eventId: String(event.id), chatId,
-          text: renderCopyMessage(event, this.config.value.telegram.linkBaseUrl) });
+          text: renderCopyMessage(event, this.config.value.telegram.linkBaseUrl, locale, leaderAddress) });
         await this.unitOfWork.run(tx => this.repository.enqueueCopy(event.id, event.userId, payload, tx));
       }
     }
@@ -196,10 +196,12 @@ export class NotifyService {
         return Boolean(recipient && channel?.copyAlertsEnabled && channel.copyAlertsSince && event
           && String(event.id) === payload.eventId && event.payload.mode === "paper"
           && (COPY_NOTIFICATION_TYPES as readonly string[]).includes(event.type)
-          && event.createdAt >= channel.copyAlertsSince && Date.now() - event.createdAt.getTime() <= 24 * 60 * 60_000
+          && event.createdAt >= channel.copyAlertsSince && Date.now() - event.createdAt.getTime() <= ALERT_MAX_AGE_MS
           && recoverSettingsSection("notifications", settings ? settings.value : {}, Boolean(settings)).value.alertsEnabled);
       };
-      if (row.attempts > 5 || !(await allowed())) { retry.permanent = true; reason = "copy notification authorization withdrawn or expired"; }
+      // Like a trade alert: one that waited past the cut-off is dropped, not sent as if fresh.
+      if (Date.now() - row.createdAt.getTime() > ALERT_MAX_AGE_MS) { retry.permanent = true; reason = "expired"; }
+      else if (row.attempts > 5 || !(await allowed())) { retry.permanent = true; reason = "copy notification authorization withdrawn or expired"; }
       else if (this.config.value.telegram.dryRun) status = "dry_run";
       else if (await this.sendWithRetry(payload.chatId, payload.text, retry, allowed)) status = "sent";
       else reason = "Telegram send failed";

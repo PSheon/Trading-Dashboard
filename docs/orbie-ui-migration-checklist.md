@@ -82,6 +82,23 @@ given) · — no board (system applied)
   hydration (LCP render delay) and Privy's bundle; the restyle's own cost
   (fonts) was cut by `display: optional` for Noto Sans TC (home mobile LCP
   14.2 s → 4.8 s).
+- Mobile Lighthouse, 2026-10-05 (production build on 3005, two runs per
+  page, no locale cookie so zh-TW): `/` 61–65, `/explore` 63–64, `/insights`
+  51–56, `/coins` 64, `/trader/0x6f97…e172` 61–64; scores move ±10 between
+  identical runs. Lighthouse simulates the load from the bytes requested
+  before the observed LCP, and on every page that is ~1 MB: the Noto Sans TC
+  slices the zh-TW text pulls in (~450 KB at VeryHigh priority although the
+  face is `display: optional`), ~300 KB of first-load JS (react-dom 72 KB
+  and the app's shared chunks; Privy is already lazy and lands after LCP),
+  98 KB of CSS and the latin fonts. The LCP is the server-rendered `h1` on
+  `/coins` and `/insights`, so reading their data on the server does not move
+  the score: `/coins` now reads its index on the server behind a skeleton
+  Suspense fallback (rows in the first HTML, no browser read; 64 → 64), while
+  awaiting the explore board and the insights cohort before rendering made
+  their `h1` wait for the data (insights LCP 7.4 → 12.3 s) and was not kept.
+  The levers left: the CJK font policy (system CJK face on a first visit),
+  first-load JS, and the trader page's chart headline (its LCP), which only a
+  server read of the all-time portfolio would put in the first HTML.
 - SEO: titles/descriptions/canonicals/OG unchanged; one `h1` per page (the
   desktop explore/portfolio/favorites titles are now visible `h1`s); social
   card restyled to the light Orbit look; manifest colours from the tokens.

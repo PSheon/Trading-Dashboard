@@ -43,6 +43,11 @@ import { FILLS_TTL_MS, TradersService } from "./traders.service.js";
 /** Served from the store for this long; older answers are still served
  * while a refresh runs in the background. */
 export const STALE_MS = 10 * 60_000;
+/** A watched address's figures are the worker's to refresh (every minute,
+ * once older than `STALE_MS`). Older than this, the worker is not doing it
+ * (down, not deployed beside this api, or starved), and a page read
+ * refreshes them itself, as for any other address. Three worker periods. */
+export const TRACKED_FALLBACK_MS = 3 * STALE_MS;
 /** A cold read keeps the newest this many fills and at least
  * `COLD_MIN_TRADES` closed trades, back to `LOOKBACK_MS` at most, within
  * `COLD_FILL_CALLS` fill calls (≈ 120 weight each when full). A burst of
@@ -186,8 +191,9 @@ export class TradeAnalyticsService {
       classification: traderClassificationSchema.parse(row.classification),
       coverage: await this.coverage(address, row),
       computedAt: row.computedAt,
-      // A watched address is refreshed by the worker: it is due once stale.
-      refreshing: this.inflight.has(address) || (watched && Date.now() - row.computedAt.getTime() > STALE_MS),
+      // A watched address is the worker's to refresh once stale; past
+      // TRACKED_FALLBACK_MS this read started the refresh itself (inflight).
+      refreshing: this.inflight.has(address) || (watched && workerDue(row.computedAt.getTime(), Date.now())),
     };
   }
 
@@ -225,16 +231,18 @@ export class TradeAnalyticsService {
   /**
    * The stored row. A watched address's figures are the worker's to keep
    * fresh (`refreshTracked`, every minute, and after a backfill revises its
-   * fills), so a read never starts work for one; any other address is
-   * refreshed in the background when stale, since nothing else would. A
-   * cold address is computed (the caller's deadline turns a long one into
-   * 503 busy, and it carries on).
+   * fills), so a read leaves a stale one to the worker, unless the figures
+   * are older than `TRACKED_FALLBACK_MS`: then no worker is refreshing them
+   * and the read refreshes them in the background, as it does any other
+   * address once stale (nothing else would). A cold address is computed
+   * (the caller's deadline turns a long one into 503 busy, and it carries on).
    */
   private async current(address: string, caller: HistoryCaller): Promise<{ row: Stored; watched: boolean }> {
     const row = await this.repository.state(address);
     if (!row) return { row: await this.compute(address, true, { caller }), watched: false };
     const watched = await this.traders.isTracked(address);
-    if (!watched && Date.now() - row.computedAt.getTime() > STALE_MS) this.compute(address, false, { caller }).catch(() => undefined);
+    const age = Date.now() - row.computedAt.getTime();
+    if (age > (watched ? TRACKED_FALLBACK_MS : STALE_MS)) this.compute(address, false, { caller }).catch(() => undefined);
     return { row, watched };
   }
 
@@ -965,6 +973,12 @@ export class TradeAnalyticsService {
     });
     this.record(address, { kind: "funding", ms: Date.now() - started, ...cost, fills: events.length, trades });
   }
+}
+
+/** A watched address's figures the worker is due to refresh (stale, not yet
+ * past the age at which a read refreshes them itself). */
+function workerDue(computedAt: number, now: number): boolean {
+  return now - computedAt > STALE_MS && now - computedAt <= TRACKED_FALLBACK_MS;
 }
 
 function coverageOf(row: Stored): TradeCoverage {

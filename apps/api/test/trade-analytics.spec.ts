@@ -12,7 +12,7 @@ import { AnalysisHistoryRepository } from "../src/traders/analysis-history.repos
 import { HistoryFillStore } from "../src/traders/history-fill.store.js";
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { TradeAnalyticsRepository } from "../src/traders/trade-analytics.repository.js";
-import { STALE_MS, MAX_CONCURRENT, MAX_WAITING, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
+import { STALE_MS, MAX_CONCURRENT, MAX_WAITING, TRACKED_FALLBACK_MS, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
 import { PAGE_DEADLINE_MS } from "../src/traders/traders.controller.js";
 import type { TradersService } from "../src/traders/traders.service.js";
 import { toFillRow } from "../src/watcher/fill-row.js";
@@ -435,8 +435,8 @@ describe("trade analytics for any address", () => {
     await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(60)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(60)), backfillStatus: "complete" });
     await service.compute(TRACKED, true);
     await service.settled();
-    // 23 hours later, nobody has opened the page (audit A2).
-    await db.execute(sql`update trader_analytics set computed_at = now() - interval '23 hours'`);
+    // 15 minutes later, nobody has opened the page: stale, and the worker's to refresh (audit A2).
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '15 minutes'`);
     const before = (await db.select().from(traderAnalytics))[0].computedAt;
     vi.clearAllMocks();
     const read = await service.analytics(TRACKED, "all");
@@ -461,6 +461,32 @@ describe("trade analytics for any address", () => {
     expect(rows.some((t) => t.coin === "DOGE" && t.exitTime === null)).toBe(true);
     expect((await db.select().from(traderAnalytics))[0]).toMatchObject({ fillsRead: history.length + 1, historyThrough: new Date(NOW + 2_000) });
     tracked.delete(TRACKED);
+  });
+
+  it("a watched address's figures older than three worker periods are refreshed by the read itself: no worker is doing it", async () => {
+    tracked.add(TRACKED);
+    try {
+      await db.insert(leaders).values({ address: TRACKED });
+      await db.insert(fills).values(history.map((f) => toFillRow(TRACKED, f)));
+      await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(60)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(60)), backfillStatus: "complete" });
+      await service.compute(TRACKED, true);
+      await service.settled();
+      // Just inside the fallback age: still left to the worker.
+      await db.execute(sql`update trader_analytics set computed_at = now() - ${TRACKED_FALLBACK_MS - 60_000} * interval '1 millisecond'`);
+      const waiting = await service.analytics(TRACKED, "all");
+      await service.settled();
+      expect(waiting.refreshing).toBe(true);
+      expect(Date.now() - (await db.select().from(traderAnalytics))[0].computedAt.getTime()).toBeGreaterThan(STALE_MS);
+      // The worker is down: 23 hours later the page's read refreshes them.
+      await db.execute(sql`update trader_analytics set computed_at = now() - interval '23 hours'`);
+      const read = await service.analytics(TRACKED, "all");
+      expect(read.refreshing).toBe(true);
+      await service.settled();
+      expect(Date.now() - (await db.select().from(traderAnalytics))[0].computedAt.getTime()).toBeLessThan(STALE_MS);
+      const after = await service.analytics(TRACKED, "all");
+      expect(after.refreshing).toBe(false);
+      expect(after.coverage.source).toBe("tracked");
+    } finally { tracked.delete(TRACKED); }
   });
 
   it("an untracked address's stale read still refreshes it in the background", async () => {

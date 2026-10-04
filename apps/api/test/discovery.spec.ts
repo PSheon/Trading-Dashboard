@@ -356,7 +356,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(home.markets.map(row => row.coin)).toEqual(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]);
       expect(home.markets.map(row => row.market)).toEqual(["crypto", "crypto", "crypto", "crypto", "stocks", "stocks", "stocks", "stocks"]);
       // The busiest markets beyond the fixed tiles are tiles only.
-      expect(home.trending.coins).toEqual(["NO-DATA"]);
+      expect(home.trending?.coins).toEqual(["NO-DATA"]);
     });
 
     async function seedPool() {

@@ -33,6 +33,22 @@ describe('durable shared egress meter, never provider I/O',()=>{
   const restarted=new PostgresHyperliquidQuota(new UnitOfWork(db));
   await expect(restarted.bindUnscoped(identity).acquireRest(1,Date.now()+5000)).rejects.toThrow('hyperliquid_quota_exhausted');
  });
+ it('settles an answered list call to its real weight with the next charge, never raising it (item 6)',async()=>{
+  const charges=async()=>(await db.select().from(schema.hyperliquidEgressQuota))[0]!.events.map(e=>e.units);
+  const list=await meter.bindUnscoped(identity).acquireRest(120,Date.now()+5000);
+  list.dispatch(()=>undefined);list.settle!(25);
+  // Ten such pages would have held the whole window for a minute.
+  expect(await charges()).toEqual([120]);
+  await meter.bindUnscoped(identity).acquireRest(2,Date.now()+5000);
+  expect(await charges()).toEqual([25,2]);
+  // A full page is not settled, and a settlement never raises a charge.
+  const full=await meter.bindUnscoped(identity).acquireRest(120,Date.now()+5000);full.settle!(120);full.settle!(500);
+  await meter.bindUnscoped(identity).acquireRest(2,Date.now()+5000);
+  expect(await charges()).toEqual([25,2,120,2]);
+  // With the prepaid surplus back, room that was gone is there again.
+  await meter.bindUnscoped(identity).acquireRest(1200-25-2-120-2,Date.now()+5000);
+  await expect(meter.bindUnscoped(identity).acquireRest(1,Date.now()+5000)).rejects.toThrow('hyperliquid_quota_exhausted');
+ });
  it('returns a private one-use send fence only after durable reservation',async()=>{
   const permit=await meter.bindUnscoped(identity).acquireRest(20,Date.now()+5000);
   const send=vi.fn(()=>42);expect(permit.dispatch(send)).toBe(42);expect(()=>permit.dispatch(send)).toThrow('hyperliquid_quota_permit_lost');expect(send).toHaveBeenCalledOnce();

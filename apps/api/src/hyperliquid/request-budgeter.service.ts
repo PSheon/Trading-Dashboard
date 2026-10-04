@@ -182,8 +182,10 @@ export const STARTUP_RATE_SHARE = 0.5;
 /** Consumer caps are re-read from settings this often. */
 const CAPS_TTL_MS = 30_000;
 
-/** Background ranks of trader-page and home-page calls; lower goes first. */
-export const PAGE_RANK = { profile: 0, portfolio: 1, fills: 2, warm: 3 } as const;
+/** Background ranks of trader-page calls; lower goes first. `analytics`: a
+ * trade-analytics job a page started (not the page's own request): after
+ * every page call, ahead of every periodic job. */
+export const PAGE_RANK = { profile: 0, portfolio: 1, fills: 2, analytics: 3 } as const;
 /** Background ranks up to this may spend the page reserve. */
 export const INTERACTIVE_MAX_RANK = PAGE_RANK.portfolio;
 /** Rank of a background call that names none: behind every page rank. */
@@ -555,9 +557,11 @@ export class RequestBudgeterService {
       const queue = this.queues[priority];
       const defaultRank = priority === "background" ? (ESSENTIAL_RANK[consumer] ?? UNRANKED_BASE + seq) : seq;
       const r = rank ?? defaultRank;
-      // A page's list call waits only for its known part; everything else
-      // waits for its whole (worst-case) weight.
-      const gate = priority === "background" && r <= PAGE_RANK.fills ? Math.min(known, weight) : weight;
+      // A page's list call, and a trade-analytics job's, waits only for its
+      // known part (the surplus is given back once the answer is counted);
+      // everything else waits for its whole (worst-case) weight. Gated on
+      // the worst case, a cold trader's 14 history reads took 90 s.
+      const gate = priority === "background" && r <= PAGE_RANK.analytics ? Math.min(known, weight) : weight;
       const leave = (reason: unknown) => {
         const index = queue.indexOf(waiter);
         if (index >= 0) queue.splice(index, 1);

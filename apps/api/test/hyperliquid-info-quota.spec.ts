@@ -4,7 +4,7 @@ import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter
 import { testConfig } from './config-test-utils.js';
 import { budgetConsumer, PAGE_RANK } from '../src/hyperliquid/request-budgeter.service.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import { ESSENTIAL_CAPACITY_WAIT_MS, PAGE_CAPACITY_WAIT_MS } from '../src/hyperliquid/hyperliquid-global-transport.js';
+import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, PAGE_CAPACITY_WAIT_MS } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import { offlineGlobalTransport } from './hyperliquid-quota-test-utils.js';
 afterEach(() => { vi.unstubAllGlobals(); });
 const budget = () => ({ acquire: vi.fn(async () => {}), adjust: vi.fn(), onSuccess: vi.fn(), onRateLimited: vi.fn() });
@@ -42,7 +42,7 @@ it('sends page work and live work in the unlabelled lane, background work in the
   const info = new HyperliquidInfoClient(testConfig(), budget() as unknown as RequestBudgeterService, undefined, q.transport);
   await info.perpDexs('background', PAGE_RANK.profile);
   await info.perpDexs('live');
-  await info.perpDexs('background', PAGE_RANK.warm);
+  await info.perpDexs('background', PAGE_RANK.analytics);
   await info.perpDexs('background', 1_000);
   expect(q.acquire.mock.calls.map((call) => (call as unknown[])[2])).toEqual([undefined, undefined, 'background', 'background']);
 });
@@ -76,4 +76,21 @@ it('snapshots and sweeps of watched leaders wait for room in the background lane
     q.acquire.mockRejectedValueOnce(new HyperliquidRestCapacityError(50));
     await expect(budgetConsumer(consumer, () => info.perpDexs('background'))).rejects.toThrow('hyperliquid_quota_exhausted');
   }
+});
+
+it('settles a list call to its item count, and a trade-analytics job waits in the background lane, not the pages\' room (item 6)', async () => {
+  const fills = Array.from({ length: 90 }, (_, i) => ({ coin: 'BTC', px: '1', sz: '1', side: 'B', time: 1_700_000_000_000 + i, startPosition: '0', dir: 'Open Long', closedPnl: '0', hash: '0x1', oid: i, crossed: true, fee: '0', tid: i }));
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(fills)), q = offlineGlobalTransport(fetcher);
+  const settle = vi.fn();
+  q.acquire.mockImplementation(async () => { let used = false; return { assertFresh: () => {}, dispatch: <T>(work: () => T): T => { if (used) throw Error('used'); used = true; return work(); }, settle } as never; });
+  const info = new HyperliquidInfoClient(testConfig(), budget() as unknown as RequestBudgeterService, undefined, q.transport);
+  await info.userFillsByTime('0x' + '12'.repeat(20), 0, undefined, 'background', PAGE_RANK.fills);
+  // 20 + 1 per 20 items: 90 fills weigh 25, not the 120 prepaid.
+  expect(settle).toHaveBeenCalledWith(25);
+  expect((q.acquire.mock.calls.at(-1) as unknown[])[2]).toBeUndefined();
+  // The same call from an analytics job: background lane, and it waits out a full window.
+  q.acquire.mockRejectedValueOnce(new HyperliquidRestCapacityError(50));
+  await budgetConsumer('analytics', () => info.userFillsByTime('0x' + '12'.repeat(20), 0, undefined, 'background', PAGE_RANK.analytics));
+  expect(q.acquire.mock.calls.slice(-2).map((call) => (call as unknown[])[2])).toEqual(['background', 'background']);
+  expect(ANALYTICS_CAPACITY_WAIT_MS).toBeGreaterThan(PAGE_CAPACITY_WAIT_MS);
 });

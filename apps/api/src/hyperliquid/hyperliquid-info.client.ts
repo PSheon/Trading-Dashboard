@@ -4,7 +4,7 @@ import { currentRequestSignal } from "../runtime/request-context.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
-import { HyperliquidGlobalTransport } from './hyperliquid-global-transport.js';
+import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, HyperliquidGlobalTransport, settleListAnswer } from './hyperliquid-global-transport.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
 import { currentBudgetConsumer, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
@@ -93,6 +93,8 @@ export const MAX_LIST_SURCHARGE = Math.ceil(MAX_LIST_ITEMS / 20) * EXTRA_WEIGHT_
 const REQUEST_TIMEOUT_MS = 20_000;
 /** Budget consumers whose calls wait for room in the shared background lane. */
 const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "sweep"]);
+/** The budget consumer of a trade-analytics job a request started. */
+export const ANALYTICS_CONSUMER = "analytics";
 
 const surcharge = (items: number) => Math.ceil(items / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
 
@@ -136,17 +138,25 @@ export class HyperliquidInfoClient {
     await this.budgeter.acquire(weight, priority, rank, { known, signal: queued });
     if (admission) admission.admitted = true;
     queued.throwIfAborted();
-    const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+    // Shared per-IP window: page work may use all of it and waits briefly
+    // when it is full; background work is capped below it so pages keep room.
+    // A trade-analytics job (PAGE_RANK.analytics) goes to the background
+    // lane and waits there: it is not the page's own request, and its many
+    // list calls must not take the pages' room.
+    const consumer = currentBudgetConsumer() ?? "";
+    const page = priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
+    // Its own reads (a shared page read it joins stays the page's).
+    const analytics = consumer === ANALYTICS_CONSUMER && !page;
+    // Snapshots and sweeps of watched leaders wait for room in the
+    // background lane rather than fail at once (see fetchEssentialInfo).
+    const essential = priority === "background" && !page && ESSENTIAL_LANE_CONSUMERS.has(consumer);
+    const waitMs = priority === "live" || page ? 0 : analytics ? ANALYTICS_CAPACITY_WAIT_MS : essential ? ESSENTIAL_CAPACITY_WAIT_MS : 0;
+    const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS + waitMs)]);
 
     const url = apiUrl ?? this.config.value.hyperliquid.apiUrl;
     if (!(this.globalTransport instanceof HyperliquidGlobalTransport)) throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');
-    // Shared per-IP window: page work may use all of it and waits briefly
-    // when it is full; background work is capped below it so pages keep room.
-    const page = priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
-    // Snapshots and sweeps of watched leaders wait for room in the
-    // background lane rather than fail at once (see fetchEssentialInfo).
-    const essential = priority === "background" && !page && ESSENTIAL_LANE_CONSUMERS.has(currentBudgetConsumer() ?? "");
     const send = priority === "live" ? this.globalTransport.fetchInfo : page ? this.globalTransport.fetchPageInfo
+      : analytics && priority === "background" ? this.globalTransport.fetchAnalyticsInfo
       : essential ? this.globalTransport.fetchEssentialInfo : this.globalTransport.fetchBackgroundInfo;
     const res = await send(url, {
       method: "POST",
@@ -170,6 +180,8 @@ export class HyperliquidInfoClient {
     }
 
     const parsed = validateInfoResponse(body.type, await readInfoJson(res, body.type));
+    // A list's real weight, for the shared meter (it prepaid the most).
+    if (Array.isArray(parsed)) settleListAnswer(res, parsed.length);
     this.budgeter.onSuccess();
     return parsed as T;
   }

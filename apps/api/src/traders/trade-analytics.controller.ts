@@ -59,12 +59,16 @@ export class TradeAnalyticsController {
 
   /** Runs `work` for the calling client unless it already has
    * `MAX_PENDING_PER_CLIENT` other addresses in progress (then 503 busy).
-   * An address stays counted until its work settles, 503 or not. */
-  private admit<T>(address: string, work: () => Promise<T>): Promise<T> {
+   * An address stays counted until its work settles, 503 or not. An address
+   * whose figures are stored is answered from the store whatever is in
+   * progress: the limit holds back new computations, not finished ones (a
+   * fourth cold trader opened alongside three others kept answering busy
+   * after its own figures were ready). */
+  private async admit<T>(address: string, work: () => Promise<T>): Promise<T> {
     const client = currentRequestClient();
     if (client === undefined) return work();
     const mine = this.pending.get(client) ?? new Map<string, Promise<unknown>>();
-    if (!mine.has(address) && mine.size >= MAX_PENDING_PER_CLIENT) {
+    if (!mine.has(address) && mine.size >= MAX_PENDING_PER_CLIENT && !(await this.analytics.isStored(address))) {
       this.logger.warn(`Trade analytics ${address}: client already has ${mine.size} addresses in progress, answered 503 busy`);
       return Promise.reject(new BusyException(BUSY_RETRY_AFTER_MS));
     }

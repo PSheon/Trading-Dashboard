@@ -54,6 +54,17 @@ describe('pure shared per-IP Hyperliquid quota accounting',()=>{
   const result=plan({kind:'rest',id:'rest-a',weight:1200,sendUntil:now+5000});const restarted=JSON.parse(JSON.stringify(result.state));
   expect(()=>plan({kind:'rest',id:'rest-b',weight:1,sendUntil:now+1},{state:restarted,now:now+1})).toThrow('hyperliquid_quota_exhausted');
  });
+ it('settles answered list calls down to what the provider counted, ignoring unknown tickets and raises (item 6)',()=>{
+  const s:HyperliquidQuotaState={...state(),events:[
+   {id:'list-a',kind:'rest',units:120,reservedAt:now,expiresAt:now+60000},
+   {id:'list-b',kind:'rest',units:120,reservedAt:now,expiresAt:now+60000},
+   {id:'socket',kind:'ws_message',units:50,reservedAt:now,expiresAt:now+60000},
+  ]};
+  const result=plan({kind:'rest',id:'next',weight:2,sendUntil:now+5000,settle:[{id:'list-a',units:21},{id:'list-b',units:500},{id:'socket',units:1},{id:'gone',units:1}]},{state:s});
+  expect(result.state.events.map(e=>[e.id,e.units])).toEqual([['list-a',21],['list-b',120],['socket',50],['next',2]]);
+  expect(()=>plan({kind:'rest',id:'bad',weight:2,sendUntil:now+5000,settle:[{id:'list-a',units:0}]},{state:s})).toThrow('hyperliquid_quota_invalid');
+  expect(()=>plan({kind:'rest',id:'many',weight:2,sendUntil:now+5000,settle:Array.from({length:65},(_,i)=>({id:`t${i}`,units:1}))},{state:s})).toThrow('hyperliquid_quota_invalid');
+ });
  it('refuses duplicate ticket identities rather than minting a second send from one charge',()=>{
   const result=plan({kind:'rest',id:'rest-a',weight:1,sendUntil:now+5000});expect(()=>plan({kind:'rest',id:'rest-a',weight:1,sendUntil:now+5000},{state:result.state})).toThrow('hyperliquid_quota_ticket_conflict');
  });

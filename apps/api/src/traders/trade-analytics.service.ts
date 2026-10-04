@@ -25,8 +25,8 @@ import {
   type FundingEvent,
   type Trade,
 } from "../analytics/trade-reconstruction.js";
-import { HyperliquidInfoClient, twapSliceToFill, USER_FUNDING_PAGE_SIZE } from "../hyperliquid/hyperliquid-info.client.js";
-import { PAGE_RANK, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
+import { ANALYTICS_CONSUMER, HyperliquidInfoClient, twapSliceToFill, USER_FUNDING_PAGE_SIZE } from "../hyperliquid/hyperliquid-info.client.js";
+import { budgetConsumer, currentBudgetConsumer, PAGE_RANK, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { BusyException } from "./busy.js";
@@ -71,7 +71,10 @@ export const MAX_WAITING = 20;
  * (background lane, behind first paint and the chart, ahead of sweeps);
  * funding, the heavy tail, goes unranked, behind everything page-driven. */
 const LANE = "background" as const;
-const RANK = PAGE_RANK.fills;
+/** A job a page started: after the pages' own calls (a cold trader's up to
+ * 32 history reads used to queue level with the next page's profile and
+ * fills), ahead of every periodic job. */
+const RANK = PAGE_RANK.analytics;
 
 const WINDOWS: TradeWindow[] = ["all", "30d", "7d", "1d"];
 
@@ -274,10 +277,13 @@ export class TradeAnalyticsService {
     }
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     if (this.inflight.size >= MAX_CONCURRENT + MAX_WAITING) return Promise.reject(new BusyException(5_000));
-    const promise = this.jobs.run(() => this.serial(address, () => this.limited(() => this.refresh(address, rank, caller))));
+    // A job a request started reads as "analytics" (the background lane,
+    // waiting for room); a worker loop's keeps its own label and cap.
+    const labelled = <T>(work: () => Promise<T>) => (currentBudgetConsumer() ? work() : budgetConsumer(ANALYTICS_CONSUMER, work));
+    const promise = this.jobs.run(() => labelled(() => this.serial(address, () => this.limited(() => this.refresh(address, rank, caller)))));
     this.inflight.set(address, promise);
     promise
-      .then(() => funding ? this.jobs.run(() => this.serial(address, () => this.limited(() => this.fundingStep(address)))) : undefined)
+      .then(() => funding ? this.jobs.run(() => labelled(() => this.serial(address, () => this.limited(() => this.fundingStep(address))))) : undefined)
       .catch((error: Error) => {
         if (!(error instanceof BusyException)) this.logger.warn(`Trade analytics for ${address} failed: ${error.message}`);
       })
@@ -285,6 +291,11 @@ export class TradeAnalyticsService {
         if (this.inflight.get(address) === promise) this.inflight.delete(address);
       });
     return promise;
+  }
+
+  /** Whether figures are stored for this address (a read answers at once). */
+  async isStored(address: string): Promise<boolean> {
+    return (await this.repository.state(address)) !== undefined;
   }
 
   /** Resolves once no computation or funding step is running (tests). */

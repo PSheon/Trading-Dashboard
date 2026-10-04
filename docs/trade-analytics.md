@@ -259,6 +259,25 @@ copies a text summary and link (CopyDog renders an image card).
   `truncated`, or when the account's perp PnL had already moved before the
   first fill read. CopyDog labels such a sample all-time (0x469e: 647 trades
   since 2024-12, `partial: false`); Orbie says where it starts.
+- **Cold pages no longer starve each other (2026-10-04).** A cold trader's
+  analytics read (up to 32 list calls) ran at the page's own rank and lane
+  and prepaid 120 per list call in the shared per-IP meter, so three or four
+  cold pages in a minute left no room for the next one's profile, fills and
+  activity (503), and the reads themselves failed on
+  `hyperliquid_quota_exhausted`. Now: an analytics job a page started ranks
+  after every page call (`PAGE_RANK.analytics`) and sends in the background
+  lane, waiting up to 40 s for room there instead of failing, so pages keep
+  the 360 above `HYPERLIQUID_BACKGROUND_REST_CAP`; its list calls gate on
+  their known part locally, like a page's; every answered list call settles
+  its meter charge down to the provider's 20 + 1 per 20 items with the
+  process's next request (a 90-fill list holds 25, not 120); and a stored
+  answer is never refused by the per-client limit of three addresses in
+  progress. Four cold traders opened 15 s apart against a throwaway build
+  (fresh test database, no worker, same addresses): before, fills/activity
+  0.5–85 s with up to 5 503s, profile up to 70 s, analytics of two of four
+  still failing after 180 s; after, fills/activity 0.4–16.5 s (at most one
+  503), profile 2.5–23 s (the first page waits for the new process's market
+  catalog), every analytics done in 83–165 s.
 - Queue time in the request budgeter no longer counts against the 20 s
   Hyperliquid request timeout (it now covers only the HTTP exchange), so a
   heavy background load isn't cancelled while it waits for budget.

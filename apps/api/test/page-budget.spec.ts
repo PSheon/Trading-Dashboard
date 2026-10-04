@@ -162,7 +162,9 @@ describe("page work in the Hyperliquid budget", () => {
 describe("trade analytics per client", () => {
   it(`answers busy past ${MAX_PENDING_PER_CLIENT} cold addresses in progress for one client, not for others`, async () => {
     const never = new Promise<never>(() => undefined);
-    const analytics = { analytics: vi.fn(() => never), trades: vi.fn(() => never) } as unknown as TradeAnalyticsService;
+    const stored = new Set<string>();
+    const analytics = { analytics: vi.fn((address: string) => stored.has(address) ? Promise.resolve({ address }) : never), trades: vi.fn(() => never),
+      isStored: vi.fn(async (address: string) => stored.has(address)) } as unknown as TradeAnalyticsService;
     const controller = new TradeAnalyticsController(analytics);
     controller.pageDeadlineMs = 10;
     const addr = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
@@ -178,6 +180,9 @@ describe("trade analytics per client", () => {
     // … and another client is unaffected.
     await expect(ask("198.51.100.10", 99)).rejects.toBeInstanceOf(BusyException);
     expect(analytics.analytics).toHaveBeenCalledTimes(MAX_PENDING_PER_CLIENT + 2);
+    // An address whose figures are stored is answered at once, even past the limit (item 6).
+    stored.add(addr(77));
+    await expect(ask("198.51.100.9", 77)).resolves.toEqual({ address: addr(77) });
   });
 
   it("maps a refused page budget to 503 busy, not 502", async () => {

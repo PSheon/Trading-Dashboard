@@ -251,12 +251,12 @@ describe("RequestBudgeterService (W6)", () => {
     const calls = [
       budgeter.acquire(2, "background").then(() => order.push("sweep")),
       budgeter.acquire(12, "background", PAGE_RANK.fills).then(() => order.push("fills")),
-      budgeter.acquire(2, "background", PAGE_RANK.warm).then(() => order.push("warm")),
+      budgeter.acquire(2, "background", PAGE_RANK.analytics).then(() => order.push("analytics")),
       budgeter.acquire(10, "background", PAGE_RANK.profile).then(() => order.push("profile")),
     ];
     await vi.advanceTimersByTimeAsync(60_000);
     await Promise.all(calls);
-    expect(order).toEqual(["profile", "fills", "warm", "sweep"]);
+    expect(order).toEqual(["profile", "fills", "analytics", "sweep"]);
   });
 
   it("a background list takes the main bucket into debt; a first paint still goes at once; a page's list waits on its known base only", async () => {

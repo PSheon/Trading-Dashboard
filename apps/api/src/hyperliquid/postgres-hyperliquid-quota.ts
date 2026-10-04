@@ -8,12 +8,15 @@ import {hyperliquidEgressQuota as quota,hyperliquidWsLeases as leases} from '@tr
 import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
-import {HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {HYPERLIQUID_MAX_SETTLEMENTS,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 
 export interface HyperliquidQuotaBinding {readonly egressKey:string;readonly ownerId:string;}
-export interface HyperliquidSendPermit {assertFresh():void;dispatch<T>(work:()=>T):T;}
+export interface HyperliquidSendPermit {assertFresh():void;dispatch<T>(work:()=>T):T;
+  /** REST only: what the provider counted for the answered call; lowers the
+   * prepaid charge with this process's next REST request. */
+  settle?(units:number):void;}
 export type HyperliquidQuotaPermit=HyperliquidSendPermit;
 export interface HyperliquidCommandPermit {dispatch<T>(command:Readonly<Record<string,unknown>>,work:(captured:Readonly<Record<string,unknown>>)=>T):T;}
 /** Only the original transport object can acknowledge cleanup: this port has
@@ -41,6 +44,15 @@ type Queue={tail:Promise<unknown>;pending:number};
  * transaction contains SQL only; no transport or provider call occurs here. */
 export class PostgresHyperliquidQuota {
   private readonly queues=new WeakMap<LiveRiskDatabaseSession,Queue>();
+  /** Answered list calls not yet settled in the meter, per egress key: id →
+   * units and when recorded (a charge expires 65 s after it was made). */
+  private readonly settlements=new Map<string,Map<string,{units:number;at:number}>>();
+  private pendingSettlements(egressKey:string){
+    const pending=this.settlements.get(egressKey);if(!pending)return [];
+    const cutoff=this.now()-60_000;
+    for(const [id,entry] of pending)if(entry.at<cutoff)pending.delete(id);
+    return [...pending.entries()].slice(0,HYPERLIQUID_MAX_SETTLEMENTS).map(([id,entry])=>({id,units:entry.units}));
+  }
   constructor(private readonly uow:UnitOfWork,private readonly now=Date.now,private readonly monotonic=()=>performance.now()){}
   bindUnscoped(identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {return this.bind(capture(identity));}
   bindOriginal(session:LiveRiskDatabaseSession,identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {
@@ -111,7 +123,17 @@ export class PostgresHyperliquidQuota {
     const apply=(request:(now:number,sendUntil:number)=>HyperliquidQuotaRequest,deadline?:number)=>this.apply(binding,request,deadline,session);
     return Object.freeze({acquireRest:async(weight:number,deadline:number,lane?:HyperliquidRestLane)=>{
       if(lane!==undefined&&lane!=='background')fail('hyperliquid_quota_invalid');
-      const id=randomUUID(),fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{})}),deadline);return this.permit(fresh);
+      // Settlements ride on the next charge (no transaction of their own);
+      // they are dropped once that charge commits, kept if it fails.
+      const settle=session?[]:this.pendingSettlements(binding.egressKey);
+      const id=randomUUID(),fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(settle.length?{settle}:{})}),deadline);
+      const pending=this.settlements.get(binding.egressKey);for(const s of settle)pending?.delete(s.id);
+      const permit=this.permit(fresh);
+      return Object.freeze({...permit,settle:(units:number)=>{
+        if(session||!Number.isSafeInteger(units)||units<1||units>=weight)return;
+        let map=this.settlements.get(binding.egressKey);if(!map){map=new Map();this.settlements.set(binding.egressKey,map);}
+        if(map.size<256)map.set(id,{units,at:this.now()});
+      }});
     },reserveSocket:async(deadline:number,network:LiveNetwork='testnet')=>{
       if(network!=='testnet'&&network!=='mainnet')fail('hyperliquid_quota_invalid');
       const id=randomUUID(),fenceToken=randomBytes(32).toString('hex'),socketId=randomUUID(),ownerId=binding.ownerId,source={leaseId:id,fenceToken,ownerId};

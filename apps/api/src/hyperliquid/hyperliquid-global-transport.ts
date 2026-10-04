@@ -16,7 +16,20 @@ export const PAGE_CAPACITY_WAIT_MS=6_000;
 /** Longest a snapshot or sweep of watched leaders waits in all for room in
  * the background lane (within the info client's 20 s request timeout). */
 export const ESSENTIAL_CAPACITY_WAIT_MS=15_000;
+/** Longest a trade-analytics read (a background job a page started, never
+ * the page's own request) waits in all for room in the background lane. */
+export const ANALYTICS_CAPACITY_WAIT_MS=40_000;
 const lists=new Set(['recentTrades','userFillsByTime','userFills','userTwapSliceFills','userTwapSliceFillsByTime','userFunding','userNonFundingLedgerUpdates']);
+/** An answered list call's settlement hook, by its response. */
+const listSettlements=new WeakMap<Response,(units:number)=>void>();
+/** A list call's real weight once its items are counted (the provider's 20 +
+ * 1 per 20 items, at most the 120 prepaid): lowers the shared meter's charge
+ * with this process's next request, so a short list (a TWAP history, an
+ * address with few fills) no longer holds 120 of the window for a minute. */
+export function settleListAnswer(response:Response,items:number):void {
+ if(!Number.isSafeInteger(items)||items<0)return;
+ listSettlements.get(response)?.(Math.min(120,20+Math.ceil(items/20)));
+}
 /** Fixed-origin actual dispatch. Original-session context is private and may
  * never be replaced with an unscoped SQL transaction while locks are held. */
 export class HyperliquidGlobalTransport {
@@ -65,6 +78,12 @@ export class HyperliquidGlobalTransport {
   * and history's loops, which fail and retry next minute, cannot keep the
   * watched leaders' fills and figures from advancing. */
  readonly fetchEssentialInfo:typeof fetch=(input,init)=>this.#info(input,init,'background',true,ESSENTIAL_CAPACITY_WAIT_MS);
+ /** A trade-analytics read: the background lane, waiting (longer) for room.
+  * A cold trader's history is up to 32 list calls; in the page lane they
+  * could prepay the whole window and leave the next cold page's profile,
+  * fills and activity no room (503), so they never take the room above
+  * HYPERLIQUID_BACKGROUND_REST_CAP that pages keep. */
+ readonly fetchAnalyticsInfo:typeof fetch=(input,init)=>this.#info(input,init,'background',true,ANALYTICS_CAPACITY_WAIT_MS);
  async #acquire(budget:BoundHyperliquidQuota,weight:number,lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,signal:AbortSignal|null|undefined,maxWaitMs=PAGE_CAPACITY_WAIT_MS){
   const giveUpAt=this.now()+maxWaitMs;
   for(;;){
@@ -86,6 +105,8 @@ export class HyperliquidGlobalTransport {
   if(!weight)fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};
   captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal,maxWaitMs);captured.signal?.throwIfAborted();
-  return permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
+  const response=await permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
+  if(lists.has(type)&&permit.settle&&response instanceof Response)listSettlements.set(response,permit.settle);
+  return response;
  }
 }

@@ -746,6 +746,14 @@
   to { opacity: 1; transform: none; }
 }
 
+/* The 404 planet drifts gently. */
+.orbit-float {
+  animation: orbit-float 6s ease-in-out infinite;
+}
+@keyframes orbit-float {
+  50% { transform: translateY(-8px) rotate(-3deg); }
+}
+
 /* Numbers and charts fade in when their data arrives. */
 .orbit-fade-in {
   animation: orbit-fade-in 0.36s var(--ease-orbit) both;
@@ -773,7 +781,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-fade-in { animation: none; }
+  .orbit-fade-in, .orbit-float { animation: none; }
   .orbit-press, .orbit-lift { transition-property: background-color, color, box-shadow, opacity; }
   .orbit-press:active:not(:disabled) { transform: none; }
   .orbit-lift:hover { transform: none; }

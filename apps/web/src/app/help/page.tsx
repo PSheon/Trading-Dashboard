@@ -19,13 +19,13 @@ export default async function HelpPage() {
     // CopyDog's `.hl-page`: 16px page edges on phones; on desktop the page is
     // centred between the rail and the window edge (x=758 at 1440), the
     // title 56px/84px with 40px under it.
-    <div className="-mx-1 pt-[13px] md:-mr-4 md:-ml-8 md:pt-4">
+    <div className="pt-2 md:pt-4">
       {/* CopyDog's FAQPage: every question with its answer as text. */}
       <JsonLd data={faqJsonLd(questions.map((q) => ({ question: inlineText(q.question), answer: blocksText(q.answer) })))} />
-      <h1 className="text-center text-[56px] leading-[84px] font-bold tracking-tight">
+      <h1 className="text-center font-display text-[2.5rem] leading-[1.2] md:text-[3.625rem]">
         <InlineText text={title} />
       </h1>
-      <div className="mt-10">
+      <div className="mt-8">
         <FaqList sections={sections} />
       </div>
       <SiteFooter className="mt-20" />

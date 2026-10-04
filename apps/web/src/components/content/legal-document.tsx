@@ -21,22 +21,22 @@ export function LegalDocument({ page, locale }: { page: ContentPage; locale: Loc
   const [first, ...others] = body;
   const date = first?.type === "paragraph" ? first : null;
   return (
-    <article className="mx-auto w-full max-w-[800px] px-5 pt-10 pb-24">
-      <Link href="/" className="text-[0.9375rem] text-primary-text underline underline-offset-2 hover:text-primary-text/80">
+    <article className="mx-auto w-full max-w-[760px] pt-4 pb-16">
+      <Link href="/" className="text-sm font-extrabold text-primary-text underline underline-offset-2 hover:text-primary-text/80">
         ← {APP_NAME}
       </Link>
-      <h1 className="mt-[31px] text-[28px] leading-[1.6] font-bold">
+      <h1 className="mt-5 font-display text-[2rem] leading-[1.2] md:text-[2.5rem]">
         <InlineText text={title} />
       </h1>
       {date ? (
-        <p className="mt-1 text-sm leading-[1.6] text-subtle-foreground">
+        <p className="mt-2 text-sm leading-[1.6] font-bold text-muted-foreground">
           <InlineText text={date.text} />
         </p>
       ) : null}
       {notices.length > 0 ? <MarkdownBlocks blocks={notices} /> : null}
       <MarkdownBlocks
         blocks={date ? others : body}
-        className="mt-2 leading-6 [&_h2]:mt-8 [&_h2]:mb-2 [&_h2]:text-[18px] [&_h2]:leading-[1.6] [&_li]:leading-6 [&_p]:my-[15px]"
+        className="mt-2 leading-7 text-[15px] [&_h2]:mt-9 [&_h2]:mb-2 [&_h2]:font-display [&_h2]:text-[22px] [&_h2]:leading-[1.4] [&_h3]:font-display [&_h3]:text-[17px] [&_li]:leading-7 [&_p]:my-[14px] [&_p]:text-muted-foreground [&_li]:text-muted-foreground"
       />
     </article>
   );

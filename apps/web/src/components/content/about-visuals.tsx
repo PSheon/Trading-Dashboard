@@ -30,7 +30,7 @@ function MarqueeRow({ traders, reverse }: { traders: BoardTrader[]; reverse?: bo
       {traders.map((t) => (
         <Link key={t.address} href={`/trader/${t.address}`} className="flex items-center gap-4 outline-none focus-visible:ring-2 focus-visible:ring-ring" tabIndex={-1}>
           <TraderAvatar trader={t} size={64} className="size-10 rounded-xl md:size-16 md:rounded-2xl" />
-          <span className="text-[26px] font-[650] whitespace-nowrap">{boardName(t)}</span>
+          <span className="text-[26px] font-display whitespace-nowrap">{boardName(t)}</span>
         </Link>
       ))}
     </div>
@@ -147,7 +147,7 @@ export function BoardMock() {
     <Mock>
       <div className="flex items-center gap-2.5 pb-3">
         <CoinIcon coin="BTC" size={26} />
-        <span className="text-[17px] font-[650]">BTC</span>
+        <span className="text-[17px] font-display">BTC</span>
         <span className={cn(K, "ml-auto")}>Top traders</span>
       </div>
       {[0, 1, 2].map((i) => {
@@ -156,7 +156,7 @@ export function BoardMock() {
           <div key={i} className="flex items-center gap-2.5 border-t-2 border-dotted border-border py-2.5">
             {t ? <TraderAvatar trader={t} size={32} /> : <span className="size-8 rounded-full bg-raised" />}
             <span className="min-w-0 truncate text-sm font-semibold">{t ? boardName(t) : "—"}</span>
-            <span className="ml-auto shrink-0 text-sm font-[650] text-positive">{t && t.pnl !== null ? usdCompact(t.pnl, { sign: true }) : ["+$9.9M", "+$2.7M", "+$1.0M"][i]}</span>
+            <span className="ml-auto shrink-0 text-sm font-display text-positive">{t && t.pnl !== null ? usdCompact(t.pnl, { sign: true }) : ["+$9.9M", "+$2.7M", "+$1.0M"][i]}</span>
           </div>
         );
       })}
@@ -171,8 +171,8 @@ export function ProfileMock() {
     <Mock>
       <div className="flex items-center gap-2.5 pb-3">
         {t ? <TraderAvatar trader={t} size={38} /> : <span className="size-[38px] rounded-full bg-raised" />}
-        <span className="min-w-0 truncate text-[17px] font-[650]">{t ? boardName(t) : "—"}</span>
-        <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-[3px] text-xs font-[650] text-primary-text">{t?.copyScore ?? 98}</span>
+        <span className="min-w-0 truncate text-[17px] font-display">{t ? boardName(t) : "—"}</span>
+        <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-[3px] text-xs font-display text-primary-text">{t?.copyScore ?? 98}</span>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-3.5 pt-1 pb-3.5">
         {[
@@ -183,7 +183,7 @@ export function ProfileMock() {
         ].map(([k, v, pos]) => (
           <div key={String(k)} className="grid min-w-0 gap-[5px]">
             <span className={K}>{k}</span>
-            <span className={cn("text-[17px] font-[650] whitespace-nowrap", pos && "text-positive")}>{v}</span>
+            <span className={cn("text-[17px] font-display whitespace-nowrap", pos && "text-positive")}>{v}</span>
           </div>
         ))}
       </div>
@@ -196,7 +196,7 @@ export function ProfileMock() {
 export function CopyMock() {
   return (
     <Mock className="overflow-hidden p-0">
-      <div className="flex items-baseline gap-2 px-4 pt-5 pb-3.5 text-[34px] leading-none font-[650]">
+      <div className="flex items-baseline gap-2 px-4 pt-5 pb-3.5 text-[34px] leading-none font-display">
         <span>250</span>
         <span className="text-muted-foreground">USDC</span>
       </div>
@@ -217,7 +217,7 @@ export function PortfolioMock() {
     <Mock>
       <div className="flex items-center gap-2.5 pb-3">
         {t ? <TraderAvatar trader={t} size={26} /> : <span className="size-[26px] rounded-full bg-raised" />}
-        <span className="min-w-0 truncate text-[15px] font-[650]">{t ? boardName(t) : "—"}</span>
+        <span className="min-w-0 truncate text-[15px] font-display">{t ? boardName(t) : "—"}</span>
         <span className={cn(K, "ml-auto inline-flex items-center gap-[5px] text-primary-text before:size-1.5 before:rounded-full before:bg-primary")}>Live</span>
       </div>
       <Spark className="h-[52px]" />
@@ -229,7 +229,7 @@ export function PortfolioMock() {
         ].map(([k, v, pos]) => (
           <div key={String(k)} className="grid min-w-0 gap-[5px]">
             <span className={K}>{k}</span>
-            <span className={cn("text-[15px] font-[650] whitespace-nowrap", pos && "text-positive")}>{v}</span>
+            <span className={cn("text-[15px] font-display whitespace-nowrap", pos && "text-positive")}>{v}</span>
           </div>
         ))}
       </div>

@@ -16,8 +16,6 @@ import { PhoneMenu } from "./phone-menu";
 import { WalletModalsProvider } from "@/components/wallet/wallet-modals";
 import { discoverNav, isActive, mineNav, mobileNav, type NavItem } from "./nav";
 
-const BARE_PAGES = new Set(["/privacy", "/terms", "/delete-account"]);
-
 /** Every route the app serves; anything else is the 404 page. */
 const ROUTES = ["/explore", "/favorites", "/insights", "/portfolio", "/settings", "/coins", "/trader", "/admin", "/about", "/help", "/dev"];
 const isAppRoute = (pathname: string) => pathname === "/" || ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
@@ -51,15 +49,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // page and its breadcrumb.
   const barePhonePage = pathname === "/coins" || pathname.startsWith("/coins/");
   const chrome = phoneChrome(pathname);
-
-  // The legal pages are plain documents: no header or tabs.
-  if (BARE_PAGES.has(pathname)) {
-    return (
-      <main id="main" tabIndex={-1} className="min-h-dvh outline-none">
-        {children}
-      </main>
-    );
-  }
 
   // The design lab owns its frame; the production shell stays unchanged.
   if (pathname === "/dev" || pathname.startsWith("/dev/")) return <>{children}</>;

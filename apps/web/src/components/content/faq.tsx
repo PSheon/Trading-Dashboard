@@ -52,7 +52,7 @@ export function FaqList({ sections }: { sections: Section[] }) {
       <FaqAccordion
         items={questions.map((q) => ({
           question: <InlineText text={q.question} />,
-          answer: <MarkdownBlocks blocks={q.answer} className="-mt-3 pb-5 text-base leading-[27.2px] text-muted-foreground [&_p]:my-0 [&_p+p]:mt-3" />,
+          answer: <MarkdownBlocks blocks={q.answer} className="-mt-1 pb-5 text-[15px] leading-[26px] font-bold text-muted-foreground [&_p]:my-0 [&_p+p]:mt-3" />,
         }))}
       />
     </div>

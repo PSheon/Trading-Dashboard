@@ -439,6 +439,17 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(home.calculator.map((t) => t.address)).toEqual([addr(2)]);
     });
 
+    it("leaves out of the calculator a trader whose win rate is 10% or less, as CopyDog's hero does", async () => {
+      await seedPool();
+      await db.update(discoveryTraders).set({ coinStats: { BTC: { pnl: 300, volume: 1000, trades: 20, wins: 2 } } }).where(eq(discoveryTraders.address, addr(2)));
+      const service = new DiscoveryService(repository, settings, traders as unknown as TradersService, catalog as unknown as MarketCatalogService);
+      expect((await service.home()).calculator).toEqual([]);
+      await db.update(discoveryTraders).set({ coinStats: { BTC: { pnl: 300, volume: 1000, trades: 20, wins: 3 } } }).where(eq(discoveryTraders.address, addr(2)));
+      // A new service: the pool snapshot is cached per instance.
+      const fresh = new DiscoveryService(repository, settings, traders as unknown as TradersService, catalog as unknown as MarketCatalogService);
+      expect((await fresh.home()).calculator.map((t) => t.address)).toEqual([addr(2)]);
+    });
+
     it("reports freshness from displayed performance, using trade analysis for coin boards", async () => {
       await seedPool();
       const old = new Date("2026-09-01T00:00:00Z");

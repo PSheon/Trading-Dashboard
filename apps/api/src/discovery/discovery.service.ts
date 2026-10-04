@@ -139,8 +139,9 @@ export class DiscoveryService {
    * CopyDog's BTC ETH SOL HYPE SPX Gold NVDA TSLA, which no volume ranking
    * replaces; trending markets are tiles only); only traders whose
    * sparkline moves. The calculator takes six from 精選 then named top-ROI
-   * traders: ROI > 5%, sparkline ending ≥ 0, preferring PnL ≥ $100K,
-   * highest ROI first.
+   * traders, as CopyDog's home hero does (bundle 2026-10-04, `be()`): ROI >
+   * 5%, win rate > 10%, a positive account value, a sparkline of more than
+   * three points ending ≥ 0, preferring PnL ≥ $100K, highest ROI first.
    */
   async home(): Promise<HomeBoardsResponse> {
     const [{ candidates, scores, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
@@ -160,7 +161,14 @@ export class DiscoveryService {
     });
     const seen = new Set(featured.map((t) => t.address));
     const named = row({ sort: "roi" }, 100).filter((t) => t.displayName && !seen.has(t.address));
-    const eligible = [...featured, ...named].filter((t) => (t.roi ?? 0) > 0.05 && t.sparkline.length > 3 && t.sparkline[t.sparkline.length - 1] >= 0);
+    const winRate = new Map(candidates.map((c) => {
+      let trades = 0;
+      let wins = 0;
+      for (const stat of Object.values(c.row.coinStats ?? {})) { trades += stat.trades; wins += stat.wins; }
+      return [c.row.address, trades > 0 ? wins / trades : null] as const;
+    }));
+    const eligible = [...featured, ...named].filter((t) => (t.roi ?? 0) > 0.05 && (winRate.get(t.address) ?? 0) > 0.1 && (t.accountValue ?? 0) > 0
+      && t.sparkline.length > 3 && t.sparkline[t.sparkline.length - 1] >= 0);
     const large = eligible.filter((t) => (t.pnl ?? 0) >= 100_000);
     const calculator = (large.length > 0 ? large : eligible).sort((a, b) => (b.roi ?? 0) - (a.roi ?? 0)).slice(0, 6);
     const dates = candidates.map((c) => c.row.portfolioAt).filter((d): d is Date => d !== null);

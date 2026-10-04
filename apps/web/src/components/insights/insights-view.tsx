@@ -56,7 +56,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
     <div className="flex flex-col gap-4">
       <header className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <HyperliquidWordmark className="flex h-[41px] md:hidden" />
-        <h1 className="font-display text-[1.75rem] leading-[1.15] md:text-[2.5rem]">{t("insights.cohort.bannerTitle")}</h1>
+        <h1 className="font-display text-[1.75rem] leading-[1.15] text-balance md:text-[2.5rem]">{t("insights.cohort.bannerTitle")}</h1>
         <div className="flex items-center gap-4 max-md:absolute max-md:top-[18px] max-md:right-[18px] md:order-3">
           {tierPicker ? <TierPicker value={tier} onChange={setTier} /> : null}
           <HyperliquidWordmark className="hidden md:flex" />

@@ -2,6 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import { equitySnapshots, positionSnapshots } from "@trading-dashboard/shared/database";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { ChartSnapshotsRepository } from "../src/traders/chart-snapshots.repository.js";
 import { ChartSnapshotsService, MAX_CHART_SNAPSHOTS, MAX_SNAPSHOT_POSITIONS } from "../src/traders/chart-snapshots.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -11,7 +12,7 @@ const NOW = new Date(Date.UTC(2026, 9, 4, 12, 0));
 
 describe("chart snapshots: what a trader held along the chart (CopyDog's chart-snapshots), from stored 5-minute snapshots", () => {
   const db = getTestDb();
-  const service = new ChartSnapshotsService(db);
+  const service = new ChartSnapshotsService(new ChartSnapshotsRepository(db));
   beforeEach(() => truncateAll(db));
   afterAll(closeTestDb);
 

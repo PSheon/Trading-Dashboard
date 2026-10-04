@@ -14,6 +14,7 @@ import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopySignalService } from "./copy-signal.service.js";
 import { CopyStrategyService } from "./copy-strategy.service.js";
 import { CopyStreamService } from "./copy-stream.service.js";
+import { CopyFundsRepository } from "./copy-funds.repository.js";
 import { CopyFundsService } from "./copy-funds.service.js";
 import { CopyFundsController } from "./copy-funds.controller.js";
 import { CopyController } from "./copy.controller.js";
@@ -77,7 +78,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService,
+    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService, CopyFundsRepository,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport],
       useFactory: (config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) => new HyperliquidAgentApprovalVerifier(

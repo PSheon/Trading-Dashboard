@@ -15,6 +15,7 @@ import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
 import { KolAvatarModule } from "../discovery/kol-avatar.module.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
 import { TradersController } from "./traders.controller.js";
+import { ChartSnapshotsRepository } from "./chart-snapshots.repository.js";
 import { ChartSnapshotsService } from "./chart-snapshots.service.js";
 import { SpotPriceService } from "./spot-price.service.js";
 import { TradersService } from "./traders.service.js";
@@ -29,7 +30,7 @@ import { AnalysisHistoryService } from "./analysis-history.service.js";
 @Module({
   imports: [HyperliquidModule, AnalyticsModule, KolAvatarModule],
   controllers: [TraderSearchController, TradersController, TradeAnalyticsController],
-  providers: [ChartSnapshotsService, TraderSearchRepository, AnalysisHistoryRepository, AnalysisHistoryService, LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService,
+  providers: [ChartSnapshotsRepository, ChartSnapshotsService, TraderSearchRepository, AnalysisHistoryRepository, AnalysisHistoryService, LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService,
     { provide: TraderOrdersReader, inject: [AppConfig, HyperliquidGlobalTransport], useFactory: (config: AppConfig, transport: HyperliquidGlobalTransport) => new TraderOrdersReader(
       new HyperliquidAllDexsAccountSource(Date.now, undefined, config.value.hyperliquid.apiUrl === 'https://api.hyperliquid-testnet.xyz/info' ? 'testnet' : 'mainnet', transport), Date.now, config.value.hyperliquid.apiUrl) },
     { provide: TraderTwapReader, inject: [AppConfig, HyperliquidGlobalTransport], useFactory: (config: AppConfig, transport: HyperliquidGlobalTransport) =>

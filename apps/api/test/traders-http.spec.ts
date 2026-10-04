@@ -22,6 +22,7 @@ import { SettingsService } from "../src/settings/settings.service.js";
 import { parseLeaderboard } from "../src/traders/leaderboard.js";
 import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
 import { PAGE_DEADLINE_MS, TradersController } from "../src/traders/traders.controller.js";
+import { ChartSnapshotsRepository } from "../src/traders/chart-snapshots.repository.js";
 import { ChartSnapshotsService } from "../src/traders/chart-snapshots.service.js";
 import { TradersService } from "../src/traders/traders.service.js";
 import type { TraderOrdersReader } from "../src/traders/trader-orders-reader.js";
@@ -112,6 +113,7 @@ describe("public discovery routes over HTTP", () => {
       controllers: [TradersController, InsightsController],
       providers: [
         ChartSnapshotsService,
+        ChartSnapshotsRepository,
         {
           provide: TradersService,
           useFactory: (s: SettingsService) =>

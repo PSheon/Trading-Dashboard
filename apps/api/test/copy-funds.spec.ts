@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import { CopyFundsController } from "../src/copy/copy-funds.controller.js";
+import { CopyFundsRepository } from "../src/copy/copy-funds.repository.js";
 import { CopyFundsService } from "../src/copy/copy-funds.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -25,7 +26,7 @@ describe("GET /me/funds/history: one money-flow history of copies, fees, funding
   let app: INestApplication;
   let auth: AuthService;
   beforeAll(async () => {
-    ({ app, auth } = await createAuthedApp({ db, privy, controllers: [CopyFundsController], providers: [CopyFundsService] }));
+    ({ app, auth } = await createAuthedApp({ db, privy, controllers: [CopyFundsController], providers: [CopyFundsService, CopyFundsRepository] }));
   });
   beforeEach(async () => { await truncateAll(db); auth.clearCache(); });
   afterAll(async () => { await app.close(); await closeTestDb(); });

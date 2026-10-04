@@ -92,3 +92,10 @@ export class CopyTradesQueryDto {
   @ApiPropertyOptional({ type: String, pattern: "^[1-9]\\d{0,18}$", description: "One trade by its id (its opening fill)" })
   @Optional() @Matches(/^[1-9]\d{0,18}$/) declare id?: string;
 }
+
+export class FundsHistoryQueryDto {
+  @ApiPropertyOptional({ type: String, pattern: "^\\d{1,16}$", description: "Epoch ms: only flows before it (the previous page's nextCursor)" })
+  @Optional() @Matches(/^\d{1,16}$/) declare before?: string;
+  @ApiPropertyOptional({ type: "integer", minimum: 1, maximum: 100, default: 50 })
+  @Optional() @ToNumber() @IsInt() @Min(1) @Max(100) declare limit?: number;
+}

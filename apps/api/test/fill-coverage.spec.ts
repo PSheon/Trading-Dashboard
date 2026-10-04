@@ -373,6 +373,9 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
       expect((await service.analytics(A, "all")).coverage).toMatchObject({ source: "tracked", truncated: false, completeness: "complete" });
       await service.settled();
       await db.update(fillCoverage).set({ revisedAt: new Date(), breaks: [{ coin: "ETH", tid: 1, time: now - 2 * HOUR, after: now - 3 * HOUR, expected: "1", actual: "5" }] });
+      // The worker's next turn picks up the revision.
+      await db.insert(leaders).values({ address: A }).onConflictDoNothing();
+      expect(await service.refreshTracked()).toEqual([A]);
       expect((await service.analytics(A, "all")).coverage).toMatchObject({ truncated: true, completeness: "partial" });
       await service.settled();
     });
@@ -418,16 +421,20 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
       expect(traders.latestFills).not.toHaveBeenCalled();
       compute.mockRestore();
 
-      // When the backfill ends, the next view recomputes from our fills, once.
+      // Mid-backfill the worker leaves it too; when the backfill ends, its
+      // next turn recomputes from our fills, once. A view never computes.
+      await db.insert(leaders).values({ address: A }).onConflictDoNothing();
+      expect(await service1.refreshTracked()).toEqual([]);
       let status = "pending";
       for (let step = 0; step < 40 && status === "pending"; step++) ({ status } = await sync.backfillStep(A));
       expect(status).not.toBe("pending");
-      const after = await service1.analytics(A, "all");
+      expect((await service1.analytics(A, "all")).computedAt.getTime()).toBe(first.computedAt.getTime());
+      expect(await service1.refreshTracked()).toEqual([A]);
       await service1.settled();
+      const after = await service1.analytics(A, "all");
       expect(after.computedAt.getTime()).toBeGreaterThan(first.computedAt.getTime());
       expect(after.coverage.source).toBe("tracked");
-      const settledAt = after.computedAt.getTime();
-      expect((await service1.analytics(A, "all")).computedAt.getTime()).toBe(settledAt);
+      expect(await service1.refreshTracked()).toEqual([]);
     });
 
     it("recomputes the figures once backfilled fills land", async () => {
@@ -450,9 +457,12 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
       for (let step = 0; step < 40 && status === "pending"; step++) ({ status } = await sync.backfillStep(A));
       expect((await coverage()).revisedAt!.getTime()).toBeGreaterThan(before.computedAt.getTime());
 
-      // The stored row is minutes old (not stale by age): the revision alone triggers the recompute.
-      const after = await service1.analytics(A, "all");
+      // The stored row is minutes old (not stale by age): the revision alone
+      // makes it due for the worker's next turn.
+      await db.insert(leaders).values({ address: A }).onConflictDoNothing();
+      expect(await service1.refreshTracked()).toEqual([A]);
       await service1.settled();
+      const after = await service1.analytics(A, "all");
       expect(after.computedAt.getTime()).toBeGreaterThan(before.computedAt.getTime());
       expect(after.summary).toMatchObject({ trades: 22 });
       expect(after.coverage.fills).toBe(upstream.length);

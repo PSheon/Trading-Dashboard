@@ -235,9 +235,10 @@ export class TradeAnalyticsRepository {
   /** What the watcher's `fills` table is proven to hold for the address. */
   /**
    * Watched addresses whose figures are due, oldest first: no figures yet,
-   * figures older than `staleBefore`, or figures from Hyperliquid's REST
+   * figures older than `staleBefore`, figures from Hyperliquid's REST
    * history for an address whose backfill has ended (the tracked source
-   * applies now). `fundingCursor`: how far its funding was read. The worker
+   * applies now), or fills revised since the figures (a backfill window, a
+   * repaired hole, a break found) once the backfill is not running. `fundingCursor`: how far its funding was read. The worker
    * refreshes these (`TradeAnalyticsService.refreshTracked`).
    */
   async trackedDue(staleBefore: Date, limit: number): Promise<Array<{ address: string; fundingCursor: Date | null }>> {
@@ -247,7 +248,8 @@ export class TradeAnalyticsRepository {
       left join ${fillCoverage} fc on fc.chain = l.chain and fc.address = l.address
       where l.chain = ${CHAIN_DEFAULT} and l.active
         and (ta.address is null or ta.computed_at < ${staleBefore}
-          or (ta.source <> 'tracked' and fc.verified_from is not null and fc.verified_through is not null and fc.backfill_status <> 'pending'))
+          or (fc.verified_from is not null and fc.verified_through is not null and fc.backfill_status <> 'pending'
+            and (ta.source <> 'tracked' or fc.revised_at > ta.computed_at)))
       order by ta.computed_at asc nulls first, l.address
       limit ${limit}`);
     return rows.rows.map((r) => ({ address: r.address, fundingCursor: r.funding_cursor === null ? null : new Date(r.funding_cursor) }));

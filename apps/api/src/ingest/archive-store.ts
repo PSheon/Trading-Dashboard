@@ -96,12 +96,47 @@ export function signS3Request(input: {
  * missing key answers 403 instead of 404, and "not published yet" would
  * look like an access failure).
  */
+export interface S3Timeouts {
+  /** From sending a request until S3's response headers arrive. */
+  responseMs: number;
+  /** Longest wait for the next piece of an object's body. A slow but moving
+   * transfer of a large object is fine; a stalled one is not (undici would
+   * otherwise hold it for its 300 s default and the ingest with it). Time
+   * the reader spends on a piece it already has does not count. */
+  stallMs: number;
+  /** A whole list page (headers and body). */
+  listMs: number;
+}
+export const S3_TIMEOUTS: S3Timeouts = { responseMs: 30_000, stallMs: 60_000, listMs: 30_000 };
+
+const timedOut = (what: string, ms: number) => new DOMException(`${what} timed out after ${ms} ms`, "TimeoutError");
+
+/** `body`, aborting the transfer (through `abort`) when the next piece takes
+ * longer than `ms` to arrive. */
+async function* stallGuard(body: AsyncIterable<Uint8Array>, abort: AbortController, ms: number): AsyncGenerator<Uint8Array> {
+  const pieces = body[Symbol.asyncIterator]();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    for (;;) {
+      timer = setTimeout(() => abort.abort(timedOut("Archive transfer stalled", ms)), ms);
+      const next = await pieces.next();
+      clearTimeout(timer);
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally {
+    clearTimeout(timer);
+    await pieces.return?.();
+  }
+}
+
 export class S3ArchiveStore implements ArchiveStore {
   private readonly host: string;
 
   constructor(
     private readonly options: { bucket: string; region: string; credentials: AwsCredentials },
     private readonly fetcher: typeof fetch = fetch,
+    private readonly timeouts: S3Timeouts = S3_TIMEOUTS,
   ) {
     this.host = `${options.bucket}.s3.${options.region}.amazonaws.com`;
   }
@@ -113,9 +148,13 @@ export class S3ArchiveStore implements ArchiveStore {
       headers: { "x-amz-request-payer": "requester" }, now: new Date(),
     });
     const abort = new AbortController();
-    const response = await this.fetcher(`https://${this.host}${path.split("/").map(encode).join("/")}`, {
-      headers, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal,
-    });
+    const waiting = setTimeout(() => abort.abort(timedOut("Archive request", this.timeouts.responseMs)), this.timeouts.responseMs);
+    let response: Response;
+    try {
+      response = await this.fetcher(`https://${this.host}${path.split("/").map(encode).join("/")}`, {
+        headers, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal,
+      });
+    } finally { clearTimeout(waiting); }
     if (response.status === 404) {
       await response.body?.cancel();
       return undefined;
@@ -127,7 +166,7 @@ export class S3ArchiveStore implements ArchiveStore {
     }
     return {
       size,
-      body: response.body as unknown as AsyncIterable<Uint8Array>,
+      body: stallGuard(response.body as unknown as AsyncIterable<Uint8Array>, abort, this.timeouts.stallMs),
       cancel: async () => abort.abort(),
     };
   }
@@ -142,7 +181,8 @@ export class S3ArchiveStore implements ArchiveStore {
       headers: { "x-amz-request-payer": "requester" }, now: new Date(),
     });
     const search = Object.entries(query).map(([k, v]) => `${encode(k)}=${encode(v)}`).sort().join("&");
-    const response = await this.fetcher(`https://${this.host}/?${search}`, { headers });
+    const signal = AbortSignal.timeout(this.timeouts.listMs);
+    const response = await this.fetcher(`https://${this.host}/?${search}`, { headers, signal });
     if (!response.ok) {
       await response.body?.cancel();
       throw new ArchiveAccessError(response.status);

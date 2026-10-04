@@ -1,6 +1,215 @@
 {
   "openapi": "3.1.0",
   "paths": {
+    "/me/funds/history": {
+      "get": {
+        "operationId": "CopyFundsController_history",
+        "parameters": [
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "Epoch ms: only flows before it (the previous page's nextCursor)",
+            "schema": {
+              "pattern": "^\\d{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "time": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "copy_deposit",
+                                  "copy_withdrawal",
+                                  "copy_sweep",
+                                  "copy_write_off",
+                                  "fees",
+                                  "funding",
+                                  "copy_funding",
+                                  "hub_withdrawal"
+                                ]
+                              },
+                              "mode": {
+                                "type": "string",
+                                "enum": [
+                                  "paper",
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "amount": {
+                                "type": "number"
+                              },
+                              "strategyId": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "leaderAddress": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "txHash": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "fee": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "counterparty": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "count": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "time",
+                              "kind",
+                              "mode",
+                              "amount",
+                              "strategyId",
+                              "leaderAddress",
+                              "status",
+                              "txHash",
+                              "fee",
+                              "counterparty",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "nextCursor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "nextCursor"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List my money flows: copy transfers, fees, funding, hub withdrawals",
+        "tags": [
+          "CopyFunds"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": [],
+        "description": "Access: user (own flows)"
+      }
+    },
     "/me/copy/live/mandates/{id}/stop": {
       "post": {
         "description": "Persists the exact owner request and known pending execution targets. Does not sign, cancel, close, release reservations, verify flatness or return funds.\n\nAccess: user (owner); durable local risk barrier; no financial execution",

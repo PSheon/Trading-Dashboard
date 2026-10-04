@@ -36,7 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { shortAddress } from "@/components/wallet/bits";
-import { WalletHistoryList } from "@/components/wallet/history-list";
+import { FundsHistory } from "@/components/wallet/funds-history";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { LOCALE_NAMES, LOCALES, isLocale } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
@@ -201,7 +201,7 @@ function ProfileAndWallet() {
           )
         }
         action={
-          <Button variant="secondary" size="sm" className="h-9 px-3.5 text-muted-foreground" onClick={openExport} disabled={!address}>
+          <Button variant="secondary" size="sm" className="h-9 px-3.5 text-muted-foreground" onClick={() => openExport()} disabled={!address}>
             {t("settings.exportKey")}
           </Button>
         }
@@ -311,7 +311,7 @@ function DesktopSettings() {
               <FundsSummary />
               <div>
                 <h2 className="text-[0.9375rem] font-bold">{t("wallet.historyTitle")}</h2>
-                <WalletHistoryList className="mt-2" />
+                <FundsHistory className="mt-2" />
               </div>
             </div>
           )}
@@ -517,7 +517,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
             ) : (
               <div className="flex flex-col gap-5 pt-4">
                 <FundsSummary />
-                <WalletHistoryList />
+                <FundsHistory />
               </div>
             )}
           </div>

@@ -65,6 +65,22 @@ describe("Privy main account identity", () => {
     expect(sdk.sendTransaction).toHaveBeenCalledWith({ to: MAIN, data: "0x", chainId: 42161 }, { sponsor: false, address: MAIN });
   });
 
+  it("exports a copy wallet by its own address through Privy, and refuses a malformed address or a retained signer", async () => {
+    sdk.user.linkedAccounts = [account(MAIN)];
+    sdk.wallets = [account(MAIN)];
+    await render();
+    const copy = "0x" + "3c".repeat(20);
+    await auth.wallet!.exportCopyKey(copy.toUpperCase().replace("0X", "0x"));
+    expect(sdk.exportWallet).toHaveBeenCalledWith({ address: copy });
+    await expect(auth.wallet!.exportCopyKey("not-an-address")).rejects.toThrow();
+    const old = auth.wallet!;
+    sdk.user = { ...sdk.user, id: "bob", linkedAccounts: [account(OTHER)] };
+    sdk.wallets = [account(OTHER)];
+    await render();
+    await expect(old.exportCopyKey(copy)).rejects.toThrow();
+    expect(sdk.exportWallet).toHaveBeenCalledTimes(1);
+  });
+
   it("recognizes a Privy v2 main account", async () => {
     sdk.user.linkedAccounts = [account(MAIN, 0, "privy-v2")];
     sdk.wallets = [account(MAIN, 0, "privy-v2")];

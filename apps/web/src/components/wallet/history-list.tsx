@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 
 type Kind = "deposit" | "withdraw" | "send" | "receive" | "internal" | "other";
 
-function kindOf(t: TraderTransfer): Kind {
+export function kindOf(t: TraderTransfer): Kind {
   switch (t.kind) {
     case "deposit":
       return "deposit";
@@ -28,12 +28,40 @@ function kindOf(t: TraderTransfer): Kind {
   }
 }
 
-const ICON = { deposit: ArrowDownLeft, receive: ArrowDownLeft, withdraw: ArrowUpRight, send: ArrowUpRight, internal: ArrowLeftRight, other: ArrowLeftRight };
+export const ICON = { deposit: ArrowDownLeft, receive: ArrowDownLeft, withdraw: ArrowUpRight, send: ArrowUpRight, internal: ArrowLeftRight, other: ArrowLeftRight };
 
 /**
  * The main account's deposits, withdrawals and transfers (GET
  * /me/wallet/history): the 儲值與提款 panel and the phone 交易紀錄 view.
  */
+/** The hub withdrawal still being confirmed, or just accepted. */
+export function WithdrawalNotices() {
+  const { t, format } = useI18n();
+  const history = useWalletHistory();
+  const recovery = useWithdrawalRecovery({ network: history.data?.network ?? "testnet", address: history.data?.address ?? null });
+  const { openWithdraw } = useWalletModals();
+  const pending = recovery.data?.status === "prepared" || recovery.data?.status === "unknown" ? recovery.data : null;
+  const accepted = recovery.data?.status === "accepted" ? recovery.data : null;
+  return <>
+    {pending ? (
+      <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
+        <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {pending.amount} USDC</p>
+        <p className="mt-1 text-xs text-muted-foreground">{t(pending.status === "prepared" || pending.canCancel ? "wallet.withdrawPrepared" : "wallet.withdrawRecovery")}</p>
+        <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{pending.destination}</p>
+        <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={openWithdraw}>{t("wallet.checkWithdrawal")}</Button>
+      </div>
+    ) : null}
+    {accepted ? <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
+      <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {accepted.amount} USDC</p>
+      <p className="mt-1 text-xs text-muted-foreground">{t("wallet.withdrawSent")}</p>
+      <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{accepted.destination}</p>
+      <p className="mt-1 break-all font-mono text-xs text-muted-foreground">ID: {accepted.nonce}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{format.dateTime(accepted.updatedAt)}</p>
+    </div> : null}
+    {recovery.isError ? <ErrorState onRetry={() => void recovery.refetch()} /> : null}
+  </>;
+}
+
 export function WalletHistoryList({ className }: { className?: string }) {
   const { t, format } = useI18n();
   const history = useWalletHistory();

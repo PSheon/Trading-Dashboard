@@ -384,3 +384,21 @@ export function fixtureCopyTrades(sort: "best" | "worst" | "recent", limit: numb
     : items.sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime());
   return { mode: "paper" as const, items: sorted.slice(0, limit) };
 }
+
+/** GET /me/funds/history in fixture mode: each seeded copy's allocation and
+ * its orders' fees per UTC day. */
+export function fixtureFundsHistory() {
+  const items = strategies.flatMap((s) => {
+    const deposit = { id: `ledger:alloc-${s.id}`, time: s.createdAt, kind: "copy_deposit" as const, mode: "paper" as const, amount: s.allocated, strategyId: s.id, leaderAddress: s.leaderAddress, status: null, txHash: null, fee: null, counterparty: "paper", count: null };
+    const byDay = new Map<string, { time: Date; amount: number; count: number }>();
+    for (const o of s.orders.filter((x) => x.status === "filled" && x.fee > 0)) {
+      const day = o.at.toISOString().slice(0, 10);
+      const cur = byDay.get(day) ?? { time: o.at, amount: 0, count: 0 };
+      cur.amount -= o.fee; cur.count += 1; if (o.at > cur.time) cur.time = o.at;
+      byDay.set(day, cur);
+    }
+    const fees = [...byDay.entries()].map(([day, v]) => ({ id: `fees:${s.id}:${day}`, time: v.time, kind: "fees" as const, mode: "paper" as const, amount: Math.round(v.amount * 100) / 100, strategyId: s.id, leaderAddress: s.leaderAddress, status: null, txHash: null, fee: null, counterparty: null, count: v.count }));
+    return [deposit, ...fees];
+  }).sort((a, b) => b.time.getTime() - a.time.getTime());
+  return { items, nextCursor: null };
+}

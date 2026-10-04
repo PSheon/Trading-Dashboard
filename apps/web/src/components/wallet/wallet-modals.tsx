@@ -3,7 +3,7 @@
 import { createContext, use, useMemo, useState } from "react";
 
 import { DepositDialog } from "./deposit-dialog";
-import { ExportKeyDialog } from "./export-key-dialog";
+import { ExportKeyDialog, type ExportTarget } from "./export-key-dialog";
 import { WithdrawDialog } from "./withdraw-dialog";
 
 type WalletModal = "deposit" | "withdraw" | "export" | null;
@@ -11,7 +11,8 @@ type WalletModal = "deposit" | "withdraw" | "export" | null;
 interface WalletModals {
   openDeposit: () => void;
   openWithdraw: () => void;
-  openExport: () => void;
+  /** The main account's key, or one copy wallet's (`target`). */
+  openExport: (target?: ExportTarget) => void;
 }
 
 const noop = () => {};
@@ -25,11 +26,12 @@ export function useWalletModals(): WalletModals {
 
 export function WalletModalsProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState<WalletModal>(null);
+  const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
   const value = useMemo<WalletModals>(
     () => ({
       openDeposit: () => setOpen("deposit"),
       openWithdraw: () => setOpen("withdraw"),
-      openExport: () => setOpen("export"),
+      openExport: (target?: ExportTarget) => { setExportTarget(target ?? null); setOpen("export"); },
     }),
     [],
   );
@@ -41,7 +43,7 @@ export function WalletModalsProvider({ children }: { children: React.ReactNode }
       {children}
       <DepositDialog open={open === "deposit"} onOpenChange={close} />
       <WithdrawDialog open={open === "withdraw"} onOpenChange={close} />
-      <ExportKeyDialog open={open === "export"} onOpenChange={(next) => setOpen(next ? "export" : null)} />
+      <ExportKeyDialog open={open === "export"} target={exportTarget} onOpenChange={(next) => setOpen(next ? "export" : null)} />
     </Context>
   );
 }

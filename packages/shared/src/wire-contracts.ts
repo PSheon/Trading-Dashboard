@@ -177,6 +177,7 @@ export const copyStreamEventSchemas = {
 } as const;
 export type CopyStreamEventName = keyof typeof copyStreamEventSchemas;
 export const wireChartSnapshotsSchema = s.chartSnapshotsResponseSchema.extend({ coverageStart: iso.nullable() });
+export const wireFundsHistorySchema = s.fundsHistoryResponseSchema.extend({ items: z.array(s.fundsFlowSchema.extend({ time: iso })) });
 export const wireCopyPortfolioSchema = s.copyPortfolioResponseSchema.extend({ from: iso, to: iso, points: z.array(s.copyPortfolioResponseSchema.shape.points.element.extend({ time: iso })) });
 export const wireCopyTradesSchema = s.copyTradesResponseSchema.extend({ items: z.array(s.copyClosedTradeSchema.extend({ openedAt: iso, closedAt: iso })) });
 const wireCopyControlEventSchema = s.copyControlEventSchema.extend({ createdAt: iso });
@@ -350,6 +351,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/me/copy/events", status: 200, auth: "user", response: wireCopyEventsSchema },
   { method: "GET", path: "/me/copy/stream", status: 200, auth: "user (own events); SSE", response: z.never(),
     stream: { contentType: "text/event-stream", events: copyStreamEventSchemas } },
+  { method: "GET", path: "/me/funds/history", status: 200, auth: "user (own flows)", response: wireFundsHistorySchema },
   { method: "GET", path: "/me/copy/portfolio", status: 200, auth: "user (own copies)", response: wireCopyPortfolioSchema },
   { method: "GET", path: "/me/copy/trades", status: 200, auth: "user (own copies)", response: wireCopyTradesSchema },
   { method: "GET", path: "/me/copy/execution-wallets", status: 200, auth: "user (owner)", response: copyExecutionWalletsSchema },
@@ -424,6 +426,7 @@ export type WireCopyPerformance = z.infer<typeof wireCopyPerformanceSchema>;
 export type WireCopyEvents = z.infer<typeof wireCopyEventsSchema>;
 export type WireCopyPortfolio = z.infer<typeof wireCopyPortfolioSchema>;
 export type WireChartSnapshots = z.infer<typeof wireChartSnapshotsSchema>;
+export type WireFundsHistory = z.infer<typeof wireFundsHistorySchema>;
 export type WireCopyTrades = z.infer<typeof wireCopyTradesSchema>;
 export type WireAdminCopyOverview = z.infer<typeof wireAdminCopyOverviewSchema>;
 export type WireAdminCopyStrategies = z.infer<typeof wireAdminCopyStrategiesSchema>;

@@ -69,3 +69,31 @@ export const copyClosedTradeSchema = z.object({
 export type CopyClosedTrade = z.infer<typeof copyClosedTradeSchema>;
 export const copyTradesResponseSchema = z.object({ mode: z.literal("paper"), items: z.array(copyClosedTradeSchema) });
 export type CopyTradesResponse = z.infer<typeof copyTradesResponseSchema>;
+
+/**
+ * GET /me/funds/history — the owner's money flows Orbie records (newest
+ * first), for one history with the hub wallet's own ledger (GET
+ * /me/wallet/history, merged by the page): money moved into or out of each
+ * copy (`copy_deposit`, `copy_withdrawal`, `copy_sweep` back at stop,
+ * `copy_write_off` of a loss beyond a copy's equity), each copy's trading
+ * fees and funding per UTC day (`fees`, `funding`, with the fill count),
+ * hub → copy-wallet transfers (`copy_funding`, with status and receipt), and
+ * hub withdrawals Orbie submitted (`hub_withdrawal`, with status). `amount`
+ * is signed from the copy's side for copy rows (+ in), negative for money
+ * leaving the hub. Paper rows move simulated funds and say so (`mode`).
+ */
+export const fundsHistoryQuerySchema = z.object({
+  before: z.string().regex(/^\d{1,16}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+}).strict();
+export const fundsFlowKindSchema = z.enum(["copy_deposit", "copy_withdrawal", "copy_sweep", "copy_write_off", "fees", "funding", "copy_funding", "hub_withdrawal"]);
+export const fundsFlowSchema = z.object({
+  id: z.string(), time: z.coerce.date(), kind: fundsFlowKindSchema,
+  mode: z.enum(["paper", "testnet", "mainnet"]), amount: z.number(),
+  strategyId: z.number().int().nullable(), leaderAddress: z.string().nullable(),
+  status: z.string().nullable(), txHash: z.string().nullable(), fee: z.number().nullable(),
+  counterparty: z.string().nullable(), count: z.number().int().nullable(),
+});
+export type FundsFlow = z.infer<typeof fundsFlowSchema>;
+export const fundsHistoryResponseSchema = z.object({ items: z.array(fundsFlowSchema), nextCursor: z.string().nullable() });
+export type FundsHistoryResponse = z.infer<typeof fundsHistoryResponseSchema>;

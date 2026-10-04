@@ -14,6 +14,8 @@ import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopySignalService } from "./copy-signal.service.js";
 import { CopyStrategyService } from "./copy-strategy.service.js";
 import { CopyStreamService } from "./copy-stream.service.js";
+import { CopyFundsService } from "./copy-funds.service.js";
+import { CopyFundsController } from "./copy-funds.controller.js";
 import { CopyController } from "./copy.controller.js";
 import { CopyRepository } from "./copy.repository.js";
 import { PostgresLiveExecutionJournal } from "./live/postgres-live-journal.js";
@@ -72,10 +74,10 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
-  controllers: [CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController],
+  controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService,
+    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport],
       useFactory: (config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) => new HyperliquidAgentApprovalVerifier(

@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useI18n } from "@/i18n/provider";
 import { useCopyOverview } from "@/lib/copy";
 import { useCreateExecutionWallet, useExecutionWallets, useReconcileExecutionWallet, useRevokeWalletAuthorization } from "@/lib/copy-execution-wallets";
@@ -25,6 +26,7 @@ export function ExecutionWalletSettings() {
   const revoke = useRevokeWalletAuthorization();
   const [selected, setSelected] = useState("");
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const { openExport } = useWalletModals();
   const data = wallets.data;
   const eligibleActual = data?.network === "testnet" ? actual.data?.strategies.filter(item => item.status === "paused" && item.pauseNewRisk && !item.reduceOnly && item.sourceNetwork === "testnet") ?? [] : [];
   const eligibleCopies = [ ...(copies.data?.strategies.filter(item => item.status !== "stopped" && item.status !== "stopping").map(item => ({ ...item, kind: "paper" as const })) ?? []), ...eligibleActual.map(item => ({ ...item, kind: "actual" as const })) ];
@@ -84,6 +86,11 @@ export function ExecutionWalletSettings() {
                 {account.issue ? <p className="mt-2 text-xs text-warning">{t(`executionWallets.issues.${account.issue}`)}</p> : null}
                 {account.state !== "ready" || !account.address ? <p className="mt-2 text-xs text-muted-foreground">{t("executionWallets.unconfirmedHint")}</p> : null}
                 {account.state === "ready" ? <p className="mt-2 text-xs text-muted-foreground">{t("executionWallets.readyHint")}</p> : null}
+                {account.state === "ready" && account.address ? (
+                  <Button variant="secondary" size="sm" className="mt-3 mr-2" onClick={() => openExport({ address: account.address!, strategyId: account.strategyId })}>
+                    {t("funds.exportCopyCta")}
+                  </Button>
+                ) : null}
                 {account.state !== "blocked" ? (
                   <Button variant="secondary" size="sm" className="mt-3" disabled={busy} onClick={() => { create.reset(); reconcile.mutate(account.id); }}>
                     {reconcile.isPending && reconcile.variables === account.id ? t("executionWallets.checking") : t(account.state === "ready" ? "executionWallets.reverify" : "executionWallets.reconcile")}

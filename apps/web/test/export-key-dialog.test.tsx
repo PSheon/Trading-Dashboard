@@ -7,7 +7,7 @@ import { I18nProvider } from "../src/i18n/provider";
 import { en } from "../src/i18n/messages/en";
 
 const state = vi.hoisted(() => ({
-  status: "signedIn", wallet: null as { address: string | null; exportKey: () => Promise<void> } | null,
+  status: "signedIn", wallet: null as { address: string | null; exportKey: () => Promise<void>; exportCopyKey?: (address: string) => Promise<void> } | null,
   errors: [] as string[], calls: [] as string[],
 }));
 vi.mock("../src/lib/auth", () => ({ useAuth: () => state }));
@@ -16,16 +16,17 @@ vi.mock("../src/components/ui/toast", () => ({ useToast: () => ({ error: (messag
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 let root: Root;
 let container: HTMLDivElement;
+let target: { address: string; strategyId: number } | null = null;
 function View() {
   const [open, setOpen] = useState(true);
-  return <I18nProvider locale="en" messages={en}><ExportKeyDialog open={open} onOpenChange={setOpen} /></I18nProvider>;
+  return <I18nProvider locale="en" messages={en}><ExportKeyDialog open={open} onOpenChange={setOpen} target={target} /></I18nProvider>;
 }
 async function render() { await act(async () => root.render(<View />)); }
 function button() { return [...document.querySelectorAll("button")].find((item) => item.textContent === en.wallet.exportCta)!; }
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  state.calls = []; state.errors = []; state.status = "signedIn";
+  state.calls = []; state.errors = []; state.status = "signedIn"; target = null;
   state.wallet = { address: ADDRESS, exportKey: async () => { state.calls.push(ADDRESS); } };
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
@@ -89,4 +90,17 @@ it("does not reopen an old user's export dialog when a delayed operation fails",
   await act(async () => fail(new Error("old session")));
   expect(state.errors).toEqual([]);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it("exports one copy's own wallet through Privy's flow for that address, never the main account's", async () => {
+  const COPY = "0x2222222222222222222222222222222222222222";
+  target = { address: COPY, strategyId: 7 };
+  state.wallet!.exportCopyKey = async (address: string) => { state.calls.push(`copy:${address}`); };
+  await render();
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain("Export copy #7 wallet key");
+  expect(dialog.textContent).toContain(COPY);
+  expect(dialog.textContent).not.toContain(ADDRESS);
+  await act(async () => button().click());
+  expect(state.calls).toEqual([`copy:${COPY}`]);
 });

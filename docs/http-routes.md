@@ -125,6 +125,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/copy/strategies/:id/performance` | 200 | user (owner) |
 | GET | `/me/copy/events` | 200 | user |
 | GET | `/me/copy/stream` | 200 | user (own events); SSE |
+| GET | `/me/funds/history` | 200 | user (own flows) |
 | GET | `/me/copy/portfolio` | 200 | user (own copies) |
 | GET | `/me/copy/trades` | 200 | user (own copies) |
 | GET | `/me/copy/execution-wallets` | 200 | user (owner) |

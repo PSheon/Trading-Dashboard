@@ -18,6 +18,10 @@ export interface WalletSigner {
   address: string | null;
   /** Opens Privy's export modal for the embedded wallet. */
   exportKey(): Promise<void>;
+  /** Opens Privy's export modal for one of the user's own copy wallets
+   * (created for a copy, owned by the user alone). Privy itself refuses an
+   * address the signed-in user does not own; the key never reaches Orbie. */
+  exportCopyKey(address: string): Promise<void>;
   /** EIP-712 signature (0x r‖s‖v) from the embedded wallet. */
   signTypedData(data: Eip712TypedData): Promise<`0x${string}`>;
   /** Sends a transaction from the embedded wallet; `sponsor` asks Privy to pay gas. */

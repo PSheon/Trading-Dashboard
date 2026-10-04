@@ -171,6 +171,11 @@ function useEmbeddedWallet(signedIn: boolean): WalletSigner | null {
     const current: WalletSigner = {
       address,
       exportKey: async () => { await exportWallet(assertActive()); },
+      exportCopyKey: async (target) => {
+        assertActive();
+        if (!/^0x[0-9a-fA-F]{40}$/.test(target)) throw new Error("Not a wallet address");
+        await exportWallet({ address: target.toLowerCase() });
+      },
       signTypedData: async (data) => {
         const { signature } = await signTypedData(data, assertActive());
         return signature as `0x${string}`;

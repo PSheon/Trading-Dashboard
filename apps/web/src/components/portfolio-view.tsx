@@ -73,7 +73,7 @@ function SignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="flex flex-col items-center gap-3 px-6 pt-16 text-center md:pt-[88px] md:pr-10">
+    <div className="orbit-card mx-auto mt-10 flex w-full max-w-[460px] flex-col items-center gap-3 px-8 py-10 text-center md:mt-[120px]">
       <span className="mb-2 flex size-24 items-center justify-center rounded-full bg-raised"><ShoppingCart className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
       <h1 className="font-display text-2xl md:text-[2rem] md:leading-[42px]">{t("portfolio.signInTitle")}</h1>
       <p className="text-base leading-6 font-bold text-muted-foreground">{t("portfolio.signInBody")}</p>

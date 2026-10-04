@@ -79,7 +79,7 @@ function SignedOut() {
   const PhoneIcon = phoneTab === "saved" ? Star : Bell;
   return (
     <>
-      <div className="hidden min-h-[60vh] flex-col items-center gap-3 px-4 pt-[88px] text-center md:flex">
+      <div className="orbit-card mx-auto mt-[120px] hidden w-full max-w-[460px] flex-col items-center gap-3 px-8 py-10 text-center md:flex">
         <span className="mb-2 flex size-24 items-center justify-center rounded-full bg-raised"><Bookmark className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
         <h1 className="font-display text-[2rem] leading-[42px]">{t("favorites.signInTitle")}</h1>
         <p className="font-bold text-muted-foreground">{t("favorites.signInBody")}</p>

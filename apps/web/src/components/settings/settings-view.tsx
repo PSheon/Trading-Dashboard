@@ -92,7 +92,7 @@ function SignedOut() {
   return (
     // CopyDog's settings shell spans the rail edge to 28px short of the
     // window (centre x=744 at 1440), narrower on the right than the page frame.
-    <div className="flex flex-col items-center px-6 pt-10 text-center md:-ml-8 md:mr-3 md:pt-8">
+    <div className="orbit-card mx-auto mt-10 flex w-full max-w-[460px] flex-col items-center px-8 py-10 text-center md:mt-[120px]">
       <span className="flex size-24 items-center justify-center rounded-full bg-raised"><Settings className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
       <h1 className="mt-4 font-display text-[2rem] leading-tight">{t("settings.signInTitle")}</h1>
       <p className="mt-2 text-sm leading-5 font-bold text-muted-foreground">{t("settings.signInBody")}</p>

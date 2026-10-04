@@ -26,7 +26,7 @@ import {
   type Trade,
 } from "../analytics/trade-reconstruction.js";
 import { HyperliquidInfoClient, twapSliceToFill, USER_FUNDING_PAGE_SIZE } from "../hyperliquid/hyperliquid-info.client.js";
-import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
+import { PAGE_RANK, UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { BusyException } from "./busy.js";
@@ -52,6 +52,11 @@ export const LOOKBACK_MS = 365 * 86_400_000;
 /** `…ByTime` calls per cold read: fills, then TWAP slices. */
 export const COLD_FILL_CALLS = 24;
 export const COLD_TWAP_CALLS = 8;
+/** Watched addresses one worker turn refreshes (one turn a minute: 60
+ * watched addresses every `STALE_MS`). */
+export const TRACKED_REFRESH_PER_TICK = 6;
+/** A worker refresh reads a watched address's funding at most this often. */
+export const TRACKED_FUNDING_EVERY_MS = 60 * 60_000;
 /** Pages per incremental refresh (a refresh every ~10 min rarely needs 2). */
 export const REFRESH_PAGES = 6;
 /** Funding is read from the start of coverage (at most the lookback), 40
@@ -138,6 +143,9 @@ export class TradeAnalyticsService {
   private readonly chains = new Map<string, Promise<unknown>>();
   private running = 0;
   private readonly waiting: Array<() => void> = [];
+  /** Where each tracked address's last full rebuild started (this process).
+   * A refresh at the same depth only extends the stored trades. */
+  private readonly trackedDepth = new Map<string, number>();
   readonly lastLog = new Map<string, ComputeLog[]>();
 
   constructor(
@@ -153,7 +161,9 @@ export class TradeAnalyticsService {
   /** `caller`: who is asking (the routes are public). It only decides
    * whether a cold address also gets a durable history job. */
   async analytics(address: string, window: TradeWindow, caller: HistoryCaller = "product"): Promise<TraderAnalyticsResponse> {
-    let row = await this.current(address, caller);
+    const read = await this.current(address, caller);
+    const { watched } = read;
+    let { row } = read;
     // A row stored before a window existed is recomputed first.
     if (!(window in row.summary)) row = await this.compute(address, true, { caller });
     const summaries = row.summary as Record<TradeWindow, unknown>;
@@ -164,12 +174,13 @@ export class TradeAnalyticsService {
       classification: traderClassificationSchema.parse(row.classification),
       coverage: await this.coverage(address, row),
       computedAt: row.computedAt,
-      refreshing: this.inflight.has(address),
+      // A watched address is refreshed by the worker: it is due once stale.
+      refreshing: this.inflight.has(address) || (watched && Date.now() - row.computedAt.getTime() > STALE_MS),
     };
   }
 
   async trades(address: string, query: TraderTradesQuery, caller: HistoryCaller = "product"): Promise<TraderTradesResponse> {
-    const row = await this.current(address, caller);
+    const { row } = await this.current(address, caller);
     const [ms, tid] = query.cursor ? query.cursor.split("_") : [];
     const cursor = query.cursor ? { sortTime: new Date(Number(ms)), openTid: BigInt(tid) } : null;
     const [rows, total] = await Promise.all([
@@ -199,26 +210,44 @@ export class TradeAnalyticsService {
     return { ...coverageOf(row), backfill, archiveFrom: span ? new Date(span.from) : null, archiveThrough: span ? new Date(span.through) : null };
   }
 
-  /** The stored row, refreshed in the background when stale; for a cold
-   * address the computation (the caller's deadline turns a long one into
-   * 503 busy, and it carries on). */
-  private async current(address: string, caller: HistoryCaller): Promise<Stored> {
+  /**
+   * The stored row. A watched address's figures are the worker's to keep
+   * fresh (`refreshTracked`, every minute, and after a backfill revises its
+   * fills), so a read never starts work for one; any other address is
+   * refreshed in the background when stale, since nothing else would. A
+   * cold address is computed (the caller's deadline turns a long one into
+   * 503 busy, and it carries on).
+   */
+  private async current(address: string, caller: HistoryCaller): Promise<{ row: Stored; watched: boolean }> {
     const row = await this.repository.state(address);
-    if (!row) return this.compute(address, true, { caller });
-    // Backfilled fills (or a repaired hole) landed after these figures
-    // were computed: they describe a history that has since changed.
-    // Only once the backward backfill has ended, though. While it runs,
-    // every window it stores moves `revised_at`, and the computation does
-    // not read our fills yet (`refreshAt` uses the REST read until the
-    // backfill is over): each page view of a watched trader then waited
-    // for a recompute that could not use the new fills, and came back
-    // with the same figures, or 503 busy (review 44). Mid-backfill the row
-    // is served as it is and ages like any other.
-    const coverage = await this.repository.fillCoverage(address);
-    const revisedAt = coverage?.revisedAt;
-    if (revisedAt && revisedAt > row.computedAt && coverage.backfillStatus !== "pending" && await this.traders.isTracked(address)) return this.compute(address, false, { caller });
-    if (Date.now() - row.computedAt.getTime() > STALE_MS) this.compute(address, false, { caller }).catch(() => undefined);
-    return row;
+    if (!row) return { row: await this.compute(address, true, { caller }), watched: false };
+    const watched = await this.traders.isTracked(address);
+    if (!watched && Date.now() - row.computedAt.getTime() > STALE_MS) this.compute(address, false, { caller }).catch(() => undefined);
+    return { row, watched };
+  }
+
+  /**
+   * The worker's turn, every minute: the watched addresses whose figures
+   * are due (none yet, older than `STALE_MS`, or a backfill that just ended),
+   * oldest first, `TRACKED_REFRESH_PER_TICK` at most, one after another. A
+   * tracked rebuild reads our fills (no fill weight) and the account's state;
+   * funding is read at most once an hour per address. Returns the addresses
+   * refreshed.
+   */
+  async refreshTracked(now = Date.now()): Promise<string[]> {
+    const due = await this.repository.trackedDue(new Date(now - STALE_MS), TRACKED_REFRESH_PER_TICK);
+    const done: string[] = [];
+    for (const { address, fundingCursor } of due) {
+      if (this.jobs.stopping) break;
+      const funding = fundingCursor === null || now - fundingCursor.getTime() >= TRACKED_FUNDING_EVERY_MS;
+      try {
+        await this.compute(address, false, { rank: UNRANKED_BASE, funding });
+        done.push(address);
+      } catch (error) {
+        if (!(error instanceof BusyException)) this.logger.warn(`Tracked analytics for ${address} failed: ${(error as Error).message}`);
+      }
+    }
+    return done;
   }
 
   /** The watcher stored history inside an address's verified span. */
@@ -433,29 +462,57 @@ export class TradeAnalyticsService {
    * From our own fills, and only from the span proven complete: fills
    * stored outside `[verified_from, verified_through]` (live confirms
    * ahead of the cursor, rows on the far side of a hole) are not counted,
-   * so the figures never run across a gap. The archive, where its
-   * certified span reaches the verified one, extends the start.
+   * so the figures never run across a gap. Where the S3 archive's
+   * certified span reaches the verified one, the history starts at the
+   * archive's first hour instead (the REST backfill stops at 50,000 fills
+   * or 365 days, about 8 days of a 10,000-fills-a-day account): the archive
+   * is walked page by page, so its depth is not bounded by memory.
+   *
+   * Once built, a later refresh only applies the fills after the cursor to
+   * the open trades, unless the depth or the history below the cursor
+   * changed (a longer archive span, a backfill, a repaired hole).
    */
   private async rebuildTracked(address: string, state: AnalyticsRow | undefined, coverage: FillCoverage) {
-    const lookback = Date.now() - LOOKBACK_MS;
     const through = coverage.verifiedThrough!;
-    let from = Math.max(lookback, coverage.verifiedFrom!.getTime());
+    const verifiedFrom = coverage.verifiedFrom!.getTime();
     // The archive holds fills the watcher's own backfill could not reach
-    // (REST keeps a moving window); both describe the same trades, merged by tid.
+    // (REST keeps a moving window); before `verified_from` it is the source.
     const span = await this.history?.archiveSpan(address).catch(() => null);
-    let archived: HlUserFill[] = [];
-    if (span && span.from < from && span.through >= from) {
-      from = Math.max(lookback, span.from);
-      const stored = await this.history!.archivedFills(address, span);
-      // More in the span than a build holds: the figures start at what was read.
-      if (stored.capped) from = Math.max(from, stored.reduce((min, f) => Math.min(min, f.time), Infinity) + 1);
-      archived = stored.filter((f) => f.time >= from && f.time <= through.getTime() && !f.coin.startsWith("@") && !f.coin.includes("/"));
+    const archiveFrom = span && span.from < verifiedFrom && span.through >= verifiedFrom ? span.from : null;
+    const start = archiveFrom ?? Math.max(Date.now() - LOOKBACK_MS, verifiedFrom);
+    const revised = coverage.revisedAt !== null && state !== undefined && coverage.revisedAt > state.computedAt;
+    if (state?.source === "tracked" && state.fillCursor && state.fillCursor.getTime() >= verifiedFrom && !revised && this.trackedDepth.get(address) === start) {
+      return this.extendTracked(address, state, coverage);
     }
-    const fillsRead = dedupe([...archived, ...await this.repository.trackedFills(address, coverage.verifiedFrom!, through)]).filter((f) => f.time >= from);
     const fundingFrom = state?.fundingFrom?.getTime() ?? null;
     const open = new Map<string, Trade>();
-    const result = applyFills(address, open, fillsRead, fundingFrom);
-    const trades = result.touched;
+    const touched = new Map<bigint, Trade>();
+    // The last millisecond of each coin read so far, so a break between two
+    // pages is seen like one inside a page.
+    let tail: HlUserFill[] = [];
+    let breaks = 0;
+    let fillCount = 0;
+    let first: number | null = null;
+    let newest: { time: number | null; tids: string[] } = { time: null, tids: [] };
+    const consume = (batch: HlUserFill[]) => {
+      const counted = batch.filter((f) => f.time >= start && f.time <= through.getTime() && !f.coin.startsWith("@") && !f.coin.includes("/"));
+      if (counted.length === 0) return;
+      breaks += positionBreaks([...tail, ...counted]).length;
+      tail = lastMillisecondPerCoin([...tail, ...counted]);
+      const result = applyFills(address, open, counted, fundingFrom);
+      for (const trade of result.dropped) touched.delete(trade.openTid);
+      for (const trade of result.touched) touched.set(trade.openTid, trade);
+      fillCount += counted.length;
+      for (const f of counted) if (first === null || f.time < first) first = f.time;
+      const latest = latestOf(counted);
+      if (latest.time !== null && (newest.time === null || latest.time > newest.time)) newest = latest;
+      else if (latest.time !== null && latest.time === newest.time) newest = { time: newest.time, tids: [...newest.tids, ...latest.tids] };
+    };
+    if (archiveFrom !== null) {
+      for await (const page of this.history!.archivedFillPages(address, archiveFrom, verifiedFrom)) consume(page);
+    }
+    consume(dedupe(await this.repository.trackedFills(address, coverage.verifiedFrom!, through)));
+    const trades = [...touched.values()];
     const persist = async (tx: TradeAnalyticsTx) => {
       // Funding already read stays with its trade across the rebuild.
       const kept = state?.source === "tracked" ? await this.repository.fundingByTid(address, tx) : new Map<bigint, number>();
@@ -464,27 +521,63 @@ export class TradeAnalyticsService {
         if (funding !== undefined && t.funding !== null) t.funding = funding;
       }
       await this.repository.replaceTrades(tx, address, trades);
+      this.trackedDepth.set(address, start);
     };
-    const newest = latestOf(fillsRead);
-    // Complete only when the backfill reached its floor and the position
-    // chain of what is counted has no break.
-    const continuous = coverage.breaks.length === 0 && positionBreaks(fillsRead).length === 0;
+    // Complete only when the history reaches its start (the backfill's
+    // floor, or the archive's first hour) and the position chain of what is
+    // counted has no break.
+    const continuous = coverage.breaks.length === 0 && breaks === 0;
     return {
       persist,
-      fillCount: fillsRead.length,
+      fillCount,
       next: {
         chain: CHAIN_DEFAULT,
         address,
         source: "tracked" as const,
         historyThrough: through,
-        coverageFrom: fillsRead.length > 0 ? new Date(fillsRead.reduce((min, f) => Math.min(min, f.time), Infinity)) : null,
-        truncated: trades.some(isPartial) || !continuous || (coverage.backfillStatus !== "complete" && archived.length === 0),
-        fillsRead: fillsRead.length,
+        coverageFrom: first === null ? null : new Date(first),
+        truncated: trades.some(isPartial) || !continuous || (coverage.backfillStatus !== "complete" && archiveFrom === null),
+        fillsRead: fillCount,
         fillCursor: newest.time === null ? null : new Date(newest.time),
         cursorTids: newest.tids,
         // A source switch starts funding over.
         fundingFrom: state?.source === "tracked" ? state.fundingFrom : null,
         fundingCursor: state?.source === "tracked" ? state.fundingCursor : null,
+      },
+    };
+  }
+
+  /** A tracked refresh with nothing changed below the cursor: the fills
+   * stored since, applied to the open trades. */
+  private async extendTracked(address: string, state: AnalyticsRow, coverage: FillCoverage) {
+    const through = coverage.verifiedThrough!;
+    const since = state.fillCursor!.getTime();
+    const seen = new Set(state.cursorTids);
+    const fresh = dedupe(await this.repository.trackedFills(address, state.fillCursor!, through))
+      .filter((f) => (f.time > since || !seen.has(String(f.tid))) && !f.coin.startsWith("@") && !f.coin.includes("/"));
+    const open = new Map((await this.repository.openTrades(address)).map((t) => [t.coin, t]));
+    const result = applyFills(address, open, fresh, state.fundingFrom?.getTime() ?? null);
+    const persist = async (tx: TradeAnalyticsTx) => {
+      await this.repository.deleteTrades(tx, address, result.dropped.map((t) => t.openTid));
+      await this.repository.upsertTrades(tx, address, result.touched);
+    };
+    const newest = latestOf(fresh);
+    const cursorTids = newest.time === since ? [...state.cursorTids, ...newest.tids] : newest.tids;
+    return {
+      persist,
+      fillCount: fresh.length,
+      next: {
+        chain: CHAIN_DEFAULT,
+        address,
+        source: "tracked" as const,
+        historyThrough: through,
+        coverageFrom: state.coverageFrom,
+        truncated: state.truncated || result.touched.some(isPartial) || coverage.breaks.length > 0 || positionBreaks(fresh).length > 0,
+        fillsRead: state.fillsRead + fresh.length,
+        fillCursor: newest.time === null ? state.fillCursor : new Date(newest.time),
+        cursorTids: newest.time === null ? state.cursorTids : cursorTids,
+        fundingFrom: state.fundingFrom,
+        fundingCursor: state.fundingCursor,
       },
     };
   }
@@ -850,6 +943,13 @@ function latestOf(fills: HlUserFill[]): { time: number | null; tids: string[] } 
   let time: number | null = null;
   for (const f of fills) if (time === null || f.time > time) time = f.time;
   return { time, tids: time === null ? [] : fills.filter((f) => f.time === time).map((f) => String(f.tid)) };
+}
+
+/** Each coin's fills at its latest millisecond (where a next page continues). */
+function lastMillisecondPerCoin(fills: HlUserFill[]): HlUserFill[] {
+  const latest = new Map<string, number>();
+  for (const f of fills) latest.set(f.coin, Math.max(latest.get(f.coin) ?? -Infinity, f.time));
+  return fills.filter((f) => f.time === latest.get(f.coin));
 }
 
 function dedupe(fills: HlUserFill[]): HlUserFill[] {

@@ -881,6 +881,8 @@ export const tr: Messages = {
       annualizedYoung: "Geçmiş performans: {days} gün — yıllıklandırılmış getiri tahmini olup dikkatle değerlendirilmelidir",
       maxDrawdown: "Maks. Düşüş",
       trades: "{count} İşlem",
+      tradesSince: "{date} tarihinden beri {count} İşlem",
+      tradesSinceHint: "Daha eski işlemler Orbie için henüz erişilebilir değil; bu rakamlar hesabın tamamını değil, yalnızca bu tarihten sonraki işlemleri kapsar.",
       noTrades: "Henüz kayıt yok",
       computing: "Hesaplanıyor…",
     },

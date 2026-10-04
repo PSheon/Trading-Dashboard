@@ -1561,6 +1561,8 @@ export const en: Messages = {
       annualizedYoung: "Track record: {days} days — annualized return is extrapolated, treat with caution",
       maxDrawdown: "Max DD",
       trades: "{count} Trades",
+      tradesSince: "{count} Trades since {date}",
+      tradesSinceHint: "Older trades are not available to Orbie yet, so these figures cover only the trades since this date, not the whole account.",
       noTrades: "No records yet",
       computing: "Computing…",
     },

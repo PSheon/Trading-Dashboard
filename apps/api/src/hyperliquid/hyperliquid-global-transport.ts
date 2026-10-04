@@ -13,6 +13,9 @@ const ordinary=new Set(['meta','perpDexs','metaAndAssetCtxs','spotMeta','spotMet
 /** Longest an unlabelled request waits in all for shared REST capacity: within
  * a trader page's 12 s deadline, with room for the call itself. */
 export const PAGE_CAPACITY_WAIT_MS=6_000;
+/** Longest a snapshot or sweep of watched leaders waits in all for room in
+ * the background lane (within the info client's 20 s request timeout). */
+export const ESSENTIAL_CAPACITY_WAIT_MS=15_000;
 const lists=new Set(['recentTrades','userFillsByTime','userFills','userTwapSliceFills','userTwapSliceFillsByTime','userFunding','userNonFundingLedgerUpdates']);
 /** Fixed-origin actual dispatch. Original-session context is private and may
  * never be replaced with an unscoped SQL transaction while locks are held. */
@@ -56,8 +59,14 @@ export class HyperliquidGlobalTransport {
  /** Background info request (`HyperliquidRestLane`): capped below the window
   * so pages and live work keep room; refused at once when it is full. */
  readonly fetchBackgroundInfo:typeof fetch=(input,init)=>this.#info(input,init,'background',false);
- async #acquire(budget:BoundHyperliquidQuota,weight:number,lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,signal:AbortSignal|null|undefined){
-  const giveUpAt=this.now()+PAGE_CAPACITY_WAIT_MS;
+ /** Snapshots and sweeps of watched leaders: the background lane, but when
+  * it is full they wait for the charges ahead of them to expire (at most
+  * ESSENTIAL_CAPACITY_WAIT_MS) instead of failing at once, so the pool's
+  * and history's loops, which fail and retry next minute, cannot keep the
+  * watched leaders' fills and figures from advancing. */
+ readonly fetchEssentialInfo:typeof fetch=(input,init)=>this.#info(input,init,'background',true,ESSENTIAL_CAPACITY_WAIT_MS);
+ async #acquire(budget:BoundHyperliquidQuota,weight:number,lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,signal:AbortSignal|null|undefined,maxWaitMs=PAGE_CAPACITY_WAIT_MS){
+  const giveUpAt=this.now()+maxWaitMs;
   for(;;){
    try{return await (lane===undefined?budget.acquireRest(weight,this.now()+5000):budget.acquireRest(weight,this.now()+5000,lane));}
    catch(error){
@@ -67,7 +76,7 @@ export class HyperliquidGlobalTransport {
    }
   }
  }
- async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean):Promise<Response>{
+ async #info(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs=PAGE_CAPACITY_WAIT_MS):Promise<Response>{
   // Configuration is checked before parsing or scheduling any outbound work.
   const budget=this.currentQuota(),url=typeof input==='string'?input:input instanceof URL?input.toString():'';
   if(!['https://api.hyperliquid.xyz/info','https://api.hyperliquid-testnet.xyz/info'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>65536)return fail('hyperliquid_quota_request_invalid');
@@ -76,7 +85,7 @@ export class HyperliquidGlobalTransport {
   const type=(parsed as {type:string}).type,weight=cheap.has(type)?2:type==='userRole'?60:ordinary.has(type)?20:lists.has(type)?120:type==='candleSnapshot'?104:0;
   if(!weight)fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};
-  captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal);captured.signal?.throwIfAborted();
+  captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal,maxWaitMs);captured.signal?.throwIfAborted();
   return permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);});
  }
 }

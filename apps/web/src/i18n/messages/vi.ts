@@ -881,6 +881,8 @@ export const vi: Messages = {
       annualizedYoung: "Bề dày hoạt động: {days} ngày — lợi nhuận quy năm là ước tính, hãy cân nhắc kỹ",
       maxDrawdown: "Sụt giảm tối đa",
       trades: "{count} lệnh",
+      tradesSince: "{count} lệnh từ {date}",
+      tradesSinceHint: "Orbie chưa lấy được các lệnh cũ hơn, nên số liệu này chỉ tính các lệnh từ ngày này, không phải toàn bộ tài khoản.",
       noTrades: "Chưa có dữ liệu",
       computing: "Đang tính…",
     },

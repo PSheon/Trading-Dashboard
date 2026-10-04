@@ -26,7 +26,8 @@ export interface StoredHistoryFill {
 /** `from` inclusive; `before` exclusive; `through` inclusive. `source`: one
  * stream only. `newest`: at most this many rows, the latest ones (still
  * returned oldest first), so a read of a very active address is bounded. */
-export interface FillRange { from?: Date; before?: Date; through?: Date; source?: FillSource; newest?: number }
+/** `newest`: the newest that many rows; `oldest`: the oldest that many (both returned oldest first). */
+export interface FillRange { from?: Date; before?: Date; through?: Date; source?: FillSource; newest?: number; oldest?: number }
 
 /** Rows per INSERT: 27 parameters each, far below the protocol's 65,535. */
 const INSERT_BATCH = 500;
@@ -118,7 +119,9 @@ export class HistoryFillStore {
     const account = await this.accountId(address, db);
     if (account === undefined) return [];
     const query = this.rows(db).where(and(eq(historyFills.accountId, account), ...timeRange(range)));
-    if (range.newest === undefined) return (await query.orderBy(asc(historyFills.time), asc(historyFills.twap), asc(historyFills.tid))).map(stored);
+    const ascending = query.orderBy(asc(historyFills.time), asc(historyFills.twap), asc(historyFills.tid));
+    if (range.oldest !== undefined) return (await ascending.limit(range.oldest)).map(stored);
+    if (range.newest === undefined) return (await ascending).map(stored);
     return (await query.orderBy(desc(historyFills.time), desc(historyFills.twap), desc(historyFills.tid)).limit(range.newest)).reverse().map(stored);
   }
 

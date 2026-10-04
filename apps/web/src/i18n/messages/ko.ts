@@ -881,6 +881,8 @@ export const ko: Messages = {
       annualizedYoung: "운용 기간: {days}일 — 연환산 수익률은 추정치이므로 주의해서 해석하세요",
       maxDrawdown: "최대 낙폭",
       trades: "{count}건 거래",
+      tradesSince: "{date} 이후 {count}건 거래",
+      tradesSinceHint: "그 이전 거래는 Orbie가 아직 가져오지 못해, 이 수치는 이 날짜 이후의 거래만 반영하며 계정 전체가 아닙니다.",
       noTrades: "아직 기록 없음",
       computing: "계산 중…",
     },

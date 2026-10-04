@@ -881,6 +881,8 @@ export const ja: Messages = {
       annualizedYoung: "運用期間: {days}日 — 年率換算リターンは推定値のため慎重にご覧ください",
       maxDrawdown: "最大DD",
       trades: "{count}件の取引",
+      tradesSince: "{date}以降 {count}件の取引",
+      tradesSinceHint: "それ以前の取引は Orbie でまだ取得できないため、この数値はこの日付以降の取引のみを対象とし、アカウント全体ではありません。",
       noTrades: "記録なし",
       computing: "計算中…",
     },

@@ -72,4 +72,20 @@ describe("KPI tiles, CopyDog's", () => {
     expect(html).toContain("勝率");
     expect(html).toContain("13 筆交易");
   });
+  it("says where a partial sample starts instead of presenting it as all-time (audit A2; CopyDog labels it all-time)", () => {
+    const since = NOW - 8 * DAY;
+    const sample = (truncated: boolean) => ({ summary: { winRate: 0.765, trades: 17 }, coverage: { from: new Date(since).toISOString(), truncated } }) as unknown as TraderAnalyticsResponse;
+    // The backfill stopped at its cap: the analytics say partial.
+    const capped = render({ trades: sample(true), allTime: portfolio(1_000_000, 1, {}, 600) });
+    expect(capped).toContain("17 Trades since 09/22/2026");
+    expect(capped).toContain("Older trades are not available");
+    // Whole trades, but the perp PnL had moved long before the first fill read.
+    const moved = { pnl: [[NOW - 600 * DAY, 0], [since - DAY, 250_000], [NOW, 1_000_000]] } as unknown as PortfolioResponse;
+    expect(render({ trades: sample(false), allTime: moved, locale: "zh-TW" })).toContain("2026/09/22 起 17 筆交易");
+    // The account started after the first fill read: the sample is the whole account.
+    const young = { pnl: [[since + DAY, 0], [NOW, 1_000]] } as unknown as PortfolioResponse;
+    const whole = render({ trades: sample(false), allTime: young });
+    expect(whole).toContain("17 Trades");
+    expect(whole).not.toContain("since");
+  });
 });

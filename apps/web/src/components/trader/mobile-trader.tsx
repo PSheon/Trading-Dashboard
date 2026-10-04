@@ -17,7 +17,7 @@ import { useI18n } from "@/i18n/provider";
 import { isComputing, useTraderAnalytics } from "@/lib/queries";
 import { CopyScoreBar, TraderAvatar } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact } from "@/lib/format";
-import { pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
+import { partialSampleSince, pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
 import { shareName } from "@/lib/share-card";
 import { CopyPanel } from "./copy-panel";
 import { ShareButton } from "./share-dialog";
@@ -157,8 +157,11 @@ export function MobileTrader({
   const { status: authStatus, login } = useAuth();
   const copying = useCopyOf(profile.address) !== undefined;
   const trades = useTraderAnalytics(profile.address, "all");
-  const winRate = (trades.data as TraderAnalyticsResponse | undefined)?.summary.winRate ?? null;
+  const analytics = trades.data as TraderAnalyticsResponse | undefined;
+  const winRate = analytics?.summary.winRate ?? null;
   const winTone = winRateTone(winRate);
+  // Not all-time when the history read does not reach the account's start.
+  const sampleSince = partialSampleSince(analytics?.coverage, allTime?.pnl);
   const sharpe = allTime?.sharpe ?? null;
   const mdd = allTime?.maxDrawdownPct ?? null;
 
@@ -275,6 +278,11 @@ export function MobileTrader({
             {winRate === null ? (isComputing(trades) ? <Skeleton className="h-6 w-16" /> : "—") : pct1(winRate)}
             {winRate !== null ? <Ring value={winRate} /> : null}
           </dd>
+          {analytics && sampleSince !== null ? (
+            <p className="num text-[10px] leading-[14px] text-muted-foreground" title={t("trader.kpi.tradesSinceHint")}>
+              {t("trader.kpi.tradesSince", { count: analytics.summary.trades, date: format.shortDate(sampleSince) })}
+            </p>
+          ) : null}
         </div>
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-[10px] leading-[15px] font-semibold tracking-[0.5px] text-muted-foreground uppercase">{t("trader.mobile.drawdown")}</dt>

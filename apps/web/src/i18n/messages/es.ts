@@ -881,6 +881,8 @@ export const es: Messages = {
       annualizedYoung: "Trayectoria: {days} días — la rentabilidad anualizada es una extrapolación, tómala con cautela",
       maxDrawdown: "Caída máx.",
       trades: "{count} operaciones",
+      tradesSince: "{count} operaciones desde {date}",
+      tradesSinceHint: "Orbie aún no dispone de las operaciones anteriores, así que estas cifras solo cubren las operaciones desde esta fecha, no toda la cuenta.",
       noTrades: "Aún sin registros",
       computing: "Calculando…",
     },

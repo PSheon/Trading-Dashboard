@@ -32,6 +32,7 @@ export class AnalysisHistoryService {
   }
   archiveSpan(address: string) { return this.repository.archiveSpan(address); }
   archivedFills(address: string, span: ArchiveSpan) { return this.repository.archivedFills(address, span); }
+  archivedFillPages(address: string, from: number, before: number) { return this.repository.archivedFillPages(address, from, before); }
   recentFills(address: string, source: HistorySource, span: ArchiveSpan, limit: number) { return this.repository.recentFills(address, source, span, limit); }
   /**
    * Runs the address's history job now, up to `maxPages` REST pages, when

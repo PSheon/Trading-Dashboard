@@ -2,7 +2,7 @@ import { BusyException } from "./busy.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, notLike, or, sql, type SQL } from "drizzle-orm";
-import { fillCoverage, fills, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
+import { fillCoverage, fills, leaders, traderAnalytics, traderTrades } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import type { Trade } from "../analytics/trade-reconstruction.js";
@@ -233,6 +233,26 @@ export class TradeAnalyticsRepository {
   }
 
   /** What the watcher's `fills` table is proven to hold for the address. */
+  /**
+   * Watched addresses whose figures are due, oldest first: no figures yet,
+   * figures older than `staleBefore`, or figures from Hyperliquid's REST
+   * history for an address whose backfill has ended (the tracked source
+   * applies now). `fundingCursor`: how far its funding was read. The worker
+   * refreshes these (`TradeAnalyticsService.refreshTracked`).
+   */
+  async trackedDue(staleBefore: Date, limit: number): Promise<Array<{ address: string; fundingCursor: Date | null }>> {
+    const rows = await this.db.execute<{ address: string; funding_cursor: Date | string | null }>(sql`
+      select l.address, ta.funding_cursor from ${leaders} l
+      left join ${traderAnalytics} ta on ta.chain = l.chain and ta.address = l.address
+      left join ${fillCoverage} fc on fc.chain = l.chain and fc.address = l.address
+      where l.chain = ${CHAIN_DEFAULT} and l.active
+        and (ta.address is null or ta.computed_at < ${staleBefore}
+          or (ta.source <> 'tracked' and fc.verified_from is not null and fc.verified_through is not null and fc.backfill_status <> 'pending'))
+      order by ta.computed_at asc nulls first, l.address
+      limit ${limit}`);
+    return rows.rows.map((r) => ({ address: r.address, fundingCursor: r.funding_cursor === null ? null : new Date(r.funding_cursor) }));
+  }
+
   async fillCoverage(address: string): Promise<FillCoverage | undefined> {
     const [row] = await this.db.select().from(fillCoverage)
       .where(and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.address, address))).limit(1);

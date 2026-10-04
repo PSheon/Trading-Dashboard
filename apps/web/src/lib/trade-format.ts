@@ -167,3 +167,23 @@ export function liqDistance(liqPx: number | null | undefined, markPx: number | n
 export function pnlTone(value: number): "text-positive" | "text-negative" | "" {
   return abs(value) < 0.005 ? "" : value > 0 ? "text-positive" : "text-negative";
 }
+
+/**
+ * The time a win rate's trades start from when they do not cover the whole
+ * account, else null: the analytics say their history is partial, or the
+ * account's perp PnL had already moved before the first fill they read (it
+ * moves only by trading and funding, so there were earlier trades). CopyDog
+ * presents such a sample as all-time; Orbie says where it starts.
+ */
+export function partialSampleSince(
+  coverage: { from: string | Date | null; truncated: boolean } | undefined,
+  perpPnl: ReadonlyArray<readonly [number, number]> | undefined,
+): number | null {
+  if (!coverage || coverage.from === null) return null;
+  const from = new Date(coverage.from).getTime();
+  if (!Number.isFinite(from)) return null;
+  if (coverage.truncated) return from;
+  let before: number | null = null;
+  for (const [time, pnl] of perpPnl ?? []) if (time <= from) before = pnl;
+  return before !== null && Math.abs(before) >= 1 ? from : null;
+}

@@ -44,6 +44,8 @@ export interface Formatter {
    * ("2026年10月1日, 上午02:29"). */
   stamp(value: DateLike): string;
   date(value: DateLike): string;
+  /** Numeric date ("09/22/2026", "2026/09/22"), for narrow places. */
+  shortDate(value: DateLike): string;
   time(value: DateLike): string;
   /** Short date for chart axes ("26年9月" / "Sep 26"). */
   axisDate(value: DateLike, span: "hours" | "days" | "months"): string;
@@ -193,6 +195,12 @@ export function createFormatter(locale: Locale): Formatter {
       const d = toDate(value);
       if (!d) return DASH;
       return df("d", { dateStyle: "long" }).format(d);
+    },
+
+    shortDate(value) {
+      const d = toDate(value);
+      if (!d) return DASH;
+      return df("sd2", { year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
     },
 
     time(value) {

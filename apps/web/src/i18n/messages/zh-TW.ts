@@ -1565,6 +1565,8 @@ export const zhTW = {
       annualizedYoung: "交易資歷僅 {days} 天，年化報酬為外推值，請謹慎參考",
       maxDrawdown: "最大回撤",
       trades: "{count} 筆交易",
+      tradesSince: "{date} 起 {count} 筆交易",
+      tradesSinceHint: "更早的交易 Orbie 目前取不到，這些數字只涵蓋此日期之後的交易，不是整個帳戶。",
       noTrades: "尚無紀錄",
       computing: "計算中…",
     },

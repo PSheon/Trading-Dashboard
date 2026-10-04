@@ -881,6 +881,8 @@ export const zhCN: Messages = {
       annualizedYoung: "交易资历仅 {days} 天，年化回报为外推值，请谨慎参考",
       maxDrawdown: "最大回撤",
       trades: "{count} 笔交易",
+      tradesSince: "{date} 起 {count} 笔交易",
+      tradesSinceHint: "更早的交易 Orbie 目前取不到，这些数字只涵盖此日期之后的交易，不是整个账户。",
       noTrades: "暂无记录",
       computing: "计算中…",
     },

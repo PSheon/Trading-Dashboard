@@ -19,7 +19,7 @@ import {
 import { rovingFocus } from "@/lib/roving-focus";
 import { useI18n } from "@/i18n/provider";
 import { usdCompact } from "@/lib/format";
-import { pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
+import { partialSampleSince, pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
 import { useNow } from "@/lib/use-now";
 import { PnlCalendarView, type CalendarUnit } from "./pnl-calendar";
 
@@ -171,7 +171,7 @@ export function KpiTiles({
   /** Fixed time for tests; the shared ticking clock otherwise. */
   now?: number;
 }) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const ticking = useNow();
   const now = nowProp ?? ticking;
   const pnl = periodPortfolio?.pnl.at(-1)?.[1] ?? null;
@@ -188,6 +188,8 @@ export function KpiTiles({
   const mdd = allTime?.maxDrawdownPct ?? null;
   const winRate = trades?.summary.winRate ?? null;
   const winTone = winRateTone(winRate);
+  // Not all-time when the history read does not reach the account's start.
+  const sampleSince = partialSampleSince(trades?.coverage, allTime?.pnl);
 
   const periodMenu = (
     <DropdownMenu>
@@ -264,7 +266,19 @@ export function KpiTiles({
         value={winRate === null ? "—" : pct1(winRate)}
         tone={winTone}
         fill={(winRate ?? 0) * 100}
-        sub={trades ? t("trader.kpi.trades", { count: trades.summary.trades }) : tradesComputing ? t("trader.kpi.computing") : t("trader.kpi.noTrades")}
+        sub={
+          trades ? (
+            sampleSince !== null ? (
+              <span title={t("trader.kpi.tradesSinceHint")}>{t("trader.kpi.tradesSince", { count: trades.summary.trades, date: format.shortDate(sampleSince) })}</span>
+            ) : (
+              t("trader.kpi.trades", { count: trades.summary.trades })
+            )
+          ) : tradesComputing ? (
+            t("trader.kpi.computing")
+          ) : (
+            t("trader.kpi.noTrades")
+          )
+        }
       />
     </div>
   );

@@ -26,6 +26,8 @@ export const REQUESTED_JOB_TTL_MS = 14 * 24 * 3_600_000;
  * fills an hour. A build cut here says so (`truncated`, `coverage.from`).
  */
 export const HISTORY_BUILD_MAX_FILLS = 100_000;
+/** Fills per page when a build walks an archive span (`archivedFillPages`). */
+export const ARCHIVE_PAGE_FILLS = 20_000;
 /** Jobs removed per expiry pass (their fills go in the same transaction). */
 const EXPIRE_BATCH = 50;
 
@@ -127,6 +129,31 @@ export class AnalysisHistoryRepository {
     const fills: HlUserFill[] & { capped?: boolean } = oneFillPerTid(rows);
     fills.capped = rows.length >= limit;
     return fills;
+  }
+  /**
+   * Every stored fill in `[from, before)`, oldest first, one page of about
+   * `pageSize` at a time, one fill per tid: a build can walk a whole archive
+   * span (millions of fills for a busy account) holding one page. A page
+   * never splits a millisecond, so the two rows of a tid stay together.
+   */
+  async *archivedFillPages(address: string, from: number, before: number, pageSize = ARCHIVE_PAGE_FILLS): AsyncGenerator<HlUserFill[]> {
+    const account = address.toLowerCase();
+    let cursor = from;
+    while (cursor < before) {
+      const rows = await this.fills.read(account, { from: new Date(cursor), before: new Date(before), oldest: pageSize });
+      if (rows.length < pageSize) {
+        if (rows.length > 0) yield oneFillPerTid(rows);
+        return;
+      }
+      const last = rows.at(-1)!.fill.time;
+      let page = rows.filter((row) => row.fill.time < last);
+      if (page.length === 0) {
+        // One millisecond fills the page: read that millisecond whole.
+        page = await this.fills.read(account, { from: new Date(last), before: new Date(last + 1) });
+        cursor = last + 1;
+      } else cursor = last;
+      yield oneFillPerTid(page);
+    }
   }
   /** The newest `limit` stored fills of one stream inside a span, oldest first. */
   async recentFills(address: string, source: HistorySource, span: ArchiveSpan, limit: number): Promise<HlUserFill[]> {

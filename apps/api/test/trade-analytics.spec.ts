@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { wireTraderAnalyticsSchema, wireTraderTradesSchema } from "@trading-dashboard/shared/contracts";
-import { analysisHistoryJobs, archiveCoverage, fillCoverage, fills, traderAnalytics, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
+import { analysisHistoryJobs, archiveCoverage, fillCoverage, fills, leaders, traderAnalytics, traderTrades, userFavorites } from "@trading-dashboard/shared/database";
 import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -408,6 +408,51 @@ describe("trade analytics for any address", () => {
     await service.compute(TRACKED, false);
     expect(await db.select().from(traderTrades).where(eq(traderTrades.address, TRACKED))).toHaveLength(3);
   });
+  it("a watched address nobody views is refreshed by the worker; a read only serves the stored row", async () => {
+    tracked.add(TRACKED);
+    await db.insert(leaders).values({ address: TRACKED });
+    await db.insert(fills).values(history.map((f) => toFillRow(TRACKED, f)));
+    await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(60)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(60)), backfillStatus: "complete" });
+    await service.compute(TRACKED, true);
+    await service.settled();
+    // 23 hours later, nobody has opened the page (audit A2).
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '23 hours'`);
+    const before = (await db.select().from(traderAnalytics))[0].computedAt;
+    vi.clearAllMocks();
+    const read = await service.analytics(TRACKED, "all");
+    await service.settled();
+    expect(read.refreshing).toBe(true);
+    expect(info.clearinghouseState).not.toHaveBeenCalled();
+    expect((await db.select().from(traderAnalytics))[0].computedAt).toEqual(before);
+    // The worker's turn picks it up, and not again while it is fresh.
+    expect(await service.refreshTracked()).toEqual([TRACKED]);
+    const after = (await db.select().from(traderAnalytics))[0];
+    expect(Date.now() - after.computedAt.getTime()).toBeLessThan(STALE_MS);
+    expect(await service.refreshTracked()).toEqual([]);
+    expect((await service.analytics(TRACKED, "all")).refreshing).toBe(false);
+    // New fills after the cursor: the next turn extends the stored trades.
+    const opened = fill("DOGE", 0, 100, 0.1, NOW + 1_000);
+    await db.insert(fills).values(toFillRow(TRACKED, opened));
+    await db.update(fillCoverage).set({ verifiedThrough: new Date(NOW + 2_000) });
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '11 minutes'`);
+    expect(await service.refreshTracked()).toEqual([TRACKED]);
+    const rows = await db.select().from(traderTrades).where(eq(traderTrades.address, TRACKED));
+    expect(rows.map((t) => t.coin).sort()).toEqual(["BTC", "DOGE", "ETH", "SOL"].filter((c) => rows.some((t) => t.coin === c)).sort());
+    expect(rows.some((t) => t.coin === "DOGE" && t.exitTime === null)).toBe(true);
+    expect((await db.select().from(traderAnalytics))[0]).toMatchObject({ fillsRead: history.length + 1, historyThrough: new Date(NOW + 2_000) });
+    tracked.delete(TRACKED);
+  });
+
+  it("an untracked address's stale read still refreshes it in the background", async () => {
+    await service.compute(X, true);
+    await service.settled();
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
+    const before = (await db.select().from(traderAnalytics))[0].computedAt;
+    await service.analytics(X, "all");
+    await service.settled();
+    expect((await db.select().from(traderAnalytics))[0].computedAt.getTime()).toBeGreaterThan(before.getTime());
+  });
+
   describe("who may create a durable history job (review 27): the routes are public and take any address", () => {
     const withHistory = () => new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined,
       new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient));
@@ -505,6 +550,43 @@ describe("trade analytics for any address", () => {
     expect(result.summary).toMatchObject({ trades: 1, wins: 1 });
     const [trade] = await new TradeAnalyticsRepository(db).allTrades(TRACKED);
     expect(trade.entryTime).toBe(opening.time);
+    tracked.delete(TRACKED);
+  });
+
+  it("a tracked address's history starts at the archive's first hour, past the REST backfill's 365-day reach, read page by page", async () => {
+    tracked.add(TRACKED);
+    const DAY = 24 * HOUR;
+    const hour = (hoursAgo: number) => Math.floor(T(hoursAgo) / HOUR) * HOUR;
+    // Opened 400 days ago (archive only), closed inside our verified span.
+    const opening = fill("BTC", 0, 2, 100, NOW - 400 * DAY);
+    const adds = Array.from({ length: 5 }, (_, i) => fill("BTC", 2 + i, 1, 100, NOW - 300 * DAY + i * HOUR));
+    const ours = fill("BTC", 7, -7, 120, T(5), { closedPnl: "140" });
+    await db.insert(fills).values(toFillRow(TRACKED, ours));
+    await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(10)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(10)), backfillStatus: "capped" });
+    await db.insert(archiveCoverage).values({ address: TRACKED, coveredFrom: new Date(Math.floor((NOW - 401 * DAY) / HOUR) * HOUR), coveredThrough: new Date(hour(8)) });
+    await new HistoryFillStore(db).insert([opening, ...adds].map((f) => ({ address: TRACKED, source: "regular" as const, origin: "s3" as const, fill: f })));
+    const archiveRepository = new AnalysisHistoryRepository(db);
+    const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
+    const pages = vi.spyOn(archive, "archivedFillPages");
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await production.compute(TRACKED, true, { funding: false });
+    const result = await production.analytics(TRACKED, "all");
+    expect(result.summary).toMatchObject({ trades: 1, wins: 1 });
+    expect(result.coverage).toMatchObject({ source: "tracked", fills: 7, truncated: false, from: new Date(opening.time) });
+    const [trade] = await new TradeAnalyticsRepository(db).allTrades(TRACKED);
+    expect(trade.entryTime).toBe(opening.time);
+    expect(pages).toHaveBeenCalledTimes(1);
+    // A walk in pages of two: no millisecond is split, nothing read twice.
+    const twin = fill("ETH", 0, 1, 10, adds[2].time);
+    await new HistoryFillStore(db).insert([{ address: TRACKED, source: "regular", origin: "s3", fill: twin }]);
+    const walked: number[][] = [];
+    for await (const page of archiveRepository.archivedFillPages(TRACKED, NOW - 401 * DAY, T(10), 2)) walked.push(page.map((f) => f.tid));
+    expect(walked.flat()).toEqual([opening, adds[0], adds[1], ...[adds[2], twin].sort((a, b) => a.tid - b.tid), adds[3], adds[4]].map((f) => f.tid));
+    expect(walked.every((page) => page.length <= 2 || new Set(page.map((tid) => [opening, ...adds, twin].find((f) => f.tid === tid)!.time)).size === 1)).toBe(true);
+    // The next refresh at the same depth does not walk the archive again.
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '11 minutes'`);
+    await production.compute(TRACKED, false, { funding: false });
+    expect(pages).toHaveBeenCalledTimes(1);
     tracked.delete(TRACKED);
   });
 

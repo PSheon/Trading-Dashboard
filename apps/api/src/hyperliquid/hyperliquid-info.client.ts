@@ -7,7 +7,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { HyperliquidGlobalTransport } from './hyperliquid-global-transport.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
-import { PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
+import { currentBudgetConsumer, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
   HlAllMidsResponse,
   HlMetaAndAssetCtxsResponse,
@@ -91,6 +91,8 @@ export const MAX_LIST_SURCHARGE = Math.ceil(MAX_LIST_ITEMS / 20) * EXTRA_WEIGHT_
 /** A dead connection must not hold a caller (and its per-address sync
  * chain) forever. */
 const REQUEST_TIMEOUT_MS = 20_000;
+/** Budget consumers whose calls wait for room in the shared background lane. */
+const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "sweep"]);
 
 const surcharge = (items: number) => Math.ceil(items / 20) * EXTRA_WEIGHT_PER_20_ITEMS;
 
@@ -141,7 +143,11 @@ export class HyperliquidInfoClient {
     // Shared per-IP window: page work may use all of it and waits briefly
     // when it is full; background work is capped below it so pages keep room.
     const page = priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
-    const send = priority === "live" ? this.globalTransport.fetchInfo : page ? this.globalTransport.fetchPageInfo : this.globalTransport.fetchBackgroundInfo;
+    // Snapshots and sweeps of watched leaders wait for room in the
+    // background lane rather than fail at once (see fetchEssentialInfo).
+    const essential = priority === "background" && !page && ESSENTIAL_LANE_CONSUMERS.has(currentBudgetConsumer() ?? "");
+    const send = priority === "live" ? this.globalTransport.fetchInfo : page ? this.globalTransport.fetchPageInfo
+      : essential ? this.globalTransport.fetchEssentialInfo : this.globalTransport.fetchBackgroundInfo;
     const res = await send(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

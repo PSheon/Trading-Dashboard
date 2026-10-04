@@ -881,6 +881,8 @@ export const id: Messages = {
       annualizedYoung: "Rekam jejak: {days} hari — imbal hasil tahunan adalah ekstrapolasi, sikapi dengan hati-hati",
       maxDrawdown: "Penurunan Maks.",
       trades: "{count} Transaksi",
+      tradesSince: "{count} Transaksi sejak {date}",
+      tradesSinceHint: "Transaksi yang lebih lama belum tersedia bagi Orbie, jadi angka ini hanya mencakup transaksi sejak tanggal ini, bukan seluruh akun.",
       noTrades: "Belum ada catatan",
       computing: "Menghitung…",
     },

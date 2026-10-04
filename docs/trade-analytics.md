@@ -235,6 +235,30 @@ copies a text summary and link (CopyDog renders an image card).
   as a background job at the page-activity rank (`PAGE_RANK.fills`) and the
   retry finds it. At most 2 jobs run at once, with at most 22 addresses admitted across
   refresh and funding work, including stale reads. These limits are per process.
+- **Watched traders (2026-10-04, audit A2).** Their figures are the worker's:
+  every minute it refreshes up to 6 watched addresses whose figures are missing,
+  older than 10 minutes, or still on the REST source after their backfill ended
+  (`TradeAnalyticsService.refreshTracked`, `TradersWorker.trackedTick`), and a
+  backfill that revises fills recomputes at once (`fills.revised`). A page read
+  only serves the stored row (`refreshing: true` once it is past 10 minutes);
+  before this the 10-minute refresh ran only when someone opened the page, in
+  the api, so a watched trader nobody viewed stayed 23 hours old. Funding is
+  read at most once an hour per watched address. Snapshots and sweeps of
+  watched leaders now wait up to 15 s for room in the shared background REST
+  lane instead of failing at once, so the pool's loops cannot hold their
+  verified span (and with it these figures) still.
+- **Depth of a watched trader's sample.** The REST backfill stops at 50,000
+  fills or 365 days (about 8 days of a 10,000-fills-a-day account). Where the
+  S3 archive's certified span reaches the verified span, the history starts at
+  the archive's first hour instead, with no 365-day clamp and no 100,000-fill
+  cap: the archive is walked 20,000 fills at a time. After that full build, a
+  refresh only applies the fills after the cursor, unless the archive span or
+  the history below the cursor changed. Where neither reaches the account's
+  start, the trader page's win-rate tile says "N trades since <date>" (and its
+  hint) instead of presenting the sample as all-time: when the analytics are
+  `truncated`, or when the account's perp PnL had already moved before the
+  first fill read. CopyDog labels such a sample all-time (0x469e: 647 trades
+  since 2024-12, `partial: false`); Orbie says where it starts.
 - Queue time in the request budgeter no longer counts against the 20 s
   Hyperliquid request timeout (it now covers only the HTTP exchange), so a
   heavy background load isn't cancelled while it waits for budget.

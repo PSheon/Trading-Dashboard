@@ -1972,4 +1972,11 @@ export const zhCN: Messages = {
     styleSpotlight: "聚焦卡",
     imageAlt: "{label} 卡片",
   },
+  chartSnap: {
+    hint: "将光标移到图表上，查看当时的持仓",
+    at: "{time} 的持仓",
+    flat: "当时没有持仓",
+    none: "这个时间没有持仓快照",
+    more: "还有 {count} 个",
+  },
 };

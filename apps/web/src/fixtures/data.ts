@@ -674,3 +674,23 @@ export function fixtureMe(locale: MeResponse["locale"]): MeResponse {
 
 /** Starting favorites for the demo user. */
 export const initialFavorites = [5, 7, 0, 11, 16].map((i) => traderStats[i].address);
+
+
+/** GET /traders/:address/chart-snapshots in fixture mode: the trader's
+ * fixture positions at evenly spaced times of the window (a later half
+ * without the smallest one, so hovering shows the holdings change). */
+export function chartSnapshotsFor(address: string, window: TraderWindow) {
+  const positions = profileFor(address, false).positions;
+  // At the fixture chart's own times, so hovering any point finds one.
+  const times = portfolioFor(address, window, "perp").pnl.map(([t]) => t);
+  const step = Math.max(1, Math.ceil(times.length / 60));
+  const picked = times.filter((_, i) => i % step === 0 || i === times.length - 1);
+  const snapshots = picked.map((t, i) => {
+    const held = (i < picked.length / 2 ? positions : positions.slice(0, Math.max(1, positions.length - 1))).map((p) => {
+      const markPx = p.entryPx === null ? null : p.entryPx + p.unrealizedPnl / (p.szi || 1);
+      return { coin: p.coin, szi: p.szi, entryPx: p.entryPx, markPx, notional: markPx === null ? null : Math.abs(p.szi) * markPx, upnl: p.unrealizedPnl * (0.5 + i / (2 * picked.length)) };
+    }).sort((x, y) => (y.notional ?? 0) - (x.notional ?? 0));
+    return { t, n: held.length, upnl: held.reduce((sum, p) => sum + (p.upnl ?? 0), 0), positions: held.slice(0, 20) };
+  });
+  return { address, window, kind: "perp" as const, coverageStart: new Date(picked[0] ?? Date.now()), snapshots };
+}

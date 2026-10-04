@@ -84,6 +84,8 @@ import {
   copyLedgerResponseSchema,
   copyFillsResponseSchema,
   copyPerformanceResponseSchema,
+  chartSnapshotsQuerySchema,
+  chartSnapshotsResponseSchema,
   copyPortfolioQuerySchema,
   copyPortfolioResponseSchema,
   copyTradesQuerySchema,
@@ -127,6 +129,7 @@ import {
   leaderboardUpdatedAt,
   leaderLists,
   portfolioFor,
+  chartSnapshotsFor,
   profileFor,
   sparklineFor,
   traderFills,
@@ -383,6 +386,11 @@ export async function fixtureRequest<T>(
         traderActivityResponseSchema,
         activityFor(address, signedIn && favorites.has(address), adminSettings.discovery.lowSampleThreshold),
       );
+    }
+    case "GET /traders/:address/chart-snapshots": {
+      const address = addressSchema.parse(parts[1]).toLowerCase();
+      const q = query(chartSnapshotsQuerySchema, search) as z.infer<typeof chartSnapshotsQuerySchema>;
+      return wire(chartSnapshotsResponseSchema, chartSnapshotsFor(address, q.window));
     }
     case "GET /traders/:address/portfolio": {
       const address = addressSchema.parse(parts[1]).toLowerCase();

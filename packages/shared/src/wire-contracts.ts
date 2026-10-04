@@ -176,6 +176,7 @@ export const copyStreamEventSchemas = {
   reset: z.object({ reason: z.literal("replay_truncated") }),
 } as const;
 export type CopyStreamEventName = keyof typeof copyStreamEventSchemas;
+export const wireChartSnapshotsSchema = s.chartSnapshotsResponseSchema.extend({ coverageStart: iso.nullable() });
 export const wireCopyPortfolioSchema = s.copyPortfolioResponseSchema.extend({ from: iso, to: iso, points: z.array(s.copyPortfolioResponseSchema.shape.points.element.extend({ time: iso })) });
 export const wireCopyTradesSchema = s.copyTradesResponseSchema.extend({ items: z.array(s.copyClosedTradeSchema.extend({ openedAt: iso, closedAt: iso })) });
 const wireCopyControlEventSchema = s.copyControlEventSchema.extend({ createdAt: iso });
@@ -247,6 +248,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/traders/sparklines", status: 200, auth: "public", response: s.sparklinesResponseSchema },
   { method: "GET", path: "/traders/:address", status: 200, auth: "public", response: wireTraderProfileSchema },
   { method: "GET", path: "/traders/:address/portfolio", status: 200, auth: "public", response: s.portfolioResponseSchema },
+  { method: "GET", path: "/traders/:address/chart-snapshots", status: 200, auth: "public", response: wireChartSnapshotsSchema },
   { method: "GET", path: "/traders/:address/activity", status: 200, auth: "public", response: wireTraderActivitySchema },
   { method: "GET", path: "/traders/:address/fills", status: 200, auth: "public", response: z.array(s.traderFillSchema.extend({ ts: iso })) },
   { method: "GET", path: "/traders/:address/analytics", status: 200, auth: "public; 503 busy while a cold address computes", response: wireTraderAnalyticsSchema },
@@ -421,6 +423,7 @@ export type WireCopyOrders = z.infer<typeof wireCopyOrdersSchema>;
 export type WireCopyPerformance = z.infer<typeof wireCopyPerformanceSchema>;
 export type WireCopyEvents = z.infer<typeof wireCopyEventsSchema>;
 export type WireCopyPortfolio = z.infer<typeof wireCopyPortfolioSchema>;
+export type WireChartSnapshots = z.infer<typeof wireChartSnapshotsSchema>;
 export type WireCopyTrades = z.infer<typeof wireCopyTradesSchema>;
 export type WireAdminCopyOverview = z.infer<typeof wireAdminCopyOverviewSchema>;
 export type WireAdminCopyStrategies = z.infer<typeof wireAdminCopyStrategiesSchema>;

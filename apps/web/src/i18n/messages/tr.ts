@@ -1972,4 +1972,11 @@ export const tr: Messages = {
     styleSpotlight: "Öne çıkan",
     imageAlt: "{label} kartı",
   },
+  chartSnap: {
+    hint: "O andaki pozisyonları görmek için grafiğin üzerine gelin",
+    at: "{time} itibarıyla pozisyonlar",
+    flat: "O anda açık pozisyon yoktu",
+    none: "Bu zaman için pozisyon anlık görüntüsü yok",
+    more: "{count} tane daha",
+  },
 };

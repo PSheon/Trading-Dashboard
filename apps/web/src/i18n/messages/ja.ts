@@ -1972,4 +1972,11 @@ export const ja: Messages = {
     styleSpotlight: "スポットライト",
     imageAlt: "{label} のカード",
   },
+  chartSnap: {
+    hint: "チャートにカーソルを合わせると、その時点のポジションを表示します",
+    at: "{time} のポジション",
+    flat: "その時点のポジションはありません",
+    none: "この時点のポジションスナップショットはありません",
+    more: "ほか {count} 件",
+  },
 };

@@ -1972,4 +1972,11 @@ export const es: Messages = {
     styleSpotlight: "Destacado",
     imageAlt: "Tarjeta de {label}",
   },
+  chartSnap: {
+    hint: "Pasa el cursor por el gráfico para ver las posiciones de ese momento",
+    at: "Posiciones a las {time}",
+    flat: "Sin posiciones abiertas en ese momento",
+    none: "No hay instantánea de posiciones en este momento",
+    more: "{count} más",
+  },
 };

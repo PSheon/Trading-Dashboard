@@ -8,6 +8,7 @@ import { planHyperliquidQuota } from '../src/hyperliquid/hyperliquid-global-quot
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 import { PageBusyError } from '../src/hyperliquid/request-budgeter.service.js';
 import { TradersController } from '../src/traders/traders.controller.js';
+import { ChartSnapshotsService } from "../src/traders/chart-snapshots.service.js";
 import { TradersService } from '../src/traders/traders.service.js';
 import { TradeAnalyticsController } from '../src/traders/trade-analytics.controller.js';
 import { TradeAnalyticsService } from '../src/traders/trade-analytics.service.js';
@@ -24,6 +25,7 @@ describe('shared REST capacity Retry-After on trader routes', () => {
       imports: [HttpModule],
       controllers: [TradersController, TradeAnalyticsController],
       providers: [
+        { provide: ChartSnapshotsService, useValue: {} },
         { provide: TradersService, useValue: { transfers: read } },
         { provide: TradeAnalyticsService, useValue: { analytics: read, trades: read } },
       ],

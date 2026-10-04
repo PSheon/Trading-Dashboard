@@ -2652,4 +2652,11 @@ export const en: Messages = {
     styleSpotlight: "Spotlight",
     imageAlt: "{label} card",
   },
+  chartSnap: {
+    hint: "Hover the chart to see the positions held at that time",
+    at: "Positions at {time}",
+    flat: "No open positions then",
+    none: "No position snapshot at this time",
+    more: "{count} more",
+  },
 };

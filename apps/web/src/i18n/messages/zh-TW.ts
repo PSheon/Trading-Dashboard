@@ -2656,4 +2656,11 @@ export const zhTW = {
     styleSpotlight: "聚焦卡",
     imageAlt: "{label} 卡片",
   },
+  chartSnap: {
+    hint: "將游標移到圖表上，查看當時的持倉",
+    at: "{time} 的持倉",
+    flat: "當時沒有持倉",
+    none: "這個時間沒有持倉快照",
+    more: "還有 {count} 個",
+  },
 } as const;

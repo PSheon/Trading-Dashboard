@@ -52,6 +52,7 @@ import type {
 import { parseLeaderboard } from "../src/traders/leaderboard.js";
 import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, TradersController } from "../src/traders/traders.controller.js";
+import { ChartSnapshotsService } from "../src/traders/chart-snapshots.service.js";
 import {
   downsample,
   portfolioKey,
@@ -242,7 +243,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
       ingest,
       settings,
     );
-    controller = controllerWithPipeline(new TradersController(service));
+    controller = controllerWithPipeline(new TradersController(service, new ChartSnapshotsService(db)));
 
     await ingest.replaceAll(
       parseLeaderboard(

@@ -14,7 +14,8 @@ import { useModalFocus } from "@/lib/use-modal-focus";
 import { FavoriteButton, RoiPill } from "@/components/traders/bits";
 import { roiPillShort } from "@/lib/board-format";
 import { useI18n } from "@/i18n/provider";
-import { isComputing, useTraderAnalytics } from "@/lib/queries";
+import { isComputing, useChartSnapshots, useTraderAnalytics } from "@/lib/queries";
+import { ChartSnapshotStrip } from "./chart-snapshot-strip";
 import { CopyScoreBar, TraderAvatar } from "@/components/discover/board-bits";
 import { truncateAddress, usdCompact } from "@/lib/format";
 import { partialSampleSince, pct1, signedUsdShort, usd2, winRateTone } from "@/lib/trade-format";
@@ -154,6 +155,8 @@ export function MobileTrader({
   const [tab, setTab] = useState<MobileTab>("positions");
   const [perfView, setPerfView] = useState<PerfView>("best");
   const [sheet, setSheet] = useState(false);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const snapshots = useChartSnapshots(profile.address, window);
   const sheetRef = useModalFocus<HTMLDivElement>(sheet, () => setSheet(false));
   const { status: authStatus, login } = useAuth();
   const copying = useCopyOf(profile.address) !== undefined;
@@ -237,6 +240,7 @@ export function MobileTrader({
             formatTime={(ts) => format.dateTime(ts)}
             formatAxisTime={(ts) => format.axisDate(ts, span)}
             ariaLabel={t("trader.chart.pnlLabel")}
+            onHoverChange={setHoverTime}
           />
         ) : failed ? (
           <div className="flex h-[180px] items-center justify-center"><ErrorState onRetry={onRetry} /></div>
@@ -245,6 +249,7 @@ export function MobileTrader({
         ) : (
           <div className="flex h-[180px] items-center justify-center text-sm text-muted-foreground">{t("trader.chart.noData")}</div>
         )}
+        {series.length > 1 ? <ChartSnapshotStrip data={snapshots.data} time={hoverTime} className="pt-3" /> : null}
         <div role="radiogroup" aria-label={t("trader.kpi.period")} className="flex items-center">
           {WINDOWS.map((w) => (
             <button

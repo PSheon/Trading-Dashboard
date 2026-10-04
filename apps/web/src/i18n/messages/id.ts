@@ -1972,4 +1972,11 @@ export const id: Messages = {
     styleSpotlight: "Sorotan",
     imageAlt: "Kartu {label}",
   },
+  chartSnap: {
+    hint: "Arahkan kursor ke grafik untuk melihat posisi pada saat itu",
+    at: "Posisi pada {time}",
+    flat: "Tidak ada posisi terbuka saat itu",
+    none: "Tidak ada snapshot posisi pada waktu ini",
+    more: "{count} lagi",
+  },
 };

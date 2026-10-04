@@ -2054,3 +2054,28 @@ export type KolImportResponse = z.infer<typeof kolImportResponseSchema>;
 // Copy trading (Stage 4 step 3, paper mode).
 export * from "./copy.js";
 export * from "./copy-runtime.js";
+
+/**
+ * GET /traders/:address/chart-snapshots?window= — CopyDog's
+ * `chart-snapshots`: what the trader held at points along the chart's
+ * window, from Orbie's 5-minute position snapshots of watched traders (90
+ * days kept). At most 60 snapshots, evenly spread over the window; each
+ * lists up to 20 positions, largest first (`n` counts them all). A time
+ * with no position rows is a flat account. Mark and notional are derived
+ * from the stored entry price and unrealized PnL; null where either is
+ * missing. `coverageStart`: the first snapshot kept (null: never watched).
+ */
+export const chartSnapshotsQuerySchema = z.object({
+  window: traderWindowSchema.default("allTime"),
+  kind: z.literal("perp").default("perp"),
+}).strict();
+export const chartSnapshotPositionSchema = z.object({
+  coin: z.string(), szi: z.number(), entryPx: z.number().nullable(), markPx: z.number().nullable(),
+  notional: z.number().nullable(), upnl: z.number().nullable(),
+});
+export const chartSnapshotsResponseSchema = z.object({
+  address: z.string(), window: traderWindowSchema, kind: z.literal("perp"),
+  coverageStart: z.coerce.date().nullable(),
+  snapshots: z.array(z.object({ t: z.number(), n: z.number().int(), upnl: z.number().nullable(), positions: z.array(chartSnapshotPositionSchema) })),
+});
+export type ChartSnapshotsResponse = z.infer<typeof chartSnapshotsResponseSchema>;

@@ -42,6 +42,7 @@ import type {
 } from "@/lib/contracts";
 
 import { useState } from "react";
+import type { WireChartSnapshots } from "@trading-dashboard/shared/contracts";
 
 import { actionsQueryString, mergeFetched, type ActionsParams } from "@/lib/action-stream";
 import { api, isBusy } from "@/lib/api";
@@ -295,6 +296,18 @@ export function useTraderActivity(address: string) {
     queryFn: ({ signal }) => api.get<TraderActivityResponse>(`/traders/${address}/activity`, signal),
     refetchInterval: 60_000,
     ...traderRetry,
+  });
+}
+
+/** GET /traders/:address/chart-snapshots: what the trader held along the
+ * chart's window (CopyDog's chart-snapshots; watched traders only). */
+export function useChartSnapshots(address: string, window: TraderWindow) {
+  return useQuery({
+    queryKey: ["trader", address.toLowerCase(), "chart-snapshots", window],
+    queryFn: ({ signal }) => api.get<WireChartSnapshots>(`/traders/${address}/chart-snapshots?window=${window}`, signal),
+    staleTime: 60_000,
+    refetchInterval: 300_000,
+    retry: 1,
   });
 }
 

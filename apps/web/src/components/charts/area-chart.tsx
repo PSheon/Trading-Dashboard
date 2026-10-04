@@ -52,6 +52,9 @@ export interface AreaChartProps {
    * hatch and no end dot. */
   plain?: boolean;
   ariaLabel?: string;
+  /** The hovered point's time (null when the pointer leaves), for a panel
+   * outside the chart (the trader chart's positions at that time). */
+  onHoverChange?: (time: number | null) => void;
 }
 
 function useWidth<T extends HTMLElement>() {
@@ -173,6 +176,7 @@ export function AreaChart({
   marker = null,
   plain = false,
   ariaLabel,
+  onHoverChange,
 }: AreaChartProps) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
@@ -240,6 +244,7 @@ export function AreaChart({
       }
     });
     setHover(best);
+    onHoverChange?.(data[best]?.[0] ?? null);
   }
 
   const last = data[data.length - 1];
@@ -265,7 +270,7 @@ export function AreaChart({
           aria-hidden={!ariaLabel}
           aria-label={ariaLabel}
           onPointerMove={onPointerMove}
-          onPointerLeave={() => setHover(null)}
+          onPointerLeave={() => { setHover(null); onHoverChange?.(null); }}
         >
           <defs>
             <clipPath id={ids.above}>

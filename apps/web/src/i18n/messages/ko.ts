@@ -1972,4 +1972,11 @@ export const ko: Messages = {
     styleSpotlight: "스포트라이트",
     imageAlt: "{label} 카드",
   },
+  chartSnap: {
+    hint: "차트에 마우스를 올리면 그 시점의 포지션을 볼 수 있습니다",
+    at: "{time} 포지션",
+    flat: "그 시점에는 포지션 없음",
+    none: "이 시점의 포지션 스냅샷이 없습니다",
+    more: "외 {count}개",
+  },
 };

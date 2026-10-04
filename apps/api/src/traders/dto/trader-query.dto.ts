@@ -30,6 +30,12 @@ export class PortfolioQueryDto {
   @ApiPropertyOptional({ type: String, enum: ["all", "perp"], default: "perp" })
   @IsIn(["all", "perp"]) market: "all" | "perp" = "perp";
 }
+export class ChartSnapshotsQueryDto {
+  @ApiPropertyOptional({ type: String, enum: ["day", "week", "month", "allTime"], default: "allTime" })
+  @Optional() @IsIn(["day", "week", "month", "allTime"]) declare window?: c.TraderWindowInput;
+  @ApiPropertyOptional({ type: String, enum: ["perp"], default: "perp", description: "Perp positions (the only kind snapshotted)" })
+  @Optional() @IsIn(["perp"]) declare kind?: "perp";
+}
 export class SparklinesQueryDto {
   @Transform(({ value }) => typeof value === "string" ? value.split(",").filter(Boolean).map(v => v.toLowerCase()) : value, { toClassOnly: true })
   @ApiProperty({ type: String, description: "Comma-separated wallet addresses, at most 30 (25 without a session); empty string means an empty list. Without a session only addresses on the leaderboard or in the discovery pool are fetched; others answer [].", example: "0x0000000000000000000000000000000000000001" })

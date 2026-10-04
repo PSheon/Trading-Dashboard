@@ -1972,4 +1972,11 @@ export const pt: Messages = {
     styleSpotlight: "Destaque",
     imageAlt: "Cartão de {label}",
   },
+  chartSnap: {
+    hint: "Passe o cursor sobre o gráfico para ver as posições daquele momento",
+    at: "Posições em {time}",
+    flat: "Sem posições abertas naquele momento",
+    none: "Não há registro de posições neste momento",
+    more: "mais {count}",
+  },
 };

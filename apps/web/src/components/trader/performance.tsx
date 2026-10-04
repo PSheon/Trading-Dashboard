@@ -7,6 +7,7 @@ import { cn } from "cn";
 
 import { OrbieMark, Wordmark } from "@/components/brand/logo";
 import { AreaChart } from "@/components/charts/area-chart";
+import { ChartSnapshotStrip } from "./chart-snapshot-strip";
 import { ErrorState, Skeleton } from "@/components/page";
 import { RoiPill } from "@/components/traders/bits";
 import {
@@ -19,6 +20,7 @@ import {
 import { rovingFocus } from "@/lib/roving-focus";
 import { useI18n } from "@/i18n/provider";
 import { usdCompact } from "@/lib/format";
+import { useChartSnapshots } from "@/lib/queries";
 import { partialSampleSince, pct1, signedUsd2, winRateTone } from "@/lib/trade-format";
 import { useNow } from "@/lib/use-now";
 import { PnlCalendarView, type CalendarUnit } from "./pnl-calendar";
@@ -354,6 +356,8 @@ export function PerformanceChart({
 }) {
   const { t, format } = useI18n();
   const [calendar, setCalendar] = useState(false);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const snapshots = useChartSnapshots(address, window);
   const [calendarUnit, setCalendarUnit] = useState<CalendarUnit>("pct");
 
   const series = useMemo(() => {
@@ -497,6 +501,7 @@ export function PerformanceChart({
                 formatTime={(ts) => format.dateTime(ts)}
                 formatAxisTime={(ts) => format.axisDate(ts, span)}
                 ariaLabel={t(mode === "pnl" ? "trader.chart.pnlLabel" : "trader.chart.valueLabel")}
+                onHoverChange={setHoverTime}
                 watermark={
                   <span className="flex items-center gap-3 text-foreground">
                     <OrbieMark size={56} />
@@ -514,6 +519,7 @@ export function PerformanceChart({
               </div>
             )}
           </div>
+          {portfolio && series.length > 1 ? <ChartSnapshotStrip data={snapshots.data} time={hoverTime} /> : null}
         </>
       )}
     </section>

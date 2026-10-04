@@ -1972,4 +1972,11 @@ export const ru: Messages = {
     styleSpotlight: "В фокусе",
     imageAlt: "Карточка {label}",
   },
+  chartSnap: {
+    hint: "Наведите на график, чтобы увидеть позиции в тот момент",
+    at: "Позиции на {time}",
+    flat: "Открытых позиций не было",
+    none: "Нет снимка позиций на это время",
+    more: "ещё {count}",
+  },
 };

@@ -1972,4 +1972,11 @@ export const vi: Messages = {
     styleSpotlight: "Tiêu điểm",
     imageAlt: "Thẻ {label}",
   },
+  chartSnap: {
+    hint: "Di chuột lên biểu đồ để xem các vị thế đang nắm giữ tại thời điểm đó",
+    at: "Vị thế lúc {time}",
+    flat: "Khi đó không có vị thế mở",
+    none: "Không có ảnh chụp vị thế tại thời điểm này",
+    more: "thêm {count}",
+  },
 };

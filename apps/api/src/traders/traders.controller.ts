@@ -1,9 +1,11 @@
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { AddressParamsDto } from "../common/dto/params.dto.js";
-import { TradersQueryDto, SparklinesQueryDto, PortfolioQueryDto, FillsQueryDto } from "./dto/trader-query.dto.js";
+import { TradersQueryDto, SparklinesQueryDto, PortfolioQueryDto, FillsQueryDto, ChartSnapshotsQueryDto } from "./dto/trader-query.dto.js";
+import { ChartSnapshotsService } from "./chart-snapshots.service.js";
 
 import { BadGatewayException, BadRequestException, Controller, Get, HttpException, Logger, Param, Query, UseFilters } from "@nestjs/common";
 import {
+  type ChartSnapshotsResponse,
   type PortfolioResponse,
   type SparklinesResponse,
   type TraderActivityResponse,
@@ -61,7 +63,7 @@ export class TradersController {
   /** Settable for tests. */
   pageDeadlineMs = PAGE_DEADLINE_MS;
 
-  constructor(private readonly traders: TradersService) {}
+  constructor(private readonly traders: TradersService, private readonly chartSnapshots: ChartSnapshotsService) {}
 
   @ApiDoc("List")
   @Get()
@@ -97,6 +99,14 @@ export class TradersController {
   portfolio(@Param() params: AddressParamsDto, @Query() query: PortfolioQueryDto): Promise<PortfolioResponse> {
     const addr = params.address;
     return this.upstream(this.traders.portfolio(addr, query), addr);
+  }
+
+  /** What the trader held at points along the chart (CopyDog's
+   * chart-snapshots): stored 5-minute snapshots of watched traders. */
+  @ApiDoc("Chart snapshots")
+  @Get(":address/chart-snapshots")
+  chartSnapshotsOf(@Param() params: AddressParamsDto, @Query() query: ChartSnapshotsQueryDto): Promise<ChartSnapshotsResponse> {
+    return this.chartSnapshots.read(params.address, query);
   }
 
   @ApiDoc("Fills")

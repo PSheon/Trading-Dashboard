@@ -9,6 +9,8 @@ import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
 
 const LIMIT = 200;
+/** Fewer legs than this make a P95 the maximum: not reported. */
+const MIN_P95_SAMPLE = 20;
 const OPEN = ['prepared', 'submitting', 'unknown', 'resting'] as const;
 const lower = (value: string | null) => value?.toLowerCase() ?? null;
 const iso = (value: Date | null) => value?.toISOString() ?? null;
@@ -90,15 +92,20 @@ export class CopyAdminLiveRepository {
     const since = new Date(now.getTime() - (window === '24h' ? 86_400_000 : 7 * 86_400_000));
     const ms = (column: AnyColumn) => sql`extract(epoch from (${column} - ${copyLiveDispatches.leaderTime})) * 1000`;
     const pct = (p: number, column: Parameters<typeof ms>[0]) => sql<string | null>`percentile_cont(${sql.raw(String(p))}) within group (order by ${ms(column)})`;
-    const [row] = await this.db.select({ count: sql<number>`count(*)::int`,
+    const n = (column: AnyColumn) => sql<number>`count(${column})::int`;
+    const [row] = await this.db.select({ count: sql<number>`count(${copyLiveDispatches.sentAt})::int`,
+      signalN: n(copyLiveDispatches.receivedAt), sentN: n(copyLiveDispatches.sentAt), ackN: n(copyLiveDispatches.ackedAt), settledN: n(copyLiveDispatches.settledAt),
       signal50: pct(0.5, copyLiveDispatches.receivedAt), signal95: pct(0.95, copyLiveDispatches.receivedAt),
       sent50: pct(0.5, copyLiveDispatches.sentAt), sent95: pct(0.95, copyLiveDispatches.sentAt),
       ack50: pct(0.5, copyLiveDispatches.ackedAt), ack95: pct(0.95, copyLiveDispatches.ackedAt),
       settled50: pct(0.5, copyLiveDispatches.settledAt), settled95: pct(0.95, copyLiveDispatches.settledAt),
     }).from(copyLiveDispatches).where(gte(copyLiveDispatches.leaderTime, since));
-    const n = (value: string | number | null | undefined) => value === null || value === undefined ? null : Math.round(Number(value));
-    return { window, count: row?.count ?? 0, signal: { p50: n(row?.signal50), p95: n(row?.signal95) }, sent: { p50: n(row?.sent50), p95: n(row?.sent95) },
-      ack: { p50: n(row?.ack50), p95: n(row?.ack95) }, settled: { p50: n(row?.settled50), p95: n(row?.settled95) } };
+    const ms0 = (value: string | number | null | undefined) => value === null || value === undefined ? null : Math.round(Number(value));
+    const step = (p50: string | null | undefined, p95: string | null | undefined, count: number | undefined) =>
+      ({ p50: ms0(p50), p95: (count ?? 0) >= MIN_P95_SAMPLE ? ms0(p95) : null, n: count ?? 0 });
+    // count: legs whose order was sent (refused legs never left).
+    return { window, count: row?.count ?? 0, signal: step(row?.signal50, row?.signal95, row?.signalN), sent: step(row?.sent50, row?.sent95, row?.sentN),
+      ack: step(row?.ack50, row?.ack95, row?.ackN), settled: step(row?.settled50, row?.settled95, row?.settledN) };
   }
 
   /** The grant row locked for an admin revoke (any user's testnet wallet). */

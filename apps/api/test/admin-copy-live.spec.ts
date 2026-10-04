@@ -79,9 +79,11 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
         leaderTime: new Date(now - 2 * 86_400_000), receivedAt: new Date(now - 2 * 86_400_000 + 300) },
     ]);
     const day = adminLiveLatencySchema.parse((await as('admin-token').get('/admin/copy/live/latency').expect(200)).body.data);
-    expect(day).toEqual({ window: '24h', count: 1, signal: { p50: 100, p95: 100 }, sent: { p50: 500, p95: 500 }, ack: { p50: 650, p95: 650 }, settled: { p50: 2000, p95: 2000 } });
+    // One leg: P50 only (a P95 of fewer than 20 legs is the maximum), n per step.
+    expect(day).toEqual({ window: '24h', count: 1, signal: { p50: 100, p95: null, n: 1 }, sent: { p50: 500, p95: null, n: 1 }, ack: { p50: 650, p95: null, n: 1 }, settled: { p50: 2000, p95: null, n: 1 } });
     const week = adminLiveLatencySchema.parse((await as('admin-token').get('/admin/copy/live/latency?window=7d').expect(200)).body.data);
-    expect(week).toMatchObject({ count: 2, signal: { p50: 200, p95: 290 }, sent: { p50: 500, p95: 500 } });
+    // The second leg was never sent: not counted, and only in the signal step.
+    expect(week).toMatchObject({ count: 1, signal: { p50: 200, p95: null, n: 2 }, sent: { p50: 500, n: 1 } });
     await db.delete(copyLiveDispatches);
     expect((await as('admin-token').get('/admin/copy/live/latency').expect(200)).body.data).toMatchObject({ count: 0, signal: { p50: null, p95: null } });
   });

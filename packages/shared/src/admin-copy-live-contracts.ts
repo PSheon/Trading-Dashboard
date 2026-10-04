@@ -30,8 +30,11 @@ export const adminLiveOrderSchema = z.object({
 }).strict();
 export const adminLiveOrdersQuerySchema = z.object({ state: z.enum(['open', 'unknown', 'all']).default('open') }).strict();
 export const adminLiveOrdersSchema = z.object({ items: z.array(adminLiveOrderSchema).max(200) }).strict();
-/** B18: leader fill → signal received → order sent → exchange answer. */
-const percentiles = z.object({ p50: z.number().nullable(), p95: z.number().nullable() }).strict();
+/** B18: leader fill → signal received → order sent → exchange answer.
+ * The leader's fill time is the exchange's clock, every later step this
+ * server's (so a skewed clock shifts every figure by the skew). n: how many
+ * legs have that step; p95 needs at least 20 (below that it is the maximum). */
+const percentiles = z.object({ p50: z.number().nullable(), p95: z.number().nullable(), n: z.number().int().optional() }).strict();
 export const adminLiveLatencySchema = z.object({
   window: z.enum(['24h', '7d']), count: z.number().int(), signal: percentiles, sent: percentiles, ack: percentiles, settled: percentiles,
 }).strict();

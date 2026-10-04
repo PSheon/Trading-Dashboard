@@ -100,3 +100,19 @@ it.each(LOCALES)('renders every stage in %s', async locale => {
   await render(locale);
   for (const stage of Object.values(liveCopiesMessages[locale].stages)) expect(container.textContent).toContain(stage);
 });
+
+it('says the copies could not be read, with a retry, instead of hiding the section', async () => {
+  let fail = true;
+  items = [item()];
+  state.get.mockImplementation(async (path: string) => {
+    if (path !== '/me/copy/live/portfolio') return null;
+    if (fail) throw Object.assign(new Error('Service Unavailable'), { status: 503 });
+    return { network: 'testnet', automaticExecution: true, items };
+  });
+  await render();
+  expect(container.textContent).toContain('Testnet copies');
+  expect(container.textContent).toContain(catalogs.en.common.error);
+  fail = false;
+  await act(async () => button(catalogs.en.common.retry).click()); await settle();
+  expect(container.textContent).toContain('Active');
+});

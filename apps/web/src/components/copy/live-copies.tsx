@@ -11,6 +11,7 @@ import { useLiveCopyOverview } from '@/lib/copy-live';
 import { shortAddress } from '@/components/wallet/bits';
 import { CopyLiveStop } from '@/components/copy/copy-live-stop';
 import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/page';
 import { cn } from '@/lib/utils';
 
 const SETTINGS = '/settings?tab=account';
@@ -31,6 +32,13 @@ export function LiveCopies({ className }: { className?: string }) {
   const { locale } = useI18n(), text = liveCopiesMessages[locale];
   const portfolio = useLiveCopyPortfolio(), wallets = useExecutionWallets(), overview = useLiveCopyOverview();
   const items = portfolio.data?.items ?? [];
+  // The read failed: say so, with a retry, instead of hiding the section.
+  if (portfolio.enabled && portfolio.isError && !items.length) return (
+    <section className={cn('rounded-2xl border border-border bg-card', className)} aria-label={text.title}>
+      <h2 className="border-b border-border px-4 py-3.5 text-[0.8125rem] font-semibold tracking-wide uppercase">{text.title}</h2>
+      <ErrorState onRetry={() => void portfolio.refetch()} />
+    </section>
+  );
   if (!items.length) return null;
   return (
     <section className={cn('rounded-2xl border border-border bg-card', className)} aria-label={text.title}>

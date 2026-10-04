@@ -22,6 +22,14 @@ import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { PrivyOrderSigner } from '../live/privy-order-signer.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from '../live/wallet-authorization.js';
 
+/** A close must reduce the observed position: opposite side, no larger
+ * than it (never open, enlarge or flip). */
+export function assertCloseWithinPosition(intent: Pick<LiveOrderIntent, 'side' | 'size'>, position: { size: string } | undefined): void {
+  const size = Dec.from(position?.size ?? '0');
+  if (size.isZero || (size.isPositive ? intent.side !== 'A' : intent.side !== 'B') || Dec.from(intent.size).gt(size.abs()))
+    throw new LiveBoundaryError('close_exceeds_position');
+}
+
 /** The account's current trading grant: the agent the owner approved. */
 export interface CloseAccount {
   readonly userId: number; readonly strategyId: number; readonly accountId: string; readonly accountAddress: string;
@@ -77,9 +85,7 @@ export class TestnetReduceOnlyCloser {
       const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress)
         ? this.snapshot : { at: this.now(), value: await this.observe(account.accountAddress) };
       const position = held.value.positions.find(p => p.coin === intent.market?.coin);
-      const size = Dec.from(position?.size ?? '0');
-      if (size.isZero || (size.isPositive ? intent.side !== 'A' : intent.side !== 'B') || Dec.from(intent.size).gt(size.abs()))
-        throw new LiveBoundaryError('close_exceeds_position');
+      assertCloseWithinPosition(intent, position);
       const observedAt = held.at;
       const permit: LiveExecutionPermit = { phase, key: record.key, fingerprint: record.fingerprint, assertFresh: () => {
         const now = this.now();

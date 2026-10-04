@@ -50,8 +50,8 @@ function Segmented<T extends string>({
       {sliding ? (
         <span
           aria-hidden
-          className="absolute inset-y-1 rounded-full bg-primary transition-[left,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none"
-          style={{ left: pill.left, width: pill.width }}
+          className="absolute rounded-full bg-primary transition-[left,top,width] duration-300 ease-(--ease-orbit) motion-reduce:transition-none"
+          style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }}
         />
       ) : null}
       {options.map((option) => {

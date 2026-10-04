@@ -10,17 +10,21 @@ import { useLayoutEffect, useRef, useState } from "react";
  */
 export function useSlidingIndicator<T extends HTMLElement>(activeKey: unknown) {
   const ref = useRef<T>(null);
-  const [box, setBox] = useState<{ left: number; width: number } | null>(null);
+  const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const measure = () => {
       const active = el.querySelector<HTMLElement>('[data-active="true"]');
-      setBox(active ? { left: active.offsetLeft, width: active.offsetWidth } : null);
+      setBox(active ? { left: active.offsetLeft, top: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight } : null);
     };
     measure();
+    // Options change width when fonts arrive or labels change; the track
+    // may not, so every option is observed too.
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
+    document.fonts?.ready.then(measure).catch(() => {});
     return () => observer.disconnect();
   }, [activeKey]);
   return [ref, box] as const;

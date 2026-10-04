@@ -37,14 +37,14 @@ export function MaintenanceBanner() {
   const ahead = maintenance.endsAt !== null && Date.parse(maintenance.endsAt) > now;
 
   return (
-    <div role="status" className="border-b border-warning/30 bg-warning/10">
-      <div className="mx-auto flex max-w-[1600px] items-start gap-3 px-4 py-2.5 md:px-8">
-        <Wrench aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-        <p className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed text-foreground">
-          <strong className="font-semibold">{t("maintenance.title")}</strong>
-          <span className="mx-1.5 text-subtle-foreground">·</span>
+    <div role="status" className="mx-auto max-w-[1600px] px-4 pt-3 md:px-5 md:pt-1">
+      <div className="flex items-start gap-3 rounded-[22px] bg-tag-warning px-4 py-2.5 text-tag-warning-foreground">
+        <Wrench aria-hidden className="mt-0.5 size-4 shrink-0" strokeWidth={2.4} />
+        <p className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed font-bold">
+          <strong className="font-extrabold">{t("maintenance.title")}</strong>
+          <span aria-hidden className="mx-1.5">·</span>
           {text}
-          {ahead ? <span className="ml-1.5 text-muted-foreground">{t("maintenance.endsAt", { time: `${format.dateTime(maintenance.endsAt!)} ${TIME_ZONE_LABEL}` })}</span> : null}
+          {ahead ? <span className="ml-1.5">{t("maintenance.endsAt", { time: `${format.dateTime(maintenance.endsAt!)} ${TIME_ZONE_LABEL}` })}</span> : null}
         </p>
       </div>
     </div>

@@ -62,7 +62,7 @@ export function I18nProvider({
   const setLocale = useCallback(
     (next: Locale) => {
       if (next === locale) return;
-      document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(next)}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; samesite=lax`;
+      document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(next)}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; samesite=lax${location.protocol === "https:" ? "; secure" : ""}`;
       startTransition(() => router.refresh());
     },
     [locale, router],

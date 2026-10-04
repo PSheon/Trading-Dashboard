@@ -1,5 +1,5 @@
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER } from "next/constants";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { assertNoFixturesInProduction, assertPrivyInProductionBuild } from "../next.config";
 import { isTelegramLinkUrl } from "../src/lib/alerts";
@@ -64,5 +64,16 @@ describe("fixture mode", () => {
     // Development and the server phase are not builds.
     expect(() => assertPrivyInProductionBuild(PHASE_DEVELOPMENT_SERVER, env({}))).not.toThrow();
     expect(() => assertPrivyInProductionBuild(PHASE_PRODUCTION_SERVER, env({}))).not.toThrow();
+  });
+
+  it("aliases Privy to its stub for turbopack too on the fixture test server", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_TEST_MODE", "1");
+    vi.stubEnv("NEXT_PUBLIC_API_FIXTURES", "1");
+    vi.stubEnv("NEXT_PUBLIC_PRIVY_APP_ID", "");
+    const { default: config } = await import("../next.config");
+    expect(config(PHASE_DEVELOPMENT_SERVER).turbopack?.resolveAlias).toEqual({ "@privy-io/react-auth": "./src/lib/privy-stub.ts" });
+    vi.unstubAllEnvs();
+    vi.resetModules();
   });
 });

@@ -191,8 +191,12 @@ function authenticationRequired(): ApiError {
  */
 export async function fetchAsSession(path: string, signal?: AbortSignal): Promise<Response> {
   if (!path.startsWith("/") || path.startsWith("//")) throw new Error("same-origin paths only");
+  // Cancelled with the session, as `request` and `openEventStream` are: a
+  // response for the previous account never lands after a switch.
+  const requestSignal = signal ? AbortSignal.any([signal, sessionController.signal]) : sessionController.signal;
   const token = await currentToken(false);
-  return fetch(path, { signal, headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: "same-origin", cache: "no-store" });
+  requestSignal.throwIfAborted();
+  return fetch(path, { signal: requestSignal, headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: "same-origin", cache: "no-store" });
 }
 
 export interface PostOptions {

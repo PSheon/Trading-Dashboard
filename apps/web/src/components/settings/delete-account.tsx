@@ -76,15 +76,18 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
       // The api deletes only with this explicit confirmation (sent once the
       // person has typed the word), never on a valid token alone.
       await api.delete("/me", { headers: { "X-Confirm-Delete": "delete-account" } });
-      await logout();
-      onOpenChange(false);
-      router.replace("/?accountDeleted=1");
     } catch (err) {
       const code = apiErrorCode(err);
       setError(code === "last_admin" ? t("deleteAccount.lastAdmin") : code === "copies_active" ? t("deleteAccount.copiesActive") : t("deleteAccount.failed"));
-    } finally {
       setBusy(false);
+      return;
     }
+    // The account is gone: whatever signing out does (or fails to do), the
+    // person is told it was deleted, never "deletion failed".
+    try { await logout(); } catch { /* the session ends with the account anyway */ }
+    setBusy(false);
+    onOpenChange(false);
+    router.replace("/?accountDeleted=1");
   }
 
   return (

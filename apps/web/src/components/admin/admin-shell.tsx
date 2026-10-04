@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "cn";
 
-import { EmptyState, PageHeader, Panel, SignInPrompt, Skeleton } from "@/components/page";
+import { EmptyState, ErrorState, PageHeader, Panel, SignInPrompt, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import type { MessageKey } from "@/i18n/messages";
 import { useI18n } from "@/i18n/provider";
@@ -30,6 +30,12 @@ const SECTIONS: { href: string; label: MessageKey; permission: Permission }[] = 
   { href: "/admin/system", label: "admin.nav.system", permission: "admin.access" },
 ];
 
+/** 401 / 403 / 404: the answer about this account; anything else may pass. */
+function isPermanent(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 /** Admin area frame: title, sub-navigation, and the role gate (the api
  * enforces it too — this only avoids showing admins-only UI). */
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -44,6 +50,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   let body: React.ReactNode;
   if (status === "loading" || (status === "signedIn" && me.isPending)) {
     body = <Skeleton className="h-64 rounded-2xl" />;
+  } else if (status === "signedIn" && me.isError && !me.data && !isPermanent(me.error)) {
+    // A temporary failure (network, 5xx, busy) is not "no permission".
+    body = (
+      <Panel>
+        <ErrorState onRetry={() => void me.refetch()} />
+      </Panel>
+    );
   } else if (status !== "signedIn") {
     body = (
       <Panel>

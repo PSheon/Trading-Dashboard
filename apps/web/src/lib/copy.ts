@@ -58,9 +58,11 @@ function useCopyMutation<V>(fn: (vars: V) => Promise<CopyStrategyView>) {
 /** POST /me/copy/strategies — start a paper copy (CopyDog's configure). */
 export function useStartCopy() {
   const { identity, mode } = useAuth();
-  const operation = useRef(createCopyOperation(`orbie:copy-operations:start:${mode}:${identity ?? "session"}`));
+  // Keyed by who is signed in (a cold load starts before the identity is
+  // known, and an account switch must never reuse another's keys).
+  const operation = useMemo(() => createCopyOperation(`orbie:copy-operations:start:${mode}:${identity ?? "session"}`), [identity, mode]);
   return useCopyMutation((body: Partial<CreateCopyStrategyRequest> & { leader: string; allocationUsd: number }) =>
-    operation.current.run(body, (idempotencyKey) => api.post<CopyStrategyView>("/me/copy/strategies", { ...body, idempotencyKey })));
+    operation.run(body, (idempotencyKey) => api.post<CopyStrategyView>("/me/copy/strategies", { ...body, idempotencyKey })));
 }
 
 export function usePatchCopy() {
@@ -69,8 +71,10 @@ export function usePatchCopy() {
 
 export function useAddCopyFunds() {
   const { identity, mode } = useAuth();
-  const operation = useRef(createCopyOperation(`orbie:copy-operations:funds:${mode}:${identity ?? "session"}`));
-  return useCopyMutation((body: { id: number; amountUsd: number }) => operation.current.run(body, (idempotencyKey) => api.post<CopyStrategyView>(`/me/copy/strategies/${body.id}/funds`, { amountUsd: body.amountUsd, idempotencyKey })));
+  // Keyed by who is signed in (a cold load starts before the identity is
+  // known, and an account switch must never reuse another's keys).
+  const operation = useMemo(() => createCopyOperation(`orbie:copy-operations:funds:${mode}:${identity ?? "session"}`), [identity, mode]);
+  return useCopyMutation((body: { id: number; amountUsd: number }) => operation.run(body, (idempotencyKey) => api.post<CopyStrategyView>(`/me/copy/strategies/${body.id}/funds`, { amountUsd: body.amountUsd, idempotencyKey })));
 }
 
 /** Keep the same operation key after an uncertain response; a confirmed
@@ -267,8 +271,10 @@ export function useCopyEvents() {
 
 export function useCopyCommand() {
   const { identity, mode } = useAuth();
-  const operation = useRef(createCopyOperation(`orbie:copy-operations:command:${mode}:${identity ?? "session"}`));
-  return useCopyMutation((body: { id: number; command: CopyStrategyCommand }) => operation.current.run(body, (idempotencyKey) => api.post<CopyStrategyView>(`/me/copy/strategies/${body.id}/commands`, { command: body.command, idempotencyKey })));
+  // Keyed by who is signed in (a cold load starts before the identity is
+  // known, and an account switch must never reuse another's keys).
+  const operation = useMemo(() => createCopyOperation(`orbie:copy-operations:command:${mode}:${identity ?? "session"}`), [identity, mode]);
+  return useCopyMutation((body: { id: number; command: CopyStrategyCommand }) => operation.run(body, (idempotencyKey) => api.post<CopyStrategyView>(`/me/copy/strategies/${body.id}/commands`, { command: body.command, idempotencyKey })));
 }
 
 /** Days since a copy started, as CopyDog's "{n}d". */

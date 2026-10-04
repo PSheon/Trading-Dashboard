@@ -10,6 +10,7 @@ import { createContext, lazy, Suspense, use, useCallback, useEffect, useMemo, us
 import type { PrivySnapshot } from "@/lib/auth-privy";
 import type { WalletSigner } from "@/lib/wallet-signer";
 import { fixtureSigner } from "@/lib/fixture-signer";
+import { clearPersonalStorage } from "@/lib/personal-storage";
 
 import { SessionQueries } from "@/lib/session-queries";
 import { PRIVY_APP_ID } from "@/lib/config";
@@ -152,7 +153,7 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
       status,
       mode: "privy",
       login,
-      logout: () => privy?.logout() ?? Promise.resolve(),
+      logout: async () => { clearPersonalStorage(); await privy?.logout(); },
       identity: privy?.ready && privy.authenticated ? privy.identity : null,
       userId: privy?.ready && privy.authenticated ? privy.userId : null,
       wallet: privy?.ready && privy.authenticated ? privy.wallet : null,
@@ -198,7 +199,7 @@ function FixtureAuth({ children }: { children: React.ReactNode }) {
       status: signedIn === null ? "loading" : signedIn ? "signedIn" : "signedOut",
       mode: "fixture",
       login: () => persist(true),
-      logout: async () => persist(false),
+      logout: async () => { clearPersonalStorage(); persist(false); },
       identity: signedIn ? "demo@example.com" : null,
       wallet: signedIn ? signer : null,
     }),

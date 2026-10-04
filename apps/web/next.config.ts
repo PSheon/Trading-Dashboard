@@ -62,9 +62,14 @@ const nextConfig: NextConfig = {
   },
   // Without fixture mode, the fixture handler (and the sample JSON it
   // imports) is replaced by a stub, so it never reaches a bundle.
-  turbopack: fixtures
-    ? undefined
-    : { resolveAlias: { "@/fixtures/handler": "./src/fixtures/disabled.ts" } },
+  // The same two aliases as webpack() above, for a server started without
+  // --webpack (the Privy stub only on the fixture test server).
+  turbopack: {
+    resolveAlias: {
+      ...(fixtures ? {} : { "@/fixtures/handler": "./src/fixtures/disabled.ts" }),
+      ...(testServer && !process.env.NEXT_PUBLIC_PRIVY_APP_ID ? { "@privy-io/react-auth": "./src/lib/privy-stub.ts" } : {}),
+    },
+  },
   // The dev badge sits on top of the icon rail's bottom items.
   devIndicators: false,
   // Stage 2 moved every page; old links (bookmarks, Telegram messages that

@@ -80,7 +80,7 @@ describe('dedicated testnet preparation', () => {
     await expect(service.create(uid, { ...draft(), budgetUsd: '101' })).rejects.toMatchObject({ status: 409 });
   });
   it.each([{ change: { budgetUsd: '99.999999' }, status: 409 }, { change: { budgetUsd: '100000.000001' }, status: 409 },
-    { change: { sourceNetwork: 'mainnet' }, status: 400 }, { change: { settings: { ...settings, perTradeUsd: null } }, status: 400 },
+    { change: { sourceNetwork: 'devnet' }, status: 400 }, { change: { settings: { ...settings, perTradeUsd: null } }, status: 400 },
     { change: { userJwt: 'must-not-be-accepted' }, status: 400 }])('refuses unsupported/invalid draft authority %j', async ({ change, status }) => {
     await expect(service.create(uid, { ...draft(), leader: `0x${'55'.repeat(20)}`, ...change })).rejects.toMatchObject({ status });
     expect(await db.select().from(paperAccounts)).toEqual([]);
@@ -95,7 +95,7 @@ describe('dedicated testnet preparation', () => {
   it('disabled deployment advertises preparationfalse and never automatic execution', async () => {
     const old = process.env.COPY_TRADING_MODE; process.env.COPY_TRADING_MODE = 'disabled';
     try {
-      expect(liveCopyOverviewSchema.parse(await service.overview(uid)).capabilities).toEqual({ strategyPreparation: false, automaticExecution: false, sourceNetworks: ['testnet'] });
+      expect(liveCopyOverviewSchema.parse(await service.overview(uid)).capabilities).toEqual({ strategyPreparation: false, automaticExecution: false, sourceNetworks: ['mainnet', 'testnet'] });
       await expect(service.create(uid, draft())).rejects.toMatchObject({ status: 503 });
       await expect(challenge()).rejects.toMatchObject({ status: 503 });
     } finally { if (old === undefined) delete process.env.COPY_TRADING_MODE; else process.env.COPY_TRADING_MODE = old; }

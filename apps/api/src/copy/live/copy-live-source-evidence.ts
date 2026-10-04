@@ -5,15 +5,18 @@ import { legsOf } from '../copy-math.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { LIVE_PERP_COIN } from './live-market-resolver.js';
 import type { copyLiveSourceFills } from '@trading-dashboard/shared/database';
+/** Leader fills come from a fixed public network: testnet, or mainnet when a
+ * testnet copy mirrors a mainnet leader. Execution stays on testnet. */
+export type LiveSourceNetwork = 'testnet' | 'mainnet';
 export interface LiveSourceFillContext {
-  network: 'testnet'; leaderAddress: string; from: number; to: number; receivedAt: number; kind: 'fills' | 'twap';
+  network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; receivedAt: number; kind: 'fills' | 'twap';
 }
 export interface NormalizedLiveSourceFill {
-  version: 1; kind: 'fills' | 'twap'; network: 'testnet'; leaderAddress: string; tid: string; oid: string; twapId: string | null;
+  version: 1; kind: 'fills' | 'twap'; network: LiveSourceNetwork; leaderAddress: string; tid: string; oid: string; twapId: string | null;
   time: number; coin: string; px: string; sz: string; side: 'B' | 'A'; startPosition: string; tradeKey: string;
 }
 export interface LiveSourceFillEvidence {
-  id: string; streamId: string; network: 'testnet'; leaderAddress: string; tid: string; oid: string;
+  id: string; streamId: string; network: LiveSourceNetwork; leaderAddress: string; tid: string; oid: string;
   providerTime: number; receivedAt: number; coin: string; tradeKey: string; px: string; sz: string;
   side: 'B' | 'A'; startPosition: string; normalized: NormalizedLiveSourceFill;
   raw: Record<string, unknown>; sourceDigest: string; originVersion: 1;
@@ -22,12 +25,12 @@ export interface CanonicalLiveSourceLeg {
   leg: 'open' | 'close'; sign: 1 | -1; size: string; fraction: string | null; tradeKey: string;
 }
 
-const SOURCE = 'https://api.hyperliquid-testnet.xyz/info';
+const SOURCES: Record<LiveSourceNetwork, string> = { testnet: 'https://api.hyperliquid-testnet.xyz/info', mainnet: 'https://api.hyperliquid.xyz/info' };
 const integer = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const unsignedId = z.string().regex(/^[1-9][0-9]{0,19}$/).refine(v => BigInt(v) <= 18446744073709551615n);
 const signedDecimal = z.string().max(81).regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/).transform(v => Dec.from(v).toString());
 const positiveDecimal = signedDecimal.refine(v => Dec.from(v).isPositive);
-const normalizedSchema = z.object({ version: z.literal(1), kind: z.enum(['fills', 'twap']), network: z.literal('testnet'),
+const normalizedSchema = z.object({ version: z.literal(1), kind: z.enum(['fills', 'twap']), network: z.enum(['testnet', 'mainnet']),
   leaderAddress: z.string().regex(/^0x[0-9a-f]{40}$/), tid: unsignedId, oid: unsignedId, twapId: unsignedId.nullable(),
   time: integer, coin: z.string().min(1).max(129).regex(LIVE_PERP_COIN), px: positiveDecimal, sz: positiveDecimal,
   side: z.enum(['B', 'A']), startPosition: signedDecimal, tradeKey: z.string().regex(/^(?:oid|twap):[1-9][0-9]{0,19}$/),
@@ -56,31 +59,32 @@ export function liveSourceDigest(value: unknown): string {
 export function parseLiveSourceFill(value: unknown, context: LiveSourceFillContext): LiveSourceFillEvidence {
   try {
     const captured = structuredClone(context), raw = object(structuredClone(value)), leaderAddress = address(captured.leaderAddress);
-    if (captured.network !== 'testnet' || !['fills', 'twap'].includes(captured.kind) ||
+    if (!['testnet', 'mainnet'].includes(captured.network) || !['fills', 'twap'].includes(captured.kind) ||
       ![captured.from, captured.to, captured.receivedAt].every(v => Number.isSafeInteger(v) && v >= 0) || captured.from > captured.to || captured.to > captured.receivedAt) fail();
     const row = captured.kind === 'twap' ? object(raw.fill) : raw;
     for (const entry of [raw, row]) {
       if ((entry.user !== undefined && (typeof entry.user !== 'string' || address(entry.user) !== leaderAddress)) ||
-          (entry.network !== undefined && entry.network !== 'testnet')) fail();
+          (entry.network !== undefined && entry.network !== captured.network)) fail();
     }
     const twapId = captured.kind === 'twap' ? id(raw.twapId) : row.twapId === undefined || row.twapId === null ? null : id(row.twapId);
     if (captured.kind === 'twap' && row.twapId !== undefined && row.twapId !== null && id(row.twapId) !== twapId) fail();
     const oid = id(row.oid), tid = id(row.tid);
-    const normalized = normalizedSchema.parse({ version: 1, kind: captured.kind, network: 'testnet', leaderAddress, tid, oid, twapId,
+    const normalized = normalizedSchema.parse({ version: 1, kind: captured.kind, network: captured.network, leaderAddress, tid, oid, twapId,
       time: row.time, coin: row.coin, px: row.px, sz: row.sz, side: row.side, startPosition: row.startPosition,
       tradeKey: twapId === null ? `oid:${oid}` : `twap:${twapId}` });
     if (normalized.time < captured.from || normalized.time > captured.to) fail();
-    const streamId = `testnet:${leaderAddress}`;
-    return { id: `${streamId}:${tid}`, streamId, network: 'testnet', leaderAddress, tid, oid, providerTime: normalized.time, receivedAt: captured.receivedAt,
+    const streamId = `${captured.network}:${leaderAddress}`;
+    return { id: `${streamId}:${tid}`, streamId, network: captured.network, leaderAddress, tid, oid, providerTime: normalized.time, receivedAt: captured.receivedAt,
       coin: normalized.coin, tradeKey: normalized.tradeKey, px: normalized.px, sz: normalized.sz, side: normalized.side, startPosition: normalized.startPosition,
-      normalized, raw, sourceDigest: liveSourceDigest({ source: SOURCE, normalized, raw }), originVersion: 1 };
+      normalized, raw, sourceDigest: liveSourceDigest({ source: SOURCES[captured.network], normalized, raw }), originVersion: 1 };
   } catch { fail(); }
 }
 /** Verify provider evidence against every DB mirror before taking a leg claim. */
 export function decodeLiveSourceFill(row: typeof copyLiveSourceFills.$inferSelect): LiveSourceFillEvidence {
   try {
     const normalized = normalizedSchema.parse(row.normalized), time = row.providerTime.getTime(), receivedAt = row.receivedAt.getTime();
-    const fill = parseLiveSourceFill(row.raw, { network: 'testnet', leaderAddress: row.leaderAddress, from: time, to: time, receivedAt, kind: normalized.kind });
+    if (row.network !== normalized.network) fail();
+    const fill = parseLiveSourceFill(row.raw, { network: normalized.network, leaderAddress: row.leaderAddress, from: time, to: time, receivedAt, kind: normalized.kind });
     if (liveSourceDigest(normalized) !== liveSourceDigest(fill.normalized)) fail();
     for (const [key, expected] of Object.entries(fill)) {
       if (key === 'raw' || key === 'normalized') continue;

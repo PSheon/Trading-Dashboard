@@ -34,10 +34,10 @@ export class PostgresLiveUnattemptedRecovery {
   const legs=await this.query(session,tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.executionKey,input.key)).limit(2).for('update'));
   check(p&&legs.length===1&&p.legId===legs[0]!.id);const leg=legs[0]!;
   const [m]=await this.query(session,tx.select().from(copyLiveMandates).where(eq(copyLiveMandates.id,p.mandateId))),[config]=await this.query(session,tx.select().from(copyLiveStrategyConfigs).where(eq(copyLiveStrategyConfigs.strategyId,strategy.id)));
-  check(m&&config&&config.userId===account.userId&&config.sourceNetwork==='testnet');
+  check(m&&config&&config.userId===account.userId&&['testnet','mainnet'].includes(config.sourceNetwork));
   const consent=decodeLiveCopyMandate(m),[fillRow]=await this.query(session,tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id,leg.sourceFillId)));
   check(fillRow);const fill=decodeLiveSourceFill(fillRow),source=session.scope.identity.source;
-  check(source&&source.network==='testnet'&&source.leaderAddress===fill.leaderAddress&&fill.network==='testnet'&&fill.leaderAddress===consent.leaderAddress);
+  check(config.sourceNetwork===consent.sourceNetwork&&source&&source.network===consent.sourceNetwork&&source.leaderAddress===fill.leaderAddress&&fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress);
   check(m.consentDigest&&m.activationCursor&&m.revision>=p.mandateRevision&&consent.accountId===account.id&&consent.accountAddress===account.address&&consent.userId===account.userId&&consent.strategyId===strategy.id&&
    consent.ownerPrivyUserId===account.privyUserId&&consent.ownerAddress===owner.embeddedWalletAddress&&account.revision>=consent.accountRevision&&consent.authorizationId===record.authorization.id&&consent.authorizationVersion===record.authorization.version&&consent.agentWalletId===record.authorization.walletId&&consent.agentAddress===record.authorization.signerAddress&&
    r.authorizationId===consent.authorizationId&&r.authorizationVersion===consent.authorizationVersion&&r.strategyVersion===consent.strategyVersion&&r.walletId===consent.agentWalletId&&p.settingsDigest===consent.settingsDigest&&p.admittedAt.getTime()===record.createdAt);

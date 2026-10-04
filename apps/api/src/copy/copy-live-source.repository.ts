@@ -5,7 +5,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import type { LiveSourceReadResult } from './copy-live-source.client.js';
-import { decodeLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills } from './live/copy-live-source-evidence.js';
+import { decodeLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 export type LiveSourceStream = typeof copyLiveSourceStreams.$inferSelect;
 export type SourceApplyResult = { kind: 'recorded' | 'stale' | 'quarantined'; stream: LiveSourceStream };
@@ -13,23 +13,25 @@ export type SourceApplyResult = { kind: 'recorded' | 'stale' | 'quarantined'; st
 export class CopyLiveSourceRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
   /** Ingestion owns only the source lock. Never acquire user/account locks after it. */
-  async ensure(tx: DbTransaction, leader: string): Promise<LiveSourceStream> {
-    const leaderAddress = address(leader), id = `testnet:${leaderAddress}`;
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-risk-source:testnet:${leaderAddress}`}, 8))`);
-    await tx.insert(copyLiveSourceStreams).values({ id, network: 'testnet', leaderAddress }).onConflictDoNothing();
+  async ensure(tx: DbTransaction, leader: string, network: LiveSourceNetwork = 'testnet'): Promise<LiveSourceStream> {
+    if (!['testnet', 'mainnet'].includes(network)) throw new LiveBoundaryError('invalid_live_source_evidence');
+    const leaderAddress = address(leader), id = `${network}:${leaderAddress}`;
+    // The same key as PostgresLiveRiskScope's source lock for this network.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-risk-source:${network}:${leaderAddress}`}, 8))`);
+    await tx.insert(copyLiveSourceStreams).values({ id, network, leaderAddress }).onConflictDoNothing();
     const [stream] = await tx.select().from(copyLiveSourceStreams).where(eq(copyLiveSourceStreams.id, id)).for('update');
-    if (!stream || stream.network !== 'testnet' || stream.leaderAddress !== leaderAddress) throw new LiveBoundaryError('invalid_live_source_evidence');
+    if (!stream || stream.network !== network || stream.leaderAddress !== leaderAddress) throw new LiveBoundaryError('invalid_live_source_evidence');
     return stream;
   }
   async apply(tx: DbTransaction, expectedRevision: number, input: LiveSourceReadResult, now: number): Promise<SourceApplyResult> {
     const result = structuredClone(input), { sourceDigest, ...body } = result;
-    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || result.network !== 'testnet' || sourceDigest !== liveSourceDigest(body) ||
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !['testnet', 'mainnet'].includes(result.network) || sourceDigest !== liveSourceDigest(body) ||
       ![result.from,result.to,result.observedAt,result.completedAt,now].every(v => Number.isSafeInteger(v) && v >= 0) ||
       result.from > result.to || result.to > result.observedAt || result.observedAt > result.completedAt || result.completedAt > now ||
       result.fills.length > 10000 || result.observations.length > 64 || !Number.isSafeInteger(result.requestsUsed) || result.requestsUsed < result.observations.length || result.requestsUsed > result.observations.length + 1 || result.requestsUsed > 64 ||
       result.historicalCompleteness !== 'unproven' || (result.complete && (!result.fresh || result.unresolved.length !== 0))) throw new LiveBoundaryError('invalid_live_source_evidence');
     const leader = address(result.leaderAddress), decoded = result.fills.map(fill => decodeLiveSourceFill({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) }));
-    if (new Set(decoded.map(fill => fill.id)).size !== decoded.length || decoded.some(fill => fill.leaderAddress !== leader || fill.providerTime < result.from || fill.providerTime > result.to || fill.receivedAt < result.observedAt || fill.receivedAt > result.completedAt)) throw new LiveBoundaryError('invalid_live_source_evidence');
+    if (new Set(decoded.map(fill => fill.id)).size !== decoded.length || decoded.some(fill => fill.network !== result.network || fill.leaderAddress !== leader || fill.providerTime < result.from || fill.providerTime > result.to || fill.receivedAt < result.observedAt || fill.receivedAt > result.completedAt)) throw new LiveBoundaryError('invalid_live_source_evidence');
     for (const window of result.observations) if (!['fills','twap'].includes(window.kind) || ![window.from,window.to,window.depth,window.observedAt,window.completedAt,window.count].every(Number.isSafeInteger) ||
       window.from < result.from || window.to > result.to || window.from > window.to || window.depth < 0 || window.depth > 48 || window.observedAt < result.observedAt || window.completedAt < window.observedAt || window.completedAt > result.completedAt ||
       window.count < 0 || window.count > 2000 || window.saturated !== (window.count >= 500) || !/^[a-f0-9]{64}$/.test(window.responseDigest)) throw new LiveBoundaryError('invalid_live_source_evidence');
@@ -39,7 +41,7 @@ export class CopyLiveSourceRepository {
       for (const leaf of leaves) { if (leaf.from !== next) throw new LiveBoundaryError('invalid_live_source_evidence'); next = leaf.to + 1; }
       if (next !== result.to + 1) throw new LiveBoundaryError('invalid_live_source_evidence');
     }
-    const stream = await this.ensure(tx, leader);
+    const stream = await this.ensure(tx, leader, result.network);
     if (stream.state === 'quarantined') return { kind: 'quarantined', stream };
     const stored = decoded.length ? await tx.select().from(copyLiveSourceFills).where(and(eq(copyLiveSourceFills.streamId, stream.id), inArray(copyLiveSourceFills.id, decoded.map(fill => fill.id)))) : [];
     const byId = new Map(stored.map(fill => [fill.id, fill]));
@@ -63,9 +65,9 @@ export class CopyLiveSourceRepository {
     if (!next) throw new LiveBoundaryError('live_source_cas_lost');
     return { kind: 'recorded', stream: next };
   }
-  async fail(tx: DbTransaction, leader: string, expectedRevision: number, issue: NonNullable<LiveSourceStream['lastIssue']>, now: number): Promise<SourceApplyResult> {
+  async fail(tx: DbTransaction, leader: string, expectedRevision: number, issue: NonNullable<LiveSourceStream['lastIssue']>, now: number, network: LiveSourceNetwork = 'testnet'): Promise<SourceApplyResult> {
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !Number.isSafeInteger(now) || now < 0 || !['source_unavailable','incomplete_coverage','duplicate_conflict','invalid_fill','cursor_regression'].includes(issue)) throw new LiveBoundaryError('invalid_live_source_evidence');
-    const stream = await this.ensure(tx, leader);
+    const stream = await this.ensure(tx, leader, network);
     if (stream.state === 'quarantined') return { kind: 'quarantined', stream };
     if (stream.revision !== expectedRevision) return { kind: 'stale', stream };
     return this.change(tx, stream, ['invalid_fill','duplicate_conflict'].includes(issue) ? 'quarantined' : 'gap', issue, now);
@@ -77,8 +79,8 @@ export class CopyLiveSourceRepository {
     // Return rather than throw so the caller commits the durable quarantine.
     return { kind: state === 'quarantined' ? 'quarantined' : 'recorded', stream: next };
   }
-  async fills(leader: string) {
-    const rows = await this.db.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.streamId, `testnet:${address(leader)}`)).limit(10001);
+  async fills(leader: string, network: LiveSourceNetwork = 'testnet') {
+    const rows = await this.db.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.streamId, `${network}:${address(leader)}`)).limit(10001);
     if (rows.length > 10000) throw new LiveBoundaryError('live_source_read_unbounded');
     return rows.map(decodeLiveSourceFill).sort((a,b) => a.providerTime - b.providerTime || (BigInt(a.tid) < BigInt(b.tid) ? -1 : BigInt(a.tid) > BigInt(b.tid) ? 1 : 0));
   }

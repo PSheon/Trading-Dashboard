@@ -138,7 +138,7 @@ export class PostgresLiveReservations {
       wallet.privyWalletId === consent.agentWalletId && wallet.signerAddress === consent.agentAddress && wallet.privyOwnerId === record.authorization.privyOwnerId &&
       consent.authorizationId === record.authorization.id && consent.authorizationVersion === record.authorization.version && consent.agentWalletId === record.authorization.walletId &&
       consent.agentAddress === record.authorization.signerAddress && consent.strategyVersion === strategy.version && config.strategyVersion === strategy.version &&
-      config.userId === account.userId && config.sourceNetwork === consent.sourceNetwork && consent.sourceNetwork === 'testnet' &&
+      config.userId === account.userId && config.sourceNetwork === consent.sourceNetwork && ['testnet', 'mainnet'].includes(consent.sourceNetwork) &&
       config.budgetUsd === consent.budgetUsd && Dec.from(consent.budgetUsd).eq(input.strategy.allocatedUsd) &&
       consent.leaderAddress === strategy.leaderAddress && consent.settingsDigest === liveCopySettingsDigest(input.strategy.settings) && p.settingsDigest === consent.settingsDigest &&
       p.fingerprint === record.fingerprint && leg.mandateId === mandate.id && leg.executionKey === record.key && leg.state === 'prepared', 'live_reservation_mandate_changed');

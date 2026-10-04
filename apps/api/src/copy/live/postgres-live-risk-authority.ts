@@ -40,7 +40,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   riskSourceRequire(s.userId===a.userId&&s.mode==='testnet'&&s.status==='active'&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&
     consent.accountId===a.id&&consent.userId===a.userId&&consent.strategyId===s.id&&consent.accountRevision===a.revision&&consent.accountAddress===a.address&&
     consent.ownerPrivyUserId===o.privyUserId&&consent.ownerAddress===o.embeddedWalletAddress&&consent.strategyVersion===s.version&&
-    c.strategyVersion===s.version&&c.userId===a.userId&&c.sourceNetwork==='testnet'&&consent.sourceNetwork===c.sourceNetwork&&c.budgetUsd===consent.budgetUsd&&
+    c.strategyVersion===s.version&&c.userId===a.userId&&['testnet','mainnet'].includes(c.sourceNetwork)&&consent.sourceNetwork===c.sourceNetwork&&c.budgetUsd===consent.budgetUsd&&
     consent.leaderAddress===s.leaderAddress&&consent.settingsDigest===liveCopySettingsDigest(settings)&&consent.plannerVersion===1,'live_risk_mandate_changed');
   riskSourceRequire(setup.state==='active'&&setup.revision===consent.setupRevision&&setup.userId===a.userId&&setup.strategyId===s.id&&setup.accountId===a.id&&setup.network===a.network&&
     setup.accountAddress===a.address&&setup.accountWalletId===a.privyWalletId&&setup.accountOwnerQuorumId===a.ownerQuorumId&&setup.agentWalletId===w.privyWalletId&&setup.agentAddress===w.signerAddress&&
@@ -109,7 +109,7 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
   const fill=decodeLiveSourceFill(row.fill),canonical=canonicalLiveSourceLegs(fill).find(l=>l.leg===leg.leg);
   riskSourceRequire(canonical&&leg.id===liveSourceLegId(m.id,fill.id,leg.leg)&&leg.mandateId===m.id&&leg.executionKey===binding.key&&leg.state==='prepared'&&
     leg.sign===canonical.sign&&leg.size===canonical.size&&leg.fraction===canonical.fraction&&leg.tradeKey===canonical.tradeKey&&p.sourceDigest===fill.sourceDigest&&
-    fill.network==='testnet'&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.receivedAt<=p.admittedAt.getTime()&&
+    fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.receivedAt<=p.admittedAt.getTime()&&
     stream.state==='ready'&&stream.network===fill.network&&stream.leaderAddress===fill.leaderAddress&&stream.coverageFrom&&stream.coverageThrough&&stream.coverageDigest&&
     stream.coverageFrom.getTime()<=m.activationCursor!.getTime()&&stream.coverageThrough.getTime()>=fill.providerTime,'live_risk_source_changed');
   const {policy,limits,platform,user,accounts,states,general,revenue,controlsRows:controls}=prep;

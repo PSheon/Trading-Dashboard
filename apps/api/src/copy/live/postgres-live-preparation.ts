@@ -21,9 +21,17 @@ import { decodeLiveExecutionRow } from './postgres-live-journal.js';
 import type { LiveExecutionRecord } from './live-execution.js';
 import { address, assertWalletAuthorization, LiveBoundaryError } from './wallet-authorization.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
+import { assertLiveSourcePrice } from './copy-live-source-planner.js';
+import type { LiveSourceReferenceReader } from './live-source-reference.js';
+import type { LiveSourceReferenceV1 } from './copy-live-sizing-evidence.js';
 
 export interface LivePreparationBinding { readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close'; }
-export interface LivePreparationOptions extends LiveRiskProviderOptions { readonly slippageBps: string; }
+export interface LivePreparationOptions extends LiveRiskProviderOptions {
+  readonly slippageBps: string;
+  /** Largest testnet/mainnet mid difference (bps) at which a mainnet leader's
+   * open is still mirrored on testnet. Required for a mainnet source. */
+  readonly maxSourceDeviationBps?: string;
+}
 /** Stable economic identity, independent of a worker, quote or retry time. */
 export function liveSourceExecutionCloid(mandateId: string, sourceFillId: string, leg: 'open' | 'close'): `0x${string}` {
   return `0x${createHash('sha256').update(JSON.stringify(['live-copy-v1', mandateId, sourceFillId, leg])).digest('hex').slice(0, 32)}`;
@@ -36,7 +44,8 @@ export class PostgresLivePreparation {
   private readonly options: Readonly<LivePreparationOptions>;
   private readonly epoch: LiveProviderReadEpoch;
   constructor(private readonly observer: HyperliquidLiveAccountObserver, private readonly resolver: HyperliquidLiveMarketResolver,
-    private readonly provider: HyperliquidLiveRiskProvider, options: LivePreparationOptions, private readonly now = Date.now, epoch?: LiveProviderReadEpoch) {
+    private readonly provider: HyperliquidLiveRiskProvider, options: LivePreparationOptions, private readonly now = Date.now, epoch?: LiveProviderReadEpoch,
+    private readonly reference?: LiveSourceReferenceReader) {
     this.options = Object.freeze(structuredClone(options));
     riskSourceRequire(Dec.from(options.slippageBps).gte(0) && Dec.from(options.slippageBps).lte(10000), 'live_preparation_options');
     this.epoch = epoch ?? new LiveProviderReadEpoch(observer, resolver, provider, options, now);
@@ -85,11 +94,23 @@ export class PostgresLivePreparation {
     });
     if (!baselineExists) await session.read(db => this.assertFirstAccount(session, db, local.account.id, local.account.address!));
     const manifest = baselineExists ? await session.read(db => loadLiveGenerationManifest(session, db, local, { currentExecutionKey: key, now: started })) : null;
+    const mainnetSource = local.consent.sourceNetwork === 'mainnet';
     const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin,
-      includeLeader: local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
+      includeLeader: !mainnetSource && local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
     riskSourceRequire(frames.authorityDigest === riskSourceDigest(local), 'live_risk_local_changed');
     const { market, leader, target: quote } = frames, follower = frames.snapshots[local.accounts.findIndex(a => a.id === binding.accountId)]!;
     await session.scope.assertHeld(); this.fresh(started);
+    // A mainnet leader's open is priced on testnet but checked against the
+    // mainnet mid and sized by the leader's mainnet capital (as paper copies).
+    let sourceReference: LiveSourceReferenceV1 | null = null;
+    if (mainnetSource && binding.leg === 'open') {
+      riskSourceRequire(this.reference && this.options.maxSourceDeviationBps !== undefined, 'live_source_reference_unconfigured');
+      const read = await this.reference.read(local.consent.leaderAddress, source.fill.coin, local.settings.sizingMode === 'ratio');
+      await session.scope.assertHeld(); this.fresh(started);
+      sourceReference = { network: 'mainnet', leaderAddress: local.consent.leaderAddress, leaderEquity: read.leaderEquity, leaderEquityObservedAt: read.leaderEquityObservedAt,
+        midPrice: read.midPrice, midObservedAt: read.midObservedAt, maxDeviationBps: Dec.from(this.options.maxSourceDeviationBps).toString() };
+      assertLiveSourcePrice(quote.quote.midPrice, sourceReference);
+    }
     const oldest = Math.min(frames.oldest, market.observedAt, quote.earliestObservedAt, follower.observedAt, follower.coverage.earliestProviderTime, ...follower.dexes.map(v => v.providerTime),
       ...(leader ? [leader.observedAt, leader.coverage.earliestProviderTime, ...leader.dexes.map(v => v.providerTime)] : []));
     this.fresh(oldest);
@@ -122,7 +143,8 @@ export class PostgresLivePreparation {
       leader: leader ? { network: 'testnet', accountAddress: leader.accountAddress, equity: leader.perpEquity, observedAt: leader.observedAt, completedAt: leader.completedAt, sourceDigest: leader.sourceDigest, snapshotDigest: followerReceiptDigestV1(leader) } : null,
       generation: { mandateId: binding.mandateId, baselineDigest: projection.baselineDigest, receiptManifestDigest: projection.receiptManifestDigest, positionsDigest: projection.positionsDigest, positionSize },
       carry: { amount: carry.carry, revision: carry.revision }, fixedTradeClaim: binding.leg === 'open' && local.settings.sizingMode === 'fixed',
-      settledDependency: dependsOn && dependency?.evidence?.settlementDigest ? { legId: dependsOn, certificateDigest: dependency.evidence.settlementDigest } : null },
+      settledDependency: dependsOn && dependency?.evidence?.settlementDigest ? { legId: dependsOn, certificateDigest: dependency.evidence.settlementDigest } : null,
+      ...(sourceReference ? { sourceReference } : {}) },
       observations: { follower, leader, quote, generationManifest: withCarry } };
     const plan = planLiveSourceOrder({ mandate: local.mandate, settings: local.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing,
       now: planningAt, limits: local.limits, currentExecutionKey: key });

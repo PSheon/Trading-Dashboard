@@ -57,10 +57,27 @@ export interface LiveSourceSizingBasisV1 {
     readonly positionSize: string;
   };
   readonly carry: { readonly amount: string; readonly revision: number };
+  /** Present only for an opening leg of a testnet copy that follows a MAINNET
+   * leader: the leader's whole-account value (the ratio denominator, as paper
+   * sizing uses) and the coin's mainnet mid, read on mainnet. The testnet mid
+   * above prices the order; it must lie within `maxDeviationBps` of this mid
+   * (testnet books can sit far from mainnet). Absent for a testnet source. */
+  readonly sourceReference?: LiveSourceReferenceV1;
   /** This is verified against the original SQL claim, never a caller permit. */
   readonly fixedTradeClaim: boolean;
   /** A flip open requires the actual close's immutable settlement certificate. */
   readonly settledDependency: { readonly legId: string; readonly certificateDigest: string } | null;
+}
+
+export interface LiveSourceReferenceV1 {
+  readonly network: 'mainnet';
+  readonly leaderAddress: string;
+  /** Null for fixed sizing, which does not use the leader's capital. */
+  readonly leaderEquity: string | null;
+  readonly leaderEquityObservedAt: number | null;
+  readonly midPrice: string;
+  readonly midObservedAt: number;
+  readonly maxDeviationBps: string;
 }
 
 export interface PlannedLiveSourceOrder {

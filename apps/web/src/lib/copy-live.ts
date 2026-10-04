@@ -69,7 +69,7 @@ export async function createLiveCopyDraft(input: Omit<CreateLiveCopyStrategy, 'i
   const guard = ownerGuard(deps, false); guard();
   const previous = deps.journal.read().drafts.find(d => d.strategyId === null);
   const request = createLiveCopyStrategySchema.parse({ ...structuredClone(input), idempotencyKey: previous?.request.idempotencyKey ?? deps.newKey() });
-  if (request.sourceNetwork !== 'testnet') throw new Error('live_source_unsupported');
+  if (request.sourceNetwork !== 'testnet' && request.sourceNetwork !== 'mainnet') throw new Error('live_source_unsupported');
   if (previous && JSON.stringify(previous.request) !== JSON.stringify(request)) throw new Error('live_draft_changed');
   if (!previous) deps.journal.draft({ request, strategyId: null }); guard();
   // An uncertain response is never retried as a POST, even with the same key.
@@ -86,7 +86,7 @@ function sameContext(original: LiveBindingContext, value: LiveBindingContext | n
 }
 function ready(context: LiveBindingContext, now: number) {
   const { account: a, strategy: s, setup, grant } = context;
-  if (a.state !== 'ready' || a.network !== 'testnet' || s.id !== a.strategyId || s.mode !== 'actual' || s.network !== 'testnet' || s.sourceNetwork !== 'testnet' || s.settings.copyStartMode !== 'delta' || s.status !== 'paused' || !s.pauseNewRisk || s.reduceOnly || setup.state !== 'active' || setup.accountId !== a.id || setup.strategyId !== s.id || setup.network !== a.network || setup.accountAddress !== a.address || !setup.authorizationId || Date.parse(setup.expiresAt) <= now || grant && (grant.id !== setup.authorizationId || grant.status !== 'active' || grant.strategyId !== s.id || grant.network !== a.network || grant.accountAddress !== a.address || grant.signerAddress !== setup.agentAddress || grant.revokedAt !== null || Date.parse(grant.expiresAt) <= now || !grant.scopes.includes('copy:trade') || !grant.scopes.includes('copy:reduce'))) throw new Error('live_binding_unavailable');
+  if (a.state !== 'ready' || a.network !== 'testnet' || s.id !== a.strategyId || s.mode !== 'actual' || s.network !== 'testnet' || (s.sourceNetwork !== 'testnet' && s.sourceNetwork !== 'mainnet') || s.settings.copyStartMode !== 'delta' || s.status !== 'paused' || !s.pauseNewRisk || s.reduceOnly || setup.state !== 'active' || setup.accountId !== a.id || setup.strategyId !== s.id || setup.network !== a.network || setup.accountAddress !== a.address || !setup.authorizationId || Date.parse(setup.expiresAt) <= now || grant && (grant.id !== setup.authorizationId || grant.status !== 'active' || grant.strategyId !== s.id || grant.network !== a.network || grant.accountAddress !== a.address || grant.signerAddress !== setup.agentAddress || grant.revokedAt !== null || Date.parse(grant.expiresAt) <= now || !grant.scopes.includes('copy:trade') || !grant.scopes.includes('copy:reduce'))) throw new Error('live_binding_unavailable');
 }
 function sameMandate(original: LiveCopyMandate, result: LiveCopyMandate) {
   for (const k of ['id', 'accountId', 'strategyId', 'mode', 'network', 'accountAddress', 'sourceNetwork', 'leaderAddress', 'budgetUsd', 'strategyVersion', 'expiresAt', 'createdAt'] as const) if (original[k] !== result[k]) throw new Error('live_mandate_changed');
@@ -246,7 +246,7 @@ export function useLiveCopyActions(accounts: readonly CopyExecutionAccount[], ov
 interface WalletDeps extends OwnerDeps { currentStrategy(): LiveCopyStrategy | null; createWallet(id: number, body: { network: 'testnet' }, guard: () => void): Promise<unknown>; readWallets(): Promise<unknown> }
 export async function prepareActualCopyWallet(input: LiveCopyStrategy, deps: WalletDeps): Promise<CopyExecutionAccount> {
   const strategy = liveCopyStrategySchema.parse(structuredClone(input)), owner = ownerGuard(deps, false);
-  const guard = () => { owner(); const current = deps.currentStrategy(); if (!current || JSON.stringify(strategy) !== JSON.stringify(current) || strategy.status !== 'paused' || !strategy.pauseNewRisk || strategy.reduceOnly || strategy.sourceNetwork !== 'testnet') throw new Error('live_wallet_strategy_changed'); }; guard();
+  const guard = () => { owner(); const current = deps.currentStrategy(); if (!current || JSON.stringify(strategy) !== JSON.stringify(current) || strategy.status !== 'paused' || !strategy.pauseNewRisk || strategy.reduceOnly || (strategy.sourceNetwork !== 'testnet' && strategy.sourceNetwork !== 'mainnet')) throw new Error('live_wallet_strategy_changed'); }; guard();
   const saved = deps.journal.read().wallets.find(w => w.strategyId === strategy.id);
   if (saved && (saved.strategyVersion !== strategy.version || saved.leaderAddress !== strategy.leaderAddress)) throw new Error('live_wallet_strategy_changed');
   const attempt = saved ?? { strategyId: strategy.id, strategyVersion: strategy.version, leaderAddress: strategy.leaderAddress, network: 'testnet' as const, accountId: null };

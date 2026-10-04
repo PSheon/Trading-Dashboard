@@ -89,7 +89,7 @@ export class CopyLiveMandateRepository {
     if (!strategy || strategy.mode !== 'testnet' || strategy.status !== 'paused' || !strategy.pauseNewRisk || strategy.reduceOnly || account.network !== 'testnet' || account.state !== 'ready' || account.privyUserId !== owner.privyUserId) conflict();
     const wire = await this.strategyWire(strategy.id, tx);
     const [config] = await tx.select().from(copyLiveStrategyConfigs).where(eq(copyLiveStrategyConfigs.strategyId, strategy.id));
-    if (config.strategyVersion !== strategy.version || config.sourceNetwork !== 'testnet') conflict();
+    if (config.strategyVersion !== strategy.version || !['testnet', 'mainnet'].includes(config.sourceNetwork)) conflict();
     const limits = await this.preparation(tx); this.checkBudget(config.budgetUsd, limits); await this.barriers(tx, userId);
     if (wire.settings.maxLeverage !== null && wire.settings.maxLeverage > limits.maxLeverage) conflict();
     const rows = await tx.select({ setup: copyAgentSetups, wallet: copyExecutionWallets, grant: copyWalletAuthorizations }).from(copyAgentSetups)

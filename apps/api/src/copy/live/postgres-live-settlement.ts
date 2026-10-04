@@ -201,7 +201,7 @@ export class PostgresLiveSettlement {
     const [policy] = await this.query(session,tx.select().from(copyRiskPolicies).where(eq(copyRiskPolicies.version,row.policyVersion)));
     check(version && policy,'live_settlement_source_changed');
     const fill = decodeLiveSourceFill(fillRow), canonical = canonicalLiveSourceLegs(fill).find(l => l.leg === leg.leg);
-    check(canonical && fill.network === row.network && fill.leaderAddress === consent.leaderAddress && leg.mandateId === m.id && p.legId === leg.id &&
+    check(canonical && fill.network === consent.sourceNetwork && fill.leaderAddress === consent.leaderAddress && leg.mandateId === m.id && p.legId === leg.id &&
       p.sourceDigest === fill.sourceDigest && leg.tradeKey === canonical.tradeKey && leg.sign === canonical.sign && leg.size === canonical.size && leg.fraction === canonical.fraction &&
       leg.state === (replay ? 'settled' : 'prepared'),'live_settlement_source_changed');
     const plan = planLiveSourceOrder({mandate:{...m,state:'active',revision:p.mandateRevision},settings:copyStrategySettingsSchema.strict().parse(version.settings),

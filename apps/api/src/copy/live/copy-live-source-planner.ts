@@ -6,7 +6,7 @@ import { floorSize, followerSign, reduceWithCarry, roundPx, slippedPx } from '..
 import { decodeLiveCopyMandate, type MandateRow } from '../copy-live-mandate-evidence.js';
 import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceLegId, type CanonicalLiveSourceLeg, type LiveSourceFillEvidence } from './copy-live-source-evidence.js';
-import type { LiveSourceSizingBasisV1, LiveSourceSizingEnvelopeV1, PlannedLiveSourceOrder } from './copy-live-sizing-evidence.js';
+import type { LiveSourceReferenceV1, LiveSourceSizingBasisV1, LiveSourceSizingEnvelopeV1, PlannedLiveSourceOrder } from './copy-live-sizing-evidence.js';
 import { assertMarketIdentity, marketIdentityKey } from './live-market-resolver.js';
 import { mapLiveAccountView } from './live-account-view.js';
 import { projectLiveGenerationPositions } from './copy-live-generation-projection.js';
@@ -29,10 +29,25 @@ const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:ve
   quote:z.object({midPrice:positive,slippageBps:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash}).strict(),
   follower:z.object({...snapshotIdentity,positionSize:decimal,positionsDigest:hash}).strict(),leader:z.object(snapshotIdentity).strict().nullable(),
   generation:z.object({mandateId:id,baselineDigest:hash,receiptManifestDigest:hash,positionsDigest:hash,positionSize:decimal}).strict(),
-  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),}).strict();
+  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
+  sourceReference:z.object({network:z.literal('mainnet'),leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),}).strict();
 function requireSizing(value:unknown):asserts value {if(!value)throw new LiveBoundaryError('live_source_sizing_unproven');}
 function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=5000);}
 function equal(a:unknown,b:unknown){requireSizing(isDeepStrictEqual(a,b));}
+/** Mainnet references may be older than the 5 s provider frames: a mid is the
+ * shared mainnet mids read (3 s cache), leader capital the paper sizing's
+ * 60 s cache. Both stay bounded and are never used past these ages. */
+export const SOURCE_MID_MAX_AGE_MS=10_000,SOURCE_EQUITY_MAX_AGE_MS=120_000;
+/** Basis points by which the testnet mid differs from the mainnet mid. */
+export function liveSourceDeviationBps(testnetMid:string,mainnetMid:string):Dec{
+  const reference=Dec.from(mainnetMid);requireSizing(reference.isPositive&&Dec.from(testnetMid).isPositive);
+  return Dec.from(testnetMid).sub(reference).abs().mul(10000).div(reference);
+}
+/** Throws `live_source_price_deviation` when testnet prices sit too far from
+ * mainnet to mirror a mainnet leader faithfully (e.g. ZEC −90 % on 10-04). */
+export function assertLiveSourcePrice(testnetMid:string,reference:Pick<LiveSourceReferenceV1,'midPrice'|'maxDeviationBps'>):void{
+  if(liveSourceDeviationBps(testnetMid,reference.midPrice).gt(Dec.from(reference.maxDeviationBps)))throw new LiveBoundaryError('live_source_price_deviation');
+}
 /** Decode bounded JSON evidence without introducing an observation time. */
 export function decodeLiveSourceSizingEnvelope(raw: unknown): LiveSourceSizingEnvelopeV1 {
   try{
@@ -69,12 +84,12 @@ function conservativeLimit(mid:Dec,side:'B'|'A',slippage:string,szDecimals:numbe
 export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSourceOrder {
   try{
     const input=structuredClone(raw),{mandate:m,now,limits,currentExecutionKey}=input,consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.strict().parse(input.settings),envelope=decodeLiveSourceSizingEnvelope(input.sizingBasis),b=envelope.basis,o=envelope.observations;
-    requireSizing(Number.isSafeInteger(now)&&now>0&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&consent.sourceNetwork==='testnet'&&
+    requireSizing(Number.isSafeInteger(now)&&now>0&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&['testnet','mainnet'].includes(consent.sourceNetwork)&&
       settings.copyStartMode==='delta'&&consent.settingsDigest===liveCopySettingsDigest(settings)&&Number.isSafeInteger(limits.maxSignalAgeSeconds)&&limits.maxSignalAgeSeconds>0&&limits.maxSignalAgeSeconds<=86400&&
       Number.isFinite(limits.maxSlippageBps)&&limits.maxSlippageBps>=0&&limits.maxSlippageBps<=10000&&Dec.from(b.quote.slippageBps).lte(limits.maxSlippageBps)&&
       currentExecutionKey.startsWith(`testnet:${consent.accountAddress}:`)&&/^0x[a-f0-9]{32}$/.test(currentExecutionKey.slice(`testnet:${consent.accountAddress}:`.length)));
     const fill=decodeLiveSourceFill({...input.fill,normalized:{...input.fill.normalized},providerTime:new Date(input.fill.providerTime),receivedAt:new Date(input.fill.receivedAt)}),leg=canonicalLiveSourceLegs(fill).find(l=>l.leg===input.leg.leg);equal(leg,input.leg);requireSizing(leg);
-    requireSizing(fill.network==='testnet'&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.providerTime<=now&&now-fill.providerTime<=limits.maxSignalAgeSeconds*1000&&fill.receivedAt<=now&&
+    requireSizing(fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.providerTime<=now&&now-fill.providerTime<=limits.maxSignalAgeSeconds*1000&&fill.receivedAt<=now&&
       b.mandateId===m.id&&b.mandateRevision===m.revision&&b.settingsDigest===consent.settingsDigest&&b.sourceFillId===fill.id&&b.sourceDigest===fill.sourceDigest&&b.accountAddress===consent.accountAddress&&
       b.coin===fill.coin&&b.leg===leg.leg&&b.direction===settings.direction&&b.sizingMode===settings.sizingMode&&b.budgetUsd===consent.budgetUsd&&b.perTradeUsd===(settings.perTradeUsd===null?null:Dec.from(settings.perTradeUsd).toString())&&
       b.market.coin===fill.coin&&b.follower.accountAddress===consent.accountAddress&&address(b.accountAddress)===b.accountAddress);
@@ -91,8 +106,20 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     equal(b.follower.positionsDigest,projection.positionsDigest);equal(b.follower.positionSize,b.generation.positionSize);
     const carry=o.generationManifest.carry.filter(row=>row.mandateId===m.id&&row.coin===fill.coin);requireSizing(carry.length===1);equal(b.carry,{amount:carry[0]!.carry,revision:carry[0]!.revision});
     requireSizing(b.fixedTradeClaim===(leg.leg==='open'&&settings.sizingMode==='fixed'));
-    if(leg.leg==='open'&&settings.sizingMode==='ratio'){
+    const reference=b.sourceReference??null;
+    requireSizing(consent.sourceNetwork==='mainnet'&&leg.leg==='open'?reference!==null:reference===null);
+    if(reference){
+      requireSizing(reference.network==='mainnet'&&reference.leaderAddress===consent.leaderAddress&&reference.midObservedAt<=now&&now-reference.midObservedAt<=SOURCE_MID_MAX_AGE_MS&&
+        (settings.sizingMode==='ratio')===(reference.leaderEquity!==null)&&(reference.leaderEquity===null)===(reference.leaderEquityObservedAt===null)&&
+        (reference.leaderEquityObservedAt===null||reference.leaderEquityObservedAt<=now&&now-reference.leaderEquityObservedAt<=SOURCE_EQUITY_MAX_AGE_MS));
+      assertLiveSourcePrice(b.quote.midPrice,reference);
+    }
+    let leaderEquity:string|null=null;
+    if(leg.leg==='open'&&settings.sizingMode==='ratio'&&reference){
+      requireSizing(b.leader===null&&o.leader===null);leaderEquity=reference.leaderEquity;
+    }else if(leg.leg==='open'&&settings.sizingMode==='ratio'){
       requireSizing(b.leader&&o.leader&&b.leader.accountAddress===consent.leaderAddress);snapshotMirror(o.leader!,b.leader,now,{accountId:'leader',strategyId:consent.strategyId});requireSizing(Dec.from(b.leader!.equity).isPositive);
+      leaderEquity=b.leader!.equity;
     }else requireSizing(b.leader===null&&o.leader===null);
     const sign=followerSign(leg.sign,settings.direction),position=Dec.from(b.generation.positionSize),mid=Dec.from(b.quote.midPrice),side=leg.leg==='close'?(sign>0?'A':'B'):(sign>0?'B':'A');
     const price=conservativeLimit(mid,side,b.quote.slippageBps,b.market.sizeDecimals);
@@ -111,11 +138,17 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
       // Floor at the exchange lot; minimum-notional admission remains separate
       // and must never round up or silently exceed the signed owner budget.
       if(settings.sizingMode==='fixed')size=rationalSize([b.perTradeUsd!],[Dec.max(mid,price).toString()],b.market.sizeDecimals);
-      else size=rationalSize([leg.size,fill.px,Dec.min(Dec.from(b.follower.equity),Dec.from(b.budgetUsd)).toString()],[b.leader!.equity,b.quote.midPrice],b.market.sizeDecimals);
+      // Leader notional (source-network fill price) scaled by capital, then
+      // converted to the follower's coins at the TESTNET mid.
+      else{requireSizing(leaderEquity);size=rationalSize([leg.size,fill.px,Dec.min(Dec.from(b.follower.equity),Dec.from(b.budgetUsd)).toString()],[leaderEquity,b.quote.midPrice],b.market.sizeDecimals);}
     }
     requireSizing(size.isPositive);
     return freezeLiveReservation({plannerVersion:1,legId:liveSourceLegId(m.id,fill.id,leg.leg),sourceDigest:fill.sourceDigest,settingsDigest:consent.settingsDigest,sizingBasis:envelope,
       order:{coin:fill.coin,asset:b.market.asset,side,size:size.toString(),limitPrice:price.toString(),sizeDecimals:b.market.sizeDecimals,reduceOnly:leg.leg==='close',timeInForce:'Ioc'},nextCarry:nextCarry.toString(),fixedTradeClaim:b.fixedTradeClaim,dependsOnLegId});
-  }catch{throw new LiveBoundaryError('live_source_sizing_unproven');}
+  }catch(error){
+    // A price refusal keeps its own reason; every other doubt is unproven sizing.
+    if(error instanceof LiveBoundaryError&&error.code==='live_source_price_deviation')throw error;
+    throw new LiveBoundaryError('live_source_sizing_unproven');
+  }
 }
 export const recomputeLiveSourceSizing = planLiveSourceOrder;

@@ -36,6 +36,7 @@ import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from '
 import { decodeLiveExecutionRow } from './postgres-live-journal.js';
 import { decodeLiveSourceSizingEnvelope } from './copy-live-source-planner.js';
 import { PostgresLiveUnattemptedRecovery } from './postgres-live-unattempted-recovery.js';
+import type { LiveSourceReferenceReader } from './live-source-reference.js';
 
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
@@ -45,7 +46,13 @@ const bps = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).refine(v
 });
 const optionsSchema = z.object({ slippageBps: bps, extraRiskBufferBps: bps,
   restingOrderBuilderFeeCapTenthsBps: z.number().int().min(0).max(100),
-  timeoutMs: z.number().int().min(1).max(5000).optional() }).strict();
+  timeoutMs: z.number().int().min(1).max(5000).optional(), maxSourceDeviationBps: bps.optional() }).strict();
+/** Exchange timing hooks for latency measurement (B18): when the order POST
+ * starts and when its response arrives. They observe; they cannot veto. */
+export interface TestnetLiveExecutionHooks {
+  readonly reference?: LiveSourceReferenceReader;
+  readonly onExchange?: (event: { readonly phase: 'request' | 'response'; readonly at: number }) => void;
+}
 export interface TestnetLiveExecutionRequest {
   readonly userId: number;
   readonly accountId: string;
@@ -56,7 +63,8 @@ export interface TestnetLiveExecutionRequest {
 export class TestnetLiveExecutionRuntime {
   private readonly options: Readonly<LivePreparationOptions>;
   constructor(private readonly pool: Pool, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
-    private readonly budget: RequestBudgeterService, options: LivePreparationOptions, private readonly now = Date.now) {
+    private readonly budget: RequestBudgeterService, options: LivePreparationOptions, private readonly now = Date.now,
+    private readonly hooks: TestnetLiveExecutionHooks = {}) {
     if (!(pool instanceof Pool) || !(config instanceof AppConfig) || !(global instanceof HyperliquidGlobalTransport) ||
       !(budget instanceof RequestBudgeterService) || typeof now !== 'function') throw new LiveBoundaryError('testnet_runtime_dependencies');
     const parsed = optionsSchema.safeParse(structuredClone(options));
@@ -79,12 +87,12 @@ export class TestnetLiveExecutionRuntime {
       .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, request.mandateId))
       .where(and(eq(copyExecutionAccounts.id, request.accountId), eq(copyExecutionAccounts.userId, request.userId)));
     riskSourceRequire(routing && routing.account.network === 'testnet' && routing.account.address && routing.mandate.accountId === request.accountId &&
-      routing.mandate.userId === request.userId && routing.mandate.network === 'testnet' && routing.mandate.sourceNetwork === 'testnet', 'testnet_runtime_identity');
+      routing.mandate.userId === request.userId && routing.mandate.network === 'testnet' && ['testnet', 'mainnet'].includes(routing.mandate.sourceNetwork), 'testnet_runtime_identity');
     const accountAddress = address(routing.account.address), leaderAddress = address(routing.mandate.leaderAddress);
     const cloid = liveSourceExecutionCloid(request.mandateId, request.sourceFillId, request.leg), key = `testnet:${accountAddress}:${cloid}`;
     const scope = new PostgresLiveRiskScope(this.pool, this.now);
     return scope.run({ userId: request.userId, network: 'testnet', accountAddress,
-      source: { network: 'testnet', leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
+      source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before
       // creating native clients. No unscoped fallback can open a second pool.
       this.global.currentQuota();
@@ -126,7 +134,7 @@ export class TestnetLiveExecutionRuntime {
           this.signingConfiguration(authority.consent.workerQuorumId);
           return { authorization_context: { authorization_private_keys: [app.copy.agent!.authorizationPrivateKey] } };
         }, gate, this.now);
-        const transport = new HyperliquidLiveTransport('testnet', signer, gate, fetch, 5000, this.now,
+        const transport = new HyperliquidLiveTransport('testnet', signer, gate, this.timedFetch(), 5000, this.now,
           { marketResolver: resolver, acquire, globalTransport: this.global });
         const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now);
         if (existing && existing.record.state !== 'prepared') {
@@ -135,7 +143,7 @@ export class TestnetLiveExecutionRuntime {
         }
         const authority = await session.read(db => loadLivePreparationAuthority(session, db, request, this.now()));
         this.signingConfiguration(authority.consent.workerQuorumId);
-        const preparation = new PostgresLivePreparation(observer, resolver, provider, this.options, this.now, epoch);
+        const preparation = new PostgresLivePreparation(observer, resolver, provider, this.options, this.now, epoch, this.hooks.reference);
         const prepared = await preparation.prepare(session, request);
         riskSourceRequire(prepared.record.key === key, 'testnet_runtime_identity');
         const input = await binding.forHold();
@@ -157,6 +165,17 @@ export class TestnetLiveExecutionRuntime {
         provider.close(); await sockets.close();
       }
     }));
+  }
+  /** The global fetch, reporting the exchange POST's start and answer times. */
+  private timedFetch(): typeof fetch {
+    const report = this.hooks.onExchange;
+    if (!report) return fetch;
+    const emit = (phase: 'request' | 'response') => { try { report({ phase, at: this.now() }); } catch { /* observation only */ } };
+    return async (input, init) => {
+      const exchange = String(input instanceof Request ? input.url : input).endsWith('/exchange');
+      if (exchange) emit('request');
+      try { return await fetch(input, init); } finally { if (exchange) emit('response'); }
+    };
   }
   private signingConfiguration(workerQuorumId: string): void {
     const { auth, copy } = this.config.value;
@@ -239,7 +258,7 @@ export class TestnetLiveExecutionRuntime {
         basis.mandateId === m.id && basis.mandateRevision === p.mandateRevision && basis.settingsDigest === p.settingsDigest &&
         basis.sourceFillId === fill.id && basis.sourceDigest === fill.sourceDigest && basis.network === a.network && basis.accountAddress === a.address &&
         basis.coin === fill.coin && basis.leg === request.leg && p.settingsDigest === consent.settingsDigest && p.plannerVersion === 1 &&
-        fill.id === request.sourceFillId && fill.network === 'testnet' && fill.leaderAddress === consent.leaderAddress && p.sourceDigest === fill.sourceDigest && canonical &&
+        fill.id === request.sourceFillId && fill.network === consent.sourceNetwork && fill.leaderAddress === consent.leaderAddress && p.sourceDigest === fill.sourceDigest && canonical &&
         l.id === liveSourceLegId(m.id, fill.id, request.leg) && l.mandateId === m.id && l.executionKey === key && l.leg === request.leg &&
         l.sign === canonical.sign && l.size === canonical.size && l.fraction === canonical.fraction && l.tradeKey === canonical.tradeKey &&
         intent.userId === a.userId && intent.strategyId === a.strategyId && intent.network === a.network && intent.accountAddress === a.address &&

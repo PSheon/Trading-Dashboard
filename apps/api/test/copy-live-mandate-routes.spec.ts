@@ -78,7 +78,7 @@ describe('authenticated local live mandate HTTP routes', () => {
     for (const action of ['pause', 'revoke']) expect(liveCopyMandateSchema.parse((await post(`${root}/mandates/${approved.id}/${action}`, {}).expect(200).expect('Cache-Control', 'no-store')).body.data).state).toBe(action === 'pause' ? 'paused' : 'revoked');
   });
   it('rejects malformed nested bodies, unsupported mainnet, forged extra fields and foreign signature', async () => {
-    for (const body of [{ ...draft, budgetUsd: 100 }, { ...draft, settings: { ...settings, perTradeUsd: null } }, { ...draft, settings: { ...settings, signer: agentAddress } }, { ...draft, sourceNetwork: 'mainnet' }, { ...draft, userId: uid }]) await post(`${root}/strategies`, body).expect(400);
+    for (const body of [{ ...draft, budgetUsd: 100 }, { ...draft, settings: { ...settings, perTradeUsd: null } }, { ...draft, settings: { ...settings, signer: agentAddress } }, { ...draft, sourceNetwork: 'devnet' }, { ...draft, userId: uid }]) await post(`${root}/strategies`, body).expect(400);
     await post(preparation, { idempotencyKey: 'short' }).expect(400);
     await post(preparation, { idempotencyKey: 'route-generation-key-0001', execute: true }).expect(400);
     const challenge = await prepare();

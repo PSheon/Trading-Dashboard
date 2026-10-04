@@ -376,3 +376,55 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
   });
 });
+
+describe('a testnet copy of a MAINNET leader', () => {
+  const mainnetOptions = { ...options, maxSourceDeviationBps: '500' };
+  /** The actual-clock fixture, re-pointed at a mainnet leader: the consent,
+   * config, stream and fill say `mainnet`; execution stays on testnet. */
+  async function mainnetFixture(perTradeUsd = 20) {
+    await actualClockFixture(perTradeUsd);
+    const consent = { ...seed.consent, sourceNetwork: 'mainnet' as const };
+    await db.update(schema.copyLiveStrategyConfigs).set({ sourceNetwork: 'mainnet' });
+    await db.update(schema.copyLiveMandates).set({ sourceNetwork: 'mainnet', intent: consent, intentDigest: mandateDigest(consent) });
+    await db.delete(schema.copyLiveSourceFills); await db.delete(schema.copyLiveSourceStreams);
+    const fill = parseLiveSourceFill({ ...seed.fill.raw, time: clock - 1000 }, { network: 'mainnet', leaderAddress: consent.leaderAddress,
+      from: clock - 2000, to: clock, receivedAt: clock, kind: 'fills' });
+    await db.insert(schema.copyLiveSourceStreams).values({ id: fill.streamId, network: 'mainnet', leaderAddress: fill.leaderAddress, state: 'ready',
+      coverageFrom: new Date(clock - 3000), coverageThrough: new Date(clock), coverageDigest: 'c'.repeat(64) });
+    await db.insert(schema.copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
+    seed = { ...seed, consent, fill };
+  }
+  const reference = (midPrice: string) => ({ read: vi.fn(async () => ({ midPrice, midObservedAt: clock, leaderEquity: null, leaderEquityObservedAt: null })) });
+  const mainnetRuntime = (hooks: ConstructorParameters<typeof TestnetLiveExecutionRuntime>[6]) =>
+    new TestnetLiveExecutionRuntime(pool, config, global, budget, mainnetOptions, () => clock, hooks);
+  it('prices the order on testnet, records the mainnet reference and reports exchange timing', async () => {
+    await mainnetFixture(); const events: string[] = [], source = reference('101');
+    const result = await mainnetRuntime({ reference: source, onExchange: event => events.push(event.phase) }).execute(request());
+    expect(result).toMatchObject({ state: 'filled', action: { orders: [{ p: '100.3', s: '0.19' }] } });
+    expect(source.read).toHaveBeenCalledWith(seed.consent.leaderAddress, 'BTC', false);
+    expect(events).toEqual(['request', 'response']);
+    const [provenance] = await db.select().from(schema.copyLiveIntentProvenance);
+    expect((provenance!.sizingBasis as { basis: { sourceReference: unknown } }).basis.sourceReference).toEqual({ network: 'mainnet',
+      leaderAddress: seed.consent.leaderAddress, leaderEquity: null, leaderEquityObservedAt: null, midPrice: '101', midObservedAt: clock, maxDeviationBps: '500' });
+    // No mainnet endpoint is ever called by the execution path itself.
+    expect(raw.mock.calls.some(([url]) => String(url).startsWith('https://api.hyperliquid.xyz'))).toBe(false);
+  });
+  it('refuses when the testnet mid sits beyond the deviation threshold, before any journal, nonce or signature', async () => {
+    await mainnetFixture(); const sign = vi.spyOn(BoundaryPrivyOrderSigningClient.prototype, 'signTypedData');
+    await expect(mainnetRuntime({ reference: reference('110') }).execute(request())).rejects.toThrow('live_source_price_deviation');
+    expect(sign).not.toHaveBeenCalled(); expect(raw.mock.calls.some(([url]) => String(url).endsWith('/exchange'))).toBe(false);
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
+  });
+  it('refuses a mainnet source without a configured reference reader', async () => {
+    await mainnetFixture();
+    await expect(mainnetRuntime({}).execute(request())).rejects.toThrow('live_source_reference_unconfigured');
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+  it('never takes a testnet fill as a mainnet leader signal', async () => {
+    await mainnetFixture();
+    await db.update(schema.copyLiveStrategyConfigs).set({ sourceNetwork: 'testnet' });
+    await expect(mainnetRuntime({ reference: reference('100') }).execute(request())).rejects.toThrow();
+    expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0);
+  });
+});
+

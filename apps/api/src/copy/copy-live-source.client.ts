@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { parseLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceFillEvidence } from './live/copy-live-source-evidence.js';
+import { parseLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { boundedLiveRead } from './live/live-market-resolver.js';
 export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
 export interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
 export interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean; }
 export interface LiveSourceReadResult {
-  network: 'testnet'; leaderAddress: string; from: number; to: number; observedAt: number; completedAt: number; fresh: boolean;
+  network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; observedAt: number; completedAt: number; fresh: boolean;
   complete: boolean; historicalCompleteness: 'unproven'; requestsUsed: number; fills: LiveSourceFillEvidence[];
   observations: LiveSourceWindowObservation[]; unresolved: (LiveSourceWindow & { reason: 'same_ms_cap' | 'depth_limit' | 'request_budget' | 'fill_budget' | 'read_unavailable' | 'evidence_expired' | 'twap_identity_unproven' })[];
   sourceDigest: string;
@@ -40,12 +40,13 @@ async function json(response: Response, remaining: () => number, signal: AbortSi
     await boundedLiveRead(reader.cancel(), 100).catch(() => undefined); reader.releaseLock();
   }
 }
-/** Fixed public testnet source reads. Operational window completeness never
- * certifies the API's retained history beyond the most recent 10000 fills. */
+const ENDPOINTS: Record<LiveSourceNetwork, string> = { testnet: 'https://api.hyperliquid-testnet.xyz/info', mainnet: 'https://api.hyperliquid.xyz/info' };
+/** Fixed public source reads on one network (a testnet copy may follow a
+ * mainnet leader). Operational window completeness never certifies the API's
+ * retained history beyond the most recent 10000 fills. */
 export class HyperliquidLiveSourceClient {
-  readonly network = 'testnet' as const;
-  constructor(network: 'testnet', private readonly acquire: (weight: number) => Promise<unknown>, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
-    if (network !== 'testnet' || typeof acquire !== 'function') fail('live_source_configuration_invalid');
+  constructor(readonly network: LiveSourceNetwork, private readonly acquire: (weight: number) => Promise<unknown>, private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
+    if (!['testnet', 'mainnet'].includes(network) || typeof acquire !== 'function') fail('live_source_configuration_invalid');
   }
   async read(input: LiveSourceReadRequest): Promise<LiveSourceReadResult> {
     const started = this.now(), controller = new AbortController();
@@ -74,7 +75,7 @@ export class HyperliquidLiveSourceClient {
           await boundedLiveRead(this.acquire(120), remaining()); remaining();
           const body = { type: window.kind === 'fills' ? 'userFillsByTime' : 'userTwapSliceFillsByTime', user: request.leaderAddress,
             startTime: window.from, endTime: window.to, ...(window.kind === 'fills' ? { aggregateByTime: false } : {}) };
-          const response = await boundedLiveRead(this.fetcher('https://api.hyperliquid-testnet.xyz/info', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          const response = await boundedLiveRead(this.fetcher(ENDPOINTS[this.network], { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body), redirect: 'error', signal: controller.signal }), remaining());
           if (!response.ok) { void response.body?.cancel().catch(() => undefined); fail('live_source_read_unavailable'); }
           rows = await json(response, remaining, controller.signal); remaining();
@@ -82,7 +83,7 @@ export class HyperliquidLiveSourceClient {
         if (!Array.isArray(rows) || rows.length > ROW_CAP) fail('live_source_response_invalid');
         const additions = new Map<string, LiveSourceFillEvidence>();
         for (const raw of rows) {
-          const parsed = parseLiveSourceFill(raw, { network: 'testnet', leaderAddress: request.leaderAddress, from: window.from, to: window.to, receivedAt: this.now(), kind: window.kind });
+          const parsed = parseLiveSourceFill(raw, { network: this.network, leaderAddress: request.leaderAddress, from: window.from, to: window.to, receivedAt: this.now(), kind: window.kind });
           const old = fills.get(parsed.id) ?? additions.get(parsed.id);
           if (old) additions.set(parsed.id, reconcileLiveSourceFills(old,parsed,'acquisition'));
           else additions.set(parsed.id, parsed);
@@ -102,7 +103,7 @@ export class HyperliquidLiveSourceClient {
       for(const [id,fill]of fills)if(fill.normalized.kind==='fills'&&fill.normalized.twapId===null&&fill.raw.hash===`0x${'00'.repeat(32)}`){
         fills.delete(id);unresolved.push({kind:'fills',from:fill.providerTime,to:fill.providerTime,depth:0,reason:'twap_identity_unproven'});
       }
-      const completedAt = this.now(), result = { network: 'testnet' as const, leaderAddress: request.leaderAddress, from: request.from, to: request.to,
+      const completedAt = this.now(), result = { network: this.network, leaderAddress: request.leaderAddress, from: request.from, to: request.to,
         observedAt: started, completedAt, fresh: fresh(), complete: unresolved.length === 0 && fresh(), historicalCompleteness: 'unproven' as const, requestsUsed,
         fills: [...fills.values()].sort((a, b) => a.providerTime - b.providerTime || (BigInt(a.tid) < BigInt(b.tid) ? -1 : BigInt(a.tid) > BigInt(b.tid) ? 1 : 0)), observations, unresolved };
       return { ...result, sourceDigest: liveSourceDigest(result) };

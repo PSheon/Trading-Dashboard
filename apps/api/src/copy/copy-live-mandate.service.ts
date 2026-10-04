@@ -40,7 +40,7 @@ export class CopyLiveMandateService {
   }
   async overview(userId: number) {
     const data = await this.repository.overview(userId);
-    return liveCopyOverviewSchema.parse({ mode: 'actual', network: 'testnet', capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled', automaticExecution: false, sourceNetworks: ['testnet'] }, ...data });
+    return liveCopyOverviewSchema.parse({ mode: 'actual', network: 'testnet', capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled', automaticExecution: false, sourceNetworks: ['mainnet', 'testnet'] }, ...data });
   }
   async strategyByKey(userId: number, value: unknown) {
     const key = input(copyIdempotencyKeySchema, value);
@@ -55,7 +55,6 @@ export class CopyLiveMandateService {
   }
   async create(userId: number, value: unknown) {
     const body = input(createLiveCopyStrategySchema, value);
-    if (body.sourceNetwork !== 'testnet') throw new BadRequestException('Mainnet source is unsupported');
     this.available();
     return this.uow.run(tx => this.repository.create(tx, userId, body, this.now));
   }

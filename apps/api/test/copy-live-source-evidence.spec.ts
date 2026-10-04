@@ -29,7 +29,7 @@ describe('immutable fixed-network source evidence', () => {
     expect(parseLiveSourceFill({ ...raw(), coin: 'i<3fl:BTC' }, context).coin).toBe('i<3fl:BTC');
   });
   it('rejects mainnet/future/invalid-window context and contradictory TWAP evidence', () => {
-    for (const change of [{ network: 'mainnet' }, { from: 2001 }, { to: 2101 }, { receivedAt: 1499 }]) expect(() => parseLiveSourceFill(raw(), { ...context, ...change } as typeof context)).toThrow();
+    for (const change of [{ network: 'devnet' }, { from: 2001 }, { to: 2101 }, { receivedAt: 1499 }]) expect(() => parseLiveSourceFill(raw(), { ...context, ...change } as typeof context)).toThrow();
     expect(() => parseLiveSourceFill({ twapId: 12, fill: { ...raw(), twapId: 13 } }, { ...context, kind: 'twap' })).toThrow();
   });
   it.each(['sourceDigest', 'network', 'leaderAddress', 'tid', 'oid', 'coin', 'px', 'sz', 'side', 'startPosition', 'tradeKey', 'providerTime', 'normalized', 'raw'] as const)('rejects stored %s drift before execution planning', key => {

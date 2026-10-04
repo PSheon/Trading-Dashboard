@@ -85,7 +85,7 @@ class DiscoveryPatchDto {
   @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", pattern: BOARD_COIN.source } })
   @Optional() @IsArray() @ArrayMaxSize(16) @Matches(BOARD_COIN, { each: true }) declare stockBoards?: string[];
   @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 500 })
-  @Optional() @IsInt() @Min(0) @Max(500) declare cohortMembersPerTier?: number;
+  @Optional() @IsInt() @Min(0) @Max(2000) declare cohortMembersPerTier?: number;
   @ApiPropertyOptional({ type: "integer", minimum: 5, maximum: 240 })
   @Optional() @IsInt() @Min(5) @Max(240) declare cohortRefreshMinutes?: number;
   @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 600 })

@@ -5482,20 +5482,20 @@
                             "cohortMembersPerTier": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 500,
-                              "default": 150
+                              "maximum": 2000,
+                              "default": 500
                             },
                             "cohortRefreshMinutes": {
                               "type": "integer",
                               "minimum": 5,
                               "maximum": 240,
-                              "default": 15
+                              "default": 40
                             },
                             "cohortWeightPerMinute": {
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
-                              "default": 60
+                              "default": 150
                             }
                           },
                           "additionalProperties": false
@@ -5977,20 +5977,20 @@
                             "cohortMembersPerTier": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 500,
-                              "default": 150
+                              "maximum": 2000,
+                              "default": 500
                             },
                             "cohortRefreshMinutes": {
                               "type": "integer",
                               "minimum": 5,
                               "maximum": 240,
-                              "default": 15
+                              "default": 40
                             },
                             "cohortWeightPerMinute": {
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 600,
-                              "default": 60
+                              "default": 150
                             }
                           },
                           "additionalProperties": false

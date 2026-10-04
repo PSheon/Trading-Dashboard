@@ -128,9 +128,10 @@ export class DiscoveryService {
 
   /**
    * Every home row in one read, as CopyDog's home builds them: 精選 (KOLs by
-   * copy score), top crypto (copy score), top stocks (stock PnL), one row per
-   * market slot, selected by exchange 24h volume with `discovery.homeMarkets`
-   * as fallback (that coin's PnL); only traders whose
+   * copy score), top crypto (copy score), top stocks (stock PnL), and one row
+   * per `discovery.homeMarkets` coin, in that fixed order (that coin's PnL;
+   * CopyDog's BTC ETH SOL HYPE SPX Gold NVDA TSLA, which no volume ranking
+   * replaces; trending markets are tiles only); only traders whose
    * sparkline moves. The calculator takes six from 精選 then named top-ROI
    * traders: ROI > 5%, sparkline ending ≥ 0, preferring PnL ≥ $100K,
    * highest ROI first.
@@ -147,16 +148,7 @@ export class DiscoveryService {
     const profitable = (items: BoardTrader[]) => items.filter((t) => (t.pnl ?? 0) > 0);
     const stocks = profitable(row({ market: "stocks", sort: "pnl" }));
     const trending = await this.markets.trending();
-    // Preserve the configured category slots, ranking actual exchange volume
-    // within each category. Only choose markets with a populated home row.
-    const used = new Set<string>();
-    const homeMarkets = discovery.homeMarkets.map(fallback => {
-      const coin = trending.find(coin => !used.has(coin) && isStockCoin(coin) === isStockCoin(fallback)
-        && profitable(row({ market: isStockCoin(coin) ? "stocks" : "crypto", board: coin, sort: "pnl" })).length > 0) ?? fallback;
-      used.add(coin);
-      return coin;
-    });
-    const markets = [...new Set(homeMarkets)].map((coin) => {
+    const markets = [...new Set(discovery.homeMarkets)].map((coin) => {
       const market = isStockCoin(coin) ? ("stocks" as const) : ("crypto" as const);
       return { coin, market, items: profitable(row({ market, board: coin, sort: "pnl" })) };
     });

@@ -347,16 +347,16 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(wireHomeBoardsSchema.parse(JSON.parse(JSON.stringify(home))).trending).toEqual(home.trending);
     });
 
-    it("uses volume-ranked populated markets in the configured category slots", async () => {
+    it("lists CopyDog's fixed market rows in their order: the 24h-volume leaders never replace them", async () => {
       await seedPool();
       await db.update(discoveryTraders).set({ coinStats: { ETH: { pnl: 200, volume: 1000, trades: 2, wins: 2 } } }).where(eq(discoveryTraders.address, addr(1)));
       catalog.trending.mockResolvedValueOnce(["NO-DATA", "ETH", "xyz:TSLA", "BTC"]);
       const home = await app.get(DiscoveryService).home();
-      const coins = home.markets.map(row => row.coin);
-      expect(coins[0]).toBe("ETH");
-      expect(coins).toContain("xyz:TSLA");
-      expect(coins).not.toContain("NO-DATA");
-      expect(new Set(coins).size).toBe(coins.length);
+      // CopyDog's rows, not the busiest markets.
+      expect(home.markets.map(row => row.coin)).toEqual(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]);
+      expect(home.markets.map(row => row.market)).toEqual(["crypto", "crypto", "crypto", "crypto", "stocks", "stocks", "stocks", "stocks"]);
+      // The busiest markets beyond the fixed tiles are tiles only.
+      expect(home.trending.coins).toEqual(["NO-DATA"]);
     });
 
     async function seedPool() {

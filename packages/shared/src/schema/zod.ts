@@ -1535,7 +1535,7 @@ export const boardCoinSchema = z.string().regex(/^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9
 export const discoverySettingsSchema = z.object({
   /** Trader cards on the home page, in order; empty → top by month PnL. */
   featuredAddresses: z.array(addressSchema).max(12).default([]),
-  /** "Browse by market" chips on the home page. */
+  /** The home page's market rows, in this fixed order (CopyDog's). */
   homeMarkets: z.array(z.string().min(1).max(24)).max(16)
     .default(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]),
   hideVaults: z.boolean().default(true),
@@ -1568,12 +1568,17 @@ export const discoverySettingsSchema = z.object({
   cryptoBoards: z.array(boardCoinSchema).max(16).default(["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"]),
   stockBoards: z.array(boardCoinSchema).max(16)
     .default(["xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:NVDA", "xyz:TSLA", "xyz:BRENTOIL", "xyz:SILVER"]),
-  /** 洞察 cohorts: members per PnL tier whose positions are tracked … */
-  cohortMembersPerTier: z.number().int().min(0).max(500).default(150),
-  /** … refreshed this often (each member, and one history row per tier) … */
-  cohortRefreshMinutes: z.number().int().min(5).max(240).default(15),
-  /** … within this much Hyperliquid weight per minute (yields to pages). */
-  cohortWeightPerMinute: z.number().int().min(0).max(600).default(60),
+  /** 洞察 cohorts: every eligible pool trader of a PnL tier is a member, as
+   * on CopyDog (its 極度盈利 lists 352 members, no cap: its pool's tier);
+   * this is only a safety cap per tier, above any tier's size at the
+   * default pool of 1,000 … */
+  cohortMembersPerTier: z.number().int().min(0).max(2000).default(500),
+  /** … each member's positions, and one history row per tier, refreshed
+   * this often (CopyDog's history rows are ~36 min apart) … */
+  cohortRefreshMinutes: z.number().int().min(5).max(240).default(40),
+  /** … within this much Hyperliquid weight per minute (yields to pages):
+   * ~1,140 members cost ~90 a minute at 40 min. */
+  cohortWeightPerMinute: z.number().int().min(0).max(600).default(150),
 });
 export type DiscoverySettings = z.infer<typeof discoverySettingsSchema>;
 

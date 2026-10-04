@@ -48,9 +48,11 @@ export interface CohortRefreshLog {
 
 /**
  * 洞察 cohorts (Stage 3 §3, CopyDog's /hyperliquid/cohorts): the discovery
- * pool's traders grouped by all-time perp PnL tier (topped up from the
- * leaderboard where the pool is short), up to `discovery.cohortMembersPerTier`
- * each by account value. A cron tick (every minute) spends at most
+ * pool's traders grouped by all-time perp PnL tier: every eligible one is a
+ * member, as on CopyDog (whose 極度盈利 members are its pool's tier, 352 on
+ * 2026-10-04, no round cap), largest perp equity first, with
+ * `discovery.cohortMembersPerTier` only as a safety cap; a tier the pool
+ * leaves short is topped up from the leaderboard up to that cap. A cron tick (every minute) spends at most
  * `discovery.cohortWeightPerMinute` Hyperliquid weight reading members'
  * positions — `clearinghouseState` on the main dex plus the dexes they hold
  * or traded (2 weight each); every dex on the first read and once a day

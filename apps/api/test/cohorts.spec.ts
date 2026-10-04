@@ -168,6 +168,17 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect((await db.select().from(cohortMembers).where(eq(cohortMembers.address, addr(1))))[0].fetchedAt).not.toBeNull();
   });
 
+  it("makes every eligible pool trader of a tier a member, as CopyDog (352 in its 極度盈利, no cap of 150)", async () => {
+    const defaults = discoverySettingsSchema.parse({});
+    expect(defaults.cohortMembersPerTier).toBeGreaterThanOrEqual(500);
+    const many = Array.from({ length: 160 }, (_, i) => `0x${(0x1000 + i).toString(16).padStart(40, "0")}`);
+    const now = new Date();
+    await db.insert(traderStats).values(many.map((a, i) => stat(a, 2e6 + i, 1e6)));
+    await db.insert(discoveryTraders).values(many.map((a, i) => ({ address: a, poolRank: i + 1, pnlAll: String(2e6 + i), roiAll: "1", portfolioAt: now })));
+    await service.build(defaults.cohortMembersPerTier);
+    expect(await repository.membersOf("extremely_profitable")).toHaveLength(160);
+  });
+
   it("leaves out whales above the perp-equity ceiling and vaults, largest perp equity first", async () => {
     const now = new Date();
     const analytics = (address: string, perp: number) => ({ address, source: "hyperliquid" as const, summary: {}, classification: { perpAccountValue: perp },

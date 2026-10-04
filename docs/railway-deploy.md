@@ -109,12 +109,12 @@ The per-job weight caps live in `app_settings` (`discovery`) and are edited in `
 
 | Process budget | performance | ledgers | history | backfill | cohort | Sum | Left for snapshots, sweeps, live, pages |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| ≥ 854 | 240 | 100 | 120 | 120 | 60 | 640 | budget − 640 |
-| 840 (default) | 236 | 98 | 118 | 118 | 59 | 630 | 210 |
-| 600 (worker) | 169 | 70 | 84 | 84 | 42 | 450 | 150 |
-| 480 | 135 | 56 | 68 | 68 | 34 | 360 | 120 |
-| 360 | 101 | 42 | 51 | 51 | 25 | 270 | 90 |
-| 72 (the 429 floor of 360) | 20 | 8 | 10 | 10 | 5 | 54 | 18 |
+| ≥ 973 | 240 | 100 | 120 | 120 | 150 | 730 | budget − 730 |
+| 840 (default) | 207 | 86 | 104 | 104 | 129 | 630 | 210 |
+| 600 (worker) | 148 | 62 | 74 | 74 | 92 | 450 | 150 |
+| 480 | 118 | 49 | 59 | 59 | 74 | 360 | 120 |
+| 360 | 89 | 37 | 44 | 44 | 55 | 270 | 90 |
+| 72 (the 429 floor of 360) | 18 | 7 | 9 | 9 | 11 | 54 | 18 |
 
 Snapshots and sweeps of watched leaders and the cohort's reads go before every other job (`ESSENTIAL_RANK`: after pages, before the pool, history, backfill and unranked work), so they take what they need first: with 20 watched leaders about 16 + 53 a minute, plus the cohort's cap. A worker at 360 therefore runs everything (`budget-consumers.spec.ts`: an hour with every job saturated, every snapshot run inside 30 s, every sweep inside 3 min, no cap exceeded). Held at its 429 floor of 72 the same leaders need 69 of the 72: snapshots and sweeps still complete (sweeps in 14–15 of their 15 minutes, the first after the 429 up to two minutes over) and the pool waits; a real backoff climbs back 10 % of the budget per 20 answered calls, within minutes. The floor of a 600 worker is 120. More watched leaders need proportionally more: about 3.5 a minute each.
 
@@ -122,7 +122,9 @@ Snapshots and sweeps of watched leaders and the cohort's reads go before every o
 | --- | --- | --- | --- |
 | `discovery.poolPerformanceWeightPerMinute` | 240 | 240 | the pool's `portfolio` reads (12 rows a minute): board / home / card figures |
 | `discovery.poolWeightPerMinute` | 100 | 100 | the pool's trade-ledger builds and refreshes (coin boards, style, last trade) |
-| `discovery.cohortWeightPerMinute` | 60 | 60 | 洞察 member positions |
+| `discovery.cohortWeightPerMinute` | 150 (60 before 2026-10-04) | 60 (stored) | 洞察 member positions: every eligible pool trader of a tier (~1,130 on dev), each every `cohortRefreshMinutes` (40) |
+| `discovery.cohortMembersPerTier` | 500 (150 before 2026-10-04; a safety cap, CopyDog has none) | default | members per tier |
+| `discovery.cohortRefreshMinutes` | 40 (15 before 2026-10-04) | default | member refresh and history row spacing (CopyDog ~36 min) |
 | `discovery.historyWeightPerMinute` | 120 | 120 | durable fill-history pages (cap enforced by the budgeter) |
 | `discovery.backfillWeightPerMinute` | 120 | 120 | backward fill backfill windows (cap enforced by the budgeter) |
 | `discovery.candidatePoolSize` | 1,000 | — | — |

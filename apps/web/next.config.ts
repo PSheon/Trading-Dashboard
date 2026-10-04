@@ -95,7 +95,19 @@ export function assertNoFixturesInProduction(phase: string, env: NodeJS.ProcessE
   }
 }
 
+/** A production build without a Privy app id would ship a site where
+ * nobody can sign in (the login button disabled, every signed-in page
+ * empty), and nothing would say so. The build stops instead; a build that
+ * is anonymous on purpose (CI's compile check) says so with
+ * NEXT_ALLOW_ANONYMOUS_BUILD=1. Fixture builds never reach production. */
+export function assertPrivyInProductionBuild(phase: string, env: NodeJS.ProcessEnv = process.env): void {
+  if (phase !== PHASE_PRODUCTION_BUILD || env.NEXT_PUBLIC_API_FIXTURES === "1") return;
+  if (env.NEXT_PUBLIC_PRIVY_APP_ID?.trim() || env.NEXT_ALLOW_ANONYMOUS_BUILD === "1") return;
+  throw new Error("NEXT_PUBLIC_PRIVY_APP_ID is empty: a production build without it ships a site nobody can sign in to. Set it, or set NEXT_ALLOW_ANONYMOUS_BUILD=1 for a build that is anonymous on purpose.");
+}
+
 export default function config(phase: string): NextConfig {
   assertNoFixturesInProduction(phase);
+  assertPrivyInProductionBuild(phase);
   return nextConfig;
 }

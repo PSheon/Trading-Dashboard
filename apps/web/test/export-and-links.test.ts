@@ -1,7 +1,7 @@
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER } from "next/constants";
 import { describe, expect, it } from "vitest";
 
-import { assertNoFixturesInProduction } from "../next.config";
+import { assertNoFixturesInProduction, assertPrivyInProductionBuild } from "../next.config";
 import { isTelegramLinkUrl } from "../src/lib/alerts";
 import { parseCsv, toCsv } from "../src/lib/csv";
 
@@ -53,5 +53,16 @@ describe("fixture mode", () => {
     expect(() => assertNoFixturesInProduction(PHASE_DEVELOPMENT_SERVER, { ...fixtures, NODE_ENV: "production" })).toThrow();
     expect(() => assertNoFixturesInProduction(PHASE_DEVELOPMENT_SERVER, fixtures)).not.toThrow();
     expect(() => assertNoFixturesInProduction(PHASE_PRODUCTION_BUILD, { NODE_ENV: "production" } as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
+  it("refuses a production build without a Privy app id unless it says it is anonymous on purpose", () => {
+    const env = (vars: Record<string, string>) => ({ NODE_ENV: "production", ...vars }) as NodeJS.ProcessEnv;
+    expect(() => assertPrivyInProductionBuild(PHASE_PRODUCTION_BUILD, env({}))).toThrow(/NEXT_PUBLIC_PRIVY_APP_ID/);
+    expect(() => assertPrivyInProductionBuild(PHASE_PRODUCTION_BUILD, env({ NEXT_PUBLIC_PRIVY_APP_ID: "  " }))).toThrow(/NEXT_PUBLIC_PRIVY_APP_ID/);
+    expect(() => assertPrivyInProductionBuild(PHASE_PRODUCTION_BUILD, env({ NEXT_PUBLIC_PRIVY_APP_ID: "cm-app" }))).not.toThrow();
+    expect(() => assertPrivyInProductionBuild(PHASE_PRODUCTION_BUILD, env({ NEXT_ALLOW_ANONYMOUS_BUILD: "1" }))).not.toThrow();
+    // Development and the server phase are not builds.
+    expect(() => assertPrivyInProductionBuild(PHASE_DEVELOPMENT_SERVER, env({}))).not.toThrow();
+    expect(() => assertPrivyInProductionBuild(PHASE_PRODUCTION_SERVER, env({}))).not.toThrow();
   });
 });

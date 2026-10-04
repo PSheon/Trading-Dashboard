@@ -87,6 +87,10 @@ jobs:
         run: pnpm --filter @trading-dashboard/web test:e2e
       - name: Production builds
         run: pnpm build
+        env:
+          # A compile check with no Privy app (next.config.ts refuses that
+          # by default).
+          NEXT_ALLOW_ANONYMOUS_BUILD: "1"
       - name: API runtime image
         run: docker build -f apps/api/Dockerfile -t orbie-api:ci .
       - name: Frozen runtime dependencies, container migration and readiness

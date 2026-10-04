@@ -12,7 +12,8 @@
       ],
       "env": [
         "NEXT_PUBLIC_*",
-        "NEXT_API_URL"
+        "NEXT_API_URL",
+        "NEXT_ALLOW_ANONYMOUS_BUILD"
       ]
     },
     "dev": {

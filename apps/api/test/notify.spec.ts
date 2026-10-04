@@ -15,7 +15,7 @@ import { readAlertDisplayValues } from "@trading-dashboard/shared/contracts";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DISPLAY_NAME_MAX, renderAlertMessage, safeDisplayName, tradeSideOf } from "../src/notify/message-template.js";
-import { NotifyService, type AlertContext } from "../src/notify/notify.service.js";
+import { NotifyService, OUTCOME_UNKNOWN, sendOutcomeUnknown, type AlertContext } from "../src/notify/notify.service.js";
 import { TelegramApiError, type TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 
@@ -280,6 +280,55 @@ describe("NotifyService — real Postgres, mocked Telegram client", () => {
     const [row] = await db.select().from(alerts);
     expect(row.sendStatus).toBe("failed");
   }, 15_000);
+
+  it("a send whose answer timed out is not sent again — not in the same drain, not after the lease expires", async () => {
+    const telegram = fakeTelegram(async () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); });
+    const service = new NotifyService(testConfig(), new NotifyRepository(db), new UnitOfWork(db), telegram);
+    await service.notifyAlert(ctx());
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+    const [row] = await db.select().from(notificationOutbox);
+    expect(row).toMatchObject({ status: "failed", lastError: OUTCOME_UNKNOWN });
+    expect(row.sendStartedAt).not.toBeNull();
+    const [alert] = await db.select().from(alerts);
+    expect(alert.sendStatus).toBe("failed");
+  });
+
+  it("a sender that died after starting a send leaves the row marked, and the next claim does not resend", async () => {
+    // Queue a real delivery that waits for a retry (Telegram asked for 2 minutes).
+    const first = fakeTelegram(async () => { throw new TelegramApiError("sendMessage", 429, "rate limited", 120); });
+    const repository = new NotifyRepository(db);
+    await new NotifyService(testConfig(), repository, new UnitOfWork(db), first).notifyAlert(ctx());
+    const [queued] = await db.select().from(notificationOutbox);
+    expect(queued).toMatchObject({ status: "pending", sendStartedAt: null });
+    await db.update(notificationOutbox).set({ availableAt: new Date(Date.now() - 1000) });
+    // The crashed holder: claimed, marked the send, never recorded; its lease ran out.
+    expect(await repository.claim(queued.id, "dead-holder", 300_000)).toBeTruthy();
+    expect(await repository.markSending(queued.id, "dead-holder")).toBe(true);
+    await db.update(notificationOutbox).set({ lockedUntil: new Date(Date.now() - 1000) });
+    const telegram = fakeTelegram(async () => {});
+    const live = new NotifyService(testConfig(), repository, new UnitOfWork(db), telegram);
+    await expect.poll(async () => {
+      await live.deliverAction(actionRow.id);
+      return db.select().from(notificationOutbox);
+    }).toMatchObject([{ status: "failed", lastError: OUTCOME_UNKNOWN }]);
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("an error answer from Telegram (429) proves non-delivery: the marker is cleared and the retry sends", async () => {
+    const send = vi.fn().mockRejectedValueOnce(new TelegramApiError("sendMessage", 429, "rate limited", 1)).mockResolvedValue(undefined);
+    await new NotifyService(testConfig(), new NotifyRepository(db), new UnitOfWork(db), fakeTelegram(send)).notifyAlert(ctx());
+    expect(send).toHaveBeenCalledTimes(2);
+    const [row] = await db.select().from(notificationOutbox);
+    expect(row.status).toBe("sent");
+  });
+
+  it("classifies which send failures may still have been delivered", () => {
+    expect(sendOutcomeUnknown(new DOMException("t", "TimeoutError"))).toBe(true);
+    expect(sendOutcomeUnknown(Object.assign(new TypeError("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } }))).toBe(true);
+    expect(sendOutcomeUnknown(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }))).toBe(false);
+    expect(sendOutcomeUnknown(new TelegramApiError("sendMessage", 502, "Bad Gateway"))).toBe(false);
+    expect(sendOutcomeUnknown(new Error("network down"))).toBe(false);
+  });
 
   it("a permanent Telegram error (bot blocked) is not retried", async () => {
     const telegram = fakeTelegram(async () => {

@@ -80,6 +80,22 @@ export class NotifyRepository {
     return row;
   }
 
+  /** Marks a send as started, under the caller's lease; false when the
+   * lease was lost (another sender owns the row now: do not send). */
+  async markSending(id: bigint, leaseToken: string): Promise<boolean> {
+    const rows = await this.db.update(notificationOutbox).set({ sendStartedAt: sql`now()` })
+      .where(and(eq(notificationOutbox.id, id), eq(notificationOutbox.leaseToken, leaseToken), eq(notificationOutbox.status, "processing")))
+      .returning({ id: notificationOutbox.id });
+    return rows.length > 0;
+  }
+
+  /** The send is known not to have reached Telegram (it answered with an
+   * error, or the connection never opened): a later attempt may send. */
+  async clearSending(id: bigint, leaseToken: string): Promise<void> {
+    await this.db.update(notificationOutbox).set({ sendStartedAt: null })
+      .where(and(eq(notificationOutbox.id, id), eq(notificationOutbox.leaseToken, leaseToken)));
+  }
+
   /** Always query current persisted authorization, including before an immediate retry. */
   async enabledRecipient(userId: number) {
     const [row] = await this.db.select({ id: users.id, role: users.role }).from(users)
@@ -124,6 +140,8 @@ export class NotifyRepository {
     const { status, pending, availableAt, reason } = result;
     const updated = await tx.update(notificationOutbox).set({ status: pending ? "pending" : status,
       availableAt, lockedUntil: null, leaseToken: null, lastError: reason ?? null,
+      // A retry is only scheduled after a send known not to have arrived.
+      ...(pending ? { sendStartedAt: null } : {}),
     }).where(and(eq(notificationOutbox.id, row.id), eq(notificationOutbox.leaseToken, leaseToken))).returning({ id: notificationOutbox.id });
     if (!updated.length || row.actionId === null) return;
     await tx.update(alerts).set({ sendStatus: status, sentAt: new Date(),

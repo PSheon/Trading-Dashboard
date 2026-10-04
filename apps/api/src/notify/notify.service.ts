@@ -36,6 +36,29 @@ export const ALERT_MAX_AGE_MS = 10 * 60_000;
  * after the first attempt = 4 attempts in all. */
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 
+/** Why an alert was not sent again: a previous attempt may have reached
+ * Telegram (its answer timed out, or the sender stopped before recording). */
+export const OUTCOME_UNKNOWN = "Telegram outcome unknown; not resent";
+
+/** A send's durable "in flight" record (the outbox row's send_started_at). */
+interface SendGuard {
+  unknown: boolean;
+  start(): Promise<boolean>;
+  clear(): Promise<void>;
+}
+
+/** Whether a failed send may still have been delivered: no answer arrived
+ * (timeout, abort) or the connection broke after the request was written,
+ * or the answer could not be read. An error answer from Telegram, or a
+ * connection that never opened, means it was not. */
+export function sendOutcomeUnknown(error: unknown): boolean {
+  if (error instanceof TelegramApiError) return false;
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === "TimeoutError" || name === "AbortError" || name === "SyntaxError") return true;
+  const code = (error as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof code === "string" && ["UND_ERR_SOCKET", "ECONNRESET", "EPIPE", "UND_ERR_BODY_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_ABORTED"].includes(code);
+}
+
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise((resolve, reject) => {
@@ -149,12 +172,14 @@ export class NotifyService {
     const retry = { delayMs: 0, permanent: false };
     let status: "sent" | "dry_run" | "failed" = "failed";
     let reason: string | undefined;
+    const guard = this.sendGuard(row, leaseToken);
     try {
       const recipient = await this.repository.enabledRecipient(row.userId);
       const payload = notificationDeliveryPayloadSchema.parse(row.payloadJson);
       // A trade alert is about now. One that waited this long (the worker
       // was down, Telegram kept refusing) is dropped, not sent as if fresh.
-      if (Date.now() - row.createdAt.getTime() > ALERT_MAX_AGE_MS) { retry.permanent = true; reason = "expired"; }
+      if (row.sendStartedAt !== null) { retry.permanent = true; reason = OUTCOME_UNKNOWN; }
+      else if (Date.now() - row.createdAt.getTime() > ALERT_MAX_AGE_MS) { retry.permanent = true; reason = "expired"; }
       else if (row.attempts > 5) { retry.permanent = true; reason = "attempt limit"; }
       else if (!recipient) { retry.permanent = true; reason = "recipient disabled"; }
       else if (!(await this.deliveryStillAllowed(row, payload, recipient.role))) {
@@ -169,8 +194,8 @@ export class NotifyService {
           const current = await this.repository.enabledRecipient(row.userId);
           const linked = await this.repository.enabledChannel(row.userId, channel.target);
           return Boolean(current && linked && await this.deliveryStillAllowed(row, payload, current.role));
-        })) status = "sent";
-        else reason = "Telegram send failed";
+        }, guard)) status = "sent";
+        else reason = guard.unknown ? OUTCOME_UNKNOWN : "Telegram send failed";
       }
     } catch (error) {
       reason = "delivery failed";
@@ -186,6 +211,7 @@ export class NotifyService {
     const retry = { delayMs: 0, permanent: false };
     let status: "sent" | "dry_run" | "failed" = "failed";
     let reason: string | undefined;
+    const guard = this.sendGuard(row, leaseToken);
     try {
       const payload = copyDeliveryPayloadSchema.parse(row.payloadJson);
       const allowed = async () => {
@@ -200,11 +226,12 @@ export class NotifyService {
           && recoverSettingsSection("notifications", settings ? settings.value : {}, Boolean(settings)).value.alertsEnabled);
       };
       // Like a trade alert: one that waited past the cut-off is dropped, not sent as if fresh.
-      if (Date.now() - row.createdAt.getTime() > ALERT_MAX_AGE_MS) { retry.permanent = true; reason = "expired"; }
+      if (row.sendStartedAt !== null) { retry.permanent = true; reason = OUTCOME_UNKNOWN; }
+      else if (Date.now() - row.createdAt.getTime() > ALERT_MAX_AGE_MS) { retry.permanent = true; reason = "expired"; }
       else if (row.attempts > 5 || !(await allowed())) { retry.permanent = true; reason = "copy notification authorization withdrawn or expired"; }
       else if (this.config.value.telegram.dryRun) status = "dry_run";
-      else if (await this.sendWithRetry(payload.chatId, payload.text, retry, allowed)) status = "sent";
-      else reason = "Telegram send failed";
+      else if (await this.sendWithRetry(payload.chatId, payload.text, retry, allowed, guard)) status = "sent";
+      else reason = guard.unknown ? OUTCOME_UNKNOWN : "Telegram send failed";
     } catch (error) {
       reason = "copy delivery failed";
       if (error instanceof Error && error.name === "ZodError") retry.permanent = true;
@@ -231,6 +258,16 @@ export class NotifyService {
     const favorite = await this.repository.enabledFavorite(row.userId, action.chain, action.address);
     return Boolean(favorite && (favorite.alertSides === "both" || favorite.alertSides === payload.values.tradeSide)
       && (favorite.alertMinUsd === null || Number(payload.values.notionalUsd) >= Number(favorite.alertMinUsd)));
+  }
+
+  /** The outbox row's record of a send in flight (see `sendStartedAt`). */
+  private sendGuard(row: DeliveryRow, leaseToken: string): SendGuard {
+    const guard: SendGuard = {
+      unknown: false,
+      start: () => this.repository.markSending(row.id, leaseToken),
+      clear: () => this.repository.clearSending(row.id, leaseToken),
+    };
+    return guard;
   }
 
   /** POST /me/telegram/test: one attempt, so the page answers quickly.
@@ -267,17 +304,28 @@ export class NotifyService {
   /** N4: up to 3 retries with 1s/2s/4s backoff, only for errors that can
    * pass (network, 429, 5xx); "blocked by the user" fails at once. Returns
    * whether the message was delivered — never throws. */
-  private async sendWithRetry(chatId: string, text: string, result = { delayMs: 0, permanent: false }, preflight?: () => Promise<boolean>): Promise<boolean> {
+  private async sendWithRetry(chatId: string, text: string, result = { delayMs: 0, permanent: false }, preflight?: () => Promise<boolean>, guard?: SendGuard): Promise<boolean> {
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       if (this.jobs.stopping) return false;
+      let started = false;
       try {
         if (preflight && !(await preflight())) { result.permanent = true; return false; }
+        // Recorded before the request leaves: if this process dies or the
+        // answer never comes, the row says a send may have happened.
+        if (guard && !(await guard.start())) { result.permanent = true; return false; }
+        started = true;
         await this.telegram.sendMessage(chatId, text);
         return true;
       } catch (error) {
         this.logger.error(
           `Telegram send attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1} failed: ${errorText(error)}`,
         );
+        if (guard && started) {
+          // A timeout or a connection cut after the request was sent: Telegram
+          // may have delivered it. Not sent again (at most once).
+          if (sendOutcomeUnknown(error)) { guard.unknown = true; result.permanent = true; return false; }
+          await guard.clear();
+        }
         if (error instanceof TelegramApiError && !error.retryable) { result.permanent = true; return false; }
         const retryAfterMs = error instanceof TelegramApiError && Number.isFinite(error.retryAfterS)
             ? Math.max(0, error.retryAfterS! * 1000) : 0;

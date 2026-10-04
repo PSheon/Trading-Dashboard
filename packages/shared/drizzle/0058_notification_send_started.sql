@@ -1,0 +1,1 @@
+ALTER TABLE "notification_outbox" ADD COLUMN "send_started_at" timestamp with time zone;

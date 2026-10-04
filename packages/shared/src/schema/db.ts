@@ -554,6 +554,10 @@ export const notificationOutbox = pgTable("notification_outbox", {
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   leaseToken: text("lease_token"),
   lastError: text("last_error"),
+  /** Set right before a Telegram send, cleared when the send is known not
+   * to have reached Telegram. Still set on a later claim: an earlier holder
+   * may have delivered (timeout, crash), so the alert is not sent again. */
+  sendStartedAt: timestamp("send_started_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("notification_outbox_action_user_uq").on(table.actionId, table.userId),

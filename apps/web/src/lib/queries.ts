@@ -194,10 +194,11 @@ export function useHomeBoards(initial?: InitialRead<HomeBoardsResponse> | null) 
 }
 
 /** GET /discover/coins: CopyDog's 市場 index, from the pool snapshot. */
-export function useCoinIndex() {
+export function useCoinIndex(initial?: InitialRead<CoinIndexResponse> | null) {
   return useQuery({
     queryKey: queryKeys.discover.coins,
     queryFn: ({ signal }) => api.get<CoinIndexResponse>("/discover/coins", signal),
+    ...seeded(initial),
     staleTime: 30_000,
     refetchInterval: 5 * 60_000,
   });

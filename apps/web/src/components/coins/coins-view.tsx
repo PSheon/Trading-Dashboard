@@ -12,7 +12,8 @@ import { APP_NAME } from "@/lib/config";
 import { coinHref } from "@/lib/coin-slug";
 import { coinIsUnknown } from "@/lib/coin-presence";
 import { coinLabel, usdCompact } from "@/lib/format";
-import { useCoinBoard, useCoinIndex } from "@/lib/queries";
+import type { CoinIndexResponse } from "@/lib/contracts";
+import { useCoinBoard, useCoinIndex, type InitialRead } from "@/lib/queries";
 
 /**
  * CopyDog's 市場 pages (`/hyperliquid/coins`, `/hyperliquid/coins/BTC`):
@@ -41,9 +42,23 @@ function Column({ children }: { children: React.ReactNode }) {
 const th = "px-3 pt-1 text-left text-xs leading-4 font-bold whitespace-nowrap text-muted-foreground first:pl-[18px] last:pr-[18px]";
 const td = "h-[60px] px-3 text-sm leading-5 font-bold whitespace-nowrap first:pl-[18px] last:pr-[18px]";
 
-export function CoinIndexView() {
+/** `initial`: the index as the server read it (app/coins/page.tsx), so the
+ * rows are in the first HTML; without it the browser asks, as before. */
+export function CoinIndexView({ initial }: { initial?: InitialRead<CoinIndexResponse> | null } = {}) {
+  const query = useCoinIndex(initial);
+  return <CoinIndexContent query={{ data: query.data, isError: query.isError, refetch: () => void query.refetch() }} />;
+}
+
+/** The page's Suspense fallback while the server reads the index: the same
+ * layout with skeleton rows and no query of its own (a query created here
+ * would make TanStack ignore the server's initial data on a client
+ * navigation, as on the home page). */
+export function CoinIndexSkeleton() {
+  return <CoinIndexContent query={{ data: undefined, isError: false, refetch: () => {} }} />;
+}
+
+function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefined; isError: boolean; refetch: () => void } }) {
   const { t } = useI18n();
-  const query = useCoinIndex();
   return (
     <Column>
       <p className="cd-label">{t("coins.markets")}</p>
@@ -51,7 +66,7 @@ export function CoinIndexView() {
       <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">{t("coins.indexBody")}</p>
       <div className="mt-[31px]">
         {query.isError && !query.data ? (
-          <ErrorState onRetry={() => void query.refetch()} />
+          <ErrorState onRetry={query.refetch} />
         ) : query.data && query.data.items.length === 0 ? (
           <EmptyState title={t("coins.emptyIndex")} body={t("coins.emptyBody")} />
         ) : (

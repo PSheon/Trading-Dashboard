@@ -86,3 +86,27 @@ for (const width of [1440, 390]) {
     await expect(page.locator("#general").getByRole("switch", { name: "Turn maintenance mode on" })).toBeDisabled();
   });
 }
+
+for (const width of [1440, 390]) {
+  test(`a withdrawal in doubt is listed above the users and resolved with a reason at ${width}px`, async ({ page }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/admin/users?withdrawals=doubt");
+    await signIn(page);
+    const panel = page.getByRole("region", { name: "Withdrawals in doubt" });
+    await expect(panel).toContainText("alice@example.com", { timeout: 20000 });
+    await expect(panel).toContainText("$12.50");
+    await expectNoSidewaysScroll(page);
+    await expectAccessible(page);
+    await shot(page, `admin-withdrawals-in-doubt-${width}`);
+    await panel.getByRole("button", { name: "Resolve", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Resolve" });
+    const confirm = dialog.getByRole("button", { name: "Read the ledger and resolve" });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByLabel("Reason (kept in the audit log)").fill("exchange answer lost");
+    await confirm.click();
+    await expect(dialog).toHaveCount(0);
+    await expect(panel).toContainText("Not in Hyperliquid's ledger: marked not executed.");
+    await expect(panel).not.toContainText("alice@example.com");
+  });
+}

@@ -59,6 +59,8 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/wallet/withdrawals/:id/submit` | 200 | user; verified main-wallet signature; one attempt |
 | POST | `/me/wallet/withdrawals/:id/cancel` | 200 | user; unbroadcast preparation only |
 | POST | `/me/wallet/withdrawals/:id/reconcile` | 200 | user; authoritative lookup only |
+| GET | `/admin/wallet/withdrawals/unresolved` | 200 | admin.access + users.read |
+| POST | `/admin/wallet/withdrawals/:id/resolve` | 200 | admin.access + users.manage; after the nonce window; audited wallet.withdrawal.resolve |
 | GET | `/insights/cohorts/:tier` | 200 | public |
 | GET | `/insights/cohorts/:tier/history` | 200 | public |
 | GET | `/insights/crowd` | 200 | public |

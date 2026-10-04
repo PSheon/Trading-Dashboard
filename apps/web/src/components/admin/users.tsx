@@ -16,6 +16,7 @@ import { useI18n } from "@/i18n/provider";
 import { useAdminUsers, useUpdateAdminUser } from "@/lib/admin-users";
 import { useMe, usePermission } from "@/lib/auth";
 import { truncateAddress } from "@/lib/format";
+import { UnresolvedWithdrawals } from "./unresolved-withdrawals";
 
 const PAGE = 20;
 
@@ -54,6 +55,7 @@ export function AdminUsers() {
 
   return (
     <div className="flex flex-col gap-4">
+      <UnresolvedWithdrawals />
       <div className="flex flex-wrap items-center gap-2.5">
         <div className="relative w-full sm:w-72">
           <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-subtle-foreground" />

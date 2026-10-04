@@ -26,6 +26,7 @@ import { TradersController } from "../traders/traders.controller.js";
 import { MeController } from "../users/me.controller.js";
 import { WalletController } from "../wallet/wallet.controller.js";
 import { WithdrawalController } from "../wallet/withdrawal.controller.js";
+import { AdminWithdrawalController } from "../wallet/admin-withdrawal.controller.js";
 import { CopyController } from "../copy/copy.controller.js";
 import { CopyFundsController } from "../copy/copy-funds.controller.js";
 import { CopyWalletController } from "../copy/copy-wallet.controller.js";
@@ -43,4 +44,4 @@ import { ReferralController, ReferralPublicController } from '../referral/referr
 
 /** Offline schema export only: controllers are instantiated with inert providers. */
 export const documentationControllers = [CopyFundsController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, ReferralController, ReferralPublicController, AdminSourcesController, AdminTraderController, FavoriteGroupsController, TraderSearchController, AdminAuditController, AdminSettingsRuntimeController,
-  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, AdminHeartbeatController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, WithdrawalController, CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyAccountModeController, CopyFollowerController, CopyFollowerSnapshotController, CopyLiveMandateController, AdminCopyController, AdminCopyLiveController];
+  AdminJobsController, AdminSystemController, AdminController, PublicSettingsController, ActionsController, AlertRulesController, AlertsController, HealthController, AdminHeartbeatController, ReadinessController, LeadersController, ListsController, ImportController, InsightsController, OutboxController, TelegramController, TradeAnalyticsController, TradersController, MeController, DiscoveryController, CopyScoreController, AdminKolController, KolAvatarController, WalletController, WithdrawalController, AdminWithdrawalController, CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyAccountModeController, CopyFollowerController, CopyFollowerSnapshotController, CopyLiveMandateController, AdminCopyController, AdminCopyLiveController];

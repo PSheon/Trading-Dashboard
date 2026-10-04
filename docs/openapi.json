@@ -5572,7 +5572,8 @@
                 "copy.control",
                 "copy.risk",
                 "copy.grant.revoke",
-                "retention.run"
+                "retention.run",
+                "wallet.withdrawal.resolve"
               ]
             }
           },
@@ -22733,7 +22734,8 @@
                                 "unknown",
                                 "accepted",
                                 "rejected",
-                                "cancelled"
+                                "cancelled",
+                                "not_executed"
                               ]
                             },
                             "createdAt": {
@@ -22882,7 +22884,8 @@
                             "unknown",
                             "accepted",
                             "rejected",
-                            "cancelled"
+                            "cancelled",
+                            "not_executed"
                           ]
                         },
                         "createdAt": {
@@ -23025,7 +23028,8 @@
                             "unknown",
                             "accepted",
                             "rejected",
-                            "cancelled"
+                            "cancelled",
+                            "not_executed"
                           ]
                         },
                         "createdAt": {
@@ -23171,7 +23175,8 @@
                                 "unknown",
                                 "accepted",
                                 "rejected",
-                                "cancelled"
+                                "cancelled",
+                                "not_executed"
                               ]
                             },
                             "createdAt": {
@@ -23334,7 +23339,8 @@
                             "unknown",
                             "accepted",
                             "rejected",
-                            "cancelled"
+                            "cancelled",
+                            "not_executed"
                           ]
                         },
                         "createdAt": {
@@ -23477,7 +23483,8 @@
                             "unknown",
                             "accepted",
                             "rejected",
-                            "cancelled"
+                            "cancelled",
+                            "not_executed"
                           ]
                         },
                         "createdAt": {
@@ -23620,7 +23627,8 @@
                             "unknown",
                             "accepted",
                             "rejected",
-                            "cancelled"
+                            "cancelled",
+                            "not_executed"
                           ]
                         },
                         "createdAt": {
@@ -23677,6 +23685,269 @@
           }
         ],
         "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/admin/wallet/withdrawals/unresolved": {
+      "get": {
+        "description": "resolvableAt: when Hyperliquid's nonce window has passed and an operator may resolve it\n\nAccess: admin.access + users.read",
+        "operationId": "AdminWithdrawalController_unresolved",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "userId": {
+                                "type": "integer"
+                              },
+                              "email": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "network": {
+                                "type": "string",
+                                "enum": [
+                                  "testnet",
+                                  "mainnet"
+                                ]
+                              },
+                              "address": {
+                                "type": "string"
+                              },
+                              "destination": {
+                                "type": "string"
+                              },
+                              "amount": {
+                                "type": "string"
+                              },
+                              "nonce": {
+                                "type": "integer"
+                              },
+                              "attempted": {
+                                "type": "boolean"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "resolvableAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "userId",
+                              "email",
+                              "network",
+                              "address",
+                              "destination",
+                              "amount",
+                              "nonce",
+                              "attempted",
+                              "createdAt",
+                              "resolvableAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Main-wallet withdrawals whose outcome is unknown, oldest first",
+        "tags": [
+          "AdminWithdrawal"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "users.read"
+        ],
+        "x-required-roles": []
+      }
+    },
+    "/admin/wallet/withdrawals/{id}/resolve": {
+      "post": {
+        "description": "Needs users.manage. Only after the nonce window (2 days + 1 hour after the nonce): a complete ledger read now → accepted when the withdraw is there, not_executed when it is not. 409 withdrawal_nonce_window_open / withdrawal_not_unknown / withdrawal_ledger_incomplete. Audited as wallet.withdrawal.resolve.\n\nAccess: admin.access + users.manage; after the nonce window; audited wallet.withdrawal.resolve",
+        "operationId": "AdminWithdrawalController_resolve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResolveWithdrawalDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "accepted",
+                            "not_executed"
+                          ]
+                        },
+                        "evidence": {
+                          "type": "string",
+                          "enum": [
+                            "ledger_match",
+                            "ledger_absent_after_nonce_window"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "status",
+                        "evidence"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Resolve an unknown withdrawal from Hyperliquid's ledger",
+        "tags": [
+          "AdminWithdrawal"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "admin.access",
+          "users.manage"
+        ],
         "x-required-roles": []
       }
     },
@@ -40419,6 +40690,21 @@
         },
         "required": [
           "signature"
+        ],
+        "additionalProperties": false
+      },
+      "AdminResolveWithdrawalDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500,
+            "description": "Why the operator resolves it (audited)"
+          }
+        },
+        "required": [
+          "reason"
         ],
         "additionalProperties": false
       },

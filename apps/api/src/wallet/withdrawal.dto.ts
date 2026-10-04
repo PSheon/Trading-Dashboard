@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsInt, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
+import { IsInt, IsString, IsUUID, Matches, MaxLength, Min, MinLength } from "class-validator";
+import { Trim } from "../common/decorators/input.decorator.js";
 
 export class WithdrawalInputDto {
   @ApiProperty({ type: String, pattern: "^0x[0-9a-fA-F]{40}$" }) @Matches(/^0x[0-9a-fA-F]{40}$/) declare destination: string;
@@ -13,3 +14,8 @@ export class WithdrawalSubmitDto {
 }
 export class WithdrawalIdDto { @ApiProperty({ type: String, format: "uuid" }) @IsUUID() declare id: string; }
 
+/** Mirrors adminResolveWithdrawalSchema (the service re-parses with it). */
+export class AdminResolveWithdrawalDto {
+  @ApiProperty({ type: String, minLength: 3, maxLength: 500, description: "Why the operator resolves it (audited)" })
+  @Trim() @IsString() @MinLength(3) @MaxLength(500) declare reason: string;
+}

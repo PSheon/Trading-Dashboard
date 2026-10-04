@@ -414,6 +414,13 @@
       "when": 1791127763538,
       "tag": "0058_notification_send_started",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1791128109839,
+      "tag": "0059_withdrawal_not_executed",
+      "breakpoints": true
     }
   ]
 }

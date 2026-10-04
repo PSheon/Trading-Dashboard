@@ -1,0 +1,4 @@
+ALTER TABLE "wallet_withdrawals" DROP CONSTRAINT "wallet_withdrawals_status_check";--> statement-breakpoint
+ALTER TABLE "wallet_withdrawals" DROP CONSTRAINT "wallet_withdrawals_evidence_check";--> statement-breakpoint
+ALTER TABLE "wallet_withdrawals" ADD CONSTRAINT "wallet_withdrawals_status_check" CHECK ("wallet_withdrawals"."status" in ('prepared', 'unknown', 'accepted', 'rejected', 'cancelled', 'not_executed'));--> statement-breakpoint
+ALTER TABLE "wallet_withdrawals" ADD CONSTRAINT "wallet_withdrawals_evidence_check" CHECK ("wallet_withdrawals"."status" not in ('accepted', 'rejected', 'not_executed') or ("wallet_withdrawals"."evidence_hash" is not null and "wallet_withdrawals"."evidence_hash" ~ '^[0-9a-f]{64}$'));

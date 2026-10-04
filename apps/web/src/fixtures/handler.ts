@@ -1,7 +1,7 @@
 import { kolSchema, kolImportResponseSchema, kolPreviewSchema } from "@trading-dashboard/shared/contracts";
 import { copyExecutionWalletsSchema } from "@trading-dashboard/shared/contracts";
 import { copyFundingOverviewSchema } from "@trading-dashboard/shared/contracts";
-import { walletWithdrawalClaimSchema, walletWithdrawalSchema, type WalletWithdrawal } from "@trading-dashboard/shared/contracts";
+import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalClaimSchema, walletWithdrawalSchema, type WalletWithdrawal } from "@trading-dashboard/shared/contracts";
 import { FIXTURE_WALLET_ADDRESS } from "@/lib/fixture-signer";
 import { fixtureKols, previewKols, importKols, saveKol, removeKol } from "./kols";
 import { adminSourcesSchema, importPreviewSchema } from "@trading-dashboard/shared/contracts";
@@ -240,6 +240,12 @@ function moveWithdrawal(status: WalletWithdrawal["status"]): WalletWithdrawal {
   return withdrawal;
 }
 
+/** `?withdrawals=doubt`: one main-wallet withdrawal whose outcome is
+ * unknown and whose nonce window has passed (admin users page). */
+let withdrawalsInDoubt = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("withdrawals") === "doubt"
+  ? [{ id: "44444444-4444-4444-8444-444444444444", userId: 7, email: "alice@example.com", network: "testnet" as const, address: FIXTURE_WALLET, destination: `0x${"22".repeat(20)}`, amount: "12.5", nonce: Date.now() - 3 * 86_400_000, attempted: true, createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(), resolvableAt: new Date(Date.now() - 86_400_000 + 3_600_000).toISOString() }]
+  : [];
+
 /** Set by POST /me/telegram/link: when the fixture "presses Start". */
 let pendingLinkAt: number | null = null;
 
@@ -340,7 +346,8 @@ export async function fixtureRequest<T>(
   const search = url.searchParams;
   const signedIn = token !== null;
   const walletIdPath = (parts[0] === "me" && parts[1] === "copy" && ["execution-wallets", "wallet-authorizations", "funding"].includes(parts[2] ?? ""))
-    || (parts[0] === "me" && parts[1] === "wallet" && parts[2] === "withdrawals" && parts.length === 5);
+    || (parts[0] === "me" && parts[1] === "wallet" && parts[2] === "withdrawals" && parts.length === 5)
+    || (parts[0] === "admin" && parts[1] === "wallet" && parts[2] === "withdrawals" && parts.length === 5);
   const route = `${method} /${parts.map((p, i) => (walletIdPath && i === 3 ? ":id" : i > 0 && /^0x/i.test(p) ? ":address" : /^\d+$/.test(p) ? ":id" : p)).join("/")}`;
   if (route.startsWith("GET /traders/:address")) traderBusy(url.pathname, url.search);
 
@@ -646,6 +653,16 @@ export async function fixtureRequest<T>(
     case "GET /me/copy/strategies/:id/orders":
       requireUser(token);
       return wire(copyOrdersResponseSchema, fixtureCopyOrders(Number(parts[3]), search.get("before") ?? undefined));
+    case "GET /admin/wallet/withdrawals/unresolved":
+      requireAdmin(token);
+      return wire(adminUnresolvedWithdrawalsSchema, { items: withdrawalsInDoubt });
+    case "POST /admin/wallet/withdrawals/:id/resolve": {
+      requireAdmin(token);
+      const found = withdrawalsInDoubt.find((item) => item.id === parts[3]);
+      if (!found) throw new ApiError(409, "Only a withdrawal whose outcome is unknown can be resolved", { code: "withdrawal_not_unknown" });
+      withdrawalsInDoubt = withdrawalsInDoubt.filter((item) => item !== found);
+      return wire(adminResolvedWithdrawalSchema, { id: found.id, status: "not_executed", evidence: "ledger_absent_after_nonce_window" });
+    }
     case "GET /me/wallet/withdrawals/current":
       requireUser(token);
       return wire(walletWithdrawalSchema.nullable(), withdrawal && (withdrawal.status === "prepared" || withdrawal.status === "unknown") ? withdrawal : null);

@@ -63,6 +63,7 @@ export const queryKeys = {
       list: (qs: string) => ["admin", "users", qs] as const,
     },
     revenue: (range: string) => ["admin", "revenue", range] as const,
+    unresolvedWithdrawals: ["admin", "withdrawals", "unresolved"] as const,
     lists: ["admin", "lists"] as const,
     overview: ["admin", "overview"] as const,
     rules: ["admin", "rules"] as const,

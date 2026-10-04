@@ -7,7 +7,7 @@ import { traderSearchResponseSchema } from "./trader-search-contracts.js";
 import { appliedDiscoverySchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
 import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.js";
 import { z } from "zod";
-import { walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
+import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
 import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
 import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema, copyReturnChallengeSchema, copyBuilderChallengeSchema, copyBuilderApprovalSchema } from "./copy-funding-contracts.js";
 import { copyAgentSetupSchema, copyAgentOverviewSchema, copyAgentChallengeSchema } from "./copy-agent-contracts.js";
@@ -285,6 +285,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/wallet/withdrawals/:id/submit", status: 200, auth: "user; verified main-wallet signature; one attempt", response: walletWithdrawalSchema },
   { method: "POST", path: "/me/wallet/withdrawals/:id/cancel", status: 200, auth: "user; unbroadcast preparation only", response: walletWithdrawalSchema },
   { method: "POST", path: "/me/wallet/withdrawals/:id/reconcile", status: 200, auth: "user; authoritative lookup only", response: walletWithdrawalSchema },
+  { method: "GET", path: "/admin/wallet/withdrawals/unresolved", status: 200, auth: "admin.access + users.read", response: adminUnresolvedWithdrawalsSchema },
+  { method: "POST", path: "/admin/wallet/withdrawals/:id/resolve", status: 200, auth: "admin.access + users.manage; after the nonce window; audited wallet.withdrawal.resolve", response: adminResolvedWithdrawalSchema },
   { method: "GET", path: "/insights/cohorts/:tier", status: 200, auth: "public", response: wireCohortDetailSchema },
   { method: "GET", path: "/insights/cohorts/:tier/history", status: 200, auth: "public", response: wireCohortHistorySchema },
   { method: "GET", path: "/insights/crowd", status: 200, auth: "public", response: s.crowdResponseSchema.extend({ updatedAt: iso.nullable() }) },

@@ -7,6 +7,7 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "../copy/copy-user-lock.js";
+import { recordAdminAudit, type AuditActor } from "../common/audit/admin-audit.js";
 import { insertOwnerEvent } from "../copy/copy-runtime.repository.js";
 
 export type WithdrawalRow = typeof walletWithdrawals.$inferSelect;
@@ -119,5 +120,36 @@ export class WithdrawalRepository {
       return rows;
     });
     return accepted ?? this.find(userId, id);
+  }
+
+  /** Every withdrawal whose outcome is unknown, oldest first, with the
+   * owner's email (admin). */
+  unresolved() {
+    return this.db.select({ row: walletWithdrawals, email: users.email }).from(walletWithdrawals)
+      .innerJoin(users, eq(users.id, walletWithdrawals.userId))
+      .where(eq(walletWithdrawals.status, "unknown")).orderBy(walletWithdrawals.nonce).limit(200);
+  }
+
+  async findAny(id: string): Promise<WithdrawalRow> {
+    const [row] = await this.db.select().from(walletWithdrawals).where(eq(walletWithdrawals.id, id));
+    if (!row) throw new NotFoundException("Withdrawal not found");
+    return row;
+  }
+
+  /** An operator's resolution of an unknown withdrawal, from a ledger read
+   * made after the nonce window: the guarded move (still `unknown`), the
+   * owner's live event and the audit row in one transaction. Null when the
+   * row was no longer unknown (resolved meanwhile). */
+  async resolve(row: WithdrawalRow, status: "accepted" | "not_executed", evidenceHash: string, actor: AuditActor, reason: string, evidence: string): Promise<WithdrawalRow | null> {
+    return this.locked(row.userId, async (tx) => {
+      const [updated] = await tx.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })
+        .where(and(eq(walletWithdrawals.id, row.id), eq(walletWithdrawals.status, "unknown"))).returning();
+      if (!updated) return null;
+      await insertOwnerEvent(tx, row.userId, null, "wallet_withdrawal", { mode: "hub", network: row.network, status, amount: row.amount, destination: row.destination });
+      await recordAdminAudit(tx, actor, "wallet.withdrawal.resolve", `withdrawal:${row.id}`,
+        { status: "unknown", userId: row.userId, nonce: row.nonce, amount: row.amount, attempted: Boolean(row.attemptedAt) },
+        { status, evidence, evidenceHash, reason });
+      return updated;
+    });
   }
 }

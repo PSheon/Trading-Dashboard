@@ -6,6 +6,7 @@ import { adminSettingsSchema, copyBuilderConsentTypedData, copyReturnConsentType
 import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
+import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveReturnService } from '../src/copy/copy-live-return.service.js';
@@ -51,6 +52,11 @@ describe('returning USDC from a copy account to the main wallet', () => {
     // While it is pending, no other wallet operation of the account starts.
     await expect(service.reserve(1, 'account', { idempotencyKey: key(2), amount: '1' })).rejects.toMatchObject({ status: 409 });
   });
+  it('a return in flight excludes a new deposit to the same copy account, as a deposit excludes a return', async () => {
+    await service.reserve(1, 'account', { idempotencyKey: key(7), amount: '5' });
+    await expect(new CopyFundingRepository(db).reserve(1, 'account', 'testnet', { idempotencyKey: key(8), amount: '10' })).rejects.toMatchObject({ status: 409 });
+  });
+
   it('refuses more than the account can transfer, before any attempt', async () => {
     exchange.withdrawable.mockResolvedValue('3');
     const challenge = await service.reserve(1, 'account', { idempotencyKey: key(3), amount: '12.5' });

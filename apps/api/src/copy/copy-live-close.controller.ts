@@ -1,11 +1,14 @@
-import { Body, Controller, Get, Header, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, Post, UseFilters } from '@nestjs/common';
+import { BusyFilter } from '../traders/busy.js';
 import { CurrentUser, requireUserId, type RequestUser } from '../common/auth/current-user.js';
 import { ApiDoc } from '../common/decorators/http.decorator.js';
 import { CopyWalletIdDto } from './dto/copy-wallet.dto.js';
 import { CopyLiveCloseService } from './copy-live-close.service.js';
 import { RequestLiveManualCloseDto } from './dto/copy-live-close.dto.js';
 
-
+/** Like the stop and return routes: a full capacity queue answers 503 with
+ * Retry-After, not 500. */
+@UseFilters(BusyFilter)
 @Controller('me/copy/live')
 export class CopyLiveCloseController {
   constructor(private readonly closes: CopyLiveCloseService) {}

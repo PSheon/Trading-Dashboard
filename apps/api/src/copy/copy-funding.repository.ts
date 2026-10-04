@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql, or } from "drizzle-orm";
 import { copyExecutionAccounts, copyFundingOperations, copyStrategies, users, walletWithdrawals } from "@trading-dashboard/shared/database";
 import type { CopyFundingInput } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -55,7 +55,9 @@ export class CopyFundingRepository {
       const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId))).for("share");
       if (!strategy || ["stopping", "stopped"].includes(strategy.status)) throw new ConflictException("Copy is stopped");
       const source = and(eq(copyFundingOperations.network, network), eq(copyFundingOperations.address, user.embeddedWalletAddress));
-      if ((await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations).where(and(source, pending())).limit(1)).length ||
+      // Either direction on this copy account: a return to the main wallet in
+      // flight excludes a new deposit, as a deposit in flight excludes a return.
+      if ((await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations).where(and(or(source, eq(copyFundingOperations.accountId, accountId)), pending())).limit(1)).length ||
           (await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals).where(and(eq(walletWithdrawals.network, network), eq(walletWithdrawals.address, user.embeddedWalletAddress), inArray(walletWithdrawals.status, ["prepared", "unknown"]))).limit(1)).length) throw conflict();
       const clock = await tx.execute<{ nonce: number }>(sql`select greatest(floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
         coalesce((select max(nonce) + 1 from copy_funding_operations where network = ${network} and address = ${user.embeddedWalletAddress}), 0),

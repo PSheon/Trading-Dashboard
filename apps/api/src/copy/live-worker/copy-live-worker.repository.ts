@@ -158,9 +158,4 @@ export class CopyLiveWorkerRepository {
     const [row] = await this.db.select().from(copyLiveMandates).where(eq(copyLiveMandates.id, id));
     return row ?? null;
   }
-  /** Rows of settled latency for the admin percentiles. */
-  async latencyRows(since: Date) {
-    return this.db.select({ leaderTime: copyLiveDispatches.leaderTime, receivedAt: copyLiveDispatches.receivedAt, sentAt: copyLiveDispatches.sentAt, ackedAt: copyLiveDispatches.ackedAt })
-      .from(copyLiveDispatches).where(and(gt(copyLiveDispatches.leaderTime, since), isNotNull(copyLiveDispatches.sentAt))).limit(10000);
-  }
 }

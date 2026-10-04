@@ -43,7 +43,8 @@ function config(trust: "none" | "regular" | "all"): AppConfig {
   return { value: { ...base, archive: { ...base.archive, trust } } } as AppConfig;
 }
 
-describe("what a cold trader page costs for an address the archive covers", () => {
+// Thousands of stored fills per test: past vitest's default 5 s on a CI runner.
+describe("what a cold trader page costs for an address the archive covers", { timeout: 60_000 }, () => {
   const db = getTestDb();
   const settings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db));
   // A busy account: 2,500 fills older than the archive, 6,000 inside its span, 4 since.

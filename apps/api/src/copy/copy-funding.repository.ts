@@ -105,6 +105,15 @@ export class CopyFundingRepository {
       .where(and(eq(copyFundingOperations.id, id), eq(copyFundingOperations.userId, userId), eq(copyFundingOperations.status, "unknown"), sql`${copyFundingOperations.attemptedAt} is not null`)).returning());
     return row ?? this.find(userId, id);
   }
+  /** Rejected as never executed, only if nothing changed the operation since
+   * `operation` was read (status, attempt and scan revision), under the
+   * owner's lock; null when something did. */
+  async notExecuted(operation: FundingRow, evidenceHash: string) {
+    const [row] = await this.locked(operation.userId, tx => tx.update(copyFundingOperations).set({ status: "rejected", evidenceHash, updatedAt: new Date() })
+      .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.status, "unknown"),
+        sql`${copyFundingOperations.attemptedAt} is not null`, eq(copyFundingOperations.scanRevision, operation.scanRevision))).returning());
+    return row ?? null;
+  }
   async saveScan(operation: FundingRow, scanState: FundingScan | null) {
     const [row] = await this.db.update(copyFundingOperations).set({ scanState, scanRevision: sql`${copyFundingOperations.scanRevision} + 1`, updatedAt: new Date() })
       .where(and(eq(copyFundingOperations.id, operation.id), eq(copyFundingOperations.userId, operation.userId), eq(copyFundingOperations.scanRevision, operation.scanRevision), inArray(copyFundingOperations.status, ["unknown", "accepted"]), sql`${copyFundingOperations.attemptedAt} is not null`)).returning();

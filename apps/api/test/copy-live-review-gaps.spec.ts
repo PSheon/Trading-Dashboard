@@ -40,12 +40,12 @@ describe('a leader reduction after the owner closed the position by hand', () =>
   beforeEach(async () => { db = getTestDb(); seed = await preparationFixture(db); });
   afterAll(async () => { await closeTestDb(); });
   const dispatch = (createdAt: number) => ({ id: `leg-${createdAt}`, mandateId: 'mandate', userId: 1, strategyId: 9, accountId: 'account', sourceFillId: seed.fill.id, leg: 'open' as const,
-    coin: 'BTC', state: 'settled', executionKey: 'exec-open', leaderTime: new Date(createdAt), receivedAt: new Date(createdAt), createdAt: new Date(createdAt), updatedAt: new Date(createdAt) });
+    coin: 'BTC', state: 'settled' as const, executionKey: 'exec-open', leaderTime: new Date(createdAt), receivedAt: new Date(createdAt), createdAt: new Date(createdAt), updatedAt: new Date(createdAt) });
   beforeEach(async () => {
     await db.insert(schema.copyLiveExecutions).values({ key: 'exec-open', network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
       cloid: `0x${'ee'.repeat(16)}`, nonce: now, userId: 1, strategyId: 9, state: 'filled', updatedAt: new Date(now), record: { key: 'exec-open', state: 'filled' } });
   });
-  const close = (coin: string, state: string, updatedAt: number) => ({ id: `close-${coin}-${updatedAt}`, userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: `close-key-${coin}-${updatedAt}`,
+  const close = (coin: string, state: 'requested' | 'done', updatedAt: number) => ({ id: `close-${coin}-${updatedAt}`, userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: `close-key-${coin}-${updatedAt}`,
     coin, state, executionKeys: [], createdAt: new Date(updatedAt - 1000), updatedAt: new Date(updatedAt) });
   it('is position_closed_by_owner only for a finished close of that coin after the latest open', async () => {
     const repo = new CopyLiveWorkerRepository(db, new UnitOfWork(db));

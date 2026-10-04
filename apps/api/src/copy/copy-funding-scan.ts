@@ -15,5 +15,8 @@ export const fundingScanSchema = z.object({
   receipts: z.array(z.object({ transactionHash: hash, creditedAmount: units, fee: units })).max(2),
   /** Where this scan cycle's ledger read ends (frozen when it starts). */
   cycleEnd: time.optional(),
+  /** Ledger transfers from this source to this destination seen in this
+   * cycle, proven or not: any at all means "no credit" is not known. */
+  seen: z.number().int().nonnegative().max(1_000_000).optional(),
 }).strict();
 export type FundingScan = z.infer<typeof fundingScanSchema>;

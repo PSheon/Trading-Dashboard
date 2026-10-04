@@ -142,6 +142,9 @@ export class CopyFundingService {
           return wire(await this.repository.find(userId, id));
         }
         const candidates = [...new Set(rows.filter((row) => row.delta.type === "internalTransfer" && typeof row.delta.user === "string" && row.delta.user.toLowerCase() === operation.address && typeof row.delta.destination === "string" && row.delta.destination.toLowerCase() === operation.destination && /^0x[0-9a-f]{64}$/.test(row.hash)).map((row) => row.hash))].sort().filter((hash) => !window.afterHash || hash > window.afterHash);
+        // Counted before any proof: a matching transfer whose details could
+        // not be proven still rules out "never executed".
+        scan.seen = (scan.seen ?? 0) + candidates.length;
         const hashes = candidates.slice(0, 5);
         for (const hash of hashes) {
           const details = await this.exchange.txDetails(operation.network, hash);
@@ -151,10 +154,16 @@ export class CopyFundingService {
         if (candidates.length > hashes.length) window.afterHash = hashes.at(-1)!;
         else scan.windows.shift();
         // A transfer still unknown whose nonce expired before this cycle's
-        // read ended, with no credit anywhere in that read, can never execute:
-        // its terminal state is rejected (not executed), with that evidence.
-        if (!scan.windows.length && !scan.receipts.length && operation.status === "unknown" && scan.cycleEnd !== undefined && scan.cycleEnd >= operation.nonce + FUNDING_NONCE_EXPIRY_MS) {
-          return wire(await this.repository.finish(userId, id, "rejected", digest({ source: "ledger_absent_after_nonce_expiry", destination: operation.destination, nonce: operation.nonce, ledgerFrom: start, ledgerTo: scan.cycleEnd })));
+        // read ended, and whose complete read (every window answered, none
+        // capped; a failed read throws above) shows no transfer at all from
+        // this source to this destination, can never execute: its terminal
+        // state is rejected (not executed), with that evidence. Only as a
+        // compare-and-set on the scan revision this cycle started from, so a
+        // concurrent turn that saved anything (a candidate, a receipt, a
+        // credit) wins.
+        if (!scan.windows.length && !scan.receipts.length && !scan.seen && operation.status === "unknown" && scan.cycleEnd !== undefined && scan.cycleEnd >= operation.nonce + FUNDING_NONCE_EXPIRY_MS) {
+          const evidence = digest({ source: "ledger_absent_after_nonce_expiry", destination: operation.destination, nonce: operation.nonce, ledgerFrom: start, ledgerTo: scan.cycleEnd });
+          return wire(await this.repository.notExecuted(operation, evidence) ?? await this.repository.find(userId, id));
         }
         const saved = await this.repository.saveScan(operation, !scan.windows.length && !scan.receipts.length ? null : scan);
         if (saved && !scan.windows.length && scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), saved.scanRevision));

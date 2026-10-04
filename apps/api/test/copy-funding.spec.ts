@@ -149,6 +149,38 @@ describe("durable strategy funding", () => {
     exchange.send.mockResolvedValue({ status: "ok", response: { type: "default" } });
     await expect(reserve()).resolves.toBeTruthy();
   });
+  it("never calls a transfer not executed from a failed ledger read, or from a matching transfer it could not prove", async () => {
+    exchange.send.mockRejectedValue(new Error("private response loss"));
+    const op = await attempted();
+    let clock = op.nonce + 3 * 86_400_000;
+    // Each call a minute later, past the lookup cache.
+    const later = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const again = async () => { clock += 60_000; return service.reconcile(userId, op.id); };
+    try {
+      // The ledger read fails: no conclusion.
+      info.userNonFundingLedgerUpdates.mockRejectedValueOnce(new Error("busy"));
+      await expect(again()).rejects.toThrow();
+      expect((await repository.find(userId, op.id)).status).toBe("unknown");
+      // A transfer from this source to this destination is there but its details cannot be proven.
+      info.userNonFundingLedgerUpdates.mockResolvedValue([{ hash: HASH, time: op.nonce + 100, delta: { type: "internalTransfer", user: MAIN, destination: DEST, usdc: op.amount, fee: "1" } }]);
+      exchange.txDetails.mockResolvedValue(null);
+      for (let i = 0; i < 3; i++) await again();
+      expect((await repository.find(userId, op.id)).status).toBe("unknown");
+    } finally { later.mockRestore(); }
+  });
+
+  it("the not-executed decision is a compare-and-set: a concurrent turn that saved anything wins", async () => {
+    exchange.send.mockRejectedValue(new Error("private response loss"));
+    const op = await attempted();
+    const stale = await repository.find(userId, op.id);
+    // Another turn saved its scan meanwhile.
+    expect(await repository.saveScan(stale, { version: 1, windows: [], receipts: [], seen: 1 })).toBeTruthy();
+    expect(await repository.notExecuted(stale, "a".repeat(64))).toBeNull();
+    expect((await repository.find(userId, op.id)).status).toBe("unknown");
+    // On the current revision it applies.
+    expect(await repository.notExecuted(await repository.find(userId, op.id), "a".repeat(64))).toMatchObject({ status: "rejected" });
+  });
+
   it.each([{ status: "err", response: "nonce already used" }, { status: "ok", response: { type: "unexpected" } }, null])("keeps ambiguous reply pending: %j", async (reply) => {
     exchange.send.mockResolvedValue(reply); expect((await attempted()).status).toBe("unknown");
   });

@@ -132,7 +132,10 @@ export class AuthService {
     // this user. Re-read after that work before publishing an authorization.
     const current = await this.currentAuthorization(outcome);
     if (verified.expiresAt.getTime() <= Date.now()) return { status: "invalid" };
-    if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS), verified.expiresAt.getTime());
+    // A sign-ups refusal is not kept by token: it follows a site switch that
+    // an admin can flip at any moment (the settings cache is dropped on save
+    // in every process), and the visitor should get in as soon as it opens.
+    if (current.status !== "invalid" && current.status !== "signups_closed") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + CACHE_TTL_MS), verified.expiresAt.getTime());
     return current;
   }
 
@@ -166,7 +169,7 @@ export class AuthService {
     }
   }
 
-  /** Drops every cached token (tests; after opening sign-ups). */
+  /** Drops every cached token (tests). */
   clearCache(): void {
     this.cache.clear();
   }

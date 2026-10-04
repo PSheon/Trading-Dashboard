@@ -510,10 +510,9 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
       expect(res.body.user).toMatchObject({ kind: "user", role: "admin" });
     });
 
-    it("opening sign-ups again lets the same token in (after the cache window)", async () => {
+    it("opening sign-ups again lets the same token in at once (the refusal is not cached by token)", async () => {
       await get("/t/protected", "newbie-token").expect(403);
       await settings.patch({ general: { signupsOpen: true } }, null);
-      auth.clearCache();
       await get("/t/protected", "newbie-token").expect(200);
     });
   });

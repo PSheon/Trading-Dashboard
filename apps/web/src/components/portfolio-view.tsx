@@ -303,7 +303,7 @@ function PhonePortfolio() {
   ];
 
   return (
-    <div className="-mx-5 -mt-5">
+    <div className="-mx-4 -mt-4">
       <PhoneHeader />
       <PhoneBody tab={tab} setTab={setTab} tabs={tabs} wallet={wallet} open={open} setOpen={setOpen} />
     </div>
@@ -316,9 +316,9 @@ function PhoneHeader() {
   const { t } = useI18n();
   const [activity, setActivity] = useState(false);
   return (
-      <header className="flex items-center justify-between px-5 pt-4">
+      <header className="flex items-center justify-between px-4 pt-4">
         <p role="heading" aria-level={1} className="font-display text-[2rem] leading-tight">{t("portfolio.title")}</p>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           {/* CopyDog: the bell opens the Activity panel (copies, following, deposits). */}
           <button
             type="button"
@@ -345,7 +345,7 @@ function PhoneSignedOut() {
   const { t } = useI18n();
   const { status, login } = useAuth();
   return (
-    <div className="-mx-5 -mt-5">
+    <div className="-mx-4 -mt-4">
       <PhoneHeader />
       <div className="flex flex-col items-center px-6 pt-14 text-center">
         <span className="flex size-20 items-center justify-center rounded-full bg-raised"><ChartPie className="size-9 text-primary-text" strokeWidth={2} aria-hidden /></span>
@@ -378,9 +378,9 @@ function PhoneBody({
   const copy = useCopyOverview();
   return (
     <>
-      <div className="px-5 pt-3">
+      <div className="orbit-card mx-4 mt-3 px-5 py-4">
         <div className="flex items-center gap-2">
-          <p className="text-sm text-muted-foreground">{t("portfolio.totalValue")}</p>
+          <p className="text-[13px] font-bold text-muted-foreground">{t("portfolio.totalValue")}</p>
           <NetworkBadge network={wallet.data?.network} />
         </div>
         <button
@@ -391,15 +391,15 @@ function PhoneBody({
           onClick={() => setOpen((v) => !v)}
           disabled={!wallet.data}
         >
-          <TotalValue wallet={wallet} className="text-[2.25rem] leading-tight" />
-          <ChevronDown className={cn("size-5 text-muted-foreground transition-transform", open && "rotate-180")} />
+          <TotalValue wallet={wallet} className="font-display text-[2.25rem] leading-tight" />
+          <ChevronDown className={cn("size-5 text-muted-foreground transition-transform duration-200", open && "rotate-180")} strokeWidth={2.4} />
         </button>
         {open && wallet.data ? <Breakdown summary={wallet.data} /> : null}
         <FundButtons className="mt-3" />
       </div>
 
-      <div className="mt-4 border-t-2 border-dotted border-border px-5 pt-4">
-        <div role="tablist" aria-label={t("portfolio.title")} className="flex gap-2">
+      <div className="px-4 pt-4">
+        <div role="tablist" aria-label={t("portfolio.title")} className="grid grid-flow-col gap-0.5 rounded-full bg-raised p-1">
           {tabs.map((item) => (
             <button
               key={item.value}
@@ -408,8 +408,8 @@ function PhoneBody({
               aria-selected={tab === item.value}
               onClick={() => setTab(item.value)}
               className={cn(
-                "h-10 rounded-full px-4 text-[0.9375rem] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                tab === item.value ? "bg-primary text-primary-foreground" : "bg-raised text-foreground",
+                "h-11 rounded-full px-3 text-[0.9375rem] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                tab === item.value ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground",
               )}
             >
               {item.label}

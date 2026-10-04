@@ -100,7 +100,7 @@ export function AboutPage({ blocks }: { blocks: Block[] }) {
   const parts = chunks(body);
   let feature = 0;
   return (
-    <div className="-mx-5 -mt-5 flex flex-col md:-mt-8 md:-mr-4 md:-ml-8">
+    <div className="-mx-4 -mt-4 flex flex-col md:-mx-5 md:-mt-2">
       {parts.map((part, p) => {
         const secs = sections(part);
         const steps = part.filter((b): b is Heading => b.type === "heading" && b.level === 3);

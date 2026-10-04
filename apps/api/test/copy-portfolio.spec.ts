@@ -25,6 +25,8 @@ import { AccountRepository } from "../src/users/account.repository.js";
 import { AccountDeletionService } from "../src/users/account-deletion.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { appSettings } from "@trading-dashboard/shared/database";
+import type { SettingsService } from "../src/settings/settings.service.js";
 
 const LEADER_A = "0x" + "a1".repeat(20);
 const LEADER_B = "0x" + "b2".repeat(20);
@@ -44,12 +46,19 @@ describe("the whole paper portfolio: merged PnL history, today's PnL, each copy'
   });
   let app: INestApplication;
   let auth: AuthService;
+  let settings: SettingsService;
   let service: CopyPerformanceService;
   // A minute boundary a little in the past, so that "now" in SQL is later.
   const NOW = new Date(Math.floor((Date.now() - 2 * MIN) / MIN) * MIN);
 
   beforeAll(async () => {
-    ({ app, auth } = await createAuthedApp({
+    // What an earlier spec file may leave behind (admin-audit.spec ends
+    // with sign-ups closed): while the app starts, the market catalog's
+    // first read asks the budgeter, which reads (and caches for 30 s) the
+    // whole settings snapshot. This file must pass whatever came before it.
+    await truncateAll(db);
+    await db.insert(appSettings).values({ key: "general", value: { signupsOpen: false } });
+    ({ app, auth, settings } = await createAuthedApp({
       db,
       privy,
       controllers: [CopyController],
@@ -66,6 +75,8 @@ describe("the whole paper portfolio: merged PnL history, today's PnL, each copy'
   beforeEach(async () => {
     await truncateAll(db);
     auth.clearCache();
+    // The rows just reset are what the app must read.
+    settings.invalidate();
   });
 
   afterAll(async () => {

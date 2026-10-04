@@ -74,5 +74,10 @@ export async function createAuthedApp(opts: {
   // when many HTTP integration requests run back-to-back.
   opts.beforeListen?.(app);
   await app.listen(0, "127.0.0.1");
+  // Start from the database as the spec leaves it, not from what a read
+  // during bootstrap cached (the market catalog's first request asks the
+  // budgeter, which reads the whole settings snapshot): rows an earlier spec
+  // file left behind must not leak into this one for the cache's 30 s.
+  app.get(SettingsService).invalidate();
   return { app, auth: app.get(AuthService), settings: app.get(SettingsService) };
 }

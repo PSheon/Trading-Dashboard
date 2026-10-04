@@ -76,7 +76,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {t("nav.skip")}
       </a>
 
-      <header className="orbit-header sticky top-0 z-40 hidden grid-cols-[minmax(0,1fr)_minmax(160px,400px)_minmax(0,1fr)] items-center gap-3 bg-background/92 px-5 py-3 backdrop-blur-xl md:grid">
+      <header className="orbit-header sticky top-0 z-40 hidden grid-cols-[auto_minmax(0,1fr)_auto] items-center xl:grid-cols-[minmax(0,1fr)_minmax(200px,400px)_minmax(0,1fr)] gap-3 bg-background/92 px-5 py-3 backdrop-blur-xl md:grid">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/"
@@ -153,7 +153,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 /** A raised capsule of links; the current page is the orange pill. Labels
- * show from 1280px, icons only below (T1024 / T820 boards). */
+ * show from 1400px, icons only below (T1024 / T820 boards). */
 function NavCapsule({ label, items, pathname }: { label: string; items: NavItem[]; pathname: string }) {
   const t = useT();
   return (
@@ -170,12 +170,12 @@ function NavCapsule({ label, items, pathname }: { label: string; items: NavItem[
             aria-label={text}
             title={text}
             className={cn(
-              "orbit-press flex h-11 items-center gap-2 rounded-[22px] px-3.5 font-extrabold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring xl:px-4",
+              "orbit-press flex h-11 items-center gap-2 rounded-[22px] px-3.5 font-extrabold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1400px]:px-4",
               active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-raised-hover hover:text-foreground",
             )}
           >
             <Icon className="size-[18px]" strokeWidth={2.4} aria-hidden />
-            <span className="hidden xl:inline">{text}</span>
+            <span className="hidden min-[1400px]:inline">{text}</span>
           </Link>
         );
       })}

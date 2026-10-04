@@ -22,7 +22,7 @@ export function WorkerHeartbeat({ data: d }: { data: HeartbeatResponse }) {
               <span
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
-                  d.feedConnected ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
+                  d.feedConnected ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground",
                 )}
               >
                 <span className={cn("size-1.5 rounded-full", d.feedConnected ? "bg-positive" : "bg-negative")} />
@@ -70,7 +70,7 @@ export function WorkerHeartbeat({ data: d }: { data: HeartbeatResponse }) {
               <span
                 className={cn(
                   "rounded-full px-2.5 py-1 text-xs font-semibold",
-                  d.dryRun ? "bg-warning/15 text-warning" : "bg-raised text-muted-foreground",
+                  d.dryRun ? "bg-tag-warning text-tag-warning-foreground" : "bg-raised text-muted-foreground",
                 )}
               >
                 {d.dryRun ? t("admin.status.dryRunOn") : t("admin.status.dryRunOff")}

@@ -96,6 +96,7 @@ function Tile({
   sub,
   loading,
   muted,
+  accent,
 }: {
   label: string;
   action?: React.ReactNode;
@@ -105,28 +106,40 @@ function Tile({
   sub: React.ReactNode;
   loading?: boolean;
   muted?: boolean;
+  /** C-Trader's coloured tiles: 績效 on orange, ROI on its profit / loss
+   * tag colour; ink text there (the sign stays explicit). */
+  accent?: "primary" | "profit" | "loss";
 }) {
   const t = muted ? null : tone;
+  const tinted = accent !== undefined && !muted;
   return (
-    <div className="flex min-w-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
-      <div className="flex h-8 shrink-0 items-center justify-between gap-1 border-b border-border pr-2 pl-3 text-xs leading-4 font-medium tracking-[-0.12px] text-muted-foreground">
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-1.5 rounded-[24px] px-4 py-3.5",
+        !tinted && "bg-raised",
+        tinted && accent === "primary" && "bg-primary text-primary-foreground",
+        tinted && accent === "profit" && "bg-tag-profit text-tag-profit-foreground",
+        tinted && accent === "loss" && "bg-tag-loss text-tag-loss-foreground",
+        // On a coloured tile every figure takes the tile's ink.
+        tinted && "[&_span]:text-inherit! [&_button]:text-inherit!",
+      )}
+    >
+      <div className={cn("flex min-h-5 shrink-0 items-center justify-between gap-1 text-[13px] leading-5 font-extrabold", !tinted && "text-muted-foreground")}>
         <span>{label}</span>
         {action}
       </div>
-      <div className="flex min-w-0 flex-col gap-2.5 p-3">
-        {loading ? (
-          <Skeleton className="h-[26px] w-24" />
-        ) : (
-          <div className={cn("num truncate text-lg leading-[26px] font-semibold tracking-[-0.16px]", muted ? "text-subtle-foreground" : t ? TEXT[t] : "")}>{value}</div>
-        )}
-        <div className="cd-bar w-full">
-          <div
-            className={cn("transition-[width] duration-300", muted ? "bg-subtle-foreground" : t ? BAR[t] : "bg-border-strong")}
-            style={{ width: `${fill}%` }}
-          />
-        </div>
-        <div className="num truncate text-[11px] leading-4 font-medium tracking-[-0.2px] text-muted-foreground">{sub}</div>
+      {loading ? (
+        <Skeleton className={cn("h-8 w-28", tinted && "bg-black/10")} />
+      ) : (
+        <div className={cn("num truncate font-display text-2xl leading-8", tinted ? "" : muted ? "text-subtle-foreground" : t ? TEXT[t] : "")}>{value}</div>
+      )}
+      <div className={cn("cd-bar w-full", tinted && "bg-black/10")}>
+        <div
+          className={cn("transition-[width] duration-300 motion-reduce:transition-none", tinted ? "bg-current opacity-70" : muted ? "bg-subtle-foreground" : t ? BAR[t] : "bg-border-strong")}
+          style={{ width: `${fill}%` }}
+        />
       </div>
+      <div className={cn("num truncate text-xs leading-[18px] font-bold", tinted ? "opacity-90" : "text-muted-foreground")}>{sub}</div>
     </div>
   );
 }
@@ -197,7 +210,7 @@ export function KpiTiles({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={t("trader.kpi.period")}
-        className="group inline-flex items-center gap-[3px] rounded-md px-[5px] py-0.5 text-xs leading-4 font-medium text-muted-foreground outline-none hover:bg-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised data-[state=open]:text-foreground"
+        className="group inline-flex items-center gap-[3px] rounded-full px-2 py-0.5 text-xs leading-4 font-extrabold outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-black/5"
       >
         {KPI_PERIODS.find(([p]) => p === period)![1]}
         <ChevronDown className="size-[11px] transition-transform group-data-[state=open]:rotate-180" aria-hidden />
@@ -216,8 +229,9 @@ export function KpiTiles({
   );
 
   return (
-    <div className="grid grid-cols-2 gap-1.5 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <Tile
+        accent="primary"
         label={t("trader.kpi.pnl")}
         action={periodMenu}
         loading={!periodPortfolio && !portfolioFailed}
@@ -228,6 +242,7 @@ export function KpiTiles({
         sub={first === null ? "—" : t("trader.kpi.history", { value: trackRecord(first, now) })}
       />
       <Tile
+        accent={roi !== null && roi < 0 ? "loss" : "profit"}
         label={t("trader.kpi.roi")}
         loading={!periodPortfolio && !portfolioFailed}
         value={signedPctCd(roi)}
@@ -286,11 +301,11 @@ export function KpiTiles({
   );
 }
 
-/** CopyDog's .hd-seg: bare mono labels, 12px apart; only the active one
- * brightens. */
+/** Orbit's capsule toggle inside the raised chart panel: a page-coloured
+ * track, the active choice the orange pill. */
 function TextSeg<T extends string>({ value, onChange, options }: { value: T; onChange: (value: T) => void; options: Array<{ value: T; label: React.ReactNode }> }) {
   return (
-    <div role="radiogroup" className="flex items-center gap-3">
+    <div role="radiogroup" className="flex items-center gap-0.5 rounded-full bg-background p-1">
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -303,8 +318,8 @@ function TextSeg<T extends string>({ value, onChange, options }: { value: T; onC
             onKeyDown={rovingFocus}
             onClick={() => onChange(option.value)}
             className={cn(
-              "rounded-sm font-mono text-[11px] leading-[16.5px] font-medium tracking-[0.2px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-              active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              "h-9 rounded-full px-3 text-[13px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+              active ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
             )}
           >
             {option.label}
@@ -393,9 +408,9 @@ export function PerformanceChart({
     : "—";
 
   return (
-    <section className="rounded-[12px] border border-border bg-card">
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-3 border-b border-border px-3">
-        <div className="flex items-center gap-5">
+    <section className="rounded-2xl bg-raised p-3 [--seg-track:var(--background)] md:p-[18px]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-0.5 rounded-full bg-background p-1">
           {(["perp", "all", "calendar"] as const).map((m) => {
             const active = m === "calendar" ? calendar : !calendar && market === m;
             return (
@@ -409,8 +424,8 @@ export function PerformanceChart({
                 }}
                 aria-pressed={active}
                 className={cn(
-                  "h-10 border-b-2 font-mono text-xs leading-[18px] font-medium tracking-[0.3px] uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                  active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+                  "h-10 rounded-full px-3.5 text-sm whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                  active ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
                 )}
               >
                 {t(m === "perp" ? "trader.chart.perp" : m === "all" ? "trader.chart.all" : "trader.chart.calendar")}
@@ -428,7 +443,7 @@ export function PerformanceChart({
             ]}
           />
         ) : (
-          <div className="flex flex-wrap items-center gap-3.5 [&>div+div]:border-l [&>div+div]:border-border [&>div+div]:pl-3.5">
+          <div className="flex flex-wrap items-center gap-2">
             <TextSeg
               value={mode}
               onChange={onMode}
@@ -455,17 +470,17 @@ export function PerformanceChart({
       </div>
 
       {calendar ? (
-        <div className="px-2 pb-2 md:px-3">
+        <div className="pt-3">
           <PnlCalendarView address={address} unit={calendarUnit} />
         </div>
       ) : (
         <>
-          <div className="px-3 pt-3">
+          <div className="pt-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 flex-col items-start gap-2.5">
                 <div
                   className={cn(
-                    "num text-[26px] leading-[1.1] font-bold tracking-[-0.3px]",
+                    "num font-display text-[2.125rem] leading-[1.1]",
                     muted
                       ? "text-subtle-foreground"
                       : mode === "pnl" && last
@@ -479,12 +494,12 @@ export function PerformanceChart({
                 </div>
                 {pnlPct !== null && unit === "usd" ? <RoiPill value={pnlPct} label={`${Math.abs(pnlPct * 100).toFixed(2)}%`} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" muted={muted} /> : null}
                 {usdPnl !== null ? (
-                  <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm leading-none font-semibold", muted ? "bg-raised text-subtle-foreground" : usdPnl >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+                  <span className={cn("num inline-flex h-7 items-center rounded-md px-3 text-sm leading-none font-extrabold", muted ? "bg-background text-subtle-foreground" : usdPnl >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
                     {usdCompact(usdPnl, { sign: true, digits: 2 })}
                   </span>
                 ) : null}
               </div>
-              {last ? <p className="num mt-1 ml-auto shrink-0 font-mono text-[11px] font-medium tracking-[0.2px] whitespace-nowrap text-muted-foreground uppercase">{format.stamp(last[0])}</p> : null}
+              {last ? <p className="num mt-1 ml-auto shrink-0 text-xs font-bold whitespace-nowrap text-muted-foreground">{format.stamp(last[0])}</p> : null}
             </div>
           </div>
 

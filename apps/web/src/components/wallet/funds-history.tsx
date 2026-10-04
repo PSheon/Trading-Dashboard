@@ -88,7 +88,7 @@ function Row({ row }: { row: FundsRow }) {
   const route = f.kind === "copy_funding" ? t("funds.routeHubToCopy", { id }) : f.mode === "paper" && f.counterparty === "paper" ? (f.amount >= 0 ? t("funds.routePaperToCopy", { id }) : t("funds.routeCopyToPaper", { id })) : null;
   return (
     <li className="flex items-center gap-3 py-3">
-      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", f.kind === "fees" ? "bg-raised text-muted-foreground" : "bg-primary-soft text-primary-text")}><Icon className="size-4" /></span>
+      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", f.kind === "fees" ? "bg-raised text-muted-foreground" : "bg-tag-alert text-tag-alert-foreground")}><Icon className="size-4" /></span>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{label}{f.mode === "paper" ? <PaperBadge /> : null}{f.status ? <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t(`funds.status.${f.status}` as MessageKey)}</span> : null}</p>
         <p className="truncate text-xs text-muted-foreground">

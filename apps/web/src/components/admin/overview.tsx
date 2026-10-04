@@ -23,7 +23,7 @@ export function KpiCard({
   return (
     <Panel className="flex flex-col gap-3 p-5">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <span className="flex size-7 items-center justify-center rounded-lg bg-primary-soft text-primary-text">
+        <span className="flex size-7 items-center justify-center rounded-lg bg-tag-alert text-tag-alert-foreground">
           <Icon className="size-4" />
         </span>
         {label}

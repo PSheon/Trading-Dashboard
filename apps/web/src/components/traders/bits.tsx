@@ -64,8 +64,8 @@ export function RoiPill({
         muted
           ? "bg-raised text-subtle-foreground"
           : up
-            ? "bg-positive-soft text-positive"
-            : "bg-negative-soft text-negative",
+            ? "bg-tag-profit text-tag-profit-foreground"
+            : "bg-tag-loss text-tag-loss-foreground",
         className,
       )}
     >

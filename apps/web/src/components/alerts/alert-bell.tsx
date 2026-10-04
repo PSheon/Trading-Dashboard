@@ -99,7 +99,7 @@ export function AlertBell({
               : "h-8 gap-1.5 border px-2.5 text-xs font-semibold whitespace-nowrap",
             variant === "pill" &&
               (on
-                ? "border-primary/40 bg-primary-soft text-primary-text hover:bg-primary/20"
+                ? "border-primary/40 bg-tag-alert text-tag-alert-foreground hover:bg-primary/20"
                 : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground"),
             variant === "icon" && (on ? "text-primary-text" : "text-subtle-foreground hover:text-foreground"),
             className,
@@ -154,7 +154,7 @@ export function AlertHistory({ address }: { address: string }) {
                 <span
                   className={cn(
                     "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                    a.sendStatus === "failed" ? "bg-negative-soft text-negative" : a.sendStatus === "sent" ? "bg-positive-soft text-positive" : "bg-raised text-muted-foreground",
+                    a.sendStatus === "failed" ? "bg-tag-loss text-tag-loss-foreground" : a.sendStatus === "sent" ? "bg-tag-profit text-tag-profit-foreground" : "bg-raised text-muted-foreground",
                   )}
                 >
                   {a.sendStatus}
@@ -195,7 +195,7 @@ function AlertEditor({ address, alert, onDone }: { address: string; alert: Favor
       }}
     >
       <div className="flex items-center gap-2">
-        <span className="flex size-7 items-center justify-center rounded-full bg-primary-soft text-primary-text">
+        <span className="flex size-7 items-center justify-center rounded-full bg-tag-alert text-tag-alert-foreground">
           <BellRing className="size-3.5" />
         </span>
         <h3 className="text-sm font-bold">{t("alerts.title")}</h3>

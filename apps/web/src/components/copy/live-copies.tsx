@@ -16,9 +16,9 @@ import { cn } from '@/lib/utils';
 
 const SETTINGS = '/settings?tab=account';
 const stageTone: Record<LiveCopyItem['stage'], string> = {
-  setup: 'bg-raised text-muted-foreground', needs_deposit: 'bg-warning/15 text-warning', funding: 'bg-primary/15 text-primary-text', awaiting_credit: 'bg-primary/15 text-primary-text',
-  starting: 'bg-primary/15 text-primary-text', active: 'bg-positive/15 text-positive', paused: 'bg-raised text-muted-foreground', stopping: 'bg-warning/15 text-warning',
-  sweeping: 'bg-warning/15 text-warning', stopped: 'bg-raised text-muted-foreground',
+  setup: 'bg-raised text-muted-foreground', needs_deposit: 'bg-tag-warning text-tag-warning-foreground', funding: 'bg-primary/15 text-primary-text', awaiting_credit: 'bg-primary/15 text-primary-text',
+  starting: 'bg-primary/15 text-primary-text', active: 'bg-positive/15 text-positive', paused: 'bg-raised text-muted-foreground', stopping: 'bg-tag-warning text-tag-warning-foreground',
+  sweeping: 'bg-tag-warning text-tag-warning-foreground', stopped: 'bg-raised text-muted-foreground',
 };
 
 /**

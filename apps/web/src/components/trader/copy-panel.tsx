@@ -165,7 +165,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
   }
 
   const directionPill = (
-    <div role="radiogroup" aria-label={t("trader.copy.amount")} className="grid grid-cols-2 rounded-full bg-raised">
+    <div role="radiogroup" aria-label={t("trader.copy.amount")} className="grid grid-cols-2 gap-0.5 rounded-full bg-inset p-1">
       {(["same", "reverse"] as const).map((d) => {
         const active = direction === d;
         const Icon = d === "same" ? ArrowUpRight : ArrowDownRight;
@@ -179,11 +179,11 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             onKeyDown={rovingFocus}
             onClick={() => setDirection(d)}
             className={cn(
-              "flex min-h-[52px] items-center justify-center gap-1.5 rounded-full px-4 py-2 text-base leading-6 font-semibold outline-none transition-[color,background-color,opacity] hover:opacity-[0.88] focus-visible:ring-2 focus-visible:ring-ring",
+              "flex min-h-11 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-base leading-6 font-extrabold outline-none transition-[color,background-color,opacity] duration-200 focus-visible:ring-2 focus-visible:ring-ring",
               active && d === "same" && "bg-primary text-primary-foreground",
               // Dark on the red, as on the orange: white on it is 3.4:1.
               active && d === "reverse" && "bg-negative text-primary-foreground",
-              !active && "text-foreground",
+              !active && "text-muted-foreground hover:text-foreground",
             )}
           >
             <Icon className="size-4" strokeWidth={2} />
@@ -210,7 +210,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
             <PaperBadge />
           </div>
         </div>
-        <dl className="grid grid-cols-3 gap-2 rounded-xl bg-raised/60 p-3 text-center">
+        <dl className="grid grid-cols-3 gap-2 rounded-xl bg-inset p-3 text-center">
           <div>
             <dt className="text-[11px] text-muted-foreground">{t("trader.copy.allocated")}</dt>
             <dd className="num mt-1 text-sm font-bold">{format.usd(existing.allocated, { digits: 2 })}</dd>
@@ -228,7 +228,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
         </dl>
         <Link
           href={`/portfolio?copy=${existing.id}`}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-bold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="orbit-press flex h-[60px] w-full items-center justify-center gap-2 rounded-full bg-primary font-display text-lg text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Check className="size-5" strokeWidth={2.5} />
           {t("trader.copy.manage")}
@@ -277,15 +277,15 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
               // CopyDog clamps to the whole-dollar balance when focus leaves.
               if (amount && Number.isFinite(value) && balanceKnown) setAmount(String(Math.min(Math.floor(value), Math.floor(balance))));
             }}
-            className="num min-w-[1ch] bg-transparent p-0 leading-none font-bold outline-none placeholder:text-foreground"
+            className="num min-w-[1ch] bg-transparent p-0 font-display leading-none outline-none placeholder:text-foreground"
             style={{ width: `${Math.max(1, (amount || "0").length)}ch`, fontSize: amountPx, height: Math.round(amountPx * 1.328) }}
           />
-          <span className="shrink-0 leading-none font-bold text-muted-foreground" style={{ fontSize: amountPx }}>USDC</span>
+          <span className="shrink-0 font-display leading-none text-muted-foreground" style={{ fontSize: amountPx }}>USDC</span>
           <button
             type="button"
             onClick={() => setFromPct(100)}
             disabled={balance <= 0}
-            className="ml-auto shrink-0 self-center rounded-full bg-raised px-4 py-2 text-[13px] leading-5 font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="orbit-press ml-auto shrink-0 self-center rounded-full bg-inset px-4 py-2.5 text-[13px] leading-5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("trader.copy.max")}
           </button>
@@ -305,7 +305,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
                   onClick={() => setFromPct(p)}
                   className={cn(
                     "h-10 rounded-full text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    preset && amount === preset ? "bg-primary-soft text-primary-text" : "bg-raised text-foreground",
+                    preset && amount === preset ? "bg-tag-alert text-tag-alert-foreground" : "bg-raised text-foreground",
                   )}
                 >
                   {p === 100 ? t("trader.copy.max") : `${p}%`}
@@ -313,7 +313,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
               );
             })}
           </div>
-          <div className="flex items-center gap-2.5 rounded-2xl bg-raised/60 px-3 py-2.5">
+          <div className="flex items-center gap-2.5 rounded-xl bg-inset px-3.5 py-3">
             <UsdcIcon size={26} />
             <span className="text-sm font-bold">USDC</span>
             <PaperBadge />
@@ -370,7 +370,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           aria-expanded={more}
           aria-controls={sheet ? "copy-more-sheet" : "copy-more"}
           onClick={() => setMore((m) => !m)}
-          className="flex w-full items-center justify-between gap-2 rounded text-xs leading-[18px] font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-11 w-full items-center justify-between gap-2 rounded border-t-2 border-dotted border-border pt-2 text-sm leading-5 font-extrabold text-foreground outline-none hover:text-primary-text focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("trader.copy.more")}
           <ChevronDown className={cn("size-3 transition-transform", more && "rotate-180")} />
@@ -409,7 +409,7 @@ export function CopyPanel({ address, sheet = false, leaderPositions, traderName 
           type="button"
           onClick={submit}
           disabled={start.isPending || started || closed}
-          className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-base font-semibold text-primary-foreground outline-none transition-[opacity,transform] focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-80 md:hover:-translate-y-px md:disabled:translate-y-0"
+          className="orbit-press flex min-h-[60px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-80"
         >
           {started ? (
             <>
@@ -430,6 +430,6 @@ function Shell({ sheet, children }: { sheet: boolean; children: React.ReactNode 
   return sheet ? (
     <div className="flex flex-col gap-4 px-1 pt-9">{children}</div>
   ) : (
-    <aside aria-label={t("trader.copy.panel")} className="flex flex-col rounded-[12px] border border-border bg-card p-[22px] xl:sticky xl:top-[90px]">{children}</aside>
+    <aside aria-label={t("trader.copy.panel")} className="orbit-card flex flex-col p-5 xl:sticky xl:top-[92px]">{children}</aside>
   );
 }

@@ -23,8 +23,8 @@ const PAGE = 20;
 /** A role change or a disable / enable waiting for its confirmation. */
 type Pending = { user: AdminUser; role: UserRole } | { user: AdminUser; disabled: boolean };
 const ROLE_TONE: Record<UserRole, string> = {
-  admin: "bg-primary-soft text-primary-text",
-  operator: "bg-warning/15 text-warning",
+  admin: "bg-tag-alert text-tag-alert-foreground",
+  operator: "bg-tag-warning text-tag-warning-foreground",
   user: "bg-raised text-muted-foreground",
 };
 

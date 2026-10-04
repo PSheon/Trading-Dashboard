@@ -89,7 +89,7 @@ export function CopyCompare({ strategy: s, traderName }: { strategy: CopyStrateg
             </p>
           )}
           {metric === "pnl" && roiLast ? <RoiPill value={roiLast[1]} label={`${Math.abs(roiLast[1] * 100).toFixed(2)}%`} className="h-[26px] px-3 text-sm" /> : null}
-          {metric === "roi" && pnlLast ? <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm font-semibold", pnlLast[1] >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>{usdCompact(pnlLast[1], { sign: true, digits: 2 })}</span> : null}
+          {metric === "roi" && pnlLast ? <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm font-semibold", pnlLast[1] >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{usdCompact(pnlLast[1], { sign: true, digits: 2 })}</span> : null}
         </div>
         <div className="flex flex-col items-end gap-1 text-right">
           {last ? <p className="num font-mono text-[11px] text-muted-foreground uppercase">{format.stamp(last[0])}</p> : null}

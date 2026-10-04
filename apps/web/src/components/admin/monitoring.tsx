@@ -113,7 +113,7 @@ export function RetentionPanel({ retention: r }: { retention: NonNullable<AdminS
 }
 function Status({ state }: {state: AdminSystemOverview["worker"]["state"] | "available"}) {
   const { t } = useI18n();
-  return <span className={cn("mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", state === "active" || state === "available" ? "bg-positive-soft text-positive" : "bg-warning/10 text-warning")}>{t(`monitoring.${state}`)}</span>;
+  return <span className={cn("mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", state === "active" || state === "available" ? "bg-tag-profit text-tag-profit-foreground" : "bg-warning/10 text-warning")}>{t(`monitoring.${state}`)}</span>;
 }
 function Metric({label, value}: {label: React.ReactNode; value: React.ReactNode}) {
   return <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2"><dt className="text-muted-foreground">{label}</dt><dd className="num break-words text-right">{value}</dd></div>;

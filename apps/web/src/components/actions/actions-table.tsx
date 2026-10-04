@@ -19,12 +19,12 @@ import { coinLabel, toNumber } from "@/lib/format";
 export const ACTION_KINDS: readonly ActionKind[] = ["open", "add", "reduce", "close", "flip", "liquidation"];
 
 const KIND_STYLE: Record<ActionKind, string> = {
-  open: "bg-primary-soft text-primary-text",
-  add: "bg-primary-soft text-primary-text",
+  open: "bg-tag-alert text-tag-alert-foreground",
+  add: "bg-tag-alert text-tag-alert-foreground",
   reduce: "bg-raised text-muted-foreground",
   close: "bg-raised text-foreground",
   flip: "bg-warning/12 text-warning",
-  liquidation: "bg-negative-soft text-negative",
+  liquidation: "bg-tag-loss text-tag-loss-foreground",
 };
 
 export function KindBadge({ kind }: { kind: ActionKind }) {

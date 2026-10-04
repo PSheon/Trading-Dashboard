@@ -197,7 +197,7 @@ function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePe
           <Skeleton className="h-[640px] rounded-2xl" />
         )}
       </div>
-      <div data-area="main" className="flex min-w-0 flex-col gap-1.5">
+      <div data-area="main" className="flex min-w-0 flex-col gap-4">
         {profile.data?.dataQuality?.partial ? (
           <p role="status" className="text-sm text-warning">{t("trader.partialProfile")} <button type="button" className="underline" onClick={() => profile.refetch()}>{t("common.retry")}</button></p>
         ) : null}
@@ -213,9 +213,9 @@ function DesktopTrader({ address, profile, live, lowSample, portfolio, allTimePe
             tradesComputing={isComputing(tradesAll)}
           />
         ) : (
-          <div className="grid grid-cols-2 gap-1.5 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => (
-              <Skeleton key={i} className="h-[128px] rounded-[12px]" />
+              <Skeleton key={i} className="h-[128px] rounded-[24px]" />
             ))}
           </div>
         )}

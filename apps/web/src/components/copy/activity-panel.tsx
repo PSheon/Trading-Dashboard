@@ -117,7 +117,7 @@ function CopiesList() {
         return (
           <Row
             key={event.id}
-            icon={<span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", d.kind === "funds_in" ? "bg-positive-soft text-positive" : "bg-raised text-muted-foreground")}>{d.kind === "funds_in" ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}</span>}
+            icon={<span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", d.kind === "funds_in" ? "bg-tag-profit text-tag-profit-foreground" : "bg-raised text-muted-foreground")}>{d.kind === "funds_in" ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}</span>}
             title={title}
             subtitle={[who, status].filter(Boolean).join(" · ") || undefined}
             trail={<>
@@ -172,7 +172,7 @@ function DepositsList() {
         return (
           <Row
             key={`${x.hash}-${String(x.time)}`}
-            icon={<span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", deposit ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>{deposit ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}</span>}
+            icon={<span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", deposit ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{deposit ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}</span>}
             title={t(deposit ? "feed.deposit" : "feed.withdrawal")}
             subtitle={shortAgo(x.time, t)}
             trail={<>

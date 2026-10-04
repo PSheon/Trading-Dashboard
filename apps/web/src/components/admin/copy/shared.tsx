@@ -54,10 +54,10 @@ export function Chip({ tone = "neutral", children }: { tone?: "neutral" | "good"
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap",
-        tone === "good" && "bg-positive-soft text-positive",
-        tone === "bad" && "bg-negative-soft text-negative",
-        tone === "warn" && "bg-warning/15 text-warning",
-        tone === "info" && "bg-primary-soft text-primary-text",
+        tone === "good" && "bg-tag-profit text-tag-profit-foreground",
+        tone === "bad" && "bg-tag-loss text-tag-loss-foreground",
+        tone === "warn" && "bg-tag-warning text-tag-warning-foreground",
+        tone === "info" && "bg-tag-alert text-tag-alert-foreground",
         tone === "neutral" && "bg-raised text-muted-foreground",
       )}
     >

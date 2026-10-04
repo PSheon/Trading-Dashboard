@@ -585,7 +585,7 @@
    panel under the profile on laptops, one column on phones. */
 .trader-grid {
   display: grid;
-  gap: 0.5rem; /* CopyDog's 8 px between its three columns */
+  gap: 1rem; /* Orbit's 16 px card gap */
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "profile" "main" "copy";
 }
@@ -599,7 +599,7 @@
 
 @media (min-width: 1024px) {
   .trader-grid {
-    grid-template-columns: 272px minmax(0, 1fr);
+    grid-template-columns: 280px minmax(0, 1fr);
     grid-template-rows: auto 1fr;
     grid-template-areas: "profile main" "copy main";
     align-items: start;
@@ -610,12 +610,12 @@
      its own grid area, which stretches to the tallest column. */
   .trader-grid > [data-area="copy"] {
     position: sticky;
-    top: calc(72px + 0.5rem);
+    top: calc(76px + 0.5rem);
   }
 }
 @media (min-width: 1280px) {
   .trader-grid {
-    grid-template-columns: 276px minmax(0, 1fr) 340px; /* CopyDog's widths at 1440: 276 | 716 | 340 */
+    grid-template-columns: 280px minmax(0, 1fr) 320px; /* C-Trader at 1440: 280 | main | 320 */
     grid-template-rows: auto;
     grid-template-areas: "profile main copy";
   }

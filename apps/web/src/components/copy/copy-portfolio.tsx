@@ -46,7 +46,7 @@ function StatusBadges({ s, className }: { s: CopyStrategyView; className?: strin
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
       {s.status !== "active" ? <span className={cn(chip, "bg-raised text-muted-foreground")}>{t(`portfolio.copy.status.${s.status}` as MessageKey)}</span> : null}
-      {s.reduceOnly && s.status !== "stopped" ? <span className={cn(chip, "bg-warning/15 text-warning")}>{t("portfolio.copy.status.reduceOnly")}</span> : null}
+      {s.reduceOnly && s.status !== "stopped" ? <span className={cn(chip, "bg-tag-warning text-tag-warning-foreground")}>{t("portfolio.copy.status.reduceOnly")}</span> : null}
     </span>
   );
 }
@@ -60,7 +60,7 @@ function PositionLine({ p, table, onShare }: { p: CopyPositionView; table: boole
       <span className="flex items-center gap-2">
         <CoinIcon coin={p.coin} size={18} />
         <span className="font-semibold">{coinLabel(p.coin)}</span>
-        <span className={cn("whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold", long ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>
+        <span className={cn("whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold", long ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
           {t(long ? "portfolio.copy.long" : "portfolio.copy.short")}
         </span>
         {onShare ? (

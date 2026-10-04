@@ -110,7 +110,7 @@ export function PortfolioChart({ overview, height = 240, className }: { overview
           )}
           {last && roiOk ? (
             roi ? (
-              <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm font-semibold", last[1] >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>{usdCompact(last[1], { sign: true, digits: 2 })}</span>
+              <span className={cn("num inline-flex h-[26px] items-center rounded-full px-3 text-sm font-semibold", last[1] >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{usdCompact(last[1], { sign: true, digits: 2 })}</span>
             ) : (
               <RoiPill value={lastRoi} label={`${Math.abs(lastRoi! * 100).toFixed(2)}%`} className="h-[26px] gap-[3px] px-3 text-sm leading-none [&>svg]:size-2.5" />
             )
@@ -434,7 +434,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
                     {a.hedged ? (
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-warning uppercase bg-warning/15">{t("pf.exposure.hedged")}</span>
                     ) : (
-                      <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", a.isLong ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>{a.isLong ? t("pf.exposure.long") : t("pf.exposure.short")}</span>
+                      <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", a.isLong ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{a.isLong ? t("pf.exposure.long") : t("pf.exposure.short")}</span>
                     )}
                   </span>
                   <span className="flex items-center gap-2">
@@ -458,7 +458,7 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: CopyOv
                         <span className="flex min-w-0 flex-1 flex-col">
                           <span className="flex items-center gap-1.5 text-xs font-semibold">
                             <span className="truncate">{boardName(leader)}</span>
-                            <span className={cn("rounded px-1 py-px text-[10px]", l.size > 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative")}>{l.size > 0 ? t("pf.exposure.long") : t("pf.exposure.short")}</span>
+                            <span className={cn("rounded px-1 py-px text-[10px]", l.size > 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>{l.size > 0 ? t("pf.exposure.long") : t("pf.exposure.short")}</span>
                           </span>
                           <span className="num text-[11px] text-muted-foreground">{format.usd(l.notional, { digits: 2 })}</span>
                         </span>

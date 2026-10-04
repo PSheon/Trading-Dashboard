@@ -266,7 +266,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
         spellCheck={false}
         autoComplete="off"
         className={cn(
-          "w-full rounded-full border-2 border-transparent bg-raised pr-11 font-bold text-foreground outline-none transition-colors placeholder:font-bold placeholder:text-subtle-foreground hover:bg-raised-hover focus-visible:border-primary",
+          "w-full text-ellipsis rounded-full border-2 border-transparent bg-raised pr-11 font-bold text-foreground outline-none transition-colors placeholder:font-bold placeholder:text-subtle-foreground hover:bg-raised-hover focus-visible:border-primary",
           overlay ? "h-12 pl-11 text-[15px]" : "h-11 pl-11 text-sm md:h-[52px] md:pl-[46px]",
         )}
       />

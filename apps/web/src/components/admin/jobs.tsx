@@ -185,9 +185,9 @@ export function JobCard({
           className={cn(
             "rounded-full px-2.5 py-1 text-xs font-semibold",
             job.status === "completed"
-              ? "bg-positive-soft text-positive"
+              ? "bg-tag-profit text-tag-profit-foreground"
               : job.status === "failed"
-                ? "bg-negative-soft text-negative"
+                ? "bg-tag-loss text-tag-loss-foreground"
                 : "bg-raised text-foreground",
           )}
         >

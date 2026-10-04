@@ -42,8 +42,8 @@ import { TradeShareDialog, traderCardSource, type TradeCardSource } from "./trad
  * palette. Tables are CopyDog-dense and scroll inside their card.
  */
 
-const BUY_BADGE = "bg-positive-soft text-positive";
-const SELL_BADGE = "bg-negative-soft text-negative";
+const BUY_BADGE = "bg-tag-profit text-tag-profit-foreground";
+const SELL_BADGE = "bg-tag-loss text-tag-loss-foreground";
 
 function Badge({ tone, children }: { tone: "buy" | "sell" | "move"; children: React.ReactNode }) {
   return (
@@ -79,8 +79,8 @@ const fundingOf = (p: LivePosition) => (p.fundingSinceOpen == null ? null : -p.f
 
 const LIQ_TONE = {
   critical: "bg-negative text-background",
-  danger: "bg-negative-soft text-negative",
-  warn: "bg-warning/15 text-warning",
+  danger: "bg-tag-loss text-tag-loss-foreground",
+  warn: "bg-tag-warning text-tag-warning-foreground",
   safe: "bg-raised text-muted-foreground",
 } as const;
 
@@ -129,7 +129,7 @@ function PositionCard({ p, mark, onShare }: { p: LivePosition; mark: number | nu
   const { t } = useI18n();
   const pct = pnlPct(p);
   return (
-    <li className="flex flex-col gap-3 rounded-2xl bg-card p-4">
+    <li className="orbit-card flex flex-col gap-3 rounded-[24px]! p-4">
       <div className="flex items-start gap-2">
         <CoinIcon coin={p.coin} size={30} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">

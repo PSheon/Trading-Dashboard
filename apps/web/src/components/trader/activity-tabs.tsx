@@ -65,12 +65,12 @@ export function ActivityTabs({
   const analytics = useTraderAnalytics(profile.address, "all");
 
   return (
-    <section className="cd-tables overflow-hidden rounded-[12px] border border-border bg-card">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3">
-        <div role="tablist" aria-label={t("trader.tabsLabel")} className="flex min-w-0 items-center overflow-x-auto no-scrollbar">
+    <section className="cd-tables">
+      <div className="flex items-center justify-between gap-2">
+        <div role="tablist" aria-label={t("trader.tabsLabel")} className="flex min-w-0 items-center gap-1 overflow-x-auto py-1 no-scrollbar">
           {TAB_GROUPS.map((group, g) => (
             <Fragment key={g}>
-              {g > 0 ? <span aria-hidden className="mr-4 h-3.5 w-px shrink-0 bg-border-strong" /> : null}
+              {g > 0 ? <span aria-hidden className="mx-1.5 h-5 w-0.5 shrink-0 rounded-full bg-border" /> : null}
               {group.map((id) => (
                 <button
                   key={id}
@@ -83,8 +83,8 @@ export function ActivityTabs({
                   aria-selected={tab === id}
                   onClick={() => setTab(id)}
                   className={cn(
-                    "mr-[22px] shrink-0 border-b-2 px-0.5 py-3 font-mono text-xs leading-[18px] font-semibold tracking-[0.4px] whitespace-nowrap uppercase outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    tab === id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+                    "h-11 shrink-0 rounded-full px-4 text-[15px] whitespace-nowrap outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                    tab === id ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:bg-raised hover:text-foreground",
                   )}
                 >
                   {t(`trader.tabs.${id}`)}
@@ -103,8 +103,8 @@ export function ActivityTabs({
               aria-label={feedOpen ? t("trader.activity.hide") : t("trader.activity.pulse")}
               title={feedOpen ? t("trader.activity.hide") : t("trader.activity.pulse")}
               className={cn(
-                "hidden size-7 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex",
-                feedOpen ? "text-primary-text" : "text-muted-foreground hover:bg-raised hover:text-foreground",
+                "hidden size-11 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex",
+                feedOpen ? "bg-primary text-primary-foreground" : "bg-raised text-muted-foreground hover:bg-raised-hover hover:text-foreground",
               )}
             >
               <Activity className="size-4" />

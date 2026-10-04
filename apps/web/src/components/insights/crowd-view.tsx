@@ -117,8 +117,8 @@ export function CrowdView({ onCoin }: { onCoin: (coin: string) => void }) {
                             biasPct < 0.05
                               ? "bg-raised text-muted-foreground"
                               : (c.netBias ?? 0) > 0
-                                ? "bg-positive-soft text-positive"
-                                : "bg-negative-soft text-negative",
+                                ? "bg-tag-profit text-tag-profit-foreground"
+                                : "bg-tag-loss text-tag-loss-foreground",
                           )}
                         >
                           {c.netBias === null ? "—" : biasPct < 0.05

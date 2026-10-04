@@ -272,7 +272,7 @@ export function MobileTrader({
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.accountValue")}</dt>
           <dd className="num font-display text-xl leading-[30px]">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
-          {accountGap ? <p role="status" className="text-[10px] leading-[14px] text-warning">{accountGap}</p> : null}
+          {accountGap ? <dd role="status" className="text-[11px] leading-[14px] font-bold text-warning">{accountGap}</dd> : null}
         </div>
         <div className="flex min-w-0 flex-col gap-[5px]">
           <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.kpi.sharpe")}</dt>
@@ -287,9 +287,9 @@ export function MobileTrader({
             {winRate !== null ? <Ring value={winRate} /> : null}
           </dd>
           {analytics && sampleSince !== null ? (
-            <p className="num text-[10px] leading-[14px] text-muted-foreground" title={t("trader.kpi.tradesSinceHint")}>
+            <dd className="num text-[11px] leading-[14px] font-bold text-muted-foreground" title={t("trader.kpi.tradesSinceHint")}>
               {t("trader.kpi.tradesSince", { count: analytics.summary.trades, date: format.shortDate(sampleSince) })}
-            </p>
+            </dd>
           ) : null}
         </div>
         <div className="flex min-w-0 flex-col gap-[5px]">

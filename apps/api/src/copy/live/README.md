@@ -213,3 +213,30 @@ Before connecting a live worker, implement and verify all of these dependencies:
 
 These are integration prerequisites, not implemented production readiness. No
 live/testnet execution mode has been enabled by this boundary work.
+
+## Why the sweep back to the main wallet is not automatic (2026-10-05)
+
+CopyDog's help says stopping a copy closes its positions and sweeps
+everything back to the main wallet. Orbie closes automatically but stops at
+`stop_awaiting_return_to_main_wallet` until the owner signs the return. The
+missing piece is authority, not code:
+
+- The funds sit on the copy's Hyperliquid account, whose key is a Privy
+  wallet the owner alone owns (`PrivyWalletProvisioner`: owner `user_id`,
+  no additional signer; provisioning verifies `additional_signers` is empty
+  and the owner quorum holds exactly that user, no authorization keys).
+- A transfer out of that account is a `usdSend` signed by the account
+  itself. The worker's agent (API wallet) can trade and reduce but
+  Hyperliquid does not let an agent transfer or withdraw funds.
+- So the return is signed by the account wallet through Privy with the
+  owner's live session JWT (`PrivyMasterActionSigner`, `user_jwts`) after
+  the owner's main wallet signs the exact transfer (consent).
+
+Making the sweep automatic safely needs a server signer on the account
+wallet that can sign only that transfer: a Privy key quorum (the worker's
+authorization key) added as an additional signer on each copy account
+wallet, with a Privy policy allowing only `HyperliquidTransaction:UsdSend`
+whose destination is the owner's main wallet (and nothing else), added with
+the owner's consent when the copy account is created, and the provisioning
+checks above relaxed to expect exactly that signer and policy. Until then
+the portfolio shows "Return everything" as soon as the stop is flat.

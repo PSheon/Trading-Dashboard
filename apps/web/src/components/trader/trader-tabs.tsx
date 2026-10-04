@@ -10,7 +10,7 @@ import type {
   TraderTwap,
 } from "@/lib/contracts";
 import { ArrowDownRight, ArrowUpRight, Share2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 
 import { CoinIcon } from "@/components/traders/coin-icon";
@@ -492,15 +492,89 @@ const FILL_KEYS: Record<FillKey, (g: FillGroup) => number | string> = {
   time: (g) => g.time,
 };
 
+/** One 成交 row. Memoised: showing the next step of rows renders only the
+ * new ones, not every row already in the page. */
+const FillRow = memo(function FillRow({ g, yes, no }: { g: FillGroup; yes: string; no: string }) {
+  const dir = fillDirection(g);
+  return (
+    <TableRow>
+      <TableCell>
+        <span className="inline-flex items-center gap-2 align-middle font-semibold">
+          <CoinIcon coin={g.coin} size={18} />
+          {coinLabel(g.coin)}
+          {g.count > 1 ? (
+            <span className="num rounded-full bg-raised px-1.5 text-[10px] font-semibold text-muted-foreground" data-testid="fill-count" title={String(g.count)}>
+              {g.count}
+            </span>
+          ) : null}
+        </span>
+      </TableCell>
+      <TableCell className="text-right">
+        <Badge tone={fillTone(g.liquidation ? "sell" : dir)}>{dir}</Badge>
+      </TableCell>
+      <TableCell className="text-right">
+        {g.partial ? "≥" : ""}
+        {qty(g.size)} {coinLabel(g.coin)}
+      </TableCell>
+      <TableCell className="text-right">{g.startPosition === null ? "—" : qty(g.startPosition)}</TableCell>
+      <TableCell className="text-right">{price(g.price)}</TableCell>
+      <TableCell className="text-right">
+        {g.partial ? "≥" : ""}
+        {usd2(g.value)}
+      </TableCell>
+      <TableCell className={cn("text-right", pnlTone(g.pnl))}>{g.pnl ? signedUsd2(g.pnl) : "—"}</TableCell>
+      <TableCell className="text-right">
+        {g.liquidation ? <span className="text-negative">{yes}</span> : no}
+      </TableCell>
+      <TableCell className="text-right">{shortTime(g.time)}</TableCell>
+    </TableRow>
+  );
+});
+
+/** Fill rows put in the page at once; more follow as the end nears. */
+export const FILL_ROWS_STEP = 200;
+
+/**
+ * How many of `total` rows to render: one step, then another each time the
+ * marker row after the last one comes within a screen of the viewport. The
+ * list reads like CopyDog's (every row, one scroll), but a page of 2,000
+ * fills that don't merge no longer builds ~27,000 nodes on open and on
+ * every re-sort (measured: a 0.5 s task, 2 s on a 4× slower CPU). A new
+ * sort (`reset`) starts again from the top; a refetch keeps what is shown.
+ * Without IntersectionObserver every row is rendered.
+ */
+function useRowWindow(total: number, reset: unknown): [number, React.RefObject<HTMLDivElement | null>] {
+  const [count, setCount] = useState(FILL_ROWS_STEP);
+  const marker = useRef<HTMLDivElement | null>(null);
+  const [lastReset, setLastReset] = useState(reset);
+  if (lastReset !== reset) {
+    setLastReset(reset);
+    setCount(FILL_ROWS_STEP);
+  }
+  useEffect(() => {
+    const el = marker.current;
+    if (!el || count >= total || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setCount((n) => n + FILL_ROWS_STEP);
+    }, { rootMargin: "100% 0px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [count, total]);
+  const unlimited = typeof window !== "undefined" && typeof IntersectionObserver === "undefined";
+  return [unlimited ? total : Math.min(count, total), marker];
+}
+
 /** 成交: fills (perp and spot) grouped by order stream, 資產 (count) / 方向
  * / 數量 / 原持倉 / 價格 / 價值 / 損益 / 強平 / 時間, newest first. */
 export function FillsTab({ rows, truncated = false }: { rows: TraderFill[]; truncated?: boolean }) {
   const { t } = useI18n();
   const groups = useMemo(() => groupFills(rows, truncated), [rows, truncated]);
   const { sorted, sort, onSort } = useSorted<FillGroup, FillKey>(groups, FILL_KEYS, { key: "time", dir: "desc" });
+  const [shown, marker] = useRowWindow(sorted.length, sort);
   if (rows.length === 0) return <Empty title={t("trader.empty.fillsTitle")} body={t("trader.empty.fillsDesc")} />;
   const head = { sort, onSort };
   return (
+    <>
     <Table dense className="text-xs">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
@@ -516,44 +590,11 @@ export function FillsTab({ rows, truncated = false }: { rows: TraderFill[]; trun
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sorted.map((g) => {
-          const dir = fillDirection(g);
-          return (
-            <TableRow key={g.key}>
-              <TableCell>
-                <span className="inline-flex items-center gap-2 align-middle font-semibold">
-                  <CoinIcon coin={g.coin} size={18} />
-                  {coinLabel(g.coin)}
-                  {g.count > 1 ? (
-                    <span className="num rounded-full bg-raised px-1.5 text-[10px] font-semibold text-muted-foreground" data-testid="fill-count" title={String(g.count)}>
-                      {g.count}
-                    </span>
-                  ) : null}
-                </span>
-              </TableCell>
-              <TableCell className="text-right">
-                <Badge tone={fillTone(g.liquidation ? "sell" : dir)}>{dir}</Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                {g.partial ? "≥" : ""}
-                {qty(g.size)} {coinLabel(g.coin)}
-              </TableCell>
-              <TableCell className="text-right">{g.startPosition === null ? "—" : qty(g.startPosition)}</TableCell>
-              <TableCell className="text-right">{price(g.price)}</TableCell>
-              <TableCell className="text-right">
-                {g.partial ? "≥" : ""}
-                {usd2(g.value)}
-              </TableCell>
-              <TableCell className={cn("text-right", pnlTone(g.pnl))}>{g.pnl ? signedUsd2(g.pnl) : "—"}</TableCell>
-              <TableCell className="text-right">
-                {g.liquidation ? <span className="text-negative">{t("trader.yes")}</span> : t("trader.no")}
-              </TableCell>
-              <TableCell className="text-right">{shortTime(g.time)}</TableCell>
-            </TableRow>
-          );
-        })}
+        {sorted.slice(0, shown).map((g) => <FillRow key={g.key} g={g} yes={t("trader.yes")} no={t("trader.no")} />)}
       </TableBody>
     </Table>
+    {shown < sorted.length ? <div ref={marker} aria-hidden className="-mt-px h-px" /> : null}
+    </>
   );
 }
 

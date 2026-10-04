@@ -10,14 +10,14 @@ export const ogSize = { width: 1200, height: 630 };
 export const ogAlt = `${APP_NAME} — ${catalogs.en.meta.tagline}`;
 
 /**
- * Social card (Open Graph + Twitter): the dark lockup and the tagline on
- * brand navy. The bundled font is a Fredoka 600 subset that covers only the
+ * Social card (Open Graph + Twitter): Orbit's light look — the ink lockup
+ * and the tagline on the cream page, with soft orange and violet orbits. The bundled font is a Fredoka 600 subset that covers only the
  * letters of "orbie" and the tagline; a different NEXT_PUBLIC_APP_NAME needs
  * a new subset (see apps/web/README.md).
  */
 export async function renderOgCard() {
   const fredoka = await readFile(join(process.cwd(), "src/assets/fredoka-600-subset.ttf"));
-  const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${markSvgBody("dark", 220)}</svg>`;
+  const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${markSvgBody("light", 220)}</svg>`;
 
   return new ImageResponse(
     (
@@ -29,8 +29,8 @@ export async function renderOgCard() {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          background: `radial-gradient(circle at 50% 38%, #2a2552 0%, ${BRAND.navy} 55%, #0f0d1f 100%)`,
-          color: BRAND.cream,
+          background: `radial-gradient(circle at 12% 18%, #ffe1d0 0%, rgba(255,225,208,0) 38%), radial-gradient(circle at 88% 85%, #e9e0ff 0%, rgba(233,224,255,0) 40%), ${BRAND.cream}`,
+          color: "#15132b",
           fontFamily: "Fredoka",
         }}
       >
@@ -46,7 +46,7 @@ export async function renderOgCard() {
             {APP_NAME.toLowerCase()}
           </div>
         </div>
-        <div style={{ marginTop: 28, fontSize: 52, fontWeight: 600, color: "#b9b5d0" }}>
+        <div style={{ marginTop: 28, fontSize: 52, fontWeight: 600, color: "#5a5674" }}>
           {catalogs.en.meta.tagline}
         </div>
       </div>

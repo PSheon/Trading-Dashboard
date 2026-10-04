@@ -65,13 +65,17 @@ given) · — no board (system applied)
 
 | Page | Mobile perf / a11y / BP / SEO | Desktop perf / a11y / BP / SEO |
 |---|---|---|
-| `/` | 77 / 100 / 75 / 100 | 93 / 96* / 74 / 100 |
-| `/explore` | 62 / 100 / 100 / 100 | 92 / 100 / 74 / 100 |
-| `/insights` | 60 / 100 / 75 / 100 | 93 / 100 / 74 / 100 |
-| `/coins` | 64 / 100 / 75 / 100 | 95 / 100 / 74 / 100 |
-| `/trader/0x6f97…e172` | 62 / 100 / 75 / 100 | 84 / 100 / 74 / 100 |
+| `/` | 79 / 100 / 75 / 100 | 93 / 100 / 74 / 100 |
+| `/explore` | 61 / 100 / 75 / 100 | 92 / 100 / 74 / 100 |
+| `/insights` | 59 / 100 / 100 / 100 | 93 / 100 / 74 / 100 |
+| `/coins` | 63 / 100 / 75 / 100 | 95 / 100 / 74 / 100 |
+| `/trader/0x6f97…e172` | 66 / 100 / 75 / 100 | 77–84 / 100 / 74 / 100 |
 
-  \* fixed afterwards (24 px targets for the calculator dots).
+  No "before" run exists: the brief allows production builds near the end
+  only, and the production site was not reachable from the sandbox. The
+  first post-restyle run (before the font fix) had home mobile 57 / LCP
+  14.2 s; the trader page's desktop LCP is its client-fetched chart headline
+  (2.5–3.7 s), which only server-rendered chart data would move under 90.
   Best Practices 74–75 is Privy's (third-party cookies on auth.privy.io and a
   403 from its analytics endpoint after the idle-time SDK load), not the
   restyle. Mobile performance is bound by client-side data rendering after

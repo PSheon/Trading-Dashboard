@@ -254,7 +254,19 @@ export class TradeAnalyticsService {
    * funding is read at most once an hour per address. Returns the addresses
    * refreshed.
    */
-  async refreshTracked(now = Date.now()): Promise<string[]> {
+  refreshTracked(now = Date.now()): Promise<string[]> {
+    // One turn at a time: a turn can wait minutes for the budget, and the
+    // minute cron would otherwise start dozens of turns over the same due
+    // addresses, each counting the same failure again (seen 2026-10-04:
+    // "46 in a row" logged in one millisecond for one address).
+    if (this.trackedTurn) return Promise.resolve([]);
+    this.trackedTurn = this.refreshTrackedTurn(now).finally(() => { this.trackedTurn = undefined; });
+    return this.trackedTurn;
+  }
+
+  private trackedTurn: Promise<string[]> | undefined;
+
+  private async refreshTrackedTurn(now: number): Promise<string[]> {
     const waiting = [...this.trackedBackoff].filter(([, backoff]) => backoff.retryAt > now).map(([address]) => address);
     const due = await this.repository.trackedDue(new Date(now - STALE_MS), TRACKED_REFRESH_PER_TICK, waiting);
     const done: string[] = [];

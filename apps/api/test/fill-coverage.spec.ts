@@ -364,6 +364,27 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
       expect(info.userFillsByTime).not.toHaveBeenCalled();
     });
 
+    it("runs one tracked turn at a time: an overlapping minute tick does nothing", async () => {
+      const now = Date.now();
+      await db.insert(fills).values([fill("BTC", 0, 1, now - 10 * HOUR), fill("BTC", 1, -1, now - 9 * HOUR)].map((f) => toFillRow(A, f)));
+      await span(now - DAY, now - HOUR);
+      await db.insert(leaders).values({ address: A }).onConflictDoNothing();
+      const service = analytics();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const compute = vi.spyOn(service, "compute").mockImplementation(async () => { await gate; throw new Error("budget"); });
+      const first = service.refreshTracked();
+      // Later ticks while the first turn still waits for its budget.
+      expect(await service.refreshTracked()).toEqual([]);
+      expect(await service.refreshTracked()).toEqual([]);
+      release();
+      expect(await first).toEqual([]);
+      expect(compute).toHaveBeenCalledTimes(1);
+      // One failure counted, not one per overlapping turn.
+      expect(service.trackedRetryAt(A)! - Date.now()).toBeLessThanOrEqual(2 * 60_000);
+      compute.mockRestore();
+    });
+
     it("does not present figures as complete while a break in the span is unexplained", async () => {
       const now = Date.now();
       const chain = [fill("BTC", 0, 1, now - 10 * HOUR), fill("BTC", 1, -1, now - 9 * HOUR)];

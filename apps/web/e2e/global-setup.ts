@@ -46,7 +46,7 @@ export default async function globalSetup(config: FullConfig) {
   if (!baseURL) throw new Error("global setup needs use.baseURL");
   const started = Date.now();
   const paths = routes(join(config.rootDir, "../src/app"));
-  // One at a time: the compiles share one webpack and one core in CI.
+  // One at a time: the compiles share one bundler and one core in CI.
   for (const path of paths) {
     const response = await fetch(new URL(path, baseURL), { headers: { cookie: "locale=en" }, signal: AbortSignal.timeout(300_000) });
     await response.arrayBuffer();

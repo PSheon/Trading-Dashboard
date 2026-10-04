@@ -62,7 +62,10 @@ test("market icons load from this site and text fields are 16px on a touch scree
 
 test("a phone home card never cuts an address twice", async ({ page }) => {
   await page.goto("/");
-  const names = await page.locator('a[href^="/trader/0x"]').filter({ visible: true }).evaluateAll((cards) => cards.map((card) => (card as HTMLElement).innerText));
+  const cards = page.locator('a[href^="/trader/0x"]').filter({ visible: true });
+  // The cards fill in after the first paint; read them once they are there.
+  await expect(cards.nth(3)).toBeVisible();
+  const names = await cards.evaluateAll((cards) => cards.map((card) => (card as HTMLElement).innerText));
   expect(names.length).toBeGreaterThan(3);
   for (const name of names) expect((name.match(/…/g) ?? []).length, name).toBeLessThanOrEqual(1);
 });

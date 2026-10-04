@@ -2,6 +2,11 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# pnpm 10 deploy derives a frozen production closure from this lockfile.
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build
+
 # The only audit exception has an installed patch and required exploit tests.
 # `pnpm audit --ignore` writes configuration and exits; CI runs an actual audit.
 auditConfig:

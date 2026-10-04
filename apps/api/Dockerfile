@@ -13,9 +13,12 @@ RUN pnpm install --frozen-lockfile --filter @trading-dashboard/api...
 COPY tsconfig.json ./
 COPY apps/api apps/api
 COPY packages/shared packages/shared
+# Only the production closure can omit patches for development-only packages.
+# Full installation still rejects unused patches; failed patch application is
+# never allowed. Keep this exception scoped to the production deploy command.
 RUN pnpm --filter @trading-dashboard/shared build \
  && pnpm --filter @trading-dashboard/api build \
- && pnpm --filter @trading-dashboard/api deploy --legacy --prod /out
+ && pnpm --config.allowUnusedPatches=true --filter @trading-dashboard/api deploy --prod /out
 
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production

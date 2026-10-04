@@ -87,3 +87,5 @@ jobs:
         run: pnpm build
       - name: API runtime image
         run: docker build -f apps/api/Dockerfile -t orbie-api:ci .
+      - name: Frozen runtime dependencies, container migration and readiness
+        run: node scripts/image-smoke.mjs orbie-api:ci

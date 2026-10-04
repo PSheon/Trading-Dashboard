@@ -32,6 +32,10 @@ Railway Stage 的 PostgreSQL volume snapshot 已建立並查詢確認：`63c7373
 
 API／worker 已設定同一出站配額識別；實際交易 mode 仍為 paper／testnet wallet network。部署成功須逐一確認 worker、API、web 的精確 deployment ID 並實測公開服務，不能以 CLI 上傳成功代替。
 
+第一個 worker 部署 `e33844dd-1bdf-4656-a58a-26db89137ec7` 在建置階段失敗，未執行 migration：production-only 打包沒有使用開發依賴 braces 的修補，pnpm 因 unused patch 中止。已改用 pnpm 10 的 injected workspace 與 lockfile deployment，移除會重新解析版本的 legacy deployment。僅 production deploy 允許未使用的 patch；完整 install 的 unused／failed patch 檢查維持嚴格。共享套件 build 後同步到 injected consumers。
+
+本地重新建置 production image 通過，容器內的直接執行依賴版本逐一比對 frozen workspace 安裝一致，沒有開發工具或環境檔，非 root 執行。隔離 PostgreSQL 的容器 release migration、readiness 200、正常 exit 0 通過，測試資料庫已移除。CI 新增同一 image smoke，包含 Linux host mapping。這是本地映像驗證，尚不能代替 Railway 新 deployment 成功。
+
 ## 仍需接通的流程
 
 1. 財務 worker 的訊號、送單、成交同步、settlement 與 restart supervision；目前只有未註冊的 testnet runtime。

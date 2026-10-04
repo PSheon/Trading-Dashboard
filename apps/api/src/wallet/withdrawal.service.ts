@@ -207,6 +207,11 @@ export class WithdrawalService {
       throw new BadGatewayException("Withdrawal status unavailable");
     }
     const match = ledgerMatch(operation, rows, now);
+    // Fail closed: a withdraw with this nonce that does not match exactly
+    // (amount, fee, hash format) is not proof of absence.
+    if (!match && rows.some(row => row.delta.type === 'withdraw' && typeof row.delta.nonce === 'number' &&
+      (BigInt(Math.trunc(row.delta.nonce)) === BigInt(operation.nonce) || BigInt(Math.trunc(row.delta.nonce)) === BigInt(operation.nonce) * 1000n)))
+      throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_ambiguous", message: "The ledger has a withdrawal with this nonce that does not match; resolve it by hand" });
     const evidence = match ? "ledger_match" as const : "ledger_absent_after_nonce_window" as const;
     const status = match ? "accepted" as const : "not_executed" as const;
     const hash = match ?? evidenceHash({ source: "operator", evidence, address: operation.address, nonce: operation.nonce, ledgerFrom: Math.max(0, operation.nonce - 60_000), ledgerTo: now, updates: rows.length });

@@ -5,7 +5,6 @@ import { liveStopMessages, liveStopResumeMessages, liveStopDiscardMessages } fro
 import { canResumeLiveCopyStop, useLiveCopyStops, type LiveStopSelection } from '@/lib/copy-live-stop';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
-import { usePrivy } from '@privy-io/react-auth';
 
 /** Integrate beside the selected actual mandate; no signing wallet is required. */
 export function CopyLiveStop({ selection }: { selection: LiveStopSelection | null }) {
@@ -14,7 +13,9 @@ export function CopyLiveStop({ selection }: { selection: LiveStopSelection | nul
   return <OwnedCopyLiveStop selection={selection}/>;
 }
 function OwnedCopyLiveStop({ selection }: { selection: LiveStopSelection | null }) {
-  const { user } = usePrivy();
+  // The owner's Privy id, from the auth layer (Privy renders beside the page).
+  const { userId } = useAuth();
+  const user = userId ? { id: userId } : null;
   const { locale, format } = useI18n(), text = liveStopMessages[locale], resumeText = liveStopResumeMessages[locale], discardText = liveStopDiscardMessages[locale];
   const { enabled, history, attempts, storageError, storageReady, mutation, discard } = useLiveCopyStops(selection, user?.id ?? null);
   const heading = useId(), hint = useId();

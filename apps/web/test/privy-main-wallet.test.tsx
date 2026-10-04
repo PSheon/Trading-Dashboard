@@ -40,13 +40,20 @@ function Probe() {
   useEffect(() => { auth = value; }, [value]);
   return <span>{value.wallet?.address}</span>;
 }
-async function render() { await act(async () => root.render(<AuthProvider><Probe /></AuthProvider>)); }
+// Privy loads lazily (lib/auth-privy.tsx): at once with a saved session.
+async function render() {
+  await act(async () => root.render(<AuthProvider><Probe /></AuthProvider>));
+  // React applies the lazy module's arrival when an act() ends: poll in turns.
+  for (let i = 0; i < 200 && (!auth || auth.status === "loading"); i++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+}
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   sdk.user = { id: "alice", email: undefined, google: { email: "alice@example.com" }, wallet: undefined, linkedAccounts: [] };
   sdk.wallets = []; sdk.ready = true; sdk.authenticated = true;
   vi.clearAllMocks();
+  localStorage.setItem("privy:token", "saved");
+  auth = undefined as unknown as AuthState;
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });

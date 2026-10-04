@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, TriangleAlert } from "lucide-react";
+import { useIsMutating } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
 import { ErrorState, Skeleton } from "@/components/page";
@@ -13,7 +14,8 @@ import type { WalletSummary } from "@/lib/contracts";
 import { WITHDRAW_FEE_USDC, networkConfig, usdcString } from "@/lib/hyperliquid-network";
 import { apiErrorCode } from "@/lib/api";
 import { amountInput } from "@/lib/amount-input";
-import { signErrorMessage, useWallet, useWithdraw, useWithdrawalRecovery, useCancelWithdrawalPreparation } from "@/lib/wallet";
+import { signErrorMessage, useWallet, useWithdraw, useWithdrawalRecovery, useCancelWithdrawalPreparation, WITHDRAW_MUTATION_KEY } from "@/lib/wallet";
+import type { Translate } from "@/i18n/provider";
 import { NetworkBadge } from "./bits";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -34,6 +36,22 @@ export function withdrawProblem(destination: string, amount: string, withdrawabl
   return { ready: Boolean(dest), problem: null };
 }
 
+/** What a failed withdrawal tells the user. The api's answers (busy, rate
+ * limited, the journal's codes) and a lost connection are not signing
+ * failures; only what the wallet itself threw reads as one. */
+export function withdrawErrorText(err: unknown, t: Translate, recoveryText: string): string {
+  const code = apiErrorCode(err) ?? (err instanceof Error ? err.message : "");
+  if (code === "withdrawal_unknown" || code === "withdrawal_pending") return recoveryText;
+  if (code === "withdrawal_rejected") return t("wallet.withdrawRejected");
+  if (code === "withdrawal_identity_mismatch") return t("wallet.noWallet");
+  const status = (err as { status?: unknown } | null)?.status;
+  if (status === 429) return t("common.errors.rateLimited");
+  if (status === 502 || status === 503 || status === 504) return t("common.errors.busy");
+  if (typeof status === "number" || (err instanceof TypeError && /fetch|network|load failed/i.test(err.message))) return t("common.errors.failed");
+  const error = signErrorMessage(err);
+  return error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message });
+}
+
 /**
  * CopyDog's 提款 modal: 目標地址, 金額（USDC） with 可用 / 最大, 「僅可提取
  * USDC 至 Arbitrum 鏈 · $1 網路費用」 and 提款 (disabled until valid). The
@@ -44,9 +62,12 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const { t } = useI18n();
   const wallet = useWallet();
   const summary = wallet.data;
+  // While a withdrawal is being signed and sent the modal stays open: its
+  // result (sent, rejected, needs recovery) is what the user waits for.
+  const sending = useIsMutating({ mutationKey: WITHDRAW_MUTATION_KEY }) > 0;
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={t("wallet.withdrawTitle")} badge={<NetworkBadge network={summary?.network} />}>
+    <Modal open={open} onOpenChange={(next) => { if (!next && sending) return; onOpenChange(next); }} title={t("wallet.withdrawTitle")} badge={<NetworkBadge network={summary?.network} />}>
       {wallet.isError && !summary ? (
         <ErrorState onRetry={() => wallet.refetch()} />
       ) : !summary ? (
@@ -71,7 +92,19 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   const { t, format } = useI18n();
   const toast = useToast();
   const { wallet } = useAuth();
-  const withdraw = useWithdraw();
+  const recoveryText = t("wallet.withdrawRecovery");
+  // On the mutation, so the result toast survives the form unmounting.
+  const withdraw = useWithdraw({
+    onSuccess: (_data, variables) => {
+      if (variables.toastId !== undefined) toast.dismiss(variables.toastId);
+      toast.success(t("wallet.withdrawSent"));
+      onDone();
+    },
+    onError: (err, variables) => {
+      if (variables.toastId !== undefined) toast.dismiss(variables.toastId);
+      toast.error(withdrawErrorText(err, t, recoveryText));
+    },
+  });
   const cancel = useCancelWithdrawalPreparation();
   const [destinationInput, setDestination] = useState("");
   const [amountInputValue, setAmount] = useState("");
@@ -81,7 +114,6 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
   const amount = pendingOperation?.amount ?? amountInputValue;
   const recovering = Boolean(pendingOperation);
   const checking = pendingOperation?.status === "unknown";
-  const recoveryText = t("wallet.withdrawRecovery");
   const destId = useId();
   const amountId = useId();
   const network = networkConfig(summary.network);
@@ -106,25 +138,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         // CopyDog's three toasts: "Withdrawing $X…" (no icon) while signing,
         // then the submitted confirmation (and the modal closes) or the error.
         const pending = toast.info(checking ? t("wallet.checkWithdrawal") : t("wallet.withdrawSubmitting", { amount: format.usd(Number(amount), { digits: 2 }) }), { icon: false });
-        withdraw.mutate(
-          { summary, destination: destination.trim(), amount: amount.trim(), operationId: pendingOperation?.id },
-          {
-            onSuccess: () => {
-              toast.dismiss(pending);
-              toast.success(t("wallet.withdrawSent"));
-              onDone();
-            },
-            onError: (err) => {
-              toast.dismiss(pending);
-              const error = signErrorMessage(err);
-              const code = apiErrorCode(err) ?? (err instanceof Error ? err.message : "");
-              toast.error(code === "withdrawal_unknown" || code === "withdrawal_pending" ? recoveryText
-                : code === "withdrawal_rejected" ? t("wallet.withdrawRejected")
-                : code === "withdrawal_identity_mismatch" ? t("wallet.noWallet")
-                : error.rejected ? t("wallet.rejected") : t("wallet.signFailed", { message: error.message }));
-            },
-          },
-        );
+        withdraw.mutate({ summary, destination: destination.trim(), amount: amount.trim(), operationId: pendingOperation?.id, toastId: pending });
       }}
     >
       {checking && !pendingOperation?.canCancel ? <p role="status" className="mb-4 rounded-xl bg-raised p-3 text-sm text-muted-foreground">{recoveryText}<span className="num mt-2 block text-xs">ID: {pendingOperation?.nonce}</span></p> : null}

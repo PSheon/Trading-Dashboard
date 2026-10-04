@@ -133,14 +133,32 @@ export function useCancelWithdrawalPreparation() {
   });
 }
 
+export const WITHDRAW_MUTATION_KEY = ["wallet", "withdraw"] as const;
+
+export interface WithdrawVariables {
+  summary: WalletSummary;
+  destination: string;
+  amount: string;
+  operationId?: string;
+  /** The "withdrawing…" toast, dismissed when the result is known. */
+  toastId?: number;
+}
+
 /** Sign in the browser, persist the nonce before broadcast, and reconcile
  * ambiguous results by the exact withdrawal nonce. Never create a fresh
- * withdrawal as a retry of an uncertain one. */
-export function useWithdraw() {
+ * withdrawal as a retry of an uncertain one.
+ *
+ * `result` callbacks belong to the mutation itself, not to one `mutate`
+ * call: TanStack drops a call's callbacks when its component unmounts, so a
+ * dialog closed after signing would never tell the user what happened. */
+export function useWithdraw(result: { onSuccess?: (data: WalletWithdrawal, variables: WithdrawVariables) => void; onError?: (error: Error, variables: WithdrawVariables) => void } = {}) {
   const { wallet } = useAuth();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ summary, destination, amount, operationId }: { summary: WalletSummary; destination: string; amount: string; operationId?: string }) => {
+    mutationKey: WITHDRAW_MUTATION_KEY,
+    onSuccess: result.onSuccess ? (data: WalletWithdrawal, variables: WithdrawVariables) => result.onSuccess!(data, variables) : undefined,
+    onError: result.onError ? (error: Error, variables: WithdrawVariables) => result.onError!(error, variables) : undefined,
+    mutationFn: async ({ summary, destination, amount, operationId }: WithdrawVariables) => {
       if (!summary.address) throw new Error("No wallet");
       if (!operationId && (!wallet?.address || summary.address !== wallet.address.toLowerCase())) throw new Error("Wallet mismatch");
       const startingSession = sessionKey();

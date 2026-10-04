@@ -19,10 +19,45 @@ Paul 的三條規則：CopyDog 有的功能要有；CopyDog 錯的數字要改�
 - **C 三項 Low**（已修）：icon 路由每用戶限流且只抓已知市場；頭像抓取固定連到已檢查的 IP、封鎖 2002::/16 與 Teredo；`DELETE /me` 需 `X-Confirm-Delete` 確認 header。
 - **§B 已完成 17 項**：已在 [10-03 深度複查](copydog-deep-gap-review-2026-10-03.md) 標示完成。
 
+## 第二輪核對（側線 session，2026-10-04 17:30，唯讀）
+
+基準：HEAD `31aaa38`。兩個唯讀子代理分別核對修正與審查新 commit，主審以本機 `:3100` 實測。
+
+### 已修（實測或讀碼確認）
+
+A3、A4、A5、A8、C 三項 Low，以及 31aaa38 的 portfolio 功能（新端點有 guard 與 DTO、repository 以 user_id 過濾、todayPnl 未回到 D2、11 語系 key 一致）。6b70bc4 後 `/traders` 清單與 profile 的全帳戶值已改名 `accountPnl`／`accountRoi`，Bholu 清單與 profile 皆 8.289，perp ROI 38.97，不再同名異義。
+
+### 部分修或未修
+
+| # | 狀態 | 殘留 | 證據 |
+| --- | --- | --- | --- |
+| A1 | **部分** | 19eb97c 只改配額層，機制 (c) 緩解；(a) `traders.service.ts:120` 4 s deadline 仍短於 `trader-account-reader.ts:20` 的 5 s；(b) `live-account-ws-source.ts:115,120` 單飛 `busy` 仍讓並發第二個讀取立即 fail。**實測 09:25:58Z：三個不同地址同時請求，兩個 `perps: unavailable`、持倉 0；6 秒後再試 Bholu 仍 unavailable。** 兩個使用者同時開不同交易員頁就會發生 | `profileCache`（`traders.service.ts:183`）只對同一地址去重 |
+| A2 | **部分**（處理狀態寫「已修」，應改） | 過期部分已修：worker 每分鐘 `refreshTracked`，0x469e computedAt 已到 09:20Z。深度未改善：`fill-sync.service.ts:34-35` 仍 365 天／50,000 筆，只有 S3 封存涵蓋時才繞過，而封存預設關（A7）。本機 0x469e 仍 17 筆、76.5%、`truncated:true`（CopyDog 647 筆） | `trade-analytics.service.ts:478-493` |
+| A4 殘留 | 小 | `cohort.repository.ts:102` leaderboard top-up 仍按全帳戶 `accountValue` 排序，與 6b70bc4 說明「never by the whole account」不一致（只在 pool 不夠時補位） | — |
+| A6 | 部分 | cohort 上限 500/2000、取全部合格者；Copy Score 母體仍 `candidate_pool`，`candidatePoolSize` 預設 1000（`zod.ts:1550`） | — |
+| A7 | 未修 | `S3_ARCHIVE_ENABLED` 預設 false | `runtime-config.ts:96` |
+| B1–B6 | 未修 | `runtime-config.ts:64` 仍拒 testnet/live；live runtime、cancellation transport 無 module 引用；`needs_deposit` 0 筆；deposit-dialog 只有 Arbitrum；`live-order.ts:45` asset≥10000 拒絕 | — |
+
+### 新問題（本輪發現）
+
+| 嚴重度 | 位置 | 問題 | 情境 |
+| --- | --- | --- | --- |
+| **高（營運）** | worker 日誌 `.claude/logs/worker-3010.log` | worker 持續被共享 Hyperliquid 配額餓死：07:10Z 起每 10 分鐘 45–136 次 `hyperliquid_quota_exhausted`（confirm 319 次，集中在 3 個地址；交易分析 51、discovery 46、cohort 35、快照 29、TWAP 23）；History worker 08:10Z 起每 10 分鐘 4–7 次 `LiveBoundaryError`（來源同為配額層 `hyperliquid-global-quota.ts:133`）。同時段 api 流量極低（每 10 分鐘 1–10 個請求），所以是 worker 自己的工作量超過 840/min，不是頁面搶的 | 資料新鮮度（A2）與 alerts confirm 都受影響；worker 16:42 重啟後依舊 |
+| 中 | `trade-analytics.service.ts:224-228`（f756e46） | watched 地址的頁面讀取永不觸發重算，只靠 worker；api 對 stale+watched 仍回 `refreshing: true` | 部署只有 api 沒 worker（或本機 worker 掛掉）時，追蹤交易員分析無聲過期，前端一直顯示「更新中」。沒有 worker 時同時停止：排行榜匯入、discovery pool、cohort、archive ingest、outbox（Telegram／alerts 全停）、copy worker、revenue；`/health/heartbeat` 無 WORKER_URL 時 503 |
+| 中 | `trade-analytics.repository.ts:243-252` + `service.ts:240-252`（516bcdd） | trackedDue 以 `computed_at asc nulls first` 取 6 筆；compute 失敗不寫任何標記、無退避，失敗地址永遠排最前 | ≥6 個持續失敗的追蹤地址（歷史過大、40 s 逾時、配額耗盡）每分鐘佔滿名額，其餘追蹤交易員餓死。在目前配額餓死的狀況下這條會實際發生 |
+| 低 | `apps/web/src/lib/coin-icon-source.ts` `isKnown()`（28370e8） | 首次 `markets()` 回 null 時 `known` 仍 null 且不設 retry 時間 | api 不可達時每個 icon 請求都再打一次 `/discover/markets` |
+| 低 | `discovery/boards.ts:247`、`zod.ts:1976`（6b70bc4） | 卡片 `source:"leaderboard"` 但 pnl/roi 一律 null；搜尋結果註解過時 | 前端若依 source 顯示「來源：排行榜」會誤導 |
+| 低 | `traders.service.ts:293-296`（fb3922b） | `perpEquity` 是「已讀到的 dex 總和」的部分值，欄位本身無標示，只有 `unavailableParts` | 新消費者可能把部分當完整；cohort／classification 已排除 partial，安全 |
+| 低 | `me.controller.ts`（28370e8） | `X-Confirm-Delete` 為固定常數 | 擋誤觸與 CSRF，不是二次驗證；可接受，但別當成重驗證 |
+
+待驗證：coin-icon 只允許 perp 市場名，現貨專屬代幣 icon 可能 404；19eb97c 冷地址 32 calls 串列、每 call 最多等 40 s，首次 503 busy 時間可能拉長。
+
+本機狀態（17:25）：api 3100、web 3000、worker 3010、e2e 3109；41 個 Chromium 程序 2.2 GB；swap 22.5/23.5 GB，剩 1 GB。web 日誌裡 zh-TW.ts 語法錯誤是編輯中的暫時狀態，現在可解析。
+
 ## A. 數字：Orbie 必修（以 Hyperliquid 為準）
 
 | # | 問題 | 證據 | 誰對 | 優先 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | A1 | **交易員頁 perp 來源持續 unavailable** → `accountValue: null`、`positions: []`、未實現 null，前端顯示「無法取得」 | `GET /traders/0x6f97…` 於 05:21、05:25、05:28 三次皆 `dataQuality.sources.perps.status=unavailable`，所有 `perp:*` dex 同樣；api log 每次請求都有 `Profile source unavailable: perps`。候選機制：(a) `traders.service.ts:125` `profileSourceDeadlineMs=4_000` 短於 `trader-account-reader.ts:20` 的 `source.read(user, 5000)`；(b) `live-account-ws-source.ts:115-120` 單飛 `busy` 旗標，並發第二個 profile 讀取直接 fail；(c) 同一時段 log 有 `hyperliquid_quota_exhausted`（MarketCatalogService），WS 讀取要先 `quota.renew/subscribe`（`:108`），配額耗盡時整個 read 失敗。主 session 正在改 quota/transport 檔案，請在那條線一起修 | CopyDog 對（perp 56,374.90、combined 229,086.75、ZRO +8,752） | **P0** |
 | A2 | **追蹤地址的交易分析過期 23 小時**，且成交回補停在 50,000 筆 → 樣本只有約 8 天，勝率／風格錯 | 0x469e：`analytics.computedAt 10-03T06:21Z`，查詢時仍 refreshing；`STALE_MS` 10 分鐘應觸發（`trade-analytics.service.ts:44,220`）、排程 :15/:30/:45（`scheduler.service.ts:109-113`）。回補上限 `fill-sync.service.ts:35,371` 365 天／50,000 筆，此地址約 1 萬筆/日。結果 17 筆 76.5% intraday vs CopyDog 647 筆 70.8% swing；Bholu 135 筆 40.7% vs 610 筆 48.3%。本機榜首 solanadoomer `tradesFrom` 只從 09-26 起 | CopyDog 對（樣本完整） | **P0** |
 | A3 | `/traders` 清單與 `profile.stats` 的 PnL／ROI 用 Hyperliquid 排行榜「全帳戶」口徑，交易員頁用 CopyDog「perp」口徑，同名異義 | Bholu ROI 清單 831.6% vs 交易員頁 3893%；`traders.mappers.ts:246-264` vs `traders-table.tsx:97,134-142` | 兩個都是「對的數字」，但同一頁面不能兩種定義；CopyDog 的 `totalPnl` 其實也是全帳戶（0x469e 29.11M vs perp 20.63M），與其 llms.txt「perp-only」自相矛盾——**不要照抄** | P1 |
@@ -39,7 +74,7 @@ CopyDog 已知錯誤（我們要避免）：快照過期（Bholu metricsUpdatedA
 ## B. 功能差距（CopyDog 有、Orbie 沒有或不完整）
 
 | # | 功能 | Orbie 狀態 | 證據 | 缺什麼 | 優先 |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | B1 | 真實跟單執行 worker | 未做 | `runtime-config.ts:64` 拒絕 testnet/live；`copy-worker.service.ts:39-45` 只跑 paper；`testnet-live-execution-runtime.ts:56` 全 repo 無 import | 財務 worker 未註冊；訊號→送單→成交 settlement | **P0** |
 | B2 | 停止→撤單→平倉→sweep | 部分 | `copy-live-stop.service.ts:8-25` 只寫停止屏障；`hyperliquid-cancellation-transport.ts`、`privy-cancellation-signer.ts` 無 module 引用 | 本人撤單授權、晚到成交、reduce-only 平倉、sweep 回主錢包 | **P0** |
 | B3 | 真實注資狀態機 needs_deposit/funding | 部分 | `copy-funding.controller.ts:13-23` 有 testnet reserve/submit/reconcile；`grep needs_deposit` 0 筆；`copy-strategy.service.ts:185-195` 啟動仍扣 paper balance | 策略啟動未綁真實入金 | **P0** |
@@ -72,7 +107,7 @@ A2 策略錢包建立（`copy-wallet.controller.ts:12-30`）、A3 授權生命�
 結論：目前工作樹沒有信心 ≥ 80% 的 Critical／High／Medium 問題。主審另以 `git ls-files` 確認只有 `.env.example` 被追蹤；匿名 `/me` 回 401；本機 CSP 的 `unsafe-eval` 只在 dev。
 
 | 嚴重度 | 位置 | 問題 | 建議 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Low | `apps/web/src/app/api/coin-icon/[coin]/route.ts:16`、`coin-icon-source.ts:43,65` | 匿名路由無每客戶端限流；快取 800 筆，任意符合 regex 的幣名都會打一次上游 5 秒 fetch，可被用來放大對 app.hyperliquid.xyz 的請求 | 套用 `imageRetryAfter(clientAddress())`，並先比對已知市場清單 |
 | Low | `apps/api/src/discovery/kol-avatar.ts:51-71` | 頭像 SSRF 防護只在 fetch 前解析一次 DNS（註解已承認 rebinding 未涵蓋）；`isPublicAddress` 放行 6to4 `2002::/16`（主審已讀碼確認） | 連線固定使用已檢查的 IP；封鎖 `2002::/16` |
 | Low | `apps/api/src/users/account-deletion.service.ts:46` | `DELETE /me` 無伺服器端二次確認或近期重新驗證；已有 copies_active／execution_records_exist／referral_records_exist／last_admin 四道擋 | 要求近期驗證或確認 header |

@@ -11,13 +11,26 @@ export interface HyperliquidQuotaSubscription {readonly id:string;readonly netwo
 export interface HyperliquidQuotaLease {readonly id:string;readonly egressKey:string;readonly socketId:string;readonly fenceToken:string;readonly ownerId:string;readonly state:'reserved'|'open'|'closing'|'uncertain'|'closed';readonly revision:number;readonly leaseUntil:number;readonly latestAllowedSendAt:number;readonly subscriptions:readonly HyperliquidQuotaSubscription[];readonly createdAt:number;readonly updatedAt:number;readonly closedAt:number|null;}
 export interface HyperliquidQuotaState {readonly egressKey:string;readonly revision:number;readonly events:readonly HyperliquidQuotaEvent[];readonly updatedAt:number;}
 export type HyperliquidQuotaRequest=
- |{readonly kind:'rest';readonly id:string;readonly weight:number;readonly sendUntil:number}
+ |{readonly kind:'rest';readonly id:string;readonly weight:number;readonly sendUntil:number;readonly lane?:HyperliquidRestLane}
  |{readonly kind:'connect';readonly id:string;readonly sendUntil:number;readonly lease:Omit<HyperliquidQuotaLease,'state'|'revision'|'subscriptions'|'createdAt'|'updatedAt'|'closedAt'>}
  |{readonly kind:'subscribe';readonly id:string;readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly sendUntil:number;readonly subscriptions:readonly HyperliquidQuotaSubscription[];readonly prepayCleanup:boolean;readonly prepayClose?:boolean}
  |{readonly kind:'ping'|'close'|'unsubscribe';readonly id:string;readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly sendUntil:number;readonly subscriptionIds?:readonly string[]}
  |{readonly kind:'opened'|'uncertain'|'closing'|'closed';readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string}
  |{readonly kind:'renew';readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly sendUntil:number;readonly leaseUntil:number}
  |{readonly kind:'ack_unsubscribe';readonly leaseId:string;readonly fenceToken:string;readonly ownerId:string;readonly subscriptionIds:readonly string[]};
+/** `background`: work nobody is waiting for (pool loops, warm-ups, sweeps of
+ * uncopied leaders). It may fill the shared per-IP REST window only up to
+ * HYPERLIQUID_BACKGROUND_REST_CAP, so a page or a copy signal always finds
+ * room. Unlabelled requests (pages, live copy work, exchange actions) may use
+ * the whole window. */
+export type HyperliquidRestLane='background';
+/** Hyperliquid's REST weight per minute per IP. */
+export const HYPERLIQUID_REST_CAP=1200;
+/** What background work may hold of it. Before this, the worker's and the
+ * api's background loops (each budgeted 840 a minute locally; the shared
+ * meter prepays list calls at 120) kept the window full, and a cold trader
+ * page's /activity and /fills answered 503 within 0.4 s. */
+export const HYPERLIQUID_BACKGROUND_REST_CAP=840;
 export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;}
 const integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const identifier=z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
@@ -36,7 +49,7 @@ const leaseSchema=z.object({id:identifier,egressKey:identifier,socketId:identifi
 const sourceIdentity={leaseId:identifier,fenceToken:identifier,ownerId:identifier};
 const ids=z.array(z.string().regex(/^[a-f0-9]{64}$/)).min(1).max(1000);
 const requestSchema=z.union([
-  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive()}).strict(),
+  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.literal('background').optional()}).strict(),
   z.object({kind:z.literal('connect'),id:identifier,sendUntil:integer.positive(),lease:leaseSchema.omit({state:true,revision:true,subscriptions:true,createdAt:true,updatedAt:true,closedAt:true})}).strict(),
   z.object({kind:z.literal('subscribe'),id:identifier,...sourceIdentity,sendUntil:integer.positive(),subscriptions:z.array(subSchema).min(1).max(1000),prepayCleanup:z.boolean(),prepayClose:z.boolean().optional()}).strict(),
   z.object({kind:z.enum(['ping','close']),id:identifier,...sourceIdentity,sendUntil:integer.positive()}).strict(),
@@ -92,10 +105,10 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
     const events=s.events.filter(e=>e.expiresAt>now);
     for(const kind of ['rest','ws_message','ws_connect'] as const)requireQuota(events.filter(e=>e.kind===kind).reduce((sum,e)=>sum+e.units,0)<=caps[kind]);
     let charged=0;
-    const charge=(kind:HyperliquidQuotaEvent['kind'],units:number,id:string,sendUntil:number)=>{
+    const charge=(kind:HyperliquidQuotaEvent['kind'],units:number,id:string,sendUntil:number,cap:number=caps[kind])=>{
       requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
       const sameKind=events.filter(e=>e.kind===kind);
-      let missing=sameKind.reduce((sum,e)=>sum+e.units,0)+units-caps[kind];
+      let missing=sameKind.reduce((sum,e)=>sum+e.units,0)+units-cap;
       if(missing>0&&kind==='rest'){
         // The first expiry alone may not free enough for this request.
         // Only retained REST charges contribute; leases are never refunded.
@@ -112,7 +125,7 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
     const limits=()=>{requireQuota(active().length<=10,'hyperliquid_quota_connections');requireQuota(active().reduce((sum,l)=>sum+l.subscriptions.length,0)<=1000,'hyperliquid_quota_subscriptions');
       requireQuota(new Set(active().flatMap(l=>l.subscriptions.filter(sub=>sub.user!==null).map(sub=>`${sub.network}:${sub.user}`))).size<=10,'hyperliquid_quota_users');};
     limits();
-    if(request.kind==='rest')charge('rest',request.weight,request.id,request.sendUntil);
+    if(request.kind==='rest')charge('rest',request.weight,request.id,request.sendUntil,request.lane==='background'?HYPERLIQUID_BACKGROUND_REST_CAP:HYPERLIQUID_REST_CAP);
     else if(request.kind==='connect'){
       requireQuota(!leases.some(l=>l.id===request.lease.id||l.socketId===request.lease.socketId),'hyperliquid_quota_lease_lost');
       requireQuota(request.lease.egressKey===s.egressKey&&request.lease.leaseUntil>now&&request.lease.leaseUntil<=now+60000&&request.lease.latestAllowedSendAt===request.sendUntil&&request.sendUntil<=request.lease.leaseUntil);

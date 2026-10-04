@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {LiveBoundaryError} from '../src/copy/live/wallet-authorization.js';
-import {HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaState,type HyperliquidQuotaLease,type HyperliquidQuotaRequest} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import {HYPERLIQUID_BACKGROUND_REST_CAP,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaState,type HyperliquidQuotaLease,type HyperliquidQuotaRequest} from '../src/hyperliquid/hyperliquid-global-quota.js';
 const now=1790000000000,egressKey='shared-egress-a',user=`0x${'22'.repeat(20)}`;
 const state=():HyperliquidQuotaState=>({egressKey,revision:1,events:[],updatedAt:now});
 const lease=(id='socket-a'):HyperliquidQuotaLease=>({id,egressKey,socketId:id,fenceToken:`fence-${id}`,ownerId:'api-a',state:'open',revision:1,leaseUntil:now+5000,latestAllowedSendAt:now+5000,subscriptions:[],createdAt:now,updatedAt:now,closedAt:null});
@@ -33,6 +33,17 @@ describe('pure shared per-IP Hyperliquid quota accounting',()=>{
   let denied:unknown;
   try{plan({kind:'rest',id:'needed',weight:120,sendUntil:now+5000},{state:s});}catch(error){denied=error;}
   expect(denied).toMatchObject({code:'hyperliquid_quota_exhausted',retryAfterMs:1500});
+ });
+ it('holds background REST below the shared window so unlabelled page work keeps room',()=>{
+  const s:HyperliquidQuotaState={...state(),events:[{id:'background-loops',kind:'rest',units:HYPERLIQUID_BACKGROUND_REST_CAP-100,reservedAt:now,expiresAt:now+30000}]};
+  expect(plan({kind:'rest',id:'bg-fits',weight:100,sendUntil:now+5000,lane:'background'},{state:s}).charged).toBe(100);
+  let denied:unknown;
+  try{plan({kind:'rest',id:'bg-list',weight:120,sendUntil:now+5000,lane:'background'},{state:s});}catch(error){denied=error;}
+  expect(denied).toMatchObject({code:'hyperliquid_quota_exhausted',retryAfterMs:30000});
+  // A page's list call still goes out, up to the provider's 1200.
+  const page=plan({kind:'rest',id:'page-list',weight:120,sendUntil:now+5000},{state:s});expect(page.charged).toBe(120);
+  expect(plan({kind:'rest',id:'page-more',weight:1200-HYPERLIQUID_BACKGROUND_REST_CAP-20,sendUntil:now+5000},{state:page.state}).charged).toBe(1200-HYPERLIQUID_BACKGROUND_REST_CAP-20);
+  expect(()=>plan({kind:'rest',id:'bad-lane',weight:1,sendUntil:now+5000,lane:'page'} as never,{state:s})).toThrow('hyperliquid_quota_invalid');
  });
  it('charges REST before send and retains a late-send reservation for its full provider window',()=>{
   const result=plan({kind:'rest',id:'rest-a',weight:1200,sendUntil:now+5000});expect(result.charged).toBe(1200);expect(result.state.events[0]).toMatchObject({reservedAt:now,expiresAt:now+65000});

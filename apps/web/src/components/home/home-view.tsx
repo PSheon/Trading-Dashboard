@@ -14,8 +14,8 @@ import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import { boardCoinLabel, homeTileOrder, roiPillShort } from "@/lib/board-format";
-import type { BoardTrader } from "@/lib/contracts";
-import { useHomeBoards, useSiteSettings } from "@/lib/queries";
+import type { BoardTrader, HomeBoardsResponse, PublicSettings } from "@/lib/contracts";
+import { useHomeBoards, useSiteSettings, type InitialRead } from "@/lib/queries";
 import { historicalSimulation } from "@/lib/historical-simulation";
 
 const DEFAULT_CRYPTO = ["BTC", "ETH", "SOL", "DOGE", "HYPE", "ZEC", "NEAR"];
@@ -28,13 +28,15 @@ const exploreHref = (board: string, sort: string, market?: "stocks") =>
  * Home (Stage 3 §0.5, CopyDog's /hyperliquid): hero and the $1,000
  * calculator (all-time ROI), 依市場瀏覽 tiles, carousel rows (精選 KOLs, top
  * crypto, top stocks, one per market) and the footer. Every row comes from
- * one GET /discover/home. Phones: compact title, two tile rows, no
- * calculator, three compact cards per screen.
+ * one GET /discover/home, read while the page renders on the server when
+ * the api answers in time (`initial`) so the rows are in the first HTML.
+ * Phones: compact title, two tile rows, no calculator, three compact cards
+ * per screen.
  */
-export function HomeView() {
+export function HomeView({ initial }: { initial?: { home: InitialRead<HomeBoardsResponse> | null; settings: InitialRead<PublicSettings> | null } } = {}) {
   const { t } = useI18n();
-  const home = useHomeBoards();
-  const settings = useSiteSettings();
+  const home = useHomeBoards(initial?.home);
+  const settings = useSiteSettings(initial?.settings);
   const crypto = homeTileOrder(settings.data?.cryptoBoards ?? DEFAULT_CRYPTO);
   const stocks = homeTileOrder(settings.data?.stockBoards ?? DEFAULT_STOCKS);
   const label = (coin: string) => boardCoinLabel(coin, t, "home");

@@ -8,7 +8,7 @@ import {hyperliquidEgressQuota as quota,hyperliquidWsLeases as leases} from '@tr
 import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
-import {HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import {HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 
@@ -30,7 +30,7 @@ export interface HyperliquidSocketQuota {
   whenIdle():Promise<void>;
 }
 export interface BoundHyperliquidQuota {
-  acquireRest(weight:number,deadline:number):Promise<HyperliquidSendPermit>;
+  acquireRest(weight:number,deadline:number,lane?:HyperliquidRestLane):Promise<HyperliquidSendPermit>;
   reserveSocket(deadline:number,network?:LiveNetwork):Promise<{readonly connect:HyperliquidSendPermit;readonly connection:HyperliquidSocketQuota}>;
 }
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
@@ -109,8 +109,9 @@ export class PostgresHyperliquidQuota {
   }
   private bind(binding:HyperliquidQuotaBinding,session?:LiveRiskDatabaseSession):BoundHyperliquidQuota {
     const apply=(request:(now:number,sendUntil:number)=>HyperliquidQuotaRequest,deadline?:number)=>this.apply(binding,request,deadline,session);
-    return Object.freeze({acquireRest:async(weight:number,deadline:number)=>{
-      const id=randomUUID(),fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil}),deadline);return this.permit(fresh);
+    return Object.freeze({acquireRest:async(weight:number,deadline:number,lane?:HyperliquidRestLane)=>{
+      if(lane!==undefined&&lane!=='background')fail('hyperliquid_quota_invalid');
+      const id=randomUUID(),fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{})}),deadline);return this.permit(fresh);
     },reserveSocket:async(deadline:number,network:LiveNetwork='testnet')=>{
       if(network!=='testnet'&&network!=='mainnet')fail('hyperliquid_quota_invalid');
       const id=randomUUID(),fenceToken=randomBytes(32).toString('hex'),socketId=randomUUID(),ownerId=binding.ownerId,source={leaseId:id,fenceToken,ownerId};

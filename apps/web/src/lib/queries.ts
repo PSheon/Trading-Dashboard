@@ -58,10 +58,20 @@ import { isStreamingTrader } from "@/lib/use-live-trader";
 /** GET /settings — public site settings (announcement, featured traders,
  * market chips, vault and activity defaults, low-sample threshold, referral
  * code). */
-export function useSiteSettings() {
+/** What a server-rendered page read for a query (`prefetchPublic`), used as
+ * its initial data so the page shows it before the browser asks. */
+export interface InitialRead<T> {
+  data: T;
+  fetchedAt: number;
+}
+const seeded = <T,>(initial: InitialRead<T> | null | undefined) =>
+  initial ? { initialData: initial.data, initialDataUpdatedAt: initial.fetchedAt } : {};
+
+export function useSiteSettings(initial?: InitialRead<PublicSettings> | null) {
   return useQuery({
     queryKey: queryKeys.siteSettings,
     queryFn: ({ signal }) => api.get<PublicSettings>("/settings", signal),
+    ...seeded(initial),
     // The api applies a save at once; an open tab learns of it (an
     // announcement, the maintenance notice) within a minute or on focus.
     staleTime: 30_000,
@@ -166,10 +176,11 @@ export function useCohortHistory(tier: CohortTier, window: CohortWindow) {
 }
 
 /** GET /discover/home: every home row and the calculator's traders. */
-export function useHomeBoards() {
+export function useHomeBoards(initial?: InitialRead<HomeBoardsResponse> | null) {
   return useQuery({
     queryKey: queryKeys.discover.home,
     queryFn: ({ signal }) => api.get<HomeBoardsResponse>("/discover/home", signal),
+    ...seeded(initial),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });

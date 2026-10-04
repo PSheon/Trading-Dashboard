@@ -73,7 +73,9 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
     setBusy(true);
     setError(null);
     try {
-      await api.delete("/me");
+      // The api deletes only with this explicit confirmation (sent once the
+      // person has typed the word), never on a valid token alone.
+      await api.delete("/me", { headers: { "X-Confirm-Delete": "delete-account" } });
       await logout();
       onOpenChange(false);
       router.replace("/?accountDeleted=1");

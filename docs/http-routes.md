@@ -81,6 +81,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/discover/boards` | 200 | public |
 | GET | `/discover/home` | 200 | public |
 | GET | `/discover/coins` | 200 | public |
+| GET | `/discover/markets` | 200 | public |
 | GET | `/discover/coins/:coin` | 200 | public |
 | GET | `/discover/search` | 200 | public |
 | GET | `/admin/kols` | 200 | kols.manage |

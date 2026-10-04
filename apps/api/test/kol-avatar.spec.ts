@@ -5,7 +5,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminKolController, KolAvatarController } from "../src/discovery/discovery.controller.js";
-import { allowedImageUrl, avatarSource, isPublicAddress, kolAvatarPath, sniffImageType } from "../src/discovery/kol-avatar.js";
+import { allowedImageUrl, avatarSource, isPublicAddress, kolAvatarPath, pinnedGet, sniffImageType } from "../src/discovery/kol-avatar.js";
 import { KolAvatarRepository } from "../src/discovery/kol-avatar.repository.js";
 import { KolAvatarService, nextDue, retryDelayMs } from "../src/discovery/kol-avatar.service.js";
 import { KolRepository } from "../src/discovery/kol.repository.js";
@@ -42,6 +42,25 @@ describe("KOL avatar rules", () => {
       "::1", "::", "fd12:3456::1", "fe80::1", "ff02::1", "::ffff:10.0.0.1", "::ffff:127.0.0.1", "64:ff9b::a00:1", "not-an-ip",
     ]) expect(isPublicAddress(bad), bad).toBe(false);
     expect(isPublicAddress("::ffff:93.184.216.34")).toBe(true);
+    // 6to4 and Teredo embed an IPv4 address (audit C): 2002:0a00:0001:: is 10.0.0.1.
+    for (const bad of ["2002:a00:1::1", "2002:7f00:1::", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "2001::1"]) expect(isPublicAddress(bad), bad).toBe(false);
+    expect(isPublicAddress("2001:4860:4860::8888")).toBe(true);
+  });
+
+  it("connects only to the vetted address: the host name is not resolved again (audit C, DNS rebinding)", async () => {
+    const { createServer } = await import("node:net");
+    let hello = "";
+    const server = createServer((socket) => { socket.once("data", (chunk) => { hello = chunk.toString("latin1"); socket.destroy(); }); });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      // A name that resolves nowhere: only the pinned address can be reached.
+      await expect(pinnedGet(`https://avatar-rebind.invalid:${port}/a.jpg`, "127.0.0.1")).rejects.toThrow();
+      // The TLS hello arrived at the pinned address and names the URL's host (SNI).
+      expect(hello).toContain("avatar-rebind.invalid");
+      await expect(pinnedGet("http://example.com/a.jpg", "93.184.216.34")).rejects.toThrow("blocked url");
+      await expect(pinnedGet("https://example.com/a.jpg", "not-an-ip")).rejects.toThrow("blocked url");
+    } finally { server.close(); }
   });
 
   it("recognises images by their bytes, never SVG", () => {
@@ -106,6 +125,13 @@ describe("KOL avatar cache (db)", () => {
         expect(await service.fetchImage("https://example.com/a"), target).toEqual({ kind: "error", message: "blocked url" });
         expect(fetcher).toHaveBeenCalledTimes(1);
       }
+    });
+
+    it("hands the fetch the address it vetted, so the connection cannot be re-resolved", async () => {
+      service.resolveHost = async () => ["93.184.216.34"];
+      fetcher.mockResolvedValueOnce(image(JPEG));
+      expect((await service.fetchImage("https://example.com/a.jpg")).kind).toBe("image");
+      expect(fetcher.mock.calls[0]![2]).toBe("93.184.216.34");
     });
 
     it("refuses a public name that resolves to a private address, on the first hop and after a redirect", async () => {

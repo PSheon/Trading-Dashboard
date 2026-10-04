@@ -54,3 +54,10 @@ it("keeps readiness and no-content responses outside envelopes", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
   expect(await api.delete("/me/telegram")).toBeUndefined();
 });
+it("sends the account deletion's explicit confirmation header (audit C)", async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetcher);
+  await api.delete("/me", { headers: { "X-Confirm-Delete": "delete-account" } });
+  expect(fetcher.mock.calls[0]?.[1]?.method).toBe("DELETE");
+  expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({ "X-Confirm-Delete": "delete-account", "x-api-contract": "1" });
+});

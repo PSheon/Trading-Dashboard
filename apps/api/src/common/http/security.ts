@@ -21,7 +21,7 @@ export function configureHttpSecurity(app: INestApplication, config: RuntimeConf
     origin: config.http.corsOrigins,
     credentials: false,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Authorization", "Content-Type", "Accept", "Accept-Language", "X-API-Contract", "X-Request-ID"],
+    allowedHeaders: ["Authorization", "Content-Type", "Accept", "Accept-Language", "X-API-Contract", "X-Request-ID", "X-Confirm-Delete"],
     exposedHeaders: ["X-API-Contract", "X-Request-ID", "Retry-After"],
     maxAge: 600,
   });

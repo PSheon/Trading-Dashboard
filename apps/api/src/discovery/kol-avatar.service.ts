@@ -4,7 +4,7 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { AVATAR_MAX_BYTES, AVATAR_REFRESH_MS, allowedImageUrl, avatarEtag, avatarSource, isPublicAddress, sniffImageType } from "./kol-avatar.js";
+import { AVATAR_MAX_BYTES, AVATAR_REFRESH_MS, allowedImageUrl, avatarEtag, avatarSource, isPublicAddress, pinnedGet, sniffImageType } from "./kol-avatar.js";
 import { KolAvatarRepository, type AvatarCandidate, type StoredAvatar } from "./kol-avatar.repository.js";
 
 /** Where an 𝕏 profile picture comes from. unavatar.io is the primary; its
@@ -75,21 +75,24 @@ export class KolAvatarService {
   readonly pausedUntil = new Map<AvatarProvider, number>();
   /** Provider → the pause its last 429 got, reset by its next success. */
   private readonly backoff = new Map<AvatarProvider, number>();
-  /** Settable for tests. */
-  fetchImpl: typeof fetch = (input, init) => fetch(input, init);
+  /** Settable for tests. With `address` (a vetted one), the connection goes
+   * to that address only (`pinnedGet`); without, an ordinary fetch (the
+   * fixed fxtwitter API host). */
+  fetchImpl: (input: string, init: RequestInit & { headers: Record<string, string> }, address?: string) => Promise<Response> = (input, init, address) =>
+    address ? pinnedGet(input, address, { headers: init.headers, signal: init.signal ?? undefined }) : fetch(input, init);
   /** Every address a host name resolves to (replaceable in tests). */
   resolveHost: (host: string) => Promise<string[]> = async (host) => (await lookup(host, { all: true })).map((entry) => entry.address);
 
-  /** Why a URL may not be fetched, or null when it may. */
-  private async blockedReason(raw: string): Promise<string | null> {
-    if (!allowedImageUrl(raw)) return "blocked url";
+  /** Why a URL may not be fetched, or the vetted address to connect to. */
+  private async vet(raw: string): Promise<{ blocked: string } | { address: string }> {
+    if (!allowedImageUrl(raw)) return { blocked: "blocked url" };
     let addresses: string[];
     try {
       addresses = await this.resolveHost(new URL(raw).hostname);
     } catch {
-      return "host did not resolve";
+      return { blocked: "host did not resolve" };
     }
-    return addresses.length > 0 && addresses.every(isPublicAddress) ? null : "blocked address";
+    return addresses.length > 0 && addresses.every(isPublicAddress) ? { address: addresses[0]! } : { blocked: "blocked address" };
   }
   timeoutMs = 10_000;
 
@@ -219,22 +222,22 @@ export class KolAvatarService {
    * The fetch runs inside the private network on a stored URL, so every hop
    * is checked before it is requested: redirects are followed by hand (at
    * most {@link MAX_REDIRECTS}), each URL must pass `allowedImageUrl`, and
-   * its host must resolve only to public addresses. The check and the
-   * connection resolve the name separately; a name that changes its answer
-   * between the two is not covered here.
+   * its host must resolve only to public addresses, and the connection
+   * goes to the address that was checked (the name is not resolved again,
+   * so DNS rebinding between the check and the connection reaches nothing).
    */
   async fetchImage(url: string, provider?: AvatarProvider): Promise<Fetched> {
     let response: Response;
     let current = url;
     for (let hop = 0; ; hop++) {
-      const blocked = await this.blockedReason(current);
-      if (blocked) return { kind: "error", message: blocked };
+      const vetted = await this.vet(current);
+      if ("blocked" in vetted) return { kind: "error", message: vetted.blocked };
       try {
         response = await this.fetchImpl(current, {
           headers: { Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9", "User-Agent": USER_AGENT },
           redirect: "manual",
           signal: AbortSignal.timeout(this.timeoutMs),
-        });
+        }, vetted.address);
       } catch (error) {
         return { kind: "error", message: (error as Error).message };
       }

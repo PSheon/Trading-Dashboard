@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { request as httpsRequest } from "node:https";
+import { isIP } from "node:net";
+import { Readable } from "node:stream";
 
 /** Largest avatar kept (𝕏's 400×400 JPEGs are 10–60 KB). */
 export const AVATAR_MAX_BYTES = 512 * 1024;
@@ -65,9 +68,49 @@ export function isPublicAddress(address: string): boolean {
   if (!ip.includes(":")) return false;
   if (ip === "::" || ip === "::1") return false;
   // Unique local fc00::/7, link-local fe80::/10, multicast ff00::/8,
-  // IPv4-compatible and NAT64 forms that embed an address.
+  // IPv4-compatible and NAT64 forms that embed an address, 6to4 2002::/16
+  // and Teredo 2001:0::/32 (both carry an IPv4 address a relay may reach).
   if (/^f[cd]/.test(ip) || /^fe[89ab]/.test(ip) || ip.startsWith("ff") || ip.startsWith("::") || ip.startsWith("64:ff9b:")) return false;
+  if (ip.startsWith("2002:") || /^2001:0{0,4}:/.test(ip)) return false;
   return true;
+}
+
+/**
+ * GET `url` connecting only to `address`, the one already vetted
+ * (`isPublicAddress`): the host name is not resolved again, so a name that
+ * answers a public address to the check and a private one to the connection
+ * (DNS rebinding) reaches nothing new. TLS still verifies the certificate
+ * for the URL's host name (SNI). No redirects are followed. The answer is a
+ * standard Response whose body streams.
+ */
+export function pinnedGet(url: string, address: string, init: { headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<Response> {
+  const target = new URL(url);
+  const family = isIP(address);
+  if (target.protocol !== "https:" || !family) return Promise.reject(new Error("blocked url"));
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(target, {
+      method: "GET",
+      headers: init.headers,
+      signal: init.signal,
+      // Every lookup of this connection answers the vetted address only.
+      lookup: ((_host: string, options: { all?: boolean }, callback: (...args: unknown[]) => void) => {
+        if (options?.all) callback(null, [{ address, family }]);
+        else callback(null, address, family);
+      }) as never,
+    }, (response) => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (value === undefined) continue;
+        for (const v of Array.isArray(value) ? value : [value]) headers.append(name, v);
+      }
+      const status = response.statusCode ?? 502;
+      const empty = status === 204 || status === 304 || (status >= 300 && status < 400);
+      if (empty) response.resume();
+      resolve(new Response(empty ? null : (Readable.toWeb(response) as ReadableStream<Uint8Array>), { status, headers }));
+    });
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 /** The image type from its first bytes; null for anything else (SVG

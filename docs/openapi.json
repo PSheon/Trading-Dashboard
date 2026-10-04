@@ -15503,9 +15503,19 @@
         "description": "Access: user"
       },
       "delete": {
-        "description": "Deletes the Orbie account and its data; the Privy wallet and funds are not affected.\n\nAccess: user; 409 last_admin",
+        "description": "Deletes the Orbie account and its data; the Privy wallet and funds are not affected. Requires the X-Confirm-Delete header.\n\nAccess: user; 409 last_admin",
         "operationId": "MeController_deleteMe",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-confirm-delete",
+            "required": true,
+            "in": "header",
+            "description": "Must be \"delete-account\": the explicit confirmation of the person deleting their account.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "No content"
@@ -17782,6 +17792,96 @@
           }
         },
         "summary": "Coin index",
+        "tags": [
+          "Discovery"
+        ],
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/discover/markets": {
+      "get": {
+        "description": "Every Hyperliquid perp market name (main dex and HIP-3) from the hourly catalog; null while none has been read.\n\nAccess: public",
+        "operationId": "DiscoveryController_markets",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "markets": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "markets"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Market names",
         "tags": [
           "Discovery"
         ],

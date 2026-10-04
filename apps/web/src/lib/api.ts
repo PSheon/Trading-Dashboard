@@ -164,7 +164,11 @@ async function currentToken(publicRead = false): Promise<string | null> {
   }
 }
 
-export interface PostOptions { beforeSend?: () => void }
+export interface PostOptions {
+  beforeSend?: () => void;
+  /** Extra request headers (an explicit confirmation such as X-Confirm-Delete). */
+  headers?: Record<string, string>;
+}
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, options?: PostOptions): Promise<JsonWire<T>> {
   const requestSignal = signal ? AbortSignal.any([signal, sessionController.signal]) : sessionController.signal;
@@ -193,7 +197,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     return validateData<T>(method, path, json);
   }
 
-  const headers: Record<string, string> = { Accept: "application/json", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
+  const headers: Record<string, string> = { ...options?.headers, Accept: "application/json", [API_CONTRACT_HEADER]: API_CONTRACT_VERSION };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   const locale = pageLocale();
@@ -298,7 +302,7 @@ export const api = {
   post: <T>(path: string, body?: unknown, options?: PostOptions) => request<T>("POST", path, body, undefined, options),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
-  delete: <T>(path: string) => request<T>("DELETE", path),
+  delete: <T>(path: string, options?: PostOptions) => request<T>("DELETE", path, undefined, undefined, options),
 };
 
 export function isUnauthorized(error: unknown): boolean {

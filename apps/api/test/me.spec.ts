@@ -83,7 +83,11 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       http().put(path).set("Authorization", `Bearer ${token}`).send(body ?? {}),
     patch: (path: string, body?: object) =>
       http().patch(path).set("Authorization", `Bearer ${token}`).send(body ?? {}),
-    delete: (path: string) => http().delete(path).set("Authorization", `Bearer ${token}`),
+    // DELETE /me carries the confirmation the settings page sends.
+    delete: (path: string) => {
+      const req = http().delete(path).set("Authorization", `Bearer ${token}`);
+      return path === "/me" ? req.set("X-Confirm-Delete", "delete-account") : req;
+    },
   });
   const alice = as("alice-token");
   const bob = as("bob-token");
@@ -422,6 +426,15 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   });
 
   describe("DELETE /me (account deletion)", () => {
+    it("needs the explicit confirmation header, not only a valid token (audit C)", async () => {
+      const id = (await alice.get("/me").expect(200)).body.data.id as number;
+      const bare = await http().delete("/me").set("Authorization", "Bearer alice-token").expect(428);
+      expect(bare.body.error.code).toBe("confirmation_required");
+      await http().delete("/me").set("Authorization", "Bearer alice-token").set("X-Confirm-Delete", "yes").expect(428);
+      expect((await alice.get("/me").expect(200)).body.data.id).toBe(id);
+      await alice.delete("/me").expect(204);
+    });
+
     it('removes unbound referral aliases when the owner deletes an otherwise empty account', async () => {
       const id = (await alice.get('/me').expect(200)).body.data.id as number;
       await db.insert(referralCodes).values({ id: 'unused-referral', userId: id, code: 'UNUSEDCODE', kind: 'custom' });

@@ -5,6 +5,7 @@ import type {
   CoinBoardResponse,
   CoinIndexResponse,
   CopyScoreResponse,
+  MarketNamesResponse,
   HomeBoardsResponse,
   Kol,
   KolImportResponse,
@@ -49,6 +50,13 @@ export class DiscoveryController {
   @Get("coins")
   coins(): Promise<CoinIndexResponse> {
     return this.discovery.coins();
+  }
+
+  @ApiDoc("Market names", "Every Hyperliquid perp market name (main dex and HIP-3) from the hourly catalog; null while none has been read.")
+  @Get("markets")
+  @Header("Cache-Control", "public, max-age=300")
+  markets(): Promise<MarketNamesResponse> {
+    return this.discovery.marketNames();
   }
 
   @ApiDoc("Coin leaderboard", "The pool's traders who made money on one coin, by its realized PnL (at most 40), with win rate, trades, volume and totals. `listed` says whether the name is a Hyperliquid perp market at all (false: the page is a 404; null: not known right now).")

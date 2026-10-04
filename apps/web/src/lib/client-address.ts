@@ -39,6 +39,10 @@ export function clientBucket(address: string | undefined): string {
 /** Share and link-preview images one client may ask for per minute. Each
  * uncached one costs four api reads (a profile, a chart, two analytics). */
 export const IMAGES_PER_MINUTE = 30;
+/** Coin icons one client may ask this server for per minute. A page shows
+ * dozens (cached by the browser a day); only an uncached known market costs
+ * an upstream request. */
+export const ICONS_PER_MINUTE = 300;
 const MAX_CLIENTS = 10_000;
 const windows = new Map<string, { expires: number; count: number }>();
 
@@ -49,12 +53,21 @@ const windows = new Map<string, { expires: number; count: number }>();
  * entries) puts new clients in one shared bucket rather than refusing them.
  */
 export function imageRetryAfter(address: string | undefined, now = Date.now(), limit = IMAGES_PER_MINUTE): number {
-  let key = clientBucket(address);
+  return windowRetryAfter("image", address, now, limit);
+}
+
+/** The same per-client window for the coin-icon route (its own count). */
+export function iconRetryAfter(address: string | undefined, now = Date.now(), limit = ICONS_PER_MINUTE): number {
+  return windowRetryAfter("icon", address, now, limit);
+}
+
+function windowRetryAfter(kind: string, address: string | undefined, now: number, limit: number): number {
+  let key = `${kind}:${clientBucket(address)}`;
   let window = windows.get(key);
   if (!window && windows.size >= MAX_CLIENTS) {
     for (const [k, w] of windows) if (w.expires <= now) windows.delete(k);
     if (windows.size >= MAX_CLIENTS) {
-      key = "overflow";
+      key = `${kind}:overflow`;
       window = windows.get(key);
     }
   }

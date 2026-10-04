@@ -1,5 +1,6 @@
 /** Server side only: fetches and keeps Hyperliquid's market icons, so the
  * browser loads them from this origin (app/api/coin-icon/[coin]). */
+import { loadMarketNames } from "./share-card-data";
 
 const UPSTREAM = "https://app.hyperliquid.xyz/coins";
 const COIN = /^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$/;
@@ -14,6 +15,9 @@ const MAX_ENTRIES = 800;
 
 export type CoinIcon = { svg: string } | null;
 type Fetch = typeof fetch;
+/** The market list is re-read this often; a failed read after a minute. */
+const MARKETS_TTL_MS = 60 * 60 * 1000;
+const MARKETS_RETRY_MS = 60 * 1000;
 interface Entry { icon: CoinIcon; until: number }
 
 /** A coin name as Hyperliquid writes it ("BTC", "kPEPE", "xyz:TSLA"). */
@@ -34,9 +38,32 @@ export function iconCandidates(coin: string): string[] {
  * most `MAX_ENTRIES` coins. Hyperliquid answers 200 text/html for a market
  * without an icon, so only an `image/svg+xml` body under 512 KiB counts.
  */
-export function createCoinIconSource({ fetchImpl = fetch, now = Date.now }: { fetchImpl?: Fetch; now?: () => number } = {}) {
+export function createCoinIconSource({ fetchImpl = fetch, now = Date.now, markets }: {
+  fetchImpl?: Fetch; now?: () => number;
+  /** The known market names (apps/api's catalog), or null when unknown.
+   * Without it every well-formed name is fetched (tests). */
+  markets?: () => Promise<readonly string[] | null>;
+} = {}) {
   const cache = new Map<string, Entry>();
   const inFlight = new Map<string, Promise<CoinIcon>>();
+  let known: { names: ReadonlySet<string>; until: number } | null = null;
+  let knownLoading: Promise<ReadonlySet<string> | null> | null = null;
+
+  /** Only a known market is asked for upstream: an arbitrary name that fits
+   * the pattern would otherwise cost one request to app.hyperliquid.xyz
+   * each (audit C). An unreadable list refuses until it can be read. */
+  async function isKnown(coin: string): Promise<boolean> {
+    if (!markets) return true;
+    if (!known || known.until <= now()) {
+      knownLoading ??= markets().then((names) => {
+        if (names) known = { names: new Set(names), until: now() + MARKETS_TTL_MS };
+        else if (known) known = { names: known.names, until: now() + MARKETS_RETRY_MS };
+        return known?.names ?? null;
+      }).catch(() => known?.names ?? null).finally(() => { knownLoading = null; });
+      await knownLoading;
+    }
+    return known?.names.has(coin) ?? false;
+  }
 
   async function read(name: string): Promise<{ icon: CoinIcon; failed: boolean }> {
     try {
@@ -52,6 +79,7 @@ export function createCoinIconSource({ fetchImpl = fetch, now = Date.now }: { fe
   }
 
   async function load(coin: string): Promise<CoinIcon> {
+    if (!(await isKnown(coin))) return null;
     let failed = false;
     let icon: CoinIcon = null;
     for (const name of iconCandidates(coin)) {
@@ -83,4 +111,4 @@ export function createCoinIconSource({ fetchImpl = fetch, now = Date.now }: { fe
   };
 }
 
-export const coinIcons = createCoinIconSource();
+export const coinIcons = createCoinIconSource({ markets: () => loadMarketNames() });

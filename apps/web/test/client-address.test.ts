@@ -41,6 +41,14 @@ describe("the caller's address, as the platform in front of the web server repor
     expect(new Headers(fetcher.mock.calls[1][1]!.headers).get("x-forwarded-for")).toBeNull();
   });
 
+  it("the forwarder passes the account deletion's confirmation header to the api (audit C)", async () => {
+    vi.stubEnv("NEXT_API_URL", "http://api.test");
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    await forward(new NextRequest("http://web.test/api/hl/me", { method: "DELETE", headers: { "x-confirm-delete": "delete-account" } }), { params: Promise.resolve({ path: ["me"] }) });
+    expect(new Headers(fetcher.mock.calls[0][1]!.headers).get("x-confirm-delete")).toBe("delete-account");
+  });
+
   it("counts IPv4 per address and IPv6 per /64, like the api", () => {
     expect(clientBucket("203.0.113.9")).toBe("203.0.113.9");
     expect(clientBucket("2001:db8:1:2:aaaa::1")).toBe("2001:db8:1:2::/64");

@@ -12,6 +12,8 @@
 
 ## 伺服器做了什麼
 
+只有合法 token 不夠（2026-10-04，稽核 C）：請求必須帶 `X-Confirm-Delete: delete-account`，前端只在使用者勾選並輸入 `DELETE` 之後才送出；沒有或值不對回 `428 {code: "confirmation_required"}`，什麼都不刪。Privy 的 access token 每小時自動換發，`iat` 不代表使用者最近登入過，所以採用明確確認 header 而不是「近期登入」。Next 的 `/api/hl` 轉送這個 header，api 的 CORS 也允許它。
+
 `AccountDeletionService.delete` 在同一個 transaction 裡：
 
 1. 鎖住所有啟用中的管理員與使用者本身；如果這個人是**唯一**啟用中的管理員，回 `409 {code: "last_admin"}`，避免網站沒有管理員。

@@ -108,6 +108,14 @@ export async function loadSitemapData({ apiUrl = process.env.NEXT_API_URL, fetch
   return { coins: [...new Set((index?.items ?? []).map((item) => item.coin))], traders: [...traders] };
 }
 
+/** Every Hyperliquid perp market name apps/api's catalog lists (GET
+ * /discover/markets); null when the api is unset, failing or has not read
+ * the catalog yet. */
+export async function loadMarketNames({ apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch }: { apiUrl?: string; fetchImpl?: Fetch } = {}): Promise<string[] | null> {
+  const body = await getJson<{ markets: string[] | null }>(fetchImpl, apiUrl, "/discover/markets", TIMEOUT_MS, undefined, true);
+  return Array.isArray(body?.markets) ? body.markets : null;
+}
+
 interface ProfileLike {
   displayName?: string | null;
   kol?: { displayName: string | null; avatarUrl: string | null } | null;

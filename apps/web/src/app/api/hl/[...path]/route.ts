@@ -87,7 +87,7 @@ async function forward(
   const headers = new Headers({
     Accept: request.headers.get("accept") ?? "application/json",
   });
-  for (const name of ["x-api-contract", "x-request-id"]) {
+  for (const name of ["x-api-contract", "x-request-id", "x-confirm-delete"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }

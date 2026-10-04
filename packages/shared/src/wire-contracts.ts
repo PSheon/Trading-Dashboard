@@ -291,6 +291,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/discover/boards", status: 200, auth: "public", response: wireBoardSchema },
   { method: "GET", path: "/discover/home", status: 200, auth: "public", response: wireHomeBoardsSchema },
   { method: "GET", path: "/discover/coins", status: 200, auth: "public", response: wireCoinIndexSchema },
+  { method: "GET", path: "/discover/markets", status: 200, auth: "public", response: s.marketNamesResponseSchema },
   { method: "GET", path: "/discover/coins/:coin", status: 200, auth: "public", response: wireCoinBoardSchema },
   { method: "GET", path: "/discover/search", status: 200, auth: "public", response: wireDiscoverSearchSchema },
   { method: "GET", path: "/admin/kols", status: 200, auth: "kols.manage", response: z.array(wireKolSchema) },

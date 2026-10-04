@@ -126,6 +126,12 @@ export class DiscoveryService {
     });
   }
 
+  /** Every perp market name the catalog lists (no Hyperliquid call per request). */
+  async marketNames(): Promise<{ markets: string[] | null }> {
+    const markets = await this.markets.markets();
+    return { markets: markets ? [...markets].sort() : null };
+  }
+
   /**
    * Every home row in one read, as CopyDog's home builds them: 精選 (KOLs by
    * copy score), top crypto (copy score), top stocks (stock PnL), and one row

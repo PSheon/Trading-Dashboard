@@ -1900,6 +1900,12 @@ export const coinIndexRowSchema = z.object({
   profit: z.number(),
 });
 export type CoinIndexRow = z.infer<typeof coinIndexRowSchema>;
+/** GET /discover/markets: every Hyperliquid perp market name (main dex and
+ * HIP-3, "xyz:TSLA"), from the hourly market catalog; null while no list
+ * has been read. The web's icon route fetches only these. */
+export const marketNamesResponseSchema = z.object({ markets: z.array(z.string()).nullable() });
+export type MarketNamesResponse = z.infer<typeof marketNamesResponseSchema>;
+
 export const coinIndexResponseSchema = z.object({
   /** By `profit`, highest first. */
   items: z.array(coinIndexRowSchema),

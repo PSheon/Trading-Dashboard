@@ -781,18 +781,26 @@ export class TradeAnalyticsService {
   }
 
   /**
-   * CopyDog's tier inputs: Hyperliquid's leaderboard all-time PnL (ours in
-   * `trader_stats`; the portfolio's all-time PnL for an address not on it)
-   * and the perp account value. A failure leaves a tier null rather than
-   * failing the trades.
+   * The tiers' inputs, one definition each (audit A4, A5): the PnL tier on
+   * all-time perp PnL (the portfolio's `perpAllTime`, as the trader page's
+   * 表現 and the cohorts; Hyperliquid's leaderboard PnL includes spot), the
+   * size tier on the whole account's value (as the trader page's 帳戶價值;
+   * CopyDog tiers on perp equity and calls a unified account holding its
+   * funds in spot small). A failure leaves a tier null rather than failing
+   * the trades.
    */
   private async classify(address: string, live: LiveAccount | null, cost: Cost): Promise<Omit<TraderClassification, "style">> {
-    const allTimePnl = await this.allTimePnl(address, cost).catch((error: Error) => {
-      this.logger.warn(`All-time PnL for ${address} failed: ${error.message}`);
+    const raw = await this.portfolio(address, cost).catch((error: Error) => {
+      this.logger.warn(`Portfolio for ${address} failed: ${error.message}`);
       return null;
     });
+    const allTimePnl = raw ? (portfolioSeries(raw, "allTime", "perp").pnl.at(-1)?.[1] ?? null) : null;
     const perpAccountValue = live?.perpAccountValue ?? null;
-    return { allTimePnl, perpAccountValue, pnlTier: pnlTier(allTimePnl), sizeTier: sizeTier(perpAccountValue) };
+    // The profile's total (perp + spot + staked) when the page just read it;
+    // else the portfolio's latest whole-account value.
+    const profile = this.traders.profileCache.peek(address)?.value as { accountValue?: number | null } | undefined;
+    const accountValue = profile?.accountValue ?? (raw ? (portfolioSeries(raw, "allTime", "all").accountValue.at(-1)?.[1] ?? null) : null);
+    return { allTimePnl, perpAccountValue, accountValue, pnlTier: pnlTier(allTimePnl), sizeTier: sizeTier(accountValue) };
   }
 
   /**
@@ -845,16 +853,14 @@ export class TradeAnalyticsService {
     }
   }
 
-  private async allTimePnl(address: string, cost: Cost): Promise<number | null> {
-    const board = await this.traders.leaderboardAllTimePnl(address);
-    if (board !== null) return board;
+  private async portfolio(address: string, cost: Cost) {
     const cached = this.traders.portfolioCache.peek(address) !== undefined;
     const raw = await this.traders.rawPortfolio(address);
     if (!cached) {
       cost.calls += 1;
       cost.weight += 20;
     }
-    return portfolioSeries(raw, "allTime", "all").pnl.at(-1)?.[1] ?? null;
+    return raw;
   }
 
   // --- funding ----------------------------------------------------------------

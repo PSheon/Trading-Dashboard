@@ -35,7 +35,7 @@ All of it comes from Hyperliquid's public API and official leaderboard. Orbie do
 
 ### Why is some traders' history incomplete?
 
-Hyperliquid serves a limited fill history per account (its documentation states the most recent 10,000 fills). For very active accounts, older trades may no longer be available, so trade count and win rate only cover the period we can read. When a trade was opened before the available history, it is shown as "before …". Orbie saves the fills it receives after monitoring begins. Disconnects and provider limits can still leave gaps; saving fills does not prove the entire period is complete.
+Hyperliquid serves a limited fill history per account (its documentation states the most recent 10,000 fills). For very active accounts, older trades may no longer be available, so trade count and win rate only cover the period we can read. When a trade was opened before the available history, it is shown as "before …". Orbie saves the fills it receives after monitoring begins. Disconnects and provider limits can still leave gaps; saving fills does not prove the entire period is complete. When the trades Orbie could read do not reach back to the account's start, the win-rate tile says so ("24 Trades since 09/26/2026") instead of presenting them as all-time.
 
 ### Why do Orbie's numbers differ from other sites?
 
@@ -96,7 +96,7 @@ By the median holding time of closed trades:
 
 ### What are PnL tiers?
 
-Tiers based on the trader's all-time PnL on Hyperliquid's leaderboard:
+Tiers based on the trader's all-time perpetuals PnL (the trader page's Performance figure; spot is not counted):
 
 | Tier | All-time PnL |
 | --- | --- |
@@ -112,7 +112,7 @@ Tiers based on the trader's all-time PnL on Hyperliquid's leaderboard:
 
 ### What are size tiers?
 
-Tiers based on perpetuals account value (spot balances are not counted):
+Tiers based on the whole account's value (perpetuals, spot and staked HYPE: the account value on the trader page):
 
 | Tier | Account value |
 | --- | --- |

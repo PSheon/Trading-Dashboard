@@ -646,6 +646,8 @@ export const tr: Messages = {
       accountValue: "Hesap Değeri",
       pnl: "K/Z",
       roi: "ROI",
+      accountPnl: "Hesap PnL",
+      accountRoi: "Hesap ROI",
       volume: "Hacim",
       trend: "Eğilim",
     },

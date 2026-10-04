@@ -646,6 +646,8 @@ export const zhCN: Messages = {
       accountValue: "账户价值",
       pnl: "盈亏",
       roi: "ROI",
+      accountPnl: "账户盈亏",
+      accountRoi: "账户 ROI",
       volume: "交易量",
       trend: "走势",
     },

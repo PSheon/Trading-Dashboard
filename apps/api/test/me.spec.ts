@@ -259,8 +259,8 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
       expect(whale.stats).toMatchObject({
         displayName: "Whale",
         accountValue: 1_000_000,
-        pnl: { day: 1, week: 2, month: 3, allTime: 4 },
-        roi: { month: 0.3 },
+        accountPnl: { day: 1, week: 2, month: 3, allTime: 4 },
+        accountRoi: { month: 0.3 },
         volume: { allTime: 40 },
       });
       expect(list.find((f) => f.address === OTHER)!.stats).toBeNull();

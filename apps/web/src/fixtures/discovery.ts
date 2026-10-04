@@ -19,8 +19,8 @@ export function fixtureBoard(query: BoardQuery) {
     verified: false,
     kol: index % 4 === 0,
     accountValue: trader.accountValue,
-    pnl: trader.pnl[window],
-    roi: trader.roi[window],
+    pnl: trader.accountPnl[window],
+    roi: trader.accountRoi[window],
     copyScore: 98 - index % 70,
     style: (["scalp", "intraday", "swing", "position"] as const)[index % 4],
     topCoins: coins.length ? [coins[index % coins.length], coins[(index + 1) % coins.length]] : [],
@@ -98,7 +98,7 @@ export function fixtureCohort(tier: string) {
     const positionValue = Math.round(trader.accountValue * (1.5 + (i % 5) / 2));
     return {
       address: trader.address, displayName: trader.displayName, avatarUrl: null, verified: i % 9 === 0, topAssets: [["BTC", "ETH", "HYPE"][i % 3]!, "SOL"],
-      totalPnl: trader.pnl.allTime, roi: trader.roi.allTime, perpEquity: trader.accountValue, copyScore: 95 - (i % 50),
+      totalPnl: trader.accountPnl.allTime, roi: trader.accountRoi.allTime, perpEquity: trader.accountValue, copyScore: 95 - (i % 50),
       positionValue, leverage: Number((positionValue / Math.max(1, trader.accountValue)).toFixed(2)), sumUpnl: Math.round((long ? 1 : -1) * positionValue * 0.04), biasPct: long ? 100 : 0,
     };
   });

@@ -7,8 +7,8 @@ import type * as c from "@trading-dashboard/shared/contracts";
 export class TradersQueryDto {
   @ApiPropertyOptional({ type: String, enum: ["day", "week", "month", "allTime"], default: "month" })
   @IsIn(["day", "week", "month", "allTime"]) window: c.TraderWindowInput = "month";
-  @ApiPropertyOptional({ type: String, enum: ["pnl", "roi", "volume", "accountValue"], default: "pnl" })
-  @IsIn(["pnl", "roi", "volume", "accountValue"]) sort: c.TradersQuery["sort"] = "pnl";
+  @ApiPropertyOptional({ type: String, enum: ["accountPnl", "accountRoi", "volume", "accountValue"], default: "accountPnl", description: "accountPnl / accountRoi: Hyperliquid's leaderboard figures (whole account)" })
+  @IsIn(["accountPnl", "accountRoi", "volume", "accountValue"]) sort: c.TradersQuery["sort"] = "accountPnl";
   @ApiPropertyOptional({ type: String, enum: ["asc", "desc"], default: "desc" })
   @IsIn(["asc", "desc"]) order: "asc" | "desc" = "desc";
   @ApiPropertyOptional({ type: String, maxLength: 64 })

@@ -192,9 +192,12 @@ export function boardFreshness(items: BoardTrader[]) {
 
 /**
  * Any trader as a watchlist card: the pool's all-time figures when it has
- * them, else the leaderboard's (no copy score, sparkline, win rate or
- * risk figures), else identity only. KOL name, handle, badge and cached
- * avatar come from the registry either way.
+ * them, else the leaderboard's name and account value only, else identity
+ * only. KOL name, handle, badge and cached avatar come from the registry
+ * either way. A card's PnL / ROI are perp (as everywhere they are labelled
+ * so); the leaderboard's are the whole account's, so they are not shown
+ * as PnL / ROI ("—" until the pool reads the trader, which it does for
+ * every favorited or copied one).
  */
 export function traderCard(address: string, row: BoardSourceRow | undefined, identity: CardIdentityRow | undefined, score: number | null = null): TraderCard {
   if (row && row.portfolioAt !== null) {
@@ -222,22 +225,22 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
   return {
     address,
     // The leaderboard's figures are as old as its import.
-    metricsUpdatedAt: identity?.pnlAllTime != null ? identity.statsUpdatedAt : null,
+    metricsUpdatedAt: identity?.accountValue != null ? identity.statsUpdatedAt : null,
     displayName: (kol ? identity!.kolName : null) ?? identity?.displayName ?? row?.leaderboardName ?? null,
     avatarUrl: kol ? kolAvatarPath(address, identity!.kolAvatarEtag) : null,
     xHandle: kol ? identity!.kolXHandle : null,
     verified: kol ? Boolean(identity!.kolVerified) : false,
     kol,
     accountValue: num(identity?.accountValue),
-    pnl: num(identity?.pnlAllTime),
-    roi: num(identity?.roiAllTime),
+    pnl: null,
+    roi: null,
     copyScore: null,
     style: null,
     topCoins: row?.topCoins ?? [],
     lastTradeAt: row?.lastTradeAt ?? null,
     tradesFrom: row?.tradesFrom ?? null,
     sparkline: [],
-    pnl30d: num(identity?.pnlMonth),
+    pnl30d: null,
     winRate: null,
     sharpe: null,
     maxDrawdown: null,

@@ -288,8 +288,8 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
         address: A,
         displayName: "Alpha Whale",
         accountValue: 1_000_000,
-        pnl: { day: 5, week: 100, month: 50, allTime: 0 },
-        roi: { month: 0.5 },
+        accountPnl: { day: 5, week: 100, month: 50, allTime: 0 },
+        accountRoi: { month: 0.5 },
         volume: { month: 10 },
         favorite: false,
       });
@@ -298,7 +298,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     it("sorts by the chosen window's column, either direction", async () => {
       expect(addresses(await controller.list({ window: "week" }, null))).toEqual([A, C, B, D]);
       expect(addresses(await controller.list({ window: "day", order: "asc" }, null))).toEqual([D, C, A, B]);
-      expect(addresses(await controller.list({ sort: "roi" }, null))).toEqual([B, A, D, C]);
+      expect(addresses(await controller.list({ sort: "accountRoi" }, null))).toEqual([B, A, D, C]);
       expect(addresses(await controller.list({ sort: "volume", order: "asc" }, null))).toEqual([A, D, C, B]);
       expect(addresses(await controller.list({ sort: "accountValue" }, null))).toEqual([D, A, B, C]);
     });
@@ -358,7 +358,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
 
       expect(res.address).toBe(A);
       expect(res.displayName).toBe("Alpha Whale");
-      expect(res.stats?.pnl.month).toBe(50);
+      expect(res.stats?.accountPnl.month).toBe(50);
       expect(res.favorite).toBe(true);
       expect(res.tracked).toBe(false);
       expect(res.analytics).toBeNull();

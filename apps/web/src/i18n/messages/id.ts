@@ -646,6 +646,8 @@ export const id: Messages = {
       accountValue: "Nilai Akun",
       pnl: "PnL",
       roi: "ROI",
+      accountPnl: "PnL akun",
+      accountRoi: "ROI akun",
       volume: "Volume",
       trend: "Tren",
     },

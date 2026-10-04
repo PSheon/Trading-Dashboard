@@ -88,7 +88,8 @@ export function useCrowd() {
   });
 }
 
-export type TraderSort = "pnl" | "roi" | "volume" | "accountValue";
+/** `accountPnl` / `accountRoi`: Hyperliquid's leaderboard figures, the whole account. */
+export type TraderSort = "accountPnl" | "accountRoi" | "volume" | "accountValue";
 
 export interface TradersParams {
   window: TraderWindow;

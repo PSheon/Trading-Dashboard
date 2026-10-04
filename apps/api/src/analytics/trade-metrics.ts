@@ -30,13 +30,16 @@ import type {
  *   labels on 48 traders (12 per style): their medians fall in 0–8.4 min
  *   (scalp), 28 min–23.6 h (intraday), 25 h–9.9 days (swing) and
  *   14.3–54 days (position); 15 min, 24 h and 14 days separate all 48.
- * - PnL tier, on Hyperliquid's leaderboard all-time PnL (CopyDog's
- *   `totalPnl` equals it): bundle labels "+$1M+", "+$100K to +$1M", "$0 to
- *   +$100K", "$0 to −$100K", "−$100K to −$1M", "−$1M+"; break even is
- *   exactly $0 (its label has no range).
- * - Size tier, on perp account value (CopyDog's `accountValue`: a unified
- *   account holding everything in spot is "small"): bundle labels $5M+,
- *   $1M–5M, $100K–1M, $10K–100K, $0–10K.
+ * - PnL tier, on all-time perp PnL (CopyDog's declared definition and the
+ *   cohorts'; its `totalPnl` is Hyperliquid's leaderboard PnL, which
+ *   includes spot, and is not used): bundle labels "+$1M+", "+$100K to
+ *   +$1M", "$0 to +$100K", "$0 to −$100K", "−$100K to −$1M", "−$1M+"; break
+ *   even is exactly $0 (its label has no range).
+ * - Size tier, on the whole account's value (perp + spot + staked, the
+ *   trader page's 帳戶價值). CopyDog tiers on perp equity, which calls a
+ *   unified account holding its funds in spot "small" or "medium"; Orbie
+ *   does not copy that. Bundle labels $5M+, $1M–5M, $100K–1M, $10K–100K,
+ *   $0–10K.
  */
 export const STYLE_MAX_SECONDS = {
   scalp: 15 * 60,

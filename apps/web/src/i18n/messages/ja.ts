@@ -646,6 +646,8 @@ export const ja: Messages = {
       accountValue: "口座資産",
       pnl: "損益",
       roi: "収益率",
+      accountPnl: "アカウント損益",
+      accountRoi: "アカウント ROI",
       volume: "取引高",
       trend: "推移",
     },

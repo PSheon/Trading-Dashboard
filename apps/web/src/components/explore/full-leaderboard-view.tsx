@@ -25,7 +25,7 @@ export function FullLeaderboardView() {
   const { t, format } = useI18n();
   const params = useSearchParams();
   const [window, setWindow] = useState<TraderWindow>("month");
-  const [sort, setSort] = useState<TraderSort>("pnl");
+  const [sort, setSort] = useState<TraderSort>("accountPnl");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [q, setQ] = useState(query);

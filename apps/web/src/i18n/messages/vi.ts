@@ -646,6 +646,8 @@ export const vi: Messages = {
       accountValue: "Giá trị TK",
       pnl: "PnL",
       roi: "ROI",
+      accountPnl: "PnL tài khoản",
+      accountRoi: "ROI tài khoản",
       volume: "Khối lượng",
       trend: "Xu hướng",
     },

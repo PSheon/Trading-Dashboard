@@ -121,8 +121,10 @@ export class CohortService {
 
   /**
    * Chooses each tier's members: eligible pool traders (`cohortEligible`:
-   * no vaults, no wallet above the perp-equity ceiling) by perp PnL tier, largest perp equity first (the whole account's
-   * value while the perp figure is not known yet), up to `perTier`; a short
+   * no vaults, no wallet above the perp-equity ceiling) by perp PnL tier,
+   * largest perp equity first (traders whose perp equity is not known yet
+   * after every known one: never ranked by the whole account's value), up
+   * to `perTier`; a short
    * tier is topped up with the leaderboard's largest active accounts in that
    * PnL range.
    */
@@ -130,7 +132,7 @@ export class CohortService {
     const pool = await this.repository.poolFigures();
     const byTier = new Map<CohortTier, typeof pool>();
     const num = (v: string | null) => (v === null ? null : Number(v));
-    const size = (row: (typeof pool)[number]) => num(row.perpEquity) ?? num(row.accountValue) ?? 0;
+    const size = (row: (typeof pool)[number]) => num(row.perpEquity) ?? -Infinity;
     for (const row of pool) {
       const tier = pnlTier(Number(row.pnlAll));
       if (!tier) continue;
@@ -142,7 +144,7 @@ export class CohortService {
     const candidates: CohortCandidate[] = [];
     const taken = new Set<string>();
     for (const tier of COHORT_TIERS) {
-      const rows = (byTier.get(tier) ?? []).sort((a, b) => size(b) - size(a) || a.address.localeCompare(b.address)).slice(0, perTier);
+      const rows = (byTier.get(tier) ?? []).sort((a, b) => (size(b) === size(a) ? 0 : size(b) > size(a) ? 1 : -1) || a.address.localeCompare(b.address)).slice(0, perTier);
       rows.forEach((row, i) => {
         taken.add(row.address);
         const dexes = [...new Set(Object.keys(row.coinStats ?? {}).map(dexOf).filter(Boolean))];

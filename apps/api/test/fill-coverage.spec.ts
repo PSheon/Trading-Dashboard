@@ -338,7 +338,7 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
       latestFills: vi.fn(async (): Promise<[HlUserFill[], HlUserFill[]]> => [[...upstream].sort((a, b) => b.time - a.time), []]),
       rawPortfolio: vi.fn(async () => []),
       portfolioCache: { peek: () => undefined }, userFillsCache: { peek: () => undefined }, twapFillsCache: { peek: () => undefined }, dexCache: { peek: () => undefined },
-      leaderboardAllTimePnl: vi.fn(async (): Promise<number | null> => 0),
+      profileCache: { peek: () => undefined },
       perpDexes: vi.fn(async () => [""]),
     };
     const analytics = () => new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient);

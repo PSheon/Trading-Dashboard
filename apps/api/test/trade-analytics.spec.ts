@@ -54,6 +54,7 @@ const funding = (time: number, coin: string, usdc: number): HlUserFundingEntry =
 const portfolio = [
   ["day", { accountValueHistory: [[NOW, "2500000"]], pnlHistory: [[NOW, "0"]], vlm: "0" }],
   ["allTime", { accountValueHistory: [[NOW, "2400000"]], pnlHistory: [[T(1000), "0"], [NOW, "-150000"]], vlm: "0" }],
+  ["perpAllTime", { accountValueHistory: [[NOW, "2300000"]], pnlHistory: [[T(1000), "0"], [NOW, "-150000"]], vlm: "0" }],
 ];
 
 async function waitFor(check: () => Promise<boolean>, ms = 3_000) {
@@ -106,7 +107,6 @@ describe("trade analytics for any address", () => {
     userFillsCache: { peek: () => undefined },
     twapFillsCache: { peek: () => undefined },
     dexCache: { peek: () => undefined },
-    leaderboardAllTimePnl: vi.fn(async (): Promise<number | null> => null),
     perpDexes: vi.fn(async () => ["", "xyz"]),
   };
 
@@ -378,15 +378,35 @@ describe("trade analytics for any address", () => {
 
   it("marks coverage truncated when history starts mid-position, and counts the partial trade", async () => {
     history.unshift(fill("DOGE", 100, -100, 0.1, T(60), { closedPnl: "3" }));
-    traders.leaderboardAllTimePnl.mockResolvedValueOnce(2_000_000);
     await service.compute(X, true);
     const res = await get(`/traders/${X}/analytics`).expect(200);
     expect(res.body.data.coverage).toMatchObject({ truncated: true, fills: 7 });
     expect(res.body.data.summary).toMatchObject({ trades: 3, wins: 2 });
-    expect(res.body.data.classification).toMatchObject({ allTimePnl: 2_000_000, pnlTier: "extremely_profitable" });
+    expect(res.body.data.classification).toMatchObject({ allTimePnl: -150_000, pnlTier: "very_unprofitable" });
     const doge = (await get(`/traders/${X}/trades?status=closed`)).body.data.items.find((t: { coin: string }) => t.coin === "DOGE");
     expect(doge).toMatchObject({ partial: true, entryApprox: false, size: 100, netPnl: 2 });
     expect(doge.entryPx).toBeCloseTo(0.07);
+  });
+
+  it("tiers on one definition each: PnL on all-time perp PnL, size on the whole account's value (audit A4, A5)", async () => {
+    // The whole account made $2M (perp $500K plus spot) and is worth $6M,
+    // while its perp equity is $2.5M (1.25M on each of two dexes).
+    traders.rawPortfolio.mockResolvedValueOnce([
+      ["allTime", { accountValueHistory: [[T(1000), "0"], [NOW, "6000000"]], pnlHistory: [[T(1000), "0"], [NOW, "2000000"]], vlm: "0" }],
+      ["perpAllTime", { accountValueHistory: [[T(1000), "0"], [NOW, "2500000"]], pnlHistory: [[T(1000), "0"], [NOW, "500000"]], vlm: "0" }],
+    ] as never);
+    await service.compute(X, true);
+    const res = await get(`/traders/${X}/analytics`).expect(200);
+    expect(res.body.data.classification).toMatchObject({
+      allTimePnl: 500_000, pnlTier: "very_profitable",
+      perpAccountValue: 2_500_000, accountValue: 6_000_000, sizeTier: "apex",
+    });
+    // The page's profile total wins when it was just read.
+    await service.settled();
+    await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
+    traders.profileCache.peek.mockReturnValue({ value: { accountValue: 50_000 } });
+    await service.compute(X, false);
+    expect((await get(`/traders/${X}/analytics`)).body.data.classification).toMatchObject({ accountValue: 50_000, sizeTier: "medium" });
   });
 
   it("rebuilds a tracked address from our fills table without reading Hyperliquid's fills", async () => {

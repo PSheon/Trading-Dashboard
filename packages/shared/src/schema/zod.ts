@@ -507,8 +507,11 @@ export const traderStatsSchema = z.object({
   address: z.string(),
   displayName: z.string().nullable(),
   accountValue: z.number(),
-  pnl: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
-  roi: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
+  /** Hyperliquid's leaderboard PnL and ROI per window: the whole account
+   * (perp and spot). Named apart on purpose: every figure labelled PnL / ROI
+   * (the trader page, boards, cards, cohorts, CopyDog's 表現) is perp. */
+  accountPnl: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
+  accountRoi: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
   volume: z.object({ day: z.number(), week: z.number(), month: z.number(), allTime: z.number() }),
   /** A Hyperliquid vault: account value is TVL, not one trader's equity. */
   isVault: z.boolean(),
@@ -523,7 +526,8 @@ export type TraderStats = z.infer<typeof traderStatsSchema>;
 /** GET /traders — the discovery table. Public. */
 export const tradersQuerySchema = z.object({
   window: traderWindowSchema.default("month"),
-  sort: z.enum(["pnl", "roi", "volume", "accountValue"]).default("pnl"),
+  /** `accountPnl` / `accountRoi`: the leaderboard's whole-account figures. */
+  sort: z.enum(["accountPnl", "accountRoi", "volume", "accountValue"]).default("accountPnl"),
   order: z.enum(["asc", "desc"]).default("desc"),
   /** Address prefix or display-name substring. */
   q: z.string().max(64).optional(),
@@ -1144,15 +1148,22 @@ export const traderClassificationSchema = z.object({
   /** From the median hold of all closed trades in coverage; null without
    * any. */
   style: tradingStyleSchema.nullable(),
-  /** From `allTimePnl`; null when it couldn't be read. */
+  /** From `allTimePnl` (perp, like every PnL tier: CopyDog's declared
+   * definition and the cohorts'); null when it couldn't be read. */
   pnlTier: pnlTierSchema.nullable(),
-  /** From `perpAccountValue`; null when it couldn't be read. */
+  /** From `accountValue`, the whole account (CopyDog tiers on perp equity,
+   * which calls a unified account holding its funds in spot "small" or
+   * "medium"); null when it couldn't be read. */
   sizeTier: sizeTierSchema.nullable(),
-  /** Hyperliquid's leaderboard all-time PnL (what CopyDog tiers on); for an
-   * address not on the leaderboard, its portfolio's all-time PnL. */
+  /** All-time perp PnL, the portfolio's `perpAllTime` (the trader page's
+   * 表現). Not Hyperliquid's leaderboard PnL, which includes spot. */
   allTimePnl: z.number().nullable(),
   /** Perp account value summed over dexes (CopyDog's `accountValue`). */
   perpAccountValue: z.number().nullable(),
+  /** The whole account's value (perp + spot + staked HYPE, as the trader
+   * page's 帳戶價值) that `sizeTier` is on. Optional: absent from figures
+   * stored before 2026-10-04. */
+  accountValue: z.number().nullable().optional(),
 });
 export type TraderClassification = z.infer<typeof traderClassificationSchema>;
 

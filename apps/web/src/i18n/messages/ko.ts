@@ -646,6 +646,8 @@ export const ko: Messages = {
       accountValue: "계정 자산",
       pnl: "손익",
       roi: "수익률",
+      accountPnl: "계정 손익",
+      accountRoi: "계정 ROI",
       volume: "거래량",
       trend: "추이",
     },

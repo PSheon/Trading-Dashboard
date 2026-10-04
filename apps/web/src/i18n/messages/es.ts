@@ -646,6 +646,8 @@ export const es: Messages = {
       accountValue: "Valor de cuenta",
       pnl: "PnL",
       roi: "ROI",
+      accountPnl: "PnL de la cuenta",
+      accountRoi: "ROI de la cuenta",
       volume: "Volumen",
       trend: "Tendencia",
     },

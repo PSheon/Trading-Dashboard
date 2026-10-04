@@ -86,8 +86,8 @@ export const traderStats: TraderStats[] = leaderboard.leaderboardRows.map((row, 
     address: row.ethAddress.toLowerCase(),
     displayName: row.displayName,
     accountValue: Number(row.accountValue),
-    pnl: pick("pnl"),
-    roi: pick("roi"),
+    accountPnl: pick("pnl"),
+    accountRoi: pick("roi"),
     volume: pick("vlm"),
     isVault: FIXTURE_VAULT_RANKS.has(i),
     activity: activityOf(pick("vlm")),
@@ -178,7 +178,7 @@ export function portfolioFor(address: string, window: TraderWindow, market: "all
     return withRisk({ accountValue: valueBase, pnl: pnlBase, volume: Number(sample.vlm) });
   }
 
-  const target = market === "perp" ? stats.pnl[window] * 0.92 : stats.pnl[window];
+  const target = market === "perp" ? stats.accountPnl[window] * 0.92 : stats.accountPnl[window];
   const pnl = shapedSeries(`${address}:${window}:${market}`, pnlBase, target);
   const lastPnl = pnl.at(-1)?.[1] ?? 0;
   const baseValue = stats.accountValue - lastPnl;
@@ -410,7 +410,7 @@ export function profileFor(
       ? {
           winRate30d: 0.42 + random() * 0.4,
           roundTrips30d: 12 + Math.floor(random() * 180),
-          realizedPnl30d: (stats?.pnl.month ?? 0) * (0.6 + random() * 0.5),
+          realizedPnl30d: (stats?.accountPnl.month ?? 0) * (0.6 + random() * 0.5),
           avgHoldSeconds: 1800 + random() * 86400 * 3,
           bestCoins: merged
             .filter((c) => c.pnl > 0)

@@ -182,14 +182,16 @@ describe("cohort job and endpoints (real Postgres)", () => {
       analytics(addr(22), 0), // spot-heavy: large account, no perp equity
       analytics(addr(23), 10e6),
     ]);
+    // addr(25)'s perp equity is not known yet: after every known one, never
+    // ranked by its whole account's value (audit A4).
     await service.build(3);
-    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(21), addr(25), addr(23)]);
+    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(21), addr(23), addr(22)]);
     await service.build(10);
-    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(21), addr(25), addr(23), addr(22)]);
+    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(21), addr(23), addr(22), addr(25)]);
     // A cohort snapshot's perp equity is newer than the ledger's: addr(21) grew past the ceiling.
     await db.update(cohortMembers).set({ perpEquity: "60000000" }).where(eq(cohortMembers.address, addr(21)));
     await service.build(10);
-    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(25), addr(23), addr(22)]);
+    expect((await repository.membersOf("extremely_profitable")).map((m) => m.address)).toEqual([addr(23), addr(22), addr(25)]);
   });
 
   it("refreshes positions on known dexes, sweeps every dex daily, writes history and serves the tier", async () => {

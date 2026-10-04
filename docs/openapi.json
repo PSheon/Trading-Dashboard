@@ -12260,6 +12260,12 @@
                                 "number",
                                 "null"
                               ]
+                            },
+                            "accountValue": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
                             }
                           },
                           "required": [
@@ -12942,12 +12948,13 @@
             "name": "sort",
             "required": false,
             "in": "query",
+            "description": "accountPnl / accountRoi: Hyperliquid's leaderboard figures (whole account)",
             "schema": {
-              "default": "pnl",
+              "default": "accountPnl",
               "type": "string",
               "enum": [
-                "pnl",
-                "roi",
+                "accountPnl",
+                "accountRoi",
                 "volume",
                 "accountValue"
               ]
@@ -13096,7 +13103,7 @@
                               "accountValue": {
                                 "type": "number"
                               },
-                              "pnl": {
+                              "accountPnl": {
                                 "type": "object",
                                 "properties": {
                                   "day": {
@@ -13120,7 +13127,7 @@
                                 ],
                                 "additionalProperties": false
                               },
-                              "roi": {
+                              "accountRoi": {
                                 "type": "object",
                                 "properties": {
                                   "day": {
@@ -13192,8 +13199,8 @@
                               "address",
                               "displayName",
                               "accountValue",
-                              "pnl",
-                              "roi",
+                              "accountPnl",
+                              "accountRoi",
                               "volume",
                               "isVault",
                               "activity",
@@ -13485,7 +13492,7 @@
                                 "accountValue": {
                                   "type": "number"
                                 },
-                                "pnl": {
+                                "accountPnl": {
                                   "type": "object",
                                   "properties": {
                                     "day": {
@@ -13509,7 +13516,7 @@
                                   ],
                                   "additionalProperties": false
                                 },
-                                "roi": {
+                                "accountRoi": {
                                   "type": "object",
                                   "properties": {
                                     "day": {
@@ -13578,8 +13585,8 @@
                                 "address",
                                 "displayName",
                                 "accountValue",
-                                "pnl",
-                                "roi",
+                                "accountPnl",
+                                "accountRoi",
                                 "volume",
                                 "isVault",
                                 "activity",
@@ -15564,7 +15571,7 @@
                                   "accountValue": {
                                     "type": "number"
                                   },
-                                  "pnl": {
+                                  "accountPnl": {
                                     "type": "object",
                                     "properties": {
                                       "day": {
@@ -15588,7 +15595,7 @@
                                     ],
                                     "additionalProperties": false
                                   },
-                                  "roi": {
+                                  "accountRoi": {
                                     "type": "object",
                                     "properties": {
                                       "day": {
@@ -15657,8 +15664,8 @@
                                   "address",
                                   "displayName",
                                   "accountValue",
-                                  "pnl",
-                                  "roi",
+                                  "accountPnl",
+                                  "accountRoi",
                                   "volume",
                                   "isVault",
                                   "activity",
@@ -15813,7 +15820,7 @@
                                 "accountValue": {
                                   "type": "number"
                                 },
-                                "pnl": {
+                                "accountPnl": {
                                   "type": "object",
                                   "properties": {
                                     "day": {
@@ -15837,7 +15844,7 @@
                                   ],
                                   "additionalProperties": false
                                 },
-                                "roi": {
+                                "accountRoi": {
                                   "type": "object",
                                   "properties": {
                                     "day": {
@@ -15906,8 +15913,8 @@
                                 "address",
                                 "displayName",
                                 "accountValue",
-                                "pnl",
-                                "roi",
+                                "accountPnl",
+                                "accountRoi",
                                 "volume",
                                 "isVault",
                                 "activity",
@@ -16112,7 +16119,7 @@
                                 "accountValue": {
                                   "type": "number"
                                 },
-                                "pnl": {
+                                "accountPnl": {
                                   "type": "object",
                                   "properties": {
                                     "day": {
@@ -16136,7 +16143,7 @@
                                   ],
                                   "additionalProperties": false
                                 },
-                                "roi": {
+                                "accountRoi": {
                                   "type": "object",
                                   "properties": {
                                     "day": {
@@ -16205,8 +16212,8 @@
                                 "address",
                                 "displayName",
                                 "accountValue",
-                                "pnl",
-                                "roi",
+                                "accountPnl",
+                                "accountRoi",
                                 "volume",
                                 "isVault",
                                 "activity",

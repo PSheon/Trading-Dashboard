@@ -43,8 +43,8 @@ export function toTraderStats(row: TraderStatsRow): TraderStats {
     address: row.address,
     displayName: row.displayName,
     accountValue: num(row.accountValue),
-    pnl: { day: num(row.pnlDay), week: num(row.pnlWeek), month: num(row.pnlMonth), allTime: num(row.pnlAllTime) },
-    roi: { day: num(row.roiDay), week: num(row.roiWeek), month: num(row.roiMonth), allTime: num(row.roiAllTime) },
+    accountPnl: { day: num(row.pnlDay), week: num(row.pnlWeek), month: num(row.pnlMonth), allTime: num(row.pnlAllTime) },
+    accountRoi: { day: num(row.roiDay), week: num(row.roiWeek), month: num(row.roiMonth), allTime: num(row.roiAllTime) },
     volume: {
       day: num(row.volumeDay),
       week: num(row.volumeWeek),

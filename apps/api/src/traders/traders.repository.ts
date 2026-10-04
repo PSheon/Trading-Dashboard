@@ -10,8 +10,8 @@ import {
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 const SORT_COLUMNS = {
-  pnl: { day: traderStats.pnlDay, week: traderStats.pnlWeek, month: traderStats.pnlMonth, allTime: traderStats.pnlAllTime },
-  roi: { day: traderStats.roiDay, week: traderStats.roiWeek, month: traderStats.roiMonth, allTime: traderStats.roiAllTime },
+  accountPnl: { day: traderStats.pnlDay, week: traderStats.pnlWeek, month: traderStats.pnlMonth, allTime: traderStats.pnlAllTime },
+  accountRoi: { day: traderStats.roiDay, week: traderStats.roiWeek, month: traderStats.roiMonth, allTime: traderStats.roiAllTime },
   volume: {
     day: traderStats.volumeDay,
     week: traderStats.volumeWeek,

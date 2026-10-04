@@ -1330,6 +1330,8 @@ export const zhTW = {
       accountValue: "帳戶價值",
       pnl: "盈虧",
       roi: "報酬率",
+      accountPnl: "帳戶損益",
+      accountRoi: "帳戶 ROI",
       volume: "交易量",
       trend: "走勢",
     },

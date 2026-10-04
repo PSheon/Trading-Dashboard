@@ -646,6 +646,8 @@ export const ru: Messages = {
       accountValue: "Размер счёта",
       pnl: "PnL",
       roi: "ROI",
+      accountPnl: "PnL аккаунта",
+      accountRoi: "ROI аккаунта",
       volume: "Объём",
       trend: "Тренд",
     },

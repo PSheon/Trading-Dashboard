@@ -83,8 +83,8 @@ export function TradersTable({
           <TableHead className="w-8 md:w-12">{t("explore.cols.rank")}</TableHead>
           <TableHead>{t("explore.cols.trader")}</TableHead>
           {head("accountValue", t("explore.cols.accountValue"), "hidden sm:table-cell")}
-          {head("pnl", t("explore.cols.pnl"))}
-          {head("roi", t("explore.cols.roi"))}
+          {head("accountPnl", t("explore.cols.accountPnl"))}
+          {head("accountRoi", t("explore.cols.accountRoi"))}
           {head("volume", t("explore.cols.volume"), "hidden lg:table-cell")}
           {sparklines ? (
             <TableHead className="hidden w-36 text-right md:table-cell">{t("explore.cols.trend")}</TableHead>
@@ -94,7 +94,7 @@ export function TradersTable({
       </TableHeader>
       <TableBody>
         {rows.map((row, i) => {
-          const roi = row.roi[window];
+          const roi = row.accountRoi[window];
           return (
             <TableRow
               key={row.address}
@@ -131,7 +131,7 @@ export function TradersTable({
                 {format.usd(row.accountValue, { compact: true })}
               </TableCell>
               <TableCell className="text-right">
-                <PnlValue value={row.pnl[window]} />
+                <PnlValue value={row.accountPnl[window]} />
               </TableCell>
               <TableCell
                 className={cn(

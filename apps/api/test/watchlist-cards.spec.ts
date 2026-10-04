@@ -48,7 +48,8 @@ describe("watchlist cards (real Postgres)", () => {
     const res = await request(app.getHttpServer()).get(`/discover/cards?addresses=${addr(2)},${addr(1)},${addr(3)},${addr(1)}`).expect(200);
     const { items } = wireTraderCardsSchema.parse(res.body.data);
     expect(items.map((c) => c.address)).toEqual([addr(2), addr(1), addr(3)]);
-    expect(items[0]).toMatchObject({ source: "leaderboard", displayName: "Board Two", pnl: 200, roi: 0.5, pnl30d: 12, copyScore: null, sparkline: [], winRate: null });
+    // The leaderboard's PnL / ROI are the whole account's: not shown as a card's (perp) PnL / ROI (audit A3).
+    expect(items[0]).toMatchObject({ source: "leaderboard", displayName: "Board Two", accountValue: 500, pnl: null, roi: null, pnl30d: null, copyScore: null, sparkline: [], winRate: null });
     expect(items[1]).toMatchObject({ source: "pool", pnl: 900, roi: 2, pnl30d: 40, copyScore: 49, winRate: 0.75, sharpe: 1.5, maxDrawdown: 0.2, sparkline: [0, 5, 9] });
     expect(items[2]).toMatchObject({ source: "none", displayName: "Kol Three", kol: true, verified: true, xHandle: "three", avatarUrl: null, pnl: null });
     await request(app.getHttpServer()).get("/discover/cards?addresses=nope").expect(400);

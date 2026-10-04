@@ -21,6 +21,9 @@ import { CopyLiveEngine, DEFAULT_ENGINE_OPTIONS } from './copy-live-engine.js';
 import { CopyLiveSettler } from './copy-live-settler.js';
 import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
+import { CopyLiveStopWorkerRepository } from './copy-live-stop-worker.repository.js';
+import { CopyLiveStopper, StopCanceller } from './copy-live-stopper.js';
+import { TestnetReduceOnlyCloser } from './reduce-only-closer.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
 /** Risk inputs the runtime requires besides slippage and the price check. */
@@ -31,9 +34,9 @@ const EXTRA_RISK_BUFFER_BPS = '5', RESTING_BUILDER_FEE_CAP_TENTHS_BPS = 100;
 export const liveEngineProvider: Provider = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, PostgresHyperliquidQuota, CopyMarketService, CopyFollowerLedger,
-    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository],
+    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyFollowerScanRepository, CopyLiveStopWorkerRepository],
   useFactory: (config: AppConfig, pool: Pool, db: DrizzleDb, uow: UnitOfWork, quota: PostgresHyperliquidQuota,
-    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository): CopyLiveEngine | null => {
+    market: CopyMarketService, ledger: CopyFollowerLedger, sources: CopyLiveSourceRepository, repository: CopyLiveWorkerRepository, scans: CopyFollowerScanRepository, stops: CopyLiveStopWorkerRepository): CopyLiveEngine | null => {
     const live = config.value.copy.live;
     if (config.value.copy.mode !== 'testnet' || !live) return null;
     const logger = new Logger('CopyLiveEngine');
@@ -47,7 +50,12 @@ export const liveEngineProvider: Provider = {
     const reference = new MainnetSourceReferenceReader(market);
     const options = { slippageBps: String(live.slippageBps), extraRiskBufferBps: EXTRA_RISK_BUFFER_BPS,
       restingOrderBuilderFeeCapTenthsBps: RESTING_BUILDER_FEE_CAP_TENTHS_BPS, maxSourceDeviationBps: String(live.maxSourceDeviationBps) };
-    return new CopyLiveEngine({
+    const closer = new TestnetReduceOnlyCloser(pool, db, uow, testnetConfig, testnetGlobal, testnetBudget, Math.max(100, live.slippageBps * 3));
+    const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message),
+      canceller: new StopCanceller(pool, db, testnetConfig, testnetGlobal, testnetBudget, stops, (account, key) => closer.reconcile(account, key)),
+      // Returning funds to the main wallet is the owner's signed transfer.
+      swept: async () => false });
+    return new CopyLiveEngine({ stopper,
       repository, sources, uow, watched: new WatchedMainnetSource(db),
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => testnetBudget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), testnetGlobal.fetchInfo),
       runtime: hooks => new TestnetLiveExecutionRuntime(pool, testnetConfig, testnetGlobal, testnetBudget, options, Date.now, { ...hooks, reference }),

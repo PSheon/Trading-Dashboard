@@ -1641,7 +1641,7 @@ export const copyLiveRiskReservations = pgTable("copy_live_risk_reservations", {
   state: text("state").$type<"held" | "unknown" | "resting" | "released" | "quarantined">().notNull().default("held"),
   exchangeOrderId: text("exchange_order_id"), attemptedAt: timestamp("attempted_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  releaseReason: text("release_reason").$type<"unattempted_expired" | "verified_settlement">(), releaseEvidenceDigest: text("release_evidence_digest"),
+  releaseReason: text("release_reason").$type<"unattempted_expired" | "verified_settlement" | "expired_unplaced">(), releaseEvidenceDigest: text("release_evidence_digest"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 }, (t) => [
   uniqueIndex("copy_live_risk_reservations_cloid_uq").on(t.network, t.accountAddress, t.cloid),
@@ -1654,7 +1654,7 @@ export const copyLiveRiskReservations = pgTable("copy_live_risk_reservations", {
   check("copy_live_risk_reservations_time_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.updatedAt} >= ${t.createdAt}`),
   check("copy_live_risk_reservations_state_check", oneOf(t.state, ["held", "unknown", "resting", "released", "quarantined"])),
   check("copy_live_risk_reservations_order_check", sql`(${t.exchangeOrderId} is null or ${t.exchangeOrderId} ~ '^[1-9][0-9]*$') and (${t.state} <> 'held' or (${t.attemptedAt} is null and ${t.exchangeOrderId} is null)) and (${t.state} not in ('unknown', 'resting') or ${t.attemptedAt} is not null) and (${t.state} <> 'resting' or ${t.exchangeOrderId} is not null)`),
-  check("copy_live_risk_reservations_release_check", sql`(${t.state} <> 'released' and ${t.releaseReason} is null and ${t.releaseEvidenceDigest} is null) or (${t.state} = 'released' and ${t.releaseReason} is not null and ${t.releaseEvidenceDigest} is not null and ${t.releaseEvidenceDigest} ~ '^[0-9a-f]{64}$' and ((${t.releaseReason} = 'unattempted_expired' and ${t.attemptedAt} is null and ${t.exchangeOrderId} is null) or (${t.releaseReason} = 'verified_settlement' and ${t.attemptedAt} is not null)))`),
+  check("copy_live_risk_reservations_release_check", sql`(${t.state} <> 'released' and ${t.releaseReason} is null and ${t.releaseEvidenceDigest} is null) or (${t.state} = 'released' and ${t.releaseReason} is not null and ${t.releaseEvidenceDigest} is not null and ${t.releaseEvidenceDigest} ~ '^[0-9a-f]{64}$' and ((${t.releaseReason} = 'unattempted_expired' and ${t.attemptedAt} is null and ${t.exchangeOrderId} is null) or (${t.releaseReason} = 'verified_settlement' and ${t.attemptedAt} is not null) or (${t.releaseReason} = 'expired_unplaced' and ${t.attemptedAt} is not null and ${t.exchangeOrderId} is null)))`),
 ]);
 
 /** Immutable execution bindings plus validated provider evidence. The latest
@@ -1823,6 +1823,38 @@ export const copyLiveActivations = pgTable("copy_live_activations", {
 }, (t) => [
   index("copy_live_activations_state_idx").on(t.state),
   check("copy_live_activations_state_check", sql`${oneOf(t.state, ["pending", "activated"])} and ${t.controlRevision} >= 0 and (${t.state} = 'activated') = (${t.activatedAt} is not null)`),
+]);
+
+/** The owner's signed consent to cancel a stop's tracked resting orders
+ * (LiveStopCancellationIntent). The signature itself is not kept: its digest
+ * and the verified intent are. One current consent per stop. */
+export const copyLiveStopConsents = pgTable("copy_live_stop_consents", {
+  stopId: text("stop_id").primaryKey().references(() => copyLiveStopOperations.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  intent: jsonb("intent").$type<Record<string, unknown>>().notNull(), intentDigest: text("intent_digest").notNull(),
+  consentDigest: text("consent_digest"), verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  check("copy_live_stop_consents_check", sql`jsonb_typeof(${t.intent}) = 'object' and ${t.intentDigest} ~ '^[0-9a-f]{64}$' and (${t.consentDigest} is null) = (${t.verifiedAt} is null) and (${t.consentDigest} is null or ${t.consentDigest} ~ '^[0-9a-f]{64}$')`),
+]);
+
+/** One cancel attempt of one tracked resting order during a stop: a cancel
+ * by the order's own cloid, signed by the agent under the owner's consent.
+ * An attempt whose outcome is unknown is reconciled from the order's status,
+ * never repeated blindly. */
+export const copyLiveStopCancellations = pgTable("copy_live_stop_cancellations", {
+  id: text("id").primaryKey(),
+  stopId: text("stop_id").notNull().references(() => copyLiveStopOperations.id, { onDelete: "restrict" }),
+  executionKey: text("execution_key").notNull().references(() => copyLiveExecutions.key, { onDelete: "restrict" }),
+  attempt: integer("attempt").notNull(),
+  state: text("state").$type<"claimed" | "accepted" | "unknown">().notNull().default("claimed"),
+  claimToken: text("claim_token").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(), expiresAfter: bigint("expires_after", { mode: "number" }).notNull(),
+  consentDigest: text("consent_digest").notNull(), evidence: jsonb("evidence").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_stop_cancellations_attempt_uq").on(t.stopId, t.executionKey, t.attempt),
+  check("copy_live_stop_cancellations_check", sql`${oneOf(t.state, ["claimed", "accepted", "unknown"])} and ${t.attempt} between 1 and 10 and ${t.nonce} > 0 and ${t.expiresAfter} > ${t.nonce} and ${t.consentDigest} ~ '^[0-9a-f]{64}$'`),
 ]);
 
 /** Shared outbound provider capacity. Reservations are never refunded merely

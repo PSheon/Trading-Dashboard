@@ -5,6 +5,10 @@ import { LiveBoundaryError, WalletAuthorizationService, assertSameAuthorization,
 import type { LiveMarketIdentity } from './live-market-resolver.js';
 import type { LiveUnattemptedReleaseCertificate } from './live-unattempted-release.js';
 
+/** An attempted order the exchange still does not know by cloid once its
+ * signed expiresAfter (plus this grace) has passed: it was never placed. */
+export const NEVER_PLACED = "exchange_order_never_placed";
+export const NEVER_PLACED_GRACE_MS = 30_000;
 export type LiveExecutionState = "prepared" | "submitting" | "unknown" | "resting" | "filled" | "partial" | "cancelled" | "rejected";
 export interface ExchangeOutcome {
   state: Exclude<LiveExecutionState, "prepared" | "submitting" | "unknown">;
@@ -142,7 +146,16 @@ export class LiveOrderExecutor {
     let outcome: ExchangeOutcome | null;
     try { outcome = await this.transport.query(record); }
     catch { return this.persist({ ...record, state: record.state === "resting" ? "resting" : "unknown", errorCode: "exchange_reconciliation_unavailable", updatedAt: this.now() }, lease); }
-    if (!outcome) return this.persist({ ...record, state: record.state === "resting" ? "resting" : "unknown", errorCode: "exchange_order_not_yet_found", updatedAt: this.now() }, lease);
+    if (!outcome) {
+      // The signed action carries expiresAfter: past it (and a settling
+      // grace) the exchange can no longer place it. Still unknown by cloid
+      // then means it was never placed: a terminal rejection, so its liability
+      // can be released instead of reserving budget for ever.
+      if (record.state !== "resting" && this.now() > record.expiresAfter + NEVER_PLACED_GRACE_MS) {
+        return this.persist({ ...record, state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason: NEVER_PLACED }, updatedAt: this.now() }, lease);
+      }
+      return this.persist({ ...record, state: record.state === "resting" ? "resting" : "unknown", errorCode: "exchange_order_not_yet_found", updatedAt: this.now() }, lease);
+    }
     return this.persist({ ...record, state: outcome.state, outcome, errorCode: undefined, updatedAt: this.now() }, lease);
   }
 

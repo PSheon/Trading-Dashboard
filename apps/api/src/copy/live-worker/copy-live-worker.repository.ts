@@ -139,6 +139,10 @@ export class CopyLiveWorkerRepository {
     const [row] = await this.db.select({ network: copyLiveStrategyConfigs.sourceNetwork }).from(copyLiveStrategyConfigs).where(eq(copyLiveStrategyConfigs.strategyId, strategyId));
     return row?.network ?? null;
   }
+  async strategyStatus(id: number): Promise<string | null> {
+    const [row] = await this.db.select({ status: copyStrategies.status }).from(copyStrategies).where(eq(copyStrategies.id, id));
+    return row?.status ?? null;
+  }
   async mandate(id: string) {
     const [row] = await this.db.select().from(copyLiveMandates).where(eq(copyLiveMandates.id, id));
     return row ?? null;

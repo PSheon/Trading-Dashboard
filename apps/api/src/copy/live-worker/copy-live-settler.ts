@@ -5,7 +5,7 @@ import { copyLiveExecutions, copyLiveRiskReservations } from '@trading-dashboard
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import type { LiveExecutionRecord } from '../live/live-execution.js';
+import { NEVER_PLACED, type LiveExecutionRecord } from '../live/live-execution.js';
 import { HyperliquidLiveAccountObserver } from '../live/live-account-observer.js';
 import { HyperliquidAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
@@ -21,7 +21,7 @@ export interface LiveSettleRequest {
   readonly userId: number; readonly accountId: string; readonly accountAddress: string;
   readonly sourceNetwork: LiveSourceNetwork; readonly leaderAddress: string; readonly key: string;
 }
-export type LiveSettleOutcome = { kind: 'released' } | { kind: 'pending' | 'quarantine'; reason: string };
+export type LiveSettleOutcome = { kind: 'released' } | { kind: 'unplaced' } | { kind: 'pending' | 'quarantine'; reason: string };
 
 /**
  * Settles one terminal testnet order: scans the account's own fills now
@@ -54,6 +54,11 @@ export class CopyLiveSettler {
         const evidence = await this.orderEvidence(record, resolver);
         const observed = await settlement.observe(session, { accountId: request.accountId, key: request.key, evidence });
         if (observed.kind !== 'recorded') return observed;
+        // Never placed (expired unknown by cloid): release, nothing to settle.
+        if (record.errorCode === NEVER_PLACED) {
+          const released = await settlement.releaseNeverPlaced(session, { accountId: request.accountId, key: request.key });
+          return released.kind === 'released' ? { kind: 'unplaced' as const } : released;
+        }
         const observer = new HyperliquidLiveAccountObserver('testnet', this.acquire, this.global.fetchInfo, this.now, 5000, sockets);
         const snapshot = await observer.observe(request.accountAddress);
         const [reservation] = await session.read(db => db.select({ revision: copyLiveRiskReservations.revision, accountId: copyLiveRiskReservations.accountId,

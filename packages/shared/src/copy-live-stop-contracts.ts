@@ -86,3 +86,10 @@ export function liveStopCancellationOwnerTypedData(value: LiveStopCancellationIn
     message: { ...input },
   };
 }
+
+/** The current cancellation consent challenge of a cancelling stop. */
+export const liveStopCancellationChallengeSchema = z.object({
+  stopId: z.string().uuid(), intent: liveStopCancellationIntentSchema, consented: z.boolean(),
+}).strict();
+export type LiveStopCancellationChallenge = z.infer<typeof liveStopCancellationChallengeSchema>;
+export const approveLiveStopCancellationSchema = z.object({ consentSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict();

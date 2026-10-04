@@ -11,8 +11,8 @@ import { decodeLiveSourceSizingEnvelope, planLiveSourceOrder } from './copy-live
 import { intentFingerprint } from './live-order.js';
 import type { DbTransaction } from '../../db/unit-of-work.js';
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
-import type { LiveExecutionRecord } from './live-execution.js';
-import { captureLiveOrderIdentity, liveOrderIdentityBinding, parseLiveOrderEvidence, parseLiveIocAcknowledgement,
+import { NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionRecord } from './live-execution.js';
+import { captureLiveOrderIdentity, digestLiveEvidence, liveOrderIdentityBinding, parseLiveOrderEvidence, parseLiveIocAcknowledgement,
   type LiveOrderEvidence, type LiveIocAcknowledgement } from './live-order-evidence.js';
 import type { LiveAccountRiskInput } from './live-account-risk.js';
 import { assessLiveReservationSettlement, type LiveReservationSettlementDecision, type LiveReservationSettlementInput, type LiveSettlementReceipt } from './live-reservation-settlement.js';
@@ -173,6 +173,42 @@ export class PostgresLiveSettlement {
       session.scope.assertFresh(); this.fresh(oldest); return {kind:'recorded' as const,oid,revision:saved[0]!.revision};
     });
     const frozen = freezeLiveReservation(result); session.scope.assertFresh(); this.fresh(oldest); return frozen;
+  }
+  /**
+   * Releases the liability of an attempted order the exchange never placed:
+   * the executor recorded it rejected (exchange_order_never_placed) once its
+   * signed expiresAfter and grace passed with the order still unknown by
+   * cloid; a fresh status read stored by observe() still finds no order, and
+   * no account fill is attributed to it. Its source leg is skipped. Nothing
+   * else (a found order, a receipt, an older observation) releases it.
+   */
+  async releaseNeverPlaced(session: LiveRiskDatabaseSession, raw: { accountId: string; key: string }): Promise<Readonly<{ kind: 'released' } | { kind: 'pending' | 'quarantine'; reason: string }>> {
+    const input = structuredClone(raw), started = this.now(); session.scope.assertFresh();
+    const result = await session.transaction(async tx => {
+      const { row, record, evidence } = await this.load(session, tx, input.accountId, input.key);
+      if (row.state === 'released') return { kind: 'released' as const };
+      if (row.state === 'quarantined') return { kind: 'quarantine' as const, reason: 'live_settlement_quarantined' };
+      if (record.state !== 'rejected' || record.errorCode !== NEVER_PLACED) return { kind: 'pending' as const, reason: 'live_settlement_not_never_placed' };
+      const observation = evidence?.statusObservation as unknown as LiveOrderEvidence | null | undefined;
+      if (!evidence || !observation || evidence.exchangeOrderId !== null || row.exchangeOrderId !== null) return { kind: 'pending' as const, reason: 'live_settlement_terminal_unproven' };
+      let parsed: LiveOrderEvidence;
+      try { parsed = this.observation(record, observation); } catch { return this.quarantine(session, tx, row, 'live_settlement_stored_evidence_conflict'); }
+      if (parsed.kind !== 'missing' || evidence.statusDigest !== parsed.sourceDigest || parsed.checkedAt <= record.expiresAfter + NEVER_PLACED_GRACE_MS)
+        return { kind: 'pending' as const, reason: 'live_settlement_terminal_unproven' };
+      const receipts = await this.query(session, tx.select({ key: copyFollowerReceipts.key }).from(copyFollowerReceipts).where(eq(copyFollowerReceipts.executionKey, row.key)).limit(1));
+      if (receipts.length) return this.quarantine(session, tx, row, 'live_settlement_unplaced_order_has_fills');
+      const attemptedAt = row.attemptedAt ?? new Date(Math.max(record.updatedAt, row.createdAt.getTime()));
+      const changed = await this.query(session, tx.update(copyLiveRiskReservations).set({ state: 'released', attemptedAt, exchangeOrderId: null, releaseReason: 'expired_unplaced',
+        releaseEvidenceDigest: digestLiveEvidence({ key: row.key, fingerprint: record.fingerprint, expiresAfter: record.expiresAfter, statusDigest: parsed.sourceDigest, checkedAt: parsed.checkedAt }),
+        revision: row.revision + 1, updatedAt: new Date(this.now()) })
+        .where(and(eq(copyLiveRiskReservations.key, row.key), eq(copyLiveRiskReservations.revision, row.revision), inArray(copyLiveRiskReservations.state, ['held', 'unknown']))).returning());
+      check(changed.length === 1, 'live_settlement_revision_changed');
+      await this.query(session, tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(this.now()) })
+        .where(and(eq(copyLiveSignalLegs.executionKey, row.key), eq(copyLiveSignalLegs.state, 'prepared'))));
+      session.scope.assertFresh(); this.fresh(started);
+      return { kind: 'released' as const };
+    });
+    return freezeLiveReservation(result);
   }
   /** Replay immutable admission evidence at its original clock. Revocation,
    * stop, newer settings and grant expiry do not erase an attempted liability. */

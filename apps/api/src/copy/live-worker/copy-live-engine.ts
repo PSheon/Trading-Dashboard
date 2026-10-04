@@ -20,6 +20,8 @@ export interface LiveEngineDependencies {
   readonly testnetSource: HyperliquidLiveSourceClient;
   readonly runtime: (hooks: Pick<TestnetLiveExecutionHooks, 'onExchange'>) => LiveExecutor;
   readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> };
+  /** Owner stop requests (cancel, close, flat, return); after the legs. */
+  readonly stopper?: { tick(): Promise<void> };
   readonly log?: (message: string) => void;
 }
 export interface LiveEngineOptions {
@@ -70,6 +72,10 @@ export class CopyLiveEngine {
       if (this.now() - started > this.options.passBudgetMs) break;
       try { await this.work(row, byId.get(row.mandateId) ?? null, limit); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }
+    }
+    if (this.deps.stopper) {
+      try { await this.deps.stopper.tick(); }
+      catch (error) { this.deps.log?.(`stops kept for the next pass: ${reasonOf(error)}`); }
     }
   }
 
@@ -128,6 +134,7 @@ export class CopyLiveEngine {
     const outcome = await this.deps.settler.settle({ userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
     if (outcome.kind === 'released') await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'settled', settledAt: new Date(this.now()), reason: null });
+    else if (outcome.kind === 'unplaced') await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'exchange_order_never_placed' });
     else if (outcome.kind === 'quarantine') await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: outcome.reason.slice(0, 80) });
     else await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { reason: outcome.reason.slice(0, 80) });
   }
@@ -137,7 +144,11 @@ export class CopyLiveEngine {
     if (now - row.leaderTime.getTime() > signalAgeMs) {
       await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: row.reason && row.attempts > 0 ? row.reason : 'signal_expired' }); return;
     }
-    if (m.strategyStatus !== 'active') return; // paused/stopping: new legs wait, then expire.
+    if (m.strategyStatus === 'stopping' || m.strategyStatus === 'stopped') {
+      // The stop closes every position itself; no new leg of a stopping copy is sent.
+      await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'copy_stopping' }); return;
+    }
+    if (m.strategyStatus !== 'active') return; // paused: new legs wait, then expire.
     if (row.leg === 'close' && !await this.deps.repository.everOpened(row.mandateId, row.coin)) {
       await this.deps.repository.update(row.id, row.state as 'pending' | 'submitted', { state: 'refused', reason: 'no_follower_position' }); return;
     }
@@ -181,6 +192,6 @@ export class CopyLiveEngine {
     if (!mandate) return null;
     return { mandateId: mandate.id, userId: mandate.userId, strategyId: mandate.strategyId, accountId: mandate.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, cursor: mandate.activationCursor ?? mandate.createdAt, expiresAt: mandate.expiresAt,
-      strategyStatus: 'inactive', activated: true, activatedAt: null };
+      strategyStatus: await this.deps.repository.strategyStatus(mandate.strategyId) ?? 'stopped', activated: true, activatedAt: null };
   }
 }

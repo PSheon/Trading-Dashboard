@@ -11,7 +11,7 @@ import { parseFollowerFill, parseFollowerFunding, followerReceiptDigestV1 } from
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceLegId } from './copy-live-source-evidence.js';
 import { captureLiveOrderIdentity } from './live-order-evidence.js';
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from './live-order.js';
-import type { LiveExecutionRecord } from './live-execution.js';
+import { NEVER_PLACED, type LiveExecutionRecord } from './live-execution.js';
 import { decodeLiveSettlementProof } from './live-settlement-proof.js';
 import { decodeLiveUnattemptedRelease,assertLiveUnattemptedReleaseMirrors } from './live-unattempted-release.js';
 import { freezeLiveReservation, validateLiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
@@ -130,6 +130,13 @@ export function projectLiveGenerationPositions(raw: LiveGenerationProjectionInpu
         requireGeneration(witness&&Object.keys(witness).sort().join(',')==='admittedAt,amount,revision,sizingBasisDigest,updatedAt'&&witness.sizingBasisDigest===p!.sizingBasisDigest&&witness.admittedAt===p!.admittedAt&&
           witness.revision===certificate.original.carry.revision&&witness.amount===certificate.original.carry.carry&&witness.updatedAt===certificate.original.carry.updatedAt);
         const carry=manifest.carry.find(row=>row.coin===fill.coin);requireGeneration(carry);assertLiveUnattemptedReleaseMirrors(certificate,entry,carry!);
+        continue;
+      }
+      if(record.errorCode===NEVER_PLACED){
+        // An attempted order the exchange never placed: no fill, no carry
+        // change, its liability released as expired_unplaced, its leg skipped.
+        requireGeneration(r&&j.state==='rejected'&&r.state==='released'&&r.releaseReason==='expired_unplaced'&&r.exchangeOrderId===null&&r.releaseEvidenceDigest&&
+          leg!.state==='skipped'&&ownReceipts.length===0&&(!e||e.exchangeOrderId===null&&!e.settlementCertificate));
         continue;
       }
       if(j.key===currentExecutionKey&&['prepared','submitting'].includes(j.state)){

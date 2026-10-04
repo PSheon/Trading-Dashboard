@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { z } from 'zod';
-import { copyIdempotencyKeySchema, requestLiveCopyStopSchema } from '@trading-dashboard/shared/contracts';
+import { approveLiveStopCancellationSchema, copyIdempotencyKeySchema, liveStopCancellationChallengeSchema, requestLiveCopyStopSchema } from '@trading-dashboard/shared/contracts';
+import { ForbiddenException } from '@nestjs/common';
+import { liveStopCancellationIntentDigest, verifyLiveStopCancellationConsent } from './copy-live-stop-consent.js';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 const id = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
@@ -22,4 +24,18 @@ export class CopyLiveStopService {
     return this.uow.run(async tx => this.repository.wire(await this.repository.byKey(tx, userId, key)));
   }
   async overview(userId: number) { return this.uow.run(tx => this.repository.overview(tx, userId)); }
+  /** The owner's consent challenge to cancel a cancelling stop's tracked orders. */
+  async cancellationChallenge(userId: number, stopId: string) {
+    const original = input(z.string().uuid(), stopId);
+    return liveStopCancellationChallengeSchema.parse(await this.uow.run(tx => this.repository.cancellationChallenge(tx, userId, original, this.now)));
+  }
+  /** Verifies the owner's signature over the exact current intent, then records it. */
+  async approveCancellation(userId: number, stopId: string, value: unknown) {
+    const original = input(z.string().uuid(), stopId), body = input(approveLiveStopCancellationSchema, value);
+    const held = await this.repository.consentIntent(userId, original);
+    if (!held) throw new BadRequestException('Request the cancellation consent first');
+    if (!await verifyLiveStopCancellationConsent(held.intent, body.consentSignature, this.now())) throw new ForbiddenException('Invalid owner consent');
+    const digest = liveStopCancellationIntentDigest(held.intent);
+    return liveStopCancellationChallengeSchema.parse(await this.uow.run(tx => this.repository.approveCancellation(tx, userId, original, digest, body.consentSignature, this.now)));
+  }
 }

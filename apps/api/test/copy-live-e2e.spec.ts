@@ -23,6 +23,12 @@ import { CopyLiveEngine } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
+import { CopyLiveStopper } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
+import { TestnetReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
+import { CopyLiveStopService } from '../src/copy/copy-live-stop.service.js';
+import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
+import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
@@ -30,7 +36,7 @@ import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 // Only native network endpoints are doubles (Privy, Hyperliquid REST/WS).
 // The engine, runtime, risk, journal, reservation, receipt ledger and
 // settlement are the production classes on a real database.
-const shared = vi.hoisted(() => ({ clock: 0, position: '0' }));
+const shared = vi.hoisted(() => ({ clock: 0, position: '0', withdrawable: '80' }));
 vi.mock('ws', async () => {
   const { EventEmitter } = await import('node:events');
   return { default: class extends EventEmitter {
@@ -42,10 +48,10 @@ vi.mock('ws', async () => {
         this.emit('message', Buffer.from(JSON.stringify({ channel: 'subscriptionResponse', data: request })));
         if (request.method !== 'subscribe') return;
         const size = shared.position, notional = String(Math.abs(Number(size)) * 100), margin = String(Math.abs(Number(size)) * 10);
-        const sums = { accountValue: '100', totalNtlPos: notional, totalRawUsd: String(100 - Number(notional)), totalMarginUsed: margin };
+        const sums = { accountValue: shared.withdrawable === '0' && size === '0' ? '0' : '100', totalNtlPos: notional, totalRawUsd: String((shared.withdrawable === '0' && size === '0' ? 0 : 100) - Number(notional)), totalMarginUsed: margin };
         const assetPositions = size === '0' ? [] : [{ type: 'oneWay', position: { coin: 'BTC', szi: size, entryPx: '100', positionValue: notional, unrealizedPnl: '0',
           marginUsed: margin, maxLeverage: 20, leverage: { type: 'cross', value: 10 }, cumFunding: { allTime: '0', sinceOpen: '0', sinceChange: '0' } } }];
-        const state = { marginSummary: sums, crossMarginSummary: sums, crossMaintenanceMarginUsed: '0', withdrawable: '80', time: Date.now(), assetPositions };
+        const state = { marginSummary: sums, crossMarginSummary: sums, crossMaintenanceMarginUsed: '0', withdrawable: shared.withdrawable, time: Date.now(), assetPositions };
         this.emit('message', Buffer.from(JSON.stringify(subscription.type === 'allDexsClearinghouseState'
           ? { channel: subscription.type, data: { user: subscription.user, clearinghouseStates: [['', state]] } }
           : { channel: 'openOrders', data: { user: subscription.user, dex: subscription.dex, orders: [] } })));
@@ -78,7 +84,7 @@ beforeEach(async () => {
   const original = budget.acquire.bind(budget); weights = [];
   vi.spyOn(budget, 'acquire').mockImplementation((weight, ...rest) => { weights.push(weight); return original(weight, ...rest); });
   // The actual clock, so every bound identity and consent is current.
-  shared.clock = Date.now(); shared.position = '0'; logs = []; exchangeBodies = []; placedOrders = [];
+  shared.clock = Date.now(); shared.position = '0'; shared.withdrawable = '80'; logs = []; exchangeBodies = []; placedOrders = [];
   const t = shared.clock, delta = t - now, date = (value: number) => new Date(value + delta);
   const [version] = await db.select().from(schema.copyStrategyVersions);
   const settings = { ...version!.settings, perTradeUsd: 20 };
@@ -122,7 +128,7 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
   const user = body!.user, status = placedOrders.find(o => o.cloid === body!.oid);
   const values: Record<string, unknown> = { userRole: { role: 'user' }, userAbstraction: 'disabled', userDexAbstraction: false,
     spotClearinghouseState: { portfolioMarginEnabled: false, balances: [] }, perpDexs: [null], spotMeta: { tokens: [{ index: 7, name: 'USDC', isCanonical: true }] },
-    meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }]],
+    meta, allPerpMetas: [meta], metaAndAssetCtxs: [meta, [{ midPx: '100', markPx: '100' }]], allMids: { BTC: '100' },
     activeAssetData: { user, coin: 'BTC', leverage: { type: 'cross', value: 10 }, maxTradeSzs: ['1', '1'], availableToTrade: ['100', '100'], markPx: '100' },
     userFees: { userAddRate: '-0.0001', userCrossRate: '0.0005', activeReferralDiscount: '0', trial: null },
     extraAgents: [{ address: agent.address, name: 'dedicated', validUntil: Date.now() + 60000 }],
@@ -133,7 +139,7 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
   return Response.json(values[String(body!.type)]);
 }
-function engine(midPrice = '100', egress = global) {
+function engine(midPrice = '100', egress = global, withStopper = false) {
   // Settlement right after the order (scan 240 + status + account ~630): an
   // order and its settlement exceed one minute's 1200 testnet weight, so in
   // production settlement waits for a later pass; here it gets its own room.
@@ -141,7 +147,9 @@ function engine(midPrice = '100', egress = global) {
   const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
   const reference = { read: vi.fn(async () => ({ midPrice, midObservedAt: Date.now(), leaderEquity: null, leaderEquityObservedAt: null })) };
   const options = { slippageBps: '30', extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100, maxSourceDeviationBps: '500' };
-  return new CopyLiveEngine({
+  const stopper = withStopper ? new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db)), canceller: null, swept: async () => false,
+    closer: new TestnetReduceOnlyCloser(pool, db, new UnitOfWork(db), config, egress, budget, 100, clock), log: message => logs.push(message) }, clock) : undefined;
+  return new CopyLiveEngine({ stopper,
     repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db)), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, clock), testnetSource: { read: vi.fn() } as never,
     runtime: hooks => new TestnetLiveExecutionRuntime(pool, config, egress, budget, options, clock, { ...hooks, reference }),
@@ -189,6 +197,33 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     const rows = await db.select().from(schema.copyLiveDispatches);
     expect(rows.map(r => r.state)).toEqual(['settled', 'settled']);
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(2);
+  });
+  it('a stop closes the copied position with one agent-signed reduce-only IOC, confirms flat and ends the copy when nothing is left', async () => {
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
+    const [mandate] = await db.select().from(schema.copyLiveMandates);
+    await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db)), new UnitOfWork(db))
+      .request(1, 'mandate', { idempotencyKey: 'e2e-stop-request-0001', expectedMandateRevision: mandate!.revision });
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
+    e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: 'e2e-stop-egress', ownerId: 'e2e-stop' }, raw), true);
+    await e.tick(); // requested -> closing
+    await e.tick(); // the reduce-only close
+    expect(logs).toEqual([]);
+    expect(exchangeBodies).toHaveLength(2);
+    expect(exchangeBodies[1]).toMatchObject({ action: { type: 'order', orders: [{ a: 0, b: false, s: '0.19', r: true, t: { limit: { tif: 'Ioc' } } }] } });
+    expect(shared.position).toBe('0');
+    shared.withdrawable = '0';
+    // The next minute's testnet quota (an order, its evidence and the account
+    // observations fill one minute's 1200 weight).
+    budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
+    e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: 'e2e-flat-egress', ownerId: 'e2e-flat' }, raw), true);
+    await e.tick(); // flat
+    const [flat] = await db.select().from(schema.copyLiveStopOperations);
+    expect(flat).toMatchObject({ state: 'flat' }); expect(flat!.flatDigest).toMatch(/^[0-9a-f]{64}$/);
+    await e.tick(); // nothing left to return
+    expect((await db.select().from(schema.copyLiveStopOperations))[0]).toMatchObject({ state: 'stopped' });
+    expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopped' });
+    expect(exchangeBodies).toHaveLength(2);
   });
   it('refuses the open when the testnet mid strays from mainnet beyond the threshold; nothing is signed or sent', async () => {
     const e = engine('120'); await e.tick(); await leaderOpens(); await e.tick();

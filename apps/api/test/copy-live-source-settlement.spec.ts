@@ -2,9 +2,10 @@ import { Pool } from 'pg';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence, copyLiveReductionCarry, copyLiveSignalLegs, copyLiveIntentProvenance, copyLiveMandates,
-  copyLiveSourceFills, copyLiveSourceStreams, copyStrategyVersions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyStrategies, users, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
+  copyLiveSourceFills, copyLiveSourceStreams, copyStrategyVersions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyStrategies, users, copyWalletAuthorizations, copyAgentSetups } from '@trading-dashboard/shared/database';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
+import { NEVER_PLACED, NEVER_PLACED_GRACE_MS } from '../src/copy/live/live-execution.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { HyperliquidLiveMarketResolver } from '../src/copy/live/live-market-resolver.js';
@@ -91,6 +92,41 @@ async function projected(position:string){
   }));
 }
 describe('atomic source terminal settlement on one PostgreSQL connection',()=>{
+  it('releases an attempted order the exchange never placed (unknown by cloid past its expiry) and the generation continues',async()=>{
+    // A generation that outlives the order's expiry window.
+    const intent={...seed.consent,expiresAt:now+600000};seed.consent=intent;
+    await db.update(copyLiveMandates).set({intent,intentDigest:digest(intent),expiresAt:new Date(intent.expiresAt)});
+    await db.update(copyWalletAuthorizations).set({expiresAt:new Date(now+600000)});await db.update(copyAgentSetups).set({expiresAt:new Date(now+600000)});
+    const p=await prepare(),attempted=await attempt(p,99);
+    // The executor's terminal rule: still unknown by cloid after expiresAfter + grace.
+    clock=attempted.record.expiresAfter+NEVER_PLACED_GRACE_MS+1;
+    const rejected={...attempted.record,state:'rejected' as const,errorCode:NEVER_PLACED,outcome:{state:'rejected' as const,reason:NEVER_PLACED},updatedAt:clock};
+    await db.update(copyLiveExecutions).set({state:'rejected',record:rejected,updatedAt:new Date(clock)}).where(eq(copyLiveExecutions.key,p.record.key));
+    const missing=(at:number)=>parseLiveOrderEvidence({record:rejected,market:{...rejected.market!,observedAt:at},raw:{status:'unknownOid'},checkedAt:at,completedAt:at,now:at});
+    // Without a fresh no-order observation nothing is released.
+    expect(await scope.run(identity(),async(_s,session)=>settlement.releaseNeverPlaced(session,{accountId:'account',key:p.record.key}))).toMatchObject({kind:'pending'});
+    const result=await scope.run(identity(),async(_s,session)=>{
+      expect(await settlement.observe(session,{accountId:'account',key:p.record.key,evidence:missing(clock)})).toMatchObject({kind:'recorded',oid:null});
+      return settlement.releaseNeverPlaced(session,{accountId:'account',key:p.record.key});
+    });
+    expect(result).toEqual({kind:'released'});
+    expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({state:'released',releaseReason:'expired_unplaced',exchangeOrderId:null});
+    expect((await db.select().from(copyLiveSignalLegs))[0]).toMatchObject({state:'skipped'});
+    // The position projection accepts the released attempt and continues from zero.
+    vi.mocked(observer.observe).mockImplementation(async()=>snapshot('0',clock));
+    expect((await projected('0')).positions).toEqual({});
+  });
+  it('never releases a never-placed attempt that has an attributed fill',async()=>{
+    const p=await prepare(),attempted=await attempt(p,98);
+    await new CopyFollowerLedger(db,new UnitOfWork(db)).bookFill('account',{coin:'BTC',oid:98,tid:198,side:p.intent.side,time:clock+1,sz:'0.1',px:'100',feeToken:'USDC',fee:'0.1',closedPnl:'0'});
+    clock=attempted.record.expiresAfter+NEVER_PLACED_GRACE_MS+1;
+    const rejected={...attempted.record,state:'rejected' as const,errorCode:NEVER_PLACED,outcome:{state:'rejected' as const,reason:NEVER_PLACED},updatedAt:clock};
+    await db.update(copyLiveExecutions).set({state:'rejected',record:rejected,updatedAt:new Date(clock)}).where(eq(copyLiveExecutions.key,p.record.key));
+    const evidence=parseLiveOrderEvidence({record:rejected,market:{...rejected.market!,observedAt:clock},raw:{status:'unknownOid'},checkedAt:clock,completedAt:clock,now:clock});
+    const result=await scope.run(identity(),async(_s,session)=>{await settlement.observe(session,{accountId:'account',key:p.record.key,evidence});return settlement.releaseNeverPlaced(session,{accountId:'account',key:p.record.key});});
+    expect(result).toMatchObject({kind:'quarantine'});
+    expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({state:'quarantined'});
+  });
   it('settles the original source leg and journal alongside its actual receipt certificate',async()=>{
     const p=await prepare();expect(p.intent.size).toBe('0.9');expect((await complete(p,10,'0.9','0.9')).result.kind).toBe('release');
     expect((await db.select().from(copyLiveSignalLegs))[0]).toMatchObject({state:'settled',revision:3});

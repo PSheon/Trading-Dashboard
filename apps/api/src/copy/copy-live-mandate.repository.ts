@@ -181,6 +181,9 @@ export class CopyLiveMandateRepository {
     const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet')));
     if (!account || !strategy || account.network !== row.network || account.strategyId !== row.strategyId || owner.privyUserId !== row.ownerPrivyUserId || account.privyUserId !== owner.privyUserId) conflict();
     if (row.state === state) return row;
+    // A stop in progress owns the strategy: pausing or revoking consent must
+    // never move a stopping (or stopped) strategy back to paused.
+    if (row.state === 'stopping' || strategy.status === 'stopping' || strategy.status === 'stopped') throw new ConflictException({ statusCode: 409, code: 'live_stop_in_progress', message: 'A stop is in progress for this copy' });
     if (['revoked', 'expired', 'stopped'].includes(row.state) || (state === 'paused' && row.state !== 'active')) conflict();
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(eq(copyStrategies.id, row.strategyId));
     const [updated] = await tx.update(copyLiveMandates).set({ state, revision: row.revision + 1, updatedAt: new Date(now) }).where(and(eq(copyLiveMandates.id, id), eq(copyLiveMandates.revision, row.revision))).returning();

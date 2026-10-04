@@ -1,7 +1,7 @@
 import { exchangeApprovalFixture, executionGateFixture } from "./copy-live-test-utils.js";
 import { LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "../src/copy/live/live-execution-gate.js";
 import { describe, expect, it, vi } from "vitest";
-import { LiveOrderExecutor, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
+import { LiveOrderExecutor, NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
 import { buildOrderAction, executionKey, wireDecimal, type LiveOrderIntent } from "../src/copy/live/live-order.js";
 import { assertWalletAuthorization, WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
 
@@ -213,5 +213,33 @@ describe("live execution durable submission semantics (injected transport)", () 
     const { executor, journal } = setup();
     await expect(executor.execute({ ...intent, network: "mainnet" })).rejects.toThrow("transport_network_mismatch");
     expect(journal.rows.size).toBe(0);
+  });
+});
+
+describe("an attempted order the exchange never placed", () => {
+  it("stays unknown while it could still be placed, then ends rejected once its signed expiry and grace have passed", async () => {
+    let clock = now;
+    const { journal, transport } = setup();
+    const executor = new LiveOrderExecutor(new WalletAuthorizationService({ find: async () => grant }, exchangeApprovalFixture(() => clock), () => clock), journal, transport, executionGateFixture(), () => clock);
+    vi.mocked(transport.submit).mockRejectedValueOnce(new Error("socket hang up"));
+    const unknown = await executor.execute(intent);
+    expect(unknown).toMatchObject({ state: "unknown", errorCode: "exchange_submission_ambiguous" });
+    clock = unknown.expiresAfter + NEVER_PLACED_GRACE_MS;
+    expect(await executor.reconcile(unknown.key)).toMatchObject({ state: "unknown", errorCode: "exchange_order_not_yet_found" });
+    clock += 1;
+    expect(await executor.reconcile(unknown.key)).toMatchObject({ state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason: NEVER_PLACED } });
+    // A found order is never overridden by the rule, and terminal stays terminal.
+    vi.mocked(transport.query).mockResolvedValueOnce({ state: "filled", exchangeOrderId: "7", filledSize: "0.01" });
+    expect(await executor.reconcile(unknown.key)).toMatchObject({ state: "rejected" });
+    expect(transport.submit).toHaveBeenCalledOnce();
+  });
+  it("never applies to a resting order", async () => {
+    let clock = now;
+    const { journal, transport } = setup();
+    const executor = new LiveOrderExecutor(new WalletAuthorizationService({ find: async () => grant }, exchangeApprovalFixture(() => clock), () => clock), journal, transport, executionGateFixture(), () => clock);
+    vi.mocked(transport.submit).mockResolvedValueOnce({ state: "resting", exchangeOrderId: "8" });
+    const resting = await executor.execute(intent);
+    clock = resting.expiresAfter + NEVER_PLACED_GRACE_MS + 1;
+    expect(await executor.reconcile(resting.key)).toMatchObject({ state: "resting" });
   });
 });

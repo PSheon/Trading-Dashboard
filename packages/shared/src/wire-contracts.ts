@@ -16,7 +16,7 @@ import { copyFollowerStatementSchema } from "./copy-follower-contracts.js";
 import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.js";
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
 import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema } from "./copy-live-mandate-contracts.js";
-import { liveCopyStopSchema, liveCopyStopsSchema } from './copy-live-stop-contracts.js';
+import { liveCopyStopSchema, liveCopyStopsSchema, liveStopCancellationChallengeSchema } from './copy-live-stop-contracts.js';
 import * as s from "./schema/zod.js";
 import { referralOverviewSchema, referralCodeSchema, referralCheckSchema, referralBindSchema, referralFriendsSchema, referralClaimSchema, referralClaimsSchema } from './referral-contracts.js';
 
@@ -339,6 +339,8 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: 'POST', path: '/me/copy/live/mandates/:id/stop', status: 200, auth: 'user (owner); durable local risk barrier; no financial execution', response: liveCopyStopSchema },
   { method: 'GET', path: '/me/copy/live/stops', status: 200, auth: 'user (owner); bounded durable stop history; read only', response: liveCopyStopsSchema },
   { method: 'GET', path: '/me/copy/live/stops/by-key/:key', status: 200, auth: 'user (owner); exact original stop recovery; read only', response: liveCopyStopSchema },
+  { method: 'POST', path: '/me/copy/live/stops/:id/cancellation/challenge', status: 200, auth: 'user (owner); exact cancellation consent challenge of a cancelling stop; no signing', response: liveStopCancellationChallengeSchema },
+  { method: 'POST', path: '/me/copy/live/stops/:id/cancellation', status: 200, auth: 'user (owner); verified owner consent to cancel the stop\'s tracked orders', response: liveStopCancellationChallengeSchema },
   { method: "POST", path: "/me/copy/strategies", status: 201, auth: "user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused", response: wireCopyStrategySchema },
   { method: "PATCH", path: "/me/copy/strategies/:id", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },
   { method: "POST", path: "/me/copy/strategies/:id/funds", status: 200, auth: "user (owner)", response: wireCopyStrategySchema },

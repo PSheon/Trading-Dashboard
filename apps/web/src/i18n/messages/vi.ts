@@ -471,6 +471,15 @@ export const vi: Messages = {
     settings: "Cài đặt",
     admin: "Quản trị",
     primary: "Điều hướng chính",
+    mine: "Của tôi",
+    menu: "Menu",
+  },
+  theme: {
+    label: "Giao diện",
+    system: "Theo hệ thống",
+    light: "Sáng",
+    dark: "Tối",
+    switchTo: "Chuyển sang {theme}",
   },
   topbar: {
     search: "Tìm địa chỉ trader Hyperliquid...",
@@ -588,6 +597,7 @@ export const vi: Messages = {
       live: "Hoạt động",
       faq: "Câu hỏi thường gặp",
       community: "Cộng đồng",
+      legal: "Pháp lý",
       x: "X",
       telegram: "Telegram",
       email: "Email",

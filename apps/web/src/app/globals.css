@@ -2,85 +2,218 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* Dark utilities apply under an explicit .dark theme, and under the system
+   preference when no theme is chosen (html has neither .light nor .dark). */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
 
 /*
- * Design tokens (Orbie). Dark only: a deep navy-black ground derived from
- * brand navy #1e1b3a, slightly lifted panels, cream text, and Orbie orange
- * #ff7a45 as the one brand accent (CTAs, active nav, selected tabs, sliders,
- * focus, chart series). Gains and losses use their own green / red pair so a
- * profit is never mistaken for the brand colour. No raw hex in components.
+ * Design tokens: Orbie "C · Orbit" (light and dark). Components never use
+ * raw colours; they use these names through Tailwind (bg-card, text-positive,
+ * …). Light is the base; dark is the same names with dark values, applied by
+ * html.dark or, with no explicit choice, by prefers-color-scheme (the server
+ * renders the class from the `theme` cookie, so there is no flash).
+ *
+ * Orange is for primary actions, selected states and trend lines only;
+ * profit / loss are always green / red with an explicit sign.
  */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --background: #0f0d1f;
-  --foreground: #fbf6ee;
+  /* The page ground: ONE token, so the background can change in one place. */
+  --page: #fbf6ee;
 
-  /* Panels (trader page columns, tables) sit one step above the ground;
-     raised surfaces (chips, featured cards, inputs) one more. */
-  --card: #15122a;
-  --card-foreground: #fbf6ee;
-  --raised: #1d1a36;
-  /* CopyDog's .hl-card / .hl-fcard / .hl-chip fill: a solid tile a shade
-     under the controls, with no visible edge. */
-  --tile: #1a1731;
-  --raised-hover: #262243;
-  --popover: #1b1833;
-  --popover-foreground: #fbf6ee;
+  --background: var(--page);
+  --foreground: #15132b;
+
+  /* Cards: white with a 2px warm ring (light) / lifted violet (dark). */
+  --card: #ffffff;
+  --card-foreground: #15132b;
+  --card-ring: #eadfcd;
+  /* Wells inside a card (inputs, stat tiles, icon buttons). */
+  --inset: #efe6d6;
+  /* Raised surfaces on the page: nav capsules, search, data rows, panels. */
+  --raised: #efe6d6;
+  --raised-hover: #e6dac6;
+  /* Legacy name for the well colour. */
+  --tile: #efe6d6;
+  --popover: #ffffff;
+  --popover-foreground: #15132b;
 
   --primary: #ff7a45;
-  --primary-foreground: #1e1b3a;
+  --primary-foreground: #1a1533;
+  --primary-hover: #ff8a5b;
   --primary-soft: rgb(255 122 69 / 14%);
-  --secondary: #221e3d;
-  --secondary-foreground: #fbf6ee;
-  --muted: #1d1a36;
-  --muted-foreground: #b9b5d0;
-  --subtle-foreground: #9690b2;
-  --accent: #221e3d;
-  --accent-foreground: #fbf6ee;
+  /* Orange used as text (links, highlighted words): darker on light for AA. */
+  --primary-text: #b4441a;
+  --secondary: #efe6d6;
+  --secondary-foreground: #15132b;
+  --muted: #efe6d6;
+  --muted-foreground: #5a5674;
+  --subtle-foreground: #625e79;
+  --accent: #efe6d6;
+  --accent-foreground: #15132b;
 
-  /* Up / down. Mint green and a rose red, both far enough from the orange. */
-  --positive: #34d399;
-  --positive-soft: rgb(52 211 153 / 14%);
-  --negative: #f4506f;
-  --negative-soft: rgb(244 80 111 / 15%);
-  --destructive: #f4506f;
-  --warning: #f5c451;
+  --positive: #0a7046;
+  --positive-soft: rgb(11 122 75 / 12%);
+  --negative: #c22f4a;
+  --negative-soft: rgb(194 47 74 / 11%);
+  --destructive: #c22f4a;
+  --warning: #8a5a00;
 
-  --border: #2a2645;
-  --border-strong: #38335a;
-  --input: #38335a;
-  --ring: rgb(255 122 69 / 60%);
+  /* Tags (pastel fill, dark ink) — the same in both themes. */
+  --tag-profit: #cdeedd;
+  --tag-profit-foreground: #0b5c39;
+  --tag-loss: #ffd3da;
+  --tag-loss-foreground: #8a1730;
+  --tag-warning: #f6e3b0;
+  --tag-warning-foreground: #6b4a00;
+  --tag-alert: #ffd9c7;
+  --tag-alert-foreground: #7a2e0c;
+
+  /* Dotted dividers inside cards, and capsule outlines. */
+  --border: #dccfb8;
+  --border-strong: #cbbfa9;
+  --input: #d5c8b0;
+  --ring: #ff7a45;
 
   --chart-1: #ff7a45;
-  --chart-2: #f4506f;
-  --chart-3: #b9b5d0;
-  --chart-4: #7f7a9c;
-  --chart-5: #38335a;
-  /* Revenue bars: builder fee (brand) and referral (cream-violet). */
+  --chart-2: #c22f4a;
+  --chart-3: #5a5674;
+  --chart-4: #8b7bff;
+  --chart-5: #cbbfa9;
+  --chart-grid: #dccfb8;
+  --chart-fill: rgb(255 122 69 / 16%);
   --chart-builder: #ff7a45;
-  --chart-referral: #a99cf5;
+  --chart-referral: #8b7bff;
 
-  --radius: 0.875rem;
+  --radius: 1.375rem; /* 22px: insets and buttons */
 
-  --sidebar: #0f0d1f;
-  --sidebar-foreground: #fbf6ee;
+  --sidebar: var(--page);
+  --sidebar-foreground: #15132b;
   --sidebar-primary: #ff7a45;
-  --sidebar-primary-foreground: #1e1b3a;
-  --sidebar-accent: #1d1a36;
+  --sidebar-primary-foreground: #1a1533;
+  --sidebar-accent: #efe6d6;
+  --sidebar-accent-foreground: #15132b;
+  --sidebar-border: #dccfb8;
+  --sidebar-ring: #ff7a45;
+
+  --overlay: rgb(21 19 43 / 45%);
+  --shadow-pop: 0 18px 48px -18px rgb(21 19 43 / 28%);
+}
+
+/* Dark values. Written twice: once for an explicit choice (html.dark) and
+   once for the system preference when nothing is chosen. Keep them equal. */
+:root.dark {
+  color-scheme: dark;
+  --page: #15132b;
+  --foreground: #fbf6ee;
+  --card: #2a2655;
+  --card-foreground: #fbf6ee;
+  --card-ring: transparent;
+  --inset: #1a1736;
+  --raised: #24204a;
+  --raised-hover: #2e2a5a;
+  --tile: #1a1736;
+  --popover: #2a2655;
+  --popover-foreground: #fbf6ee;
+  --primary-foreground: #1a1533;
+  --primary-text: #ff7a45;
+  --secondary: #24204a;
+  --secondary-foreground: #fbf6ee;
+  --muted: #24204a;
+  --muted-foreground: #c9c5e6;
+  --subtle-foreground: #a9a4cf;
+  --accent: #24204a;
+  --accent-foreground: #fbf6ee;
+  --positive: #5fe3ad;
+  --positive-soft: rgb(95 227 173 / 14%);
+  --negative: #ff8fa3;
+  --negative-soft: rgb(255 143 163 / 14%);
+  --destructive: #ff8fa3;
+  --warning: #f6c451;
+  --border: #3d3870;
+  --border-strong: #4a4580;
+  --input: #3a3568;
+  --chart-2: #ff8fa3;
+  --chart-3: #c9c5e6;
+  --chart-5: #4a4580;
+  --chart-grid: #3d3870;
+  --chart-fill: rgb(255 122 69 / 18%);
+  --sidebar-foreground: #fbf6ee;
+  --sidebar-accent: #24204a;
   --sidebar-accent-foreground: #fbf6ee;
-  --sidebar-border: #2a2645;
-  --sidebar-ring: rgb(255 122 69 / 60%);
+  --sidebar-border: #3d3870;
+  --overlay: rgb(8 7 20 / 62%);
+  --shadow-pop: 0 18px 48px -18px rgb(0 0 0 / 60%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+    --page: #15132b;
+    --foreground: #fbf6ee;
+    --card: #2a2655;
+    --card-foreground: #fbf6ee;
+    --card-ring: transparent;
+    --inset: #1a1736;
+    --raised: #24204a;
+    --raised-hover: #2e2a5a;
+    --tile: #1a1736;
+    --popover: #2a2655;
+    --popover-foreground: #fbf6ee;
+    --primary-foreground: #1a1533;
+    --primary-text: #ff7a45;
+    --secondary: #24204a;
+    --secondary-foreground: #fbf6ee;
+    --muted: #24204a;
+    --muted-foreground: #c9c5e6;
+    --subtle-foreground: #a9a4cf;
+    --accent: #24204a;
+    --accent-foreground: #fbf6ee;
+    --positive: #5fe3ad;
+    --positive-soft: rgb(95 227 173 / 14%);
+    --negative: #ff8fa3;
+    --negative-soft: rgb(255 143 163 / 14%);
+    --destructive: #ff8fa3;
+    --warning: #f6c451;
+    --border: #3d3870;
+    --border-strong: #4a4580;
+    --input: #3a3568;
+    --chart-2: #ff8fa3;
+    --chart-3: #c9c5e6;
+    --chart-5: #4a4580;
+    --chart-grid: #3d3870;
+    --chart-fill: rgb(255 122 69 / 18%);
+    --sidebar-foreground: #fbf6ee;
+    --sidebar-accent: #24204a;
+    --sidebar-accent-foreground: #fbf6ee;
+    --sidebar-border: #3d3870;
+    --overlay: rgb(8 7 20 / 62%);
+    --shadow-pop: 0 18px 48px -18px rgb(0 0 0 / 60%);
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-wordmark: var(--font-fredoka), var(--font-host-grotesk), system-ui, sans-serif;
-  --font-sans: var(--font-host-grotesk), "PingFang TC", "PingFang SC", "Noto Sans TC", "Noto Sans SC", "Microsoft JhengHei", "Microsoft YaHei", "Hiragino Sans", "Yu Gothic", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
-  --font-heading: var(--font-host-grotesk), "PingFang TC", "PingFang SC", "Noto Sans TC", "Noto Sans SC", "Microsoft JhengHei", "Microsoft YaHei", "Hiragino Sans", "Yu Gothic", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --color-page: var(--page);
+  /* Fredoka: numbers, headings, the wordmark. Nunito: body and UI. Noto
+     Sans TC after Nunito for CJK (self-hosted, unicode-range slices). */
+  --font-display: var(--font-fredoka), var(--font-nunito), var(--font-noto-tc), "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-wordmark: var(--font-fredoka), var(--font-nunito), system-ui, sans-serif;
+  --font-sans: var(--font-nunito), var(--font-noto-tc), "PingFang TC", "PingFang SC", "Noto Sans SC", "Microsoft JhengHei", "Microsoft YaHei", "Hiragino Sans", "Yu Gothic", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  /* No monospace face: addresses and figures use Nunito with tabular
+     figures (see .font-mono below). */
+  --font-mono: var(--font-nunito), var(--font-noto-tc), ui-monospace, "SFMono-Regular", monospace;
+  --font-heading: var(--font-fredoka), var(--font-nunito), var(--font-noto-tc), "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -104,6 +237,14 @@
   --color-positive-soft: var(--positive-soft);
   --color-negative: var(--negative);
   --color-negative-soft: var(--negative-soft);
+  --color-tag-profit: var(--tag-profit);
+  --color-tag-profit-foreground: var(--tag-profit-foreground);
+  --color-tag-loss: var(--tag-loss);
+  --color-tag-loss-foreground: var(--tag-loss-foreground);
+  --color-tag-warning: var(--tag-warning);
+  --color-tag-warning-foreground: var(--tag-warning-foreground);
+  --color-tag-alert: var(--tag-alert);
+  --color-tag-alert-foreground: var(--tag-alert-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -113,23 +254,31 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
+  --color-primary-text: var(--primary-text);
   --color-chart-builder: var(--chart-builder);
   --color-chart-referral: var(--chart-referral);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-card-ring: var(--card-ring);
+  --color-inset: var(--inset);
   --color-raised: var(--raised);
   --color-tile: var(--tile);
   --color-raised-hover: var(--raised-hover);
-  --radius-sm: calc(var(--radius) * 0.5);
-  --radius-md: calc(var(--radius) * 0.75);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.15);
-  --radius-2xl: calc(var(--radius) * 1.4);
-  --radius-3xl: calc(var(--radius) * 1.8);
-  --radius-4xl: calc(var(--radius) * 2.2);
+  --color-overlay: var(--overlay);
+  /* Orbit radii: tag 14, inset/button 22, card 28, nav capsule 36. */
+  --radius-sm: 0.625rem;   /* 10 */
+  --radius-md: 0.875rem;   /* 14: tags */
+  --radius-lg: 1.125rem;   /* 18 */
+  --radius-xl: var(--radius); /* 22: insets, buttons, data rows */
+  --radius-2xl: 1.75rem;   /* 28: cards */
+  --radius-3xl: 2rem;      /* 32: hero cards, footer */
+  --radius-4xl: 2.25rem;   /* 36: nav capsules */
+  --shadow-pop: var(--shadow-pop);
+  --ease-orbit: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @layer base {
@@ -138,21 +287,23 @@
   }
   html {
     @apply bg-background font-sans;
-    /* Host Grotesk's contextual alternates turn an x between digits into a
-       multiplication sign, so "0x9e8b…" read "0×9e8b…". */
+    font-weight: 500;
     font-feature-settings: "calt" 0;
     -webkit-tap-highlight-color: transparent;
   }
   body {
     @apply bg-background text-foreground;
   }
+  h1, h2, h3 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+  }
   ::selection {
     background: var(--primary);
     color: var(--primary-foreground);
   }
-  /* Tailwind v4's preflight leaves buttons with the arrow cursor; CopyDog
-     (and the browser default for links) shows the hand on everything that
-     acts on click, and not-allowed on disabled controls. */
+  /* Tailwind v4's preflight leaves buttons with the arrow cursor; everything
+     that acts on click shows the hand, disabled controls not-allowed. */
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [role="tab"],
@@ -172,11 +323,23 @@
   input[type="range"]:disabled {
     cursor: not-allowed;
   }
-  /* Thin, dark scrollbars everywhere. */
+  /* The orange focus ring, in both themes. */
+  :focus-visible {
+    outline-color: var(--ring);
+  }
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--border-strong) transparent;
   }
+}
+
+/* The header theme button shows the icon of the theme it switches to. */
+.theme-icon-dark { display: none; }
+:root.dark .theme-icon-light { display: none; }
+:root.dark .theme-icon-dark { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .theme-icon-light { display: none; }
+  :root:not(.light) .theme-icon-dark { display: block; }
 }
 
 @layer utilities {
@@ -193,36 +356,71 @@
   .text-balance {
     text-wrap: balance;
   }
-  /* CopyDog's .hl-label / .hl-row__k: small mono caps (11px, 0.4px). */
-  .cd-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 14px;
-    font-weight: 500;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-  }
-  /* CopyDog's .hl-row__v: 13px/20px, weight 440. */
-  .cd-value {
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 440;
-    letter-spacing: 0.156px;
+  .font-mono {
     font-variant-numeric: tabular-nums;
   }
-  /* CopyDog's .hl-pos__bar / .hd-bar: an 8px squared meter with a faint rim. */
+  /* Orbit labels: Nunito 700, 12px, muted. */
+  .cd-label {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  /* Orbit values in a fact row: Fredoka 600. */
+  .cd-value {
+    font-family: var(--font-display);
+    font-size: 15px;
+    line-height: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  /* A 10px rounded meter in a well. */
   .cd-bar {
-    height: 8px;
+    height: 10px;
     overflow: hidden;
-    border-radius: 2px;
-    border: 1px solid rgb(255 255 255 / 6%);
-    background-color: var(--raised);
+    border-radius: 5px;
+    background-color: var(--inset);
     display: flex;
+    gap: 3px;
   }
   .cd-bar > * {
     height: 100%;
-    border-radius: 2px;
-    border: 1px solid rgb(255 255 255 / 28%);
+    border-radius: 5px;
+  }
+  /* Display figures and headings (Fredoka 600). */
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 600;
+  }
+  /* The dotted rule between fact rows inside a card. */
+  .dotted-rule {
+    border-bottom: 2px dotted var(--border);
+  }
+  /* A white card with its warm 2px ring (light) / lifted violet (dark). */
+  .orbit-card {
+    background-color: var(--card);
+    color: var(--card-foreground);
+    border-radius: var(--radius-2xl);
+    box-shadow: 0 0 0 2px var(--card-ring);
+    --seg-track: var(--inset);
+  }
+  /* Hover lift and press for cards and round buttons. */
+  .orbit-press {
+    transition-property: transform, background-color, color, box-shadow, opacity;
+    transition-duration: 160ms;
+    transition-timing-function: var(--ease-orbit);
+  }
+  .orbit-press:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .orbit-lift {
+    transition: transform 200ms var(--ease-orbit), box-shadow 200ms var(--ease-orbit), background-color 160ms;
+  }
+  @media (hover: hover) {
+    .orbit-lift:hover {
+      transform: translateY(-2px);
+    }
   }
 }
 
@@ -232,8 +430,35 @@
   scrollbar-color: var(--border-strong) transparent;
   overscroll-behavior-x: contain;
 }
-/* CopyDog's dense trader tables: 6 px gutters, 12 px at the row ends and
-   11 px headers. Unlayered, so it wins over the cells' utility padding. */
+/* Orbit data rows: every body row is a raised capsule. Unlayered, so it wins
+   over the cells' utility classes. */
+.data-rows > tr > td {
+  background-color: var(--raised);
+  transition: background-color 160ms;
+}
+.data-rows > tr > td:first-child {
+  border-top-left-radius: var(--radius-xl);
+  border-bottom-left-radius: var(--radius-xl);
+}
+.data-rows > tr > td:last-child {
+  border-top-right-radius: var(--radius-xl);
+  border-bottom-right-radius: var(--radius-xl);
+}
+.data-rows > tr:hover > td,
+.data-rows > tr[data-state="selected"] > td,
+.data-rows > tr:has([aria-expanded="true"]) > td {
+  background-color: var(--raised-hover);
+}
+/* Inside a card the rows are wells. */
+.orbit-card .data-rows > tr > td,
+[data-slot="card"] .data-rows > tr > td {
+  background-color: var(--inset);
+}
+.orbit-card .data-rows > tr:hover > td,
+[data-slot="card"] .data-rows > tr:hover > td {
+  background-color: var(--raised-hover);
+}
+/* Dense trader tables: 6 px gutters, 14 px at the row ends. */
 .table-dense th,
 .table-dense td {
   padding-left: 6px;
@@ -241,71 +466,62 @@
 }
 .table-dense th:first-child,
 .table-dense td:first-child {
-  padding-left: 12px;
+  padding-left: 14px;
 }
 .table-dense th:last-child,
 .table-dense td:last-child {
-  padding-right: 12px;
+  padding-right: 14px;
 }
 .table-dense th {
-  font-size: 11px;
+  font-size: 12px;
 }
 
-/* CopyDog's .hd-section--tabs .data-table: mono caps headers (11px, the
-   sorted one bold), 13px cells in 44px rows, 6px gutters and 12px at the
-   row ends. Unlayered, so it wins over the cells' utility classes. */
+/* The trader page's tab tables: bold muted headers, 52px data rows. */
 .cd-tables table {
-  font-size: 13px;
+  font-size: 14px;
+  border-collapse: separate;
+  border-spacing: 0 8px;
 }
 .cd-tables th {
   height: auto;
-  padding: 11px 6px 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 16.5px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
+  padding: 4px 6px 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
   color: var(--muted-foreground);
 }
 .cd-tables th button {
   font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
 }
 .cd-tables th[aria-sort="ascending"],
 .cd-tables th[aria-sort="descending"] {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--foreground);
 }
 .cd-tables td {
-  height: 44px;
-  padding: 11px 6px;
-  font-size: 13px;
-  line-height: 19.5px;
+  height: 52px;
+  padding: 10px 6px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 700;
 }
 .cd-tables th:first-child,
 .cd-tables td:first-child {
-  padding-left: 12px;
+  padding-left: 18px;
 }
 .cd-tables th:last-child,
 .cd-tables td:last-child {
-  padding-right: 12px;
-}
-.cd-tables tbody tr {
-  border-bottom-width: 0.5px;
+  padding-right: 18px;
 }
 
 /* CopyDog's cohort tables (.hl-cohort-table): mono caps headers, 13px cells,
    10px gutters (14px at the row ends), fixed wallet column widths. */
 .cd-cohort-table th {
-  padding: 11px 10px 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 16.5px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
+  padding: 4px 10px 0;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
   color: var(--muted-foreground);
 }
 .cd-cohort-table th button {
@@ -320,7 +536,8 @@
 }
 .cd-cohort-table td {
   padding: 9px 10px;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 14px;
   line-height: 19.5px;
 }
 .cd-cohort-table th:first-child,
@@ -448,7 +665,7 @@
 /* A feed row that just arrived over the live stream. */
 @keyframes row-arrive {
   from {
-    background-color: rgb(255 122 69 / 22%);
+    background-color: var(--primary-soft);
   }
   to {
     background-color: transparent;
@@ -469,7 +686,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(100deg, transparent 20%, rgb(185 181 208 / 7%) 50%, transparent 80%);
+  background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--card) 55%, transparent) 50%, transparent 80%);
   transform: translateX(-100%);
   animation: skeleton-sweep 1.8s ease-in-out infinite;
 }
@@ -496,32 +713,35 @@
   to { opacity: 0; transform: scale(3); }
 }
 
-/* CopyDog's toasts (Toastify's bounce-in-left / bounce-out-left, 0.5 s; the
-   icon zooms in over 0.3 s). */
+/* Toasts slide in from the side and fade; the icon pops in. */
 .toast-enter {
-  animation: toast-bounce-in 0.5s both;
+  animation: toast-in 0.32s var(--ease-orbit) both;
 }
 .toast-exit {
-  animation: toast-bounce-out 0.5s both;
+  animation: toast-out 0.22s ease-in both;
 }
 .toast-icon {
-  animation: toast-zoom-in 0.3s both;
+  animation: toast-zoom-in 0.3s var(--ease-orbit) both;
 }
-@keyframes toast-bounce-in {
-  0%, 60%, 75%, 90%, to { animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1); }
-  0% { opacity: 0; transform: translate3d(-3000px, 0, 0); }
-  60% { opacity: 1; transform: translate3d(25px, 0, 0); }
-  75% { transform: translate3d(-10px, 0, 0); }
-  90% { transform: translate3d(5px, 0, 0); }
-  to { transform: none; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
-@keyframes toast-bounce-out {
-  20% { opacity: 1; transform: translate3d(20px, 0, 0); }
-  to { opacity: 0; transform: translate3d(-2000px, 0, 0); }
+@keyframes toast-out {
+  to { opacity: 0; transform: translate3d(-16px, 0, 0); }
 }
 @keyframes toast-zoom-in {
-  0% { opacity: 0; transform: scale3d(0.3, 0.3, 0.3); }
-  50% { opacity: 1; }
+  0% { opacity: 0; transform: scale3d(0.5, 0.5, 0.5); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Numbers and charts fade in when their data arrives. */
+.orbit-fade-in {
+  animation: orbit-fade-in 0.36s var(--ease-orbit) both;
+}
+@keyframes orbit-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* CopyDog's about-page avatar stack: the next card slides forward, the
@@ -542,6 +762,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .orbit-fade-in { animation: none; }
+  .orbit-press, .orbit-lift { transition-property: background-color, color, box-shadow, opacity; }
+  .orbit-press:active:not(:disabled) { transform: none; }
+  .orbit-lift:hover { transform: none; }
   .avatar-stack-enter, .avatar-stack-exit { animation: none; }
   .toast-enter, .toast-icon { animation: none; }
   .toast-exit { animation: none; opacity: 0; }

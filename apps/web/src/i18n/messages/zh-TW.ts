@@ -1233,6 +1233,15 @@ export const zhTW = {
     settings: "設定",
     admin: "管理",
     primary: "主要導覽",
+    mine: "我的",
+    menu: "選單",
+  },
+  theme: {
+    label: "主題",
+    system: "跟隨系統",
+    light: "淺色",
+    dark: "深色",
+    switchTo: "切換為{theme}",
   },
   topbar: {
     search: "搜尋 Hyperliquid 交易員地址...",
@@ -1351,6 +1360,7 @@ export const zhTW = {
       live: "即時動態",
       faq: "常見問題",
       community: "社群",
+      legal: "法律",
       x: "X",
       telegram: "Telegram",
       email: "電子郵件",

@@ -471,6 +471,15 @@ export const ja: Messages = {
     settings: "設定",
     admin: "管理",
     primary: "メインナビゲーション",
+    mine: "マイページ",
+    menu: "メニュー",
+  },
+  theme: {
+    label: "テーマ",
+    system: "システム",
+    light: "ライト",
+    dark: "ダーク",
+    switchTo: "{theme}に切り替え",
   },
   topbar: {
     search: "Hyperliquidのトレーダーアドレスを検索...",
@@ -588,6 +597,7 @@ export const ja: Messages = {
       live: "ライブフィード",
       faq: "よくある質問",
       community: "コミュニティ",
+      legal: "法的情報",
       x: "X",
       telegram: "Telegram",
       email: "メール",

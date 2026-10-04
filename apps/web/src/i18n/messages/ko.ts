@@ -471,6 +471,15 @@ export const ko: Messages = {
     settings: "설정",
     admin: "관리자",
     primary: "기본 메뉴",
+    mine: "내 항목",
+    menu: "메뉴",
+  },
+  theme: {
+    label: "테마",
+    system: "시스템",
+    light: "라이트",
+    dark: "다크",
+    switchTo: "{theme} 모드로 전환",
   },
   topbar: {
     search: "Hyperliquid 트레이더 주소 검색...",
@@ -588,6 +597,7 @@ export const ko: Messages = {
       live: "실시간 피드",
       faq: "자주 묻는 질문",
       community: "커뮤니티",
+      legal: "법률",
       x: "X",
       telegram: "Telegram",
       email: "이메일",

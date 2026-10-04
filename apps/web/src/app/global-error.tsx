@@ -25,7 +25,7 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
   const locale = useSyncExternalStore(noSubscription, cookieLocale, () => DEFAULT_LOCALE);
   const text = GLOBAL_ERROR_TEXT[locale];
   return (
-    <html lang={locale} className="dark h-full antialiased" suppressHydrationWarning>
+    <html lang={locale} className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full bg-background text-foreground">
         <title>{text.title}</title>
         <RouteError error={error} retry={retry} title={text.title} retryLabel={text.retry} homeLabel={text.home} />

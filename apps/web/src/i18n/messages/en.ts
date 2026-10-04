@@ -1230,6 +1230,15 @@ export const en: Messages = {
     settings: "Settings",
     admin: "Admin",
     primary: "Main navigation",
+    mine: "Mine",
+    menu: "Menu",
+  },
+  theme: {
+    label: "Theme",
+    system: "System",
+    light: "Light",
+    dark: "Dark",
+    switchTo: "Switch to {theme}",
   },
   topbar: {
     search: "Search Hyperliquid trader address...",
@@ -1347,6 +1356,7 @@ export const en: Messages = {
       live: "Live feed",
       faq: "FAQ",
       community: "Community",
+      legal: "Legal",
       x: "X",
       telegram: "Telegram",
       email: "Email",

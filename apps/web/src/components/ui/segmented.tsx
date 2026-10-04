@@ -39,7 +39,7 @@ function Segmented<T extends string>({
       aria-label={label}
       className={cn(
         "inline-flex items-center",
-        variant === "pill" ? "gap-0.5 rounded-full bg-raised p-1" : "gap-0.5",
+        variant === "pill" ? "gap-0.5 rounded-full bg-(--seg-track,var(--raised)) p-1" : "gap-0.5",
         className
       )}
     >
@@ -55,15 +55,15 @@ function Segmented<T extends string>({
             onKeyDown={rovingFocus}
             onClick={() => onChange(option.value)}
             className={cn(
-              "rounded-full font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              size === "sm" ? "h-7 px-2.5 text-xs" : "h-8 px-3.5 text-[0.8125rem]",
+              "rounded-full whitespace-nowrap transition-[background-color,color] duration-200 ease-(--ease-orbit) outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              size === "sm" ? "h-8 px-3 text-[0.8125rem]" : "h-10 px-3.5 text-sm",
               variant === "pill"
                 ? active
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-primary font-extrabold text-primary-foreground"
+                  : "font-bold text-muted-foreground hover:text-foreground"
                 : active
-                  ? "text-foreground"
-                  : "text-subtle-foreground hover:text-muted-foreground"
+                  ? "font-extrabold text-foreground"
+                  : "font-bold text-subtle-foreground hover:text-muted-foreground"
             )}
           >
             {option.label}

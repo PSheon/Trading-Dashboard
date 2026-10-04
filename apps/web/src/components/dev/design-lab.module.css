@@ -7,7 +7,7 @@
   --positive:#126c4c; --positive-soft:#e7f4ee; --negative:#c43f52; --negative-soft:#fcebee; --destructive:#c43f52;
   --popover:#ffffff; --popover-foreground:#20252e; --chart-1:#5277bf; --chart-2:var(--negative); --radius:.625rem;
   min-height:100dvh; background:var(--background); color:var(--foreground); color-scheme:light;
-  font-family:var(--font-host-grotesk),"PingFang TC",sans-serif; font-size:14px; font-variant-numeric:tabular-nums;
+  font-family:var(--font-nunito),"PingFang TC",sans-serif; font-size:14px; font-variant-numeric:tabular-nums;
 }
 .folio { --workspace-width:204px; }.lab a,.lab button { cursor:pointer; transition:background-color 150ms,color 150ms,border-color 150ms; }
 .lab a:focus-visible,.lab button:focus-visible,.lab select:focus-visible,.lab summary:focus-visible { outline:2px solid var(--ring); outline-offset:3px; }
@@ -54,7 +54,7 @@
 .financeEyebrow,.score > small { display:none; }
 
 /* Finance app collection: full-width navigation, generous type, performance cards. */
-.wealth,.aero,.edge { font-family:"Avenir Next",var(--font-host-grotesk),"PingFang TC",sans-serif; }
+.wealth,.aero,.edge { font-family:"Avenir Next",var(--font-nunito),"PingFang TC",sans-serif; }
 .wealth .frame,.aero .frame,.edge .frame { display:flex; flex-direction:column; max-width:1600px; min-height:calc(100dvh - 48px); }
 .wealth .header,.aero .header,.edge .header { padding:24px 5%; background:transparent; border:0; min-height:92px; }
 .wealth .brand,.aero .brand,.edge .brand { width:auto; margin-right:40px; }.wealth .brand > span,.aero .brand > span,.edge .brand > span { font-size:29px; letter-spacing:-1.3px; }

@@ -29,8 +29,8 @@ function Tooltip({
             className={cn(
               "z-50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0",
               variant === "chip"
-                ? "rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold whitespace-nowrap text-background"
-                : "max-w-64 rounded-xl border border-border-strong bg-popover px-3 py-2 text-xs leading-relaxed text-popover-foreground shadow-xl shadow-black/60"
+                ? "rounded-md bg-foreground px-2.5 py-1 text-[11px] font-extrabold whitespace-nowrap text-background"
+                : "max-w-64 rounded-lg bg-popover px-3.5 py-2.5 text-xs leading-relaxed font-bold text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)]"
             )}
           >
             {content}

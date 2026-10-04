@@ -9,7 +9,6 @@ import { AreaChart } from "@/components/charts/area-chart";
 import { boardName, HScroll, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
 import { HomeCard, HomeCardSkeleton } from "@/components/discover/board-card";
 import { ErrorState, Skeleton } from "@/components/page";
-import { AuthButton } from "@/components/shell/account-controls";
 import { SiteFooter } from "@/components/shell/site-footer";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
@@ -69,12 +68,11 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
 
   return (
     <div className="flex flex-col gap-6 md:gap-[34px]">
-      {/* Phones: CopyDog's compact two-line title with 登入 beside it. The
+      {/* Phones: the compact two-line title (登入 is in the phone header). The
           page's one <h1> is the desktop hero's; this is the same level-1
           heading where that one is not displayed. */}
-      <div className="flex items-center justify-between gap-3 md:hidden">
-        <p role="heading" aria-level={1} className="text-[1.75rem] leading-[1.15] font-bold tracking-tight whitespace-pre-line">{t("home.heroTitleMobile")}</p>
-        <AuthButton />
+      <div className="md:hidden">
+        <p role="heading" aria-level={1} className="font-display text-[1.75rem] leading-[1.15] whitespace-pre-line">{t("home.heroTitleMobile")}</p>
       </div>
 
       <section className="hidden items-center gap-10 md:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">

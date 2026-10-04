@@ -1,6 +1,7 @@
 "use client";
 
-import { Banknote, Briefcase, Globe, LogOut, Settings, ShieldCheck } from "lucide-react";
+import { Briefcase, ChevronDown, Globe, LogOut, Moon, Settings, ShieldCheck, Sun } from "lucide-react";
+import { cn } from "cn";
 import Link from "next/link";
 
 import { Skeleton } from "@/components/page";
@@ -19,23 +20,32 @@ import { useI18n } from "@/i18n/provider";
 import { useAuth, useIsAdmin, useMe } from "@/lib/auth";
 import { API_FIXTURES } from "@/lib/config";
 import { LanguageMenu } from "./language-menu";
+import { ThemeToggle } from "./theme-toggle";
+import { useTheme } from "@/lib/use-theme";
 import { useWallet } from "@/lib/wallet";
 
-/** Top-right, as on CopyDog: signed out → language + 登入; signed in → the
- * balance pill (total value + 儲值) and the avatar menu. Plus the demo badge
- * in fixture mode. */
+/** Header right (Orbit): signed out → language, theme and 登入; signed in →
+ * the account pill (avatar menu, total value, 儲值). Plus the demo badge in
+ * fixture mode. */
 export function AccountControls() {
   const { t } = useI18n();
   const { status } = useAuth();
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2.5">
       {API_FIXTURES ? (
-        <span className="hidden rounded-full border border-dashed border-border-strong px-2.5 py-1 text-[0.6875rem] font-medium text-muted-foreground lg:inline">
+        <span className="hidden rounded-full border-2 border-dashed border-input px-2.5 py-1 text-[0.6875rem] font-bold text-muted-foreground 2xl:inline">
           {t("topbar.fixtureBadge")}
         </span>
       ) : null}
-      {status === "signedIn" ? <BalancePill /> : <LocaleMenu />}
-      <AuthButton />
+      {status === "signedIn" ? (
+        <AccountPill />
+      ) : (
+        <>
+          <LocaleMenu />
+          <ThemeToggle className="hidden lg:flex" />
+          <AuthButton />
+        </>
+      )}
     </div>
   );
 }
@@ -45,25 +55,25 @@ function LocaleMenu() {
   return (
     <LanguageMenu
       trigger={
-        <Button variant="secondary" size="icon" className="size-10 md:size-11" aria-label={t("topbar.language")}>
-          <Globe className="size-5" />
+        <Button variant="secondary" size="icon" className="size-11 md:size-[52px]" aria-label={t("topbar.language")}>
+          <Globe className="size-[18px]" strokeWidth={2.4} />
         </Button>
       }
     />
   );
 }
 
-export function AuthButton() {
+/** 登入 while signed out; signed in, the avatar and its menu. `compact` is
+ * the phone header's smaller size. */
+export function AuthButton({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n();
-  const { status, mode, login, logout, identity } = useAuth();
-  const { data: me } = useMe();
-  const isAdmin = useIsAdmin();
+  const { status, mode, login } = useAuth();
 
   if (status === "disabled") {
     return (
       <Tooltip content={t("topbar.loginUnavailable")}>
         <span tabIndex={0} className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Button disabled size="lg" className="h-10 px-5 md:h-11">
+          <Button disabled size="lg" className={cn("px-6", compact ? "h-11" : "h-11 md:h-[52px]")}>
             {t("topbar.login")}
           </Button>
         </span>
@@ -72,14 +82,14 @@ export function AuthButton() {
   }
 
   if (status === "loading") {
-    return <Skeleton className="h-10 w-28 rounded-full md:h-11 md:w-36" />;
+    return <Skeleton className={cn("rounded-full", compact ? "h-11 w-20" : "h-11 w-24 md:h-[52px] md:w-28")} />;
   }
 
   if (status !== "signedIn") {
     return (
       <Button
         size="lg"
-        className="h-10 px-5 md:h-11"
+        className={cn("px-6 text-base", compact ? "h-11" : "h-11 md:h-[52px]")}
         onClick={login}
       >
         {mode === "fixture" ? t("topbar.fixtureLogin") : t("topbar.login")}
@@ -87,6 +97,24 @@ export function AuthButton() {
     );
   }
 
+  return <AccountMenu />;
+}
+
+function Initial({ label }: { label: string }) {
+  return (
+    <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tag-alert font-display text-base text-tag-alert-foreground">
+      {label.slice(0, 1).toUpperCase()}
+    </span>
+  );
+}
+
+/** The avatar (and, in the pill, the total value) opening the account menu. */
+function AccountMenu({ children }: { children?: React.ReactNode }) {
+  const { t } = useI18n();
+  const { logout, identity } = useAuth();
+  const { data: me } = useMe();
+  const isAdmin = useIsAdmin();
+  const { theme, toggle } = useTheme();
   const label = me?.displayName || me?.email?.split("@")[0] || identity || t("topbar.account");
 
   return (
@@ -95,9 +123,10 @@ export function AuthButton() {
         <button
           type="button"
           aria-label={t("topbar.account")}
-          className="flex size-10 items-center justify-center rounded-full bg-raised text-sm font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring md:size-11"
+          className="orbit-press flex h-11 shrink-0 items-center gap-2 rounded-full p-0.5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-raised-hover"
         >
-          {label.slice(0, 1).toUpperCase()}
+          <Initial label={label} />
+          {children}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-60">
@@ -128,6 +157,10 @@ export function AuthButton() {
             </Link>
           </DropdownMenuItem>
         ) : null}
+        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); toggle(); }}>
+          {theme === "dark" ? <Sun /> : <Moon />}
+          {t("theme.switchTo", { theme: theme === "dark" ? t("theme.light") : t("theme.dark") })}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void logout()}>
           <LogOut />
@@ -138,23 +171,28 @@ export function AuthButton() {
   );
 }
 
-/** CopyDog's signed-in pill: cash icon, total value, 儲值 (opens the
- * deposit modal). The value is the main account's /me/wallet total. */
-function BalancePill() {
+/** Orbit's signed-in pill: the avatar and total value open the account
+ * menu; 儲值 opens the deposit modal. The value is the main account's
+ * /me/wallet total (shown from 1024px). */
+function AccountPill() {
   const { t, format } = useI18n();
   const wallet = useWallet();
   const { openDeposit } = useWalletModals();
   return (
-    <div className="hidden h-11 items-center gap-2 rounded-full bg-raised py-1 pr-1 pl-3.5 sm:flex">
-      <Banknote className="size-5 text-positive" aria-hidden />
-      {wallet.data ? (
-        <span className="num text-sm font-semibold">{format.usd(wallet.data.totalValue, { digits: 2 })}</span>
-      ) : wallet.isError ? (
-        <span className="text-sm text-muted-foreground">—</span>
-      ) : (
-        <Skeleton className="h-4 w-12" />
-      )}
-      <Button className="h-9 px-3.5" onClick={openDeposit}>
+    <div className="flex h-[52px] items-center gap-1 rounded-[26px] bg-raised p-1">
+      <AccountMenu>
+        <span className="hidden items-center gap-1.5 pr-1 lg:flex">
+          {wallet.data ? (
+            <span className="num font-display text-[15px]">{format.usd(wallet.data.totalValue, { digits: 2 })}</span>
+          ) : wallet.isError ? (
+            <span className="text-sm text-muted-foreground">—</span>
+          ) : (
+            <Skeleton className="h-4 w-16" />
+          )}
+          <ChevronDown className="size-4 text-muted-foreground" strokeWidth={2.4} aria-hidden />
+        </span>
+      </AccountMenu>
+      <Button className="h-11 px-4 text-[15px]" onClick={openDeposit}>
         {t("portfolio.deposit")}
       </Button>
     </div>

@@ -471,6 +471,15 @@ export const id: Messages = {
     settings: "Pengaturan",
     admin: "Admin",
     primary: "Navigasi utama",
+    mine: "Milik saya",
+    menu: "Menu",
+  },
+  theme: {
+    label: "Tema",
+    system: "Sistem",
+    light: "Terang",
+    dark: "Gelap",
+    switchTo: "Beralih ke {theme}",
   },
   topbar: {
     search: "Cari alamat trader Hyperliquid...",
@@ -588,6 +597,7 @@ export const id: Messages = {
       live: "Feed langsung",
       faq: "FAQ",
       community: "Komunitas",
+      legal: "Hukum",
       x: "X",
       telegram: "Telegram",
       email: "Email",

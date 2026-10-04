@@ -58,7 +58,7 @@ function Highlighted({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, i)}
-      <span className="font-bold text-primary">{text.slice(i, i + q.length)}</span>
+      <span className="font-extrabold text-primary-text">{text.slice(i, i + q.length)}</span>
       {text.slice(i + q.length)}
     </>
   );
@@ -209,9 +209,9 @@ export function AddressSearch({ compact = false, buttonClassName }: {
         type="button"
         aria-label={t("topbar.searchLabel")}
         onClick={() => setOpen(true)}
-        className={cn("flex size-10 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring", buttonClassName)}
+        className={cn("orbit-press flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring", buttonClassName)}
       >
-        <Search className="size-5" />
+        <Search className="size-[18px]" strokeWidth={2.4} />
       </button>
     );
   }
@@ -221,7 +221,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
       ref={rootRef}
       role="search"
       onSubmit={submit}
-      className={overlay ? "fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top)]" : "relative w-full max-w-md"}
+      className={overlay ? "fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top)] animate-in fade-in-0 motion-reduce:animate-none" : "relative w-full max-w-[400px]"}
     >
       <div className={cn("flex items-center", overlay ? "gap-2 px-3 pt-2 pb-3" : "gap-1.5")}>
       {overlay ? (
@@ -229,15 +229,16 @@ export function AddressSearch({ compact = false, buttonClassName }: {
           type="button"
           aria-label={t("settings.back")}
           onClick={close}
-          className="flex size-10 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-raised outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <ChevronLeft className="size-5" />
+          <ChevronLeft className="size-5" strokeWidth={2.4} />
         </button>
       ) : null}
       <div className="relative min-w-0 flex-1">
       <Search
         aria-hidden
-        className={cn("pointer-events-none absolute top-1/2 left-4 -translate-y-1/2", overlay ? "size-4 text-muted-foreground" : "size-5 text-foreground md:left-5")}
+        strokeWidth={2.4}
+        className={cn("pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-subtle-foreground", !overlay && "md:left-5")}
       />
       <input
         ref={inputRef}
@@ -265,8 +266,8 @@ export function AddressSearch({ compact = false, buttonClassName }: {
         spellCheck={false}
         autoComplete="off"
         className={cn(
-          "h-11 w-full rounded-full border border-transparent bg-raised pr-11 text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:bg-raised-hover",
-          overlay ? "pl-10 text-[15px]" : "pl-12 text-sm font-medium md:pl-[52px]",
+          "w-full rounded-full border-2 border-transparent bg-raised pr-11 font-bold text-foreground outline-none transition-colors placeholder:font-bold placeholder:text-subtle-foreground hover:bg-raised-hover focus-visible:border-primary",
+          overlay ? "h-12 pl-11 text-[15px]" : "h-11 pl-11 text-sm md:h-[52px] md:pl-[46px]",
         )}
       />
       {value ? (
@@ -295,17 +296,17 @@ export function AddressSearch({ compact = false, buttonClassName }: {
           className={
             overlay
               ? "min-h-0 flex-1 overflow-y-auto pb-6"
-              : "absolute inset-x-0 top-[calc(100%+8px)] z-50 max-h-[420px] overflow-x-hidden overflow-y-auto rounded-[12px] border border-border bg-raised pb-1.5 shadow-[0_4px_24px_rgb(0_0_0/50%)]"
+              : "absolute inset-x-0 top-[calc(100%+10px)] z-50 max-h-[440px] overflow-x-hidden overflow-y-auto rounded-2xl bg-popover p-2 shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] animate-in fade-in-0 slide-in-from-top-1 motion-reduce:animate-none"
           }
         >
           {showRecent ? (
-            <div className={cn("flex items-center justify-between text-muted-foreground uppercase", overlay ? "px-5 py-2 text-xs font-semibold tracking-[0.5px] [&>button]:text-xs [&>button]:text-primary" : "px-4 pt-3 pb-2 font-mono text-[10px] font-medium tracking-[0.08em]")}>
+            <div className={cn("flex items-center justify-between text-xs font-bold text-muted-foreground", overlay ? "px-5 py-2 [&>button]:text-primary-text" : "px-3 pt-2 pb-1.5")}>
               <span>{t("topbar.searchRecent")}</span>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => forget()}
-                className="rounded font-sans text-[11px] tracking-normal normal-case outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded text-xs font-extrabold outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {t("topbar.searchClearRecent")}
               </button>
@@ -358,8 +359,8 @@ export function AddressSearch({ compact = false, buttonClassName }: {
                     go(row.address, row);
                   }}
                   className={cn(
-                    "flex min-h-12 cursor-pointer items-center gap-3 px-4 py-3 shadow-[inset_2px_0_0_0_transparent] transition-[background-color,box-shadow]",
-                    i === active && "bg-raised-hover shadow-[inset_2px_0_0_0_var(--primary)]",
+                    "flex min-h-14 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-[background-color]",
+                    i === active && "bg-raised",
                   )}
                 >
                   <TraderAvatar trader={{ address: row.address, avatarUrl: direct ? null : row.avatarUrl }} size={34} />
@@ -382,7 +383,7 @@ export function AddressSearch({ compact = false, buttonClassName }: {
                       </span>
                       {row.roi !== null ? (
                         <span className="num flex items-baseline gap-[5px] text-[11px] leading-[1.2] text-muted-foreground">
-                          <span className="font-mono text-[9px] tracking-[0.06em] uppercase">ROI</span>
+                          <span className="text-[10px] font-extrabold">ROI</span>
                           {searchRoi(row.roi)}
                         </span>
                       ) : null}

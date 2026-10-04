@@ -158,7 +158,7 @@ function ToastViewport({ items, onClose }: { items: ToastItem[]; onClose: (id: n
               data-closing={item.closing || undefined}
               onClick={() => onClose(item.id)}
               className={cn(
-                "toast-item relative mb-2.5 flex w-full cursor-pointer items-center rounded-[16px] border border-white/8 bg-[rgb(15_13_31/0.92)] p-4 text-sm leading-[1.4] font-medium text-foreground shadow-[0_8px_32px_rgb(0_0_0/0.5)] backdrop-blur-lg [word-break:break-word]",
+                "toast-item relative mb-2.5 flex w-full cursor-pointer items-center rounded-xl bg-popover p-4 text-sm leading-[1.4] font-bold text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] [word-break:break-word]",
                 item.closing ? "toast-exit" : "toast-enter",
               )}
             >

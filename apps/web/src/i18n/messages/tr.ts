@@ -471,6 +471,15 @@ export const tr: Messages = {
     settings: "Ayarlar",
     admin: "Yönetim",
     primary: "Ana gezinme",
+    mine: "Benim",
+    menu: "Menü",
+  },
+  theme: {
+    label: "Tema",
+    system: "Sistem",
+    light: "Açık",
+    dark: "Koyu",
+    switchTo: "{theme} temaya geç",
   },
   topbar: {
     search: "Hyperliquid trader adresi ara...",
@@ -588,6 +597,7 @@ export const tr: Messages = {
       live: "Canlı akış",
       faq: "SSS",
       community: "Topluluk",
+      legal: "Yasal",
       x: "X",
       telegram: "Telegram",
       email: "E-posta",

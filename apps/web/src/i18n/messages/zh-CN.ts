@@ -471,6 +471,15 @@ export const zhCN: Messages = {
     settings: "设置",
     admin: "管理",
     primary: "主导航",
+    mine: "我的",
+    menu: "菜单",
+  },
+  theme: {
+    label: "主题",
+    system: "跟随系统",
+    light: "浅色",
+    dark: "深色",
+    switchTo: "切换为{theme}",
   },
   topbar: {
     search: "搜索 Hyperliquid 交易员地址...",
@@ -588,6 +597,7 @@ export const zhCN: Messages = {
       live: "实时动态",
       faq: "常见问题",
       community: "社区",
+      legal: "法律",
       x: "X",
       telegram: "Telegram",
       email: "电子邮件",

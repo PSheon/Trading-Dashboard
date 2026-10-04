@@ -471,6 +471,15 @@ export const ru: Messages = {
     settings: "Настройки",
     admin: "Админка",
     primary: "Основная навигация",
+    mine: "Моё",
+    menu: "Меню",
+  },
+  theme: {
+    label: "Тема",
+    system: "Системная",
+    light: "Светлая",
+    dark: "Тёмная",
+    switchTo: "Включить: {theme}",
   },
   topbar: {
     search: "Поиск адреса трейдера Hyperliquid...",
@@ -588,6 +597,7 @@ export const ru: Messages = {
       live: "Лента в реальном времени",
       faq: "Вопросы и ответы",
       community: "Сообщество",
+      legal: "Правовая информация",
       x: "X",
       telegram: "Telegram",
       email: "Почта",

@@ -23,7 +23,7 @@ function PopoverContent({
         align={align}
         collisionPadding={12}
         className={cn(
-          "z-50 w-72 max-w-[calc(100vw-24px)] rounded-2xl border border-border-strong bg-popover p-4 text-popover-foreground shadow-2xl shadow-black/60 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          "z-50 w-72 max-w-[calc(100vw-24px)] rounded-2xl bg-popover p-4 text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className
         )}
         {...props}

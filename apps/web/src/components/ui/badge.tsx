@@ -4,19 +4,20 @@ import { cn } from "cn"
 import { Slot } from "radix-ui"
 
 const badgeVariants = cva(
-  "inline-flex h-6 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 text-xs font-semibold whitespace-nowrap num [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "inline-flex h-6 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-md border border-transparent px-2.5 text-xs font-extrabold whitespace-nowrap num [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground",
-        positive: "bg-positive-soft text-positive",
-        negative: "bg-negative-soft text-negative",
+        positive: "bg-tag-profit text-tag-profit-foreground",
+        negative: "bg-tag-loss text-tag-loss-foreground",
         secondary: "bg-raised text-foreground",
-        outline: "border-border-strong text-muted-foreground",
-        warning: "bg-warning/15 text-warning",
-        destructive: "bg-negative-soft text-negative",
+        outline: "border-input text-muted-foreground",
+        warning: "bg-tag-warning text-tag-warning-foreground",
+        destructive: "bg-tag-loss text-tag-loss-foreground",
+        alert: "bg-tag-alert text-tag-alert-foreground",
         ghost: "text-muted-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        link: "text-primary-text underline-offset-4 hover:underline",
       },
     },
     defaultVariants: {

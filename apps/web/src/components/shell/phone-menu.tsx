@@ -1,32 +1,17 @@
 "use client";
 
-import { Bookmark, Briefcase, List, Settings, X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Dialog as Primitive } from "radix-ui";
 import { cn } from "cn";
 
-import { Lockup } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
-import { LOCALE_NAMES, LOCALES, type Locale } from "@/i18n/config";
+import { LOCALE_NAMES, LOCALES } from "@/i18n/config";
 import { useI18n } from "@/i18n/provider";
 import { useAuth } from "@/lib/auth";
 import { useChangeLocale } from "@/lib/use-change-locale";
-
-/** CopyDog's short language codes in its phone menu. */
-const SHORT: Record<Locale, string> = {
-  en: "EN",
-  "zh-TW": "繁中",
-  "zh-CN": "简中",
-  ko: "KO",
-  ja: "JA",
-  ru: "RU",
-  tr: "TR",
-  vi: "VI",
-  es: "ES",
-  pt: "PT",
-  id: "ID",
-};
+import { ThemeChoiceControl } from "./theme-toggle";
 
 /**
  * The menu behind the ☰ on CopyDog's phone marketing pages (about, FAQ,
@@ -40,10 +25,10 @@ export function PhoneMenu() {
   const { status, login } = useAuth();
   const [open, setOpen] = useState(false);
   const items = [
-    { href: "/explore", label: t("nav.leaderboard"), icon: List },
-    { href: "/favorites", label: t("nav.favorites"), icon: Bookmark },
-    { href: "/portfolio", label: t("nav.portfolio"), icon: Briefcase },
-    { href: "/settings", label: t("nav.settings"), icon: Settings },
+    { href: "/explore", label: t("nav.leaderboard") },
+    { href: "/favorites", label: t("nav.favorites") },
+    { href: "/portfolio", label: t("nav.portfolio") },
+    { href: "/settings", label: t("nav.settings") },
   ];
   return (
     <Primitive.Root open={open} onOpenChange={setOpen}>
@@ -51,31 +36,30 @@ export function PhoneMenu() {
         <button
           type="button"
           aria-label={t("nav.openMenu")}
-          className="flex size-10 shrink-0 flex-col items-center justify-center gap-1 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="orbit-press flex size-11 shrink-0 flex-col items-center justify-center gap-1 rounded-full bg-raised outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span aria-hidden className="h-0.5 w-[18px] rounded-full bg-foreground" />
-          <span aria-hidden className="h-0.5 w-[18px] rounded-full bg-foreground" />
-          <span aria-hidden className="h-0.5 w-[18px] rounded-full bg-foreground" />
+          <span aria-hidden className="h-0.5 w-4 rounded-full bg-foreground" />
+          <span aria-hidden className="h-0.5 w-4 rounded-full bg-foreground" />
+          <span aria-hidden className="h-0.5 w-4 rounded-full bg-foreground" />
         </button>
       </Primitive.Trigger>
       <Primitive.Portal>
-        <Primitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+        <Primitive.Overlay className="fixed inset-0 z-50 bg-overlay data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Primitive.Content
           aria-describedby={undefined}
-          className="fixed inset-y-0 right-0 z-50 flex w-[min(86vw,340px)] flex-col border-l border-border bg-background pb-[env(safe-area-inset-bottom)] outline-none data-[state=open]:animate-in data-[state=open]:slide-in-from-right"
+          className="fixed inset-y-0 right-0 z-50 flex w-[min(82vw,320px)] flex-col overflow-y-auto rounded-l-3xl bg-card pb-[env(safe-area-inset-bottom)] shadow-[0_0_0_2px_var(--card-ring)] outline-none data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:animate-in data-[state=open]:slide-in-from-right data-[state=open]:duration-300 motion-reduce:animate-none"
         >
-          <div className="flex items-center justify-between border-b border-border p-4">
-            <Primitive.Title asChild>
-              <span><Lockup /></span>
-            </Primitive.Title>
+          <div className="flex items-center justify-between px-4 pt-4 pb-2">
+            <Primitive.Title className="font-display text-[1.375rem]">{t("nav.menu")}</Primitive.Title>
             <Primitive.Close
               aria-label={t("nav.closeMenu")}
-              className="flex size-10 items-center justify-center rounded-full outline-none hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring"
+              className="orbit-press flex size-11 items-center justify-center rounded-full bg-inset outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <X className="size-5" />
+              <X className="size-5" strokeWidth={2.4} />
             </Primitive.Close>
           </div>
-          <div className="grid grid-cols-4 gap-2 border-b border-border px-4 py-3">
+          <p className="px-4 pt-1 pb-2 text-xs font-bold text-muted-foreground">{t("topbar.language")}</p>
+          <div className="grid grid-cols-2 gap-2 px-4">
             {LOCALES.map((l) => (
               <button
                 key={l}
@@ -86,32 +70,34 @@ export function PhoneMenu() {
                 aria-pressed={l === locale}
                 onClick={() => changeLocale(l)}
                 className={cn(
-                  "flex h-9 items-center justify-center rounded-xl text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                  l === locale ? "bg-foreground text-background" : "bg-raised text-muted-foreground hover:text-foreground",
+                  "orbit-press flex h-11 items-center justify-center truncate rounded-full px-2 text-sm font-extrabold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  l === locale ? "bg-primary text-primary-foreground" : "bg-inset text-foreground hover:bg-raised-hover",
                 )}
               >
-                {SHORT[l]}
+                {LOCALE_NAMES[l]}
               </button>
             ))}
           </div>
-          <nav className="flex flex-col p-2">
-            {items.map(({ href, label, icon: Icon }) => (
+          <p className="px-4 pt-4 pb-2 text-xs font-bold text-muted-foreground">{t("theme.label")}</p>
+          <ThemeChoiceControl className="px-4 [&_button]:bg-inset [&_button[aria-checked=true]]:bg-primary" />
+          <nav className="flex flex-col px-4 pt-3">
+            {items.map(({ href, label }) => (
               <Link
                 key={href}
                 href={href}
                 onClick={() => setOpen(false)}
-                className="flex h-12 items-center gap-3 rounded-xl px-4 text-[0.9375rem] font-semibold outline-none hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-[52px] items-center justify-between border-b-2 border-dotted border-border text-[0.9375rem] font-extrabold outline-none hover:text-primary-text focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Icon className="size-[18px] text-muted-foreground" aria-hidden />
                 {label}
+                <ChevronRight className="size-[18px]" strokeWidth={2.4} aria-hidden />
               </Link>
             ))}
           </nav>
           {status === "signedOut" ? (
-            <div className="mt-auto border-t border-border p-4">
+            <div className="mt-auto p-4 pt-6">
               <Button
-                size="lg"
-                className="h-12 w-full"
+                size="xl"
+                className="w-full"
                 onClick={() => {
                   setOpen(false);
                   login();

@@ -8,7 +8,7 @@ import { APP_NAME } from "@/lib/config";
  * then the planet, then the front half and the moon, so the ring passes
  * behind and in front of the planet.
  */
-export type MarkVariant = "dark" | "light" | "app";
+export type MarkVariant = "dark" | "light" | "app" | "auto";
 
 export const BRAND = {
   orange: "#ff7a45",
@@ -20,6 +20,8 @@ const COLORS: Record<MarkVariant, { ring: string; planet: string }> = {
   dark: { ring: BRAND.cream, planet: BRAND.orange },
   light: { ring: BRAND.navy, planet: BRAND.orange },
   app: { ring: BRAND.navy, planet: BRAND.cream },
+  /** On the page: the ring takes the theme's text colour. */
+  auto: { ring: "var(--foreground)", planet: BRAND.orange },
 };
 
 /** Thicker ring and bigger moon at small sizes so the mark survives. */
@@ -31,7 +33,7 @@ export function markWeights(px: number): { stroke: number; moon: number } {
 }
 
 /** The mark's inner SVG, as a string (for icon routes and data URIs). */
-export function markSvgBody(variant: MarkVariant, px: number): string {
+export function markSvgBody(variant: Exclude<MarkVariant, "auto">, px: number): string {
   const { ring, planet } = COLORS[variant];
   const { stroke, moon } = markWeights(px);
   return (
@@ -53,7 +55,7 @@ export function appIconSvg(px: number, { rounded = true } = {}): string {
 }
 
 export function OrbieMark({
-  variant = "dark",
+  variant = "auto",
   size = 32,
   className,
   title,
@@ -94,11 +96,11 @@ export function OrbieMark({
   );
 }
 
-/** Lowercase wordmark in Fredoka 600, tracking −0.03em. */
+/** Wordmark in Fredoka 600, tracking −0.03em (Orbit: "Orbie"). */
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span
-      className={cn("font-wordmark leading-none font-semibold tracking-[-0.03em] lowercase", className)}
+      className={cn("font-wordmark leading-none font-semibold tracking-[-0.03em]", className)}
     >
       {APP_NAME}
     </span>
@@ -106,11 +108,11 @@ export function Wordmark({ className }: { className?: string }) {
 }
 
 /** Nav lockup: mark + wordmark. */
-export function Lockup({ className, markSize = 30 }: { className?: string; markSize?: number }) {
+export function Lockup({ className, markSize = 38 }: { className?: string; markSize?: number }) {
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span className={cn("inline-flex items-center gap-1.5", className)}>
       <OrbieMark size={markSize} />
-      <Wordmark className="text-[1.6rem] text-foreground" />
+      <Wordmark className="text-[1.75rem] text-foreground" />
     </span>
   );
 }

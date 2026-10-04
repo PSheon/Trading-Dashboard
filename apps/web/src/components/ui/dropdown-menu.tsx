@@ -22,7 +22,7 @@ function DropdownMenuContent({
         sideOffset={sideOffset}
         align={align}
         className={cn(
-          "z-50 min-w-44 overflow-hidden rounded-2xl border border-border-strong bg-popover p-1.5 text-popover-foreground shadow-2xl shadow-black/60 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          "z-50 min-w-44 overflow-hidden rounded-2xl bg-popover p-2 text-popover-foreground shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className
         )}
         {...props}
@@ -32,7 +32,7 @@ function DropdownMenuContent({
 }
 
 const itemClass =
-  "relative flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm outline-none select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-raised-hover [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+  "relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-bold outline-none select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-raised-hover [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
 
 function DropdownMenuItem({ className, ...props }: React.ComponentProps<typeof Primitive.Item>) {
   return <Primitive.Item data-slot="dropdown-menu-item" className={cn(itemClass, className)} {...props} />
@@ -47,7 +47,7 @@ function DropdownMenuRadioItem({
     <Primitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       // CopyDog marks the current choice with the accent colour alone.
-      className={cn(itemClass, "data-[state=checked]:font-bold data-[state=checked]:text-primary", className)}
+      className={cn(itemClass, "data-[state=checked]:font-extrabold data-[state=checked]:text-primary-text", className)}
       {...props}
     >
       {children}
@@ -72,7 +72,7 @@ function DropdownMenuSeparator({
   return (
     <Primitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("-mx-1.5 my-1.5 h-px bg-border", className)}
+      className={cn("mx-1 my-1.5 h-0 border-t-2 border-dotted border-border bg-transparent", className)}
       {...props}
     />
   )

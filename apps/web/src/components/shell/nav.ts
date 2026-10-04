@@ -1,10 +1,8 @@
 import {
   Briefcase,
-  ChartPie,
   ChartSpline,
   Compass,
   House,
-  Search,
   ShieldCheck,
   Star,
   type LucideIcon,
@@ -20,7 +18,7 @@ export interface NavItem {
   fillable?: boolean;
 }
 
-/** Left rail / bottom tabs (Stage 2 §6). */
+/** Every section (the design lab's frame lists them all). */
 export const primaryNav: NavItem[] = [
   { href: "/", label: "nav.home", icon: House, fillable: true },
   { href: "/explore", label: "nav.explore", icon: Compass },
@@ -29,13 +27,24 @@ export const primaryNav: NavItem[] = [
   { href: "/insights", label: "nav.insights", icon: ChartSpline },
 ];
 
-/** Phones: CopyDog's four bottom tabs (洞察 stays on the desktop rail),
- * with its app icons: search for 探索 and a pie for 投資組合. */
+/** The header's left capsule: 探索 / 洞察. */
+export const discoverNav: NavItem[] = [
+  { href: "/explore", label: "nav.explore", icon: Compass },
+  { href: "/insights", label: "nav.insights", icon: ChartSpline },
+];
+
+/** The header's right capsule: 投資組合 / 收藏. */
+export const mineNav: NavItem[] = [
+  { href: "/portfolio", label: "nav.portfolio", icon: Briefcase },
+  { href: "/favorites", label: "nav.favorites", icon: Star },
+];
+
+/** Phones: the four tabs of the floating capsule (M boards). */
 export const mobileNav: NavItem[] = [
-  { href: "/", label: "nav.home", icon: House, fillable: true },
-  { href: "/explore", label: "nav.explore", icon: Search },
-  { href: "/favorites", label: "nav.favorites", icon: Star, fillable: true },
-  { href: "/portfolio", label: "nav.portfolio", icon: ChartPie, fillable: true },
+  { href: "/", label: "nav.home", icon: House },
+  { href: "/explore", label: "nav.explore", icon: Compass },
+  { href: "/favorites", label: "nav.favorites", icon: Star },
+  { href: "/portfolio", label: "nav.portfolio", icon: Briefcase },
 ];
 
 export const adminNav: NavItem = { href: "/admin", label: "nav.admin", icon: ShieldCheck };

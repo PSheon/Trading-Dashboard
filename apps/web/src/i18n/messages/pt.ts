@@ -471,6 +471,15 @@ export const pt: Messages = {
     settings: "Configurações",
     admin: "Admin",
     primary: "Navegação principal",
+    mine: "Meu",
+    menu: "Menu",
+  },
+  theme: {
+    label: "Tema",
+    system: "Sistema",
+    light: "Claro",
+    dark: "Escuro",
+    switchTo: "Mudar para {theme}",
   },
   topbar: {
     search: "Buscar endereço de trader na Hyperliquid...",
@@ -588,6 +597,7 @@ export const pt: Messages = {
       live: "Feed ao vivo",
       faq: "Perguntas frequentes",
       community: "Comunidade",
+      legal: "Jurídico",
       x: "X",
       telegram: "Telegram",
       email: "E-mail",

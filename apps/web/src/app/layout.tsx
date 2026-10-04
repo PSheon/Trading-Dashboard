@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Fredoka, Geist_Mono, Host_Grotesk } from "next/font/google";
+import { Fredoka, Noto_Sans_TC, Nunito } from "next/font/google";
+import { cookies } from "next/headers";
 import "./globals.css";
 
 import { AppProviders } from "@/components/app-providers";
@@ -9,28 +10,32 @@ import { getLocale, getMessages } from "@/i18n/server";
 import { JsonLd } from "@/components/json-ld";
 import { APP_NAME, APP_URL } from "@/lib/config";
 import { siteJsonLd } from "@/lib/seo";
+import { THEME_COLOR, THEME_COOKIE, parseThemeChoice, themeClass } from "@/lib/theme";
 
-/** CopyDog's text face: the variable file (300–800), Latin only; CJK falls
- * through to the system stack in globals.css. Self-hosted at build time, with
- * next/font's size-adjusted fallback so the swap does not move the layout. */
-const hostGrotesk = Host_Grotesk({
-  variable: "--font-host-grotesk",
+/** Orbit's faces, self-hosted at build time with size-adjusted fallbacks so
+ * the swap does not move the layout. Nunito: body and UI. */
+const nunito = Nunito({
+  variable: "--font-nunito",
   subsets: ["latin"],
+  weight: ["500", "700", "800"],
   display: "swap",
 });
 
-/** Wordmark only (Stage 2 §9: Fredoka 600). */
+/** Fredoka: numbers, headings and the wordmark. */
 const fredoka = Fredoka({
   variable: "--font-fredoka",
   subsets: ["latin"],
-  weight: "600",
+  weight: ["500", "600"],
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+/** CJK after Nunito. Large: never preloaded; the browser fetches only the
+ * unicode-range slices a page uses. */
+const notoSansTc = Noto_Sans_TC({
+  variable: "--font-noto-tc",
+  weight: ["500", "700"],
   display: "swap",
+  preload: false,
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -61,22 +66,27 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#0f0d1f",
-  colorScheme: "dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: THEME_COLOR.light },
+    { media: "(prefers-color-scheme: dark)", color: THEME_COLOR.dark },
+  ],
+  colorScheme: "light dark",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = await getLocale();
   const messages = getMessages(locale);
+  // The theme chosen with the toggle (cookie); none = follow the system.
+  const themeChoice = parseThemeChoice((await cookies()).get(THEME_COOKIE)?.value);
 
   return (
     <html
       lang={locale}
-      className={`dark ${hostGrotesk.variable} ${fredoka.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${themeClass(themeChoice)} ${nunito.variable} ${fredoka.variable} ${notoSansTc.variable} h-full antialiased`.trim()}
     >
       <body className="min-h-full bg-background text-foreground">
         <JsonLd data={siteJsonLd(messages)} />
-        <AppProviders locale={locale} messages={messages}>
+        <AppProviders locale={locale} messages={messages} themeChoice={themeChoice}>
           <AppShell>{children}</AppShell>
         </AppProviders>
       </body>

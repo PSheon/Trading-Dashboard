@@ -84,8 +84,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <AccountControls />
         </div>
       </header>
+      {/* Solid, without backdrop-filter: a filter would make the phone header
+          the containing block of the full-screen search overlay inside it. */}
       {chrome !== "none" ? (
-        <header className="fixed inset-x-0 top-0 z-40 flex h-[72px] items-center gap-2.5 bg-background/92 px-4 backdrop-blur-xl md:hidden">
+        <header className="fixed inset-x-0 top-0 z-40 flex h-[72px] items-center gap-2.5 bg-background px-4 md:hidden">
           <Link href="/" aria-label={APP_NAME} className="mr-auto flex shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup />
           </Link>

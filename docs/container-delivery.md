@@ -33,10 +33,32 @@ Supply DATABASE_URL via the deployment secret mechanism. The script never reads
 .env, prints only recognized PostgreSQL/connectivity failure codes instead of
 connection errors/URLs/SQL/parameters, and takes a dedicated session
 advisory lock (73104, 2), with a 60-second admission deadline. Each statement has
-a 120-second timeout. Drizzle records completed migrations transactionally.
-Concurrent release jobs serialize; failed migrations fail the release. Do not
+a 120-second statement timeout and 15-second lock timeout. Concurrent release
+jobs serialize; failed migrations fail the release. Do not
 run schema push or migration generation against production. API startup does
 not implicitly migrate; readiness checks connectivity, not schema version.
+
+The exact immutable `0026_check_constraints` has an online execution plan,
+pinned to its original timestamp, SHA-256 and sixty CHECK statements. The
+pending prefix through 0026 commits with these CHECKs installed `NOT VALID`.
+Migrations before 0026 keep their original journal hashes; 0026 is recorded
+only in a separate pending release marker until validation completes. Its
+original journal entry and validated marker commit together afterwards.
+The installed CHECKs immediately enforce new writes. The
+release then validates each table's checks together, with a bounded fifteen
+minute statement timeout, before applying the remaining Drizzle migrations.
+Validation uses `SHARE UPDATE EXCLUSIVE`, which permits normal reads and writes.
+This follows [PostgreSQL's constraint validation guidance](https://www.postgresql.org/docs/16/sql-altertable.html).
+
+An interrupted or failed validation leaves an explicit partially completed
+release: the pending marker and new-write constraints are durable, but the
+release exits nonzero and cannot shift traffic. The next release must validate
+the remaining original checks before proceeding. Never infer validation from
+the journal timestamp alone. An older plain Drizzle runner encounters the
+already-installed CHECKs and fails rather than bypassing validation. Retry
+with this runner; do not remove the pending marker or journal the step manually.
+No old SQL file is edited, no invalid history is
+deleted or relabelled, and no constraint is dropped to make a release pass.
 
 After migration, start the API with validated production configuration, wait for
 /health/ready and only then switch traffic. Apply API before frontend for the

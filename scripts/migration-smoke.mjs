@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 import { withTestDatabase } from './test-database.mjs';
 import { migrateDatabase } from '../apps/api/scripts/migrate.mjs';
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const { Pool } = require('pg');
+const { readMigrationFiles } = require('drizzle-orm/migrator');
+const migrationFolder = new URL('../packages/shared/drizzle/', import.meta.url).pathname;
 await withTestDatabase(async (url) => {
   const pool = new Pool({ connectionString: url });
   try {
@@ -41,5 +44,67 @@ await withTestDatabase(async (url) => {
     for (const forbidden of [url, 'ALTER TABLE', 'Failed query:', 'password'])
       assert.equal(failed.stderr.includes(forbidden), false, 'Diagnostics must not print SQL or connection details');
     console.log('Real migration conflict exposes only safe code and statement coordinates');
+    // Rebuild only this owned disposable DB to the actual pre-0026 schema.
+    await pool.query('DROP SCHEMA public CASCADE');
+    await pool.query('DROP SCHEMA drizzle CASCADE');
+    await pool.query('CREATE SCHEMA public');
+    await pool.query('CREATE SCHEMA drizzle');
+    await pool.query('CREATE TABLE drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)');
+    const historical = readMigrationFiles({ migrationsFolder: migrationFolder });
+    for (const entry of historical.filter(entry => entry.folderMillis < 1790959907204)) {
+      for (const statement of entry.sql) await pool.query(statement);
+      await pool.query('INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)', [entry.hash, entry.folderMillis]);
+    }
+    const account = await pool.query('INSERT INTO history_accounts (address) VALUES ($1) RETURNING id', [`0x${'11'.repeat(20)}`]);
+    await pool.query("INSERT INTO history_fills (account_id, tid, twap, time, origin) VALUES ($1, 1, false, now(), 'invalid-existing-origin')", [account.rows[0].id]);
+    await assert.rejects(migrateDatabase(url));
+    const deferred = await pool.query("SELECT convalidated FROM pg_constraint WHERE conname = 'history_fills_origin_check'");
+    assert.equal(deferred.rows.length, 1, 'Online CHECK installation must survive failed historical validation');
+    assert.equal(deferred.rows[0].convalidated, false);
+    const incompleteJournal = await pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations WHERE created_at >= $1', [1790959907204]);
+    assert.equal(incompleteJournal.rows[0].count, 0, 'Historical validation must finish before the original journal reports 0026 complete');
+    const { drizzle } = require('drizzle-orm/node-postgres');
+    const { migrate } = require('drizzle-orm/node-postgres/migrator');
+    await assert.rejects(migrate(drizzle(pool), { migrationsFolder: migrationFolder }), error => error.cause?.code === '42710', 'An older plain Drizzle runner must fail closed on the pending installed CHECKs');
+    await assert.rejects(pool.query("INSERT INTO history_fills (account_id, tid, twap, time, origin) VALUES ($1, 2, false, now(), 'invalid-new-origin')", [account.rows[0].id]), { code: '23514' });
+    await pool.query("UPDATE history_fills SET origin = 'rest' WHERE tid = 1");
+    const blocker = await pool.connect();
+    await blocker.query('BEGIN');
+    await blocker.query('LOCK TABLE history_fills IN SHARE UPDATE EXCLUSIVE MODE');
+    const continuing = migrateDatabase(url); void continuing.catch(() => undefined);
+    try {
+      let waiting = false;
+      for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+        const lock = await pool.query("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE relation = 'public.history_fills'::regclass AND mode = 'ShareUpdateExclusiveLock' AND NOT granted) AS waiting");
+        waiting = lock.rows[0].waiting;
+        if (!waiting) await delay(50);
+      }
+      assert.equal(waiting, true, 'Historical validation must request the concurrent-write-compatible lock');
+      await pool.query("INSERT INTO history_fills (account_id, tid, twap, time, origin) VALUES ($1, 3, false, now(), 'rest')", [account.rows[0].id]);
+      const readable = await pool.query('SELECT count(*)::int AS count FROM history_fills');
+      assert.equal(readable.rows[0].count, 2, 'Reads and valid new writes proceed while validation waits');
+    } finally { await blocker.query('ROLLBACK'); blocker.release(); await continuing; }
+    const validated = await pool.query("SELECT convalidated FROM pg_constraint WHERE conname = 'history_fills_origin_check'");
+    assert.equal(validated.rows[0].convalidated, true);
+    const resumed = await pool.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at');
+    assert.deepEqual(resumed.rows.map(row => ({ hash: row.hash, when: Number(row.created_at) })), historical.map(row => ({ hash: row.hash, when: row.folderMillis })));
+    const marker = await pool.query('SELECT hash, state, validated_at FROM drizzle.__orbie_online_migrations WHERE created_at = $1', [1790959907204]);
+    assert.equal(marker.rows[0].hash, historical.find(row => row.folderMillis === 1790959907204).hash);
+    assert.equal(marker.rows[0].state, 'validated');
+    assert.ok(marker.rows[0].validated_at);
+    await pool.query('DELETE FROM drizzle.__drizzle_migrations WHERE created_at = $1', [1790959907204]);
+    await assert.rejects(migrateDatabase(url), /Completed migration journal mismatch/, 'A newer journal tail cannot conceal a missing completed 0026 entry');
+    await pool.query('INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)', [marker.rows[0].hash, 1790959907204]);
+    await migrateDatabase(url);
+    console.log('Historical validation failure retains new-write enforcement; corrected data resumes with original migration hashes');
+    await pool.query('DROP SCHEMA public CASCADE');
+    await pool.query('DROP SCHEMA drizzle CASCADE');
+    await pool.query('CREATE SCHEMA public');
+    await migrateDatabase(url);
+    const fresh = await pool.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at');
+    assert.deepEqual(fresh.rows.map(row => ({ hash: row.hash, when: Number(row.created_at) })), historical.map(row => ({ hash: row.hash, when: row.folderMillis })));
+    const pendingChecks = await pool.query("SELECT count(*)::int AS count FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public' AND c.contype = 'c' AND NOT c.convalidated");
+    assert.equal(pendingChecks.rows[0].count, 0);
+    console.log('Fresh release installs the full original journal with all CHECK constraints validated');
   } finally { await pool.end(); }
 });

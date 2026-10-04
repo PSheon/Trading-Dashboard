@@ -38,7 +38,11 @@ API／worker 已設定同一出站配額識別；實際交易 mode 仍為 paper�
 
 修正後的 worker deployment `07f3ab08-1fb9-4f77-8f50-a24e9d29f441` 完成映像建置，但 pre-deploy migration 失敗，尚未切换服務。Stage 無公開 DB proxy，也未登錄 SSH key。暫時 SSH key 登錄被自動安全審核拒絕，沒有新增 SSH 授權；改為 release hook 輸出限定的 PostgreSQL／連線代碼，以及只由已打包 migration SQL 比對產生的 timestamp／statement 編號，不輸出錯誤訊息、SQL、參數或 DSN。
 
-診斷代碼四項回歸通過；合成資料庫實際製造 journal／schema duplicate-column 衝突，release 退出 1 且輸出 `42701` 與正確步驟，沒有 SQL 或連線值。正常並行／重複 migration 亦通過，資料庫已移除。真實 Stage 失敗原因須在後續 deployment 取得這些受限診斷後才可判定。
+診斷代碼四項回歸通過；合成資料庫實際製造 journal／schema duplicate-column 衝突，release 退出 1 且輸出 `42701` 與正確步驟，沒有 SQL 或連線值。正常並行／重複 migration 亦通過，資料庫已移除。
+
+API 診斷 deployment `27b01a5f-b0e6-422c-b9a5-58baee13d959` 確認真實失敗是 `0026_check_constraints` 的第 48 步，PostgreSQL `57014`：歷史成交表 origin CHECK 的同步驗證超過 120 秒。Stage 尚有本輪之前的 migrations 未部署，不能只計算新增的 0049–0052。
+
+已加入只針對原始 0026 SHA-256／60 條 CHECK 的在線執行計畫：先以 NOT VALID 安裝並提交 prefix，新寫入立即受到檢查；0026 此時只記入獨立的 pending marker，保留原檔，尚不寫入 Drizzle 完成 journal。再以允許一般讀寫的鎖，分表合併驗證既有資料，全部完成後才原子提交原始 hash 的 journal 與 validated marker，並執行其餘 migrations。失敗仍禁止發布，新版可接續未驗證 CHECK，舊版 Drizzle 則因已存在的 CHECK 拒絕繼續，避免跳過驗證。隔離 PostgreSQL 真實測試涵蓋舊資料違規、拒絕新違規寫入、舊 runner 拒絕發布、修正後恢復、原始 hash 一致、validation 等待時一般讀寫可完成，以及全新 schema 的完整 journal／CHECK 驗證；全部通過。尚待此修正的真實 Stage deployment 驗證。
 
 ## 仍需接通的流程
 

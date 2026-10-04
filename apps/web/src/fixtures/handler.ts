@@ -72,6 +72,11 @@ import {
   walletHistoryResponseSchema,
   walletResponseSchema,
   adminCopyControlResponseSchema,
+  adminLiveAccountsSchema,
+  adminLiveLatencySchema,
+  adminLiveOrdersSchema,
+  adminLiveTransfersSchema,
+  adminRevokedLiveGrantSchema,
   adminCopyExposureResponseSchema,
   adminCopyOrdersResponseSchema,
   adminCopyOverviewSchema,
@@ -150,7 +155,7 @@ import {
 import { fixtureAnalytics, fixtureTradePage } from "./trades";
 import { fixtureBoard, fixtureCohort, fixtureCohortHistory, fixtureCoinBoard, fixtureCoinIndex, fixtureHome, fixtureSearch } from "./discovery";
 import { fixtureCopyAccounting, fixtureCopyEvents, fixtureCopyPerformance, fixtureCopyPortfolio, fixtureCopyTrades, fixtureFundsHistory, fixtureWithdrawFunds, fixtureAddFunds, fixtureCopyCommand, fixtureCopyOrders, fixtureCopyOverview, fixturePatchCopy, fixtureStartCopy } from "./copy";
-import { fixtureAdminCopyControl, fixtureAdminCopyExposure, fixtureAdminCopyOrders, fixtureAdminCopyOverview, fixtureAdminCopyPutRisk, fixtureAdminCopyRisk, fixtureAdminCopyStrategies, fixtureAdminCopyStrategy } from "./admin-copy";
+import { fixtureAdminCopyControl, fixtureAdminCopyExposure, fixtureAdminCopyOrders, fixtureAdminCopyOverview, fixtureAdminCopyPutRisk, fixtureAdminCopyRisk, fixtureAdminCopyStrategies, fixtureAdminCopyStrategy, fixtureAdminLiveAccounts, fixtureAdminLiveLatency, fixtureAdminLiveOrders, fixtureAdminLiveRevoke, fixtureAdminLiveTransfers } from "./admin-copy";
 import { createGroup, deleteGroup, dropMember, listGroups, patchGroup, resetGroups, setMember, traderCards } from "./watchlist";
 
 // Mutable demo state (per browser tab).
@@ -327,6 +332,15 @@ export async function fixtureRequest<T>(
   if (parts[0] === "insights" && parts[1] === "cohorts" && method === "GET" && parts[3] === "history") return wire(cohortHistoryResponseSchema, fixtureCohortHistory(parts[2], search.get("window") ?? "all"));
   if (parts[0] === "discover" && parts[1] === "coins" && method === "GET" && parts.length === 3) return wire(coinBoardResponseSchema, fixtureCoinBoard(decodeURIComponent(parts[2])));
 
+  if (parts[0] === "admin" && parts[1] === "copy" && parts[2] === "live") {
+    requireAdmin(token);
+    const live = `${method} ${parts.slice(3).map((p, i) => (parts[3] === "grants" && i === 1 ? ":id" : p)).join("/")}`;
+    if (live === "GET accounts") return wire(adminLiveAccountsSchema, fixtureAdminLiveAccounts());
+    if (live === "GET transfers") return wire(adminLiveTransfersSchema, fixtureAdminLiveTransfers());
+    if (live === "GET orders") return wire(adminLiveOrdersSchema, fixtureAdminLiveOrders(search.get("state")));
+    if (live === "GET latency") return wire(adminLiveLatencySchema, fixtureAdminLiveLatency(search.get("window")));
+    if (live === "POST grants/:id/revoke") return wire(adminRevokedLiveGrantSchema, fixtureAdminLiveRevoke(parts[4]!, body));
+  }
   switch (route) {
     case "GET /discover/coins":
       return wire(coinIndexResponseSchema, fixtureCoinIndex());

@@ -247,3 +247,35 @@ export function fixtureAdminCopyPutRisk(body: unknown) {
   policies.push({ version: version + 1, limits: parsed.data.limits, reason: parsed.data.reason, createdAt: new Date() });
   return fixtureAdminCopyRisk();
 }
+
+// --- testnet copies (GET /admin/copy/live/*) ----------------------------------
+const LIVE_ACCOUNT = `0x${"5a".repeat(20)}`, LIVE_AT = new Date(NOW - 3 * 3_600_000).toISOString();
+const liveGrant: { id: string; version: number; scopes: string[]; expiresAt: string; revokedAt: string | null } = {
+  id: "grant-demo", version: 4, scopes: ["copy:trade", "copy:reduce"], expiresAt: new Date(NOW + 20 * DAY).toISOString(), revokedAt: null };
+
+export function fixtureAdminLiveAccounts() {
+  return { items: [{ accountId: "account-demo", userId: 1, userEmail: USERS[1], strategyId: 41, leaderAddress: `0x${"4b".repeat(20)}`, sourceNetwork: "mainnet" as const,
+    accountAddress: LIVE_ACCOUNT, accountState: "ready", strategyStatus: "active", agent: { setupId: "setup-demo", state: "active", agentAddress: `0x${"3c".repeat(20)}`, expiresAt: liveGrant.expiresAt },
+    grant: { ...liveGrant }, mandate: { id: "mandate-demo", state: "active", revision: 2 }, stop: null, createdAt: LIVE_AT }] };
+}
+export function fixtureAdminLiveTransfers() {
+  return { items: [{ id: "6f1c2a4e-3b7d-4c8e-9a1f-2d3e4f5a6b7c", userId: 1, accountId: "account-demo", strategyId: 41, direction: "to_account" as const, status: "credited", amount: "50",
+    source: `0x${"11".repeat(20)}`, destination: LIVE_ACCOUNT, stopId: null, transactionHash: `0x${"ab".repeat(32)}`, attemptedAt: LIVE_AT, createdAt: LIVE_AT, updatedAt: LIVE_AT }] };
+}
+export function fixtureAdminLiveOrders(state: string | null) {
+  const order = { key: `testnet:${LIVE_ACCOUNT}:0x${"7e".repeat(16)}`, userId: 1, strategyId: 41, accountAddress: LIVE_ACCOUNT, coin: "BTC", side: "B" as const, size: "0.0004", limitPrice: "118456",
+    reduceOnly: false, state: "unknown", errorCode: "exchange_order_not_yet_found", purpose: "copy" as const, leg: { leg: "open" as const, state: "submitted", reason: null },
+    createdAt: new Date(NOW - 20_000).toISOString(), updatedAt: new Date(NOW - 5_000).toISOString() };
+  return { items: state === "all" || state === "open" || state === "unknown" || state === null ? [order] : [] };
+}
+export function fixtureAdminLiveLatency(window: string | null) {
+  const w = window === "7d" ? "7d" as const : "24h" as const;
+  return { window: w, count: w === "7d" ? 61 : 9, signal: { p50: 840, p95: 2_350 }, sent: { p50: 1_320, p95: 58_900 }, ack: { p50: 1_480, p95: 59_200 }, settled: { p50: 4_900, p95: 66_000 } };
+}
+export function fixtureAdminLiveRevoke(id: string, body: unknown) {
+  const reason = (body as { reason?: unknown } | null)?.reason;
+  if (typeof reason !== "string" || reason.trim().length < 3) throw new ApiError(400, "reason is required", { code: "validation_failed" });
+  if (id !== liveGrant.id) throw new ApiError(404, "Wallet authorization not found");
+  if (!liveGrant.revokedAt) { liveGrant.version += 1; liveGrant.revokedAt = new Date().toISOString(); }
+  return { id, version: liveGrant.version, revokedAt: liveGrant.revokedAt };
+}

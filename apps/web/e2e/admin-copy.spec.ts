@@ -166,6 +166,45 @@ for (const width of [1440, 390]) {
       await shot(page, `admin-copy-orders-${width}`);
     });
 
+    test("testnet copies: latency P50/P95, wallets with their grant, orders with an unknown outcome; revoking a grant needs a reason", async ({ page }) => {
+      test.setTimeout(90000);
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await open(page, width);
+      await section(page, "Testnet copies").click();
+      await expect(page).toHaveURL(/\/admin\/copy\/live$/);
+      const latency = page.getByTestId("copy-live-latency");
+      await expect(latency).toContainText("9 copied fills");
+      await expect(latency).toContainText("840 ms");
+      await expect(latency).toContainText("58,900 ms");
+      await latency.getByRole("button", { name: "7 d", exact: true }).click();
+      await expect(latency).toContainText("61 copied fills");
+      const wallets = page.getByRole("region", { name: "Execution wallets" });
+      await expect(wallets).toContainText("demo@example.com");
+      await expect(wallets).toContainText("mainnet leader");
+      const orders = page.getByRole("region", { name: "Orders" });
+      await expect(orders).toContainText("exchange_order_not_yet_found");
+      await orders.getByRole("button", { name: "Unknown outcome", exact: true }).click();
+      await expect(page.getByText(/the exchange has not confirmed yet/)).toBeVisible();
+      await expect(page.getByRole("region", { name: "Wallet transfers" })).toContainText("50 USDC");
+      await expectNoSidewaysScroll(page);
+      await expectAccessible(page);
+      await shot(page, `admin-copy-live-${width}`);
+
+      await wallets.getByRole("button", { name: "Revoke grant", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Revoke trading grant" });
+      await settled(page);
+      await expectAccessible(page);
+      const send = dialog.getByRole("button", { name: "Revoke", exact: true });
+      await expect(send).toBeDisabled();
+      await dialog.getByLabel("Reason").fill("Drill: agent key rotation");
+      await send.click();
+      await expect(dialog).toBeHidden();
+      await expect(wallets).toContainText("revoked");
+      await expect(wallets.getByRole("button", { name: "Revoke grant", exact: true })).toHaveCount(0);
+      expect(errors).toEqual([]);
+    });
+
     test("risk limits: an impossible policy can't be saved; a save needs a reason and becomes the next version", async ({ page }) => {
       test.setTimeout(90000);
       await open(page, width);

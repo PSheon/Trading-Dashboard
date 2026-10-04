@@ -57,6 +57,18 @@ describe('returning USDC from a copy account to the main wallet', () => {
     await expect(new CopyFundingRepository(db).reserve(1, 'account', 'testnet', { idempotencyKey: key(8), amount: '10' })).rejects.toMatchObject({ status: 409 });
   });
 
+  it('a prepared return whose consent window passed is cancelled, not left holding the account (the browser lost its key on reload)', async () => {
+    const stale = await service.reserve(1, 'account', { idempotencyKey: key(9), amount: '5' });
+    await db.update(schema.copyFundingOperations).set({ createdAt: new Date(Date.now() - 6 * 60_000) }).where(eq(schema.copyFundingOperations.id, stale.operation.id));
+    const fresh = await service.reserve(1, 'account', { idempotencyKey: key(10), amount: '6' });
+    expect(fresh.operation).toMatchObject({ status: 'prepared', amount: '6' });
+    expect((await db.select().from(schema.copyFundingOperations).where(eq(schema.copyFundingOperations.id, stale.operation.id)))[0]).toMatchObject({ status: 'cancelled' });
+    // Its approval is refused as expired, never sent.
+    clock = Date.now();
+    await expect(service.approve(1, stale.operation.id, { consentSignature: await ownerSigns(stale.consent) }, 'jwt')).resolves.toMatchObject({ status: 'cancelled' });
+    expect(exchange.send).not.toHaveBeenCalled();
+  });
+
   it('refuses more than the account can transfer, before any attempt', async () => {
     exchange.withdrawable.mockResolvedValue('3');
     const challenge = await service.reserve(1, 'account', { idempotencyKey: key(3), amount: '12.5' });

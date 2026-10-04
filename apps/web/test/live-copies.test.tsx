@@ -116,3 +116,15 @@ it('says the copies could not be read, with a retry, instead of hiding the secti
   await act(async () => button(catalogs.en.common.retry).click()); await settle();
   expect(container.textContent).toContain('Active');
 });
+
+it('a prepared return can be cancelled from the portfolio (its consent key does not survive a reload)', async () => {
+  const id = '22222222-2222-4222-8222-222222222222';
+  items = [item({ pendingTransfer: { id, direction: 'to_main', status: 'prepared', amount: '12.5' } })];
+  state.post.mockImplementation(async () => ({ id, accountId: liveAccount.id, strategyId: liveAccount.strategyId, network: 'testnet', address: liveAccount.address,
+    destination: `0x${'11'.repeat(20)}`, amount: '12.5', nonce: liveNow, status: 'cancelled', canCancel: false, transactionHash: null, creditedAmount: null, fee: null,
+    direction: 'to_main', stopId: null, createdAt: new Date(liveNow).toISOString(), updatedAt: new Date(liveNow).toISOString() }));
+  await render();
+  await act(async () => button('Cancel this return').click()); await settle();
+  expect(state.post).toHaveBeenCalledWith(`/me/copy/funding/${id}/cancel`, {});
+  expect(container.textContent).not.toContain('The action did not complete');
+});

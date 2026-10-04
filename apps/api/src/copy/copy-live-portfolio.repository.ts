@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { RETURN_CONSENT_WINDOW_MS } from './copy-live-return.repository.js';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveMandates, copyLiveStopOperations,
   copyLiveStrategyConfigs, copyStrategies } from '@trading-dashboard/shared/database';
@@ -34,7 +35,10 @@ export class CopyLivePortfolioRepository {
       const activation = mandate ? activations.find(a => a.mandateId === mandate.id) : undefined;
       const stop = stops.find(row => row.strategyId === s.id && row.state !== 'stopped') ?? null;
       const ops = transfers.filter(t => t.strategyId === s.id);
-      const pending = ops.find(t => ['prepared', 'unknown', 'accepted'].includes(t.status)) ?? null;
+      // A return prepared and never attempted past its consent window can no
+      // longer be sent (it is cancelled on the next reservation): not pending.
+      const pending = ops.find(t => ['prepared', 'unknown', 'accepted'].includes(t.status) &&
+        !(t.direction === 'to_main' && t.status === 'prepared' && !t.attemptedAt && t.createdAt.getTime() < Date.now() - RETURN_CONSENT_WINDOW_MS)) ?? null;
       const deposited = ops.some(t => t.direction === 'to_account' && t.status === 'credited');
       const refusal = refusals.find(r => r.strategyId === s.id && r.reason);
       let stage: LiveCopyStage;

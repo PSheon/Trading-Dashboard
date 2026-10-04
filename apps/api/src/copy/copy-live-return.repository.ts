@@ -10,6 +10,21 @@ import { lockCopyUser } from './copy-user-lock.js';
 export type ReturnRow = typeof copyFundingOperations.$inferSelect;
 export type BuilderApprovalRow = typeof copyLiveBuilderApprovals.$inferSelect;
 const busy = () => new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'Resolve the pending wallet operation first' });
+/** The owner's consent to a return is valid this long after it is prepared. */
+export const RETURN_CONSENT_WINDOW_MS = 300_000;
+
+/**
+ * A return to the main wallet prepared but never attempted, whose consent
+ * window has passed, can never be sent (approve refuses consent_expired):
+ * it is cancelled instead of holding the account's pending slot, so a new
+ * return or deposit can start (the browser's idempotency key does not
+ * survive a reload).
+ */
+export async function expireStaleReturns(tx: DbTransaction, accountId: string): Promise<void> {
+  await tx.update(copyFundingOperations).set({ status: 'cancelled', updatedAt: new Date() })
+    .where(and(eq(copyFundingOperations.accountId, accountId), eq(copyFundingOperations.direction, 'to_main'), eq(copyFundingOperations.status, 'prepared'),
+      isNull(copyFundingOperations.attemptedAt), sql`${copyFundingOperations.createdAt} < now() - make_interval(secs => ${RETURN_CONSENT_WINDOW_MS / 1000})`));
+}
 
 /** Account context of a master-signed action: the owner, the copy's ready
  * account and its strategy, and an unfinished stop if any. */
@@ -57,6 +72,7 @@ export class CopyLiveReturnRepository {
       }
       if (input.sweep && stop?.state !== 'flat' && strategy.status !== 'stopped') throw new ConflictException({ statusCode: 409, code: 'return_requires_flat_stop', message: 'Stop the copy first; everything returns once it is flat' });
       if (!input.sweep && (stop || ['stopping', 'stopped'].includes(strategy.status))) throw new ConflictException({ statusCode: 409, code: 'return_use_sweep', message: 'The copy is stopping: return everything once it is flat' });
+      await expireStaleReturns(tx, accountId);
       const pendingRows = await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations)
         .where(and(eq(copyFundingOperations.accountId, accountId), inArray(copyFundingOperations.status, ['prepared', 'unknown', 'accepted']))).limit(1);
       const hubPending = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals)

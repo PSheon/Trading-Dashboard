@@ -6,6 +6,7 @@ import type { CopyFundingInput } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { expireStaleReturns } from "./copy-live-return.repository.js";
 import { lockCopyUser } from "./copy-user-lock.js";
 import type { FundingScan } from "./copy-funding-scan.js";
 
@@ -55,6 +56,7 @@ export class CopyFundingRepository {
       const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId))).for("share");
       if (!strategy || ["stopping", "stopped"].includes(strategy.status)) throw new ConflictException("Copy is stopped");
       const source = and(eq(copyFundingOperations.network, network), eq(copyFundingOperations.address, user.embeddedWalletAddress));
+      await expireStaleReturns(tx, accountId);
       // Either direction on this copy account: a return to the main wallet in
       // flight excludes a new deposit, as a deposit in flight excludes a return.
       if ((await tx.select({ id: copyFundingOperations.id }).from(copyFundingOperations).where(and(or(source, eq(copyFundingOperations.accountId, accountId)), pending())).limit(1)).length ||

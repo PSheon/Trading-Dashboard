@@ -69,5 +69,13 @@ export function useLiveCopyPortfolioActions() {
       done(name); return result;
     },
   });
-  return { transfer, cancellation, close };
+  /** Cancel a return prepared but never sent (its consent lost with a page
+   * reload, or no longer wanted): recovered from the portfolio, no key needed. */
+  const cancelTransfer = useMutation({
+    mutationFn: async ({ operationId }: { operationId: string }) => {
+      const result = copyFundingSchema.parse(await api.post(`/me/copy/funding/${encodeURIComponent(operationId)}/cancel`, {}));
+      done(`cancel-transfer:${operationId}`); return result;
+    },
+  });
+  return { transfer, cancellation, close, cancelTransfer };
 }

@@ -9,10 +9,10 @@ import { Dec } from '../common/decimal/dec.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { wire } from './copy-funding.service.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
-import { CopyLiveReturnRepository, type BuilderApprovalRow, type ReturnRow } from './copy-live-return.repository.js';
+import { CopyLiveReturnRepository, RETURN_CONSENT_WINDOW_MS, type BuilderApprovalRow, type ReturnRow } from './copy-live-return.repository.js';
 import { MASTER_ACTION_SIGNER, type MasterActionSigner } from './live/privy-master-signer.js';
 
-const CONSENT_WINDOW_MS = 300_000;
+const CONSENT_WINDOW_MS = RETURN_CONSENT_WINDOW_MS;
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);

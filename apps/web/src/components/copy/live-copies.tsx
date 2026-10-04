@@ -61,8 +61,8 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
   const actions = useLiveCopyPortfolioActions();
   const [amount, setAmount] = useState('');
   const observed = snapshot.data?.status === 'observed' ? snapshot.data : null;
-  const busy = actions.transfer.isPending || actions.cancellation.isPending || actions.close.isPending;
-  const failed = actions.transfer.isError || actions.cancellation.isError || actions.close.isError;
+  const busy = actions.transfer.isPending || actions.cancellation.isPending || actions.close.isPending || actions.cancelTransfer.isPending;
+  const failed = actions.transfer.isError || actions.cancellation.isError || actions.close.isError || actions.cancelTransfer.isError;
   const running = item.stage === 'active' || item.stage === 'paused' || item.stage === 'starting';
   const validAmount = /^\d+(?:\.\d{1,6})?$/.test(amount) && Number(amount) > 0;
   const reason = item.lastRefusal ? (item.lastRefusal.reason === 'live_source_price_deviation' ? text.priceDeviation : item.lastRefusal.reason) : null;
@@ -77,6 +77,9 @@ function LiveCopyRow({ item, text, account, mandate }: { item: LiveCopyItem; tex
       <p className="text-xs leading-5 text-muted-foreground">{text.hints[item.stage]}</p>
       {reason ? <p className="text-xs text-warning">{text.refusal.replace('{reason}', reason)}</p> : null}
       {item.pendingTransfer ? <p className="text-xs">{text.transfer.replace('{status}', item.pendingTransfer.status).replace('{amount}', item.pendingTransfer.amount)}</p> : null}
+      {item.pendingTransfer?.direction === 'to_main' && item.pendingTransfer.status === 'prepared' ? (
+        <Button size="sm" variant="secondary" className="self-start" disabled={busy} onClick={() => actions.cancelTransfer.mutate({ operationId: item.pendingTransfer!.id })}>{text.cancelReturn}</Button>
+      ) : null}
       {observed ? (
         <>
           <dl className="grid grid-cols-2 gap-2 text-xs">

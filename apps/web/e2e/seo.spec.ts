@@ -54,7 +54,7 @@ test("personal pages are noindex; /admin and /dev are disallowed and noindex", a
     expect(await page.locator('meta[name="robots"]').first().getAttribute("content"), path).toBe("noindex, nofollow");
   }
   const robots = await (await request.get("/robots.txt")).text();
-  for (const line of ["User-Agent: *", "Disallow: /admin", "Disallow: /dev", "Disallow: /api/", "Disallow: /portfolio", "Sitemap: https://app.orbie.fun/sitemap.xml"]) expect(robots).toContain(line);
+  for (const line of ["User-Agent: *", "Disallow: /admin", "Disallow: /dev", "Disallow: /api/", "Allow: /api/hl/discover/", "Allow: /api/hl/traders", "Disallow: /api/hl/me", "Disallow: /api/hl/admin", "Disallow: /portfolio", "Sitemap: https://app.orbie.fun/sitemap.xml"]) expect(robots).toContain(line);
 });
 
 test("sitemap.xml and the manifest are served", async ({ page, request }) => {

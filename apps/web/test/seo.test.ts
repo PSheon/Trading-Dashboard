@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import manifest from "../src/app/manifest";
-import robots, { DISALLOWED } from "../src/app/robots";
+import robots, { DISALLOWED, PUBLIC_READS } from "../src/app/robots";
 import { faqSections } from "../src/components/content/faq";
 import { LOCALES } from "../src/i18n/config";
 import { catalogs } from "../src/i18n/messages";
@@ -42,9 +42,31 @@ describe("page metadata", () => {
 describe("robots.txt, the manifest and the sitemap's data", () => {
   it("disallows the back office, the lab, the api and the personal pages, and names the sitemap", () => {
     const file = robots();
-    expect(file.rules).toEqual([{ userAgent: "*", allow: "/", disallow: DISALLOWED }]);
+    expect(file.rules).toEqual([{ userAgent: "*", allow: ["/", ...PUBLIC_READS], disallow: DISALLOWED }]);
     for (const path of ["/admin", "/dev", "/api/", "/settings", "/portfolio", "/favorites"]) expect(DISALLOWED).toContain(path);
     expect(file.sitemap).toMatch(/\/sitemap\.xml$/);
+  });
+
+  it("lets a renderer fetch the same-origin public reads the pages draw from, and nothing private", () => {
+    const [rule] = [robots().rules].flat();
+    const list = (v: string | string[] | undefined) => [v ?? []].flat();
+    // Google's rule: the longest matching path wins; Allow wins a tie.
+    const allowed = (path: string) => {
+      const best = (paths: string[]) => Math.max(-1, ...paths.filter((p) => path.startsWith(p)).map((p) => p.length));
+      return best(list(rule!.allow)) >= best(list(rule!.disallow));
+    };
+    for (const path of [
+      "/explore", "/trader/0xab", "/coins/BTC",
+      "/api/hl/discover/home", "/api/hl/discover/boards?board=top100", "/api/hl/discover/coins/BTC",
+      "/api/hl/traders?window=allTime", "/api/hl/traders/0xab", "/api/hl/traders/0xab/activity", "/api/hl/traders/sparklines?addresses=0xab",
+      "/api/hl/kols/0xab/avatar", "/api/hl/insights/crowd", "/api/hl/insights/cohorts/whale", "/api/hl/settings", "/api/hl/actions?limit=20",
+      "/api/coin-icon/BTC",
+    ]) expect(allowed(path), path).toBe(true);
+    for (const path of [
+      "/api/hl/me", "/api/hl/me/wallet", "/api/hl/me/settings", "/api/hl/copy/strategies", "/api/hl/admin/users",
+      "/api/hl/actions/stream", "/api/hl/alerts", "/api/hl/lists", "/api/hl/referral/check/X",
+      "/admin", "/dev/lab", "/settings", "/portfolio", "/favorites",
+    ]) expect(allowed(path), path).toBe(false);
   });
 
   it("serves an installable manifest with its own 192 and 512 icons", () => {

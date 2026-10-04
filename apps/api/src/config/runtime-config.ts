@@ -153,8 +153,14 @@ export function validateEnvironment(source: Environment = process.env) {
   }
   // One switch, as in DonutMe: IS_WORKER=true runs the background jobs and
   // serves only health; unset (or false) is the HTTP api, which starts none.
-  if (source.APP_ROLE !== undefined) throw new Error("APP_ROLE was replaced by IS_WORKER: set IS_WORKER=true on the worker and remove APP_ROLE");
   const isWorker = booleanValue("IS_WORKER", source.IS_WORKER, false);
+  // A leftover APP_ROLE is tolerated only when it says the same thing as
+  // IS_WORKER, so a deployment can switch image and variables in either order
+  // (removing a Railway variable redeploys the previous image). combined is
+  // gone: a process must never run the api and the jobs together again.
+  if (source.APP_ROLE !== undefined && source.APP_ROLE !== (isWorker ? "worker" : "api")) {
+    throw new Error("APP_ROLE was replaced by IS_WORKER: set IS_WORKER=true on the worker and remove APP_ROLE");
+  }
   const workerUrl = source.WORKER_URL ? urlValue("WORKER_URL", source.WORKER_URL, "", ["http:", "https:"]) : undefined;
   const app = { isWorker, workerUrl, nodeEnv, trustedProxyCidrs,
   // A worker beside an api on one machine needs its own port: WORKER_PORT

@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppConfig } from "../src/config/app-config.js";
 import { validateEnvironment } from "../src/config/runtime-config.js";
-import { SdkPrivyVerifier } from "../src/common/auth/privy-verifier.js";
+import { PRIVY_TIMEOUT_MS, SdkPrivyVerifier } from "../src/common/auth/privy-verifier.js";
 
 const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const second = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -84,4 +84,22 @@ it("real signed Privy tokens resolve database RBAC through the HTTP guards", asy
     await request(app.getHttpServer()).get("/sdk-probe").set("Authorization", `Bearer ${signed}`).expect(401);
     expect(fetcher).not.toHaveBeenCalled();
   } finally { await app.close(); warmup.mockRestore(); await closeTestDb(); }
+});
+
+describe("Privy calls from the verifier are bounded", () => {
+  it("a stalled profile read gives up after the verifier's timeout instead of the SDK's minute, and reads as no profile", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const calls: string[] = [];
+      vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push(String(input instanceof Request ? input.url : input));
+        return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true }));
+      }));
+      const profile = verifier().fetchProfile(did);
+      // One try and one retry, each cut at PRIVY_TIMEOUT_MS (plus the SDK's short backoff).
+      await vi.advanceTimersByTimeAsync(2 * PRIVY_TIMEOUT_MS + 5_000);
+      await expect(profile).resolves.toBeNull();
+      expect(calls).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
 });

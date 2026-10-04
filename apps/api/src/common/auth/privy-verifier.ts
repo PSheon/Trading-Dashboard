@@ -79,6 +79,9 @@ export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfi
  * `PRIVY_VERIFICATION_KEY` set, verification is local (no network call);
  * without it the SDK fetches and caches the app's JWKS.
  */
+/** Per Privy API call from the verifier (see the constructor). */
+export const PRIVY_TIMEOUT_MS = 8_000;
+
 @Injectable()
 export class SdkPrivyVerifier implements PrivyVerifier {
   private readonly logger = new Logger(SdkPrivyVerifier.name);
@@ -92,10 +95,16 @@ export class SdkPrivyVerifier implements PrivyVerifier {
       this.client = null;
       return;
     }
+    // The SDK's own default is a minute per call and two retries, far past
+    // the request's 20 s deadline (which it never sees). The profile read
+    // gets 8 s and one retry; the JWKS fetch behind token verification
+    // (without PRIVY_VERIFICATION_KEY) is jose's, bounded at 5 s.
     this.client = new PrivyClient({
       appId,
       appSecret,
       jwtVerificationKey: this.config.value.auth.verificationKey,
+      timeout: PRIVY_TIMEOUT_MS,
+      maxRetries: 1,
     });
   }
 

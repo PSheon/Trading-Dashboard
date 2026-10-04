@@ -112,8 +112,13 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/mandates/:id/pause` | 200 | user (owner); local new-risk barrier |
 | POST | `/me/copy/live/mandates/:id/revoke` | 200 | user (owner); local consent revocation preserves liabilities |
 | POST | `/me/copy/live/mandates/:id/stop` | 200 | user (owner); durable local risk barrier; no financial execution |
+| POST | `/me/copy/live/execution-wallets/:id/positions/close` | 200 | user (owner); one position of a running testnet copy; executed by the worker |
+| GET | `/me/copy/live/execution-wallets/:id/closes` | 200 | user (owner); read only |
+| GET | `/me/copy/live/portfolio` | 200 | user (owner); testnet copies with their funding and stop stage; read only |
 | GET | `/me/copy/live/stops` | 200 | user (owner); bounded durable stop history; read only |
 | GET | `/me/copy/live/stops/by-key/:key` | 200 | user (owner); exact original stop recovery; read only |
+| POST | `/me/copy/live/stops/:id/cancellation/challenge` | 200 | user (owner); exact cancellation consent challenge of a cancelling stop; no signing |
+| POST | `/me/copy/live/stops/:id/cancellation` | 200 | user (owner); verified owner consent to cancel the stop's tracked orders |
 | POST | `/me/copy/strategies` | 201 | user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused |
 | PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
@@ -149,6 +154,11 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/funding/:id/submit` | 200 | user (owner); exact source signature; one attempt |
 | POST | `/me/copy/funding/:id/cancel` | 200 | user (owner); unattempted intent only |
 | POST | `/me/copy/funding/:id/reconcile` | 200 | user (owner); positive transaction and recipient evidence |
+| POST | `/me/copy/live/execution-wallets/:id/returns` | 200 | user (owner); testnet; return to the main wallet, consent challenge only |
+| POST | `/me/copy/live/returns/:id/approve` | 200 | user (owner); main-wallet consent and fresh session; one attempt |
+| POST | `/me/copy/live/execution-wallets/:id/builder-approval` | 200 | user (owner); testnet; configured builder fee, consent challenge only |
+| POST | `/me/copy/live/builder-approvals/:id/approve` | 200 | user (owner); main-wallet consent and fresh session; one attempt |
+| POST | `/me/copy/live/builder-approvals/:id/reconcile` | 200 | user (owner); read only |
 | POST | `/me/copy/strategies/:id/execution-wallet` | 200 | user (owner); configured wallet provider; deployment network only |
 | POST | `/me/copy/execution-wallets/:id/reconcile` | 200 | user (owner) |
 | POST | `/me/copy/wallet-authorizations/:id/revoke` | 200 | user (owner) |
@@ -160,4 +170,9 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/admin/copy/risk` | 200 | copy.read |
 | POST | `/admin/copy/controls` | 201 | copy.read + execution.pause (resume: execution.resume); 409 stale_revision |
 | PUT | `/admin/copy/risk` | 200 | risk.manage; 409 stale_version |
+| GET | `/admin/copy/live/accounts` | 200 | copy.read |
+| GET | `/admin/copy/live/transfers` | 200 | copy.read |
+| GET | `/admin/copy/live/orders` | 200 | copy.read |
+| GET | `/admin/copy/live/latency` | 200 | copy.read |
+| POST | `/admin/copy/live/grants/:id/revoke` | 200 | copy.read + execution.pause; audited copy.grant.revoke |
 | GET | `/kols/:address/avatar` | 200 | public; image bytes, 304 on If-None-Match |

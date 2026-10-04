@@ -80,3 +80,19 @@ inside the PostgreSQL 16 container with `docker exec` (stream the dump through
 stdout/stdin; inside the container the server is 127.0.0.1:5432).
 `next build` and a running `next dev` do not collide: dev output is under
 `.next/dev`.
+
+## Browser suite server
+
+`apps/web/playwright.config.ts` starts one `next dev --turbopack` fixture
+server (`NEXT_TEST_MODE=1`, `NEXT_PUBLIC_API_FIXTURES=1`, built into
+`.next-e2e`) and compiles every route before the first test
+(`e2e/global-setup.ts`). It used `--webpack` until 2026-10-05: webpack keeps
+the compiled routes in the server's JavaScript heap, CI's 4 GB filled a few
+minutes into the run (run 37210498699) and every later test met a dead
+server. Turbopack compiles in native code; the whole suite runs on one
+server. `PLAYWRIGHT_BUNDLER=webpack` brings the old server back for a
+comparison run, and `PLAYWRIGHT_REUSE_SERVER=1` reuses a fixture server you
+already started on `PLAYWRIGHT_PORT` (default 3109) with the same env.
+
+A production (`next build`) fixture server is not used: next.config.ts
+refuses fixture mode in any production build or server, on purpose.

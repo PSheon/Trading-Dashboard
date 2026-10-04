@@ -32,8 +32,21 @@ const exploreHref = (board: string, sort: string, market?: "stocks") =>
  * per screen.
  */
 export function HomeView({ initial }: { initial?: { home: InitialRead<HomeBoardsResponse> | null } } = {}) {
-  const { t } = useI18n();
   const home = useHomeBoards(initial?.home);
+  return <HomeContent home={{ data: home.data, isError: home.isError, refetch: () => void home.refetch() }} />;
+}
+
+/** The page's Suspense fallback while the server reads the rows: the same
+ * layout with skeleton rows and no query of its own. A fallback that read
+ * the rows itself would create the query first on a client navigation to
+ * the home, and TanStack ignores the server's `initialData` for a query
+ * that already exists (a second /discover/home request). */
+export function HomeSkeleton() {
+  return <HomeContent home={{ data: undefined, isError: false, refetch: () => {} }} />;
+}
+
+function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; isError: boolean; refetch: () => void } }) {
+  const { t } = useI18n();
   // CopyDog's tiles: five fixed per kind, then the two trending markets.
   const crypto = homeTiles(HOME_TILE_CRYPTO, home.data?.trending?.coins);
   const stocks = homeTiles(HOME_TILE_STOCKS, home.data?.trending?.stocks);

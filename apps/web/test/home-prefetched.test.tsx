@@ -2,10 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { HomeView } from "@/components/home/home-view";
+import { HomeSkeleton, HomeView } from "@/components/home/home-view";
 import { fixtureRequest } from "@/fixtures/handler";
 import { I18nProvider } from "@/i18n/provider";
 import { en } from "@/i18n/messages/en";
+import { queryKeys } from "@/lib/query-keys";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push() {} }), usePathname: () => "/" }));
 
@@ -24,6 +25,25 @@ describe("home rendered from the server's read", () => {
     expect(render()).not.toContain(`href="/trader/${first}"`);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("the home page's Suspense fallback", () => {
+  it("is skeletons with no query of its own, so a client navigation keeps the server's rows", async () => {
+    vi.doMock("next/headers", () => ({ headers: async () => new Headers() }));
+    const { default: HomePage } = await import("@/app/page");
+    const fallback = (HomePage() as { props: { fallback: { type: unknown } } }).props.fallback;
+    expect(fallback.type).toBe(HomeSkeleton);
+    const client = new QueryClient();
+    const html = renderToString(
+      <QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><HomeSkeleton /></I18nProvider></QueryClientProvider>,
+    );
+    expect(html).toContain("ui-skeleton");
+    const homeQueries = () => client.getQueryCache().findAll({ queryKey: queryKeys.discover.home });
+    expect(homeQueries()).toHaveLength(0);
+    // The page itself does create it (seeded from the server's read).
+    renderToString(<QueryClientProvider client={client}><I18nProvider locale="en" messages={en}><HomeView /></I18nProvider></QueryClientProvider>);
+    expect(homeQueries()).toHaveLength(1);
   });
 });
 

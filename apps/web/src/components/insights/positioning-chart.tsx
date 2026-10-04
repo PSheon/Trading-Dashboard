@@ -148,10 +148,10 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
   }
 
   return (
-    <section className="flex min-w-0 flex-col overflow-hidden orbit-card">
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b-2 border-dotted border-border px-3">
-        <h2 className="truncate text-[13px] font-semibold">{title}</h2>
-        <div className="flex items-center gap-3" role="radiogroup" aria-label={title}>
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-raised p-3 md:p-5">
+      <div className="flex min-h-11 items-center justify-between gap-3">
+        <h2 className="truncate font-display text-xl">{title}</h2>
+        <div className="flex items-center gap-0.5 rounded-full bg-background p-1" role="radiogroup" aria-label={title}>
           {WINDOWS.map((w) => (
             <button
               key={w}
@@ -160,8 +160,8 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
               aria-checked={window === w}
               onClick={() => onWindow(w)}
               className={cn(
-                "num rounded font-mono text-[11px] leading-[16.5px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                window === w ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                "num h-9 rounded-full px-3 text-[13px] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                window === w ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
               )}
             >
               {w}
@@ -177,32 +177,30 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           <svg width={size.w} height={size.h} className="absolute inset-0" onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={title}>
             <defs>
               <pattern id={`${id}-l`} width="4" height="4" patternUnits="userSpaceOnUse">
-                <rect width="4" height="4" fill="rgb(52 211 153 / 16%)" />
-                <line x1="0" y1="4" x2="4" y2="0" stroke="rgb(52 211 153 / 30%)" strokeWidth="1" />
+                <rect width="4" height="4" fill="var(--positive)" fillOpacity="0.16" />
               </pattern>
               <pattern id={`${id}-s`} width="4" height="4" patternUnits="userSpaceOnUse">
-                <rect width="4" height="4" fill="rgb(244 80 111 / 14%)" />
-                <line x1="0" y1="4" x2="4" y2="0" stroke="rgb(244 80 111 / 26%)" strokeWidth="1" />
+                <rect width="4" height="4" fill="var(--negative)" fillOpacity="0.1" />
               </pattern>
               <clipPath id={`${id}-above`}><rect x="0" y="0" width={size.w} height={geo.mid} /></clipPath>
               <clipPath id={`${id}-below`}><rect x="0" y={geo.mid} width={size.w} height={size.h - geo.mid} /></clipPath>
             </defs>
             <path d={geo.long} fill={`url(#${id}-l)`} />
             <path d={geo.short} fill={`url(#${id}-s)`} />
-            <path d={geo.line} fill="none" strokeWidth="2" stroke="var(--positive)" clipPath={`url(#${id}-above)`} strokeLinejoin="round" />
-            <path d={geo.line} fill="none" strokeWidth="2" stroke="var(--negative)" clipPath={`url(#${id}-below)`} strokeLinejoin="round" />
+            <path d={geo.line} fill="none" stroke="var(--positive)" clipPath={`url(#${id}-above)`} strokeLinejoin="round" strokeLinecap="round" strokeWidth="3" />
+            <path d={geo.line} fill="none" stroke="var(--negative)" clipPath={`url(#${id}-below)`} strokeLinejoin="round" strokeLinecap="round" strokeWidth="3" />
             {geo.isolated.map((point, i) => <circle key={i} cx={point.x} cy={point.y} r="3" fill="var(--foreground)" />)}
-            {geo.btcLine ? <path d={geo.btcLine} fill="none" strokeWidth="1.4" stroke="var(--foreground)" strokeOpacity="0.45" strokeLinejoin="round" /> : null}
+            {geo.btcLine ? <path d={geo.btcLine} fill="none" strokeWidth="2" stroke="var(--muted-foreground)" strokeOpacity="0.8" strokeDasharray="5 5" strokeLinejoin="round" /> : null}
             {[0, 25, 50, 75, 100].map((v) => (
-              <text key={v} x={size.w - PAD.r + 14} y={geo.sy(v) + 4} className="num fill-subtle-foreground font-mono text-[10px]">{v}%</text>
+              <text key={v} x={size.w - PAD.r + 14} y={geo.sy(v) + 4} className="num fill-muted-foreground text-[11px] font-bold">{v}%</text>
             ))}
             {geo.ticks.map((tick) => (
-              <text key={tick.i} x={tick.px} y={size.h - 8} textAnchor={tick.i === 0 ? "start" : tick.i === 4 ? "end" : "middle"} className="fill-subtle-foreground text-[10px]">{tick.label}</text>
+              <text key={tick.i} x={tick.px} y={size.h - 8} textAnchor={tick.i === 0 ? "start" : tick.i === 4 ? "end" : "middle"} className="fill-muted-foreground text-[11px] font-bold">{tick.label}</text>
             ))}
             {shown ? (
               <>
                 {hover !== null ? <line x1={geo.sx(shown.x)} x2={geo.sx(shown.x)} y1={PAD.t} y2={PAD.t + geo.ih} stroke="var(--muted-foreground)" strokeOpacity="0.55" strokeDasharray="3 3" /> : null}
-                <circle cx={geo.sx(shown.x)} cy={geo.sy(shown.y)} r="3.5" fill={shown.y >= 50 ? "var(--positive)" : "var(--negative)"} stroke="var(--card)" strokeWidth="1.5" />
+                <circle cx={geo.sx(shown.x)} cy={geo.sy(shown.y)} r="3.5" fill={shown.y >= 50 ? "var(--positive)" : "var(--negative)"} stroke="var(--raised)" strokeWidth="2" />
               </>
             ) : null}
           </svg>
@@ -214,16 +212,16 @@ export function PositioningChart({ title, series, btc, window, onWindow, loading
           // Both lines sit on the card's colour, so a curve that climbs
           // into the corner passes behind the figure instead of through it.
           <div className="pointer-events-none absolute top-[13px] left-3 flex flex-col items-start gap-[3px]">
-            <div className="rounded-[3px] bg-card/90 py-[3px] pr-2 pl-1 font-mono text-[10px] leading-[15px] text-muted-foreground">
+            <div className="rounded-md bg-raised/90 py-[3px] pr-2 pl-1 text-[11px] leading-[15px] font-bold text-muted-foreground">
               {window} - {t(`insights.cohort.sentiment.${tone.key}`)}
             </div>
-            <div className={cn("num rounded-[3px] bg-card/90 pr-2 pl-1 text-[19px] leading-[28.5px] font-semibold", tone.dir > 0 ? "text-positive" : tone.dir < 0 ? "text-negative" : "text-foreground")}>
+            <div className={cn("num rounded-md bg-raised/90 pr-2 pl-1 font-display text-[2rem] leading-[1.2]", tone.dir > 0 ? "text-positive" : tone.dir < 0 ? "text-negative" : "text-foreground")}>
               {value.toFixed(1)}% {t("insights.cohort.long")}
             </div>
           </div>
         ) : null}
         {geo && (btcAt !== null || hover !== null) ? (
-          <div className="pointer-events-none absolute top-[13px] right-14 flex flex-col items-end gap-0.5 font-mono text-[10.5px] leading-[15.75px] text-subtle-foreground">
+          <div className="pointer-events-none absolute top-[13px] right-14 flex flex-col items-end gap-0.5 text-[11px] leading-[15.75px] font-bold text-muted-foreground">
             {btcAt !== null ? <span>— BTC ${Math.round(btcAt).toLocaleString("en-US")}</span> : null}
             {hover !== null && shown ? <span>{stamp.format(new Date(shown.x))}</span> : null}
           </div>

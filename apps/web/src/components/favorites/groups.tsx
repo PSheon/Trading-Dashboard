@@ -97,14 +97,14 @@ export function GroupChips({ groups, counts, total, active, onSelect }: {
               }}
               placeholder={t("favorites.groups.name")}
               aria-label={t("favorites.groups.name")}
-              className="h-9 w-36 rounded-full border border-primary bg-transparent px-3.5 text-sm outline-none"
+              className="h-11 w-40 rounded-full border-2 border-primary bg-transparent px-4 text-sm font-bold outline-none"
             />
           </form>
         ) : (
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-dashed border-border-strong px-3.5 text-sm font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press inline-flex h-11 items-center gap-1.5 rounded-full border-2 border-dashed border-input px-[18px] text-sm font-extrabold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Plus className="size-3.5" strokeWidth={2.5} />
             {t("favorites.groups.new")}
@@ -131,8 +131,8 @@ function Chip({ active, onClick, count, children }: { active: boolean; onClick: 
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-        active ? "bg-primary text-primary-foreground" : "bg-raised text-muted-foreground hover:text-foreground",
+        "orbit-press inline-flex h-11 items-center gap-2 rounded-full border-2 px-[18px] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active ? "border-primary bg-primary font-extrabold text-primary-foreground" : "border-input font-bold text-muted-foreground hover:bg-raised hover:text-foreground",
       )}
     >
       {children}
@@ -147,9 +147,9 @@ export function Dialog({ title, onClose, children, className }: { title: string;
   const ref = useModalFocus<HTMLDivElement>(true, onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" aria-label={title} className="absolute inset-0 bg-black/60" onClick={onClose} tabIndex={-1} />
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cn("relative w-full max-w-sm rounded-2xl bg-popover shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] p-6 shadow-2xl", className)}>
-        <h2 className="mb-2 text-lg font-bold">{title}</h2>
+      <button type="button" aria-label={title} className="absolute inset-0 bg-overlay" onClick={onClose} tabIndex={-1} />
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cn("relative w-full max-w-sm rounded-2xl bg-popover shadow-[0_0_0_2px_var(--card-ring),var(--shadow-pop)] p-6", className)}>
+        <h2 className="mb-2 font-display text-xl">{title}</h2>
         {children}
       </div>
     </div>

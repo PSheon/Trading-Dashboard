@@ -58,7 +58,7 @@ export function FavoritesView() {
       <div className="flex flex-col gap-5" aria-busy="true">
         <Skeleton className="h-9 w-32" />
         <Skeleton className="h-11 w-full max-w-md" />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 4 }, (_, i) => <BoardCardSkeleton key={i} />)}
         </div>
       </div>
@@ -80,22 +80,22 @@ function SignedOut() {
   return (
     <>
       <div className="hidden min-h-[60vh] flex-col items-center gap-3 px-4 pt-[88px] text-center md:flex">
-        <Bookmark className="mb-1 size-14 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-        <h1 className="text-[28px] leading-[42px] font-semibold">{t("favorites.signInTitle")}</h1>
-        <p className="text-muted-foreground">{t("favorites.signInBody")}</p>
+        <span className="mb-2 flex size-24 items-center justify-center rounded-full bg-raised"><Bookmark className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
+        <h1 className="font-display text-[2rem] leading-[42px]">{t("favorites.signInTitle")}</h1>
+        <p className="font-bold text-muted-foreground">{t("favorites.signInBody")}</p>
         <button
           type="button"
           onClick={login}
           disabled={disabled}
           title={disabled ? t("topbar.loginUnavailable") : undefined}
-          className="mt-5 h-14 w-[200px] rounded-full bg-primary text-base font-semibold text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="orbit-press mt-5 h-[60px] w-[220px] rounded-full bg-primary font-display text-lg text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           {t("common.signIn")}
         </button>
       </div>
       <div className="md:hidden">
         <div className="-mt-[7px] flex items-center justify-between">
-          <p role="heading" aria-level={1} className="text-[28px] leading-[1.15] font-bold">{t("favorites.title")}</p>
+          <p role="heading" aria-level={1} className="font-display text-[2rem] leading-[1.15]">{t("favorites.title")}</p>
           <div role="tablist" aria-label={t("favorites.title")} className="flex rounded-full bg-raised p-1">
             {(["saved", "alerts"] as const).map((key) => {
               const Icon = key === "saved" ? Star : Bell;
@@ -107,7 +107,7 @@ function SignedOut() {
                   aria-selected={phoneTab === key}
                   aria-label={t(`favorites.tabs.${key}`)}
                   onClick={() => setPhoneTab(key)}
-                  className={cn("flex h-8 w-11 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring", phoneTab === key ? "bg-raised-hover text-foreground" : "text-muted-foreground")}
+                  className={cn("flex h-10 w-12 items-center justify-center rounded-full outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring", phoneTab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
                 >
                   <Icon className="size-4" fill="currentColor" />
                 </button>
@@ -116,14 +116,14 @@ function SignedOut() {
           </div>
         </div>
         <div className="flex flex-col items-center gap-2 pt-[57px] text-center">
-          <PhoneIcon className="size-10 text-muted-foreground" strokeWidth={1.5} aria-hidden />
-          <p className="mt-2 text-base font-semibold">{t(phoneTab === "saved" ? "favorites.phoneSavedTitle" : "favorites.phoneAlertsTitle")}</p>
+          <span className="flex size-20 items-center justify-center rounded-full bg-raised"><PhoneIcon className="size-9 text-primary-text" strokeWidth={2} aria-hidden /></span>
+          <p className="mt-3 font-display text-xl">{t(phoneTab === "saved" ? "favorites.phoneSavedTitle" : "favorites.phoneAlertsTitle")}</p>
           <p className="text-sm text-muted-foreground">{t(phoneTab === "saved" ? "favorites.phoneSavedBody" : "favorites.phoneAlertsBody")}</p>
           <button
             type="button"
             onClick={login}
             disabled={disabled}
-            className="mt-4 h-12 rounded-full bg-primary px-5 text-base font-semibold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className="orbit-press mt-4 h-[52px] rounded-full bg-primary px-6 font-display text-base text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {t("common.signIn")}
           </button>
@@ -156,7 +156,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
           {t("favorites.alerts.count", { count: alerting, max })}
         </span>
         {telegram.data && !telegram.data.linked ? (
-          <Link href="/settings" className="inline-flex h-9 items-center gap-1.5 rounded-full bg-raised px-3.5 text-sm font-semibold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring">
+          <Link href="/settings" className="orbit-press inline-flex h-12 items-center gap-1.5 rounded-full bg-primary px-5 text-[15px] font-extrabold text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring">
             <Send className="size-3.5" />
             {t("favorites.alerts.connect")}
           </Link>
@@ -167,7 +167,7 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
   if (tab === "feed") {
     const live = feed.status === "live";
     right = (
-      <span className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground" aria-live="polite">
+      <span className="flex h-12 items-center gap-2 rounded-full bg-raised px-5 text-sm font-extrabold text-foreground" aria-live="polite">
         <span className={cn("size-2 rounded-full", live ? "animate-pulse bg-positive" : "bg-warning")} aria-hidden />
         {live ? t("favorites.feed.live") : t("favorites.feed.connecting")}
       </span>
@@ -176,9 +176,10 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-[1.75rem] font-extrabold md:text-[2rem]">{t("favorites.title")}</h1>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 overflow-x-auto rounded-full bg-raised p-1" role="tablist" aria-label={t("favorites.title")}>
+        <div className="flex min-w-0 flex-wrap items-center gap-4">
+        <h1 className="font-display text-[1.75rem] leading-[1.1] md:text-[2.5rem]">{t("favorites.title")}</h1>
+        <div className="flex gap-0.5 overflow-x-auto rounded-[28px] bg-raised p-[5px]" role="tablist" aria-label={t("favorites.title")}>
           {TABS.map((key) => (
             <button
               key={key}
@@ -187,14 +188,15 @@ function SignedIn({ tab, onTab, view, onView }: { tab: Tab; onTab: (t: Tab) => v
               aria-selected={tab === key}
               onClick={() => onTab(key)}
               className={cn(
-                "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                tab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[22px] px-5 text-[15px] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                tab === key ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
               )}
             >
               {t(`favorites.tabs.${key}`)}
               {counts[key] !== null && counts[key] > 0 ? <span className={cn("num text-xs", tab === key ? "opacity-80" : "text-subtle-foreground")}>{counts[key]}</span> : null}
             </button>
           ))}
+        </div>
         </div>
         {right}
       </div>
@@ -248,12 +250,12 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
   if (favorites.length === 0) {
     return (
       <div className="flex flex-col items-center gap-5 orbit-card px-6 py-14 text-center">
-        <Bookmark className="size-14 text-border-strong" strokeWidth={1.25} aria-hidden />
+        <span className="flex size-24 items-center justify-center rounded-full bg-inset"><Bookmark className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
         <div className="flex flex-col gap-2">
-          <h2 className="text-2xl font-bold">{t("favorites.emptyTitle")}</h2>
-          <p className="mx-auto max-w-[330px] text-muted-foreground">{t("favorites.emptyBody")}</p>
+          <h2 className="font-display text-[1.75rem]">{t("favorites.emptyTitle")}</h2>
+          <p className="mx-auto max-w-[330px] font-bold text-muted-foreground">{t("favorites.emptyBody")}</p>
         </div>
-        <Link href="/explore" className="inline-flex h-11 items-center rounded-full bg-primary px-5 font-bold text-primary-foreground outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href="/explore" className="orbit-press inline-flex h-[52px] items-center rounded-full bg-primary px-7 font-display text-base text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring">
           {t("favorites.explore")}
         </Link>
       </div>
@@ -269,7 +271,7 @@ function SavedTab({ favorites, groups, view }: { favorites: Favorite[] | undefin
       ) : items.length === 0 ? (
         <p className="orbit-card py-12 text-center text-muted-foreground">{t("favorites.emptyGroup")}</p>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {items.map((card) => (
             <BoardCard
               key={card.address}

@@ -77,8 +77,8 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
   const c = (key: string) => t(`insights.cohort.cols.${key}` as "insights.cohort.cols.pnl");
   return (
     <div className="max-h-[640px] overflow-auto">
-      <table className="cd-cohort-table cd-cohort-wallets w-full border-collapse">
-        <thead className="sticky top-0 z-10 border-b-2 border-dotted border-border bg-card">
+      <table className="cd-cohort-table cd-cohort-wallets w-full border-separate border-spacing-y-2">
+        <thead className="sticky top-0 z-10 bg-background">
           <tr>
             <Th label={c("address")} col="address" sort={sort} align="left" />
             <th className="px-3 py-3 text-left text-[0.8125rem] font-medium text-subtle-foreground">{c("assets")}</th>
@@ -92,7 +92,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
             <Th label={c("bias")} col="biasPct" sort={sort} />
           </tr>
         </thead>
-        <tbody>
+        <tbody className="data-rows">
           {sort.sorted.map((w) => (
             <tr
               key={w.address}
@@ -101,7 +101,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
                 if ((e.target as HTMLElement).closest("a")) return;
                 router.push(`/trader/${w.address}`);
               }}
-              className="cursor-pointer border-b-2 border-dotted border-border transition-colors last:border-0 hover:bg-raised/50"
+              className="cursor-pointer"
             >
               <td className="px-3 py-3">
                 <Link href={`/trader/${w.address}`} className="flex min-w-0 items-center gap-[9px] rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
@@ -172,8 +172,8 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
   const share = (part: number, whole: number) => (whole > 0 ? Math.round((100 * part) / whole) : 0);
   return (
     <div className="max-h-[640px] overflow-auto">
-      <table className="cd-cohort-table cd-cohort-markets w-full min-w-[1080px] border-collapse">
-        <thead className="sticky top-0 z-10 border-b-2 border-dotted border-border bg-card">
+      <table className="cd-cohort-table cd-cohort-markets w-full min-w-[1080px] border-separate border-spacing-y-2">
+        <thead className="sticky top-0 z-10 bg-background">
           <tr>
             <Th label={c("market")} col="coin" sort={sort} align="left" />
             <Th label={c("sentiment")} col="sentiment" sort={sort} align="left" />
@@ -182,13 +182,13 @@ export function MarketsTable({ rows, filter }: { rows: CohortMarket[]; filter: "
             <Th label={c("upnl")} col="upnl" sort={sort} align="left" />
           </tr>
         </thead>
-        <tbody>
+        <tbody className="data-rows">
           {sort.sorted.map((m) => {
             const notional = m.notionalLong + m.notionalShort;
             const traders = m.tradersLong + m.tradersShort;
             const pnlTraders = m.tradersProfit + m.tradersLoss;
             return (
-              <tr key={m.coin} className="border-b-2 border-dotted border-border last:border-0">
+              <tr key={m.coin}>
                 <td className="px-3 py-3">
                   <span className="flex items-center gap-2 font-semibold"><CoinIcon coin={m.coin} size={18} />{coinLabel(m.coin)}</span>
                 </td>

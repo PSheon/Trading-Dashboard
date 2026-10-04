@@ -74,11 +74,11 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
   }, [markets]);
 
   return (
-    <section className="flex min-w-0 flex-col overflow-hidden orbit-card">
-      <div className="flex min-h-10 items-center border-b-2 border-dotted border-border px-3">
-        <h2 className="text-[13px] font-semibold">{title}</h2>
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-raised p-3 md:p-5">
+      <div className="flex min-h-11 items-center">
+        <h2 className="font-display text-xl">{title}</h2>
       </div>
-      <div ref={box} className="relative m-2.5 h-[300px] md:h-[380px]" role="figure" aria-label={title}>
+      <div ref={box} className="relative mt-3 h-[300px] md:h-[380px]" role="figure" aria-label={title}>
         {loading && !markets ? <Skeleton className="absolute inset-0" /> : null}
         {!loading && cells.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-raised/40 text-sm text-muted-foreground">{t("insights.cohort.treemapEmpty")}</div>
@@ -90,7 +90,7 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
           const px = { w: (c.w / 100) * size.w, h: (c.h / 100) * size.h };
           const full = px.h >= 90 && px.w >= 100;
           const mid = full || (px.h >= 66 && px.w >= 80);
-          const base = long ? "52 211 153" : "244 80 111";
+          const tile = long ? "var(--tag-profit)" : "var(--tag-loss)";
           return (
             <div
               key={c.coin}
@@ -99,24 +99,24 @@ export function MarketTreemap({ title, markets, loading }: { title: string; mark
               title={`${coinLabel(c.coin)} · ${bias.toFixed(1)}% ${t("insights.cohort.long")} · ${usdCompact(c.value, { digits: 2 })}`}
             >
               <div
-                className={cn("flex h-full w-full flex-col justify-between overflow-hidden rounded-[6px]", full ? "px-[13px] py-[11px]" : "px-2.5 py-2")}
-                style={{ backgroundColor: `rgb(${base} / ${(0.22 + strength * 0.45).toFixed(2)})` }}
+                className={cn("flex h-full w-full flex-col justify-between overflow-hidden rounded-[22px]", long ? "text-tag-profit-foreground" : "text-tag-loss-foreground", full ? "px-4 py-3.5" : "px-3 py-2.5")}
+                style={{ backgroundColor: `color-mix(in srgb, ${tile} ${Math.round(55 + strength * 45)}%, var(--card))` }}
               >
                 <div className="min-w-0">
-                  <div className={cn("flex min-w-0 items-center font-bold", full ? "gap-2 text-[17px]" : "gap-[5px] text-[12.5px] font-semibold")}>
+                  <div className={cn("flex min-w-0 items-center font-display", full ? "gap-2 text-2xl" : "gap-[5px] text-[15px]")}>
                     <CoinIcon coin={c.coin} size={full ? 20 : 14} />
                     <span className="truncate">{coinLabel(c.coin)}</span>
                   </div>
                   {full ? (
-                    <div className="mt-1 font-mono text-[11.5px] text-foreground/70">
+                    <div className="mt-1 text-xs font-extrabold">
                       {long ? `${bias.toFixed(0)}% ${t("insights.cohort.long")}` : `${(100 - bias).toFixed(0)}% ${t("insights.cohort.short")}`}
                     </div>
                   ) : null}
                 </div>
                 {mid ? (
-                  <span className="flex h-[5px] w-full shrink-0 overflow-hidden rounded-full bg-black/30" aria-hidden>
-                    <span className="h-full bg-positive" style={{ width: `${bias}%` }} />
-                    <span className="h-full bg-negative" style={{ width: `${100 - bias}%` }} />
+                  <span className="flex h-2 w-full shrink-0 gap-[3px] overflow-hidden rounded-full" aria-hidden>
+                    <span className="h-full rounded-full bg-bar-long" style={{ width: `${bias}%` }} />
+                    <span className="h-full rounded-full bg-bar-short" style={{ width: `${100 - bias}%` }} />
                   </span>
                 ) : null}
               </div>

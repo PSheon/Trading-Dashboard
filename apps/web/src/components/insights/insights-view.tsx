@@ -53,10 +53,10 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
   }, [tier, tierPicker]);
 
   return (
-    <div className="flex flex-col gap-2 max-md:-mx-1 max-md:mt-3">
-      <header className="relative mb-2.5 flex flex-col gap-3.5 orbit-card p-[18px] md:flex-row md:items-center md:justify-between md:px-6 md:pt-[18px] md:pb-[17px]">
+    <div className="flex flex-col gap-4">
+      <header className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <HyperliquidWordmark className="flex h-[41px] md:hidden" />
-        <h1 className="text-[21px] leading-[1.2] font-bold md:text-[26px]">{t("insights.cohort.bannerTitle")}</h1>
+        <h1 className="font-display text-[1.75rem] leading-[1.15] md:text-[2.5rem]">{t("insights.cohort.bannerTitle")}</h1>
         <div className="flex items-center gap-4 max-md:absolute max-md:top-[18px] max-md:right-[18px] md:order-3">
           {tierPicker ? <TierPicker value={tier} onChange={setTier} /> : null}
           <HyperliquidWordmark className="hidden md:flex" />
@@ -70,17 +70,17 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
         </div>
       ) : (
         <>
-          <div className="grid gap-2 md:grid-cols-[1fr_1.04fr]">
+          <div className="grid gap-4 md:grid-cols-[1fr_1.04fr]">
             <HeroCards data={ready ? data : undefined} />
           </div>
           {data && !ready ? (
-            <div role="status" className="rounded-xl bg-raised/60 px-4 py-2.5 text-xs text-muted-foreground">
+            <div role="status" className="rounded-xl bg-raised px-4 py-3 text-xs font-bold text-muted-foreground">
               <p>{t("insights.cohort.building")}</p>
               <p className="mt-1">{t("copyUpdates.coverage", { count: data.walletCount, total: data.memberCount })}</p>
               <button type="button" className="mt-2 text-primary-text underline" onClick={() => void detail.refetch()}>{t("insights.cohort.retry")}</button>
             </div>
           ) : null}
-          <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)]">
             {history.errorUpdateCount > 0 && !history.data ? (
               // Not a placeholder without end: the history could not be read.
               <section className="flex min-h-[300px] items-center justify-center orbit-card">
@@ -100,9 +100,9 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
             )}
             <MarketTreemap title={t("insights.cohort.byMarket")} markets={ready ? data?.markets : undefined} loading={!ready} />
           </div>
-          <section className="overflow-hidden orbit-card">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-dotted border-border px-3.5">
-              <div className="flex" role="tablist">
+          <section>
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex gap-0.5 rounded-[28px] bg-raised p-[5px]" role="tablist">
                 {(["wallets", "markets"] as const).map((key) => (
                   <button
                     key={key}
@@ -111,8 +111,8 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
                     aria-selected={tab === key}
                     onClick={() => setTab(key)}
                     className={cn(
-                      "-mb-px mr-[22px] border-b-2 px-0.5 py-3 font-mono text-xs leading-[18px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                      tab === key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+                      "h-11 rounded-[22px] px-5 text-[15px] outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+                      tab === key ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {t(`insights.cohort.${key}`)}
@@ -120,7 +120,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
                 ))}
               </div>
               {tab === "markets" ? (
-                <div className="flex gap-3" role="radiogroup" aria-label={t("insights.cohort.markets")}>
+                <div className="flex gap-2" role="radiogroup" aria-label={t("insights.cohort.markets")}>
                   {FILTERS.map((f) => (
                     <button
                       key={f}
@@ -128,7 +128,7 @@ export function InsightsView({ tierPicker = false }: { tierPicker?: boolean }) {
                       role="radio"
                       aria-checked={filter === f}
                       onClick={() => setFilter(f)}
-                      className={cn("rounded font-mono text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "text-primary-text" : "text-muted-foreground hover:text-foreground")}
+                      className={cn("orbit-press h-11 rounded-full border-2 px-[18px] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring", filter === f ? "border-primary bg-primary font-extrabold text-primary-foreground" : "border-input font-bold text-muted-foreground hover:bg-raised hover:text-foreground")}
                     >
                       {t(`insights.cohort.filter.${f}`)}
                     </button>
@@ -156,7 +156,7 @@ function TierPicker({ value, onChange }: { value: CohortTier; onChange: (tier: C
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={t("insights.cohort.tierLabel")}
-        className="flex h-8 items-center gap-1.5 rounded-full bg-raised px-3.5 text-[13px] font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-11 items-center gap-1.5 rounded-full bg-raised px-4 text-sm font-extrabold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
       >
         {t(`trader.pnlTiers.${value}`)}
         <ChevronDown className="size-3.5" />
@@ -228,11 +228,11 @@ function HeroCards({ data }: { data: CohortDetail | undefined }) {
 
 function HeroCard({ title, pos, left, right }: { title: string; pos: number | null; left: React.ReactNode; right: React.ReactNode }) {
   return (
-    <section className="overflow-hidden orbit-card">
-      <h2 className="flex h-8 items-center border-b-2 border-dotted border-border px-3 text-xs leading-4 font-medium text-muted-foreground">{title}</h2>
-      <div className="flex flex-col gap-3 p-3.5">
-        <SplitBar pos={pos} className="cd-bar h-2 rounded-[2px] [&>*]:rounded-none" />
-        <div className="flex items-center justify-between gap-1.5 text-[11px] leading-[17px] font-medium whitespace-nowrap text-muted-foreground [&_.font-semibold]:font-medium">
+    <section className="orbit-card overflow-hidden px-5 py-[18px]">
+      <h2 className="text-[13px] leading-5 font-bold text-muted-foreground">{title}</h2>
+      <div className="mt-2.5 flex flex-col gap-3">
+        <SplitBar pos={pos} className="cd-bar h-3 rounded-full [&>*]:rounded-full" />
+        <div className="flex items-center justify-between gap-1.5 text-xs leading-[18px] font-bold whitespace-nowrap text-muted-foreground [&_.font-semibold]:font-display [&_.font-semibold]:text-[15px]">
           <span className="flex items-center gap-1">{left}</span>
           <span className="flex items-center gap-1">{right}</span>
         </div>

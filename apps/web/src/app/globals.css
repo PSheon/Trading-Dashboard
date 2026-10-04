@@ -82,6 +82,9 @@
   --tag-warning-foreground: #6b4a00;
   --tag-alert: #ffd9c7;
   --tag-alert-foreground: #7a2e0c;
+  /* Long / short meters on tags and in cards (both themes). */
+  --bar-long: #1f8a5b;
+  --bar-short: #d94a63;
 
   /* Dotted dividers inside cards, and capsule outlines. */
   --border: #dccfb8;
@@ -250,6 +253,8 @@
   --color-tag-warning-foreground: var(--tag-warning-foreground);
   --color-tag-alert: var(--tag-alert);
   --color-tag-alert-foreground: var(--tag-alert-foreground);
+  --color-bar-long: var(--bar-long);
+  --color-bar-short: var(--bar-short);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);

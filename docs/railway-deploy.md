@@ -72,7 +72,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | Variable | Stage | Production | Notes |
 | --- | --- | --- | --- |
 | `IS_WORKER` | `true` | `true` | replaces `APP_ROLE=worker` (delete `APP_ROLE`) |
-| `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | `WORKER_PORT` wins over `PORT` when set (one machine) |
+| `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | `WORKER_PORT` wins over `PORT` when set (one machine). `DATABASE_URL` must be the api's exact value: `/health/monitor` (the admin system page's worker telemetry) answers only the key the api derives from it (`src/runtime/worker-calls.ts`); with another value the page shows the worker as unavailable |
 | `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `360` / `100` | `360` / `100` | 480 + 360 = 840 of 1,200. On one machine with one `.env` (local), the worker reads `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WORKER_WEIGHT_BURST` instead (as `WORKER_PORT`); not needed on Railway. With both at 840 locally the worker alone filled the background lane: 45–136 `hyperliquid_quota_exhausted` every 10 minutes on 2026-10-04 (`shared-egress-budget.spec.ts`: 167 → 0 in a simulated 10 minutes) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_SYSTEM_CHAT_ID` | Stage bot | production bot | different bots per environment (one poller per token) |
 | `TELEGRAM_DRY_RUN` | `true` | `false` only when alerts go live | |

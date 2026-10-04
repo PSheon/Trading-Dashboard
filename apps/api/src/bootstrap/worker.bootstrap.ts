@@ -14,6 +14,7 @@ import { acquireWorkerLease } from "../runtime/worker-lease.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { WorkerHeartbeatService } from "../worker/worker-heartbeat.service.js";
 import { startWorkerHealthServer } from "./worker-health-server.js";
+import { workerMonitorKey } from "../runtime/worker-calls.js";
 
 /**
  * IS_WORKER=true. Serves health first, then waits for the PG advisory-lock
@@ -36,6 +37,7 @@ export async function startWorker(config: RuntimeConfig, logger: StructuredLogge
 
   const server = await startWorkerHealthServer({
     instanceId,
+    monitorKey: workerMonitorKey(config.database.url),
     state: () => stopping ? "stopping" : ready ? "active" : "standby",
     probe: async () => { if (!client) throw new Error("no lease"); await client.query("SELECT 1"); },
     heartbeat: () => app!.get(WorkerHeartbeatService).heartbeat(),

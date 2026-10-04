@@ -3,6 +3,7 @@ import { workerMonitorSchema, type AdminSystemOverview } from "@trading-dashboar
 import { AppConfig } from "../config/app-config.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
+import { workerCallHeaders, workerMonitorKey } from "../runtime/worker-calls.js";
 import { AdminSystemRepository } from "./admin-system.repository.js";
 
 @Injectable()
@@ -24,7 +25,10 @@ export class AdminSystemService {
   private async worker(): Promise<AdminSystemOverview["worker"]> {
     if (!this.config.value.app.workerUrl) return { state: "not_configured", sample: null };
     try {
-      const response = await fetch(new URL("/health/monitor", this.config.value.app.workerUrl), { signal: AbortSignal.timeout(3000), cache: "no-store" });
+      const response = await fetch(new URL("/health/monitor", this.config.value.app.workerUrl), {
+        headers: workerCallHeaders({ Authorization: `Bearer ${workerMonitorKey(this.config.value.database.url)}` }),
+        signal: AbortSignal.timeout(3000), cache: "no-store",
+      });
       if (!response.ok) throw new Error("unavailable");
       const sample = workerMonitorSchema.parse(await response.json());
       const age = Date.now() - Date.parse(sample.sampledAt);

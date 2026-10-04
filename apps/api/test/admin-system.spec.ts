@@ -3,6 +3,8 @@ import { adminSystemSchema } from "@trading-dashboard/shared/contracts";
 import { AdminSystemService } from "../src/admin/admin-system.service.js";
 import { AppConfig } from "../src/config/app-config.js";
 import { testConfig } from "./config-test-utils.js";
+import { withRequestSignal } from "../src/runtime/request-context.js";
+import { workerMonitorKey } from "../src/runtime/worker-calls.js";
 
 const budget = { requestsLastMinute: 1, weightLastMinute: 20, effectiveBudgetPerMin: 240, configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 80, lastRateLimitedAt: null };
 function setup() {
@@ -64,4 +66,13 @@ it("a worker that predates the switches is still a valid sample", async () => {
   const result = await service.overview();
   expect(result.worker.state).toBe("standby");
   expect(result.worker.sample?.switches).toBeUndefined();
+});
+it("reads the worker's telemetry with the key derived from the shared DATABASE_URL, and passes the request id", async () => {
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ state: "standby", instanceId: "worker-4", sampledAt: new Date().toISOString(), uptimeSeconds: 3, budget: null, heartbeat: null }) });
+  vi.stubGlobal("fetch", fetcher);
+  const { service } = setup();
+  await withRequestSignal(new AbortController().signal, () => service.overview(), "admin-req-1");
+  const [url, init] = fetcher.mock.calls[0]!;
+  expect(String(url)).toBe("http://worker:3000/health/monitor");
+  expect(init.headers).toEqual({ Authorization: `Bearer ${workerMonitorKey(testConfig().value.database.url)}`, "x-request-id": "admin-req-1" });
 });

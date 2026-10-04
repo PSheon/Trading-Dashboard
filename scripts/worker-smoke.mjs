@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(new URL('../apps/api/package.json',import.meta.url));
 const {Pool}=require('pg');
 import { spawn } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import { openSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -19,7 +20,9 @@ const entry=(process.env.WORKER_SMOKE_DIST??'dist')+'/main.js';
 const launch=(port,worker)=>{const child=spawn(process.execPath,[entry],{cwd:root+'/apps/api',env:{...env,...(worker?{IS_WORKER:'true'}:{}),PORT:String(port),WORKER_URL:'http://127.0.0.1:3311'},stdio:['ignore',openSync(logDir+'/'+port+'.log','w'),openSync(logDir+'/'+port+'-err.log','w')]}); children.push(child);return child;};
 // The first active monitor sample reads the discovery pool's freshness, which can wait
 // up to 2 s for the market catalog on a cold start.
-async function probe(port,path){return fetch(`http://127.0.0.1:${port}${path}`,{signal:AbortSignal.timeout(path==='/health/monitor'?5000:1000)});}
+// /health/monitor answers only the api's key (apps/api/src/runtime/worker-calls.ts).
+const monitorKey=createHmac('sha256',databaseUrl).update('orbie:worker-monitor:v1').digest('hex');
+async function probe(port,path){const monitor=path==='/health/monitor';return fetch(`http://127.0.0.1:${port}${path}`,{headers:monitor?{Authorization:`Bearer ${monitorKey}`}:{},signal:AbortSignal.timeout(monitor?5000:1000)});}
 async function until(port,path,status){for(let i=0;i<100;i++){try{if((await probe(port,path)).status===status)return;}catch{}await new Promise(r=>setTimeout(r,100));}throw Error(`${port}${path} not ${status}`);}
 async function stop(c){if(c.exitCode!==null || c.signalCode!==null)return;await new Promise(r=>{c.once('exit',r);c.kill('SIGTERM');});}
 try {
@@ -32,6 +35,7 @@ try {
  if(activeMonitor.instanceId===standbyMonitor.instanceId)throw Error('worker identities collide');
  if((await probe(3312,'/health/ready')).status!==503)throw Error('second worker acquired lock');
  if((await probe(3311,'/me')).status!==404)throw Error('worker exposes API');
+ if((await fetch('http://127.0.0.1:3311/health/monitor',{signal:AbortSignal.timeout(5000)})).status!==404)throw Error('worker telemetry readable without the key');
  const api=launch(3313,false);await until(3313,'/health/ready',200);await until(3313,'/health',200);
  await stop(api);await until(3311,'/health/ready',200);
  await stop(a);await until(3312,'/health/ready',200);

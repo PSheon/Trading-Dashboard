@@ -7,7 +7,7 @@ export const adminLiveAccountSchema = z.object({
   accountId: z.string(), userId: z.number().int(), userEmail: z.string().nullable(), strategyId: z.number().int(), leaderAddress: addr,
   sourceNetwork: z.enum(['testnet', 'mainnet']), accountAddress: addr.nullable(), accountState: z.string(), strategyStatus: z.string(),
   agent: z.object({ setupId: z.string(), state: z.string(), agentAddress: addr.nullable(), expiresAt: iso }).nullable(),
-  grant: z.object({ id: z.string(), version: z.number().int(), scopes: z.array(z.string()), expiresAt: iso, revokedAt: iso.nullable() }).nullable(),
+  grant: z.object({ id: z.string(), version: z.number().int(), scopes: z.array(z.string()), expiresAt: iso, revokedAt: iso.nullable(), revokeRequestedAt: iso.nullable() }).nullable(),
   mandate: z.object({ id: z.string(), state: z.string(), revision: z.number().int() }).nullable(),
   stop: z.object({ id: z.string(), state: z.string(), issue: z.string().nullable() }).nullable(),
   createdAt: iso,
@@ -37,7 +37,10 @@ export const adminLiveLatencySchema = z.object({
 }).strict();
 export const adminLiveLatencyQuerySchema = z.object({ window: z.enum(['24h', '7d']).default('24h') }).strict();
 export const adminRevokeLiveGrantSchema = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
-export const adminRevokedLiveGrantSchema = z.object({ id: z.string(), version: z.number().int(), revokedAt: iso }).strict();
+/** revokedAt: revoked now (the copy holds nothing it needs the grant for).
+ * Otherwise revokeRequestedAt and stopId: the copy is being stopped with the
+ * grant and it is revoked when that stop ends. */
+export const adminRevokedLiveGrantSchema = z.object({ id: z.string(), version: z.number().int(), revokedAt: iso.nullable(), revokeRequestedAt: iso.nullable(), stopId: z.string().nullable() }).strict();
 export type AdminLiveAccount = z.infer<typeof adminLiveAccountSchema>;
 export type AdminLiveAccounts = z.infer<typeof adminLiveAccountsSchema>;
 export type AdminLiveTransfer = z.infer<typeof adminLiveTransferSchema>;

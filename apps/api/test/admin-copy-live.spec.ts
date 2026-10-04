@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import { adminAuditLogs, copyFundingOperations, copyLiveDispatches, copyLiveExecutions, copyLiveManualCloses, copyWalletAuthorizationEvents, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
+import { adminAuditLogs, copyFundingOperations, copyLiveDispatches, copyLiveExecutions, copyLiveManualCloses, copyLiveStopOperations, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations } from '@trading-dashboard/shared/database';
 import { adminLiveAccountsSchema, adminLiveLatencySchema, adminLiveOrdersSchema, adminLiveTransfersSchema, adminRevokedLiveGrantSchema } from '@trading-dashboard/shared/contracts';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
@@ -8,6 +8,9 @@ import { AdminCopyLiveController } from '../src/admin/admin-copy-live.controller
 import type { AuthService } from '../src/common/auth/auth.service.js';
 import { CopyAdminLiveRepository } from '../src/copy/copy-admin-live.repository.js';
 import { CopyAdminLiveService } from '../src/copy/copy-admin-live.service.js';
+import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
+import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
+import { findCurrentWalletAuthorization } from '../src/copy/live/postgres-wallet-authorizations.js';
 import { createAuthedApp, stubPrivy } from './auth-test-utils.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
@@ -29,7 +32,7 @@ beforeAll(async () => {
   vi.stubEnv('AUTH_SERVICE_TOKEN', READ_ONLY);
   vi.stubEnv('AUTH_SERVICE_PERMISSIONS', 'admin.access,copy.read');
   const privy = stubPrivy({ 'admin-token': { privyUserId: 'did:privy:live-admin', profile: { email: 'ops@example.com', walletAddress: null, embeddedWalletAddress: null } } });
-  ({ app, auth } = await createAuthedApp({ db, privy, controllers: [AdminCopyLiveController], providers: [CopyAdminLiveRepository, CopyAdminLiveService] }));
+  ({ app, auth } = await createAuthedApp({ db, privy, controllers: [AdminCopyLiveController], providers: [CopyAdminLiveRepository, CopyAdminLiveService, CopyLiveStopRepository, CopyLiveMandateRepository] }));
   app.get(CopyAdminLiveService).now = () => new Date(now);
 });
 beforeEach(async () => {
@@ -79,21 +82,36 @@ describe('/admin/copy/live — testnet copy operations (B16) and latency (B18)',
     expect((await as('admin-token').get('/admin/copy/live/latency').expect(200)).body.data).toMatchObject({ count: 0, signal: { p50: null, p95: null } });
   });
 
-  it('revokes a grant only with execution.pause, audited once, idempotent', async () => {
+  it('revokes a grant only with execution.pause: a copy that may hold positions is stopped first and the grant revoked when the stop ends; audited once, idempotent', async () => {
     await as(READ_ONLY).post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(403);
     await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'x' }).expect(400);
     await as('admin-token').post('/admin/copy/live/grants/missing/revoke', { reason: 'leaked agent key' }).expect(404);
     const first = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200)).body.data);
-    expect(first).toEqual({ id: 'grant', version: 5, revokedAt: new Date(now).toISOString() });
+    expect(first).toMatchObject({ id: 'grant', version: 4, revokedAt: null, revokeRequestedAt: new Date(now).toISOString() });
+    expect(first.stopId).toMatch(/^[0-9a-f-]{36}$/);
     const again = (await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200)).body.data;
     expect(again).toEqual(first);
-    expect((await db.select().from(copyWalletAuthorizations).where(eq(copyWalletAuthorizations.id, 'grant')))[0]).toMatchObject({ version: 5, revokedAt: new Date(now) });
-    expect(await db.select({ version: copyWalletAuthorizationEvents.version, userId: copyWalletAuthorizationEvents.userId }).from(copyWalletAuthorizationEvents)).toEqual([{ version: 5, userId: 1 }]);
+    // The copy is stopping (no new risk) and its stop will close with this grant.
+    expect((await db.select().from(copyStrategies))[0]).toMatchObject({ status: 'stopping', pauseNewRisk: true, reduceOnly: true });
+    expect(await db.select({ id: copyLiveStopOperations.id, state: copyLiveStopOperations.state }).from(copyLiveStopOperations)).toEqual([{ id: first.stopId, state: 'requested' }]);
+    expect((await db.select().from(copyWalletAuthorizations).where(eq(copyWalletAuthorizations.id, 'grant')))[0]).toMatchObject({ version: 4, revokedAt: null, revokeRequestedAt: new Date(now) });
+    // Until then it signs reductions only.
+    expect((await findCurrentWalletAuthorization(db, 'grant'))?.scopes).toEqual(['copy:reduce']);
+    expect(await db.select().from(copyWalletAuthorizationEvents)).toEqual([]);
     const audit = await db.select().from(adminAuditLogs);
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ event: 'copy.grant.revoke', target: 'grant:grant', actorKind: 'user', beforeJson: { version: 4, revokedAt: null, userId: 1, strategyId: 9 },
-      afterJson: { version: 5, reason: 'leaked agent key' } });
+      afterJson: { revokedAt: null, revokeRequestedAt: new Date(now).toISOString(), stopId: first.stopId, reason: 'leaked agent key' } });
     const accounts = (await as('admin-token').get('/admin/copy/live/accounts').expect(200)).body.data;
-    expect(accounts.items[0].grant).toMatchObject({ version: 5, revokedAt: new Date(now).toISOString() });
+    expect(accounts.items[0].grant).toMatchObject({ version: 4, revokedAt: null, revokeRequestedAt: new Date(now).toISOString() });
+    expect(accounts.items[0].stop).toMatchObject({ id: first.stopId, state: 'requested' });
+  });
+
+  it('revokes at once when the copy has ended (nothing left for the grant to close)', async () => {
+    await db.update(copyStrategies).set({ status: 'stopped', stoppedAt: new Date(now) });
+    const done = adminRevokedLiveGrantSchema.parse((await as('admin-token').post('/admin/copy/live/grants/grant/revoke', { reason: 'leaked agent key' }).expect(200)).body.data);
+    expect(done).toEqual({ id: 'grant', version: 5, revokedAt: new Date(now).toISOString(), revokeRequestedAt: null, stopId: null });
+    expect(await db.select({ version: copyWalletAuthorizationEvents.version, userId: copyWalletAuthorizationEvents.userId }).from(copyWalletAuthorizationEvents)).toEqual([{ version: 5, userId: 1 }]);
+    expect(await db.select().from(copyLiveStopOperations)).toEqual([]);
   });
 });

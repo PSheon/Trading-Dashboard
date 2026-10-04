@@ -39,6 +39,7 @@ export async function findCurrentWalletAuthorization(db: DbExecutor, id: string)
     const { grant, wallet } = row;
     return { id: grant.id, version: grant.version, userId: wallet.userId, strategyId: wallet.strategyId, walletId: wallet.privyWalletId,
       privyOwnerId: wallet.privyOwnerId, accountAddress: address(wallet.accountAddress), signerAddress: address(wallet.signerAddress), network: wallet.network,
-      scopes: grant.scopes, validFrom: grant.validFrom.getTime(), expiresAt: grant.expiresAt.getTime(), revokedAt: grant.revokedAt?.getTime() ?? null,
+      // Revoke requested by an admin: kept for the stop's reduce-only closes only.
+      scopes: grant.revokeRequestedAt ? grant.scopes.filter(scope => scope === 'copy:reduce') : grant.scopes, validFrom: grant.validFrom.getTime(), expiresAt: grant.expiresAt.getTime(), revokedAt: grant.revokedAt?.getTime() ?? null,
       exchangeApprovedAt: grant.exchangeApprovedAt?.getTime() ?? null };
 }

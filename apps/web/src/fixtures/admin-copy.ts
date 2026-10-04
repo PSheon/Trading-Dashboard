@@ -250,13 +250,15 @@ export function fixtureAdminCopyPutRisk(body: unknown) {
 
 // --- testnet copies (GET /admin/copy/live/*) ----------------------------------
 const LIVE_ACCOUNT = `0x${"5a".repeat(20)}`, LIVE_AT = new Date(NOW - 3 * 3_600_000).toISOString();
-const liveGrant: { id: string; version: number; scopes: string[]; expiresAt: string; revokedAt: string | null } = {
-  id: "grant-demo", version: 4, scopes: ["copy:trade", "copy:reduce"], expiresAt: new Date(NOW + 20 * DAY).toISOString(), revokedAt: null };
+const liveGrant: { id: string; version: number; scopes: string[]; expiresAt: string; revokedAt: string | null; revokeRequestedAt: string | null } = {
+  id: "grant-demo", version: 4, scopes: ["copy:trade", "copy:reduce"], expiresAt: new Date(NOW + 20 * DAY).toISOString(), revokedAt: null, revokeRequestedAt: null };
+/** The demo copy is running: an admin revoke stops it first (as the api). */
+let liveCopy: { strategyStatus: string; stop: { id: string; state: string; issue: string | null } | null } = { strategyStatus: "active", stop: null };
 
 export function fixtureAdminLiveAccounts() {
   return { items: [{ accountId: "account-demo", userId: 1, userEmail: USERS[1], strategyId: 41, leaderAddress: `0x${"4b".repeat(20)}`, sourceNetwork: "mainnet" as const,
-    accountAddress: LIVE_ACCOUNT, accountState: "ready", strategyStatus: "active", agent: { setupId: "setup-demo", state: "active", agentAddress: `0x${"3c".repeat(20)}`, expiresAt: liveGrant.expiresAt },
-    grant: { ...liveGrant }, mandate: { id: "mandate-demo", state: "active", revision: 2 }, stop: null, createdAt: LIVE_AT }] };
+    accountAddress: LIVE_ACCOUNT, accountState: "ready", strategyStatus: liveCopy.strategyStatus, agent: { setupId: "setup-demo", state: "active", agentAddress: `0x${"3c".repeat(20)}`, expiresAt: liveGrant.expiresAt },
+    grant: { ...liveGrant }, mandate: { id: "mandate-demo", state: liveCopy.stop ? "stopping" : "active", revision: liveCopy.stop ? 3 : 2 }, stop: liveCopy.stop, createdAt: LIVE_AT }] };
 }
 export function fixtureAdminLiveTransfers() {
   return { items: [{ id: "6f1c2a4e-3b7d-4c8e-9a1f-2d3e4f5a6b7c", userId: 1, accountId: "account-demo", strategyId: 41, direction: "to_account" as const, status: "credited", amount: "50",
@@ -276,6 +278,9 @@ export function fixtureAdminLiveRevoke(id: string, body: unknown) {
   const reason = (body as { reason?: unknown } | null)?.reason;
   if (typeof reason !== "string" || reason.trim().length < 3) throw new ApiError(400, "reason is required", { code: "validation_failed" });
   if (id !== liveGrant.id) throw new ApiError(404, "Wallet authorization not found");
-  if (!liveGrant.revokedAt) { liveGrant.version += 1; liveGrant.revokedAt = new Date().toISOString(); }
-  return { id, version: liveGrant.version, revokedAt: liveGrant.revokedAt };
+  if (!liveGrant.revokedAt && !liveGrant.revokeRequestedAt) {
+    liveGrant.revokeRequestedAt = new Date().toISOString();
+    liveCopy = { strategyStatus: "stopping", stop: { id: "7a1c2a4e-3b7d-4c8e-9a1f-2d3e4f5a6b70", state: "requested", issue: null } };
+  }
+  return { id, version: liveGrant.version, revokedAt: liveGrant.revokedAt, revokeRequestedAt: liveGrant.revokeRequestedAt, stopId: liveCopy.stop?.id ?? null };
 }

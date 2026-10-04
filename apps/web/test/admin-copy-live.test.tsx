@@ -18,7 +18,7 @@ vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: { href: str
 const at = '2026-10-04T10:00:00.000Z', addr = (b: string) => `0x${b.repeat(20)}`;
 const account = { accountId: 'account', userId: 7, userEmail: 'alice@example.com', strategyId: 9, leaderAddress: addr('44'), sourceNetwork: 'mainnet', accountAddress: addr('55'),
   accountState: 'ready', strategyStatus: 'active', agent: { setupId: 'setup', state: 'active', agentAddress: addr('33'), expiresAt: at },
-  grant: { id: 'grant-1', version: 4, scopes: ['copy:trade', 'copy:reduce'], expiresAt: at, revokedAt: null }, mandate: { id: 'mandate', state: 'active', revision: 2 }, stop: null, createdAt: at };
+  grant: { id: 'grant-1', version: 4, scopes: ['copy:trade', 'copy:reduce'], expiresAt: at, revokedAt: null, revokeRequestedAt: null }, mandate: { id: 'mandate', state: 'active', revision: 2 }, stop: null, createdAt: at };
 const order = (key: string, state: string, purpose: string) => ({ key, userId: 7, strategyId: 9, accountAddress: addr('55'), coin: 'BTC', side: 'B', size: '0.1', limitPrice: '101', reduceOnly: purpose !== 'copy',
   state, errorCode: state === 'unknown' ? 'exchange_order_not_yet_found' : null, purpose, leg: purpose === 'copy' ? { leg: 'open', state: 'submitted', reason: null } : null, createdAt: at, updatedAt: at });
 let root: Root, container: HTMLDivElement, client: QueryClient;
@@ -35,7 +35,7 @@ beforeEach(() => {
       : { window: '24h', count: 12, signal: { p50: 820, p95: 2400 }, sent: { p50: 1300, p95: 61000 }, ack: { p50: 1450, p95: 61200 }, settled: { p50: 5000, p95: 70000 } };
     return null;
   });
-  state.post.mockReset().mockResolvedValue({ id: 'grant-1', version: 5, revokedAt: at });
+  state.post.mockReset().mockResolvedValue({ id: 'grant-1', version: 4, revokedAt: null, revokeRequestedAt: at, stopId: 'stop-1' });
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
@@ -68,7 +68,7 @@ it('revokes a grant with a reason when the admin may pause execution', async () 
   state.permissions.push('execution.pause');
   await render();
   await act(async () => button('Revoke grant')!.click());
-  expect(text()).toContain('Every new order of this wallet is refused at once');
+  expect(text()).toContain('The copy is stopped at once: no new order can open risk.');
   expect((button('Revoke') as HTMLButtonElement).disabled).toBe(true);
   await act(async () => {
     const area = document.querySelector('#copy-live-revoke-reason') as HTMLTextAreaElement;
@@ -81,4 +81,16 @@ it('revokes a grant with a reason when the admin may pause execution', async () 
 it('renders in the source catalog (zh-TW)', async () => {
   await render('zh-TW');
   expect(text()).toContain('跟單延遲'); expect(text()).toContain('執行錢包'); expect(text()).toContain('錢包轉帳'); expect(text()).toContain('測試網跟單');
+});
+
+it('shows a revoke that waits for the copy\'s stop, and offers no second revoke', async () => {
+  state.permissions = ['admin.access', 'copy.read', 'execution.pause'];
+  const pending = { ...account, strategyStatus: 'stopping', grant: { ...account.grant, revokeRequestedAt: at }, stop: { id: 'stop-1', state: 'closing', issue: null } };
+  state.get.mockImplementation(async (path: string) => path === '/admin/copy/live/accounts' ? { items: [pending] }
+    : path.startsWith('/admin/copy/live/latency') ? { window: '24h', count: 0, signal: { p50: null, p95: null }, sent: { p50: null, p95: null }, ack: { p50: null, p95: null }, settled: { p50: null, p95: null } }
+    : { items: [] });
+  await render();
+  expect(text()).toContain("revoke requested");
+  expect(text()).toContain("kept for the stop's closes, revoked when it ends");
+  expect(button('Revoke grant')).toBeUndefined();
 });

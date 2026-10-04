@@ -200,7 +200,9 @@ for (const width of [1440, 390]) {
       await dialog.getByLabel("Reason").fill("Drill: agent key rotation");
       await send.click();
       await expect(dialog).toBeHidden();
-      await expect(wallets).toContainText("revoked");
+      // A running copy is stopped first; the grant is revoked when the stop ends.
+      await expect(wallets).toContainText("revoke requested");
+      await expect(wallets).toContainText("requested");
       await expect(wallets.getByRole("button", { name: "Revoke grant", exact: true })).toHaveCount(0);
       expect(errors).toEqual([]);
     });

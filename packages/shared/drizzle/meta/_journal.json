@@ -421,6 +421,13 @@
       "when": 1791128109839,
       "tag": "0059_withdrawal_not_executed",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791129916485,
+      "tag": "0060_grant_revoke_requested",
+      "breakpoints": true
     }
   ]
 }

@@ -38917,6 +38917,17 @@
                                             "type": "null"
                                           }
                                         ]
+                                      },
+                                      "revokeRequestedAt": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "date-time"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
                                       }
                                     },
                                     "required": [
@@ -38924,7 +38935,8 @@
                                       "version",
                                       "scopes",
                                       "expiresAt",
-                                      "revokedAt"
+                                      "revokedAt",
+                                      "revokeRequestedAt"
                                     ],
                                     "additionalProperties": false
                                   },
@@ -39642,7 +39654,7 @@
     },
     "/admin/copy/live/grants/{id}/revoke": {
       "post": {
-        "description": "Needs execution.pause. Every new order of that wallet is refused at once; audited as copy.grant.revoke.\n\nAccess: copy.read + execution.pause; audited copy.grant.revoke",
+        "description": "Needs execution.pause; audited as copy.grant.revoke. A copy that may still hold positions or orders is stopped at once (no new risk) and the grant, limited to reductions, is revoked when that stop ends (revokeRequestedAt, stopId); an ended copy's grant is revoked at once (revokedAt). 409 live_revoke_needs_stop when the copy cannot be stopped.\n\nAccess: copy.read + execution.pause; audited copy.grant.revoke",
         "operationId": "AdminCopyLiveController_revoke",
         "parameters": [
           {
@@ -39705,14 +39717,40 @@
                           "type": "integer"
                         },
                         "revokedAt": {
-                          "type": "string",
-                          "format": "date-time"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revokeRequestedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "stopId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
                         "id",
                         "version",
-                        "revokedAt"
+                        "revokedAt",
+                        "revokeRequestedAt",
+                        "stopId"
                       ],
                       "additionalProperties": false
                     },

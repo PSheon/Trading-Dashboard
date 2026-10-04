@@ -653,11 +653,12 @@ export const en: Messages = {
         testnet: "testnet leader",
         expires: "expires {date}",
         revoked: "revoked {date}",
+        revokePending: "revoke requested {date}: kept for the stop's closes, revoked when it ends",
         revoke: "Revoke grant",
       },
       revoke: {
         title: "Revoke trading grant",
-        help: "Every new order of this wallet is refused at once. Open positions stay as they are; the owner must sign a new mandate to copy again. The action is audited.",
+        help: "The copy is stopped at once: no new order can open risk. If it may still hold positions or orders, its stop closes them with this grant (reductions only) and the grant is revoked when the stop ends; a copy that has ended is revoked at once. Resting orders still need the owner's cancellation consent. The owner must sign a new mandate to copy again. Audited.",
         target: "Grant {id} · version {version}",
         reason: "Reason",
         reasonHint: "Why this grant is revoked (at least 3 characters)",

@@ -43,7 +43,7 @@ export class CopyAdminLiveRepository {
         accountId: a.id, userId: a.userId, userEmail: email, strategyId: a.strategyId, leaderAddress: s.leaderAddress.toLowerCase(),
         sourceNetwork: mandate?.sourceNetwork ?? 'testnet', accountAddress: lower(a.address), accountState: a.state, strategyStatus: s.status,
         agent: setup ? { setupId: setup.id, state: setup.state, agentAddress: lower(setup.agentAddress), expiresAt: setup.expiresAt.toISOString() } : null,
-        grant: grant ? { id: grant.id, version: grant.version, scopes: grant.scopes, expiresAt: grant.expiresAt.toISOString(), revokedAt: iso(grant.revokedAt) } : null,
+        grant: grant ? { id: grant.id, version: grant.version, scopes: grant.scopes, expiresAt: grant.expiresAt.toISOString(), revokedAt: iso(grant.revokedAt), revokeRequestedAt: iso(grant.revokeRequestedAt) } : null,
         mandate: mandate ? { id: mandate.id, state: mandate.state, revision: mandate.revision } : null,
         stop: stop ? { id: stop.id, state: stop.state, issue: stop.issue } : null,
         createdAt: a.createdAt.toISOString(),
@@ -111,6 +111,22 @@ export class CopyAdminLiveRepository {
     return (await tx.select({ grant: copyWalletAuthorizations, wallet: copyExecutionWallets }).from(copyWalletAuthorizations)
       .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))
       .where(and(eq(copyWalletAuthorizations.id, id), eq(copyExecutionWallets.network, 'testnet'))).for('update', { of: copyWalletAuthorizations }))[0];
+  }
+  /** The newest generation trading under this grant, with its strategy, and
+   * the account's stop that has not ended (if any). */
+  async grantCopy(tx: DbTransaction, id: string) {
+    const [mandate] = await tx.select({ mandate: copyLiveMandates, strategy: copyStrategies }).from(copyLiveMandates)
+      .innerJoin(copyStrategies, eq(copyStrategies.id, copyLiveMandates.strategyId))
+      .where(eq(copyLiveMandates.authorizationId, id)).orderBy(desc(copyLiveMandates.createdAt)).limit(1);
+    if (!mandate) return null;
+    const [stop] = await tx.select().from(copyLiveStopOperations)
+      .where(and(eq(copyLiveStopOperations.accountId, mandate.mandate.accountId), sql`${copyLiveStopOperations.state} <> 'stopped'`)).limit(1);
+    return { ...mandate, stop: stop ?? null };
+  }
+  /** Not a new version: the stop's closes are signed under the version the
+   * copy's orders carry; the version moves when the grant is revoked. */
+  async requestRevoke(tx: DbTransaction, id: string, now: Date) {
+    return (await tx.update(copyWalletAuthorizations).set({ revokeRequestedAt: now }).where(eq(copyWalletAuthorizations.id, id)).returning())[0]!;
   }
   async revokeGrant(tx: DbTransaction, id: string, version: number, now: Date) {
     return (await tx.update(copyWalletAuthorizations).set({ revokedAt: now, version }).where(eq(copyWalletAuthorizations.id, id)).returning())[0]!;

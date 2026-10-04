@@ -5,6 +5,9 @@ import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
 import { CopyLiveStopService } from '../src/copy/copy-live-stop.service.js';
+import { CopyAdminLiveRepository } from '../src/copy/copy-admin-live.repository.js';
+import { CopyAdminLiveService } from '../src/copy/copy-admin-live.service.js';
+import { findCurrentWalletAuthorization } from '../src/copy/live/postgres-wallet-authorizations.js';
 import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
 import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
 import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
@@ -79,6 +82,25 @@ describe('testnet stop execution', () => {
     expect((await db.select().from(schema.copyStrategies))[0]).toMatchObject({ status: 'stopped' });
     expect((await db.select().from(schema.leaders).where(eq(schema.leaders.address, seed.consent.leaderAddress)))[0]).toMatchObject({ active: false });
     expect(await closes[0]!.stillWanted()).toBe(false);
+  });
+
+  it('an admin revoking the grant during a stop keeps it for the stop (reduce-only) and revokes it when the stop ends', async () => {
+    const admin = new CopyAdminLiveService(new CopyAdminLiveRepository(db), new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db)));
+    admin.now = () => new Date(clock);
+    const stop = await stopRow();
+    const revoked = await admin.revoke('grant', { reason: 'leaked agent key' }, { kind: 'user', id: 1, privyUserId: 'did:privy:risk-source', role: 'admin' } as never);
+    expect(revoked).toEqual({ id: 'grant', version: 4, revokedAt: null, revokeRequestedAt: new Date(clock).toISOString(), stopId: stop.id });
+    // No second stop; the existing one still closes with the grant.
+    expect(await db.select().from(schema.copyLiveStopOperations)).toHaveLength(1);
+    positions = [{ coin: 'BTC', size: '0.5' }];
+    await stopper().tick(); await stopper().tick();
+    expect(closes.map(c => c.coin)).toEqual(['BTC']);
+    expect((await findCurrentWalletAuthorization(db, 'grant'))?.scopes).toEqual(['copy:reduce']);
+    positions = []; await stopper().tick(); await stopper().tick();
+    expect(await stopRow()).toMatchObject({ state: 'stopped' });
+    expect((await db.select().from(schema.copyWalletAuthorizations))[0]).toMatchObject({ version: 5, revokedAt: expect.any(Date) });
+    expect(await db.select({ version: schema.copyWalletAuthorizationEvents.version, action: schema.copyWalletAuthorizationEvents.action }).from(schema.copyWalletAuthorizationEvents))
+      .toEqual([{ version: 5, action: 'revoked' }]);
   });
 
   it('a flat account with funds waits for the owner\'s return to the main wallet', async () => {

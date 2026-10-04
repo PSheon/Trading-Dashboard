@@ -1513,6 +1513,11 @@ export const copyWalletAuthorizations = pgTable("copy_wallet_authorizations", {
   version: integer("version").notNull(), scopes: jsonb("scopes").$type<Array<"copy:trade" | "copy:reduce">>().notNull(),
   validFrom: timestamp("valid_from", { withTimezone: true }).notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }), exchangeApprovedAt: timestamp("exchange_approved_at", { withTimezone: true }),
+  /** An admin revoked the grant while its copy could still hold positions:
+   * the copy is being stopped with this grant (reduce-only closes and
+   * owner-consented cancellations only, no new risk) and the grant is
+   * revoked when that stop ends. */
+  revokeRequestedAt: timestamp("revoke_requested_at", { withTimezone: true }),
 }, (t) => [index("copy_wallet_authorizations_wallet_idx").on(t.walletId),
   check("copy_wallet_authorizations_version_check", sql`${t.version} >= 1 and ${t.expiresAt} > ${t.validFrom}`)]);
 

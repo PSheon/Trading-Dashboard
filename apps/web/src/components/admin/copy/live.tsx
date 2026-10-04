@@ -130,8 +130,10 @@ function Accounts() {
                       {a.grant ? (
                         <>
                           <span className="num">v{a.grant.version}</span> <span className="text-xs text-muted-foreground">{a.grant.scopes.join(", ")}</span>
-                          <span className={cn("block text-xs", a.grant.revokedAt ? "text-negative" : "text-muted-foreground")}>
-                            {a.grant.revokedAt ? t("copyAdmin.live.accounts.revoked", { date: format.dateTime(a.grant.revokedAt) }) : t("copyAdmin.live.accounts.expires", { date: format.dateTime(a.grant.expiresAt) })}
+                          <span className={cn("block text-xs", a.grant.revokedAt ? "text-negative" : a.grant.revokeRequestedAt ? "text-warning" : "text-muted-foreground")}>
+                            {a.grant.revokedAt ? t("copyAdmin.live.accounts.revoked", { date: format.dateTime(a.grant.revokedAt) })
+                              : a.grant.revokeRequestedAt ? t("copyAdmin.live.accounts.revokePending", { date: format.dateTime(a.grant.revokeRequestedAt) })
+                              : t("copyAdmin.live.accounts.expires", { date: format.dateTime(a.grant.expiresAt) })}
                           </span>
                         </>
                       ) : "—"}
@@ -139,7 +141,7 @@ function Accounts() {
                     <TableCell className="whitespace-nowrap">{a.mandate ? `${a.mandate.state} · r${a.mandate.revision}` : "—"}</TableCell>
                     <TableCell className="whitespace-nowrap">{a.stop ? <>{a.stop.state}{a.stop.issue ? <span className="block text-xs text-warning">{a.stop.issue}</span> : null}</> : "—"}</TableCell>
                     <TableCell className="text-right">
-                      {canRevoke && a.grant && !a.grant.revokedAt ? (
+                      {canRevoke && a.grant && !a.grant.revokedAt && !a.grant.revokeRequestedAt ? (
                         <Button size="sm" variant="secondary" onClick={() => setTarget(a)}>{t("copyAdmin.live.accounts.revoke")}</Button>
                       ) : null}
                     </TableCell>

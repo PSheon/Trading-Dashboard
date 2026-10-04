@@ -1,0 +1,1 @@
+ALTER TABLE "copy_wallet_authorizations" ADD COLUMN "revoke_requested_at" timestamp with time zone;

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates, copyLiveStopCancellations,
-  copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, users } from '@trading-dashboard/shared/database';
+  copyLiveStopConsents, copyLiveStopOperations, copySignerNonces, copyStrategies, copyWalletAuthorizationEvents, copyWalletAuthorizations, users } from '@trading-dashboard/shared/database';
 import { DRIZZLE_CLIENT } from '../../db/db.constants.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { UnitOfWork } from '../../db/unit-of-work.js';
@@ -108,6 +108,16 @@ export class CopyLiveStopWorkerRepository {
       const [strategy] = await tx.update(copyStrategies).set({ status: 'stopped', stoppedAt: at, pauseNewRisk: true })
         .where(and(eq(copyStrategies.id, stop.strategyId), eq(copyStrategies.mode, 'testnet'))).returning();
       if (strategy) await unwatchLeaderIfUnused(tx, strategy.leaderAddress);
+      // A grant an admin revoked while this copy was still trading is revoked
+      // now that the copy is flat and ended (it was kept for this stop only).
+      const pending = await tx.select({ id: copyWalletAuthorizations.id, version: copyWalletAuthorizations.version }).from(copyWalletAuthorizations)
+        .where(and(sql`${copyWalletAuthorizations.revokeRequestedAt} is not null`, sql`${copyWalletAuthorizations.revokedAt} is null`,
+          inArray(copyWalletAuthorizations.id, tx.select({ id: copyLiveMandates.authorizationId }).from(copyLiveMandates).where(eq(copyLiveMandates.accountId, stop.accountId)))))
+        .for('update');
+      for (const grant of pending) {
+        await tx.update(copyWalletAuthorizations).set({ revokedAt: at, version: grant.version + 1 }).where(eq(copyWalletAuthorizations.id, grant.id));
+        await tx.insert(copyWalletAuthorizationEvents).values({ id: randomUUID(), authorizationId: grant.id, userId: stop.userId, version: grant.version + 1, action: 'revoked', createdAt: at });
+      }
       return true;
     });
   }

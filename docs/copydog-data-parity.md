@@ -79,7 +79,7 @@
 | 交易風格（持倉時間中位數） | 有 | 閾值為擬合，不是已知公式 | 未驗證 | 本次未比 | 未分類 |
 | 帳戶 PnL、ROI、夏普、最大回撤、曲線 | 有 | `copydog-v1` 口徑 | 本次未驗證 | 本次未比 | 未分類 |
 | 帳戶價值、持倉 | 有 | 是 | 本次未驗證 | 本次未比 | 未分類 |
-| Copy Score | 有（擬合 `copydog-v5-fit`） | 否：擬合曲線，中位誤差 7 分 | 不適用（不是 Hyperliquid 原始量） | 本次未比 | (c) 已知，屬估算 |
+| Copy Score | 有（候選池百分位，2026-10-04 起；原 `copydog-v5-fit` 擬合已停用） | 方法同 CopyDog 公開描述（ROI 30%、夏普 30%、PnL 20%、紀錄長度 20% 的母體百分位）；母體不同（Orbie 候選池約 1,000 人，CopyDog ≈17.6k） | 不適用（不是 Hyperliquid 原始量） | 本次未比 | (c) 已知，屬估算 |
 | 資金費 | 有（REST） | 是；歷史日聚合的歸屬為近似 | 本次未驗證 | 本次未比 | 未分類 |
 
 「是（先前驗證）」指 `trade-analytics.md` 與 `copydog-numerical-parity.md` 的紀錄，本次沒有重做。
@@ -223,7 +223,7 @@ migration 0018 已套用到開發資料庫（只新增一張表；備份在 scra
 | D07 | 訂單、TWAP、轉帳、成交列表 | 已有 API 與頁籤；CopyDog bundle 另外存在 funding、chart-snapshots 讀取路徑。 | 同期、同市場資料集合及分頁／上限一致；保留 cancelled/completed/partial 與時間語意。 |
 | D08 | 分類與交易風格 | PnL／規模分層已有；風格閾值仍是先前 48 地址樣本擬合，不是已知私有公式。 | 臨界值樣本、完整歷史及快照時間驗收；推估方法必須標版本，不能標成精確複製。 |
 | D09 | 探索候選池與完整排行 | **Stage 3 已建**：`discovery_traders` 候選池＝官方排行榜近 30 天有量、非 Vault、帳戶價值 > 0 的全期 PnL 前 N（`discovery.candidatePoolSize`，預設 1,000）＋全部 KOL；背景工作每分鐘以 `poolWeightPerMinute`（預設 240）額度先補每列 portfolio，再逐列重建交易帳。`/discover/boards` 依 CopyDog 規則排序（複製評分／損益／ROI／帳戶價值，30 天只能損益／ROI）、風格篩選、固定前 100。完整排行移到 `/explore/all`。母體仍是 Orbie 的前 N，不是 CopyDog 的 ≈16k。 | 候選池定義、更新批次、穩定排名／同分排序、期間與 inactive 規則；不要把本頁 100 人當整個母體。 |
-| D10 | Copy Score | **Stage 3 已建（擬合）**：`copydog-v5-fit`，以 549 位 CopyDog `/copy-score` 樣本擬合的固定曲線（ROI、夏普、PnL、紀錄長度（90 天與一年）、最大回撤、樣本數、帳戶價值），不依 Orbie 母體排名；留出樣本中位誤差 7 分、75% 在 ±10 內、≥80 判斷一致 91%。定義與限制見 `trade-analytics.md`。 | 取得足夠公開方法證據，建立版本化輸入／分項／排名母體及快照；未知部分需標估算。不能為對齊某幾人分數硬調參數。 |
+| D10 | Copy Score | **已改為母體百分位（`c5b8125`，2026-10-04 稽核確認）**：`analytics/copy-score.ts` 依 CopyDog 公開的權重，把 ROI、夏普、PnL、紀錄長度各自在候選池內取平均名次（同值同名次），以 3:3:2:2 加權後再排一次名，換算成 0–98（只有一位合格者給中位數 49）；ROI／PnL／夏普為 0 也算有效輸入，缺值、粉塵帳戶與休眠帳戶不評分（不以 0 代入）。舊的 `copydog-v5-fit` 擬合曲線已移除。分數與 CopyDog 的差距（Bholu 87 對 98、0x469e 97 對 98）來自母體：Orbie 候選池約 930 位合格者，CopyDog 約 17.6k。 | 母體擴大（候選池覆蓋）後重新抽樣對照；不能為對齊某幾人分數硬調參數。 |
 | D11 | 市場榜、crypto/stocks、每幣 PnL/ROI | **Stage 3 已建**：每位候選者的幣種已實現損益（淨手續費、不含資金費）、交易名目（Σ 開倉 size × entry）、ROI = 損益 ÷ 名目（CopyDog 的 coinRoi，已對 BTC 榜驗算）；股票＝HIP-3 非 crypto dex 市場合計。涵蓋範圍受 Hyperliquid 可取得的成交歷史限制（`tradesFrom`），比 CopyDog 自有索引短。 | 市場／dex 身分與分類、每市場收益及資本口徑、Top 100、期間一致；不能以成交量直接冒充投入資本。 |
 | D12 | KOL／名稱／頭像／X／驗證 | **Stage 3 已建**：`kol_traders` 與 `/admin/kols`（新增、編輯、移除、CSV 匯入，全部稽核）；預設資料為 CopyDog `discover/tagged` 168 筆（2026-09-30 取得，`apps/api/data/kol/`，`kols:seed` 經同一匯入路徑載入）；頭像由 api 依 𝕏 帳號抓取一次並快取（`kol_avatars`；unavatar.io，額度用完改 fxtwitter；每週更新），由 `GET /kols/:address/avatar` 提供，不轉載 CopyDog 圖片。驗證旗標沿用 CopyDog 的標示。 | 管理員可維護公開來源與驗證狀態；不可把推測的社群身份標成已驗證。 |
 | D13 | 七類 cohort 成員與持倉 | 現有 `/insights/crowd` 是監控群彙總，不是 CopyDog cohort 系統。 | 固定成員批次、七類定義、多 dex 持倉、覆蓋比例與更新時間；採樣上限須公開。 |

@@ -70,8 +70,9 @@ interface Span { from: string | null; through: string | null; status: string | n
 export async function repairFills(options: RepairOptions) {
   const log = options.log ?? ((line: string) => console.log(line));
   const weight = Math.min(MAX_REPAIR_WEIGHT_PER_MIN, Math.max(HEADROOM + 10, options.weightPerMin));
-  // No watcher, schedules or bot in this process: only the services.
-  process.env.APP_ROLE = "api";
+  // The api's modules as an application context: no routes, and no watcher,
+  // schedules or bot (those are only in AppModule.worker()).
+  delete process.env.IS_WORKER;
   process.env.WORKER_URL ??= "http://127.0.0.1:9";
   process.env.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN = String(weight - HEADROOM);
   process.env.HYPERLIQUID_WEIGHT_BURST = String(BURST);
@@ -79,7 +80,7 @@ export async function repairFills(options: RepairOptions) {
     import("../app.module.js"), import("./fill-sync.service.js"), import("../traders/trade-analytics.service.js"), import("../traders/analysis-history.service.js"),
     import("../traders/analysis-history.repository.js"), import("../hyperliquid/request-budgeter.service.js"), import("../db/db.constants.js"),
   ]);
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ["error", "warn"] });
+  const app = await NestFactory.createApplicationContext(AppModule.api(), { logger: ["error", "warn"] });
   try {
     const db = app.get<import("../db/drizzle.provider.js").DrizzleDb>(DRIZZLE_CLIENT, { strict: false });
     const fillSync = app.get(FillSyncService, { strict: false });

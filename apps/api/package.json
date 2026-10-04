@@ -29,7 +29,7 @@
     "fills:repair": "node dist/watcher/repair-fills.js",
     "history:convert": "node dist/traders/convert-history-fills.js",
     "copy:repair-adoptions": "node dist/copy/repair-adoptions.js",
-    "start:worker": "node dist/worker.js"
+    "start:worker": "IS_WORKER=true node dist/main.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

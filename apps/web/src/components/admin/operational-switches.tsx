@@ -28,7 +28,7 @@ export function OperationalSwitchesPanel({ api, worker, archive }: { api?: Opera
   if (!api) return null;
   const onOff = (v: boolean) => t(v ? "adminOps.system.on" : "adminOps.system.off");
   const rows: { name: string; value: (s: OperationalSwitches) => React.ReactNode }[] = [
-    { name: "APP_ROLE", value: (s) => s.appRole },
+    { name: "IS_WORKER", value: (s) => String(s.isWorker) },
     { name: "COPY_TRADING_MODE", value: (s) => s.copyTradingMode },
     { name: "HYPERLIQUID_NETWORK", value: (s) => s.hyperliquidNetwork },
     { name: "TELEGRAM_DRY_RUN", value: (s) => t(s.telegramDryRun ? "adminOps.system.dryRunOn" : "adminOps.system.dryRunOff") },
@@ -36,8 +36,8 @@ export function OperationalSwitchesPanel({ api, worker, archive }: { api?: Opera
     { name: "S3_ARCHIVE_MAX_DAILY_USD", value: (s) => format.usd(s.archiveMaxDailyUsd, { digits: 2 }) },
     { name: "MAX_FAVORITES_PER_USER", value: (s) => t("adminOps.system.favoritesDefault", { value: s.maxFavoritesPerUserDefault }) },
   ];
-  // The ingest runs in the worker (or in the one combined process).
-  const state = archiveState((worker ?? (api.appRole === "combined" ? api : undefined))?.archiveEnabled, archive);
+  // The ingest runs in the worker.
+  const state = archiveState(worker?.archiveEnabled, archive);
   return (
     <Panel className="overflow-hidden" aria-labelledby="switches-title">
       <div className="p-5 pb-3">

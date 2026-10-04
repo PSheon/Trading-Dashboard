@@ -41,7 +41,7 @@ export class CopyFollowerSnapshotCollector implements OnApplicationBootstrap, On
     @Inject(FOLLOWER_SNAPSHOT_READER) private readonly reader: FollowerSnapshotReader,
     private readonly config: AppConfig, private readonly jobs: BackgroundJobs) {}
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === 'test' || this.config.value.app.role === 'api' || this.config.value.hyperliquid.wallet.network !== 'testnet') return;
+    if (this.config.value.app.nodeEnv === 'test' || this.config.value.hyperliquid.wallet.network !== 'testnet') return;
     this.timer = setInterval(() => void this.tick(), 15000); this.timer.unref?.();
   }
   onModuleDestroy(): void { clearInterval(this.timer); this.reader.close?.(); }

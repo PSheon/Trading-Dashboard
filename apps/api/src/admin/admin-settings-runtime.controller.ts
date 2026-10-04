@@ -13,9 +13,8 @@ export class AdminSettingsRuntimeController {
   @Header("Cache-Control", "no-store")
   async get(): Promise<SettingsRuntime> {
     const [saved, system] = await Promise.all([this.settings.getSnapshot(), this.system.overview()]);
-    const combined = system.api.role === "combined";
     return { savedRevision: saved.revisions.discovery, sampledAt: system.sampledAt,
-      state: combined ? "combined" : system.worker.state, instanceId: system.worker.sample?.instanceId ?? null,
-      consumers: combined ? this.settings.appliedDiscovery() : system.worker.sample?.settings ?? [] };
+      state: system.worker.state, instanceId: system.worker.sample?.instanceId ?? null,
+      consumers: system.worker.sample?.settings ?? [] };
   }
 }

@@ -76,7 +76,8 @@ export const runtimeBudgetSchema = z.object({
  * read-only facts from its environment, shown to admins. Changing one means
  * changing the environment and restarting, not a setting. */
 export const operationalSwitchesSchema = z.object({
-  appRole: z.enum(["api", "worker", "combined"]),
+  /** IS_WORKER: true on the worker, false on the api. */
+  isWorker: z.boolean(),
   copyTradingMode: s.copyTradingModeSchema,
   hyperliquidNetwork: z.enum(["mainnet", "testnet"]),
   telegramDryRun: z.boolean(),
@@ -105,7 +106,7 @@ export const retentionStatusSchema = z.object({
 export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
 export const adminSystemSchema = z.object({
   sampledAt: iso,
-  api: z.object({ state: z.literal("active"), role: z.enum(["api", "worker", "combined"]), uptimeSeconds: z.number(), budget: runtimeBudgetSchema,
+  api: z.object({ state: z.literal("active"), uptimeSeconds: z.number(), budget: runtimeBudgetSchema,
     /** Optional while older APIs roll out. */
     switches: operationalSwitchesSchema.optional() }),
   worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),

@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleD
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { Pool, type PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
-import { AppConfig } from "../config/app-config.js";
 import { DATABASE_POOL } from "../db/drizzle.provider.js";
 import { ACTION_CREATED_EVENT, ACTION_CORRECTED_EVENT, type ActionCreatedEvent, type ActionCorrectedEvent } from "../watcher/action-created.event.js";
 
@@ -10,21 +9,20 @@ const CHANNEL = "orbie_actions";
 export interface RemoteActions { created: string[]; updated: string[] }
 
 /** Notifications are hints. Rows/outboxes in PG remain the durable source;
- * reconnect closes streams, forcing normal replay/refetch on the browser. */
+ * reconnect closes streams, forcing normal replay/refetch on the browser.
+ * Every process publishes the actions it stores; only the api listens
+ * (ActionRelayListener), to push them to its open action streams. */
 @Injectable()
-export class ActionRelay implements OnApplicationBootstrap, OnModuleDestroy {
+export class ActionRelay implements OnModuleDestroy {
   private readonly logger = new Logger(ActionRelay.name);
   private readonly origin = randomUUID();
   private client?: PoolClient;
   private retry?: ReturnType<typeof setTimeout>;
   private stopped = false;
   private connecting?: Promise<void>;
-  constructor(private readonly config: AppConfig, @Inject(DATABASE_POOL) private readonly pool: Pool, private readonly events: EventEmitter2) {}
+  constructor(@Inject(DATABASE_POOL) private readonly pool: Pool, private readonly events: EventEmitter2) {}
 
-  async onApplicationBootstrap() {
-    if (this.config.value.app.role === "api") await this.connect();
-  }
-  private connect(): Promise<void> {
+  protected connect(): Promise<void> {
     this.connecting ??= this.open().finally(() => { this.connecting = undefined; });
     return this.connecting;
   }
@@ -71,7 +69,7 @@ export class ActionRelay implements OnApplicationBootstrap, OnModuleDestroy {
     return this.publish({ created: event.inserted.map(r => String(r.id)), updated: event.updated.map(r => String(r.id)) });
   }
   private async publish(data: RemoteActions) {
-    if (this.config.value.app.role === "combined" || this.stopped) return;
+    if (this.stopped) return;
     try {
       // Bound payloads below PostgreSQL's NOTIFY limit even on large corrections.
       for (let i = 0; i < Math.max(data.created.length, data.updated.length); i += 100) {
@@ -85,4 +83,10 @@ export class ActionRelay implements OnApplicationBootstrap, OnModuleDestroy {
     const client = this.client; this.client = undefined;
     client?.release(true);
   }
+}
+
+/** The api's side: listens for the worker's (and other replicas') actions. */
+@Injectable()
+export class ActionRelayListener extends ActionRelay implements OnApplicationBootstrap {
+  async onApplicationBootstrap() { await this.connect(); }
 }

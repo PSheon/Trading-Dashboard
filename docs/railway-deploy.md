@@ -6,19 +6,19 @@ Read-only check for this document: `railway status` → workspace "Paul's Projec
 
 ## Services
 
-One project, one environment per stage, four services per environment. `api` and `worker` are the same image started two ways.
+One project, one environment per stage, four services per environment. `api` and `worker` are the same image and the same start command (`node dist/main.js`); `IS_WORKER=true` makes it the worker (2026-10-04, as in DonutMe; `APP_ROLE` and `dist/worker.js` are gone, and a process that still has `APP_ROLE` refuses to start).
 
 | Service | Source | Start | Public | Health check |
 | --- | --- | --- | --- | --- |
 | `web` | Railpack; build `shared` then `web` | `pnpm --filter @trading-dashboard/web exec next start --hostname :: --port 3000` | Yes (`stage.orbie.fun`) | as configured in Railway |
 | `api` | `apps/api/Dockerfile` (`apps/api/railway.json`) | `node dist/main.js`, pre-deploy `node scripts/migrate.mjs` | No: reached by `web` over the private network (`/api/hl/*` proxy) | `/health/ready` |
-| `worker` | same image as `api` | `node dist/worker.js` | No (`worker.railway.internal:3000`) | `/health/live` (liveness); `/health/ready` is 503 while standby |
+| `worker` | same image as `api`, `IS_WORKER=true` | `node dist/main.js` (the Dockerfile's default; no custom start command) | No (`worker.railway.internal:3000`) | `/health/live` (liveness); `/health/ready` is 503 while standby |
 | `Postgres` | Railway PostgreSQL | — | No public URL | — |
 
 Rules that already hold and must keep holding:
 
-- One replica each. The worker takes a PostgreSQL session advisory lock before it builds its Nest context, so a replacement started during a rolling deploy waits as standby and takes over when the old one exits. Never run `APP_ROLE=combined` while a worker is active.
-- The api runs no cron, interval or startup job; every schedule below runs in the worker.
+- One replica each. The worker takes a PostgreSQL session advisory lock before it builds its Nest context, so a replacement started during a rolling deploy waits as standby and takes over when the old one exits. There is no combined mode: an api never runs jobs, so the worker must be deployed for anything to refresh.
+- The api (`AppModule.api()`) runs no cron, interval, loop or startup job and has no `ScheduleModule`; every schedule below lives in `WorkerModule`, which only `AppModule.worker()` imports (`test/api-role-isolation.spec.ts`). The worker is a Nest application context: no routes, only its health server (`/health`, `/health/live`, `/health/ready`, `/health/monitor`).
 - Migrations run once per release from the api's pre-deploy command, with the same image, behind an advisory lock. The worker does not migrate. Deploy order: back up → api (migrates) → worker → web.
 - The release that carries migration 0021 (typed `history_fills`) also has to convert the stored fills: for that release set the api's pre-deploy command to `node scripts/migrate.mjs && node dist/traders/convert-history-fills.js all` (copy in batches, verify every row, retire the raw table; a no-op once converted, see `docs/s3-archive-ingest.md`). Until it has run, the new api and worker refuse history reads and writes; the previous worker's history writes fail from the rename until it is replaced, and are retried by the new one.
 
@@ -51,8 +51,8 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 
 | Variable | Stage | Production | Notes |
 | --- | --- | --- | --- |
-| `APP_ROLE` | `api` | `api` | |
-| `WORKER_URL` | `http://worker.railway.internal:3000` | same pattern | required for role `api` |
+| `IS_WORKER` | unset | unset | replaces `APP_ROLE=api` (delete `APP_ROLE`) |
+| `WORKER_URL` | `http://worker.railway.internal:3000` | same pattern | the api's `/health` reads the worker here (503 without it) |
 | `NODE_ENV` | `staging` | `production` | both enable production-grade validation |
 | `PORT` | `3000` | `3000` | |
 | `DATABASE_URL` | ref → Stage Postgres | ref → production Postgres | never the other environment's |
@@ -70,8 +70,8 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 
 | Variable | Stage | Production | Notes |
 | --- | --- | --- | --- |
-| `APP_ROLE` | `worker` | `worker` | |
-| `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | |
+| `IS_WORKER` | `true` | `true` | replaces `APP_ROLE=worker` (delete `APP_ROLE`) |
+| `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | `WORKER_PORT` wins over `PORT` when set (one machine) |
 | `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `600` / `100` | `600` / `100` | 240 + 600 = 840 of 1,200 |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_SYSTEM_CHAT_ID` | Stage bot | production bot | different bots per environment (one poller per token) |
 | `TELEGRAM_DRY_RUN` | `true` | `false` only when alerts go live | |
@@ -107,10 +107,10 @@ The per-job weight caps live in `app_settings` (`discovery`) and are edited in `
 
 **The settings are maxima.** All five are enforced by the budgeter on what is actually sent (one-minute token buckets), and together they may take at most 75 % of the process's *effective* budget; above that they shrink in proportion. So they follow `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` and a 429 backoff without anyone editing them:
 
-| Process budget | performance | ledgers | history | backfill | cohort | Sum | Left for snapshots, sweeps, warm-up, live, pages |
+| Process budget | performance | ledgers | history | backfill | cohort | Sum | Left for snapshots, sweeps, live, pages |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ≥ 854 | 240 | 100 | 120 | 120 | 60 | 640 | budget − 640 |
-| 840 (default, combined) | 236 | 98 | 118 | 118 | 59 | 630 | 210 |
+| 840 (default) | 236 | 98 | 118 | 118 | 59 | 630 | 210 |
 | 600 (worker) | 169 | 70 | 84 | 84 | 42 | 450 | 150 |
 | 480 | 135 | 56 | 68 | 68 | 34 | 360 | 120 |
 | 360 | 101 | 42 | 51 | 51 | 25 | 270 | 90 |

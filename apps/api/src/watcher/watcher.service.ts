@@ -102,10 +102,11 @@ export class WatcherService implements OnApplicationBootstrap, OnModuleDestroy {
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
   ) {}
 
-  /** Starts on app boot; not under `NODE_ENV=test`, where tests drive the
-   * pieces directly. */
+  /** Starts on the worker's boot (WatcherModule is imported by the worker
+   * process only); not under `NODE_ENV=test`, where tests drive the pieces
+   * directly. */
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     void this.start();
   }
 

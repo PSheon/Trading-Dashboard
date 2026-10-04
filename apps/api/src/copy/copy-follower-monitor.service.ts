@@ -64,7 +64,7 @@ export class CopyFollowerMonitor implements OnApplicationBootstrap, OnModuleDest
   private running = false;
   constructor(private readonly config: AppConfig, private readonly reconciler: CopyFollowerReconciler, private readonly jobs: BackgroundJobs) {}
   onApplicationBootstrap() {
-    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api" || this.config.value.hyperliquid.wallet.network !== "testnet") return;
+    if (this.config.value.app.nodeEnv === "test" || this.config.value.hyperliquid.wallet.network !== "testnet") return;
     this.timer = setInterval(() => void this.tick(), 60_000); this.timer.unref?.();
   }
   onModuleDestroy() { clearInterval(this.timer); }

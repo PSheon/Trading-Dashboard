@@ -22,11 +22,12 @@ import { NestFactory } from "@nestjs/core";
 
 export async function repairAdoptions(options: { dryRun: boolean; strategyId?: number; log?: (line: string) => void }) {
   const log = options.log ?? ((line: string) => console.log(line));
-  // No watcher, schedules, copy worker or bot in this process: only the services.
-  process.env.APP_ROLE = "api";
+  // The api's modules as an application context: no routes, and no watcher,
+  // schedules, copy worker or bot (those are only in AppModule.worker()).
+  delete process.env.IS_WORKER;
   process.env.WORKER_URL ??= "http://127.0.0.1:9";
   const [{ AppModule }, { CopyAdoptionRepairService }] = await Promise.all([import("../app.module.js"), import("./copy-adoption-repair.service.js")]);
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ["error", "warn"] });
+  const app = await NestFactory.createApplicationContext(AppModule.api(), { logger: ["error", "warn"] });
   try {
     const items = await app.get(CopyAdoptionRepairService, { strict: false }).repair({ dryRun: options.dryRun, strategyId: options.strategyId });
     for (const item of items) log(JSON.stringify(item));

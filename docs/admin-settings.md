@@ -66,7 +66,7 @@ A save applies in every process, api and worker, as soon as it commits:
   the saving transaction. PostgreSQL delivers it at commit and not at all on a
   rollback. The saving process drops its own cache right after the commit.
 - Every process holds one `LISTEN orbie_settings` connection
-  (`SettingsRelay`, in the global `SettingsModule`, any `APP_ROLE`) and drops
+  (`SettingsRelay`, in the global `SettingsModule`, api and worker) and drops
   its cached snapshot when the notification arrives. The next read loads the
   rows. In `test/settings-relay.spec.ts` a second pool sees the change in well
   under a second.
@@ -176,7 +176,7 @@ that work).
 Some things are deliberately not settings. They are read from each process's
 environment at start and shown, read-only, on `/admin/system` ("Deployment
 switches"), the api's next to the worker's because the two are separate
-processes: `APP_ROLE`, `COPY_TRADING_MODE`, `HYPERLIQUID_NETWORK`,
+processes: `IS_WORKER`, `COPY_TRADING_MODE`, `HYPERLIQUID_NETWORK`,
 `TELEGRAM_DRY_RUN`, whether the S3 archive ingest is enabled and its
 `S3_ARCHIVE_MAX_DAILY_USD`, and the `MAX_FAVORITES_PER_USER` default. Below
 them: the archive ingest's state (not enabled, running, today's cap reached,

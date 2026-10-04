@@ -4,15 +4,16 @@
 
 | 項目 | api | worker |
 |---|---|---|
-| APP_ROLE | api | worker |
-| 啟動 | node dist/main.js | node dist/worker.js |
+| 開關 | `IS_WORKER` 不設 | `IS_WORKER=true` |
+| 啟動 | node dist/main.js | node dist/main.js（同一入口） |
+| Nest | `AppModule.api()`，`NestFactory.create` | `AppModule.worker()`，`createApplicationContext` |
 | HTTP | 現有業務 API | 僅 /health、/health/ready、/health/live、/health/monitor |
-| 自動監聽與排程 | 停用所有 cron/interval 及 startup worker hooks | 啟用 |
-| WORKER_URL | private worker URL | 不需要 |
+| 排程、迴圈、poller、consumer、outbox drain | 無（沒有 `ScheduleModule`，也不建構任何 worker 類別） | 全部（`WorkerModule`） |
+| WORKER_URL | private worker URL（沒設時 api 的 /health 回 503） | 不需要 |
 | Privy | 保留登入驗證設定 | 不需要設定登入秘密 |
 | Stage 上游預算 | 240 weight/min，burst 100 | 600 weight/min，burst 100 |
 
-本地原有 main 入口未設定 APP_ROLE 時保留 combined 模式，避免破壞現有開發/測試指令。部署需明確指定角色。Nest 共用 capability module graph，API 中 watcher provider 為休眠狀態；API role isolation 測試會檢查沒有任何排程或啟動時上游請求。
+2026-10-04 起照 DonutMe 改成單一開關：`APP_ROLE`（api／worker／combined）與 `dist/worker.js` 移除，combined 模式不再存在，本機開發也要另外起一個 worker（`IS_WORKER=true node dist/main.js`，port 用 `WORKER_PORT`）。仍帶 `APP_ROLE` 的程序拒絕啟動，避免舊的 worker 設定被當成 api 跑起來。`main.ts` 依 `IS_WORKER` 選 `AppModule.api()` 或 `AppModule.worker()`；各服務裡的角色判斷已全部刪除，背景工作只存在於 worker 模組（`WorkerModule` 匯入 watcher、scheduler、leaderboard 匯入、discovery pool、cohort、S3 封存、retention、outbox、Telegram bot、預設規則 seed、跟單迴圈、營收快照）。`test/api-role-isolation.spec.ts` 啟動 `AppModule.api()`，檢查沒有 `SchedulerRegistry`、沒有任何帶 `@Cron`／`@Interval`／`@Timeout` 的 provider、也沒有任何背景類別；並啟動 `AppModule.worker()` 檢查排程都在。原本只在 combined 模式執行的首頁 sparkline 預熱一併刪除（分開部署時本來就沒有執行）。
 
 worker 使用 Nest application context，不掛載業務 controllers。小型 health server 在 standby 時 `/health/live` 回 200、`/health/ready` 回 503；取得獨立 PG session advisory lock 才建構 Nest context。這允許 Railway rolling deployment 的替代程序先通過存活檢查，再於舊程序排空/離開後接手。`SUCCESS` 只表示平台部署成功，仍須驗證 active/ready。鎖連線發生錯誤時程序立即退出，避免繼續以失效的執行權工作。
 
@@ -30,12 +31,13 @@ API 的 `/health` 以 3 秒 timeout 取得 worker heartbeat，worker 不可用�
 
 ## 回復
 
-如需回復單程序：先停止獨立 worker，確認已退出，再將 API APP_ROLE 改為 combined 並部署。禁止在獨立 worker 活躍時開 combined，因 legacy combined 不參與獨立 worker singleton lock。
+沒有單程序模式可回復：api 不跑任何背景工作。worker 停掉時資料不會更新，api 的 `/health` 回 503。
 
 可重跑程序驗證（先 build 並對獨立本地 *_test DB migrate）：
 
 ```sh
 TEST_DATABASE_URL=postgres://postgres@127.0.0.1:55439/orbie_worker_smoke_test node scripts/worker-smoke.mjs
+# a throwaway build instead of apps/api/dist: WORKER_SMOKE_DIST=<dir under apps/api>
 ```
 
 腳本使用 3311–3314 ports，會中斷**該本地測試 DB** 上持有 worker 測試鎖的連線，以驗證 fail-stop 與接手；不可與其他使用同一測試 DB 的 worker 同時執行。程序 log 寫入臨時目錄，程序在 finally 清理。
@@ -60,11 +62,11 @@ Privy 設定檢查另見 [2026-09-30 audit](privy-configuration-audit-2026-09-30
 
 匯入名單或收藏建立新追蹤地址時，在同一筆 PostgreSQL transaction 建立 `backfill_jobs`；交易失敗時兩者一起回滾。初次補齊以 chain/address 去重，既有地址不會因重複匯入而重跑；migration 不會替所有舊地址自動排入工作。
 
-只有 worker／本地 combined 執行補齊。每次認領一筆、每 5 秒檢查，租約 90 秒、每 20 秒續租。失敗最多自動嘗試 3 次，前兩次等待 60／120 秒；程序中斷的工作於租約到期後可接手。租約 token 防止舊執行者覆寫工作結果；歷史同步仍屬 at-least-once，依既有成交／action 去重，並不保證網路請求只發生一次。回放使用 backfill 模式，不發送即時成交通知。
+只有 worker 執行補齊。每次認領一筆、每 5 秒檢查，租約 90 秒、每 20 秒續租。失敗最多自動嘗試 3 次，前兩次等待 60／120 秒；程序中斷的工作於租約到期後可接手。租約 token 防止舊執行者覆寫工作結果；歷史同步仍屬 at-least-once，依既有成交／action 去重，並不保證網路請求只發生一次。回放使用 backfill 模式，不發送即時成交通知。
 
 `/admin/jobs` 提供狀態篩選、游標分頁與失敗工作的手動重試。查看需 `jobs.read`，重試需 `jobs.retry`；重試以 expectedVersion 防止過期畫面重複操作，並在同一交易寫入 audit。HTTP 202 表示已排隊，不表示補齊完成。抓取數量也不代表上游帳戶所有歷史均完整。
 
-獨立 worker 已停用無法供 API 共用的記憶體首頁快取預熱；API 保留按需載入的程序內快取，combined 開發模式保留預熱。尚未引入共享快取或 Redis。
+首頁快取預熱已刪除（只在已移除的 combined 模式跑過）；API 保留按需載入的程序內快取。尚未引入共享快取或 Redis。
 
 ## 設定套用回報（Admin batch 3）
 

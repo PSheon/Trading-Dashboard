@@ -12,10 +12,9 @@ export class ArchiveIngestModule {}
 @Injectable()
 class ArchiveIngestWorker {
   constructor(private readonly config: AppConfig, private readonly ingest: ArchiveIngestService) {}
-  /** Worker and combined roles only; the api role never downloads. Off in tests. */
+  /** The worker process only (the api never downloads). Off in tests. */
   @Cron(CronExpression.EVERY_MINUTE) archiveTick() {
-    const { role, nodeEnv } = this.config.value.app;
-    if (role === "api" || nodeEnv === "test") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     return this.ingest.onTick();
   }
 }

@@ -137,19 +137,7 @@ export class TradersRepository {
     ]);
     return { n, last };
   }
-  async topHome(discovery: DiscoverySettings, limit: number) {
-    const conditions: SQL[] = [eq(traderStats.chain, CHAIN_DEFAULT)];
-    if (discovery.hideVaults) conditions.push(eq(traderStats.isVault, false));
-    const active = activeCondition(discovery.defaultActiveWithin);
-    if (active) conditions.push(active);
-    const rows = await this.db
-      .select({ address: traderStats.address })
-      .from(traderStats)
-      .where(and(...conditions))
-      .orderBy(desc(traderStats.pnlMonth), asc(traderStats.address))
-      .limit(limit);
-    return rows.map((r) => r.address);
-  }
+
   recentFills(address: string, limit: number) {
     return this.db
         .select({

@@ -232,8 +232,8 @@ export function systemOverview() {
   const budget = { requestsLastMinute: 12, weightLastMinute: 180, effectiveBudgetPerMin: 240,
     configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 60, lastRateLimitedAt: null, queued: { live: 0, background: 2 } };
   const switches = { copyTradingMode: "paper", hyperliquidNetwork: "testnet", telegramDryRun: true, archiveEnabled: true, archiveMaxDailyUsd: 2, maxFavoritesPerUserDefault: 100 };
-  return { sampledAt: now, api: { state: "active", role: "api", uptimeSeconds: 7200, budget, switches: { ...switches, appRole: "api", archiveEnabled: false } },
-    worker: { state: "standby", sample: { state: "standby", instanceId: "fixture-worker", sampledAt: now, uptimeSeconds: 15, budget: null, heartbeat: null, switches: { ...switches, appRole: "worker" } } },
+  return { sampledAt: now, api: { state: "active", uptimeSeconds: 7200, budget, switches: { ...switches, isWorker: false, archiveEnabled: false } },
+    worker: { state: "standby", sample: { state: "standby", instanceId: "fixture-worker", sampledAt: now, uptimeSeconds: 15, budget: null, heartbeat: null, switches: { ...switches, isWorker: true } } },
     database: { state: "available", latencyMs: 7 },
     data: { leaderboardCount: 25000, leaderboardUpdatedAt: now, watched: 12, candidates: 1000, portfolios: 824, trades: 618, errors: 3,
       oldestPortfolioAt: new Date(Date.now() - 7200_000).toISOString(), newestPortfolioAt: now },

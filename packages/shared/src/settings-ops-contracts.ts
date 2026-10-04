@@ -8,7 +8,7 @@ export const appliedDiscoverySchema = z.object({
 export type AppliedDiscovery = z.infer<typeof appliedDiscoverySchema>;
 export const settingsRuntimeSchema = z.object({
   savedRevision: z.string(), sampledAt: z.string().datetime({ offset: true }),
-  state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured", "combined"]),
+  state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]),
   instanceId: z.string().nullable(), consumers: z.array(appliedDiscoverySchema),
 });
 export type SettingsRuntime = z.infer<typeof settingsRuntimeSchema>;

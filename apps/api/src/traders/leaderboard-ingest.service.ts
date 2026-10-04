@@ -50,10 +50,6 @@ export class LeaderboardIngestService {
   private readonly logger = new Logger(LeaderboardIngestService.name);
   private running: Promise<IngestResult> | undefined;
   private vaults: { addresses: Set<string>; fetchedAt: Date } | undefined;
-  private startupDone!: () => void;
-  /** Resolves once the startup import (or vault-list load) has finished,
-   * successfully or not; the home warmer waits for it. */
-  readonly startup = new Promise<void>((resolve) => (this.startupDone = resolve));
 
   constructor(
     private readonly config: AppConfig,
@@ -64,10 +60,9 @@ export class LeaderboardIngestService {
   ) {}
 
   start(): void {
-    if (this.config.value.app.nodeEnv === "test") return this.startupDone();
+    if (this.config.value.app.nodeEnv === "test") return;
     this.bootstrap()
-      .catch((error: unknown) => this.logger.error(`Startup leaderboard import failed: ${(error as Error).message}`))
-      .finally(() => this.startupDone());
+      .catch((error: unknown) => this.logger.error(`Startup leaderboard import failed: ${(error as Error).message}`));
   }
 
   private async bootstrap(): Promise<void> {

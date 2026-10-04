@@ -28,12 +28,7 @@ export class BackfillWorker implements OnApplicationBootstrap {
   }
 
   async tick(): Promise<void> {
-    if (
-      this.config.value.app.role === 'api' ||
-      this.jobs.stopping ||
-      this.running
-    )
-      return;
+    if (this.jobs.stopping || this.running) return;
     this.running = true;
     try {
       await this.jobs.run(() => this.runOne());

@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { AppConfig } from "../config/app-config.js";
 import { FillSyncService } from "./fill-sync.service.js";
 
 /** Windows one job run reads before handing the rest to the scheduler's
@@ -13,9 +12,8 @@ const WINDOWS_PER_RUN = 6;
  * FillSync's backfill path deduplicates persisted fills/actions and emits no live alerts. */
 @Injectable()
 export class BackfillService {
-  constructor(private readonly config: AppConfig, private readonly fillSync: FillSyncService) {}
+  constructor(private readonly fillSync: FillSyncService) {}
   async run(address: string): Promise<number> {
-    if (this.config.value.app.role === "api") throw new Error("Backfill execution requires worker role");
     let inserted = 0;
     for (let window = 0; window < WINDOWS_PER_RUN; window++) {
       const step = await this.fillSync.backfillStep(address);

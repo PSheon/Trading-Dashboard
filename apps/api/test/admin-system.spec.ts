@@ -8,7 +8,7 @@ const budget = { requestsLastMinute: 1, weightLastMinute: 20, effectiveBudgetPer
 function setup() {
   const repository = { probe: vi.fn().mockResolvedValue(3), data: vi.fn().mockResolvedValue({ leaderboardCount: 0, leaderboardUpdatedAt: null, watched: 0, candidates: 0, portfolios: 0, trades: 0, errors: 0, oldestPortfolioAt: null, newestPortfolioAt: null }), outbox: vi.fn().mockResolvedValue([]),
     retention: vi.fn().mockResolvedValue({ running: false, lastStartedAt: null, lastFinishedAt: null, lastStatus: null, removed: null, cutoffs: null, lastError: null, durationMs: null }) };
-  const config = new AppConfig({ ...testConfig().value, app: { ...testConfig().value.app, role: "api", workerUrl: "http://worker:3000" } });
+  const config = new AppConfig({ ...testConfig().value, app: { ...testConfig().value.app, isWorker: false, workerUrl: "http://worker:3000" } });
   const service = new AdminSystemService(repository as never, config, { introspect: () => budget, queued: () => ({live: 0, background: 0}) } as never);
   return { service, repository };
 }
@@ -42,7 +42,7 @@ it("does not present an old worker sample as current", async () => {
   expect((await service.overview()).worker.state).toBe("stale");
 });
 it("shows the switches the api and the worker were started with, and nothing secret (review finding 19)", async () => {
-  const switches = { appRole: "worker", copyTradingMode: "paper", hyperliquidNetwork: "mainnet", telegramDryRun: false, archiveEnabled: true, archiveMaxDailyUsd: 5, maxFavoritesPerUserDefault: 100 };
+  const switches = { isWorker: true, copyTradingMode: "paper", hyperliquidNetwork: "mainnet", telegramDryRun: false, archiveEnabled: true, archiveMaxDailyUsd: 5, maxFavoritesPerUserDefault: 100 };
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ state: "standby", instanceId: "worker-3", sampledAt: new Date().toISOString(), uptimeSeconds: 3, budget: null, heartbeat: null, switches }) }));
   vi.stubEnv("TELEGRAM_DRY_RUN", "true");
   vi.stubEnv("COPY_TRADING_MODE", "disabled");
@@ -52,7 +52,7 @@ it("shows the switches the api and the worker were started with, and nothing sec
     const { service } = setup();
     const result = adminSystemSchema.parse(await service.overview());
     // The api's own environment…
-    expect(result.api.switches).toEqual({ appRole: "api", copyTradingMode: "disabled", hyperliquidNetwork: "testnet", telegramDryRun: true, archiveEnabled: false, archiveMaxDailyUsd: 2, maxFavoritesPerUserDefault: 40 });
+    expect(result.api.switches).toEqual({ isWorker: false, copyTradingMode: "disabled", hyperliquidNetwork: "testnet", telegramDryRun: true, archiveEnabled: false, archiveMaxDailyUsd: 2, maxFavoritesPerUserDefault: 40 });
     // …and the worker's, which is a separate process and may differ.
     expect(result.worker.sample?.switches).toEqual(switches);
     expect(JSON.stringify(result)).not.toContain("must-not-leak");

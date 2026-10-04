@@ -22,7 +22,7 @@ import { RoundTripService } from "../analytics/round-trip.service.js";
 import { AnalysisHistoryService } from "./analysis-history.service.js";
 import { TradersRepository } from "./traders.repository.js";
 import { HyperliquidInfoClient, LEDGER_MAX_ITEMS, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
-import { budgetConsumer, PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
+import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { TraderOrdersReader } from './trader-orders-reader.js';
 import { TraderTwapReader } from './trader-twap-reader.js';
@@ -54,7 +54,7 @@ import { KolAvatarRepository } from "../discovery/kol-avatar.repository.js";
  * Page loads go ahead of backfill and sweeps (lower rank first within the
  * background lane) but never ahead of live detection (the live lane). Within
  * a page, the first paint (profile: account value, positions) goes first,
- * then the chart, then the fill lists; home warming after all of them.
+ * then the chart, then the fill lists.
  */
 const LANE = "background" as const;
 
@@ -91,10 +91,6 @@ export const SPARKLINE_DEADLINE_MS = 8_000;
 export const POOL_SPARKLINE_MAX_AGE_MS = 24 * 3_600_000;
 const DAY_MS = 86_400_000;
 type SeriesPoint = [number, number];
-/** Warmed every 10 min and kept 15, so a card never falls out of cache
- * between two warm runs (a run takes ~0.5 min at the default budget). */
-export const WARM_TTL_MS = 15 * 60_000;
-export const WARM_TOP_COUNT = 24;
 const THIRTY_DAYS_MS = 30 * 24 * 3_600_000;
 
 /** Stored sparkline values as a series ending at `endMs`, spread evenly
@@ -114,12 +110,11 @@ type SharedProfile = Omit<TraderProfileResponse, "favorite">;
  * any address — live positions across dexes, sample size, portfolio history
  * with drawdown and Sharpe, recent fills. Every Hyperliquid call goes
  * through the budgeter and an in-process cache with in-flight
- * de-duplication; the home page's cards are pre-warmed.
+ * de-duplication.
  */
 @Injectable()
 export class TradersService {
   private readonly logger = new Logger(TradersService.name);
-  private warming: Promise<number> | undefined;
   /** Settable for tests. */
   sparklineDeadlineMs = SPARKLINE_DEADLINE_MS;
   profileSourceDeadlineMs = 4_000;
@@ -157,14 +152,6 @@ export class TradersService {
     @Optional() private readonly accountReader?: TraderAccountReader,
   ) {
     this.spotPrices = spotPrices ?? new SpotPriceService(info);
-  }
-
-  startWarming(): void {
-    if (this.config.value.app.nodeEnv === "test") return;
-    // The first trader page after a deploy then needs one request, not two.
-    this.perpDexes().catch(() => undefined);
-    // After the startup import, so "top by month PnL" has data.
-    this.ingest.startup.then(() => budgetConsumer("warm", () => this.onWarmSchedule())).catch(() => undefined);
   }
 
   // --- GET /traders ---------------------------------------------------------
@@ -513,54 +500,6 @@ export class TradersService {
       out.set(row.address, poolSeries(values, at, spanMs));
     }
     return out;
-  }
-
-  // --- home-page warming ------------------------------------------------------
-
-  async onWarmSchedule(): Promise<void> {
-    try {
-      await this.warmHome();
-    } catch (error) {
-      this.logger.error(`Home warm-up failed: ${(error as Error).message}`);
-    }
-  }
-
-  /** The home page's trader cards: the admin's featured list (always kept,
-   * active or not), else the top 24 by month PnL among what the home list
-   * shows: no vaults while `hideVaults` is on, and only accounts that traded
-   * within `defaultActiveWithin`, so 30-day holders aren't warmed (§12). */
-  async homeAddresses(): Promise<string[]> {
-    const discovery = await this.settings.get("discovery");
-    if (discovery.featuredAddresses.length > 0) {
-      return [...new Set(discovery.featuredAddresses.map((a) => a.toLowerCase()))];
-    }
-    return this.repository.topHome(discovery, WARM_TOP_COUNT);
-  }
-
-  /**
-   * Re-fetches the home cards' portfolios into the sparkline cache (kept 15
-   * min, re-warmed every 10), so the home page never waits on Hyperliquid.
-   * Returns how many addresses were warmed. Overlapping runs share one.
-   */
-  warmHome(): Promise<number> {
-    if (this.jobs.stopping) return Promise.resolve(0);
-    this.warming ??= this.jobs.run(() => this.runWarm()).finally(() => {
-      this.warming = undefined;
-    });
-    return this.warming;
-  }
-
-  private async runWarm(): Promise<number> {
-    const addresses = await this.homeAddresses();
-    const results = await Promise.allSettled(
-      addresses.map((address) =>
-        this.sparklineCache.refresh(address, () => this.info.portfolio(address, LANE, PAGE_RANK.warm), WARM_TTL_MS),
-      ),
-    );
-    const failed = results.filter((r) => r.status === "rejected").length;
-    if (failed > 0) this.logger.warn(`Home warm-up: ${failed}/${addresses.length} portfolios failed`);
-    else this.logger.log(`Home warm-up: ${addresses.length} portfolios cached`);
-    return addresses.length - failed;
   }
 
   // --- GET /traders/:address/fills -----------------------------------------

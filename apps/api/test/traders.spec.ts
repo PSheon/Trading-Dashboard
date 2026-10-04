@@ -1231,61 +1231,6 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     });
   });
 
-  describe("home warm-up", () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it("warms the top 24 by month PnL (no vaults while hidden) so card sparklines hit the cache for 15 min", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      expect(await service.homeAddresses()).toEqual([B, C, A, D]);
-      expect(await service.warmHome()).toBe(4);
-      expect(info.portfolio).toHaveBeenCalledTimes(4);
-      for (const call of info.portfolio.mock.calls) expect(call.slice(1)).toEqual(["background", 3]);
-
-      vi.setSystemTime(Date.now() + 12 * 60_000); // past the normal 10 min TTL
-      const res = await controller.sparklines({ addresses: [A, B, C, D].join(","), window: "month" });
-      expect(Object.values(res).every((s) => s.length > 0)).toBe(true);
-      expect(info.portfolio).toHaveBeenCalledTimes(4);
-
-      // A warm run re-fetches even while entries are fresh.
-      await service.warmHome();
-      expect(info.portfolio).toHaveBeenCalledTimes(8);
-
-      await settings.patch({ discovery: { hideVaults: false } }, null);
-      expect((await service.homeAddresses())[0]).toBe(V);
-    });
-
-    it("skips accounts outside the default activity window in the fallback (a holder isn't warmed)", async () => {
-      // H has the highest month PnL but no volume in 30 days.
-      const fallback = await service.homeAddresses();
-      expect(fallback).not.toContain(H);
-      expect(fallback).toEqual([B, C, A, D]);
-      await service.warmHome();
-      expect(info.portfolio.mock.calls.map((c) => c[0])).not.toContain(H);
-
-      await settings.patch({ discovery: { defaultActiveWithin: "week" } }, null);
-      expect(await service.homeAddresses()).toEqual([B, A]);
-      await settings.patch({ discovery: { defaultActiveWithin: "any" } }, null);
-      expect((await service.homeAddresses())[0]).toBe(H);
-    });
-
-    it("always keeps explicitly featured addresses, inactive ones included", async () => {
-      await settings.patch({ discovery: { featuredAddresses: [H, A], defaultActiveWithin: "day" } }, null);
-      expect(await service.homeAddresses()).toEqual([H, A]);
-      expect(await service.warmHome()).toBe(2);
-      expect(info.portfolio.mock.calls.map((c) => c[0]).sort()).toEqual([A, H].sort());
-    });
-
-    it("uses the admin's featured list when set, and survives a failing address", async () => {
-      await settings.patch({ discovery: { featuredAddresses: [D, A.toUpperCase().replace("0X", "0x")] } }, null);
-      expect(await service.homeAddresses()).toEqual([D, A]);
-      info.portfolio.mockRejectedValueOnce(new Error("boom"));
-      expect(await service.warmHome()).toBe(1);
-      await expect(service.onWarmSchedule()).resolves.toBeUndefined();
-    });
-  });
-
 });
 
 describe("TtlCache", () => {

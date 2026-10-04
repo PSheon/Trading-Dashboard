@@ -5,7 +5,6 @@ import { cn } from "cn";
 import { OperationalSwitchesPanel } from "./operational-switches";
 import { WorkerHeartbeat } from "./worker-heartbeat";
 import { RETENTION_TABLES } from "@trading-dashboard/shared/contracts";
-import type { HeartbeatResponse } from "@/lib/contracts";
 import type { AdminSystemOverview } from "@/lib/contracts";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
@@ -15,11 +14,8 @@ import { useI18n } from "@/i18n/provider";
 export function AdminMonitoring() {
   const { t, format } = useI18n();
   const query = useQuery({ queryKey: queryKeys.adminSystem, queryFn: ({ signal }) => api.get<AdminSystemOverview>("/admin/system/overview", signal), refetchInterval: 15_000 });
-  // Combined development mode has no independent worker: its heartbeat comes
-  // from the admin heartbeat route (the public /health no longer carries the
-  // detail), while split deployments use one coherent worker sample.
-  const local = useQuery({ queryKey: queryKeys.adminHeartbeat, queryFn: ({signal}) => api.get<HeartbeatResponse>("/admin/system/heartbeat", signal), enabled: query.data?.api.role === "combined", refetchInterval: 15_000 });
-  const heartbeat = query.data?.api.role === "combined" ? local.data : query.data?.worker.sample?.heartbeat;
+  // The worker's one coherent sample (feed, snapshots, budget, archive).
+  const heartbeat = query.data?.worker.sample?.heartbeat;
   return <section className="space-y-4" aria-labelledby="monitoring-title" aria-busy={query.isFetching}>
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><h2 id="monitoring-title" className="text-lg font-bold">{t("monitoring.title")}</h2>
@@ -50,7 +46,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
   </>;
   return <div className="space-y-4">
     <div className="grid gap-4 lg:grid-cols-3">
-      <Panel className="p-5"><h3 className="font-semibold">API · {d.api.role}</h3><Status state={d.api.state} />
+      <Panel className="p-5"><h3 className="font-semibold">API</h3><Status state={d.api.state} />
         <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.uptime")} · {t("monitoring.seconds", {value: format.num(d.api.uptimeSeconds, 0)})}</p>{budget(d.api.budget)}</Panel>
       <Panel className="p-5"><h3 className="font-semibold">Worker</h3><Status state={d.worker.state} />
         {worker && <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.sample")} · {time(worker.sampledAt)}</p>}{budget(worker?.budget ?? null)}</Panel>

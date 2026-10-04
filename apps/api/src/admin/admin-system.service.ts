@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { adminSystemSchema, workerMonitorSchema, type AdminSystemOverview } from "@trading-dashboard/shared/contracts";
+import { workerMonitorSchema, type AdminSystemOverview } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
@@ -39,7 +39,7 @@ export class AdminSystemService {
     const budget = this.budgeter.introspect();
     return {
       sampledAt: new Date().toISOString(),
-      api: { state: "active", role: adminSystemSchema.shape.api.shape.role.parse(this.config.value.app.role), uptimeSeconds: Math.floor(process.uptime()),
+      api: { state: "active", uptimeSeconds: Math.floor(process.uptime()),
         budget: { ...budget, lastRateLimitedAt: budget.lastRateLimitedAt?.toISOString() ?? null, queued: this.budgeter.queued() },
         switches: operationalSwitches(this.config.value) },
       worker: worker.status === "fulfilled" ? worker.value : { state: "unavailable", sample: null },

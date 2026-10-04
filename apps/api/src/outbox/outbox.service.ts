@@ -6,7 +6,8 @@ import { RulesService } from "../rules/rules.service.js";
 import { ALERT_MAX_AGE_MS, NotifyService } from "../notify/notify.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 
-/** Recover interrupted action evaluation and drain durable notification deliveries. */
+/** Recover interrupted action evaluation and drain durable notification
+ * deliveries, every 5 s: the worker process only (OutboxWorkerModule). */
 @Injectable()
 export class OutboxService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OutboxService.name);
@@ -15,7 +16,7 @@ export class OutboxService implements OnApplicationBootstrap {
     private readonly rules: RulesService, private readonly notify: NotifyService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
-  onApplicationBootstrap() { if (this.config.value.app.nodeEnv !== "test" && this.config.value.app.role !== "api") void this.drain(); }
+  onApplicationBootstrap() { if (this.config.value.app.nodeEnv !== "test") void this.drain(); }
 
   /** Coalesce local drains; repository claims coordinate competing processes. */
   @Interval(5000)

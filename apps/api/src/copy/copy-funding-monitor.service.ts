@@ -11,7 +11,7 @@ export class CopyFundingMonitor implements OnApplicationBootstrap, OnModuleDestr
   private running = false;
   constructor(private readonly config: AppConfig, private readonly funding: CopyFundingService, private readonly jobs: BackgroundJobs) {}
   onApplicationBootstrap() {
-    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     this.timer = setInterval(() => void this.tick(), 15_000); this.timer.unref?.();
   }
   onModuleDestroy() { clearInterval(this.timer); }

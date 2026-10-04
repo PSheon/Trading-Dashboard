@@ -15,7 +15,6 @@ import { AdminSystemService } from "./admin-system.service.js";
 import { Module } from "@nestjs/common";
 
 import { AdminUsersRepository } from "./admin-users.repository.js";
-import { RevenueRepository } from "./revenue.repository.js";
 import { AdminOverviewRepository } from "./admin-overview.repository.js";
 import { AuthModule } from "../common/auth/auth.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
@@ -23,19 +22,18 @@ import { AdminOverviewService } from "./admin-overview.service.js";
 import { AdminSettingsService } from "./admin-settings.service.js";
 import { AdminUsersService } from "./admin-users.service.js";
 import { AdminController, PublicSettingsController } from "./admin.controller.js";
-import { RevenueService } from "./revenue.service.js";
+import { RevenueModule } from "./revenue.module.js";
 
 /**
  * `/admin/*` (settings, users, overview, revenue, copy trading) and the public
- * `GET /settings`. Owns the hourly revenue snapshot (`@Cron` on
- * RevenueService; ScheduleModule is registered once by SchedulerModule).
+ * `GET /settings`. The hourly revenue snapshot is RevenueWorkerModule's
+ * (the worker process); this module only reads and triggers snapshots.
  * SettingsModule and DbModule are global; AuthModule gives AuthService, so
  * role and disable changes apply at once (`invalidateUser`).
  */
 @Module({
-  imports: [BackfillJobsModule, AuthModule, HyperliquidModule, CopyModule],
+  imports: [BackfillJobsModule, AuthModule, HyperliquidModule, CopyModule, RevenueModule],
   controllers: [AdminCopyController, AdminSourcesController, AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
-  providers: [AdminSourcesRepository, AdminTraderRepository, AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, RevenueRepository, AdminSettingsService, AdminUsersService, AdminOverviewService, RevenueService],
-  exports: [RevenueService],
+  providers: [AdminSourcesRepository, AdminTraderRepository, AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, AdminSettingsService, AdminUsersService, AdminOverviewService],
 })
 export class AdminModule {}

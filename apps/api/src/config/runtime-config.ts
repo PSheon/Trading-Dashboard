@@ -151,13 +151,15 @@ export function validateEnvironment(source: Environment = process.env) {
       throw new Error("API_TRUSTED_PROXY_CIDRS must contain explicit IP addresses or non-universal CIDRs");
     }
   }
-  const role = source.APP_ROLE ?? "combined";
-  if (!["api", "worker", "combined"].includes(role)) throw new Error("APP_ROLE must be api, worker or combined");
-  if (role === "api" && !source.WORKER_URL) throw new Error("WORKER_URL is required for APP_ROLE=api");
+  // One switch, as in DonutMe: IS_WORKER=true runs the background jobs and
+  // serves only health; unset (or false) is the HTTP api, which starts none.
+  if (source.APP_ROLE !== undefined) throw new Error("APP_ROLE was replaced by IS_WORKER: set IS_WORKER=true on the worker and remove APP_ROLE");
+  const isWorker = booleanValue("IS_WORKER", source.IS_WORKER, false);
   const workerUrl = source.WORKER_URL ? urlValue("WORKER_URL", source.WORKER_URL, "", ["http:", "https:"]) : undefined;
-  const app = { role, workerUrl, nodeEnv, trustedProxyCidrs, // A worker beside an api on one machine needs its own port: WORKER_PORT
-  // wins for APP_ROLE=worker (Railway sets PORT per service and leaves it unset).
-  port: role === "worker" && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };
+  const app = { isWorker, workerUrl, nodeEnv, trustedProxyCidrs,
+  // A worker beside an api on one machine needs its own port: WORKER_PORT
+  // wins for the worker (Railway sets PORT per service and leaves it unset).
+  port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };
   const database = { url: databaseUrl(source.DATABASE_URL) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
   const permissions = servicePermissions(source.AUTH_SERVICE_PERMISSIONS);

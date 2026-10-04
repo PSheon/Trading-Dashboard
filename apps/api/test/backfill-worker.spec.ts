@@ -5,25 +5,7 @@ import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { TradersWorker } from '../src/traders/traders-worker.module.js';
 import { AppConfig } from '../src/config/app-config.js';
 import { testConfig } from './config-test-utils.js';
-const config = (role: 'api' | 'worker' | 'combined') =>
-  new AppConfig({
-    ...testConfig().value,
-    app: { ...testConfig().value.app, role },
-  });
-it('API role neither claims work nor directly executes a historical sync', async () => {
-  const repository = { claim: vi.fn() };
-  const sync = { sync: vi.fn() };
-  const backfill = new BackfillService(config('api'), sync as never);
-  await new BackfillWorker(
-    config('api'),
-    repository as never,
-    backfill,
-    new BackgroundJobs(),
-  ).tick();
-  await expect(backfill.run('0xabc')).rejects.toThrow('requires worker role');
-  expect(repository.claim).not.toHaveBeenCalled();
-  expect(sync.sync).not.toHaveBeenCalled();
-});
+const config = () => new AppConfig({ ...testConfig().value, app: { ...testConfig().value.app, isWorker: true } });
 it('coalesces overlapping ticks and uses historical mode without live alert admission', async () => {
   let finish!: (n: number) => void;
   const result = new Promise<number>((resolve) => {
@@ -37,7 +19,7 @@ it('coalesces overlapping ticks and uses historical mode without live alert admi
     fail: vi.fn(),
   };
   const worker = new BackfillWorker(
-    config('worker'),
+    config(),
     repository as never,
     { run: () => result } as never,
     new BackgroundJobs(),
@@ -59,36 +41,21 @@ it('coalesces overlapping ticks and uses historical mode without live alert admi
       .mockResolvedValue({ status: 'complete', inserted: 5 }),
   };
   // Newest first, window by window, until the history's floor is reached.
-  expect(
-    await new BackfillService(config('worker'), sync as never).run('0xabc'),
-  ).toBe(12);
+  expect(await new BackfillService(sync as never).run('0xabc')).toBe(12);
   expect(sync.backfillStep).toHaveBeenCalledTimes(2);
   expect(sync.backfillStep).toHaveBeenCalledWith('0xabc');
 });
-it('does not warm a worker-local cache that API requests cannot use', () => {
-  const ingest = { start: vi.fn() },
-    traders = { startWarming: vi.fn(), onWarmSchedule: vi.fn() };
-  const worker = new TradersWorker(
-    config('worker'),
-    ingest as never,
-    traders as never,
-    {} as never,
-    {} as never,
-  );
+it('a stopping worker claims nothing', async () => {
+  const repository = { claim: vi.fn() };
+  const jobs = new BackgroundJobs();
+  jobs.stop();
+  await new BackfillWorker(config(), repository as never, { run: vi.fn() } as never, jobs).tick();
+  expect(repository.claim).not.toHaveBeenCalled();
+});
+it('starts the leaderboard import at boot and warms no process-local cache', () => {
+  const ingest = { start: vi.fn() };
+  const worker = new TradersWorker(ingest as never, {} as never, {} as never);
   worker.onApplicationBootstrap();
-  worker.warmTick();
   expect(ingest.start).toHaveBeenCalledTimes(1);
-  expect(traders.startWarming).not.toHaveBeenCalled();
-  expect(traders.onWarmSchedule).not.toHaveBeenCalled();
-  const combined = new TradersWorker(
-    config('combined'),
-    ingest as never,
-    traders as never,
-    {} as never,
-    {} as never,
-  );
-  combined.onApplicationBootstrap();
-  combined.warmTick();
-  expect(traders.startWarming).toHaveBeenCalledTimes(1);
-  expect(traders.onWarmSchedule).toHaveBeenCalledTimes(1);
+  expect('warmTick' in worker).toBe(false);
 });

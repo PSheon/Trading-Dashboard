@@ -44,7 +44,7 @@ export function SettingsRuntimeDetails({ data }: { data: SettingsRuntime }) {
     <div className="grid gap-3 sm:grid-cols-2">{(["pool", "leaderboard"] as const).map(consumer => {
       const row = data.consumers.find(item => item.consumer === consumer);
       const age = row ? Date.parse(data.sampledAt) - Date.parse(row.checkedAt) : Infinity;
-      const status = !["active", "combined"].includes(data.state) || !row ? "unknown"
+      const status = data.state !== "active" || !row ? "unknown"
         : age > 180_000 || age < -5000 ? "stale" : row.recovered ? "recovered" : row.revision === data.savedRevision ? "applied" : "pending";
       return <div key={consumer} className="space-y-2 rounded-lg bg-raised p-3">
         <h3 className="font-medium">{t(`settingsOps.${consumer}`)}</h3><p className={status === "applied" ? "text-positive" : "text-warning"}>{t(`settingsOps.${status}`)}</p>

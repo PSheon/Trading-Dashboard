@@ -20,6 +20,7 @@ import {
   type RevenuePoint,
 } from "../src/admin/revenue-daily.js";
 import { RevenueService } from "../src/admin/revenue.service.js";
+import { RevenueWorker } from "../src/admin/revenue.module.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import type { HlReferralResponse } from "../src/hyperliquid/types.js";
@@ -255,7 +256,7 @@ describe("RevenueService — real Postgres", () => {
       const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-29T10:00:00.789Z"));
       expect(await service.snapshot()).toMatchObject({ status: "written", address: ZERO });
       now.mockReturnValue(Date.parse("2026-09-29T11:00:00.123Z"));
-      await service.hourlySnapshot();
+      await new RevenueWorker(service).hourlySnapshot();
 
       expect(referral).toHaveBeenCalledWith(ZERO, "background", 0);
       const rows = await db.select().from(revenueSnapshots).orderBy(revenueSnapshots.takenAt);
@@ -290,7 +291,7 @@ describe("RevenueService — real Postgres", () => {
       expect(await service.snapshot()).toEqual({ status: "failed", error: "Hyperliquid info request failed: 429" });
       referral.mockResolvedValueOnce({ oops: true });
       expect(await service.snapshot()).toMatchObject({ status: "failed" });
-      await expect(service.hourlySnapshot()).resolves.toBeUndefined();
+      await expect(new RevenueWorker(service).hourlySnapshot()).resolves.toBeUndefined();
       expect(await db.select().from(revenueSnapshots)).toHaveLength(1); // only the last, healthy call
     });
 
@@ -300,7 +301,7 @@ describe("RevenueService — real Postgres", () => {
       try {
         vi.spyOn(service, "snapshot").mockRejectedValue(new Error("boom"));
         service.triggerSnapshot("test");
-        service.onApplicationBootstrap();
+        new RevenueWorker(service).onApplicationBootstrap();
         await new Promise((r) => setTimeout(r, 20));
         expect(service.snapshot).toHaveBeenCalledTimes(2);
         expect(unhandled).not.toHaveBeenCalled();

@@ -34,7 +34,8 @@ const DEFAULT_RULES: SeedRow[] = [
 ];
 
 /**
- * Idempotent insert-only seed for the default rules. Runs on app bootstrap
+ * Idempotent insert-only seed for the default rules. Runs on the worker
+ * process's bootstrap (RulesSeedModule)
  * (skipped under `NODE_ENV=test`, same pattern as `WatcherService` — tests
  * call `seedDefaultRules()` directly against a controlled db instance).
  * Idempotency relies on the partial unique index on `alert_rules.kind` where
@@ -51,7 +52,7 @@ export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy
   constructor(private readonly config: AppConfig, private readonly repository: RulesSeedRepository, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     void this.seedWithRetry();
   }
 

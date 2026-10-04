@@ -42,7 +42,8 @@ function errorText(error: unknown): string {
  * `/start` (welcome, or resume a paused chat), `/stop` (pause) and
  * `/help`. Blocking the bot pauses the chat's alerts too.
  *
- * Polls only with TELEGRAM_BOT_POLLING (default true) and a token set.
+ * Runs in the worker process only (TelegramWorkerModule). Polls only with
+ * TELEGRAM_BOT_POLLING (default true) and a token set.
  * Telegram allows one poller per token: a 409 means another process has
  * it, which is logged and backed off from, never fatal. A 401/404 means the
  * token itself is wrong, and polling stops.
@@ -68,7 +69,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
 
   onApplicationBootstrap(): void {
     // Tests start the loop themselves, against a stubbed Telegram.
-    if (this.config.value.app.nodeEnv === "test" || this.config.value.app.role === "api") return;
+    if (this.config.value.app.nodeEnv === "test") return;
     this.start();
   }
 

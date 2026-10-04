@@ -36,8 +36,8 @@ export class HealthController {
   }
 }
 
-/** The whole heartbeat, for admins: what the system page shows. In the api
- * role it is the worker's (503 when the worker can't be reached). */
+/** The whole heartbeat, for admins: what the system page shows. It is the
+ * worker's (503 when the worker can't be reached). */
 @Controller("admin/system")
 @RequirePermissions("admin.access")
 export class AdminHeartbeatController {

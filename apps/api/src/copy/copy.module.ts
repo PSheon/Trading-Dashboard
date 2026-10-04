@@ -13,7 +13,6 @@ import { CopyOrderPlanner } from "./copy-planner.service.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopySignalService } from "./copy-signal.service.js";
 import { CopyStrategyService } from "./copy-strategy.service.js";
-import { CopyWorkerService } from "./copy-worker.service.js";
 import { CopyController } from "./copy.controller.js";
 import { CopyRepository } from "./copy.repository.js";
 import { PostgresLiveExecutionJournal } from "./live/postgres-live-journal.js";
@@ -26,7 +25,6 @@ import { CopyFundingController } from "./copy-funding.controller.js";
 import { CopyFundingRepository } from "./copy-funding.repository.js";
 import { CopyFundingService } from "./copy-funding.service.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
-import { CopyFundingMonitor } from "./copy-funding-monitor.service.js";
 import { AppConfig } from "../config/app-config.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { HyperliquidAgentApprovalVerifier } from "./live/hyperliquid-agent-approval.js";
@@ -38,7 +36,7 @@ import { USER_AGENT_PROVISIONER, PrivyUserAgentProvisioner } from "./live/privy-
 import { AGENT_APPROVAL_CLIENT, PrivyAgentApprovalClient } from "./copy-agent-exchange.client.js";
 import { CopyFollowerLedger } from "./live/copy-follower-ledger.js";
 import { HyperliquidFollowerReceiptReader } from "./live/follower-receipt-reader.js";
-import { CopyFollowerReconciler, CopyFollowerMonitor } from "./copy-follower-monitor.service.js";
+import { CopyFollowerReconciler } from "./copy-follower-monitor.service.js";
 import { CopyFollowerScanRepository } from "./copy-follower-scan.repository.js";
 import { CopyFollowerStatementRepository } from "./copy-follower-statement.repository.js";
 import { CopyFollowerController } from "./copy-follower.controller.js";
@@ -52,8 +50,7 @@ import { CopyFollowerActivityRepository } from "./copy-follower-activity.reposit
 import { CopyFollowerActivityService } from "./copy-follower-activity.service.js";
 import { CopyFollowerSnapshotController } from "./copy-follower-snapshot.controller.js";
 import { CopyFollowerSnapshotRepository } from "./copy-follower-snapshot.repository.js";
-import { CopyFollowerSnapshotService, CopyFollowerSnapshotCollector, FOLLOWER_SNAPSHOT_READER } from "./copy-follower-snapshot.service.js";
-import { HyperliquidLiveAccountObserver } from "./live/live-account-observer.js";
+import { CopyFollowerSnapshotService } from "./copy-follower-snapshot.service.js";
 import { CopyLiveMandateController } from "./copy-live-mandate.controller.js";
 import { CopyLiveMandateRepository } from "./copy-live-mandate.repository.js";
 import { CopyLiveMandateService } from "./copy-live-mandate.service.js";
@@ -65,7 +62,8 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
- * signal consumer, the paper executor and its worker. The admin API
+ * signal consumer and the paper executor. Their loops are CopyWorkerModule's
+ * (the worker process only). The admin API
  * (/admin/copy, AdminCopyController in AdminModule) uses the exported
  * CopyControlService.apply, CopyRiskPolicyService.get/put and
  * CopyAdminReadService.
@@ -76,7 +74,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
   controllers: [CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService, CopyAdoptionRepairService, CopyPerformanceService,
+    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport],
       useFactory: (config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) => new HyperliquidAgentApprovalVerifier(
@@ -84,7 +82,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     { provide: WalletAuthorizationService, inject: [PostgresWalletAuthorizationSource, HyperliquidAgentApprovalVerifier],
       useFactory: (source: PostgresWalletAuthorizationSource, exchange: HyperliquidAgentApprovalVerifier) => new WalletAuthorizationService(source, exchange) },
     CopyWalletService, CopyWalletRepository, { provide: USER_WALLET_PROVISIONER, useClass: PrivyUserWalletProvisioner },
-    CopyFundingRepository, CopyFundingService, {provide:CopyFundingExchangeClient,inject:[RequestBudgeterService,HyperliquidGlobalTransport],useFactory:(budget:RequestBudgeterService,transport:HyperliquidGlobalTransport)=>new CopyFundingExchangeClient(budget,transport)}, CopyFundingMonitor,
+    CopyFundingRepository, CopyFundingService, {provide:CopyFundingExchangeClient,inject:[RequestBudgeterService,HyperliquidGlobalTransport],useFactory:(budget:RequestBudgeterService,transport:HyperliquidGlobalTransport)=>new CopyFundingExchangeClient(budget,transport)},
     CopyAgentRepository, CopyAgentService,
     CopyAccountModeRepository, CopyAccountModeService,
     { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (config: AppConfig, budget: RequestBudgeterService, transport:HyperliquidGlobalTransport) =>
@@ -92,13 +90,10 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
       new HyperliquidAccountModeAbsenceReader(weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo, Date.now,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport)) },
-    CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerMonitor, CopyFollowerStatementService, CopyFollowerStatementRepository,
+    CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
-    CopyFollowerSnapshotRepository, CopyFollowerSnapshotService, CopyFollowerSnapshotCollector,
+    CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService,
-    { provide: FOLLOWER_SNAPSHOT_READER, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
-      new HyperliquidLiveAccountObserver('testnet', weight => budget.acquire(weight, 'background', undefined, { signal: AbortSignal.timeout(5000) }), transport.fetchInfo, Date.now, 5000,
-        new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport)) },
     { provide: HyperliquidFollowerReceiptReader, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
       new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
@@ -107,6 +102,8 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (config: AppConfig, budget: RequestBudgeterService, transport:HyperliquidGlobalTransport) =>
       new PrivyAgentApprovalClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }),undefined,Date.now,transport) },
   ],
-  exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource],
+  exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
+    // For CopyWorkerModule's loops (the worker process only).
+    CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository],
 })
 export class CopyModule {}

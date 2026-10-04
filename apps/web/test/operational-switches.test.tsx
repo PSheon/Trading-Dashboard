@@ -8,8 +8,8 @@ import type { HeartbeatResponse, OperationalSwitches } from "@/lib/contracts";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
 
-const api: OperationalSwitches = { appRole: "api", copyTradingMode: "paper", hyperliquidNetwork: "testnet", telegramDryRun: true, archiveEnabled: false, archiveMaxDailyUsd: 2, maxFavoritesPerUserDefault: 100 };
-const worker: OperationalSwitches = { ...api, appRole: "worker", hyperliquidNetwork: "mainnet", telegramDryRun: false, archiveEnabled: true, archiveMaxDailyUsd: 5 };
+const api: OperationalSwitches = { isWorker: false, copyTradingMode: "paper", hyperliquidNetwork: "testnet", telegramDryRun: true, archiveEnabled: false, archiveMaxDailyUsd: 2, maxFavoritesPerUserDefault: 100 };
+const worker: OperationalSwitches = { ...api, isWorker: true, hyperliquidNetwork: "mainnet", telegramDryRun: false, archiveEnabled: true, archiveMaxDailyUsd: 5 };
 const archive = {
   enabled: true, liveNextHour: "2026-10-02T07:00:00Z", backfillCursorHour: null, lagSeconds: 5400, objects: 10, bytes: 1, fillsSeen: 1, fillsKept: 1,
   spendDayBytes: 1, spendDayUsd: 1.2345, maxDailyUsd: 5, addresses: { total: 1, backfilled: 1, pending: 0, excluded: 0 }, lastObjectKey: null, lastRunAt: "2026-10-02T08:00:00Z", lastError: null,
@@ -19,7 +19,7 @@ const render = (props: Parameters<typeof OperationalSwitchesPanel>[0]) =>
 
 it("lists every switch for the api and the worker side by side, read-only", () => {
   const html = render({ api, worker, archive });
-  for (const name of ["APP_ROLE", "COPY_TRADING_MODE", "HYPERLIQUID_NETWORK", "TELEGRAM_DRY_RUN", "S3_ARCHIVE_ENABLED", "S3_ARCHIVE_MAX_DAILY_USD", "MAX_FAVORITES_PER_USER"]) expect(html).toContain(name);
+  for (const name of ["IS_WORKER", "COPY_TRADING_MODE", "HYPERLIQUID_NETWORK", "TELEGRAM_DRY_RUN", "S3_ARCHIVE_ENABLED", "S3_ARCHIVE_MAX_DAILY_USD", "MAX_FAVORITES_PER_USER"]) expect(html).toContain(name);
   expect(html).toContain("paper");
   expect(html).toContain("testnet");
   expect(html).toContain("mainnet");

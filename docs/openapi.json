@@ -3422,8 +3422,7 @@
                             "stopping",
                             "stale",
                             "unavailable",
-                            "not_configured",
-                            "combined"
+                            "not_configured"
                           ]
                         },
                         "instanceId": {
@@ -4048,14 +4047,6 @@
                               "type": "string",
                               "const": "active"
                             },
-                            "role": {
-                              "type": "string",
-                              "enum": [
-                                "api",
-                                "worker",
-                                "combined"
-                              ]
-                            },
                             "uptimeSeconds": {
                               "type": "number"
                             },
@@ -4123,13 +4114,8 @@
                             "switches": {
                               "type": "object",
                               "properties": {
-                                "appRole": {
-                                  "type": "string",
-                                  "enum": [
-                                    "api",
-                                    "worker",
-                                    "combined"
-                                  ]
+                                "isWorker": {
+                                  "type": "boolean"
                                 },
                                 "copyTradingMode": {
                                   "type": "string",
@@ -4161,7 +4147,7 @@
                                 }
                               },
                               "required": [
-                                "appRole",
+                                "isWorker",
                                 "copyTradingMode",
                                 "hyperliquidNetwork",
                                 "telegramDryRun",
@@ -4174,7 +4160,6 @@
                           },
                           "required": [
                             "state",
-                            "role",
                             "uptimeSeconds",
                             "budget"
                           ],
@@ -4266,13 +4251,8 @@
                                     "switches": {
                                       "type": "object",
                                       "properties": {
-                                        "appRole": {
-                                          "type": "string",
-                                          "enum": [
-                                            "api",
-                                            "worker",
-                                            "combined"
-                                          ]
+                                        "isWorker": {
+                                          "type": "boolean"
                                         },
                                         "copyTradingMode": {
                                           "type": "string",
@@ -4304,7 +4284,7 @@
                                         }
                                       },
                                       "required": [
-                                        "appRole",
+                                        "isWorker",
                                         "copyTradingMode",
                                         "hyperliquidNetwork",
                                         "telegramDryRun",

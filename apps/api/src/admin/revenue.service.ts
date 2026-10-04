@@ -1,8 +1,6 @@
-import { AppConfig } from "../config/app-config.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { Injectable, Logger, type OnApplicationBootstrap } from "@nestjs/common";
-import { Cron } from "@nestjs/schedule";
+import { Injectable, Logger } from "@nestjs/common";
 import { type AdminRevenueResponse } from "@trading-dashboard/shared/contracts";
 
 import { RevenueRepository } from "./revenue.repository.js";
@@ -32,7 +30,7 @@ const SNAPSHOT_RANK = 0;
  * report built from them (daily = increase between adjacent UTC days).
  */
 @Injectable()
-export class RevenueService implements OnApplicationBootstrap {
+export class RevenueService {
   private readonly logger = new Logger(RevenueService.name);
 
   constructor(
@@ -40,19 +38,7 @@ export class RevenueService implements OnApplicationBootstrap {
     private readonly settings: SettingsService,
     private readonly info: HyperliquidInfoClient,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
-    @Optional() private readonly config?: AppConfig,
   ) {}
-
-  onApplicationBootstrap(): void {
-    if (this.config?.value.app.role !== "api") this.triggerSnapshot("startup");
-  }
-
-  /** Minute 7 of every hour, off the top of the hour where the watcher's
-   * sweep queues its burst. */
-  @Cron("0 7 * * * *", { name: "revenue-snapshot" })
-  async hourlySnapshot(): Promise<void> {
-    await this.snapshot();
-  }
 
   /** Fire-and-forget snapshot (startup, builder address changed). */
   triggerSnapshot(reason: string): void {

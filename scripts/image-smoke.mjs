@@ -21,7 +21,7 @@ const inspected = docker(['run', '--rm', image, 'node', '--input-type=module', '
     const actual = JSON.parse(readFileSync('node_modules/' + name + '/package.json', 'utf8'));
     assert.equal(actual.version, version, 'Frozen runtime dependency: ' + name);
   }
-  for (const path of ['dist/main.js', 'dist/worker.js', 'scripts/migrate.mjs',
+  for (const path of ['dist/main.js', 'dist/bootstrap/worker.bootstrap.js', 'scripts/migrate.mjs',
     'node_modules/@trading-dashboard/shared/dist/database.js',
     'node_modules/@trading-dashboard/shared/drizzle/meta/_journal.json']) assert.ok(existsSync(path), path);
   for (const path of ['.env', '.env.local', 'src', 'node_modules/vitest',

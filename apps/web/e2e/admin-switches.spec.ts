@@ -13,7 +13,7 @@ for (const width of [1440, 390]) {
     await signIn(page);
     const panel = page.getByRole("region", { name: "Deployment switches (read-only)" });
     await expect(panel).toBeVisible({ timeout: 20000 });
-    for (const name of ["APP_ROLE", "COPY_TRADING_MODE", "HYPERLIQUID_NETWORK", "TELEGRAM_DRY_RUN", "S3_ARCHIVE_ENABLED", "S3_ARCHIVE_MAX_DAILY_USD", "MAX_FAVORITES_PER_USER"]) {
+    for (const name of ["IS_WORKER", "COPY_TRADING_MODE", "HYPERLIQUID_NETWORK", "TELEGRAM_DRY_RUN", "S3_ARCHIVE_ENABLED", "S3_ARCHIVE_MAX_DAILY_USD", "MAX_FAVORITES_PER_USER"]) {
       await expect(panel.getByText(name, { exact: true })).toBeVisible();
     }
     const copyMode = panel.getByRole("row").filter({ hasText: "COPY_TRADING_MODE" });

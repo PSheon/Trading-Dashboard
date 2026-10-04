@@ -9,7 +9,11 @@ import { RulesRepository } from "./rules.repository.js";
 
 @Module({
   imports: [IngestionModule, NotifyModule],
-  providers: [RulesSeedRepository, RulesRepository, RulesService, RulesSeedService],
+  providers: [RulesRepository, RulesService],
   exports: [RulesService],
 })
 export class RulesModule {}
+
+/** The default rules' seed at startup: the worker process only. */
+@Module({ providers: [RulesSeedRepository, RulesSeedService] })
+export class RulesSeedModule {}

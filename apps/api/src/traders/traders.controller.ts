@@ -18,6 +18,7 @@ import {
 import { CurrentUser, userIdOf, type RequestUser } from "../common/auth/current-user.js";
 import { Public } from "../common/auth/public.decorator.js";
 import { BusyException, BusyFilter } from "./busy.js";
+import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { TradersService } from "./traders.service.js";
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
@@ -159,7 +160,7 @@ export class TradersController {
         this.logger.warn(`Trader ${address}: not ready in ${this.pageDeadlineMs} ms, answered 503 busy`);
       }
       if (error instanceof HttpException) throw error;
-      if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
+      if (isBusyError(error)) throw new BusyException(sharedRestRetryAfterMs(error) ?? BUSY_RETRY_AFTER_MS);
       this.logger.error(`Trader ${address}: ${(error as Error).message}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {

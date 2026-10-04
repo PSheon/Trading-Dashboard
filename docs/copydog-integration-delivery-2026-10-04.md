@@ -46,10 +46,36 @@ API 診斷 deployment `27b01a5f-b0e6-422c-b9a5-58baee13d959` 確認真實失敗�
 
 後續權限與資料呈現修正：正式配置的 account-mode master 簽署必須提供當下有效的 caller proof，缺少時在任何 Privy HTTP 請求前拒絕；真實 SDK＋隔離 PostgreSQL 的 client／lifecycle／routes／global transport 共 139 項通過。提款紀錄保留已接受的原始 nonce、金額、目的地與更新時間，十一種語言的提示均改成提交已接受、到帳待確認；不再隱藏 accepted 紀錄或保證五分鐘到帳。帳本顯示查詢起點、擷取時間及供應商截斷提示，失敗重整仍保留快取資料並可重試。策略入金顯示可複製的實際交易 hash、更新時間與最多 100 筆／未解決優先的範圍提示。前端完整 106 檔／935 項通過，API／web typecheck 與修改檔 lint 通過。這些是提交及本地驗證證據，不等同提款到帳或實盤跟單驗收。
 
+上述修正已推送 dev `f05b65c`，從該提交的純 tracked source 分別發布。Stage API `49884c03-69c5-47fd-b4de-1b3bdea20c60`、worker `ab4059fd-5101-4ab9-8b18-de1f6065b6fd`、web `92278be9-bd76-4e13-864b-c64e2a11356d` 均已查詢確認為 SUCCESS，完成前段記錄中待辦的 worker／web 更新。
+
+[最新公開 API 證據](verification/stage-public-network-f05b65c-2026-10-04.json)保留每次嘗試：Stage 九條路由最終均回傳 200 並符合契約，轉帳紀錄先有兩次 busy，第三次成功；本地八條成功，轉帳紀錄三次 busy，因此整個 combined 指令退出 1，不能記為全部通過。稍後唯讀重新載入本地轉帳紀錄於 `2026-10-04T03:35:32.954Z` 回傳 200、125ms、20 筆，47 秒後快取讀取為 3ms。這證明可恢復，仍不能唯一判定先前每次 busy 的原因；直接 provider 429 通常映射 502，12 秒 busy 則符合頁面 deadline。未重設出站額度、清除未知 WS leases 或重啟來消除證據。
+
+## 持久停止流程新增批次
+
+新增 owner stop operation 與 migration 0053。在原有 owner／policy fences 下，原子封鎖帳戶所有 generation 的新風險，保存原始 owner／master／mandate 身分、原始 key／revision、既有委託及保留金的追蹤 manifest。過期或撤銷的舊 generation 可提出本地停止，不因此恢復金融簽署權限。回應遺失後，以原始 key 查詢；不同 key 不會替換尚未完成的停止。
+
+審查重現並修正有效 provenance 被誤判、scope 不一致的保留金漏查，以及載入不需要的巨型 sizing envelopes。現在使用真實 PostgresLivePreparation 寫出的原始委託作正向測試，獨立列舉帳戶保留金；缺少或矛盾證據會保存 blocked 屏障，不修改原始委託或釋放資金。公開 history 逐筆驗證 bounded manifests，只傳送小型摘要。
+
+停止 UI 接入實際 mandate 設定頁，十一語系保留狀態、委託數、資料不完整提示與原始時間。以實際 Privy DID 隔離本地恢復 metadata，登入/session/帳戶/mandate 改變會阻止最後送出；尚未批准的 mandate 不會留下不可使用的停止請求。紀錄與畫面不宣稱已撤單、已平倉或已返還資金。
+
+另外新增獨立的單一原始 cloid 撤單 signer／transport 邊界，未註冊執行。專屬 41 項測試通過，審查發現的未知回應外洩與讀取 deadline 後誤認 ACK 已補回歸修正。沒有取得真實 owner consent、簽署或發送撤單；跨程序 durable claim、目前有效的 cancellation authority、本人 wind-down consent、後續平倉／flat／sweep 仍需接通。
+
+共享 REST 容量不足改為附帶受控的 cumulative-expiry delay，trader／analytics 的 busy 回應據此設定 Retry-After；不改排程、不釋放未知交易的費用或 WS leases。六個相關檔案的真實隔離測試 111 項通過，另有 HTTP／page-budget 契約 25 項通過。停止、撤單、SSE、契約的集中驗證為六檔 119 項通過。完整 API 首輪有八項失敗：六項 SSE 測試的設定快取未隨 SQL fixture 清除，兩項容量 regression 在開發過程載入舊版 planner。第二輪只有 Telegram 十八項 403 失敗，其他 202 檔／3,409 項通過；再以啟動時 signups 關閉的真實資料庫 fixture 確定重現十八項失敗，並於重設資料庫時同步清除設定快取。沒有放寬正式 auth 或 signup 規則；完整凍結回歸仍以最後結果為準。
+
+前端另補上 Retry-After 的 65 秒安全上限，避免把實際共享額度等待截短成 30 秒；無效數字回到正常等待，重試次數與取消規則不變。九項失敗回歸修正後十九項全部通過。續期列表中新 prepared generation 不再隱藏舊的已批准 revoked／expired generation 停止入口，兩種情況的實際 UI 回歸由失敗轉為通過。未送出／可能已送出的本地紀錄分開處理：已知未送出的請求可經新的本人、session、完整選取資料檢查，以原始 key／revision 明確恢復；實際 fetch 前須持久記錄不可逆的可能已送出標記。未知或舊紀錄仍只查詢，不因 404 建立替代請求。
+
+最後凍結 API 回歸完成：203 檔／3,427 項全部通過，661 秒；隨機隔離測試資料庫已移除。API typecheck／lint 與四項 OpenAPI 原生文件驗證亦通過。這個結果不包含尚未實作的本人撤單授權／金融 runtime，也不構成實際入金、簽署或跟單成交的驗收。
+
+停止草稿另增加本人明確捨棄確定未送出紀錄的本地操作：原始 revision 過時時，不能以相同 key 改版本；只有明確捨棄未送出草稿後，才能另外確認新 key／目前 revision 的停止請求。可能已送出、舊格式、不符本人或儲存紀錄已變更的情況均拒絕捨棄。操作不呼叫 API、不簽署、不自動重送。最終專屬測試 31 項純邏輯／42 項 UI 共 73 項通過，獨立審查已確認三個前述可用性問題修正。
+
+本批 migration smoke 的原始歷史 CHECK 驗證、失敗恢復與 hash journal 一致性通過；正式 API image 驗證 frozen dependencies、非 root、隔離 migration、readiness 200、graceful exit 0 通過。正式前端 webpack 建置亦通過；最後 UI 恢復修正將另行凍結驗證。新的本地備份為 `/private/tmp/trading-dashboard-before-stop-20261004.dump`（1,096,861,887 bytes、0600、PG16 catalog 可讀）；確認後已對本地套用 0053。Stage 另建立並列出新 snapshot `2ef6e4e3-240a-48c9-8c71-7eb4cbb03b74`，`2026-10-04T03:52:40.969Z`，用途為 0053 發布前備份。沒有執行本地／Stage 原地還原，亦未新增 SSH、公開 DB proxy 或 PITR。
+
+發布凍結的前端完整 108 檔／1,017 項全部通過，webpack 正式建置成功，API／web／shared 修改範圍的型別與 lint 通過。Privy 套件仍有未使用的 Farcaster Solana optional import 建置警告，沒有宣稱警告數為零。最後掃描 Git 歷史 5,516 個 blobs、1,439 個工作檔及 533 個前端產物，未發現已設定秘密或掃描的 token／private-key 格式外洩。這個結果有明確掃描範圍，不是零資安風險保證。
+
 ## 仍需接通的流程
 
 1. 財務 worker 的訊號、送單、成交同步、settlement 與 restart supervision；目前只有未註冊的 testnet runtime。
-2. 持久停止屏障、原始 cloid 取消、晚到成交、快照支持的 reduce-only 平倉、flat 證據及本人主錢包 sweep。不能用虛構 leader fill 代替停止來源。
+2. 持久停止屏障已有實作；原始 cloid 的本人撤單同意／durable claim、晚到成交、快照支持的 reduce-only 平倉、flat 證據及本人主錢包 sweep 仍待接通。不能用虛構 leader fill 代替停止來源。
 3. 舊 generation 的實際歷史結清與新 generation 啟動；目前 UI 可準備續期同意，執行端不能重用已存在的帳戶歷史。
 4. Mainnet、HIP-3 有效費率與帳戶控制，以及逐筆歸屬的已收 builder fee、treasury／返佣支付。
 5. 真實 owner 的 Privy／入金／下單／停止／提款驗收。10 USDC 的固定單可能因價格 buffer 及 lot 被交易所最低額拒絕；不能把入金額當作可成功跟單的證明。

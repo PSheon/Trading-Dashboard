@@ -1,4 +1,5 @@
 import {describe,it,expect} from 'vitest';
+import {LiveBoundaryError} from '../src/copy/live/wallet-authorization.js';
 import {planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaState,type HyperliquidQuotaLease,type HyperliquidQuotaRequest} from '../src/hyperliquid/hyperliquid-global-quota.js';
 const now=1790000000000,egressKey='shared-egress-a',user=`0x${'22'.repeat(20)}`;
 const state=():HyperliquidQuotaState=>({egressKey,revision:1,events:[],updatedAt:now});
@@ -6,6 +7,33 @@ const lease=(id='socket-a'):HyperliquidQuotaLease=>({id,egressKey,socketId:id,fe
 const plan=(request:HyperliquidQuotaRequest,partial:{state?:HyperliquidQuotaState;leases?:HyperliquidQuotaLease[];now?:number}={})=>planHyperliquidQuota({now,state:state(),leases:[],...partial,request});
 const subscribe=(values:ReturnType<typeof quotaSubscription>[],id='subscribe-a'):HyperliquidQuotaRequest=>({kind:'subscribe',id,leaseId:'socket-a',fenceToken:'fence-socket-a',ownerId:'api-a',sendUntil:now+5000,subscriptions:values,prepayCleanup:true});
 describe('pure shared per-IP Hyperliquid quota accounting',()=>{
+ it('reports when cumulative REST expiries free the requested weight, without counting other meters or lease expiry',()=>{
+  const s:HyperliquidQuotaState={...state(),events:[
+   {id:'later',kind:'rest',units:1080,reservedAt:now,expiresAt:now+65000},
+   {id:'first',kind:'rest',units:50,reservedAt:now,expiresAt:now+1000},
+   {id:'other-meter',kind:'ws_message',units:2000,reservedAt:now,expiresAt:now+2000},
+   {id:'second',kind:'rest',units:70,reservedAt:now,expiresAt:now+12345},
+  ]};
+  const before=structuredClone(s),leases=[lease()];
+  let denied:unknown;
+  try{plan({kind:'rest',id:'needed',weight:120,sendUntil:now+5000},{state:s,leases});}catch(error){denied=error;}
+  expect(denied).toBeInstanceOf(LiveBoundaryError);
+  expect(denied).toMatchObject({code:'hyperliquid_quota_exhausted',retryAfterMs:12345});
+  expect(s).toEqual(before);expect(leases).toEqual([lease()]);
+  expect(()=>plan({kind:'rest',id:'too-early',weight:120,sendUntil:now+12344},{state:s,now:now+12344,leases})).toThrow('hyperliquid_quota_exhausted');
+  expect(plan({kind:'rest',id:'eligible',weight:120,sendUntil:now+12345},{state:s,now:now+12345,leases}).charged).toBe(120);
+ });
+ it('uses existing REST headroom and same-time expiries instead of waiting for the last retained charge',()=>{
+  const s:HyperliquidQuotaState={...state(),events:[
+   {id:'expired',kind:'rest',units:1200,reservedAt:now-65000,expiresAt:now},
+   {id:'later',kind:'rest',units:1080,reservedAt:now,expiresAt:now+65000},
+   {id:'first',kind:'rest',units:30,reservedAt:now,expiresAt:now+1500},
+   {id:'second',kind:'rest',units:30,reservedAt:now,expiresAt:now+1500},
+  ]};
+  let denied:unknown;
+  try{plan({kind:'rest',id:'needed',weight:120,sendUntil:now+5000},{state:s});}catch(error){denied=error;}
+  expect(denied).toMatchObject({code:'hyperliquid_quota_exhausted',retryAfterMs:1500});
+ });
  it('charges REST before send and retains a late-send reservation for its full provider window',()=>{
   const result=plan({kind:'rest',id:'rest-a',weight:1200,sendUntil:now+5000});expect(result.charged).toBe(1200);expect(result.state.events[0]).toMatchObject({reservedAt:now,expiresAt:now+65000});
   expect(()=>plan({kind:'rest',id:'rest-b',weight:1,sendUntil:now+60001},{state:result.state,now:now+60001})).toThrow('hyperliquid_quota_exhausted');

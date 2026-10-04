@@ -109,6 +109,9 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/mandates/:id/approve` | 200 | user (owner); exact local owner consent; automatic execution unavailable |
 | POST | `/me/copy/live/mandates/:id/pause` | 200 | user (owner); local new-risk barrier |
 | POST | `/me/copy/live/mandates/:id/revoke` | 200 | user (owner); local consent revocation preserves liabilities |
+| POST | `/me/copy/live/mandates/:id/stop` | 200 | user (owner); durable local risk barrier; no financial execution |
+| GET | `/me/copy/live/stops` | 200 | user (owner); bounded durable stop history; read only |
+| GET | `/me/copy/live/stops/by-key/:key` | 200 | user (owner); exact original stop recovery; read only |
 | POST | `/me/copy/strategies` | 201 | user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused |
 | PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |

@@ -20,7 +20,7 @@ describe("query retry policy", () => {
     expect(computingRetry.retry(29, busy)).toBe(true);
     expect(computingRetry.retry(30, busy)).toBe(false);
     expect(busyRetry.retryDelay(0, busy)).toBe(8000);
-    expect(busyRetry.retryDelay(0, new ApiError(503, "Busy", { code: "busy" }, 60000))).toBe(30000);
+    expect(busyRetry.retryDelay(0, new ApiError(503, "Busy", { code: "busy" }, 60000))).toBe(60000);
   });
   it("uses one retry for ordinary transient failures outside the trader page", () => {
     for (const policy of [defaultRetry, busyRetry]) {
@@ -40,8 +40,16 @@ describe("query retry policy", () => {
     expect(delays(new ApiError(503, "Service Unavailable"))).toEqual([5000, 10000, 15000, 20000, 20000]);
     expect(delays(new ApiError(503, "Busy", { code: "busy" }, 5000))).toEqual([5000, 10000, 15000, 20000, 20000]);
     expect(delays(new ApiError(503, "Busy", { code: "busy" }, 12000))).toEqual([12000, 12000, 15000, 20000, 20000]);
-    expect(delays(new ApiError(503, "Busy", { code: "busy" }, 600000))).toEqual([30000, 30000, 30000, 30000, 30000]);
+    expect(delays(new ApiError(503, "Busy", { code: "busy" }, 600000))).toEqual([65000, 65000, 65000, 65000, 65000]);
     expect(delays(new Error("Failed to fetch"))).toEqual([1000, 2000, 4000, 8000, 8000]);
     expect(computingRetry.retryDelay(1, new ApiError(503, "Busy", { code: "busy" }, 5000))).toBe(10000);
+  });
+  it.each([60_000, 65_000])('honors the full shared quota Retry-After of %i ms in every policy', delay => {
+    const error = new ApiError(503, 'Busy', { code: 'busy' }, delay);
+    for (const policy of [defaultRetry, busyRetry, computingRetry, traderRetry]) expect(policy.retryDelay(0, error)).toBe(delay);
+  });
+  it.each([NaN, Infinity, -Infinity, -1000, 0])('ignores malformed Retry-After %s without scheduling an immediate retry', delay => {
+    const error = new ApiError(503, 'Busy', { code: 'busy' }, delay);
+    for (const policy of [defaultRetry, busyRetry, computingRetry, traderRetry]) expect(policy.retryDelay(0, error)).toBe(5000);
   });
 });

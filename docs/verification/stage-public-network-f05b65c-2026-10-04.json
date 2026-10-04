@@ -1,0 +1,237 @@
+{
+  "at": "2026-10-04T03:08:02.613Z",
+  "retryBusy": true,
+  "results": [
+    {
+      "site": "local",
+      "route": "/health",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "feedConnected": true,
+      "retryAfter": null,
+      "ms": 31,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "items": 5,
+      "retryAfter": null,
+      "ms": 31,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 770,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/portfolio",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 125,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/activity",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 472,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/fills",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "items": 50,
+      "retryAfter": null,
+      "ms": 59,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/orders",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 369,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/twap",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 291,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/transfers",
+      "status": 503,
+      "envelopeValid": true,
+      "contractValid": false,
+      "errorCode": "busy",
+      "retryAfter": "5",
+      "ms": 12005,
+      "attempt": 1
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/transfers",
+      "status": 503,
+      "envelopeValid": true,
+      "contractValid": false,
+      "errorCode": "busy",
+      "retryAfter": "5",
+      "ms": 1786,
+      "attempt": 2
+    },
+    {
+      "site": "local",
+      "route": "/traders/:address/transfers",
+      "status": 503,
+      "envelopeValid": true,
+      "contractValid": false,
+      "errorCode": "busy",
+      "retryAfter": "5",
+      "ms": 17,
+      "attempt": 3
+    },
+    {
+      "site": "stage",
+      "route": "/health",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "feedConnected": true,
+      "retryAfter": null,
+      "ms": 452,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "items": 5,
+      "retryAfter": null,
+      "ms": 274,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 888,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/portfolio",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 230,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/activity",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 754,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/fills",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "items": 50,
+      "retryAfter": null,
+      "ms": 118,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/orders",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 591,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/twap",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 583,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/transfers",
+      "status": 503,
+      "envelopeValid": true,
+      "contractValid": false,
+      "errorCode": "busy",
+      "retryAfter": "5",
+      "ms": 12090,
+      "attempt": 1
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/transfers",
+      "status": 503,
+      "envelopeValid": true,
+      "contractValid": false,
+      "errorCode": "busy",
+      "retryAfter": "5",
+      "ms": 12261,
+      "attempt": 2
+    },
+    {
+      "site": "stage",
+      "route": "/traders/:address/transfers",
+      "status": 200,
+      "envelopeValid": true,
+      "contractValid": true,
+      "retryAfter": null,
+      "ms": 701,
+      "attempt": 3
+    }
+  ]
+}

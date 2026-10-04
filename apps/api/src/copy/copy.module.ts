@@ -57,6 +57,9 @@ import { HyperliquidLiveAccountObserver } from "./live/live-account-observer.js"
 import { CopyLiveMandateController } from "./copy-live-mandate.controller.js";
 import { CopyLiveMandateRepository } from "./copy-live-mandate.repository.js";
 import { CopyLiveMandateService } from "./copy-live-mandate.service.js";
+import { CopyLiveStopController } from './copy-live-stop.controller.js';
+import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
+import { CopyLiveStopService } from './copy-live-stop.service.js';
 import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
 import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
 
@@ -70,7 +73,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule],
-  controllers: [CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController],
+  controllers: [CopyController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController],
   providers: [
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService, CopyAdoptionRepairService, CopyPerformanceService,
@@ -92,7 +95,7 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerMonitor, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService, CopyFollowerSnapshotCollector,
-    CopyLiveMandateRepository, CopyLiveMandateService,
+    CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService,
     { provide: FOLLOWER_SNAPSHOT_READER, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
       new HyperliquidLiveAccountObserver('testnet', weight => budget.acquire(weight, 'background', undefined, { signal: AbortSignal.timeout(5000) }), transport.fetchInfo, Date.now, 5000,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport)) },

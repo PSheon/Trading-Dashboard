@@ -9,9 +9,18 @@ function retryWithBudget(busyBudget: number) {
   };
 }
 
+/** Shared REST charges can retain capacity for a 5 s send window + 60 s.
+ * Ignore malformed hints and bound external values without retrying early
+ * inside that known accounting window. */
+function boundedRetryAfter(error: Error, fallback: number): number {
+  const hint = (error as { retryAfterMs?: number }).retryAfterMs;
+  return typeof hint === 'number' && Number.isFinite(hint) && hint > 0
+    ? Math.min(65_000, Math.max(1_000, hint)) : fallback;
+}
+
 function retryDelay(attempt: number, error: Error) {
   return isBusy(error)
-    ? Math.min(30_000, error.retryAfterMs ?? 5_000)
+    ? boundedRetryAfter(error, 5_000)
     : Math.min(1000 * 2 ** attempt, 30_000);
 }
 
@@ -26,13 +35,12 @@ const permanent = (error: Error) => {
 
 /**
  * CopyDog's trader-page backoff: a 503 waits 5 s, 10 s, 15 s (capped at
- * 20 s) and never less than the api's Retry-After (itself capped at 30 s);
+ * 20 s) and never less than the api's Retry-After (bounded at 65 s);
  * any other failure 1 s, 2 s, 4 s (capped at 8 s).
  */
 export function traderRetryDelay(attempt: number, error: Error): number {
   if ((error as { status?: number }).status !== 503) return Math.min(1000 * 2 ** attempt, 8_000);
-  const retryAfterMs = (error as { retryAfterMs?: number }).retryAfterMs ?? 0;
-  return Math.min(30_000, Math.max(retryAfterMs, Math.min(5_000 * (attempt + 1), 20_000)));
+  return Math.max(boundedRetryAfter(error, 0), Math.min(5_000 * (attempt + 1), 20_000));
 }
 
 /** Silent retries of a trader-page request before its failure shows, as on CopyDog. */

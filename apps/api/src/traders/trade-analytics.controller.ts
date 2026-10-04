@@ -9,6 +9,7 @@ import { CurrentUser, type RequestUser } from "../common/auth/current-user.js";
 import { Public } from "../common/auth/public.decorator.js";
 import type { HistoryCaller } from "./analysis-history.repository.js";
 import { BusyException, BusyFilter } from "./busy.js";
+import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { TradeAnalyticsService } from "./trade-analytics.service.js";
 import { currentRequestClient } from "../runtime/request-context.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "./traders.controller.js";
@@ -92,7 +93,7 @@ export class TradeAnalyticsController {
         this.logger.warn(`Trade analytics ${address}: still computing after ${this.pageDeadlineMs} ms, answered 503 busy`);
       }
       if (error instanceof HttpException) throw error;
-      if (isBusyError(error)) throw new BusyException(BUSY_RETRY_AFTER_MS);
+      if (isBusyError(error)) throw new BusyException(sharedRestRetryAfterMs(error) ?? BUSY_RETRY_AFTER_MS);
       this.logger.error(`Trade analytics ${address}: ${(error as Error).message}`);
       throw new BadGatewayException("Upstream request failed");
     } finally {

@@ -1,6 +1,604 @@
 {
   "openapi": "3.1.0",
   "paths": {
+    "/me/copy/live/mandates/{id}/stop": {
+      "post": {
+        "description": "Persists the exact owner request and known pending execution targets. Does not sign, cancel, close, release reservations, verify flatness or return funds.\n\nAccess: user (owner); durable local risk barrier; no financial execution",
+        "operationId": "CopyLiveStopController_request",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestLiveCopyStopDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                        },
+                        "mandateId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "originalMandateRevision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "requested",
+                            "cancelling",
+                            "closing",
+                            "blocked",
+                            "flat",
+                            "stopped"
+                          ]
+                        },
+                        "desiredAction": {
+                          "type": "string",
+                          "const": "cancel_and_close"
+                        },
+                        "trackedExecutionCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        },
+                        "trackingComplete": {
+                          "type": "boolean"
+                        },
+                        "issue": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]{0,79}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "flatVerifiedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "mandateId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "originalMandateRevision",
+                        "revision",
+                        "state",
+                        "desiredAction",
+                        "trackedExecutionCount",
+                        "trackingComplete",
+                        "issue",
+                        "flatVerifiedAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record my original stop request and block new risk locally",
+        "tags": [
+          "CopyLiveStop"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/stops": {
+      "get": {
+        "description": "Bounded to 100 operations with unfinished operations first. Read only.\n\nAccess: user (owner); bounded durable stop history; read only",
+        "operationId": "CopyLiveStopController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "accountId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128,
+                                "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                              },
+                              "mandateId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128,
+                                "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                              },
+                              "strategyId": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "network": {
+                                "type": "string",
+                                "const": "testnet"
+                              },
+                              "accountAddress": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "originalMandateRevision": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 2147483647
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "requested",
+                                  "cancelling",
+                                  "closing",
+                                  "blocked",
+                                  "flat",
+                                  "stopped"
+                                ]
+                              },
+                              "desiredAction": {
+                                "type": "string",
+                                "const": "cancel_and_close"
+                              },
+                              "trackedExecutionCount": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000
+                              },
+                              "trackingComplete": {
+                                "type": "boolean"
+                              },
+                              "issue": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9_]{0,79}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "flatVerifiedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "accountId",
+                              "mandateId",
+                              "strategyId",
+                              "network",
+                              "accountAddress",
+                              "originalMandateRevision",
+                              "revision",
+                              "state",
+                              "desiredAction",
+                              "trackedExecutionCount",
+                              "trackingComplete",
+                              "issue",
+                              "flatVerifiedAt",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "maxItems": 100
+                        },
+                        "truncated": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "items",
+                        "truncated"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read my durable stop operation history",
+        "tags": [
+          "CopyLiveStop"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
+    "/me/copy/live/stops/by-key/{key}": {
+      "get": {
+        "description": "Does not replay financial work or change the original request.\n\nAccess: user (owner); exact original stop recovery; read only",
+        "operationId": "CopyLiveStopController_byKey",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minLength": 16,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "statusCode",
+                    "message",
+                    "data",
+                    "meta"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "statusCode": {
+                      "type": "integer",
+                      "enum": [
+                        200
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                        },
+                        "mandateId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[^\\s\\p{Cc}\\p{Cf}]+$"
+                        },
+                        "strategyId": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "network": {
+                          "type": "string",
+                          "const": "testnet"
+                        },
+                        "accountAddress": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-f]{40}$"
+                        },
+                        "originalMandateRevision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2147483647
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "requested",
+                            "cancelling",
+                            "closing",
+                            "blocked",
+                            "flat",
+                            "stopped"
+                          ]
+                        },
+                        "desiredAction": {
+                          "type": "string",
+                          "const": "cancel_and_close"
+                        },
+                        "trackedExecutionCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        },
+                        "trackingComplete": {
+                          "type": "boolean"
+                        },
+                        "issue": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]{0,79}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "flatVerifiedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "accountId",
+                        "mandateId",
+                        "strategyId",
+                        "network",
+                        "accountAddress",
+                        "originalMandateRevision",
+                        "revision",
+                        "state",
+                        "desiredAction",
+                        "trackedExecutionCount",
+                        "trackingComplete",
+                        "issue",
+                        "flatVerifiedAt",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ResponseMeta"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "HTTP error. statusCode equals the HTTP status; stable codes/details and dotted validation fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Recover my original stop operation by key",
+        "tags": [
+          "CopyLiveStop"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [],
+        "x-required-roles": []
+      }
+    },
     "/me/referral": {
       "get": {
         "operationId": "ReferralController_me",
@@ -34568,6 +35166,27 @@
       }
     },
     "schemas": {
+      "RequestLiveCopyStopDto": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          },
+          "expectedMandateRevision": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Observed revision of the original approved mandate"
+          }
+        },
+        "required": [
+          "idempotencyKey",
+          "expectedMandateRevision"
+        ],
+        "additionalProperties": false
+      },
       "ReferralCodeDto": {
         "type": "object",
         "properties": {

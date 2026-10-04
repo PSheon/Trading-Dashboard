@@ -7,6 +7,7 @@ import { useCopyAgents } from '@/lib/copy-agents';
 import { useLiveCopyActions, useLiveCopyOverview, liveCopyRenewalEligible } from '@/lib/copy-live';
 import { useI18n } from '@/i18n/provider';
 import { Button } from '@/components/ui/button';
+import { CopyLiveStop } from '@/components/copy/copy-live-stop';
 function useClock(enabled: boolean, anchor: number) {
   const [now, setNow] = useState(0);
   useEffect(() => { if (!enabled) return; const start = Date.now(), mono = performance.now(); let maximum = Math.max(start, anchor); const tick = () => { maximum = Math.max(maximum, Date.now(), start + Math.max(0, performance.now() - mono)); setNow(previous => Math.max(previous, maximum)); }; const timer = window.setInterval(tick, 1000), initial = window.setTimeout(tick, 0); window.addEventListener('focus', tick); document.addEventListener('visibilitychange', tick); return () => { window.clearInterval(timer); window.clearTimeout(initial); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); }; }, [enabled, anchor]);
@@ -32,6 +33,8 @@ function LiveForm({ accounts, authorizations }: { accounts: readonly CopyExecuti
   const pendingDraft = actions.recovery.data?.drafts.find(d => d.strategyId === null);
   const account = accounts.find(a => a.id === selected && a.network === 'testnet'), strategy = query.data?.strategies.find(s => s.id === account?.strategyId), setup = agents.data?.setups.find(s => s.accountId === account?.id && s.state === 'active');
   const mandates = query.data?.mandates.filter(m => m.accountId === account?.id && m.accountAddress === account.address && m.strategyId === account.strategyId) ?? [];
+  const approvedStopMandates = mandates.filter(m => m.activationCursor !== null && m.state !== 'prepared' && m.state !== 'stopped');
+  const stopMandate = approvedStopMandates.find(m => m.state === 'active' || m.state === 'paused' || m.state === 'stopping') ?? approvedStopMandates[0];
   const pendingPreparation = actions.recovery.data?.preparations.find(p => p.accountId === selected);
   const review = [actions.read, actions.renew, actions.prepare, actions.recover].filter(m => m.data && 'intent' in m.data).sort((a, b) => b.submittedAt - a.submittedAt)[0]?.data;
   const now = useClock(Boolean(mandates.length || review), Math.max(query.dataUpdatedAt, actions.read.submittedAt, actions.renew.submittedAt, actions.prepare.submittedAt, actions.recover.submittedAt));
@@ -88,5 +91,6 @@ function LiveForm({ accounts, authorizations }: { accounts: readonly CopyExecuti
         {!uncertain && (m.state === 'active' || m.state === 'paused') ? <><p className="leading-5 text-muted-foreground">{t('copyLive.barrierHint')}</p><div className="flex gap-2"><Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.barrier.mutate({ mandate: m, command: 'pause' })}>{t('copyLive.pause')}</Button><Button size="sm" variant="secondary" disabled={busy} onClick={() => actions.barrier.mutate({ mandate: m, command: 'revoke' })}>{t('copyLive.revoke')}</Button></div></> : null}
       </article>;
     })}
+    <CopyLiveStop selection={account && stopMandate ? { account, mandate: stopMandate } : null}/>
   </section>;
 }

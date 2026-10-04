@@ -15,6 +15,7 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => ({ ...state, wallet: { address: li
 vi.mock('@/lib/api', () => ({ api: { get: state.get, post: state.post }, sessionKey: () => state.session }));
 vi.mock('@/lib/query-policy', () => ({ defaultRetry: { retry: false } }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh() {} }) }));
+vi.mock('@privy-io/react-auth', () => ({ usePrivy: () => ({ user: { id: 'did:privy:owner' } }) }));
 let root: Root, container: HTMLDivElement, client: QueryClient, overview: ReturnType<typeof liveOverview>;
 beforeEach(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); Object.assign(state, { status: 'signedIn', mode: 'privy', identity: 'owner@email', session: '1' }); vi.spyOn(Date, 'now').mockReturnValue(liveNow); window.sessionStorage.clear(); state.get.mockReset(); state.post.mockReset(); state.sign.mockReset().mockResolvedValue(`0x${'aa'.repeat(65)}`); overview = liveOverview(); state.get.mockImplementation((path: string) => Promise.resolve(path === '/me/copy/live' ? overview : path === '/me/copy/agents' ? { available: true, network: 'testnet', setups: [liveSetup] } : { mandate: overview.mandates[0] ?? liveMandate, intent: liveIntent })); state.post.mockImplementation(async (path: string, body: { budgetUsd?: string }) => path.endsWith('/approve') ? { ...liveMandate, state: 'active', revision: 2 } : path.endsWith('/strategies') ? { ...liveStrategy, budgetUsd: body.budgetUsd } : { mandate: liveMandate, intent: liveIntent }); client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.restoreAllMocks(); });
@@ -91,4 +92,22 @@ it('an acknowledged generation does not become expired merely because its histor
   vi.mocked(Date.now).mockReturnValue(liveNow+300000);overview={...overview,mandates:[{...liveMandate,state:'active',revision:2}]};
   state.get.mockImplementation(async(path:string)=>path==='/me/copy/live'?overview:path==='/me/copy/agents'?{available:true,network:'testnet',setups:[liveSetup]}:{...renewalRead(false),mandate:overview.mandates[0],renewal:{...renewalRead(false).renewal,revision:2}});
   await render('en',[renewalGrant]);await select();await click('Check original request');const statuses=[...container.querySelectorAll('article [role="status"]')].map(el=>el.textContent);expect(statuses).toContain(catalogs.en.copyLive.states.active);expect(statuses).not.toContain(catalogs.en.copyLive.states.expired);expect(container.textContent).not.toContain('Prepare new consent generation');
+});
+
+it.each(['revoked', 'expired'] as const)('keeps stopping an approved %s generation available during prepared renewal', async oldState => {
+  overview = { ...overview, mandates: [
+    { ...liveMandate, id: 'new-prepared' },
+    { ...liveMandate, id: 'old-approved', state: oldState, revision: 3, activationCursor: new Date(liveNow).toISOString() },
+  ] };
+  state.get.mockImplementation(async (path: string) => path === '/me/copy/live' ? overview
+    : path === '/me/copy/agents' ? { available: true, network: 'testnet', setups: [liveSetup] }
+    : path === '/me/copy/live/stops' ? { items: [], truncated: false }
+    : { mandate: overview.mandates[0], intent: liveIntent });
+  await render(); await select();
+  const request = [...container.querySelectorAll('button')].find(button => button.textContent === 'Request stop')!;
+  expect(request).toBeTruthy();
+  expect(request.disabled).toBe(false);
+  expect(request.closest('section')?.textContent).toContain('old-approved');
+  expect(state.post).not.toHaveBeenCalled();
+  expect(state.sign).not.toHaveBeenCalled();
 });

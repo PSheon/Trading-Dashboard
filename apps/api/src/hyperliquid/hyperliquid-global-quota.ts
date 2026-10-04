@@ -4,6 +4,7 @@ import {z} from 'zod';
 import {address,LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {LIVE_DEX_NAME,LIVE_PERP_COIN} from '../copy/live/live-market-resolver.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
+import {HyperliquidRestCapacityError} from './hyperliquid-capacity-error.js';
 import type { LiveNetwork } from '../copy/live/wallet-authorization.js';
 export interface HyperliquidQuotaEvent {readonly id:string;readonly kind:'rest'|'ws_message'|'ws_connect';readonly units:number;readonly reservedAt:number;readonly expiresAt:number;}
 export interface HyperliquidQuotaSubscription {readonly id:string;readonly network:LiveNetwork;readonly user:string|null;readonly subscription:Readonly<Record<string,unknown>>;}
@@ -77,7 +78,18 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
     let charged=0;
     const charge=(kind:HyperliquidQuotaEvent['kind'],units:number,id:string,sendUntil:number)=>{
       requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
-      requireQuota(events.filter(e=>e.kind===kind).reduce((sum,e)=>sum+e.units,0)+units<=caps[kind],'hyperliquid_quota_exhausted');
+      const sameKind=events.filter(e=>e.kind===kind);
+      let missing=sameKind.reduce((sum,e)=>sum+e.units,0)+units-caps[kind];
+      if(missing>0&&kind==='rest'){
+        // The first expiry alone may not free enough for this request.
+        // Only retained REST charges contribute; leases are never refunded.
+        for(const event of [...sameKind].sort((a,b)=>a.expiresAt-b.expiresAt)){
+          missing-=event.units;
+          if(missing<=0)throw new HyperliquidRestCapacityError(event.expiresAt-now);
+        }
+        throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+      }
+      requireQuota(missing<=0,'hyperliquid_quota_exhausted');
       events.push({id,kind,units,reservedAt:now,expiresAt:sendUntil+60000});charged=units;
     };
     const active=()=>leases.filter(l=>l.state!=='closed');

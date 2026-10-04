@@ -1573,6 +1573,38 @@ export const copyLiveMandates = pgTable("copy_live_mandates", {
   check("copy_live_mandates_key_check", sql`${t.idempotencyKey} ~ '^[A-Za-z0-9_-]{16,128}$'`),
 ]);
 
+/** A stop request is a durable admission barrier, never evidence of cancelled
+ * exchange orders, flat positions or swept funds. No consent/key is stored. */
+export const copyLiveStopOperations = pgTable("copy_live_stop_operations", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyLiveStrategyConfigs.strategyId, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  mandateId: text("mandate_id").notNull().references(() => copyLiveMandates.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(), originalMandateRevision: integer("original_mandate_revision").notNull(),
+  network: text("network").$type<"testnet">().notNull(), accountAddress: text("account_address").notNull(),
+  ownerPrivyUserId: text("owner_privy_user_id").notNull(), ownerAddress: text("owner_address").notNull(),
+  accountWalletId: text("account_wallet_id").notNull(), accountOwnerQuorumId: text("account_owner_quorum_id").notNull(),
+  originalIntentDigest: text("original_intent_digest").notNull(), originalConsentDigest: text("original_consent_digest").notNull(),
+  desiredAction: text("desired_action").$type<"cancel_and_close">().notNull().default("cancel_and_close"),
+  state: text("state").$type<"requested" | "cancelling" | "closing" | "blocked" | "flat" | "stopped">().notNull().default("requested"),
+  revision: integer("revision").notNull().default(1),
+  targetManifest: jsonb("target_manifest").$type<Record<string, unknown>>().notNull(), targetDigest: text("target_digest").notNull(),
+  trackedExecutionCount: integer("tracked_execution_count").notNull(), trackingComplete: boolean("tracking_complete").notNull(),
+  issue: text("issue"), flatCertificate: jsonb("flat_certificate").$type<Record<string, unknown>>(), flatDigest: text("flat_digest"),
+  flatVerifiedAt: timestamp("flat_verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("copy_live_stops_key_uq").on(t.userId, t.idempotencyKey),
+  uniqueIndex("copy_live_stops_account_uq").on(t.accountId).where(sql`${t.state} <> 'stopped'`),
+  index("copy_live_stops_owner_idx").on(t.userId, t.createdAt),
+  check("copy_live_stops_identity_check", sql`${t.network} = 'testnet' and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.ownerAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.ownerAddress} <> '0x0000000000000000000000000000000000000000' and ${t.ownerAddress} <> ${t.accountAddress} and length(${t.ownerPrivyUserId}) between 1 and 128 and length(${t.accountWalletId}) between 1 and 128 and length(${t.accountOwnerQuorumId}) between 1 and 128`),
+  check("copy_live_stops_request_check", sql`${t.originalMandateRevision} > 0 and ${t.revision} > 0 and ${t.idempotencyKey} ~ '^[A-Za-z0-9_-]{16,128}$' and ${t.desiredAction} = 'cancel_and_close' and ${t.trackedExecutionCount} between 0 and 1000`),
+  check("copy_live_stops_manifest_check", sql`jsonb_typeof(${t.targetManifest}) = 'object' and octet_length(${t.targetManifest}::text) <= 2097152 and ${t.targetDigest} ~ '^[0-9a-f]{64}$' and ${t.originalIntentDigest} ~ '^[0-9a-f]{64}$' and ${t.originalConsentDigest} ~ '^[0-9a-f]{64}$'`),
+  check("copy_live_stops_state_check", sql`${t.state} in ('requested','cancelling','closing','blocked','flat','stopped') and (${t.state} <> 'blocked' or ${t.issue} is not null) and (${t.issue} is null or ${t.issue} ~ '^[a-z][a-z0-9_]{0,79}$') and (${t.trackingComplete} or ${t.state} = 'blocked')`),
+  check("copy_live_stops_flat_check", sql`((${t.state} in ('flat','stopped')) and ${t.flatCertificate} is not null and jsonb_typeof(${t.flatCertificate}) = 'object' and ${t.flatDigest} is not null and ${t.flatDigest} ~ '^[0-9a-f]{64}$' and ${t.flatVerifiedAt} is not null and ${t.flatVerifiedAt} >= ${t.createdAt} and ${t.flatVerifiedAt} <= ${t.updatedAt}) or ((${t.state} not in ('flat','stopped')) and ${t.flatCertificate} is null and ${t.flatDigest} is null and ${t.flatVerifiedAt} is null)`),
+  check("copy_live_stops_time_check", sql`${t.updatedAt} >= ${t.createdAt}`),
+]);
+
 export const copySignerNonces = pgTable("copy_signer_nonces", {
   network: text("network").notNull(), signerAddress: text("signer_address").notNull(), nonce: bigint("nonce", { mode: "number" }).notNull(),
 }, (t) => [primaryKey({ columns: [t.network, t.signerAddress] }),

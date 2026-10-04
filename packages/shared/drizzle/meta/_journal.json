@@ -372,6 +372,13 @@
       "when": 1791068926176,
       "tag": "0052_retain_provider_cleanup_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791083606774,
+      "tag": "0053_durable_live_stop_barrier",
+      "breakpoints": true
     }
   ]
 }

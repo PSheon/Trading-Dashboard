@@ -4,7 +4,8 @@ import { testConfig } from "./config-test-utils.js";
 import { createHash } from "node:crypto";
 
 import type { INestApplication } from "@nestjs/common";
-import { notificationChannels, telegramLinkTokens, users } from "@trading-dashboard/shared/database";
+import { adminSettingsSchema } from "@trading-dashboard/shared/contracts";
+import { appSettings, notificationChannels, telegramLinkTokens, users } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,7 @@ import { TelegramHttpClient, type TelegramUpdate } from "../src/notify/telegram-
 import { TelegramBotService } from "../src/telegram/telegram-bot.service.js";
 import { TelegramController } from "../src/telegram/telegram.controller.js";
 import { TelegramLinkService } from "../src/telegram/telegram-link.service.js";
+import { SettingsService } from "../src/settings/settings.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -98,6 +100,12 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
   let bot: TelegramBotService;
 
   beforeAll(async () => {
+    // Exercise startup with the preceding suite's closed-signup settings.
+    // Resetting SQL between cases must also reset the application's snapshot.
+    await truncateAll(db);
+    await db.insert(appSettings).values({ key: "general", value: {
+      ...adminSettingsSchema.shape.general.parse({}), signupsOpen: false,
+    } });
     ({ app, auth } = await createAuthedApp({
       db,
       privy,
@@ -105,11 +113,13 @@ describe("Telegram linking and the bot — real Postgres, stubbed Bot API", () =
       providers: [NotifyRepository, TelegramLinkRepository, TelegramLinkService, NotifyService, TelegramHttpClient],
     }));
     link = app.get(TelegramLinkService);
+    expect((await app.get(SettingsService).get("general")).signupsOpen).toBe(false);
   });
 
   beforeEach(async () => {
     await truncateAll(db);
     auth.clearCache();
+    app.get(SettingsService).invalidate();
     process.env.TELEGRAM_BOT_TOKEN = "123456:test-token";
     process.env.TELEGRAM_BOT_USERNAME = BOT;
     process.env.TELEGRAM_LINK_BASE_URL = SITE;

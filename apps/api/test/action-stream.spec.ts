@@ -14,6 +14,7 @@ import { ActionsService } from "../src/api/actions/actions.service.js";
 import { AuthService } from "../src/common/auth/auth.service.js";
 import { Public } from "../src/common/auth/public.decorator.js";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
+import { SettingsService } from "../src/settings/settings.service.js";
 import { requestContext } from "../src/runtime/request-middleware.js";
 import { FAVORITES_CHANGED_EVENT } from "../src/users/favorites.service.js";
 import { ACTION_CORRECTED_EVENT, ACTION_CREATED_EVENT } from "../src/watcher/action-created.event.js";
@@ -101,6 +102,9 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
     await waitUntil(() => streams.stats().total === 0);
     await truncateAll(db);
     app.get(AuthService).clearCache();
+    // Bootstrap budget/cap reads can cache the preceding suite's settings
+    // before this fixture truncates SQL. Reset that cache with its rows.
+    app.get(SettingsService).invalidate();
     await db.insert(leaders).values([{ address: WHALE, tier: "A", label: "Whale" }, { address: OTHER, tier: "C" }]);
   });
 

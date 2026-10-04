@@ -1,0 +1,184 @@
+import { createHash } from 'node:crypto';
+import { and, eq, sql } from 'drizzle-orm';
+import { copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
+  copyLivePositionBaselines, copyLiveReductionCarry, copySignerNonces, copyFollowerReceipts, copyLiveRiskReservations } from '@trading-dashboard/shared/database';
+import type { DbExecutor } from '../../db/unit-of-work.js';
+import { Dec } from '../../common/decimal/dec.js';
+import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
+import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
+import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.js';
+import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from './copy-live-source-evidence.js';
+import { planLiveSourceOrder } from './copy-live-source-planner.js';
+import type { LiveSourceSizingEnvelopeV1 } from './copy-live-sizing-evidence.js';
+import { projectLiveGenerationPositions, type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
+import { captureLivePositionBaseline } from './live-position-baseline.js';
+import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
+import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
+import { HyperliquidLiveMarketResolver } from './live-market-resolver.js';
+import { HyperliquidLiveRiskProvider, type LiveRiskProviderOptions } from './live-risk-provider.js';
+import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from './live-order.js';
+import { decodeLiveExecutionRow } from './postgres-live-journal.js';
+import type { LiveExecutionRecord } from './live-execution.js';
+import { address, assertWalletAuthorization, LiveBoundaryError } from './wallet-authorization.js';
+import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
+
+export interface LivePreparationBinding { readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close'; }
+export interface LivePreparationOptions extends LiveRiskProviderOptions { readonly slippageBps: string; }
+/** Stable economic identity, independent of a worker, quote or retry time. */
+export function liveSourceExecutionCloid(mandateId: string, sourceFillId: string, leg: 'open' | 'close'): `0x${string}` {
+  return `0x${createHash('sha256').update(JSON.stringify(['live-copy-v1', mandateId, sourceFillId, leg])).digest('hex').slice(0, 32)}`;
+}
+
+/** Prepares authority, never signs or submits. All remote observations occur
+ * outside SQL; the first baseline, canonical source claim, monotonic nonce,
+ * exact intent and provenance commit together on the original connection. */
+export class PostgresLivePreparation {
+  private readonly options: Readonly<LivePreparationOptions>;
+  private readonly epoch: LiveProviderReadEpoch;
+  constructor(private readonly observer: HyperliquidLiveAccountObserver, private readonly resolver: HyperliquidLiveMarketResolver,
+    private readonly provider: HyperliquidLiveRiskProvider, options: LivePreparationOptions, private readonly now = Date.now, epoch?: LiveProviderReadEpoch) {
+    this.options = Object.freeze(structuredClone(options));
+    riskSourceRequire(Dec.from(options.slippageBps).gte(0) && Dec.from(options.slippageBps).lte(10000), 'live_preparation_options');
+    this.epoch = epoch ?? new LiveProviderReadEpoch(observer, resolver, provider, options, now);
+    riskSourceRequire(this.epoch instanceof LiveProviderReadEpoch, 'live_risk_source_unavailable');
+  }
+  private async checked<T>(session: LiveRiskDatabaseSession, query: PromiseLike<T>): Promise<T> {
+    const result = await query; await session.scope.assertHeld(); return result;
+  }
+  private fresh(started: number): void {
+    const now = this.now();
+    riskSourceRequire(Number.isSafeInteger(now) && now >= started && now - started <= 5000, 'live_risk_stale');
+  }
+  async prepare(session: LiveRiskDatabaseSession, supplied: LivePreparationBinding): Promise<{ intent: LiveOrderIntent; record: LiveExecutionRecord }> {
+    assertOriginalLiveRiskSession(session);
+    const binding = Object.freeze(structuredClone(supplied)), started = this.now();
+    riskSourceRequire(binding && ['open', 'close'].includes(binding.leg) && [binding.accountId, binding.mandateId, binding.sourceFillId].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160), 'live_preparation_binding');
+    const local = await session.read(db => loadLivePreparationAuthority(session, db, binding, started));
+    const cloid = liveSourceExecutionCloid(binding.mandateId, binding.sourceFillId, binding.leg), key = executionKey({ network: 'testnet', accountAddress: address(local.account.address!), cloid });
+    const existing = await session.read(async db => {
+      const [row] = await this.checked(session, db.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key)));
+      if (!row) return null;
+      const [provenance] = await this.checked(session, db.select().from(copyLiveIntentProvenance).where(eq(copyLiveIntentProvenance.key, key)));
+      riskSourceRequire(provenance && provenance.mandateId === binding.mandateId && provenance.legId === liveSourceLegId(binding.mandateId, binding.sourceFillId, binding.leg), 'live_preparation_conflict');
+      const intent = structuredClone(provenance.intent) as unknown as LiveOrderIntent, record = decodeLiveExecutionRow(row);
+      riskSourceRequire(executionKey(intent) === key && record.fingerprint === intentFingerprint(intent, buildOrderAction(intent)) && record.fingerprint === provenance.fingerprint, 'live_preparation_conflict');
+      await session.scope.assertHeld();
+      return { intent, record };
+    });
+    // An original attempted/expired identity is retained, never re-priced or
+    // given another nonce. The executor's reconciliation owns its next step.
+    if (existing) return existing;
+    const source = await session.read(async db => {
+      const [row] = await this.checked(session, db.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, binding.sourceFillId)));
+      riskSourceRequire(row, 'live_preparation_source');
+      const fill = decodeLiveSourceFill(row), [stream] = await this.checked(session, db.select().from(copyLiveSourceStreams).where(eq(copyLiveSourceStreams.id, fill.streamId)));
+      riskSourceRequire(stream?.state === 'ready' && stream.network === local.consent.sourceNetwork && stream.leaderAddress === local.consent.leaderAddress &&
+        fill.leaderAddress === local.consent.leaderAddress && fill.network === local.consent.sourceNetwork && fill.providerTime > local.mandate.activationCursor!.getTime() &&
+        stream.coverageFrom && stream.coverageThrough && stream.coverageDigest && stream.coverageFrom.getTime() <= local.mandate.activationCursor!.getTime() && stream.coverageThrough.getTime() >= fill.providerTime, 'live_preparation_source');
+      const leg = canonicalLiveSourceLegs(fill).find(v => v.leg === binding.leg);
+      riskSourceRequire(leg, 'live_preparation_source');
+      return { fill, leg, stream };
+    });
+    const baselineExists = await session.read(async db => {
+      const rows = await this.checked(session, db.select().from(copyLivePositionBaselines).where(eq(copyLivePositionBaselines.mandateId, binding.mandateId)));
+      return rows.length > 0;
+    });
+    if (!baselineExists) await session.read(db => this.assertFirstAccount(session, db, local.account.id, local.account.address!));
+    const manifest = baselineExists ? await session.read(db => loadLiveGenerationManifest(session, db, local, { currentExecutionKey: key, now: started })) : null;
+    const frames = await this.epoch.collect(session, { accountId: binding.accountId, mandateId: binding.mandateId, key, coin: source.fill.coin,
+      includeLeader: local.settings.sizingMode === 'ratio' && binding.leg === 'open' });
+    riskSourceRequire(frames.authorityDigest === riskSourceDigest(local), 'live_risk_local_changed');
+    const { market, leader, target: quote } = frames, follower = frames.snapshots[local.accounts.findIndex(a => a.id === binding.accountId)]!;
+    await session.scope.assertHeld(); this.fresh(started);
+    const oldest = Math.min(frames.oldest, market.observedAt, quote.earliestObservedAt, follower.observedAt, follower.coverage.earliestProviderTime, ...follower.dexes.map(v => v.providerTime),
+      ...(leader ? [leader.observedAt, leader.coverage.earliestProviderTime, ...leader.dexes.map(v => v.providerTime)] : []));
+    this.fresh(oldest);
+    const planningAt = this.now();
+    const baseline = manifest?.baseline ?? captureLivePositionBaseline({ mandateId: binding.mandateId, accountId: local.account.id, strategyId: local.strategy.id,
+      firstExecutionKey: key, network: 'testnet', accountAddress: local.account.address! }, follower, planningAt);
+    const currentManifest: LiveGenerationManifestV1 = manifest ?? { version: 1, accountId: local.account.id, mandateId: binding.mandateId, checkedAt: planningAt,
+      baseline, journals: [], receipts: [], ledger: [], scan: null, conflicts: [], accountState: null, carry: [] };
+    const legId = liveSourceLegId(binding.mandateId, source.fill.id, binding.leg);
+    let carry = currentManifest.carry.find(v => v.coin === source.fill.coin);
+    const seedCarry = !carry;
+    if (!carry) {
+      riskSourceRequire(!currentManifest.journals.some(v => v.journal.record && (v.journal.record as unknown as LiveExecutionRecord).market?.coin === source.fill.coin), 'live_preparation_carry_missing');
+      carry = { mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(planningAt).toISOString() };
+    }
+    const withCarry: LiveGenerationManifestV1 = { ...currentManifest, carry: seedCarry ? [...currentManifest.carry, carry] : currentManifest.carry };
+    const projection = projectLiveGenerationPositions({ identity: { mandateId: binding.mandateId, mandateRevision: local.mandate.revision, accountId: local.account.id, userId: local.account.userId,
+      strategyId: local.strategy.id, network: 'testnet', accountAddress: local.account.address!, authorizationId: local.grant.id, settingsDigest: local.consent.settingsDigest,
+      leaderAddress: local.consent.leaderAddress, direction: local.settings.direction }, manifest: withCarry, snapshot: follower, currentExecutionKey: key, now: planningAt });
+    const closeLeg = canonicalLiveSourceLegs(source.fill).find(v => v.leg === 'close'), dependsOn = binding.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
+    const dependency = dependsOn ? withCarry.journals.find(v => v.leg?.id === dependsOn) : null;
+    const positionSize = projection.positions[source.fill.coin] ?? '0';
+    const sizing: LiveSourceSizingEnvelopeV1 = { version: 1, basis: { version: 1, mandateId: binding.mandateId, mandateRevision: local.mandate.revision,
+      settingsDigest: local.consent.settingsDigest, sourceFillId: source.fill.id, sourceDigest: source.fill.sourceDigest, network: 'testnet', accountAddress: local.account.address!,
+      coin: source.fill.coin, leg: binding.leg, direction: local.settings.direction, sizingMode: local.settings.sizingMode, budgetUsd: local.consent.budgetUsd,
+      perTradeUsd: local.settings.perTradeUsd === null ? null : Dec.from(local.settings.perTradeUsd).toString(), market,
+      quote: { midPrice: quote.quote.midPrice, slippageBps: Dec.min(Dec.from(this.options.slippageBps), Dec.from(local.limits.maxSlippageBps)).toString(), observedAt: quote.quote.observedAt, completedAt: quote.completedAt, sourceDigest: quote.quote.sourceDigest },
+      follower: { network: 'testnet', accountAddress: follower.accountAddress, equity: follower.perpEquity, positionSize, observedAt: follower.observedAt, completedAt: follower.completedAt,
+        sourceDigest: follower.sourceDigest, snapshotDigest: followerReceiptDigestV1(follower), positionsDigest: projection.positionsDigest },
+      leader: leader ? { network: 'testnet', accountAddress: leader.accountAddress, equity: leader.perpEquity, observedAt: leader.observedAt, completedAt: leader.completedAt, sourceDigest: leader.sourceDigest, snapshotDigest: followerReceiptDigestV1(leader) } : null,
+      generation: { mandateId: binding.mandateId, baselineDigest: projection.baselineDigest, receiptManifestDigest: projection.receiptManifestDigest, positionsDigest: projection.positionsDigest, positionSize },
+      carry: { amount: carry.carry, revision: carry.revision }, fixedTradeClaim: binding.leg === 'open' && local.settings.sizingMode === 'fixed',
+      settledDependency: dependsOn && dependency?.evidence?.settlementDigest ? { legId: dependsOn, certificateDigest: dependency.evidence.settlementDigest } : null },
+      observations: { follower, leader, quote, generationManifest: withCarry } };
+    const plan = planLiveSourceOrder({ mandate: local.mandate, settings: local.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing,
+      now: planningAt, limits: local.limits, currentExecutionKey: key });
+    const intent: LiveOrderIntent = { authorizationId: local.grant.id, userId: local.account.userId, strategyId: local.strategy.id, walletId: local.wallet.privyWalletId,
+      network: 'testnet', accountAddress: address(local.account.address!), cloid, asset: plan.order.asset, side: plan.order.side, size: plan.order.size, limitPrice: plan.order.limitPrice,
+      sizeDecimals: plan.order.sizeDecimals, timeInForce: plan.order.timeInForce, reduceOnly: plan.order.reduceOnly, market,
+      ...(local.consent.builderAddress ? { builder: { address: local.consent.builderAddress, feeTenthsBps: local.consent.builderMaxFeeTenthsOfBps, approvedMaxFeeTenthsBps: local.consent.builderMaxFeeTenthsOfBps } } : {}) };
+    const action = buildOrderAction(intent), fingerprint = intentFingerprint(intent, action);
+    const record = await session.transaction(async tx => {
+      const current = await loadLivePreparationAuthority(session, tx, binding, this.now());
+      riskSourceRequire(riskSourceDigest(current) === riskSourceDigest(local), 'live_risk_local_changed');
+      if (manifest) {
+        const final = await loadLiveGenerationManifest(session, tx, current, { currentExecutionKey: key, now: started });
+        riskSourceRequire(riskSourceDigest(final) === riskSourceDigest(manifest), 'live_preparation_generation_changed');
+      } else await this.assertFirstAccount(session, tx, local.account.id, local.account.address!);
+      const now = this.now(), authorization = assertWalletAuthorization(current.currentAuthorization, intent, now);
+      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now, limits: current.limits, currentExecutionKey: key });
+      const [currentFill] = await this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, source.fill.id)));
+      riskSourceRequire(currentFill && decodeLiveSourceFill(currentFill).sourceDigest === source.fill.sourceDigest, 'live_preparation_source');
+      if (seedCarry) await this.checked(session, tx.insert(copyLiveReductionCarry).values({ mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(planningAt) }));
+      for (const canonical of [...canonicalLiveSourceLegs(source.fill)].sort((a, b) => a.leg === b.leg ? 0 : a.leg === 'close' ? -1 : 1)) {
+        const id = liveSourceLegId(binding.mandateId, source.fill.id, canonical.leg), dependencyId = canonical.leg === 'open' && closeLeg ? liveSourceLegId(binding.mandateId, source.fill.id, 'close') : null;
+        await this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: source.fill.id, ...canonical, dependsOnId: dependencyId, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing());
+      }
+      const [leg] = await this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update'));
+      riskSourceRequire(leg?.state === 'planned' && leg.executionKey === null && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&
+        leg.tradeKey === source.leg.tradeKey && leg.sign === source.leg.sign && leg.size === source.leg.size && leg.fraction === source.leg.fraction && leg.dependsOnId === plan.dependsOnLegId, 'live_preparation_claim_conflict');
+      await this.checked(session, tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-nonce:testnet:${authorization.signerAddress}`}, 2))`));
+      const allocated = await this.checked(session, tx.execute(sql`insert into ${copySignerNonces} (network, signer_address, nonce) values ('testnet', ${authorization.signerAddress}, ${now})
+        on conflict (network, signer_address) do update set nonce = greatest(${now}, ${copySignerNonces}.nonce + 1) returning nonce`));
+      const nonce = Number(allocated.rows[0]?.nonce);
+      riskSourceRequire(Number.isSafeInteger(nonce) && nonce >= now && nonce <= now + 30000, 'nonce_clock_skew');
+      const saved: LiveExecutionRecord = { key, fingerprint, authorization, action, market, nonce, expiresAfter: now + 60000, state: 'prepared', createdAt: now, updatedAt: now };
+      await this.checked(session, tx.insert(copyLiveExecutions).values({ key, network: 'testnet', accountAddress: local.account.address!, signerAddress: authorization.signerAddress,
+        cloid, nonce, userId: local.account.userId, strategyId: local.strategy.id, state: 'prepared', record: saved as unknown as Record<string, unknown>, updatedAt: new Date(now) }));
+      if (!manifest) await this.checked(session, tx.insert(copyLivePositionBaselines).values({ mandateId: baseline.mandateId, firstExecutionKey: key, accountId: baseline.accountId, strategyId: baseline.strategyId,
+        network: baseline.network, accountAddress: baseline.accountAddress, observedAt: new Date(baseline.observedAt), completedAt: new Date(baseline.completedAt), createdAt: new Date(baseline.createdAt),
+        sourceDigest: baseline.sourceDigest, snapshotDigest: baseline.snapshotDigest, baselineDigest: baseline.baselineDigest, record: baseline as unknown as Record<string, unknown>, producerVersion: 1 }));
+      const claimed = await this.checked(session, tx.update(copyLiveSignalLegs).set({ executionKey: key, state: 'prepared', fixedTradeClaim: plan.fixedTradeClaim, revision: leg.revision + 1, updatedAt: new Date(now) })
+        .where(and(eq(copyLiveSignalLegs.id, legId), eq(copyLiveSignalLegs.revision, leg.revision), eq(copyLiveSignalLegs.state, 'planned'))).returning({ id: copyLiveSignalLegs.id }));
+      riskSourceRequire(claimed.length === 1, 'live_preparation_claim_conflict');
+      await this.checked(session, tx.insert(copyLiveIntentProvenance).values({ key, legId, mandateId: binding.mandateId, mandateRevision: current.mandate.revision, sourceDigest: source.fill.sourceDigest,
+        settingsDigest: current.consent.settingsDigest, fingerprint, plannerVersion: 1, intent: intent as unknown as Record<string, unknown>, sizingBasis: sizing as unknown as Record<string, unknown>, admittedAt: new Date(now) }));
+      await session.scope.assertHeld(); this.fresh(started);
+      planLiveSourceOrder({ mandate: current.mandate, settings: current.settings, fill: source.fill, leg: source.leg, sizingBasis: sizing, now: this.now(), limits: current.limits, currentExecutionKey: key });
+      this.fresh(oldest);
+      return saved;
+    });
+    session.scope.assertFresh();
+    this.fresh(started); this.fresh(oldest);
+    return { intent: structuredClone(intent), record: structuredClone(record) };
+  }
+  private async assertFirstAccount(session: LiveRiskDatabaseSession, db: DbExecutor, accountId: string, accountAddress: string): Promise<void> {
+    const history = await this.checked(session, db.select({ key: copyLiveExecutions.key }).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.network, 'testnet'), eq(copyLiveExecutions.accountAddress, accountAddress))).limit(1));
+    const receipts = await this.checked(session, db.select({ key: copyFollowerReceipts.key }).from(copyFollowerReceipts).where(eq(copyFollowerReceipts.accountId, accountId)).limit(1));
+    const liabilities = await this.checked(session, db.select({ key: copyLiveRiskReservations.key }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.accountId, accountId)).limit(1));
+    if (history.length || receipts.length || liabilities.length) throw new LiveBoundaryError('live_preparation_baseline_missing');
+  }
+}

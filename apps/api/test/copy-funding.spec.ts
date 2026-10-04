@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
 import { eq } from "drizzle-orm";
 import { copyExecutionAccounts, copyFundingOperations, copyStrategies, users } from "@trading-dashboard/shared/database";
@@ -16,7 +16,7 @@ import { testConfig } from "./config-test-utils.js";
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const MAIN = signer.address.toLowerCase(), DEST = `0x${"22".repeat(20)}`, HASH = `0x${"aa".repeat(32)}`;
 const db = getTestDb();
-const exchange = { available: vi.fn(async () => true), acquire: vi.fn(async () => {}), send: vi.fn(async (): Promise<unknown> => ({ status: "ok", response: { type: "default" } })), txDetails: vi.fn(async () => null as unknown) };
+const exchange = { available: vi.fn(async () => true), acquire: vi.fn(async () => {}), send: vi.fn<import('../src/copy/copy-funding-exchange.client.js').CopyFundingExchangeClient['send']>(async (): Promise<unknown> => ({ status: "ok", response: { type: "default" } })), txDetails: vi.fn(async () => null as unknown) };
 const info = { userNonFundingLedgerUpdates: vi.fn(async () => [] as Array<{ time: number; hash: string; delta: Record<string, unknown> }>) };
 const provider = { available: true, create: vi.fn(), findOwned: vi.fn(async () => ({ id: "provider-wallet", address: DEST, externalId: "copy_funding_test", ownerQuorumId: "quorum" })) };
 let userId: number, otherId: number, strategyId: number, service: CopyFundingService, repository: CopyFundingRepository;
@@ -33,6 +33,7 @@ beforeEach(async () => {
   provider.findOwned.mockResolvedValue({ id: "provider-wallet", address: DEST, externalId: "copy_funding_test", ownerQuorumId: "quorum" });
 });
 afterAll(closeTestDb);
+afterEach(() => vi.restoreAllMocks());
 const reserve = (amount = "12.500000", idempotencyKey = randomUUID()) => service.reserve(userId, "test-account", { amount, idempotencyKey });
 async function signature(op: Awaited<ReturnType<typeof reserve>>) {
   // Independent vector: don't derive expected signing fields from the production builder.
@@ -99,6 +100,19 @@ describe("durable strategy funding", () => {
     expect(current.status).toBe("accepted"); expect(current.attemptedAt).not.toBeNull();
     expect(JSON.stringify(current)).not.toContain(sig);
     await expect(reserve()).rejects.toThrow("pending");
+  });
+
+  it('carries wallet identity age across global admission to the native funding POST', async () => {
+    const op = await reserve(); await service.claim(userId, op.id); let nativeCalls = 0;
+    exchange.send.mockImplementation(async (_operation, _signature, guard) => {
+      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
+      try { if (!guard) throw new Error('missing native funding guard'); guard(); nativeCalls++; return { status: 'ok', response: { type: 'default' } }; }
+      finally { clock.mockRestore(); }
+    });
+    expect((await service.submit(userId, op.id, await signature(op))).status).toBe('unknown');
+    expect(exchange.send.mock.calls[0][2]).toEqual(expect.any(Function)); expect(nativeCalls).toBe(0);
+    await service.submit(userId, op.id, await signature(op)); expect(exchange.send).toHaveBeenCalledTimes(1);
+    expect((await repository.find(userId, op.id)).attemptedAt).not.toBeNull();
   });
   it("refuses signatures for changed amount, destination or nonce before querying funds", async () => {
     const op = await reserve(); await service.claim(userId, op.id);

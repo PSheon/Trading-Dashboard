@@ -25,6 +25,7 @@ import { WalletModule } from "./wallet/wallet.module.js";
 import { CopyModule } from "./copy/copy.module.js";
 import { WatcherModule } from "./watcher/watcher.module.js";
 import { RetentionWorkerModule } from "./retention/retention.module.js";
+import { ReferralModule } from './referral/referral.module.js';
 
 @Module({
   imports: [RuntimeConfigModule,
@@ -46,6 +47,7 @@ import { RetentionWorkerModule } from "./retention/retention.module.js";
     UsersModule,
     WalletModule,
     CopyModule,
+    ReferralModule,
     TelegramModule,
     TradersModule,
     TradersWorkerModule,

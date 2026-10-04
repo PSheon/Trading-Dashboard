@@ -1,0 +1,3 @@
+ALTER TABLE "hyperliquid_ws_leases" ADD COLUMN "cleanup_evidence" jsonb;--> statement-breakpoint
+ALTER TABLE "hyperliquid_ws_leases" ADD COLUMN "cleanup_evidence_digest" text;--> statement-breakpoint
+ALTER TABLE "hyperliquid_ws_leases" ADD CONSTRAINT "hyperliquid_ws_cleanup_evidence_check" CHECK (("hyperliquid_ws_leases"."cleanup_evidence" is null and "hyperliquid_ws_leases"."cleanup_evidence_digest" is null) or ("hyperliquid_ws_leases"."cleanup_evidence" is not null and "hyperliquid_ws_leases"."cleanup_evidence_digest" is not null and jsonb_typeof("hyperliquid_ws_leases"."cleanup_evidence") = 'object' and pg_column_size("hyperliquid_ws_leases"."cleanup_evidence") <= 524288 and "hyperliquid_ws_leases"."cleanup_evidence_digest" ~ '^[0-9a-f]{64}$'));

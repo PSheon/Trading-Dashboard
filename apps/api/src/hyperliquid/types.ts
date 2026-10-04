@@ -199,6 +199,7 @@ export interface HlDelegatorSummary {
 
 export type HlInfoRequestBody =
   | { type: "meta"; dex?: string }
+  | { type: "allPerpMetas" }
   | { type: "perpDexs" }
   | { type: "clearinghouseState"; user: string; dex?: string }
   | {

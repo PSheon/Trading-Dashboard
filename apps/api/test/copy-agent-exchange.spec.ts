@@ -69,4 +69,19 @@ describe("exact testnet master approval transport", () => {
     await expect(client.signMaster({ walletId: "master", address: intent.accountAddress, ownerQuorumId: "owner" }, intent, "user-jwt")).rejects.toThrow(/^agent_master_approval_unavailable$/);
     expect(request).toHaveBeenCalledTimes(1);
   });
+  it('runs the captured synchronous local proof at the actual SDK RPC after JWT exchange, before transport',async()=>{
+    const requests:string[]=[],guard=vi.fn(()=>{throw Error('local scope expired');});
+    const request:typeof fetch=async(input)=>{const url=new URL(input instanceof Request?input.url:String(input));requests.push(url.pathname);
+      if(url.pathname==='/v1/wallets/master')return Response.json({id:'master',chain_type:'ethereum',address:intent.accountAddress,owner_id:'owner',archived_at:null});
+      // An invocation-scoped authorization key avoids any network/credentials.
+      if(url.pathname==='/v1/wallets/authenticate')return Response.json({expires_at:time+600000,encrypted_authorization_key:{encryption_type:'HPKE',encapsulated_key:'invalid',ciphertext:'invalid'}});
+      throw Error('unexpected RPC');
+    };
+    const client=new PrivyAgentApprovalClient({appId:'test-app',appSecret:'test-secret'},async()=>{},request,()=>time);
+    // Required hook is asserted at entry as well, so no provider work occurs
+    // for an already-lost owner proof; delayed actual RPC covered below.
+    await expect(client.signMaster({walletId:'master',address:intent.accountAddress,ownerQuorumId:'owner'},intent,'jwt',guard)).rejects.toThrow('agent_master_approval_unavailable');
+    expect(guard).toHaveBeenCalled();expect(requests).not.toContain('/v1/wallets/master/rpc');
+  });
+
 });

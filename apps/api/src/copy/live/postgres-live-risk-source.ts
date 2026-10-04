@@ -11,18 +11,26 @@ import { loadLiveRiskAuthority, riskSourceDigest, riskSourceRequire as requirePr
 import { buildOrderAction, executionKey, intentFingerprint } from './live-order.js';
 import { freezeLiveReservation, planLiveReservation, validateLiveReservationPayload } from './live-risk-reservation.js';
 import { Dec } from '../../common/decimal/dec.js';
-import { ceilDecimalProduct } from './live-risk-rounding.js';
+import { calculateLiveExternalExposure } from './live-external-exposure.js';
+import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.js';
+import { projectLiveGenerationPositions,type LiveGenerationManifestV1 } from './copy-live-generation-projection.js';
+import { decodeLiveSourceSizingEnvelope,planLiveSourceOrder } from './copy-live-source-planner.js';
+import { canonicalLiveSourceLegs } from './copy-live-source-evidence.js';
+import type { LiveReservationStored } from './live-risk-reservation.js';
+import {LiveProviderReadEpoch} from './live-provider-read-epoch.js';
+type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1};
 export interface BoundPostgresLiveRiskSource { readonly proofSource:LiveAccountRiskProofSource; forHold():Promise<LiveAccountRiskInput>; }
 export interface LiveRiskSourceBinding { readonly accountId:string; readonly key:string; }
 const same=(a:unknown,b:unknown)=>isDeepStrictEqual(JSON.parse(JSON.stringify(a)),JSON.parse(JSON.stringify(b)));
 /** Unregistered concrete fixed-network proof producer. No caller arrays, paper
  * cash, cached permits, replacement SQL connections or financial provider I/O. */
 export class PostgresLiveRiskSource {
-  private readonly options:Readonly<LiveRiskProviderOptions>;
-  constructor(private readonly observer:HyperliquidLiveAccountObserver,private readonly resolver:HyperliquidLiveMarketResolver,
-    private readonly remote:HyperliquidLiveRiskProvider,private readonly reservations:PostgresLiveReservations,options:LiveRiskProviderOptions,private readonly now=Date.now) {
+  private readonly epoch:LiveProviderReadEpoch;
+  constructor(observer:HyperliquidLiveAccountObserver,resolver:HyperliquidLiveMarketResolver,
+    remote:HyperliquidLiveRiskProvider,private readonly reservations:PostgresLiveReservations,options:LiveRiskProviderOptions,private readonly now=Date.now,epoch?:LiveProviderReadEpoch) {
     requireProof(observer instanceof HyperliquidLiveAccountObserver&&resolver instanceof HyperliquidLiveMarketResolver&&remote instanceof HyperliquidLiveRiskProvider&&reservations instanceof PostgresLiveReservations,'live_risk_source_unavailable');
-    this.options=freezeLiveReservation(structuredClone(options));
+    requireProof(epoch===undefined||epoch instanceof LiveProviderReadEpoch,'live_risk_source_unavailable');
+    this.epoch=epoch??new LiveProviderReadEpoch(observer,resolver,remote,options,now);
   }
   private fresh(at:number) {const now=this.now();requireProof(Number.isSafeInteger(at)&&Number.isSafeInteger(now)&&now>=at&&now-at<=5000,'live_risk_stale');}
   bind(session:LiveRiskDatabaseSession,raw:LiveRiskSourceBinding):BoundPostgresLiveRiskSource {
@@ -30,37 +38,71 @@ export class PostgresLiveRiskSource {
     const binding=Object.freeze(structuredClone(raw));requireProof(binding&&typeof binding.accountId==='string'&&binding.accountId.length>0&&typeof binding.key==='string'&&binding.key.length>0,'live_risk_identity');
     const read=async(supplied?:Parameters<LiveAccountRiskProofSource['read']>[0]):Promise<LiveAccountRiskInput>=>{
       session.scope.assertFresh();const started=this.now(),input=supplied?structuredClone(supplied):undefined;
-      const local=await session.read(db=>loadLiveRiskAuthority(session,db,binding,this.now()));this.fresh(started);
+      const local=await this.load(session,binding,started);this.fresh(started);
       if(input) requireProof(['sign','submit'].includes(input.phase)&&(input.phase==='sign'?local.record.state==='prepared':local.record.state==='submitting')&&same(input.record,local.record)&&executionKey(input.intent)===binding.key&&intentFingerprint(input.intent,buildOrderAction(input.intent))===local.record.fingerprint,'live_risk_record_mismatch');
       else requireProof(local.record.state==='prepared','live_risk_record_mismatch');
       const owned=input?await this.reservations.read(session,{accountId:binding.accountId,ownKey:binding.key}):undefined;
-      await this.validateSizingAndGeneration(session,local);
-      const marketWork=this.resolver.resolve(local.fill.coin),accountsWork=Promise.all(local.accounts.map(a=>this.observer.observe(a.address!)));
-      void accountsWork.catch(()=>{});
-      const market=await marketWork;await session.scope.assertHeld();requireProof(local.intent.market&&same(marketIdentityKey(market),marketIdentityKey(local.intent.market)),'live_risk_market');
-      const targetWork=this.remote.observe(local.identity.accountAddress,market,this.options);void targetWork.catch(()=>{});
-      const snapshots=await accountsWork;await session.scope.assertHeld();for(let i=0;i<snapshots.length;i++)this.validateSnapshot(snapshots[i]!,local.accounts[i]!.address!);
-      const current=snapshots[local.accounts.findIndex(a=>a.id===binding.accountId)]!,target=await targetWork;await session.scope.assertHeld();
-      const coins=[...new Set([...current.positions.map(p=>p.coin),...current.restingOrders.map(o=>o.coin),market.coin])];requireProof(coins.length<=16,'live_risk_market_coverage_unbounded');
-      const others=await Promise.all(coins.filter(coin=>coin!==market.coin).map(async coin=>{const m=await this.resolver.resolve(coin);await session.scope.assertHeld();const p=await this.remote.observe(local.identity.accountAddress,m,this.options);await session.scope.assertHeld();return p;}));
+      const sizing=this.validateSizing(local);
+      const frames=await this.epoch.collect(session,{accountId:binding.accountId,mandateId:local.row.mandate.id,key:binding.key,coin:local.fill.coin});await session.scope.assertHeld();
+      requireProof(frames.authorityDigest===riskSourceDigest(local.preparation),'live_risk_local_changed');this.fresh(frames.oldest);
+      const {market,snapshots,target,others}=frames;
+      requireProof(local.intent.market&&same(marketIdentityKey(market),marketIdentityKey(local.intent.market)),'live_risk_market');
+      requireProof(snapshots.length===local.accounts.length,'live_risk_user_coverage_unproven');for(let i=0;i<snapshots.length;i++)this.validateSnapshot(snapshots[i]!,local.accounts[i]!.address!);
+      const current=snapshots[local.accounts.findIndex(a=>a.id===binding.accountId)]!;
       // Provider calls finish before the uncached second SQL read.
-      const final=await session.read(db=>loadLiveRiskAuthority(session,db,binding,this.now()));requireProof(riskSourceDigest(local)===riskSourceDigest(final),'live_risk_local_changed');
-      const localSource={checkedAt:started,sourceDigest:riskSourceDigest(local)},intent=freezeLiveReservation({...local.intent,market}),action=buildOrderAction(intent),checkedAt=this.now();
+      const final=await this.load(session,binding,started);requireProof(riskSourceDigest(local)===riskSourceDigest(final),'live_risk_local_changed');
+      this.validateGeneration(local,current,owned?.own);
+      const localSource={checkedAt:Math.min(started,sizing.oldest,frames.oldest,market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt),
+        ...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)])),sourceDigest:riskSourceDigest(local)},
+        intent=freezeLiveReservation({...local.intent,market}),action=buildOrderAction(intent),checkedAt=this.now();
       const leverageProofs=[...target.leverageProofs,...others.flatMap(p=>p.leverageProofs)];
       const base={now:checkedAt,identity:local.identity,localSource,intent,action,market,accountSource:{accountId:binding.accountId,userId:local.identity.userId,strategyId:local.identity.strategyId,network:'testnet' as const,accountAddress:local.identity.accountAddress,checkedAt,sourceDigest:current.sourceDigest,quarantined:false,snapshot:current},policy:local.policy,strategy:{version:local.identity.strategyVersion,settings:local.settings,allocatedUsd:local.consent.budgetUsd},controls:local.controls,quote:target.quote,leverageProofs,fees:target.fees,signal:{kind:'fill' as const,leaderSide:local.fill.side,price:local.fill.px,at:local.fill.providerTime},userExposureProof:this.userExposure(local,snapshots,market.coin,Dec.max(Dec.from(target.quote.midPrice),Dec.from(target.quote.markPrice),Dec.from(intent.limitPrice)),started,owned?.own)};
       let reservations:LiveAccountRiskInput['reservations'];
       if(owned) reservations=owned;
       else {
-        const candidate=planLiveReservation({...base,leverage:leverageProofs.find(p=>p.coin===market.coin)!,expiresAt:local.record.expiresAfter}),views=this.reservationViews(local),liabilities=views.filter(r=>r.accountId===binding.accountId&&r.key!==binding.key);
+        const candidate=planLiveReservation({...base,intent:local.intent,leverage:leverageProofs.find(p=>p.coin===market.coin)!,expiresAt:local.record.expiresAfter}),views=this.reservationViews(local),liabilities=views.filter(r=>r.accountId===binding.accountId&&r.key!==binding.key);
         requireProof(!views.some(r=>r.key===binding.key),'live_risk_hold_already_exists');
         reservations={accountId:binding.accountId,userId:local.identity.userId,network:'testnet',accountAddress:local.identity.accountAddress,checkedAt:started,sourceDigest:riskSourceDigest({candidate,liabilities,started}),complete:true,own:{...candidate,state:'held',exchangeOrderId:null},others:liabilities};
       }
-      const proof=freezeLiveReservation({...base,reservations});session.scope.assertFresh();this.fresh(started);
+      const proof=freezeLiveReservation({...base,reservations});session.scope.assertFresh();this.fresh(localSource.checkedAt);
       this.fresh(Math.min(...snapshots.flatMap(s=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)]),market.observedAt,target.earliestObservedAt,...others.map(p=>p.earliestObservedAt)));return proof;
     };
     return Object.freeze({forHold:()=>read(),proofSource:Object.freeze({read:async (input:Parameters<LiveAccountRiskProofSource['read']>[0])=>{const proof=await read(input);return Object.freeze({proof,assertHeld:()=>{session.scope.assertFresh();this.fresh(proof.localSource.checkedAt);}});}})});
   }
-  private async validateSizingAndGeneration(_session:LiveRiskDatabaseSession,local:LiveRiskAuthority):Promise<void> {requireProof(local.baseline,'live_risk_baseline_unproven');throw new LiveBoundaryError('live_risk_generation_unproven');}
+  private async load(session:LiveRiskDatabaseSession,binding:LiveRiskSourceBinding,observedAt:number):Promise<CollectedAuthority> {
+    return session.read(async db=>{const local=await loadLiveRiskAuthority(session,db,binding,this.now());
+      requireProof(local.baseline,'live_risk_baseline_unproven');
+      const generation=await loadLiveGenerationManifest(session,db,local.preparation,{currentExecutionKey:binding.key,now:observedAt});return {...local,generation};});
+  }
+  private validateSizing(local:CollectedAuthority) {
+    try {
+      const envelope=decodeLiveSourceSizingEnvelope(local.provenance.sizingBasis),leg=canonicalLiveSourceLegs(local.fill).find(l=>l.leg===local.row.leg.leg)!;
+      const planned=planLiveSourceOrder({mandate:local.row.mandate,settings:local.settings,fill:local.fill,leg,sizingBasis:envelope,now:local.record.createdAt,limits:local.policy.limits,currentExecutionKey:local.binding.key});
+      const i=local.intent;
+      requireProof(same(planned.order,{coin:i.market!.coin,asset:i.asset,side:i.side,size:i.size,limitPrice:i.limitPrice,sizeDecimals:i.sizeDecimals,reduceOnly:i.reduceOnly,timeInForce:i.timeInForce})&&
+        planned.legId===local.row.leg.id&&planned.fixedTradeClaim===local.row.leg.fixedTradeClaim&&planned.dependsOnLegId===local.row.leg.dependsOnId&&
+        envelope.basis.generation.baselineDigest===local.baseline!.baselineDigest,'live_risk_generation_unproven');
+      const snapshotTimes=(s:LiveAccountSnapshot)=>[s.observedAt,s.completedAt,s.coverage.earliestProviderTime,...s.dexes.map(d=>d.providerTime)];
+      const o=envelope.observations,oldest=Math.min(local.provenance.admittedAt.getTime(),envelope.basis.market.observedAt,envelope.basis.quote.observedAt,o.quote.earliestObservedAt,
+        o.generationManifest.checkedAt,...snapshotTimes(o.follower),...(o.leader?snapshotTimes(o.leader):[]));this.fresh(oldest);
+      return {envelope,oldest};
+    }catch(error){if(error instanceof LiveBoundaryError&&error.code==='live_risk_stale')throw error;throw new LiveBoundaryError('live_risk_generation_unproven');}
+  }
+  private validateGeneration(local:CollectedAuthority,snapshot:LiveAccountSnapshot,owned?:LiveRiskReservation) {
+    const basis=decodeLiveSourceSizingEnvelope(local.provenance.sizingBasis).basis;
+    let held:LiveReservationStored|undefined;
+    if(local.record.state==='submitting'){
+      const row=local.liabilities.find(entry=>entry.reservation.key===local.binding.key)?.reservation;
+      requireProof(owned&&owned.state==='held'&&owned.key===local.binding.key&&owned.fingerprint===local.record.fingerprint&&row&&row.state==='held'&&row.attemptedAt===null&&row.exchangeOrderId===null,'live_risk_generation_unproven');
+      held={payload:validateLiveReservationPayload(row.payload),state:row.state,revision:row.revision,attemptedAt:null,exchangeOrderId:null,releaseEvidenceDigest:row.releaseEvidenceDigest,updatedAt:row.updatedAt.getTime()};
+    }
+    const projection=projectLiveGenerationPositions({identity:{mandateId:local.row.mandate.id,mandateRevision:local.row.mandate.revision,accountId:local.identity.accountId,userId:local.identity.userId,
+      strategyId:local.identity.strategyId,network:'testnet',accountAddress:local.identity.accountAddress,authorizationId:local.identity.authorizationId,settingsDigest:local.consent.settingsDigest,
+      leaderAddress:local.consent.leaderAddress,direction:local.settings.direction},manifest:local.generation,snapshot,currentExecutionKey:local.binding.key,now:this.now(),...(held?{ownSubmittingReservation:held}:{})});
+    const carry=local.generation.carry.find(c=>c.coin===local.fill.coin);
+    requireProof(projection.baselineDigest===basis.generation.baselineDigest&&projection.positionsDigest===basis.generation.positionsDigest&&projection.receiptManifestDigest===basis.generation.receiptManifestDigest&&
+      (projection.positions[local.fill.coin]??'0')===basis.generation.positionSize&&carry&&carry.revision===basis.carry.revision&&carry.carry===basis.carry.amount,'live_risk_generation_unproven');
+  }
   private validateSnapshot(s:LiveAccountSnapshot,accountAddress:string) {
     requireProof(s.network==='testnet'&&s.accountAddress===accountAddress&&s.role==='user'&&s.accountMode==='standard'&&s.accountAbstraction==='disabled'&&s.coverage.complete&&s.coverage.balanceComplete&&s.coverage.orderComplete&&s.coverage.unobservedOrderDexes.length===0&&s.dexes.length===s.coverage.listedDexes.length&&new Set(s.dexes.map(d=>d.dex)).size===s.dexes.length&&s.coverage.listedDexes.every(d=>s.dexes.some(v=>v.dex===d)),'live_risk_user_coverage_unproven');
     for(const d of s.dexes)if(!d.supported)requireProof(['equity','rawUsd','marginUsed','withdrawable','exposureUsd','crossEquity','crossMarginUsed','crossExposureUsd','crossMaintenanceMarginUsed'].every(k=>Dec.from(d[k as keyof typeof d] as string).isZero)&&!s.positions.some(p=>p.dex===d.dex)&&!s.restingOrders.some(o=>o.dex===d.dex),'live_risk_user_coverage_unproven');
@@ -75,13 +117,12 @@ export class PostgresLiveRiskSource {
       return freezeLiveReservation({...p,state:r.state as 'held'|'resting',exchangeOrderId:r.exchangeOrderId});
     });
   }
-  private userExposure(local:LiveRiskAuthority,snapshots:LiveAccountSnapshot[],coin:string,riskPrice:Dec,checkedAt:number,owned?:LiveRiskReservation):LiveAccountRiskInput['userExposureProof'] {
+  private userExposure(local:LiveRiskAuthority,snapshots:readonly LiveAccountSnapshot[],coin:string,riskPrice:Dec,checkedAt:number,owned?:LiveRiskReservation):LiveAccountRiskInput['userExposureProof'] {
     const liabilities=this.reservationViews(local,owned);let total=Dec.ZERO,specific=Dec.ZERO;
     for(let i=0;i<snapshots.length;i++) {
       const account=local.accounts[i]!,snapshot=snapshots[i]!;if(account.id===local.identity.accountId)continue;
-      for(const p of snapshot.positions){const value=p.coin===coin?Dec.max(Dec.from(p.positionValue),ceilDecimalProduct([Dec.from(p.size).abs(),riskPrice])):Dec.from(p.positionValue);total=total.add(value);if(p.coin===coin)specific=specific.add(value);}
-      for(const o of snapshot.restingOrders)if(!o.reduceOnly){total=total.add(o.notionalUsd);if(o.coin===coin)specific=specific.add(o.notionalUsd);}
-      for(const r of liabilities.filter(r=>r.accountId===account.id&&!r.intent.reduceOnly)){if(snapshot.restingOrders.some(o=>o.oid===r.exchangeOrderId||o.cloid===r.intent.cloid))continue;requireProof(r.state==='held','live_risk_liability_unknown');total=total.add(r.notionalUsd);if(r.intent.market!.coin===coin)specific=specific.add(r.notionalUsd);}
+      const exposure=calculateLiveExternalExposure({now:this.now(),accountId:account.id,accountAddress:account.address!,coin,riskPrice:riskPrice.toString(),snapshot,reservations:liabilities.filter(r=>r.accountId===account.id)});
+      total=total.add(exposure.exposureUsd);specific=specific.add(exposure.coinExposureUsd);
     }
     return {userId:local.identity.userId,checkedAt,sourceDigest:riskSourceDigest({accounts:local.accounts,snapshots,liabilities,recent:local.recent,coin,checkedAt}),network:'testnet',coin,excludedAccountId:local.identity.accountId,excludedExecutionKey:local.binding.key,complete:true,otherAccountsExposureUsd:total.toString(),otherAccountsCoinExposureUsd:specific.toString(),ordersLastMinuteExcludingOwn:local.recent.length};
   }

@@ -2,6 +2,12 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# The only audit exception has an installed patch and required exploit tests.
+# `pnpm audit --ignore` writes configuration and exits; CI runs an actual audit.
+auditConfig:
+  ignoreCves:
+    - CVE-2026-93687
+
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

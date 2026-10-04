@@ -32,7 +32,9 @@ Git 歷史和前端輸出，以及 Railway Stage 的匿名 HTTP 與設定檢查�
 不等於已完成最新 production 線上稽核。
 
 CI 先執行已安裝套件的漏洞重現與相容性測試，之後才對 **CVE-2026-93687 這一項**
-使用 `pnpm audit --ignore`。測試要求所有已安裝 braces 都是已修補的 3.0.3，
+使用版本化 `auditConfig.ignoreCves` 例外，再執行真正的 `pnpm audit --audit-level moderate`。
+2026-10-04 發現原本 `pnpm audit --ignore` 只會寫入例外設定後退出，沒有進行稽核，已修正 CI。
+測試要求所有已安裝 braces 都是已修補的 3.0.3，
 並實際驗證每個實例的深度限制；不能讓例外涵蓋另一個未修補版本。
 其他 Moderate/High/Critical 公告仍會使 CI 失敗。
 上游修補版可用後，需評估相容性，移除本地 patch、CVE 例外及其暫時性版本限制。

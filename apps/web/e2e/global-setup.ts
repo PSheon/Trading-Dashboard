@@ -15,6 +15,7 @@ import type { FullConfig } from "@playwright/test";
 const SAMPLE: Record<string, string> = {
   "[address]": "0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f",
   "[coin]": "BTC",
+  "[code]": "REFERRAL",
   "[id]": "2",
   "[[...preview]]": "",
   "[...missing]": "no-such-page",

@@ -53,7 +53,13 @@ export const liveCopyMandateSchema = z.object({
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 }).strict();
 export type LiveCopyMandate = z.infer<typeof liveCopyMandateSchema>;
-export const liveCopyMandateChallengeSchema = z.object({ mandate: liveCopyMandateSchema, intent: liveCopyMandateIntentSchema }).strict();
+export const liveCopyMandateRenewalSchema = z.object({ checkedAt: z.string().datetime(), eligible: z.boolean(),
+  reason: z.enum(['prepared_consent_expired', 'generation_expired', 'revoked']).nullable(), mandateId: z.string().min(1).max(128), revision: z.number().int().positive(), nonce: millis,
+}).strict().refine(v => v.eligible === (v.reason !== null));
+export const liveCopyMandateChallengeSchema = z.object({ mandate: liveCopyMandateSchema, intent: liveCopyMandateIntentSchema, renewal: liveCopyMandateRenewalSchema.optional() }).strict().superRefine((v, ctx) => {
+  if (v.renewal && (v.renewal.mandateId !== v.mandate.id || v.renewal.revision !== v.mandate.revision || v.renewal.nonce !== v.intent.nonce))
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Renewal evidence must refer to the original consent generation' });
+});
 export const liveCopyOverviewSchema = z.object({
   mode: z.literal('actual'), network: z.literal('testnet'),
   capabilities: z.object({ strategyPreparation: z.boolean(), automaticExecution: z.boolean(), sourceNetworks: z.array(z.enum(['testnet', 'mainnet'])) }).strict(),

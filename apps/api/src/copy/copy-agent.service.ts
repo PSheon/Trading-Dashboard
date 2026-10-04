@@ -72,6 +72,12 @@ export class CopyAgentService {
     const now = Date.now();
     if (!Number.isSafeInteger(checkedAt) || checkedAt > now || now - checkedAt > 5_000) throw new ConflictException("agent_identity_evidence_expired");
   }
+  private assertConsentFresh(intent: AgentConsentIntent, checkedAt: number) {
+    this.assertFresh(checkedAt);
+    this.enabled();
+    if (intent.network !== this.config.value.hyperliquid.wallet.network || intent.workerQuorumId !== this.provider.configuredWorkerQuorumId ||
+      Date.now() >= intent.consentExpiresAt || Date.now() >= intent.expiresAt) throw new ConflictException("agent_consent_expired");
+  }
   async reconcile(userId: number, id: string): Promise<CopyAgentSetup> {
     this.enabled();
     let row = await this.repository.refreshGrant(await this.repository.find(userId, id));
@@ -138,7 +144,8 @@ export class CopyAgentService {
     if (row.state === "approval_unknown" || row.state === "approval_signing") return this.reconcile(userId, id);
     if (row.state !== "ready" || !userJwt) throw new ConflictException("agent_consent_required");
     const intent = consent(row);
-    const { owner, account } = await this.assertSetup(userId, row);
+    const initialProof = await this.assertSetup(userId, row);
+    const { owner, account } = initialProof;
     if (!owner.embeddedWalletAddress || !await verifyAgentOwnerConsent(owner.embeddedWalletAddress, intent, consentSignature)) throw new BadRequestException("invalid_agent_consent");
     const claimed = await this.uow.run(async tx => {
       await this.repository.assertCurrent(userId, row, tx);
@@ -149,7 +156,8 @@ export class CopyAgentService {
     let signature: string;
     let proofCheckedAt: number;
     try {
-      signature = await this.exchange.signMaster({ walletId: account.privyWalletId!, address: account.address!, ownerQuorumId: account.ownerQuorumId! }, intent, userJwt);
+      signature = await this.exchange.signMaster({ walletId: account.privyWalletId!, address: account.address!, ownerQuorumId: account.ownerQuorumId! }, intent, userJwt,
+        () => this.assertConsentFresh(intent, initialProof.checkedAt));
       if (!/^0x[0-9a-fA-F]{130}$/.test(signature) || !await verifyTypedData({ address: row.accountAddress as `0x${string}`, ...agentApprovalTypedData(intent), signature: signature as `0x${string}` })) throw new BadRequestException("agent_master_signature_invalid");
       await this.exchange.acquire();
       const finalProof = await this.assertSetup(userId, row);
@@ -170,7 +178,7 @@ export class CopyAgentService {
     // never authorizes a new nonce or a second submission.
     if (Date.now() >= intent.consentExpiresAt || proofCheckedAt > Date.now() || Date.now() - proofCheckedAt > 5_000) return wire(row);
     try {
-      const response = await this.exchange.send(intent, signature);
+      const response = await this.exchange.send(intent, signature, () => this.assertConsentFresh(intent, proofCheckedAt));
       if (response && typeof response === "object" && "status" in response && response.status === "err") {
         await this.repository.transition(row, { state: "blocked", issue: "agent_approval_rejected" });
         return wire(await this.repository.find(userId, id));

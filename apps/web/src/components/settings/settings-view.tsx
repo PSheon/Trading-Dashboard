@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Globe,
+  Gift,
   RotateCcwClock as History,
   MessageCircle,
   Plus,
@@ -44,10 +45,11 @@ import { useChangeLocale } from "@/lib/use-change-locale";
 import { useWallet, useWalletAddress } from "@/lib/wallet";
 import { AlertBotRow, TradingBotRow } from "./bot-rows";
 import { DeleteAccountButton, DeleteAccountDialog } from "./delete-account";
+import { ReferralSettings } from "./referral";
 import { ExecutionWalletSettings } from "./execution-wallets";
 
-type Tab = "account" | "funds";
-type PhoneView = "root" | "account" | "notifications" | "language" | "history";
+type Tab = "account" | "funds" | "referral";
+type PhoneView = "root" | "account" | "notifications" | "language" | "history" | "referral";
 
 /** The name CopyDog shows: the display name, else the email's local part. */
 function useAccountName(): { name: string; initial: string; email: string | null } {
@@ -274,7 +276,8 @@ function MenuItem({ icon: Icon, label, active, onClick }: { icon: LucideIcon; la
 
 function DesktopSettings() {
   const { t } = useI18n();
-  const [tab, setTab] = useQueryParam<Tab>("tab", ["account", "funds"], "account");
+  const { mode } = useAuth();
+  const [tab, setTab] = useQueryParam<Tab>("tab", mode === "privy" ? ["account", "funds", "referral"] : ["account", "funds"], "account");
   const { name, initial } = useAccountName();
 
   return (
@@ -285,8 +288,9 @@ function DesktopSettings() {
         <nav aria-label={t("settings.title")} className="border-r border-border">
           <MenuItem icon={User} label={t("settings.menu.account")} active={tab === "account"} onClick={() => setTab("account")} />
           <MenuItem icon={ReceiptText} label={t("settings.menu.funds")} active={tab === "funds"} onClick={() => setTab("funds")} />
+          {mode === "privy" ? <MenuItem icon={Gift} label={t("referral.title")} active={tab === "referral"} onClick={() => setTab("referral")} /> : null}
         </nav>
-        <section className="min-w-0 pl-7" aria-label={tab === "account" ? t("settings.menu.account") : t("settings.menu.funds")}>
+        <section className="min-w-0 pl-7" aria-label={tab === "account" ? t("settings.menu.account") : tab === "referral" ? t("referral.title") : t("settings.menu.funds")}>
           {tab === "account" ? (
             <>
               <div className="flex items-center gap-3.5 pt-5 pb-1">
@@ -302,7 +306,7 @@ function DesktopSettings() {
               <AlertBotRow />
               <DesktopDeleteRow />
             </>
-          ) : (
+          ) : tab === "referral" ? <ReferralSettings /> : (
             <div className="flex flex-col gap-5 pt-5">
               <FundsSummary />
               <div>
@@ -359,11 +363,11 @@ function PhoneRow({ icon: Icon, label, value, onClick }: { icon: LucideIcon; lab
 function PhoneSettings({ signedIn }: { signedIn: boolean }) {
   const { t, locale } = useI18n();
   const router = useRouter();
-  const { logout, login, status } = useAuth();
+  const { logout, login, status, mode } = useAuth();
   const { initial, email, name } = useAccountName();
   const [view, setView] = useQueryParam<PhoneView>(
     "view",
-    signedIn ? ["root", "account", "notifications", "language", "history"] : ["root", "language"],
+    signedIn ? mode === "privy" ? ["root", "account", "notifications", "language", "history", "referral"] : ["root", "account", "notifications", "language", "history"] : ["root", "language"],
     "root",
   );
 
@@ -435,6 +439,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
             {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => open("notifications")} /> : null}
             <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => open("language")} />
             {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => open("history")} /> : null}
+            {signedIn && mode === "privy" ? <PhoneRow icon={Gift} label={t("referral.title")} onClick={() => open("referral")} /> : null}
           </div>
 
           <div className="mt-6 flex items-center gap-4 rounded-[20px] bg-card p-5">
@@ -488,7 +493,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                   ? t("settings.notifications")
                   : view === "language"
                     ? t("settings.language")
-                    : t("settings.history")}
+                    : view === "referral" ? t("referral.title") : t("settings.history")}
             </h1>
           </div>
           <div className="mt-2">
@@ -507,7 +512,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
                 <TradingBotRow className="border-b border-border" />
                 <AlertBotRow />
               </div>
-            ) : view === "language" ? (
+            ) : view === "referral" ? <ReferralSettings /> : view === "language" ? (
               <LanguageList />
             ) : (
               <div className="flex flex-col gap-5 pt-4">

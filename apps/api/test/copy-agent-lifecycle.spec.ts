@@ -151,6 +151,35 @@ describe("explicit recoverable dedicated strategy agent setup", () => {
     expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(0);
   });
 
+  it('carries the original identity proof to the actual signing boundary', async () => {
+    const prepared = await service.prepare(uid, accountId, { idempotencyKey: 'signing-proof', validForDays: 7 });
+    const challenge = await service.challenge(uid, prepared.id), signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
+    let nativeCalls = 0;
+    vi.mocked(exchange.signMaster).mockImplementation(async (_account, intent, _jwt, guard?: () => void) => {
+      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
+      try { if (!guard) throw new Error('missing native signing guard'); guard(); nativeCalls++; return await master.signTypedData(agentApprovalTypedData(intent)); }
+      finally { clock.mockRestore(); }
+    });
+    await expect(service.approve(uid, prepared.id, signature, 'user-jwt')).rejects.toThrow('agent_identity_evidence_expired');
+    expect(nativeCalls).toBe(0); expect(exchange.send).not.toHaveBeenCalled();
+    expect((await db.select().from(copyAgentSetups))[0].approvalAttemptedAt).toBeNull();
+  });
+
+  it('rechecks original identity proof after global exchange admission and preserves the attempted nonce', async () => {
+    const prepared = await service.prepare(uid, accountId, { idempotencyKey: 'sending-proof', validForDays: 7 });
+    const challenge = await service.challenge(uid, prepared.id), signature = await owner.signTypedData(agentOwnerConsentTypedData(challenge.intent));
+    let nativeCalls = 0;
+    vi.mocked(exchange.send).mockImplementation(async (_intent, _signature, guard?: () => void) => {
+      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5001);
+      try { if (!guard) throw new Error('missing native send guard'); guard(); nativeCalls++; return { status: 'ok', response: { type: 'default' } }; }
+      finally { clock.mockRestore(); }
+    });
+    expect((await service.approve(uid, prepared.id, signature, 'user-jwt')).state).toBe('approval_unknown');
+    expect(vi.mocked(exchange.send).mock.calls[0][2]).toEqual(expect.any(Function)); expect(nativeCalls).toBe(0);
+    await service.approve(uid, prepared.id, signature, 'user-jwt'); expect(exchange.send).toHaveBeenCalledTimes(1);
+    expect((await db.select().from(copyAgentSetups))[0].approvalAttemptedAt).not.toBeNull();
+  });
+
   async function pendingApproval() {
     const prepared = await service.prepare(uid, accountId, { idempotencyKey: "fresh-proof", validForDays: 7 });
     const challenge = await service.challenge(uid, prepared.id);

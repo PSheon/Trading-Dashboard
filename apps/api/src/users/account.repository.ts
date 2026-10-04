@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, eq, isNull, ne } from "drizzle-orm";
-import { copyStrategies, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, notificationChannels, favoriteGroups, userFavorites, users, walletWithdrawals } from "@trading-dashboard/shared/database";
+import { and, asc, count, eq, isNull, ne, or } from "drizzle-orm";
+import { copyStrategies, copyExecutionAccounts, copyExecutionWallets, copyLiveExecutions, notificationChannels, favoriteGroups, userFavorites, users, walletWithdrawals,
+  referralAttributions, referralClaims, referralCodes, referralLedger } from "@trading-dashboard/shared/database";
 
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -48,6 +49,13 @@ export class AccountRepository {
     const [withdrawal] = await tx.select({ id: walletWithdrawals.id }).from(walletWithdrawals).where(eq(walletWithdrawals.userId, userId)).limit(1);
     return Boolean(account || wallet || execution || withdrawal);
   }
+  async hasReferralRecords(tx: DbTransaction, userId: number): Promise<boolean> {
+    const [attribution] = await tx.select({ id: referralAttributions.id }).from(referralAttributions)
+      .where(or(eq(referralAttributions.referrerUserId, userId), eq(referralAttributions.referredUserId, userId))).limit(1);
+    const [claim] = await tx.select({ id: referralClaims.id }).from(referralClaims).where(eq(referralClaims.userId, userId)).limit(1);
+    const [entry] = await tx.select({ id: referralLedger.id }).from(referralLedger).where(eq(referralLedger.userId, userId)).limit(1);
+    return Boolean(attribution || claim || entry);
+  }
 
   async lockUser(tx: DbTransaction, userId: number) {
     const [row] = await tx.select({ id: users.id, role: users.role, disabledAt: users.disabledAt }).from(users).where(eq(users.id, userId)).for("update");
@@ -77,6 +85,9 @@ export class AccountRepository {
    * been released from the watch list in the same transaction.
    */
   async deleteUser(tx: DbTransaction, userId: number): Promise<boolean> {
+    // Called after the retained attribution/financial-history check, under
+    // the same user fence used by bind/code/claim writers.
+    await tx.delete(referralCodes).where(eq(referralCodes.userId, userId));
     const rows = await tx.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
     return rows.length > 0;
   }

@@ -1,8 +1,13 @@
 import { AppConfig } from "../config/app-config.js";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { WebSocket } from "ws";
 
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
+import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
+import { quotaSubscription } from '../hyperliquid/hyperliquid-global-quota.js';
+import type { HyperliquidSocketQuota } from '../hyperliquid/postgres-hyperliquid-quota.js';
+import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
+import { LIVE_PERP_COIN, MAX_LIVE_PERP_DEXES } from '../copy/live/live-market-resolver.js';
 import type { HlWsIncomingMessage, HlWsTrade } from "../hyperliquid/types.js";
 
 /** Headroom under the documented 1000 subscriptions per IP, spread over a
@@ -34,6 +39,9 @@ export interface TradeFeedStatus {
 }
 
 interface Shard {
+  quota?:HyperliquidSocketQuota;
+  opening?:Promise<void>;
+  heartbeat?:Promise<void>;
   coins: string[];
   socket?: WebSocket;
   connectedOnce: boolean;
@@ -66,26 +74,31 @@ export class TradeFeedService {
   private handlers: TradeFeedHandlers | undefined;
   private lastTradeAt: Date | null = null;
   private stopped = true;
+  private stopping?:Promise<void>;
 
-  constructor(private readonly config: AppConfig, private readonly info: HyperliquidInfoClient) {}
+  constructor(private readonly config: AppConfig, private readonly info: HyperliquidInfoClient, @Optional() private readonly global?:HyperliquidGlobalTransport) {}
 
   async start(handlers: TradeFeedHandlers): Promise<void> {
+    await this.stopping;
     this.handlers = handlers;
     this.stopped = false;
     await this.refreshMarkets();
   }
 
-  stop(): void {
+  stop(): Promise<void> {
+    if(this.stopping)return this.stopping;
     this.stopped = true;
-    for (const shard of this.shards) {
+    const shards=this.shards;
+    for (const shard of shards) {
       clearInterval(shard.pingTimer);
       clearTimeout(shard.reconnectTimer);
-      shard.socket?.removeAllListeners();
-      shard.socket?.terminate();
+
     }
     this.shards = [];
     this.subscribed.clear();
+    const work=Promise.allSettled(shards.map(async shard=>{await shard.opening?.catch(()=>{});await this.closeShard(shard);})).then(()=>{});this.stopping=work;void work.finally(()=>{if(this.stopping===work)this.stopping=undefined;});return work;
   }
+  onModuleDestroy():Promise<void>{return this.stop();}
 
   /** Addresses to report, compared lowercase. */
   setWatched(addresses: Iterable<string>): void {
@@ -96,11 +109,14 @@ export class TradeFeedService {
   async listMarkets(): Promise<string[]> {
     // The live feed cannot start until this catalog is loaded. Keep its
     // bounded metadata calls ahead of historical fills and cache warming.
-    const dexes = (await this.info.perpDexs("live")).map((d) => d?.name ?? "");
-    const coins: string[] = [];
-    for (const dex of dexes) {
-      const meta = await this.info.meta(dex || undefined, "live");
-      for (const asset of meta.universe) if (!asset.isDelisted) coins.push(asset.name);
+    const [dexes,metas]=await Promise.all([this.info.perpDexs("live"),this.info.allPerpMetas("live")]);
+    if(dexes.length<1||dexes.length>MAX_LIVE_PERP_DEXES||metas.length!==dexes.length)throw new LiveBoundaryError('trade_feed_market_identity_invalid');
+    const names=new Set<string>(),coins:string[]=[];
+    for(let i=0;i<dexes.length;i++){
+      const row=dexes[i],meta=metas[i];if(i===0&&row!==null)throw new LiveBoundaryError('trade_feed_market_identity_invalid');
+      if(i>0&&!row){if(meta!==null)throw new LiveBoundaryError('trade_feed_market_identity_invalid');continue;}
+      const dex=i===0?'':row!.name;if(names.has(dex)||!meta||!Array.isArray(meta.universe))throw new LiveBoundaryError('trade_feed_market_identity_invalid');names.add(dex);
+      for(const asset of meta.universe){if(!LIVE_PERP_COIN.test(asset.name)||(dex?asset.name.split(':')[0]!==dex:asset.name.includes(':'))||coins.includes(asset.name))throw new LiveBoundaryError('trade_feed_market_identity_invalid');if(!asset.isDelisted)coins.push(asset.name);}
     }
     return coins;
   }
@@ -109,7 +125,7 @@ export class TradeFeedService {
    * dexes). Called at start and hourly. */
   async refreshMarkets(): Promise<void> {
     const coins = (await this.listMarkets()).filter((c) => !this.subscribed.has(c));
-    if (this.stopped || coins.length === 0) return;
+    if (this.stopped) return;
     for (const coin of coins) {
       let shard = this.shards.find((s) => s.coins.length < MAX_SUBSCRIPTIONS_PER_SOCKET);
       if (!shard) {
@@ -118,9 +134,9 @@ export class TradeFeedService {
       }
       shard.coins.push(coin);
       this.subscribed.add(coin);
-      if (shard.socket?.readyState === WebSocket.OPEN) this.subscribe(shard, [coin]);
+      if (shard.socket?.readyState === WebSocket.OPEN) await this.subscribe(shard, [coin]);
     }
-    for (const shard of this.shards) if (!shard.socket) this.open(shard);
+    for (const shard of this.shards) if (!shard.socket) await this.open(shard);
     this.logger.log(`Trade feed: ${this.subscribed.size} markets on ${this.shards.length} sockets`);
   }
 
@@ -160,53 +176,60 @@ export class TradeFeedService {
     }
   }
 
-  private open(shard: Shard): void {
-    const socket = new WebSocket(this.config.value.hyperliquid.wsUrl);
-    shard.socket = socket;
-
-    socket.on("open", () => {
-      shard.attempt = 0;
-      shard.lastMessageAt = Date.now();
-      this.subscribe(shard, shard.coins);
-      if (shard.connectedOnce && shard.downSince !== null) {
-        this.logger.warn(`Trade feed socket back after ${Math.round((Date.now() - shard.downSince) / 1000)}s`);
-        this.handlers?.onGap(shard.downSince);
-      }
-      shard.connectedOnce = true;
-      shard.downSince = null;
-      clearInterval(shard.pingTimer);
-      shard.pingTimer = setInterval(() => {
-        if (Date.now() - shard.lastMessageAt > STALE_AFTER_MS) {
-          this.logger.warn("Trade feed socket silent for 90s, reconnecting");
-          socket.terminate();
-          return;
-        }
-        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ method: "ping" }));
-      }, PING_INTERVAL_MS);
-    });
-
-    socket.on("message", (data) => {
-      shard.lastMessageAt = Date.now();
-      this.handleMessage(data.toString());
-    });
-
-    socket.on("error", (error) => {
-      this.logger.error(`Trade feed socket error: ${error.message}`);
-    });
-
-    socket.on("close", () => {
-      clearInterval(shard.pingTimer);
-      if (this.stopped || shard.socket !== socket) return;
-      shard.downSince ??= Date.now();
-      const delay = Math.min(MAX_RECONNECT_DELAY_MS, 1000 * 2 ** shard.attempt);
-      shard.attempt += 1;
-      shard.reconnectTimer = setTimeout(() => this.open(shard), delay);
+  private network():'testnet'|'mainnet'{
+    const {wsUrl,apiUrl}=this.config.value.hyperliquid;
+    if(wsUrl==='wss://api.hyperliquid.xyz/ws'&&apiUrl==='https://api.hyperliquid.xyz/info')return 'mainnet';
+    if(wsUrl==='wss://api.hyperliquid-testnet.xyz/ws'&&apiUrl==='https://api.hyperliquid-testnet.xyz/info')return 'testnet';
+    throw new LiveBoundaryError('trade_feed_source_mismatch');
+  }
+  private async closeShard(shard:Shard):Promise<void>{
+    const socket=shard.socket;if(!socket)return;
+    try{if(!shard.quota)throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');await shard.quota.close(Date.now()+5000);await shard.quota.whenIdle();}
+    catch{socket.terminate();await shard.quota?.uncertain().catch(()=>{});}
+  }
+  private async beat(shard:Shard,pong?:Buffer):Promise<void>{
+    if(shard.heartbeat)return shard.heartbeat;
+    const task=(async()=>{
+      const socket=shard.socket,quota=shard.quota;if(this.stopped||!socket||socket.readyState!==WebSocket.OPEN||!quota)return;
+      if(Date.now()-shard.lastMessageAt>STALE_AFTER_MS){await this.closeShard(shard);return;}
+      const deadline=Date.now()+5000;await quota.renew(deadline);const permit=await quota.ping(deadline);
+      if(this.stopped||shard.socket!==socket||socket.readyState!==WebSocket.OPEN)return;
+      permit.dispatch(()=>{if(pong)socket.pong(pong);else socket.send(JSON.stringify({method:'ping'}));});
+    })();shard.heartbeat=task;
+    try{await task;}catch{await this.closeShard(shard);}finally{if(shard.heartbeat===task)shard.heartbeat=undefined;}
+  }
+  private open(shard:Shard):Promise<void>{
+    if(shard.opening)return shard.opening;
+    const task=this.openSocket(shard);shard.opening=task;void task.finally(()=>{if(shard.opening===task)shard.opening=undefined;}).catch(()=>{});return task;
+  }
+  private async openSocket(shard:Shard):Promise<void>{
+    if(this.stopped)return;if(!this.global)throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');
+    const network=this.network(),reservation=await this.global.currentQuota().reserveSocket(Date.now()+5000,network);
+    if(this.stopped){await reservation.connection.cancelBeforeConnect();return;}
+    let socket:WebSocket|undefined;try{socket=reservation.connect.dispatch(()=>new WebSocket(this.config.value.hyperliquid.wsUrl,{autoPong:false,followRedirects:false,handshakeTimeout:5000,maxPayload:8*1024*1024}));reservation.connection.attach(socket);}catch(error){socket?.on('error',()=>{});socket?.terminate();await reservation.connection.cancelBeforeConnect().catch(()=>reservation.connection.uncertain().catch(()=>{}));throw error;}
+    if(!socket)throw new LiveBoundaryError('trade_feed_source_mismatch');
+    shard.socket=socket;shard.quota=reservation.connection;
+    socket.on('open',()=>{void (async()=>{
+      if(this.stopped||shard.socket!==socket){await this.closeShard(shard);return;}
+      shard.attempt=0;shard.lastMessageAt=Date.now();await this.subscribe(shard,shard.coins);
+      if(shard.connectedOnce&&shard.downSince!==null)this.handlers?.onGap(shard.downSince);
+      shard.connectedOnce=true;shard.downSince=null;
+      clearInterval(shard.pingTimer);shard.pingTimer=setInterval(()=>{void this.beat(shard);},PING_INTERVAL_MS);
+    })().catch(()=>{void this.closeShard(shard);});});
+    socket.on('ping',payload=>{void this.beat(shard,payload);});
+    socket.on('message',data=>{shard.lastMessageAt=Date.now();this.handleMessage(data.toString());});
+    socket.on('error',()=>{this.logger.error('Trade feed socket unavailable');});
+    socket.on('close',()=>{
+      clearInterval(shard.pingTimer);if(this.stopped||shard.socket!==socket)return;
+      shard.socket=undefined;shard.downSince??=Date.now();const delay=Math.min(MAX_RECONNECT_DELAY_MS,1000*2**shard.attempt);shard.attempt++;
+      shard.reconnectTimer=setTimeout(()=>{void this.open(shard).catch(()=>{shard.downSince??=Date.now();this.logger.warn('Trade feed global admission unavailable');});},delay);
     });
   }
-
-  private subscribe(shard: Shard, coins: string[]): void {
-    for (const coin of coins) {
-      shard.socket?.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin } }));
-    }
+  private async subscribe(shard:Shard,coins:string[]):Promise<void>{
+    const socket=shard.socket,quota=shard.quota;if(!quota||!socket)throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');
+    const subscriptions=coins.map(coin=>quotaSubscription(this.network(),{type:'trades',coin})),deadline=Date.now()+5000;
+    await quota.whenIdle();await quota.renew(deadline);const permit=await quota.subscribe(subscriptions,deadline,false);
+    if(this.stopped||shard.socket!==socket)return;
+    for(const sub of subscriptions)permit.dispatch({method:'subscribe',subscription:sub.subscription},captured=>socket.send(JSON.stringify(captured)));
   }
 }

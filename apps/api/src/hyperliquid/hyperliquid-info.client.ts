@@ -4,6 +4,8 @@ import { currentRequestSignal } from "../runtime/request-context.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
+import { HyperliquidGlobalTransport } from './hyperliquid-global-transport.js';
+import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
 import { RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
 import type {
@@ -108,7 +110,8 @@ export function twapSliceToFill(slice: HlTwapSliceFill): HlUserFill {
 export class HyperliquidInfoClient {
   private readonly logger = new Logger(HyperliquidInfoClient.name);
 
-  constructor(private readonly config: AppConfig, private readonly budgeter: RequestBudgeterService, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
+  constructor(private readonly config: AppConfig, private readonly budgeter: RequestBudgeterService, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
+    @Optional() private readonly globalTransport?: HyperliquidGlobalTransport) {}
 
   private async post<T>(
     body: HlInfoRequestBody,
@@ -134,11 +137,13 @@ export class HyperliquidInfoClient {
     const signal = AbortSignal.any([queued, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
 
     const url = apiUrl ?? this.config.value.hyperliquid.apiUrl;
-    const res = await fetch(url, {
+    if (!(this.globalTransport instanceof HyperliquidGlobalTransport)) throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');
+    const res = await this.globalTransport.fetchInfo(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal,
+      redirect: 'error',
     });
 
     if (res.status === 429) {
@@ -248,6 +253,11 @@ export class HyperliquidInfoClient {
   /** All perp dexes: `[null, {name: "xyz"}, …]`, main dex first. */
   perpDexs(priority: RequestPriority = "background", rank?: number): Promise<HlPerpDexsResponse> {
     return this.post<HlPerpDexsResponse>({ type: "perpDexs" }, WEIGHT_PERP_DEXS, priority, rank);
+  }
+  /** All venue universes in one bounded provider request. Preserve source
+   * indices and null slots; consumers must verify listed venue/coin identity. */
+  allPerpMetas(priority: RequestPriority = 'background', rank?: number): Promise<Array<HlMetaResponse | null>> {
+    return this.post<Array<HlMetaResponse | null>>({ type: 'allPerpMetas' }, WEIGHT_META, priority, rank);
   }
 
   /** Positions + equity for one address on ONE dex. Without `dex` only the

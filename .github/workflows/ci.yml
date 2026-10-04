@@ -45,7 +45,7 @@ jobs:
       # braces patch, whose exploit/compatibility tests MUST pass first.
       # Remove the exception and patch together when a fixed release is adopted.
       - name: Dependency security audit
-        run: pnpm audit --audit-level moderate --ignore CVE-2026-93687
+        run: pnpm audit --audit-level moderate
       - name: Build shared contracts
         run: pnpm --filter @trading-dashboard/shared build
       - name: Migration schema freshness

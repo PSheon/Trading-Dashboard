@@ -2,15 +2,18 @@ import WebSocket from 'ws';
 import { z } from 'zod';
 import { MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
+import {quotaSubscription} from '../../hyperliquid/hyperliquid-global-quota.js';
+import type {HyperliquidSocketQuota,HyperliquidCommandPermit} from '../../hyperliquid/postgres-hyperliquid-quota.js';
 
 export interface LiveAllDexsStateEvidence {
-  readonly network: 'testnet'; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
+  readonly network: 'testnet' | 'mainnet'; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
 }
 export interface LiveOrderVenueEvidence {
   readonly dex: string; readonly user: string; readonly observedAt: number; readonly receivedAt: number; readonly orders: readonly unknown[];
 }
 export interface LiveAllDexsOrderEvidence {
-  readonly network: 'testnet'; readonly accountAddress: string; readonly observedAt: number; readonly completedAt: number;
+  readonly network: 'testnet' | 'mainnet'; readonly accountAddress: string; readonly observedAt: number; readonly completedAt: number;
   readonly requestedDexes: readonly string[]; readonly venues: readonly LiveOrderVenueEvidence[];
 }
 export interface LiveAllDexsAccountEvidence {
@@ -20,13 +23,13 @@ export interface LiveAllDexsAccountSource {
   read(accountAddress: string, timeoutMs: number): Promise<LiveAllDexsStateEvidence>;
   readOrders?(accountAddress: string, dexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsOrderEvidence>;
   readAccount?(accountAddress: string, dexes: readonly string[], timeoutMs: number): Promise<LiveAllDexsAccountEvidence>;
-  close?(): void;
+  close?(): void|Promise<void>;
 }
 const BATCH = 90, MESSAGE_LIMIT = 1800, WINDOW = 60_000, MIN_ORDER_INTERVAL = 1000;
 const dexList = z.array(z.string().max(40).refine((v) => v === '' || LIVE_DEX_NAME.test(v))).min(1).max(MAX_LIVE_PERP_DEXES);
 const fail = (code: string): never => { throw new LiveBoundaryError(code); };
 
-/** Official fixed-testnet snapshot subscriptions. One reusable socket; bounded
+/** Official fixed-network snapshot subscriptions. One reusable socket; bounded
  * batches and rolling command admission include cleanup before any sends. */
 export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource {
   private socket?: WebSocket;
@@ -34,8 +37,18 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
   private readonly sentReservations: number[] = [];
   private readonly connections: number[] = [];
   private lastOrderAttempt?: number;
+  private globalSocket?:HyperliquidSocketQuota;
+  private socketContext?:object;
+  private socketNew=false;
+  private heartbeatTimer?:ReturnType<typeof setInterval>;
+  private heartbeatTask?:Promise<void>;
+  private disposed=false;
   constructor(private readonly now = Date.now,
-    private readonly createSocket = (url: string, options: WebSocket.ClientOptions) => new WebSocket(url, options)) {}
+    private readonly createSocket = (url: string, options: WebSocket.ClientOptions) => new WebSocket(url, options),
+    readonly network: 'testnet' | 'mainnet' = 'testnet',private readonly global?:HyperliquidGlobalTransport) {
+    if (!['testnet', 'mainnet'].includes(network)) fail('live_account_source_mismatch');
+    if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))fail('live_account_source_mismatch');
+  }
 
   private reserve(count: number): void {
     const now = this.now();
@@ -44,23 +57,62 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     if (this.sentReservations.length + count > MESSAGE_LIMIT) fail('live_account_ws_message_budget');
     for (let i = 0; i < count; i++) this.sentReservations.push(now);
   }
-  private connection(timeoutMs: number): WebSocket {
+  private connection(timeoutMs: number,deadline:number): WebSocket|Promise<WebSocket> {
+    if(this.global&&this.heartbeatTask)return this.heartbeatTask.then(()=>this.connection(this.remaining(deadline),deadline));
+    if(this.global&&this.socket&&this.socketContext!==this.global.contextIdentity())fail('live_account_ws_context_changed');
     if (!this.socket || this.socket.readyState > WebSocket.OPEN) {
       const now = this.now();
       while (this.connections.length && this.connections[0]! <= now - WINDOW) this.connections.shift();
       if (this.connections.length >= 25) fail('live_account_ws_connection_budget');
       this.connections.push(now);
-      const created = this.createSocket('wss://api.hyperliquid-testnet.xyz/ws', {
-        maxPayload: 8 * 1024 * 1024, handshakeTimeout: timeoutMs, followRedirects: false,
+      const create=()=>this.createSocket(this.network === 'testnet' ? 'wss://api.hyperliquid-testnet.xyz/ws' : 'wss://api.hyperliquid.xyz/ws', {
+        maxPayload: 8 * 1024 * 1024, handshakeTimeout: timeoutMs, followRedirects: false, autoPong: false,
       });
-      this.socket = created;
-      created.on('error', () => { if (this.socket === created) this.socket = undefined; });
-      created.on('close', () => { if (this.socket === created) this.socket = undefined; });
+      const retain=(created:WebSocket)=>{this.socket=created;const clear=()=>{if(this.socket===created){this.socket=undefined;clearInterval(this.heartbeatTimer);this.heartbeatTimer=undefined;}};created.on('error',clear);created.on('close',clear);return created;};
+      if(this.global)return (async()=>{const reservation=await this.global!.currentQuota().reserveSocket(deadline,this.network);let created:WebSocket|undefined;try{if(this.disposed)throw new LiveBoundaryError('live_account_aggregate_unavailable');created=reservation.connect.dispatch(create);reservation.connection.attach(created);}catch(error){created?.on('error',()=>{});created?.terminate();await reservation.connection.cancelBeforeConnect().catch(()=>reservation.connection.uncertain().catch(()=>{}));throw error;}this.globalSocket=reservation.connection;this.socketContext=this.global!.contextIdentity();this.socketNew=true;retain(created);if(!this.global!.isOriginal())this.startHeartbeat(created,reservation.connection);return created;})();
+      return retain(create());
     }
-    return this.socket;
+    return this.socket!;
+  }
+  private startHeartbeat(socket:WebSocket,quota:HyperliquidSocketQuota):void{
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer=setInterval(()=>{
+      if(this.disposed||this.busy||this.heartbeatTask||this.socket!==socket||socket.readyState!==WebSocket.OPEN)return;
+      const task=(async()=>{try{
+        const deadline=this.now()+5000;await quota.whenIdle();await quota.renew(deadline);const permit=await quota.ping(deadline);
+        if(this.disposed||this.socket!==socket||socket.readyState!==WebSocket.OPEN)return;
+        permit.dispatch(()=>socket.send(JSON.stringify({method:'ping'})));
+      }catch{clearInterval(this.heartbeatTimer);this.heartbeatTimer=undefined;await this.failedSocket(socket,this.now()+5000);}})();
+      this.heartbeatTask=task;void task.finally(()=>{if(this.heartbeatTask===task)this.heartbeatTask=undefined;}).catch(()=>{});
+    },20000);this.heartbeatTimer.unref?.();
+  }
+  private async terminateAndFlush(socket:WebSocket):Promise<void>{
+    const quota=this.globalSocket;if(!quota){socket.terminate();return;}
+    let timer:ReturnType<typeof setTimeout>|undefined,closed:(()=>void)|undefined;
+    try{
+      const cleanup=(async()=>{
+        if(socket.readyState!==WebSocket.CLOSED){const peer=new Promise<void>(resolve=>{closed=resolve;socket.once('close',closed);});socket.terminate();await peer;}
+        await quota.whenIdle().catch(()=>{});
+      })();
+      await Promise.race([cleanup,new Promise<void>(resolve=>{timer=setTimeout(resolve,5000);})]);
+    }finally{clearTimeout(timer);if(closed)socket.off('close',closed);}
+  }
+  private async failedSocket(socket:WebSocket,deadline:number):Promise<void>{
+    if(this.globalSocket&&deadline>this.now()){try{await this.globalSocket.close(deadline);}catch{await this.terminateAndFlush(socket);}}
+    else await this.terminateAndFlush(socket);
+    if(this.socket===socket)this.socket=undefined;
+  }
+  private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>5000)fail('live_account_orders_deadline_exceeded');return left;}
+  private async commands(subscriptions:readonly Record<string,unknown>[],deadline:number):Promise<HyperliquidCommandPermit|undefined>{
+    if(!this.global)return;const quota=this.globalSocket;if(!quota)return fail('live_account_aggregate_unavailable');
+    await quota.whenIdle();if(!this.socketNew)await quota.renew(deadline);this.socketNew=false;return quota.subscribe(subscriptions.map(body=>quotaSubscription(this.network,body)),deadline,true,this.global.isOriginal());
+  }
+  private send(socket:WebSocket,command:Record<string,unknown>,permit?:HyperliquidCommandPermit):void{
+    if(this.global){if(!permit)return fail('live_account_aggregate_unavailable');permit.dispatch(command,captured=>socket.send(JSON.stringify(captured)));}
+    else socket.send(JSON.stringify(command));
   }
   private admit(timeoutMs: number): void {
-    if (this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000) fail('live_account_aggregate_unavailable');
+    if (this.disposed||this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000) fail('live_account_aggregate_unavailable');
   }
 
   async read(accountAddress: string, timeoutMs: number): Promise<LiveAllDexsStateEvidence> {
@@ -70,13 +122,14 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     let open: (() => void) | undefined, message: ((raw: WebSocket.RawData) => void) | undefined, unavailable: (() => void) | undefined;
     let succeeded = false;
     try {
-      socket = this.connection(timeoutMs);
+      const deadline=observedAt+timeoutMs,connecting=this.connection(this.remaining(deadline),deadline);socket = connecting instanceof Promise?await connecting:connecting;
+      const permit=this.global?await this.commands([{type:'allDexsClearinghouseState',user}],deadline):undefined;
       const result = await new Promise<LiveAllDexsStateEvidence>((resolve, reject) => {
         const deny = (code = 'live_account_aggregate_unavailable') => reject(new LiveBoundaryError(code));
         let acknowledged = false, phase: 'subscribe' | 'unsubscribe' = 'subscribe', bytes = 0, frames = 0;
         let evidence: LiveAllDexsStateEvidence | undefined;
-        open = () => { try { socket!.send(JSON.stringify({ method: 'subscribe',
-          subscription: { type: 'allDexsClearinghouseState', user } })); } catch { deny(); } };
+        open = () => { try { this.send(socket!,{ method: 'subscribe',
+          subscription: { type: 'allDexsClearinghouseState', user } },permit); } catch { deny(); } };
         message = (raw) => {
           try {
             bytes += Buffer.byteLength(String(raw)); frames++;
@@ -96,22 +149,22 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
             if (!acknowledged) { deny('live_account_order_ack_missing'); return; }
             if (typeof payload.data?.user !== 'string' || address(payload.data.user) !== user) { deny('live_account_source_mismatch'); return; }
             if (phase === 'unsubscribe') return;
-            evidence = { network: 'testnet', accountAddress: user, observedAt, data: payload.data };
-            phase = 'unsubscribe'; socket!.send(JSON.stringify({ method: 'unsubscribe', subscription: { type: 'allDexsClearinghouseState', user } }));
+            evidence = { network: this.network, accountAddress: user, observedAt, data: payload.data };
+            phase = 'unsubscribe'; this.send(socket!,{ method: 'unsubscribe', subscription: { type: 'allDexsClearinghouseState', user } },permit);
           } catch { deny(); }
         };
         unavailable = () => deny();
-        socket!.on('open', open); socket!.on('message', message); socket!.on('error', unavailable); socket!.on('close', unavailable);
-        timer = setTimeout(() => { deny(); socket?.terminate(); }, timeoutMs);
+        socket!.on('open', open); socket!.on('message', message); socket!.on('error', unavailable); socket!.on('close', unavailable); socket!.on('ping', unavailable);
+        timer = setTimeout(() => { deny(); socket?.terminate(); }, this.remaining(deadline));
         if (socket!.readyState === WebSocket.OPEN) open();
       });
-      succeeded = true; return result;
+      if(this.globalSocket){await this.globalSocket.whenIdle();if(this.global?.isOriginal())await this.globalSocket.close(deadline);this.remaining(deadline);}succeeded = true; return result;
     } finally {
       clearTimeout(timer);
       if (socket) {
         if (open) socket.off('open', open); if (message) socket.off('message', message);
-        if (unavailable) { socket.off('error', unavailable); socket.off('close', unavailable); }
-        if (!succeeded) { socket.terminate(); if (this.socket === socket) this.socket = undefined; }
+        if (unavailable) { socket.off('error', unavailable); socket.off('close', unavailable); socket.off('ping', unavailable); }
+        if(!succeeded)await this.failedSocket(socket,observedAt+timeoutMs);
       }
       this.busy = false;
     }
@@ -136,7 +189,8 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     let open: (() => void) | undefined, message: ((raw: WebSocket.RawData) => void) | undefined, unavailable: (() => void) | undefined;
     let succeeded = false;
     try {
-      socket = this.connection(timeoutMs);
+      const deadline=observedAt+timeoutMs,connecting=this.connection(this.remaining(deadline),deadline);socket = connecting instanceof Promise?await connecting:connecting;
+      const permit=this.global?await this.commands([...(includeState?[{type:'allDexsClearinghouseState',user}]:[]),...dexes.map(dex=>({type:'openOrders',user,dex}))],deadline):undefined;
       const result = await new Promise<{ state?: LiveAllDexsStateEvidence; orders: LiveAllDexsOrderEvidence }>((resolve, reject) => {
         let offset = 0, phase: 'subscribe' | 'unsubscribe' = 'subscribe', batch: string[] = [];
         let pending = new Set<string>(), acknowledged = new Set<string>(), bytes = 0, frames = 0, retainedOrders = 0;
@@ -147,12 +201,12 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         const deny = (code = 'live_account_orders_unavailable') => { stopped = true; reject(new LiveBoundaryError(code)); };
         const sendState = (method: 'subscribe' | 'unsubscribe') => {
           if (stopped) return;
-          try { socket!.send(JSON.stringify({ method, subscription: { type: 'allDexsClearinghouseState', user } })); }
+          try { this.send(socket!,{ method, subscription: { type: 'allDexsClearinghouseState', user } },permit); }
           catch { deny(); }
         };
         const send = (method: 'subscribe' | 'unsubscribe', dex: string) => {
           if (stopped) return;
-          try { socket!.send(JSON.stringify({ method, subscription: { type: 'openOrders', user, dex } })); }
+          try { this.send(socket!,{ method, subscription: { type: 'openOrders', user, dex } },permit); }
           catch { deny(); }
         };
         const next = () => {
@@ -170,7 +224,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
             phase = 'unsubscribe'; pending = new Set(batch); for (const dex of batch) send('unsubscribe', dex);
           } else if (phase === 'unsubscribe' && pending.size === 0 && statePhase === 'done') {
             if (offset < dexes.length) next();
-            else resolve({ state, orders: { network: 'testnet', accountAddress: user, observedAt, completedAt: this.now(),
+            else resolve({ state, orders: { network: this.network, accountAddress: user, observedAt, completedAt: this.now(),
               requestedDexes: dexes, venues: dexes.map((dex) => venues.get(dex)!) } });
           }
         };
@@ -200,7 +254,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
               if (!stateAcknowledged) { deny('live_account_order_ack_missing'); return; }
               if (typeof payload.data?.user !== 'string' || address(payload.data.user) !== user) { deny('live_account_source_mismatch'); return; }
               if (statePhase !== 'subscribe') return;
-              state = { network: 'testnet', accountAddress: user, observedAt, data: payload.data };
+              state = { network: this.network, accountAddress: user, observedAt, data: payload.data };
               statePhase = 'unsubscribe'; sendState('unsubscribe');
             } else if (payload.channel === 'openOrders') {
               const row = payload.data;
@@ -215,22 +269,27 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
           } catch { deny(); }
         };
         unavailable = () => deny();
-        socket!.on('open', open); socket!.on('message', message); socket!.on('error', unavailable); socket!.on('close', unavailable);
-        timer = setTimeout(() => deny('live_account_orders_deadline_exceeded'), timeoutMs);
+        socket!.on('open', open); socket!.on('message', message); socket!.on('error', unavailable); socket!.on('close', unavailable); socket!.on('ping', unavailable);
+        timer = setTimeout(() => deny('live_account_orders_deadline_exceeded'), this.remaining(deadline));
         if (socket!.readyState === WebSocket.OPEN) open();
       });
-      succeeded = true; return result;
+      if(this.globalSocket){await this.globalSocket.whenIdle();if(this.global?.isOriginal())await this.globalSocket.close(deadline);this.remaining(deadline);}succeeded = true; return result;
     } finally {
       clearTimeout(timer);
       if (socket) {
         if (open) socket.off('open', open); if (message) socket.off('message', message);
-        if (unavailable) { socket.off('error', unavailable); socket.off('close', unavailable); }
+        if (unavailable) { socket.off('error', unavailable); socket.off('close', unavailable); socket.off('ping', unavailable); }
         // Failed scans cannot leave unknown subscriptions/acks on a reusable
         // connection; successful scans waited for every unsubscribe ack.
-        if (!succeeded) { socket.terminate(); if (this.socket === socket) this.socket = undefined; }
+        if(!succeeded)await this.failedSocket(socket,observedAt+timeoutMs);
       }
       this.busy = false;
     }
   }
-  close(): void { this.socket?.terminate(); this.socket = undefined; }
+  close(): void|Promise<void> {
+    this.disposed=true;clearInterval(this.heartbeatTimer);this.heartbeatTimer=undefined;
+    const socket=this.socket;this.socket=undefined;if(!socket)return this.heartbeatTask;
+    if(!this.globalSocket){socket.terminate();return;}
+    const quota=this.globalSocket;return (async()=>{await this.heartbeatTask;await quota.close(this.now()+5000).catch(()=>this.terminateAndFlush(socket));})();
+  }
 }

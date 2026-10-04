@@ -12,7 +12,7 @@ export function testConfig(): AppConfig {
     database: { url: "postgres://unused@localhost/unused_test" },
     auth: { serviceToken: env.serviceToken(), permissions: env.servicePermissions(), adminEmails: env.adminEmails(), appId: env.privyAppId(), appSecret: env.privyAppSecret(), verificationKey: env.privyVerificationKey() },
     telegram: { botToken: env.telegramBotToken(), botUsername: env.telegramBotUsername(), systemChatId: env.telegramSystemChatId(), dryRun: env.telegramDryRun(), polling: env.telegramBotPolling(), linkBaseUrl: env.telegramLinkBaseUrl() },
-    hyperliquid: { apiUrl: env.hyperliquidApiUrl(), wsUrl: env.hyperliquidWsUrl(), budgetPerMin: env.hyperliquidWeightBudgetPerMin(), burst: getIntEnv("HYPERLIQUID_WEIGHT_BURST", 200, 1, 1200),
+    hyperliquid: { egressKey: process.env.HYPERLIQUID_EGRESS_KEY, apiUrl: env.hyperliquidApiUrl(), wsUrl: env.hyperliquidWsUrl(), budgetPerMin: env.hyperliquidWeightBudgetPerMin(), burst: getIntEnv("HYPERLIQUID_WEIGHT_BURST", 200, 1, 1200),
       pageReserveShare: Number(process.env.HYPERLIQUID_PAGE_RESERVE_SHARE ?? 0.25),
       startupPaceSeconds: getIntEnv("HYPERLIQUID_STARTUP_PACE_SECONDS", 0, 0, 600),
       wallet: { network: "testnet" as const, infoUrl: "https://api.hyperliquid-testnet.xyz/info", arbitrumRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc" } },

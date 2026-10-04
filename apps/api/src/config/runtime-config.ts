@@ -183,7 +183,12 @@ export function validateEnvironment(source: Environment = process.env) {
   const telegram = { botToken, botUsername, dryRun, polling, systemChatId: optional(source.TELEGRAM_SYSTEM_CHAT_ID),
     linkBaseUrl: urlValue("TELEGRAM_LINK_BASE_URL", source.TELEGRAM_LINK_BASE_URL, "https://app.orbie.fun", ["http:", "https:"]),
   };
+  const egressKey = optional(source.HYPERLIQUID_EGRESS_KEY);
+  if (source.HYPERLIQUID_EGRESS_KEY !== undefined && (!egressKey || !/^[A-Za-z0-9:._-]{1,128}$/.test(egressKey))) throw new Error('HYPERLIQUID_EGRESS_KEY must be a canonical shared egress identifier');
   const hyperliquid = {
+    /** All application processes sharing outbound capacity use this exact
+     * alias. Missing configuration never grants unmetered actual execution. */
+    egressKey,
     apiUrl: urlValue("HYPERLIQUID_API_URL", source.HYPERLIQUID_API_URL, "https://api.hyperliquid.xyz/info", ["http:", "https:"]),
     wsUrl: urlValue("HYPERLIQUID_WS_URL", source.HYPERLIQUID_WS_URL, "wss://api.hyperliquid.xyz/ws", ["ws:", "wss:"]),
     budgetPerMin: integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),

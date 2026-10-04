@@ -178,10 +178,11 @@ export class CopyLiveMandateRepository {
     this.decode(row);
     const [account] = await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, row.accountId), eq(copyExecutionAccounts.userId, userId)));
     const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, 'testnet')));
-    if (!account || !strategy || account.strategyId !== row.strategyId || account.network !== row.network || account.privyUserId !== owner.privyUserId || row.ownerPrivyUserId !== owner.privyUserId) conflict();
+    if (!account || !strategy || account.strategyId !== row.strategyId || account.network !== row.network || account.address !== row.accountAddress ||
+      account.privyUserId !== owner.privyUserId || row.ownerPrivyUserId !== owner.privyUserId || row.ownerAddress !== owner.embeddedWalletAddress) conflict();
     // Preserve original archived evidence. This read grants no authority and
     // deliberately does not demand an unexpired/current remote agent grant.
-    return { mandate: this.wire(row), intent: this.decode(row) };
+    return row;
   }
   async overview(userId: number) {
     await this.owner(userId);

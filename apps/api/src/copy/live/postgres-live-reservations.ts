@@ -158,8 +158,11 @@ export class PostgresLiveReservations {
     const stored = await session.transaction(async tx => {
       const [journal] = await this.sql(session, tx.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, executionKey(input.intent))).for('update'));
       check(journal && journal.state === 'prepared', 'live_reservation_not_prepared');
-      const expiresAt = (journal.record as unknown as LiveExecutionRecord).expiresAfter;
-      const candidate = planLiveReservation({ now: this.now(), identity: input.identity, localSource: input.localSource, intent: input.intent, action: input.action,
+      const originalRecord = journal.record as unknown as LiveExecutionRecord, expiresAt = originalRecord.expiresAfter;
+      // Fresh market observations belong to the assessment, while the durable
+      // reservation retains the exact prepared journal metadata and timestamp.
+      const canonicalIntent = {...input.intent,market:structuredClone(originalRecord.market)};
+      const candidate = planLiveReservation({ now: this.now(), identity: input.identity, localSource: input.localSource, intent: canonicalIntent, action: input.action,
         market: input.market, quote: input.quote, leverage: input.leverageProofs.find(p => p.coin === input.market.coin)!, fees: input.fees, policy: input.policy, expiresAt });
       const record = this.journal(journal, candidate); await this.local(session, tx, input, record);
       const rows = await this.rows(session, tx, candidate.accountId), existing = rows.find(row => row.reservation.key === candidate.key);

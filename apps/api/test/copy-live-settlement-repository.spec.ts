@@ -12,6 +12,7 @@ import { parseLiveOrderEvidence, parseLiveIocAcknowledgement, captureLiveOrderId
 import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { buildOrderAction, intentFingerprint } from '../src/copy/live/live-order.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
+import { decodeLiveSettlementProof } from '../src/copy/live/live-settlement-proof.js';
 import { fixture, now as base } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './db-test-utils.js';
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
@@ -82,6 +83,18 @@ async function iocAcknowledgement() {
   return acknowledgement;
 }
 describe('same-session PostgreSQL attempted order settlement', () => {
+  it('persists a replayable original settlement proof using canonical SQL receipt fields', async () => {
+    await book(); await scopes.run(identity(), async (_scope, session) => { await observe(session); expect((await settle(session)).kind).toBe('release'); });
+    const [e] = await db.select().from(copyLiveExecutionEvidence);
+    expect(e?.settlementProofDigest).toMatch(/^[0-9a-f]{64}$/);
+    const proof = decodeLiveSettlementProof(e!.settlementProof, e!.settlementProofDigest!);
+    expect(proof.input.now).toBe(base + 100); expect(proof.certificate).toEqual(e!.settlementCertificate);
+    expect(Object.keys(proof.input.receipts.rows[0]!).sort()).toEqual(['accountAddress','accountId','attribution','coin','digest','executionKey','key','kind','ledger','network','providerTime','record','sourceId'].sort());
+    expect(proof.input.receipts.rows[0]!.ledger).toHaveLength(2);
+    clock = base + 100000; expect(decodeLiveSettlementProof(e!.settlementProof,e!.settlementProofDigest!)).toEqual(proof);
+    const changed = structuredClone(e!.settlementProof!); (changed.input as {receipts:{rows:{ledger:{amount:string}[]}[]}}).receipts.rows[0]!.ledger[0]!.amount = '-999';
+    expect(() => decodeLiveSettlementProof(changed,e!.settlementProofDigest!)).toThrow();
+  });
   it('uses actual booked receipt components and atomically releases with a certificate after disable/stop/revocation', async () => {
     await book(); await db.update(users).set({ disabledAt: new Date(base + 90) }).where(eq(users.id, 1));
     await scopes.run(identity(), async (_scope, session) => {
@@ -161,7 +174,7 @@ describe('same-session PostgreSQL attempted order settlement', () => {
   it('keeps the existing release certificate immutable across duplicate reconciliation', async () => {
     await book(); await scopes.run(identity(), async (_scope, session) => { await observe(session); await settle(session); });
     const before = (await db.select().from(copyLiveExecutionEvidence))[0]!;
-    await scopes.run(identity(), async (_scope, session) => { expect((await observe(session)).kind).toBe('pending'); expect((await settle(session, 3)).kind).toBe('pending'); });
+    await scopes.run(identity(), async (_scope, session) => { expect((await observe(session)).kind).toBe('pending'); expect((await settle(session, 3)).kind).toBe('release'); });
     expect((await db.select().from(copyLiveExecutionEvidence))[0]).toEqual(before);
   });
   it('checks the oldest all-venue provider timestamp again after delayed COMMIT', async () => {

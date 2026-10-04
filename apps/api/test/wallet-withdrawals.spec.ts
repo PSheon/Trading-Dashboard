@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthService } from "../src/common/auth/auth.service.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { ArbitrumBalanceClient } from "../src/wallet/arbitrum-balance.client.js";
@@ -40,7 +40,7 @@ describe("durable owner withdrawal metadata", () => {
     bob: { privyUserId: "did:privy:bob", profile: { email: "bob@example.com", walletAddress: null, embeddedWalletAddress: OTHER } },
   });
   const info = { userNonFundingLedgerUpdates: vi.fn(async () => [] as Array<{ time: number; hash: string; delta: Record<string, unknown> }>) };
-  const exchange = { acquire: vi.fn(async () => {}), send: vi.fn(async () => ({ status: "ok", response: { type: "default" } } as unknown)) };
+  const exchange = { acquire: vi.fn(async () => {}), send: vi.fn<WithdrawalExchangeClient['send']>(async () => ({ status: "ok", response: { type: "default" } } as unknown)) };
   let app: INestApplication;
   let auth: AuthService;
   beforeAll(async () => {
@@ -53,6 +53,7 @@ describe("durable owner withdrawal metadata", () => {
   });
   beforeEach(async () => { await truncateAll(db); auth.clearCache(); vi.clearAllMocks(); info.userNonFundingLedgerUpdates.mockResolvedValue([]); exchange.acquire.mockResolvedValue(undefined); exchange.send.mockResolvedValue({ status: "ok", response: { type: "default" } }); });
   afterAll(async () => { delete process.env.AUTH_SERVICE_TOKEN; await app.close(); await closeTestDb(); });
+  afterEach(() => vi.restoreAllMocks());
   const post = (path: string, body: object = {}, token = "alice") => request(app.getHttpServer()).post(ROOT + path).set("Authorization", `Bearer ${token}`).send(body);
   const current = (token = "alice") => request(app.getHttpServer()).get(ROOT + "/current").set("Authorization", `Bearer ${token}`);
   async function reserve() { return (await post("", INPUT).expect(200)).body.data; }
@@ -70,6 +71,18 @@ describe("durable owner withdrawal metadata", () => {
       message: { hyperliquidChain: "Testnet", destination: changes.destination ?? DEST, amount: changes.amount ?? "12.5", time: BigInt(changes.time ?? op.nonce) },
     });
   }
+
+  it('retains unknown after shared quota wait ages the original owner proof and never retries', async () => {
+    const op = await unknown(), sig = await signature(op); let nativeCalls = 0;
+    exchange.send.mockImplementation(async (_operation, _signature, guard) => {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 5001);
+      try { if (!guard) throw Error('missing native withdrawal guard'); guard(); nativeCalls++; return { status: 'ok', response: { type: 'default' } }; }
+      finally { clock.mockRestore(); }
+    });
+    const res = await post(`/${op.id}/submit`, { signature: sig }).expect(200);
+    expect(res.body.data.status).toBe('unknown'); expect(exchange.send.mock.calls[0][2]).toEqual(expect.any(Function)); expect(nativeCalls).toBe(0);
+    await post(`/${op.id}/submit`, { signature: sig }).expect(200); expect(exchange.send).toHaveBeenCalledTimes(1);
+  });
 
   it("reserves one canonical operation across devices and recovers it without provider side effects", async () => {
     const first = await reserve();
@@ -205,7 +218,7 @@ describe("durable owner withdrawal metadata", () => {
     const responses = await Promise.all([post(`/${op.id}/submit`, { signature: signed }), post(`/${op.id}/submit`, { signature: signed })]);
     expect(responses.map((reply) => reply.status)).toEqual([200, 200]);
     expect(exchange.send).toHaveBeenCalledTimes(1);
-    expect(exchange.send).toHaveBeenCalledWith(expect.objectContaining({ address: MAIN, nonce: op.nonce, destination: DEST, amount: "12.5" }), signed);
+    expect(exchange.send).toHaveBeenCalledWith(expect.objectContaining({ address: MAIN, nonce: op.nonce, destination: DEST, amount: "12.5" }), signed, expect.any(Function));
     expect((await current().expect(200)).body.data.status).toBe("accepted");
     expect(JSON.stringify(responses.map((reply) => reply.body))).not.toContain(signed);
     const [saved] = await db.select().from(walletWithdrawals).where(eq(walletWithdrawals.id, op.id));

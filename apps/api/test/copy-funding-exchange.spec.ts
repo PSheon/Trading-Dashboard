@@ -34,6 +34,6 @@ describe("strategy funding trusted transport", () => {
   });
   it("never retries response loss", async () => {
     const fetcher = vi.fn(async () => { throw new Error("response lost"); }); vi.stubGlobal("fetch", fetcher);
-    await expect(client().transport.send(op, signature)).rejects.toThrow("response lost"); expect(fetcher).toHaveBeenCalledTimes(1);
+    await expect(client().transport.send(op, signature)).rejects.toThrow("funding_submission_unknown"); expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

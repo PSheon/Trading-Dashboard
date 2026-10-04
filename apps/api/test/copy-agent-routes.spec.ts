@@ -94,7 +94,7 @@ describe("explicit strategy agent authenticated HTTP routes", () => {
     const signature = await owner.signTypedData(agentOwnerConsentTypedData(consent.intent));
     const response = await post(setupPath(prepared.id, "approve"), { consentSignature: signature }).expect(200).expect("Cache-Control", "no-store");
     expect(copyAgentSetupSchema.parse(response.body.data).state).toBe("active");
-    expect(exchange.signMaster).toHaveBeenCalledExactlyOnceWith({ walletId: "master-provider-wallet", address: master.address.toLowerCase(), ownerQuorumId: "user-quorum" }, consent.intent, "alice");
+    expect(exchange.signMaster).toHaveBeenCalledExactlyOnceWith({ walletId: "master-provider-wallet", address: master.address.toLowerCase(), ownerQuorumId: "user-quorum" }, consent.intent, "alice", expect.any(Function));
     expect(exchange.send).toHaveBeenCalledTimes(1); expect(await db.select().from(copyWalletAuthorizations)).toHaveLength(1);
     expect(JSON.stringify(await db.select().from(copyAgentSetups))).not.toContain(signature);
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100", allocated: "100" });

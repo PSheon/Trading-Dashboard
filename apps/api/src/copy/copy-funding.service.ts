@@ -80,11 +80,18 @@ export class CopyFundingService {
       throw new BusyException(BUSY_RETRY_AFTER_MS);
     }
     // Reverify identity after balance/budget reads, before durable attempt.
-    await this.verified(userId, row.accountId);
+    const identityCheckedAt = Date.now();
+    const account = await this.verified(userId, row.accountId);
     const attempt = await this.repository.beginSubmit(userId, id);
     if (!attempt) return wire(await this.repository.find(userId, id));
     let reply: unknown;
-    try { reply = await this.exchange.send(attempt, signature); } catch { return wire(await this.repository.find(userId, id)); }
+    try { reply = await this.exchange.send(attempt, signature, () => {
+      const now = Date.now();
+      this.assertAvailable();
+      if (!Number.isSafeInteger(identityCheckedAt) || now < identityCheckedAt || now - identityCheckedAt > 5000 ||
+        account.id !== attempt.accountId || account.address !== attempt.destination || account.network !== attempt.network ||
+        attempt.network !== this.config.value.hyperliquid.wallet.network) throw new ConflictException("funding_identity_evidence_expired");
+    }); } catch { return wire(await this.repository.find(userId, id)); }
     if (reply && typeof reply === "object" && Object.keys(reply).sort().join(",") === "response,status" && "status" in reply && "response" in reply) {
       if (reply.status === "ok" && reply.response && typeof reply.response === "object" && Object.keys(reply.response).join(",") === "type" && "type" in reply.response && reply.response.type === "default") return wire(await this.repository.finish(userId, id, "accepted", digest(reply)));
       if (reply.status === "err" && typeof reply.response === "string" && reply.response && !/nonce/i.test(reply.response)) return wire(await this.repository.finish(userId, id, "rejected", digest(reply)));

@@ -267,3 +267,71 @@ it('rolls back activation if pure response validation completes after consent ex
     expect(await stored()).toMatchObject({ state: 'prepared', activationCursor: null, consentDigest: null });
   } finally { spy.mockRestore(); }
 });
+
+
+describe('server-checked readonly original renewal evidence', () => {
+  it.each([
+    { state: 'prepared', deadline: 'consentBefore', eligible: false, reason: null },
+    { state: 'prepared', deadline: 'consent', eligible: true, reason: 'prepared_consent_expired' },
+    { state: 'expired', deadline: 'consent', eligible: true, reason: 'prepared_consent_expired' },
+    { state: 'active', deadline: 'consent', eligible: false, reason: null },
+    { state: 'paused', deadline: 'consent', eligible: false, reason: null },
+    { state: 'active', deadline: 'generation', eligible: true, reason: 'generation_expired' },
+    { state: 'revoked', deadline: 'consentBefore', eligible: true, reason: 'revoked' },
+    { state: 'stopped', deadline: 'generation', eligible: false, reason: null },
+  ] as const)('reports $state/$deadline without changing original persisted authority', async ({ state, deadline, eligible, reason }) => {
+    const original = await challenge();
+    if (['active', 'paused', 'stopped'].includes(state)) {
+      const signature = await owner.signTypedData(liveCopyMandateOwnerTypedData(original.intent));
+      await service.approve(uid, original.mandate.id, { consentSignature: signature });
+    }
+    await db.update(copyLiveMandates).set({ state, revision: 3 });
+    clock = deadline === 'generation' ? original.intent.expiresAt : original.intent.consentExpiresAt - (deadline === 'consentBefore' ? 1 : 0);
+    const before = await db.select().from(copyLiveMandates);
+    for (const read of [() => service.originalChallenge(uid, original.mandate.id), () => service.mandateByKey(uid, 'mandate-generation-key-0001')]) {
+      const recovered = await read();
+      expect(recovered.intent).toEqual(original.intent);
+      expect(Reflect.get(recovered, 'renewal')).toEqual({ checkedAt: new Date(clock).toISOString(), eligible, reason, mandateId: original.mandate.id, revision: 3, nonce: original.intent.nonce });
+    }
+    expect(await db.select().from(copyLiveMandates)).toEqual(before);
+  });
+  it('samples expiry after the original owner lock wait and final response validation, denying expired activation', async () => {
+    const { prepared, signature } = await sign();
+    const before = await stored();
+    let recovered: Awaited<ReturnType<typeof service.originalChallenge>> | undefined;
+    await waitWriter(async () => { recovered = await service.originalChallenge(uid, prepared.mandate.id); }, () => { clock = prepared.intent.consentExpiresAt; });
+    expect(recovered).toBeDefined();
+    expect(Reflect.get(recovered!, 'renewal')).toMatchObject({ checkedAt: new Date(clock).toISOString(), eligible: true, reason: 'prepared_consent_expired' });
+    await expect(service.approve(uid, prepared.mandate.id, { consentSignature: signature })).rejects.toMatchObject({ status: 409 });
+    expect(await stored()).toEqual(before);
+  });
+  it('uses the completion clock after pure wire validation, without refreshing an old consent', async () => {
+    const prepared = await challenge(), originalWire = CopyLiveMandateRepository.prototype.wire;
+    clock = prepared.intent.consentExpiresAt - 1;
+    const spy = vi.spyOn(CopyLiveMandateRepository.prototype, 'wire').mockImplementation(function (this: CopyLiveMandateRepository, row) {
+      const result = originalWire.call(this, row); clock = prepared.intent.consentExpiresAt; return result;
+    });
+    try {
+      expect(Reflect.get(await service.originalChallenge(uid, prepared.mandate.id), 'renewal')).toMatchObject({ checkedAt: new Date(clock).toISOString(), eligible: true, reason: 'prepared_consent_expired' });
+      expect((await stored()).state).toBe('prepared');
+    } finally { spy.mockRestore(); }
+  });
+  it('keeps archived reads available with expired/revoked old agents while new preparation remains denied', async () => {
+    const prepared = await challenge(); clock = prepared.intent.expiresAt;
+    await db.update(copyWalletAuthorizations).set({ revokedAt: new Date(clock) });
+    await db.update(copyExecutionWallets).set({ retiredAt: new Date(clock) });
+    await db.update(copyAgentSetups).set({ state: 'revoked' });
+    const before = await stored();
+    expect(Reflect.get(await service.originalChallenge(uid, prepared.mandate.id), 'renewal')).toMatchObject({ eligible: true, reason: 'generation_expired' });
+    await expect(service.prepare(uid, accountId, { idempotencyKey: 'renewal-new-key-0001' })).rejects.toMatchObject({ status: 409 });
+    expect(await stored()).toEqual(before);
+  });
+  it.each(['masterAddress', 'ownerAddress'] as const)('rejects current %s rebinding even on archived recovery', async change => {
+    const prepared = await challenge();
+    if (change === 'masterAddress') await db.update(copyExecutionAccounts).set({ address: `0x${'66'.repeat(20)}` });
+    else await db.update(users).set({ embeddedWalletAddress: foreign.address.toLowerCase() }).where(eq(users.id, uid));
+    await expect(service.originalChallenge(uid, prepared.mandate.id)).rejects.toMatchObject({ status: 409 });
+    await expect(service.mandateByKey(uid, 'mandate-generation-key-0001')).rejects.toMatchObject({ status: 409 });
+    expect((await stored()).state).toBe('prepared');
+  });
+});

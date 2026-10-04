@@ -60,6 +60,9 @@ export class AccountDeletionService {
       if (await this.accounts.hasExecutionRecords(tx, userId)) {
         throw new ConflictException({ statusCode: 409, code: "execution_records_exist", message: "Execution accounts require reconciliation before account deletion" });
       }
+      if (await this.accounts.hasReferralRecords(tx, userId)) {
+        throw new ConflictException({ statusCode: 409, code: 'referral_records_exist', message: 'Referral attribution and financial history require reconciliation before account deletion' });
+      }
       const before = await this.accounts.footprint(tx, userId, user.role);
       for (const address of await this.accounts.favoriteAddresses(tx, userId)) {
         await this.favorites.removeAndUnwatch(tx, userId, address);

@@ -67,4 +67,18 @@ describe('bounded fixed-network source reads', () => {
     const result = await client((async () => new Response(' '.repeat(2 * 1024 * 1024 + 1))) as typeof fetch).read(req());
     expect(result.complete).toBe(false);
   });
+  it('correlates ordinary/TWAP overlap using the actual wrapper and preserves a proven fixed trade key',async()=>{
+    const ordinary={...fill(),hash:`0x${'00'.repeat(32)}`,fee:'0.1',unknown:{value:'same'}};
+    const result=await client((async(_url,init)=>Response.json(JSON.parse(String(init?.body)).type==='userFillsByTime'?[ordinary]:[{twapId:9,fill:ordinary}])) as typeof fetch).read(req());
+    expect(result.complete).toBe(true);expect(result.fills).toHaveLength(1);expect(result.fills[0]).toMatchObject({tradeKey:'twap:9',normalized:{kind:'twap',twapId:'9'},raw:{twapId:9,fill:ordinary}});
+  });
+  it.each(['px','sz','oid','twapId','fee','unknown'] as const)('rejects contradictory cross-channel %s instead of ignoring raw evidence',async field=>{
+    const ordinary={...fill(),hash:`0x${'00'.repeat(32)}`,twapId:9,fee:'0.1',unknown:{value:'same'}},changed={...ordinary,[field]:field==='unknown'?{value:'changed'}:field==='twapId'?10:field==='fee'?'0.2':field==='oid'?8:'2'};
+    await expect(client((async(_url,init)=>Response.json(JSON.parse(String(init?.body)).type==='userFillsByTime'?[ordinary]:[{twapId:9,fill:changed}])) as typeof fetch).read(req())).rejects.toThrow();
+  });
+  it('keeps a zero-hash ordinary row without a proven TWAP identity unresolved and nonactionable',async()=>{
+    const ordinary={...fill(),hash:`0x${'00'.repeat(32)}`};
+    const result=await client((async(_url,init)=>Response.json(JSON.parse(String(init?.body)).type==='userFillsByTime'?[ordinary]:[])) as typeof fetch).read(req());
+    expect(result.complete).toBe(false);expect(result.fills).toEqual([]);expect(result.unresolved.some(w=>w.reason==='twap_identity_unproven')).toBe(true);
+  });
 });

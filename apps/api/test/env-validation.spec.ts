@@ -22,6 +22,13 @@ describe("unsafe runtime configuration", () => {
 
 const base = { DATABASE_URL: "postgres://audit:password@127.0.0.1:55439/audit_test" };
 describe("startup environment", () => {
+  it('retains an explicitly configured shared egress alias and never invents one', () => {
+    expect(validateEnvironment(base).hyperliquid.egressKey).toBeUndefined();
+    expect(validateEnvironment({ ...base, HYPERLIQUID_EGRESS_KEY: 'project-stage-shared-ip' }).hyperliquid.egressKey).toBe('project-stage-shared-ip');
+  });
+  it.each(['', ' ', 'different process', 'x'.repeat(129), 'hidden\u200b', 'host/path'])('rejects invalid shared egress alias %j', value => {
+    expect(() => validateEnvironment({ ...base, HYPERLIQUID_EGRESS_KEY: value })).toThrow('HYPERLIQUID_EGRESS_KEY');
+  });
   it("supports local public-only mode and safe dry-run defaults", () => {
     const result = validateEnvironment(base);
     expect(result.app.port).toBe(3000);

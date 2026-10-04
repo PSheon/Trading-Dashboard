@@ -15,6 +15,7 @@ import {
   traderStats,
   userFavorites,
   walletWithdrawals,
+  referralCodes, referralPolicies, referralClaims,
 } from "@trading-dashboard/shared/database";
 import { eq } from "drizzle-orm";
 import request from "supertest";
@@ -421,6 +422,21 @@ describe("/me — real controllers and services, real Postgres, stubbed Privy + 
   });
 
   describe("DELETE /me (account deletion)", () => {
+    it('removes unbound referral aliases when the owner deletes an otherwise empty account', async () => {
+      const id = (await alice.get('/me').expect(200)).body.data.id as number;
+      await db.insert(referralCodes).values({ id: 'unused-referral', userId: id, code: 'UNUSEDCODE', kind: 'custom' });
+      await alice.delete('/me').expect(204);
+      expect(await db.select().from(referralCodes)).toHaveLength(0);
+    });
+    it('preserves referral financial history and returns a controlled conflict before deletion', async () => {
+      const id = (await alice.get('/me').expect(200)).body.data.id as number;
+      await db.insert(referralPolicies).values({ version: 'retention-test', effectiveFrom: new Date(0) });
+      await db.insert(referralClaims).values({ id: 'historical-claim', userId: id, key: 'historical-owner-key', requestHash: 'a'.repeat(64), policyVersion: 'retention-test',
+        network: 'mainnet', token: 'USDC', destination: OTHER, amountUnits: '1', status: 'unknown', attemptId: 'retained-attempt', createdAt: new Date(), updatedAt: new Date() });
+      expect((await alice.delete('/me').expect(409)).body.error.code).toBe('referral_records_exist');
+      expect(await db.select().from(referralClaims)).toHaveLength(1);
+      expect(await db.select().from(users).where(eq(users.id, id))).toHaveLength(1);
+    });
     it("deletes the account and everything it owns here, releases the watch list and audits counts only", async () => {
       const id = (await alice.get("/me").expect(200)).body.data.id as number;
       await db.insert(notificationChannels).values({ userId: id, kind: "telegram", target: "555", enabled: true });

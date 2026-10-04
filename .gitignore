@@ -5,7 +5,8 @@ node_modules/
 # env
 .env
 .env.local
-.env.*.local
+.env.*
+!.env.example
 
 # build outputs
 dist/
@@ -30,8 +31,10 @@ pnpm-debug.log*
 .playwright-mcp/
 
 # agent worktrees
-.claude/worktrees/
-.claude/logs/
+.claude/
+.agents/
+.codex/
+.superpowers/
 
 # Automated browser test artifacts
 .next-e2e/

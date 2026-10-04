@@ -10,10 +10,13 @@ import { PrivyOrderSigner, assertLiveSigningBoundaryProof, type LiveBuilderAppro
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead, marketIdentityKey, type LiveMarketIdentity, type LiveMarketResolver } from './live-market-resolver.js';
 import { parseLiveOrderEvidence, type LiveOrderEvidence } from './live-order-evidence.js';
+import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
+import type { HyperliquidSendPermit } from '../../hyperliquid/postgres-hyperliquid-quota.js';
 
 export interface LiveTransportDependencies {
   marketResolver: LiveMarketResolver;
   acquire: (weight: number) => Promise<unknown>;
+  globalTransport?: HyperliquidGlobalTransport;
 }
 
 // Protocol statuses, not suffix guesses. Unknown future statuses retain
@@ -61,6 +64,8 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     private readonly dependencies?: LiveTransportDependencies) {
     if (!["mainnet", "testnet"].includes(network)) throw new LiveBoundaryError("unsupported_exchange_network");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) throw new LiveBoundaryError("invalid_exchange_timeout");
+    if (dependencies?.globalTransport !== undefined && !(dependencies.globalTransport instanceof HyperliquidGlobalTransport))
+      throw new LiveBoundaryError('hyperliquid_quota_invalid');
     this.endpoint = network === "testnet" ? "https://api.hyperliquid-testnet.xyz" : "https://api.hyperliquid.xyz";
   }
 
@@ -84,6 +89,8 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   }
 
   async submit(order: SignedLiveOrder, record: LiveExecutionRecord, intent: LiveOrderIntent, lease: LiveExecutionLease): Promise<ExchangeOutcome> {
+    let quotaPermit: HyperliquidSendPermit | undefined;
+    let assertPostFresh!: () => void;
     try {
       record = structuredClone(record);
       intent = structuredClone(intent);
@@ -94,6 +101,10 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       order = structuredClone(order);
       assertSignedOrderMatches(order, record);
       await this.acquire(1);
+      // SQL admission precedes the final current authority/risk checks. An
+      // asynchronous fetch wrapper after those checks would open a new gap.
+      if (this.dependencies?.globalTransport) quotaPermit = await this.dependencies.globalTransport.currentQuota()
+        .acquireRest(1, Math.min(this.now() + 5000, record.expiresAfter));
       const permit = await assertLiveExecutionReady(this.gate, lease, "submit", intent, record);
       const market = await this.verifyMarket(intent, record);
       const builder = await this.verifyBuilder(record);
@@ -101,14 +112,18 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
       // after it too, immediately before starting the exchange POST.
       const verified = await this.signer.assertAuthorization(record, intent);
       await lease.assertHeld();
-      assertLiveExecutionPermit(permit, 'submit', intent, record);
-      this.signer.assertAuthorizationFresh(verified, intent);
-      assertLiveSigningBoundaryProof({ market, ...(builder ? { builder } : {}) }, record, intent, this.now());
-      if (order.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
+      assertPostFresh = () => {
+        assertLiveExecutionPermit(permit, 'submit', intent, record);
+        quotaPermit?.assertFresh();
+        this.signer.assertAuthorizationFresh(verified, intent);
+        assertLiveSigningBoundaryProof({ market, ...(builder ? { builder } : {}) }, record, intent, this.now());
+        if (order.expiresAfter <= this.now()) throw new LiveBoundaryError('signed_order_expired');
+      };
+      assertPostFresh();
     } catch (error) {
       throw new LiveSubmissionBlockedError(error instanceof LiveBoundaryError ? error.code : "final_execution_check_failed");
     }
-    const body = object(await this.post("exchange", order, true));
+    const body = object(await this.post("exchange", order, true, quotaPermit, assertPostFresh));
     if (body.status === "err") throw new LiveBoundaryError('exchange_submission_ambiguous');
     if (body.status !== "ok") throw new LiveBoundaryError("invalid_exchange_response");
     const response = object(body.response);
@@ -173,7 +188,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     };
     const market = await boundedLiveRead(this.resolver().resolveAsset(record.action.orders[0].a), remaining());
     await boundedLiveRead(this.acquire(20), remaining());
-    const response = await boundedLiveRead(this.fetcher(`${this.endpoint}/info`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    const response = await boundedLiveRead(this.infoFetcher()(`${this.endpoint}/info`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0].c }),
       signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
     if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
@@ -217,11 +232,35 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     if (!this.dependencies || typeof this.dependencies.acquire !== 'function') throw new LiveBoundaryError('live_request_budget_missing');
     await boundedLiveRead(this.dependencies.acquire(weight), 5_000);
   }
-  private async post(path: "info" | "exchange", body: unknown, admitted = false): Promise<unknown> {
+  private infoFetcher(): typeof fetch { return this.dependencies?.globalTransport?.fetchInfo ?? this.fetcher; }
+  private async post(path: "info" | "exchange", body: unknown, admitted = false, quotaPermit?: HyperliquidSendPermit, assertFresh?: () => void): Promise<unknown> {
     if (!admitted) await this.acquire(path === 'exchange' ? 1 : 20);
-    const response = await boundedLiveRead(this.fetcher(`${this.endpoint}/${path}`, { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(this.timeoutMs), redirect: "error" }), this.timeoutMs);
-    if (!response.ok) throw new LiveBoundaryError("exchange_http_failure");
-    return boundedLiveRead(readInfoJson(response, 'live exchange', 256 * 1024), this.timeoutMs);
+    const request: RequestInit = { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(this.timeoutMs), redirect: 'error' };
+    let began = false;
+    const fetcher = path === 'info' ? this.infoFetcher() : this.fetcher, url = `${this.endpoint}/${path}`;
+    const dispatch = () => {
+      // Serialization, timer creation and quota checks can consume the last
+      // millisecond of older evidence. Recheck after all request preparation.
+      assertFresh?.();
+      began = true; return fetcher(url, request);
+    };
+    let pending: Promise<Response>;
+    try { pending = quotaPermit ? quotaPermit.dispatch(dispatch) : dispatch(); }
+    catch (error) {
+      if (path === 'exchange' && !began) throw new LiveSubmissionBlockedError(error instanceof LiveBoundaryError ? error.code : 'final_execution_check_failed');
+      if (path === 'exchange' && error instanceof LiveSubmissionBlockedError) throw new LiveBoundaryError('exchange_submission_ambiguous');
+      throw error;
+    }
+    try {
+      const response = await boundedLiveRead(pending, this.timeoutMs);
+      if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
+      return await boundedLiveRead(readInfoJson(response, 'live exchange', 256 * 1024), this.timeoutMs);
+    } catch (error) {
+      // After actual transport entry no adapter exception can assert that
+      // the exchange did not receive the request. Retain unknown recovery.
+      if (path === 'exchange' && error instanceof LiveSubmissionBlockedError) throw new LiveBoundaryError('exchange_submission_ambiguous');
+      throw error;
+    }
   }
 }

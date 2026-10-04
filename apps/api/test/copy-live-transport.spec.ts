@@ -12,6 +12,11 @@ import type { ExchangeApprovalVerifier } from "../src/copy/live/wallet-authoriza
 import { LiveOrderExecutor, type LiveExecutionJournal } from "../src/copy/live/live-execution.js";
 import type { LiveExecutionRecord } from "../src/copy/live/live-execution.js";
 import type { LiveExecutionGate } from '../src/copy/live/live-execution-gate.js';
+import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
+import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
+import { UnitOfWork } from '../src/db/unit-of-work.js';
+import type { DrizzleDb } from '../src/db/drizzle.provider.js';
+import { LiveSubmissionBlockedError } from '../src/copy/live/live-execution-gate.js';
 
 const gate = executionGateFixture();
 const lease = { assertHeld: async () => {} };
@@ -54,6 +59,85 @@ function reply(body: unknown) { return new Response(JSON.stringify(body), { stat
 function statusReply(status = "open", overrides = {}) {
   return { status: "order", order: { status, statusTimestamp: now, order: { coin: 'BTC', reduceOnly: false, tif: 'Ioc', cloid: intent.cloid, side: "B", origSz: "0.01", sz: "0.01", limitPx: "65000", oid: 10, ...overrides } } };
 }
+
+describe('global quota at the actual financial POST boundary', () => {
+  function metered(finalGate: LiveExecutionGate = gate, clock = () => now) {
+    const s = setup(finalGate, exchangeApprovalFixture(clock), clock);
+    const quota = new PostgresHyperliquidQuota(new UnitOfWork({} as DrizzleDb));
+    const acquire = vi.fn(async () => { let used = false; return { assertFresh: () => {}, dispatch: <T>(work: () => T): T => {
+      if (used) throw Error('consumed'); used = true; return work();
+    } }; });
+    vi.spyOn(quota, 'bindUnscoped').mockReturnValue({ acquireRest: acquire, reserveSocket: vi.fn() });
+    const globalTransport = new HyperliquidGlobalTransport(quota, { egressKey: 'test-shared-egress', ownerId: 'test-worker' }, s.fetcher, clock);
+    return { ...s, acquireGlobal: acquire, transport: new HyperliquidLiveTransport('testnet', s.signer, finalGate, s.fetcher, 10000, clock,
+      { marketResolver: s.resolver, acquire: s.acquire, globalTransport }) };
+  }
+  it('precharges a finite permit before the final gate and dispatches the exact captured order once', async () => {
+    let charged = false;
+    const finalGate = executionGateFixture(async () => { if (!charged) throw Error('not charged before gate'); });
+    const s = metered(finalGate);
+    s.acquireGlobal.mockImplementationOnce(async () => { charged = true; return { assertFresh: () => {}, dispatch: work => work() }; });
+    const signed = { action, nonce: record.nonce, expiresAfter: record.expiresAfter,
+      signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
+    s.fetcher.mockResolvedValue(reply({ status: 'ok', response: { type: 'order', data: { statuses: [{ resting: { oid: 10 } }] } } }));
+    expect(await s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).toMatchObject({ state: 'resting' });
+    expect(s.acquireGlobal).toHaveBeenCalledWith(1, now + 5000);
+    expect(s.fetcher).toHaveBeenCalledOnce();
+    expect(JSON.parse(s.fetcher.mock.calls[0]![1]!.body as string)).toEqual(signed);
+  });
+  it('checks the final current authority after quota SQL waiting', async () => {
+    let denied = false;
+    const s = metered(executionGateFixture(async () => { if (denied) throw Error('revoked'); }));
+    s.acquireGlobal.mockImplementationOnce(async () => { denied = true; return { assertFresh: () => {}, dispatch: work => work() }; });
+    const signed = { action, nonce: record.nonce, expiresAfter: record.expiresAfter,
+      signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
+    await expect(s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).rejects.toThrow('final_execution_check_failed');
+    expect(s.fetcher).not.toHaveBeenCalled();
+  });
+  it('a stale or tombstoned permit at dispatch proves no exchange request began', async () => {
+    const s = metered();
+    s.acquireGlobal.mockResolvedValueOnce({ assertFresh: () => {}, dispatch: () => { throw Error('stale scope'); } });
+    const signed = { action, nonce: record.nonce, expiresAfter: record.expiresAfter,
+      signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
+    await expect(s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).rejects.toBeInstanceOf(LiveSubmissionBlockedError);
+    expect(s.fetcher).not.toHaveBeenCalled();
+  });
+  it('charges actual order-status INFO on the same global meter', async () => {
+    const s = metered(); s.fetcher.mockResolvedValue(reply(statusReply('open')));
+    await s.transport.query(record);
+    expect(s.acquireGlobal).toHaveBeenCalledWith(2, now + 5000);
+    expect(s.fetcher).toHaveBeenCalledOnce();
+  });
+  it('rechecks older risk evidence after JSON request construction even while the newer quota permit remains valid', async () => {
+    let clock = now + 4999;
+    const finalGate: LiveExecutionGate = { assertReady: async ({ phase, record }) => ({ phase, key: record.key, fingerprint: record.fingerprint,
+      assertFresh: () => { if (clock - now > 5000) throw Error('older risk expired'); } }) };
+    const s = metered(finalGate, () => clock);
+    const signed = { action, nonce: record.nonce, expiresAfter: record.expiresAfter,
+      signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
+    const stringify = JSON.stringify;
+    const serialization = vi.spyOn(JSON, 'stringify').mockImplementation((value, ...rest) => {
+      if (value?.signature && value?.action && value?.nonce === now) clock += 3;
+      return stringify(value, ...rest);
+    });
+    try {
+      await expect(s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease)).rejects.toBeInstanceOf(LiveSubmissionBlockedError);
+      expect(s.acquireGlobal).toHaveBeenCalledWith(1, now + 9999); expect(s.fetcher).not.toHaveBeenCalled();
+    } finally { serialization.mockRestore(); }
+  });
+  it.each(['sync', 'async'] as const)('a %s fetch failure after entry cannot forge a definite non-submission', async kind => {
+    const s = metered();
+    const signed = { action, nonce: record.nonce, expiresAfter: record.expiresAfter,
+      signature: { r: `0x${'aa'.repeat(32)}` as `0x${string}`, s: `0x${'bb'.repeat(32)}` as `0x${string}`, v: 27 } };
+    if (kind === 'sync') s.fetcher.mockImplementationOnce(() => { throw new LiveSubmissionBlockedError('after entry'); });
+    else s.fetcher.mockRejectedValueOnce(new LiveSubmissionBlockedError('after entry'));
+    let error: unknown;
+    try { await s.transport.submit(signed, { ...record, state: 'submitting' }, intent, lease); }
+    catch (caught) { error = caught; }
+    expect(s.fetcher).toHaveBeenCalledOnce(); expect(error).not.toBeInstanceOf(LiveSubmissionBlockedError);
+    expect(error).toMatchObject({ code: 'exchange_submission_ambiguous' });
+  });
+});
 
 describe('authoritative finite order-status classification', () => {
   it('returns immutable identity-bound terminal evidence with exact source timing and raw status', async () => {

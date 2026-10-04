@@ -5,6 +5,11 @@ import { FillSyncRepository } from '../src/watcher/fill-sync.repository.js';
 import { AccountStateRepository } from '../src/watcher/account-state.repository.js';
 import { testConfig } from './config-test-utils.js';
 import { writeFileSync } from 'node:fs';
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from '@trading-dashboard/shared/database';
+import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
+import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
 
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { actions, fills, leaders } from '@trading-dashboard/shared/database';
@@ -25,6 +30,8 @@ import { closeTestDb, getTestDb, truncateAll } from './db-test-utils.js';
  * `pnpm test`. Run with:
  *
  *   E2E_RUN_LIVE=1 E2E_REQUIRE_ACTIVITY=1 \
+ *   E2E_QUOTA_DATABASE_URL=<running-services-quota-database> \
+ *   HYPERLIQUID_EGRESS_KEY=<same-running-services-egress-key> \
  *   TEST_DATABASE_ADMIN_URL=postgres://postgres:postgres@localhost:5433/postgres \
  *     node scripts/test-api-isolated.mjs --config vitest.config.e2e.ts \
  *       test/manual-live-hyperliquid.e2e-spec.ts
@@ -56,14 +63,23 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
         const db = getTestDb();
         let activeWatcher: WatcherService | undefined;
         let activeFeed: TradeFeedService | undefined;
+        let quotaPool: Pool | undefined;
         try {
+          if (!process.env.E2E_QUOTA_DATABASE_URL || !process.env.HYPERLIQUID_EGRESS_KEY)
+            throw new Error('Real network tests require the running services shared quota database and egress key');
+          // The isolated data fixture MUST NOT create an independent provider
+          // quota for the same actual outbound IP. Only quota records use this
+          // separate explicitly supplied connection; fixture truncation does not.
+          quotaPool = new Pool({ connectionString: process.env.E2E_QUOTA_DATABASE_URL, max: 2 });
+          const transport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(quotaPool, { schema }))),
+            { egressKey: process.env.HYPERLIQUID_EGRESS_KEY, ownerId: 'manual-readonly-network-probe' });
           await truncateAll(db);
 
           const budgeter = new RequestBudgeterService(testConfig());
-          const info = new HyperliquidInfoClient(testConfig(), budgeter);
+          const info = new HyperliquidInfoClient(testConfig(), budgeter, undefined, transport);
           const counts = new Map<string, number>();
           for (const coin of ['BTC', 'ETH', 'SOL', 'HYPE']) {
-            const res = await fetch('https://api.hyperliquid.xyz/info', {
+            const res = await transport.fetchInfo('https://api.hyperliquid.xyz/info', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ type: 'recentTrades', coin }),
@@ -170,7 +186,7 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
             accounts,
             tagged('slow'),
           );
-          const feed = new TradeFeedService(testConfig(), info);
+          const feed = new TradeFeedService(testConfig(), info, transport);
           activeFeed = feed;
           const feedActions = new FeedActionsService(
             testConfig(),
@@ -198,7 +214,7 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
           await new Promise((r) => setTimeout(r, RUN_MS));
           const status = feed.status();
           const budgetDuringRun = budgeter.introspect();
-          feed.stop();
+          await feed.stop();
           const alertsDuringRun = alerts.length;
           await new Promise((r) => setTimeout(r, DRAIN_MS)); // let confirms and their retries finish
           watcher.stop();
@@ -269,6 +285,7 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
             writeFileSync(
               process.env.E2E_SUMMARY_FILE,
               JSON.stringify(summary, null, 2),
+              { mode: 0o600 },
             );
 
           expect(status.markets).toBeGreaterThan(100);
@@ -288,9 +305,10 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
             ).toBe(storedActions.length);
           }
         } finally {
-          activeFeed?.stop();
+          await activeFeed?.stop();
           activeWatcher?.stop();
           await closeTestDb();
+          await quotaPool?.end();
         }
       },
     );

@@ -1,0 +1,121 @@
+import { copyStrategySettingsSchema, type CopyRiskLimits, type CopyStrategySettings } from '@trading-dashboard/shared/contracts';
+import { isDeepStrictEqual } from 'node:util';
+import { z } from 'zod';
+import { Dec } from '../../common/decimal/dec.js';
+import { floorSize, followerSign, reduceWithCarry, roundPx, slippedPx } from '../copy-math.js';
+import { decodeLiveCopyMandate, type MandateRow } from '../copy-live-mandate-evidence.js';
+import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
+import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceLegId, type CanonicalLiveSourceLeg, type LiveSourceFillEvidence } from './copy-live-source-evidence.js';
+import type { LiveSourceSizingBasisV1, LiveSourceSizingEnvelopeV1, PlannedLiveSourceOrder } from './copy-live-sizing-evidence.js';
+import { assertMarketIdentity, marketIdentityKey } from './live-market-resolver.js';
+import { mapLiveAccountView } from './live-account-view.js';
+import { projectLiveGenerationPositions } from './copy-live-generation-projection.js';
+import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
+import { freezeLiveReservation } from './live-risk-reservation.js';
+import { address, LiveBoundaryError } from './wallet-authorization.js';
+export interface LiveSourcePlanInput {
+  readonly mandate: MandateRow; readonly settings: CopyStrategySettings; readonly fill: LiveSourceFillEvidence;
+  readonly leg: CanonicalLiveSourceLeg; readonly sizingBasis: unknown; readonly now: number;
+  readonly limits: Pick<CopyRiskLimits,'maxSignalAgeSeconds'|'maxSlippageBps'>;
+  readonly currentExecutionKey: string;
+}
+const hash=z.string().regex(/^[a-f0-9]{64}$/),id=z.string().min(1).max(160),integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),version=integer.refine(v=>v>0),addr=z.string().regex(/^0x[0-9a-f]{40}$/);
+const decimal=z.string().max(80).regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/).refine(v=>Dec.from(v).toString()===v);
+const nonnegative=decimal.refine(v=>Dec.from(v).gte(0)),positive=decimal.refine(v=>Dec.from(v).isPositive);
+const market=z.object({network:z.literal('testnet'),coin:id,dex:z.string(),asset:integer,universeIndex:integer,perpDexIndex:integer,sizeDecimals:integer,maxLeverage:version,observedAt:integer}).strict();
+const snapshotIdentity={network:z.literal('testnet'),accountAddress:addr,equity:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash,snapshotDigest:hash};
+const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:version,settingsDigest:hash,sourceFillId:id,sourceDigest:hash,network:z.literal('testnet'),accountAddress:addr,coin:id,
+  leg:z.enum(['open','close']),direction:z.enum(['same','reverse']),sizingMode:z.enum(['ratio','fixed']),budgetUsd:positive,perTradeUsd:positive.nullable(),market,
+  quote:z.object({midPrice:positive,slippageBps:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash}).strict(),
+  follower:z.object({...snapshotIdentity,positionSize:decimal,positionsDigest:hash}).strict(),leader:z.object(snapshotIdentity).strict().nullable(),
+  generation:z.object({mandateId:id,baselineDigest:hash,receiptManifestDigest:hash,positionsDigest:hash,positionSize:decimal}).strict(),
+  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),}).strict();
+function requireSizing(value:unknown):asserts value {if(!value)throw new LiveBoundaryError('live_source_sizing_unproven');}
+function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=5000);}
+function equal(a:unknown,b:unknown){requireSizing(isDeepStrictEqual(a,b));}
+/** Decode bounded JSON evidence without introducing an observation time. */
+export function decodeLiveSourceSizingEnvelope(raw: unknown): LiveSourceSizingEnvelopeV1 {
+  try{
+    liveSourceDigest(raw);requireSizing(Buffer.byteLength(JSON.stringify(raw),'utf8')<=2*1024*1024);
+    const envelope=structuredClone(raw) as LiveSourceSizingEnvelopeV1;
+    requireSizing(envelope?.version===1&&Object.keys(envelope).sort().join(',')==='basis,observations,version'&&envelope.observations&&Object.keys(envelope.observations).sort().join(',')==='follower,generationManifest,leader,quote');
+    const basis=basisSchema.parse(envelope.basis) as LiveSourceSizingBasisV1;assertMarketIdentity(basis.market);
+    return freezeLiveReservation({...envelope,basis});
+  }catch{throw new LiveBoundaryError('live_source_sizing_unproven');}
+}
+function snapshotMirror(snapshot:LiveSourceSizingEnvelopeV1['observations']['follower'],expected:LiveSourceSizingBasisV1['leader'],now:number,id:{accountId:string;strategyId:number}){
+  requireSizing(expected);const view=mapLiveAccountView({...id,network:'testnet',accountAddress:expected.accountAddress},snapshot,{blocked:false,reason:null},now,5000);
+  requireSizing(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
+  equal({network:snapshot.network,accountAddress:snapshot.accountAddress,equity:snapshot.perpEquity,observedAt:snapshot.observedAt,completedAt:snapshot.completedAt,sourceDigest:snapshot.sourceDigest,snapshotDigest:followerReceiptDigestV1(snapshot)},expected);
+}
+/** Floor the exact rational once at the exchange lot. Intermediate 18dp
+ * rounding must never round a ratio-sized opening above its allocation. */
+function rationalSize(factors:readonly string[],divisors:readonly string[],dp:number):Dec{
+  let n=10n**BigInt(dp),d=1n;
+  const parts=(text:string)=>{const [whole,fraction='']=text.split('.');return {n:BigInt(whole+fraction),d:10n**BigInt(fraction.length)};};
+  for(const factor of factors){const x=parts(factor);n*=x.n;d*=x.d;}
+  for(const divisor of divisors){const x=parts(divisor);requireSizing(x.n>0);n*=x.d;d*=x.n;}
+  const units=n/d,text=units.toString().padStart(dp+1,'0');return Dec.from(dp?`${text.slice(0,-dp)}.${text.slice(-dp)}`:text);
+}
+function conservativeLimit(mid:Dec,side:'B'|'A',slippage:string,szDecimals:number):Dec{
+  const bound=slippedPx(mid,side,slippage);let price=roundPx(bound,szDecimals);
+  if(side==='B'?price.gt(bound):price.lt(bound)){
+    const [whole,fraction='']=price.toString().split('.'),magnitude=whole==='0'?-(fraction.search(/[1-9]/)+1):whole!.length-1;
+    const dp=Math.max(0,Math.min(6-szDecimals,4-magnitude)),tick=Dec.from(dp?`0.${'0'.repeat(dp-1)}1`:'1');
+    price=side==='B'?price.sub(tick):price.add(tick);
+  }
+  requireSizing(price.isPositive&&(side==='B'?price.lte(bound):price.gte(bound)));return price;
+}
+export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSourceOrder {
+  try{
+    const input=structuredClone(raw),{mandate:m,now,limits,currentExecutionKey}=input,consent=decodeLiveCopyMandate(m),settings=copyStrategySettingsSchema.strict().parse(input.settings),envelope=decodeLiveSourceSizingEnvelope(input.sizingBasis),b=envelope.basis,o=envelope.observations;
+    requireSizing(Number.isSafeInteger(now)&&now>0&&m.state==='active'&&m.consentDigest&&m.activationCursor&&m.expiresAt.getTime()>now&&consent.sourceNetwork==='testnet'&&
+      settings.copyStartMode==='delta'&&consent.settingsDigest===liveCopySettingsDigest(settings)&&Number.isSafeInteger(limits.maxSignalAgeSeconds)&&limits.maxSignalAgeSeconds>0&&limits.maxSignalAgeSeconds<=86400&&
+      Number.isFinite(limits.maxSlippageBps)&&limits.maxSlippageBps>=0&&limits.maxSlippageBps<=10000&&Dec.from(b.quote.slippageBps).lte(limits.maxSlippageBps)&&
+      currentExecutionKey.startsWith(`testnet:${consent.accountAddress}:`)&&/^0x[a-f0-9]{32}$/.test(currentExecutionKey.slice(`testnet:${consent.accountAddress}:`.length)));
+    const fill=decodeLiveSourceFill({...input.fill,normalized:{...input.fill.normalized},providerTime:new Date(input.fill.providerTime),receivedAt:new Date(input.fill.receivedAt)}),leg=canonicalLiveSourceLegs(fill).find(l=>l.leg===input.leg.leg);equal(leg,input.leg);requireSizing(leg);
+    requireSizing(fill.network==='testnet'&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.providerTime<=now&&now-fill.providerTime<=limits.maxSignalAgeSeconds*1000&&fill.receivedAt<=now&&
+      b.mandateId===m.id&&b.mandateRevision===m.revision&&b.settingsDigest===consent.settingsDigest&&b.sourceFillId===fill.id&&b.sourceDigest===fill.sourceDigest&&b.accountAddress===consent.accountAddress&&
+      b.coin===fill.coin&&b.leg===leg.leg&&b.direction===settings.direction&&b.sizingMode===settings.sizingMode&&b.budgetUsd===consent.budgetUsd&&b.perTradeUsd===(settings.perTradeUsd===null?null:Dec.from(settings.perTradeUsd).toString())&&
+      b.market.coin===fill.coin&&b.follower.accountAddress===consent.accountAddress&&address(b.accountAddress)===b.accountAddress);
+    for(const at of [b.market.observedAt,b.quote.observedAt,b.quote.completedAt,b.follower.observedAt,b.follower.completedAt])fresh(at,now);
+    const {positionSize:_position,positionsDigest:_positions,...followerIdentity}=b.follower;snapshotMirror(o.follower,followerIdentity,now,consent);
+    const target=o.follower.positions.find(p=>p.coin===fill.coin);equal(b.follower.positionSize,target?.size??'0');
+    const q=o.quote;requireSizing(q.network==='testnet'&&q.accountAddress===consent.accountAddress&&q.coin===fill.coin&&q.asset===b.market.asset&&q.dex===b.market.dex);
+    assertMarketIdentity(q.market);assertMarketIdentity(q.quote.market);equal(marketIdentityKey(q.market),marketIdentityKey(b.market));equal(marketIdentityKey(q.quote.market),marketIdentityKey(b.market));
+    equal(b.quote,{midPrice:q.quote.midPrice,slippageBps:b.quote.slippageBps,observedAt:q.quote.observedAt,completedAt:q.completedAt,sourceDigest:q.quote.sourceDigest});
+    requireSizing(b.quote.observedAt<=b.quote.completedAt&&q.earliestObservedAt<=q.quote.observedAt);fresh(q.earliestObservedAt,now);fresh(q.completedAt,now);
+    const projection=projectLiveGenerationPositions({identity:{mandateId:m.id,mandateRevision:m.revision,accountId:consent.accountId,userId:consent.userId,strategyId:consent.strategyId,network:'testnet',accountAddress:consent.accountAddress,
+      authorizationId:consent.authorizationId,settingsDigest:consent.settingsDigest,leaderAddress:consent.leaderAddress,direction:settings.direction},manifest:o.generationManifest,snapshot:o.follower,currentExecutionKey,now});
+    equal(b.generation,{mandateId:m.id,baselineDigest:projection.baselineDigest,receiptManifestDigest:projection.receiptManifestDigest,positionsDigest:projection.positionsDigest,positionSize:projection.positions[fill.coin]??'0'});
+    equal(b.follower.positionsDigest,projection.positionsDigest);equal(b.follower.positionSize,b.generation.positionSize);
+    const carry=o.generationManifest.carry.filter(row=>row.mandateId===m.id&&row.coin===fill.coin);requireSizing(carry.length===1);equal(b.carry,{amount:carry[0]!.carry,revision:carry[0]!.revision});
+    requireSizing(b.fixedTradeClaim===(leg.leg==='open'&&settings.sizingMode==='fixed'));
+    if(leg.leg==='open'&&settings.sizingMode==='ratio'){
+      requireSizing(b.leader&&o.leader&&b.leader.accountAddress===consent.leaderAddress);snapshotMirror(o.leader!,b.leader,now,{accountId:'leader',strategyId:consent.strategyId});requireSizing(Dec.from(b.leader!.equity).isPositive);
+    }else requireSizing(b.leader===null&&o.leader===null);
+    const sign=followerSign(leg.sign,settings.direction),position=Dec.from(b.generation.positionSize),mid=Dec.from(b.quote.midPrice),side=leg.leg==='close'?(sign>0?'A':'B'):(sign>0?'B':'A');
+    const price=conservativeLimit(mid,side,b.quote.slippageBps,b.market.sizeDecimals);
+    let size:Dec,nextCarry=Dec.from(b.carry.amount),dependsOnLegId:string|null=null;
+    if(leg.leg==='close'){
+      requireSizing(position.sign===sign&&position.abs().gte(nextCarry)&&leg.fraction);const reduction=reduceWithCarry(position.abs(),Dec.from(leg.fraction!),nextCarry,b.market.sizeDecimals);size=floorSize(reduction.size,b.market.sizeDecimals);nextCarry=reduction.carry;
+      requireSizing(b.settledDependency===null);
+    }else{
+      const close=canonicalLiveSourceLegs(fill).find(l=>l.leg==='close');
+      if(close){dependsOnLegId=liveSourceLegId(m.id,fill.id,'close');requireSizing(position.isZero&&b.settledDependency?.legId===dependsOnLegId);
+        const dependency=o.generationManifest.journals.find(j=>j.leg?.id===dependsOnLegId);requireSizing(dependency?.evidence?.settlementDigest===b.settledDependency?.certificateDigest&&dependency.leg?.state==='settled');
+      }else requireSizing(b.settledDependency===null);
+      requireSizing(position.isZero||position.sign===sign);
+      // Budget buys at their maximum admitted execution price. A lower sell
+      // limit must not enlarge the quantity above the owner's mid-price budget.
+      // Floor at the exchange lot; minimum-notional admission remains separate
+      // and must never round up or silently exceed the signed owner budget.
+      if(settings.sizingMode==='fixed')size=rationalSize([b.perTradeUsd!],[Dec.max(mid,price).toString()],b.market.sizeDecimals);
+      else size=rationalSize([leg.size,fill.px,Dec.min(Dec.from(b.follower.equity),Dec.from(b.budgetUsd)).toString()],[b.leader!.equity,b.quote.midPrice],b.market.sizeDecimals);
+    }
+    requireSizing(size.isPositive);
+    return freezeLiveReservation({plannerVersion:1,legId:liveSourceLegId(m.id,fill.id,leg.leg),sourceDigest:fill.sourceDigest,settingsDigest:consent.settingsDigest,sizingBasis:envelope,
+      order:{coin:fill.coin,asset:b.market.asset,side,size:size.toString(),limitPrice:price.toString(),sizeDecimals:b.market.sizeDecimals,reduceOnly:leg.leg==='close',timeInForce:'Ioc'},nextCarry:nextCarry.toString(),fixedTradeClaim:b.fixedTradeClaim,dependsOnLegId});
+  }catch{throw new LiveBoundaryError('live_source_sizing_unproven');}
+}
+export const recomputeLiveSourceSizing = planLiveSourceOrder;

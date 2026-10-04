@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseLiveSourceFill, liveSourceDigest, type LiveSourceFillEvidence } from './live/copy-live-source-evidence.js';
+import { parseLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceFillEvidence } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { boundedLiveRead } from './live/live-market-resolver.js';
 export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
@@ -8,7 +8,7 @@ export interface LiveSourceWindowObservation extends LiveSourceWindow { observed
 export interface LiveSourceReadResult {
   network: 'testnet'; leaderAddress: string; from: number; to: number; observedAt: number; completedAt: number; fresh: boolean;
   complete: boolean; historicalCompleteness: 'unproven'; requestsUsed: number; fills: LiveSourceFillEvidence[];
-  observations: LiveSourceWindowObservation[]; unresolved: (LiveSourceWindow & { reason: 'same_ms_cap' | 'depth_limit' | 'request_budget' | 'fill_budget' | 'read_unavailable' | 'evidence_expired' })[];
+  observations: LiveSourceWindowObservation[]; unresolved: (LiveSourceWindow & { reason: 'same_ms_cap' | 'depth_limit' | 'request_budget' | 'fill_budget' | 'read_unavailable' | 'evidence_expired' | 'twap_identity_unproven' })[];
   sourceDigest: string;
 }
 
@@ -84,12 +84,12 @@ export class HyperliquidLiveSourceClient {
         for (const raw of rows) {
           const parsed = parseLiveSourceFill(raw, { network: 'testnet', leaderAddress: request.leaderAddress, from: window.from, to: window.to, receivedAt: this.now(), kind: window.kind });
           const old = fills.get(parsed.id) ?? additions.get(parsed.id);
-          if (old && old.sourceDigest !== parsed.sourceDigest) fail('live_source_duplicate_conflict');
-          if (!old) additions.set(parsed.id, parsed);
+          if (old) additions.set(parsed.id, reconcileLiveSourceFills(old,parsed,'acquisition'));
+          else additions.set(parsed.id, parsed);
         }
         const saturated = rows.length >= POSSIBLE_CAP;
         observations.push({ ...window, observedAt, completedAt: this.now(), count: rows.length, responseDigest: liveSourceDigest(rows), saturated });
-        if (fills.size + additions.size > request.maxFills) { rest(window, 'fill_budget'); break; }
+        if (fills.size + [...additions.keys()].filter(id=>!fills.has(id)).length > request.maxFills) { rest(window, 'fill_budget'); break; }
         for (const [id, parsed] of additions) fills.set(id, parsed);
         if (!fresh()) { rest(window, 'evidence_expired'); break; }
         if (saturated) {
@@ -98,6 +98,9 @@ export class HyperliquidLiveSourceClient {
           const mid = window.from + Math.floor((window.to - window.from) / 2);
           queue.push({ kind: window.kind, from: window.from, to: mid, depth: window.depth + 1 }, { kind: window.kind, from: mid + 1, to: window.to, depth: window.depth + 1 });
         }
+      }
+      for(const [id,fill]of fills)if(fill.normalized.kind==='fills'&&fill.normalized.twapId===null&&fill.raw.hash===`0x${'00'.repeat(32)}`){
+        fills.delete(id);unresolved.push({kind:'fills',from:fill.providerTime,to:fill.providerTime,depth:0,reason:'twap_identity_unproven'});
       }
       const completedAt = this.now(), result = { network: 'testnet' as const, leaderAddress: request.leaderAddress, from: request.from, to: request.to,
         observedAt: started, completedAt, fresh: fresh(), complete: unresolved.length === 0 && fresh(), historicalCompleteness: 'unproven' as const, requestsUsed,

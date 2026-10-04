@@ -91,6 +91,24 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | DELETE | `/admin/kols/:address` | 204 | kols.manage |
 | GET | `/discover/cards` | 200 | public |
 | GET | `/me/copy` | 200 | user |
+| GET | `/me/copy/live` | 200 | user (owner); local testnet mandate state |
+| GET | `/me/referral` | 200 | user (owner); confirmed entitlement only |
+| POST | `/me/referral/code` | 200 | user (owner) |
+| POST | `/me/referral/bind` | 200 | user (owner); first eligible attribution only |
+| GET | `/me/referral/friends` | 200 | user (owner); anonymized referrals |
+| GET | `/me/referral/claims` | 200 | user (owner) |
+| GET | `/me/referral/claims/:id` | 200 | user (owner); original immutable request |
+| GET | `/me/referral/claims/by-key/:key` | 200 | user (owner); original read-only request recovery |
+| POST | `/me/referral/claims` | 200 | user (owner); existing request recovery; new payout unavailable |
+| GET | `/referral/check/:code` | 200 | public; code validity only |
+| POST | `/me/copy/live/strategies` | 200 | user (owner); fresh paused testnet configuration |
+| GET | `/me/copy/live/strategies/by-key/:key` | 200 | user (owner); original local idempotency key |
+| GET | `/me/copy/live/mandates/by-key/:key` | 200 | user (owner); original local idempotency key; read only |
+| GET | `/me/copy/live/mandates/:id/challenge` | 200 | user (owner); original persisted consent intent; read only |
+| POST | `/me/copy/live/execution-wallets/:id/mandates` | 200 | user (owner); exact current verified agent binding |
+| POST | `/me/copy/live/mandates/:id/approve` | 200 | user (owner); exact local owner consent; automatic execution unavailable |
+| POST | `/me/copy/live/mandates/:id/pause` | 200 | user (owner); local new-risk barrier |
+| POST | `/me/copy/live/mandates/:id/revoke` | 200 | user (owner); local consent revocation preserves liabilities |
 | POST | `/me/copy/strategies` | 201 | user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused |
 | PATCH | `/me/copy/strategies/:id` | 200 | user (owner) |
 | POST | `/me/copy/strategies/:id/funds` | 200 | user (owner) |
@@ -102,6 +120,20 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/copy/strategies/:id/performance` | 200 | user (owner) |
 | GET | `/me/copy/events` | 200 | user |
 | GET | `/me/copy/execution-wallets` | 200 | user (owner) |
+| GET | `/me/copy/agents` | 200 | user (owner) |
+| GET | `/me/copy/account-modes` | 200 | user (owner) |
+| GET | `/me/copy/account-modes/by-key/:key` | 200 | user (owner); original idempotency key |
+| POST | `/me/copy/execution-wallets/:id/mode` | 200 | user (owner); ready dedicated testnet master |
+| POST | `/me/copy/account-modes/:id/challenge` | 200 | user (owner); complete dormant account proof |
+| POST | `/me/copy/account-modes/:id/approve` | 200 | user (owner); exact signed consent; fresh user JWT; one durable attempt |
+| POST | `/me/copy/account-modes/:id/reconcile` | 200 | user (owner); read-only original mode operation |
+| GET | `/me/copy/execution-wallets/:id/statement` | 200 | user (owner) |
+| GET | `/me/copy/execution-wallets/:id/activity` | 200 | user (owner); booked actual receipts; before-only pagination |
+| GET | `/me/copy/execution-wallets/:id/snapshot` | 200 | user (owner); cached actual testnet observation |
+| POST | `/me/copy/execution-wallets/:id/agent` | 200 | user (owner); configured testnet agent provider |
+| POST | `/me/copy/agents/:id/reconcile` | 200 | user (owner) |
+| POST | `/me/copy/agents/:id/challenge` | 200 | user (owner); verified agent |
+| POST | `/me/copy/agents/:id/approve` | 200 | user (owner); exact signed consent; fresh user JWT |
 | GET | `/me/copy/funding` | 200 | user (owner) |
 | POST | `/me/copy/execution-wallets/:id/funding` | 200 | user (owner); testnet; verified execution account |
 | POST | `/me/copy/funding/:id/broadcast` | 200 | user (owner); one permission |

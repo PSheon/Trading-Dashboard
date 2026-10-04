@@ -1,0 +1,233 @@
+{
+  "recordedAt": "2026-10-04T00:46:39.939Z",
+  "publicRoutes": {
+    "at": "2026-10-03T23:58:19.197Z",
+    "retryBusy": true,
+    "results": [
+      {
+        "site": "local",
+        "route": "/health",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "feedConnected": true,
+        "retryAfter": null,
+        "ms": 128,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 5,
+        "retryAfter": null,
+        "ms": 19,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 411,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/portfolio",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 80,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/activity",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 48,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/fills",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "items": 50,
+        "retryAfter": null,
+        "ms": 45,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/orders",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 265,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/twap",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 160,
+        "attempt": 1
+      },
+      {
+        "site": "local",
+        "route": "/traders/:address/transfers",
+        "status": 200,
+        "envelopeValid": true,
+        "contractValid": true,
+        "retryAfter": null,
+        "ms": 2,
+        "attempt": 1
+      }
+    ]
+  },
+  "actualWorker": {
+    "kind": "actual-running-worker-observation",
+    "startedAt": "2026-10-04T00:32:30.189Z",
+    "endedAt": "2026-10-04T00:34:00.218Z",
+    "verifiedAt": "2026-10-04T00:36:00.252Z",
+    "runMs": 90000,
+    "drainMs": 120000,
+    "before": {
+      "status": 200,
+      "feedConnected": true,
+      "socketsOpen": 2,
+      "socketsTotal": 2,
+      "markets": 330,
+      "lastTradeAt": "2026-10-04T00:32:29.975Z",
+      "lastFillAt": "2026-10-04T00:31:57.406Z",
+      "dryRun": true
+    },
+    "during": {
+      "status": 200,
+      "feedConnected": true,
+      "socketsOpen": 2,
+      "socketsTotal": 2,
+      "markets": 330,
+      "lastTradeAt": "2026-10-04T00:34:00.011Z",
+      "lastFillAt": "2026-10-04T00:33:40.761Z",
+      "dryRun": true
+    },
+    "after": {
+      "status": 200,
+      "feedConnected": true,
+      "socketsOpen": 2,
+      "socketsTotal": 2,
+      "markets": 330,
+      "lastTradeAt": "2026-10-04T00:36:00.228Z",
+      "lastFillAt": "2026-10-04T00:35:52.022Z",
+      "dryRun": true
+    },
+    "counts": {
+      "actions": 18,
+      "empty_actions": 0,
+      "referenced_fills": 79,
+      "duplicate_fill_memberships": 0,
+      "missing_fills": 0
+    },
+    "passed": true,
+    "limitations": [
+      "Read-only observation of the current service build",
+      "Signal and stored-fill consistency; no owner-funded execution, latency guarantee or Copydog numeric equivalence"
+    ]
+  },
+  "financialExecutionAccepted": false,
+  "limitations": [
+    "Public API and worker observations used the running compiled service build; later financial changes were unregistered.",
+    "The separate manual feed test with a new socket failed provider quota admission and is not counted as passed.",
+    "No real owner consent, signing, deposit, exchange order, cancellation, payout or mainnet execution was performed."
+  ],
+  "anonymousBrowser": {
+    "results": [
+      {
+        "width": 1440,
+        "route": "/settings",
+        "httpStatus": 200,
+        "sidewaysScroll": false,
+        "pageErrors": 0,
+        "anonymous": true
+      },
+      {
+        "width": 1440,
+        "route": "/r/NOTREALABC",
+        "httpStatus": 200,
+        "sidewaysScroll": false,
+        "pageErrors": 0,
+        "anonymous": true
+      },
+      {
+        "width": 390,
+        "route": "/settings",
+        "httpStatus": 200,
+        "sidewaysScroll": false,
+        "pageErrors": 0,
+        "anonymous": true
+      },
+      {
+        "width": 390,
+        "route": "/r/NOTREALABC",
+        "httpStatus": 200,
+        "sidewaysScroll": false,
+        "pageErrors": 0,
+        "anonymous": true
+      }
+    ],
+    "financialExecutionAccepted": false,
+    "origin": "http://localhost:3001",
+    "limitations": [
+      "Real local frontend and API; anonymous desktop/mobile only. No Google owner session, signature or financial operation was tested."
+    ]
+  },
+  "actualPrivyReadOnlyProfile": {
+    "at": "2026-10-04T01:28:29.116Z",
+    "kind": "actual-privy-read-only-profile",
+    "missingLocalProviderProfiles": 1,
+    "providerIdentityMatches": true,
+    "googleLinked": true,
+    "embeddedEthereumWallets": 1,
+    "storedEmbeddedWalletMatches": true,
+    "ms": 543,
+    "readOnly": true,
+    "financialExecutionAccepted": false,
+    "limitations": [
+      "Read-only profile lookup with the configured server SDK; one local seed identity was missing at the provider and skipped.",
+      "A matched profile links Google and its embedded Ethereum wallet, but this does not establish browser OAuth return handling, a valid owner JWT, consent or signing."
+    ]
+  },
+  "offlineVerification": {
+    "api": {
+      "files": 199,
+      "tests": 3339,
+      "passed": 3339
+    },
+    "web": {
+      "files": 106,
+      "tests": 932,
+      "passed": 932
+    },
+    "independentHistoricalRecovery": {
+      "files": 3,
+      "tests": 135,
+      "passed": 135
+    },
+    "financialExecutionAccepted": false
+  }
+}

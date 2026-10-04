@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { boundedLiveRead } from './live-market-resolver.js';
+import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 
 export interface AccountModeIntent {
@@ -99,7 +100,8 @@ export function accountModeTypedData(raw: AccountModeIntent) {
 export class PrivyAccountModeClient {
   private readonly credentials: Readonly<{ appId: string; appSecret: string }> | null;
   constructor(config: { appId?: string; appSecret?: string }, private readonly budget: (weight: number) => Promise<unknown>,
-    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now) {
+    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now,private readonly global?:HyperliquidGlobalTransport) {
+    if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))fail('account_mode_invalid_client');
     if (typeof budget !== 'function' || typeof fetcher !== 'function' || typeof now !== 'function') fail('account_mode_invalid_client');
     this.credentials = config.appId && config.appSecret ? Object.freeze({ appId: config.appId, appSecret: config.appSecret }) : null;
   }
@@ -172,11 +174,13 @@ export class PrivyAccountModeClient {
       const started = this.now(), timeout = Math.max(1, Math.min(10_000, intent.consentExpiresAt - started)), deadline = started + timeout;
       const remaining = () => { const now = this.now(); validTime(now); if (now < started || now >= deadline) throw new Error(); return deadline - now; };
       const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, redirect: 'error', signal: AbortSignal.timeout(timeout) };
+      if(this.global&&typeof assertFreshProof!=='function')throw new Error();
+      const permit=this.global?await this.global.currentQuota().acquireRest(1,Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
       live(intent, this.now()); remaining();
       // Complete request construction first, then check captured caller proof.
       // No await or further clock-dependent preparation precedes actual POST.
-      synchronousProof(assertFreshProof);
-      const work = this.fetcher(WALLET_NETWORKS.testnet.exchangeUrl, request);
+      const dispatch=()=>{synchronousProof(assertFreshProof);permit?.assertFresh();live(intent,this.now());remaining();return this.fetcher(WALLET_NETWORKS.testnet.exchangeUrl,request);};
+      const work=permit?permit.dispatch(dispatch):dispatch();
       const response = await boundedLiveRead(work, remaining());
       if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
       return frozen(acknowledgment.parse(await boundedLiveRead(readInfoJson(response, 'account mode acknowledgment', 64 * 1024), remaining())));
@@ -190,7 +194,7 @@ export class PrivyAccountModeClient {
       const read = async (type: string, weight: number) => {
         const body = { type, user: intent.accountAddress };
         await boundedLiveRead(this.budget(weight), remaining());
-        const response = await boundedLiveRead(this.fetcher(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const response = await boundedLiveRead((this.global?.fetchInfo??this.fetcher)(WALLET_NETWORKS.testnet.infoUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(remaining()) }), remaining());
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
         const value = await boundedLiveRead(readInfoJson(response, 'account mode evidence', 2 * 1024 * 1024), remaining());

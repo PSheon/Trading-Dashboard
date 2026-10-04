@@ -17,6 +17,7 @@ import { copyFollowerActivitySchema } from "./copy-follower-activity-contracts.j
 import { copyFollowerSnapshotReadSchema } from "./copy-follower-view-contracts.js";
 import { liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema } from "./copy-live-mandate-contracts.js";
 import * as s from "./schema/zod.js";
+import { referralOverviewSchema, referralCodeSchema, referralCheckSchema, referralBindSchema, referralFriendsSchema, referralClaimSchema, referralClaimsSchema } from './referral-contracts.js';
 
 const iso = z.string().datetime({ offset: true });
 const id = z.string().regex(/^\d+$/);
@@ -299,6 +300,15 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/discover/cards", status: 200, auth: "public", response: wireTraderCardsSchema },
   { method: "GET", path: "/me/copy", status: 200, auth: "user", response: wireCopyOverviewSchema },
   { method: "GET", path: "/me/copy/live", status: 200, auth: "user (owner); local testnet mandate state", response: liveCopyOverviewSchema },
+  { method: "GET", path: "/me/referral", status: 200, auth: "user (owner); confirmed entitlement only", response: referralOverviewSchema },
+  { method: "POST", path: "/me/referral/code", status: 200, auth: "user (owner)", response: referralCodeSchema },
+  { method: "POST", path: "/me/referral/bind", status: 200, auth: "user (owner); first eligible attribution only", response: referralBindSchema },
+  { method: "GET", path: "/me/referral/friends", status: 200, auth: "user (owner); anonymized referrals", response: referralFriendsSchema },
+  { method: "GET", path: "/me/referral/claims", status: 200, auth: "user (owner)", response: referralClaimsSchema },
+  { method: "GET", path: "/me/referral/claims/:id", status: 200, auth: "user (owner); original immutable request", response: referralClaimSchema },
+  { method: "GET", path: "/me/referral/claims/by-key/:key", status: 200, auth: "user (owner); original read-only request recovery", response: referralClaimSchema },
+  { method: "POST", path: "/me/referral/claims", status: 200, auth: "user (owner); existing request recovery; new payout unavailable", response: referralClaimSchema },
+  { method: "GET", path: "/referral/check/:code", status: 200, auth: "public; code validity only", response: referralCheckSchema },
   { method: "POST", path: "/me/copy/live/strategies", status: 200, auth: "user (owner); fresh paused testnet configuration", response: liveCopyStrategySchema },
   { method: "GET", path: "/me/copy/live/strategies/by-key/:key", status: 200, auth: "user (owner); original local idempotency key", response: liveCopyStrategySchema },
   { method: "GET", path: "/me/copy/live/mandates/by-key/:key", status: 200, auth: "user (owner); original local idempotency key; read only", response: liveCopyMandateChallengeSchema },

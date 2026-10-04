@@ -88,6 +88,10 @@ function isPublicRead(method: string, path: string): boolean {
   const [pathname, query = ""] = path.split("?");
   // The favorites feed is the caller's own: it needs the token.
   if (/(?:^|&)scope=favorites(?:&|$)/.test(query)) return false;
+  if (/^\/referral\/check\/[A-Z0-9]{3,16}$/.test(pathname) && query === "") {
+    const url = new URL(path, "https://orbie.invalid");
+    return url.pathname === path && !url.search && !url.hash;
+  }
   return PUBLIC_READS.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 

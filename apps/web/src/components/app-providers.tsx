@@ -4,6 +4,8 @@ import type { Locale } from "@/i18n/config";
 import type { Messages } from "@/i18n/messages";
 import { ToastProvider } from "@/components/ui/toast";
 import { I18nProvider } from "@/i18n/provider";
+import { Suspense } from "react";
+import { ReferralRouteCapture } from "@/components/settings/referral";
 import { AuthProvider } from "@/lib/auth";
 
 /**
@@ -24,7 +26,12 @@ export function AppProviders({
   return (
     <I18nProvider locale={locale} messages={messages}>
       <ToastProvider>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <Suspense fallback={null}>
+            <ReferralRouteCapture />
+          </Suspense>
+          {children}
+        </AuthProvider>
       </ToastProvider>
     </I18nProvider>
   );

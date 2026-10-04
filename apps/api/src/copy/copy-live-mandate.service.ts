@@ -21,6 +21,23 @@ export class CopyLiveMandateService {
     if (!Number.isSafeInteger(now) || now < row.nonce || now >= row.consentExpiresAt.getTime() || now >= row.expiresAt.getTime()) throw new ConflictException('Mandate consent expired');
     return now;
   }
+  private renewal(row: MandateRow, now: number) {
+    if (!Number.isSafeInteger(now) || now < row.nonce || now > 8640000000000000) throw new ServiceUnavailableException('Renewal observation clock unavailable');
+    let reason: 'prepared_consent_expired' | 'generation_expired' | 'revoked' | null = null;
+    if (row.state !== 'stopped') {
+      if (row.state === 'revoked') reason = 'revoked';
+      else if (now >= row.expiresAt.getTime()) reason = 'generation_expired';
+      else if ((row.state === 'prepared' || row.state === 'expired') && now >= row.consentExpiresAt.getTime()) reason = 'prepared_consent_expired';
+    }
+    return { checkedAt: new Date(now).toISOString(), eligible: reason !== null, reason, mandateId: row.id, revision: row.revision, nonce: row.nonce };
+  }
+  private challenge(row: MandateRow) {
+    const mandate = this.repository.wire(row), intent = this.repository.decode(row);
+    const parsed = liveCopyMandateChallengeSchema.parse({ mandate, intent, renewal: this.renewal(row, this.now()) });
+    // This observation never grants activation authority. Sample completion after
+    // all SQL waits and response validation while the original owner lock is held.
+    return { ...parsed, renewal: this.renewal(row, this.now()) };
+  }
   async overview(userId: number) {
     const data = await this.repository.overview(userId);
     return liveCopyOverviewSchema.parse({ mode: 'actual', network: 'testnet', capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled', automaticExecution: false, sourceNetworks: ['testnet'] }, ...data });
@@ -31,10 +48,10 @@ export class CopyLiveMandateService {
   }
   async mandateByKey(userId: number, value: unknown) {
     const key = input(copyIdempotencyKeySchema, value);
-    return this.uow.run(async tx => liveCopyMandateChallengeSchema.parse(await this.repository.recoverMandate(tx, userId, { key })));
+    return this.uow.run(async tx => this.challenge(await this.repository.recoverMandate(tx, userId, { key })));
   }
   async originalChallenge(userId: number, id: string) {
-    return this.uow.run(async tx => liveCopyMandateChallengeSchema.parse(await this.repository.recoverMandate(tx, userId, { id })));
+    return this.uow.run(async tx => this.challenge(await this.repository.recoverMandate(tx, userId, { id })));
   }
   async create(userId: number, value: unknown) {
     const body = input(createLiveCopyStrategySchema, value);
@@ -46,7 +63,7 @@ export class CopyLiveMandateService {
     const body = input(prepareLiveCopyMandateSchema, value); this.available();
     return this.uow.run(async tx => {
       const row = await this.repository.prepare(tx, userId, accountId, body.idempotencyKey, this.now);
-      return liveCopyMandateChallengeSchema.parse({ mandate: this.repository.wire(row), intent: this.repository.decode(row) });
+      return this.challenge(row);
     });
   }
   async approve(userId: number, id: string, value: unknown) {

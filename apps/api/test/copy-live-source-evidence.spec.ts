@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { copyLiveSourceFills } from '@trading-dashboard/shared/database';
-import { parseLiveSourceFill, decodeLiveSourceFill, canonicalLiveSourceLegs, liveSourceLegId } from '../src/copy/live/copy-live-source-evidence.js';
+import { parseLiveSourceFill, decodeLiveSourceFill, canonicalLiveSourceLegs, liveSourceLegId, reconcileLiveSourceFills } from '../src/copy/live/copy-live-source-evidence.js';
 const leader = `0x${'11'.repeat(20)}`, context = { network: 'testnet' as const, leaderAddress: leader, from: 1000, to: 2000, receivedAt: 2100, kind: 'fills' as const };
 const raw = () => ({ tid: 7, oid: 9, time: 1500, coin: 'BTC', px: '100.000', sz: '2.000', side: 'B', startPosition: '0', hash: `0x${'22'.repeat(32)}` });
 const stored = (fill = parseLiveSourceFill(raw(), context)): typeof copyLiveSourceFills.$inferSelect => ({ ...fill, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt), normalized: { ...fill.normalized } });
@@ -36,6 +36,17 @@ describe('immutable fixed-network source evidence', () => {
     const row = stored();
     const changes: Partial<typeof row> = { sourceDigest: 'f'.repeat(64), network: 'mainnet', leaderAddress: `0x${'33'.repeat(20)}`, tid: '8', oid: '10', coin: 'ETH', px: '101', sz: '3', side: 'A', startPosition: '1', tradeKey: 'oid:10', providerTime: new Date(1600), normalized: { ...row.normalized, px: '101' }, raw: { ...row.raw, px: '101' } };
     expect(() => decodeLiveSourceFill({ ...row, [key]: changes[key] })).toThrow();
+  });
+  it('correlates either arrival order while preserving the actual wrapper and all raw inner fields',()=>{
+    const source={...raw(),hash:`0x${'00'.repeat(32)}`,unknown:{fee:'0.1'}},ordinary=parseLiveSourceFill(source,context),twap=parseLiveSourceFill({twapId:123,fill:source},{...context,kind:'twap'});
+    expect(reconcileLiveSourceFills(ordinary,twap,'acquisition')).toEqual(twap);expect(reconcileLiveSourceFills(twap,ordinary,'acquisition')).toEqual(twap);
+    expect(()=>reconcileLiveSourceFills(ordinary,twap,'stored')).toThrow();
+  });
+  it('rejects changed unknown inner fields and repeated-wrapper metadata',()=>{
+    const source={...raw(),twapId:123,unknown:{fee:'0.1'}},ordinary=parseLiveSourceFill(source,context),twap=parseLiveSourceFill({twapId:123,fill:{...source,unknown:{fee:'0.2'}}},{...context,kind:'twap'});
+    expect(()=>reconcileLiveSourceFills(ordinary,twap,'acquisition')).toThrow();
+    const first=parseLiveSourceFill({twapId:123,fill:source,wrapperUnknown:'first'},{...context,kind:'twap'}),changed=parseLiveSourceFill({twapId:123,fill:source,wrapperUnknown:'changed'},{...context,kind:'twap'});
+    expect(()=>reconcileLiveSourceFills(first,changed,'stored')).toThrow();
   });
 });
 describe('canonical actual source leg decomposition', () => {

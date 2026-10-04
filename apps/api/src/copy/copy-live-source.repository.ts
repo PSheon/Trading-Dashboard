@@ -5,7 +5,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import type { LiveSourceReadResult } from './copy-live-source.client.js';
-import { decodeLiveSourceFill, liveSourceDigest } from './live/copy-live-source-evidence.js';
+import { decodeLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 export type LiveSourceStream = typeof copyLiveSourceStreams.$inferSelect;
 export type SourceApplyResult = { kind: 'recorded' | 'stale' | 'quarantined'; stream: LiveSourceStream };
@@ -46,7 +46,10 @@ export class CopyLiveSourceRepository {
     for (const old of stored) {
       try { decodeLiveSourceFill(old); } catch { return this.change(tx, stream, 'quarantined', 'invalid_fill', now); }
     }
-    for (const fill of decoded) if (byId.has(fill.id) && byId.get(fill.id)!.sourceDigest !== fill.sourceDigest) return this.change(tx, stream, 'quarantined', 'duplicate_conflict', now);
+    for (const fill of decoded) if (byId.has(fill.id)) {
+      try{reconcileLiveSourceFills(decodeLiveSourceFill(byId.get(fill.id)!),fill,'stored');}
+      catch{return this.change(tx,stream,'quarantined','duplicate_conflict',now);}
+    }
     // Contradictory identity evidence must quarantine even a stale cursor writer.
     if (stream.revision !== expectedRevision) return { kind: 'stale', stream };
     for (const fill of decoded) if (!byId.has(fill.id)) await tx.insert(copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });

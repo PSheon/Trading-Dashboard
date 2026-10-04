@@ -3,8 +3,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import { testConfig } from "./config-test-utils.js";
+import { offlineGlobalTransport } from './hyperliquid-quota-test-utils.js';
 const budget = { acquire: vi.fn(async () => {}), adjust: vi.fn(), onSuccess: vi.fn(), onRateLimited: vi.fn() };
-const client = () => new HyperliquidInfoClient(testConfig(), budget as unknown as RequestBudgeterService);
+const client = () => new HyperliquidInfoClient(testConfig(), budget as unknown as RequestBudgeterService, undefined, offlineGlobalTransport().transport);
 const reply = (value: unknown) => vi.stubGlobal("fetch", vi.fn(async () => Response.json(value)));
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 it("rejects a malformed clearinghouse instead of turning it into an empty account", async () => {

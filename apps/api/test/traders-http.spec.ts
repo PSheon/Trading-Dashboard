@@ -23,6 +23,10 @@ import { parseLeaderboard } from "../src/traders/leaderboard.js";
 import { LeaderboardIngestService } from "../src/traders/leaderboard-ingest.service.js";
 import { PAGE_DEADLINE_MS, TradersController } from "../src/traders/traders.controller.js";
 import { TradersService } from "../src/traders/traders.service.js";
+import type { TraderOrdersReader } from "../src/traders/trader-orders-reader.js";
+import type { TraderTwapReader } from "../src/traders/trader-twap-reader.js";
+import type { TraderAccountReader } from "../src/traders/trader-account-reader.js";
+import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
 
@@ -56,6 +60,9 @@ describe("public discovery routes over HTTP", () => {
   let app: INestApplication;
   let auth: AuthService;
   let settings: SettingsService;
+  const orderReader = { read: vi.fn<TraderOrdersReader['read']>(async (_user: string, dexes: readonly string[]) => ({ dexes: [...dexes], orders: dexes.map(() => []), observedAt: Date.now() })) };
+  const twapReader = { read: vi.fn<TraderTwapReader['read']>(async () => ({ history: [], sourceTime: null, coverage: 'provider_snapshot', observedAt: Date.now() })) };
+  const accountReader = { read: vi.fn<TraderAccountReader['read']>(async (_user, dexes) => ({ states: new Map(dexes.map(dex => [dex, emptyState])), missingDexes: [], observedAt: Date.now() })) };
   let info: {
     perpDexs: ReturnType<typeof vi.fn>;
     clearinghouseState: ReturnType<typeof vi.fn>;
@@ -106,7 +113,7 @@ describe("public discovery routes over HTTP", () => {
         {
           provide: TradersService,
           useFactory: (s: SettingsService) =>
-            new TradersService(testConfig(), new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(new RoundTripRepository(db)), new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), s), s),
+            new TradersService(testConfig(), new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(new RoundTripRepository(db)), new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), s), s, undefined, undefined, undefined, undefined, orderReader as unknown as TraderOrdersReader, twapReader as unknown as TraderTwapReader, accountReader as unknown as TraderAccountReader),
           inject: [SettingsService],
         },
         { provide: InsightsService, useValue: new InsightsService(new InsightsRepository(db)) },
@@ -123,19 +130,46 @@ describe("public discovery routes over HTTP", () => {
     }
   });
 
+  it('loads all profile venues from one snapshot and retains the original observation time', async () => {
+    const address = `0x${'42'.repeat(20)}`, service = app.get(TradersService);
+    const dexes = ['', 'xyz', 'flx'], observedAt = Date.now() - 4000;
+    service.ordersDexCache.set('dexes', dexes); accountReader.read.mockClear(); info.clearinghouseState.mockClear();
+    accountReader.read.mockResolvedValueOnce({ states: new Map(dexes.map(dex => [dex, emptyState])), missingDexes: [], observedAt });
+    try {
+      const res = await request(app.getHttpServer()).get(`/traders/${address}`).expect(200);
+      expect(accountReader.read).toHaveBeenCalledExactlyOnceWith(address, dexes);
+      expect(info.clearinghouseState).not.toHaveBeenCalled();
+      expect(res.body.data.perpEquity).toBe(0);
+      expect(res.body.data.dataQuality.sources.perps.asOf).toBe(new Date(observedAt).toISOString());
+      expect(res.body.data.dataQuality.sources['perp:xyz'].asOf).toBe(new Date(observedAt).toISOString());
+    } finally { service.ordersDexCache.set('dexes', ['']); }
+  });
+
+  it('keeps missing profile venues unknown instead of presenting invented zero equity', async () => {
+    const address = `0x${'43'.repeat(20)}`, service = app.get(TradersService), observedAt = Date.now();
+    service.ordersDexCache.set('dexes', ['', 'xyz']);
+    accountReader.read.mockResolvedValueOnce({ states: new Map([['', emptyState]]), missingDexes: ['xyz'], observedAt });
+    try {
+      const res = await request(app.getHttpServer()).get(`/traders/${address}`).expect(200);
+      expect(res.body.data.perpEquity).toBeNull(); expect(res.body.data.accountValue).toBeNull();
+      expect(res.body.data.dataQuality.partial).toBe(true);
+      expect(res.body.data.dataQuality.sources['perp:xyz']).toMatchObject({ status: 'unavailable', asOf: null });
+    } finally { service.ordersDexCache.set('dexes', ['']); }
+  });
+
   it("serves the 訂單 / TWAP / 轉帳 tabs through the wire contract, cached", async () => {
     const D = `0x${"d4".repeat(20)}`;
-    app.get(TradersService).dexCache.set("dexes", ["", "xyz", "flx"]);
-    info.frontendOpenOrders.mockImplementation(async (_user: string, dex?: string) =>
+    app.get(TradersService).ordersDexCache.set("dexes", ["", "xyz", "flx"]);
+    orderReader.read.mockImplementation(async (_user: string, dexes: readonly string[]) => ({ dexes: [...dexes], observedAt: Date.now(), orders: dexes.map(dex =>
       dex === "xyz"
         ? [{ coin: "xyz:INTC", side: "A", limitPx: "94.5", sz: "0.0", oid: 2, timestamp: 1_789_984_198_470, triggerCondition: "Price below 105",
             isTrigger: true, triggerPx: "105.0", isPositionTpsl: true, reduceOnly: true, orderType: "Stop Market", origSz: "0.0" }]
         : [{ coin: "BTC", side: "B", limitPx: "60000", sz: "0.5", oid: 1, timestamp: 1_789_984_000_000, triggerCondition: "N/A",
-            isTrigger: false, triggerPx: "0.0", isPositionTpsl: false, reduceOnly: false, orderType: "Limit", origSz: "1.0" }]);
-    info.twapHistory.mockResolvedValueOnce([
+            isTrigger: false, triggerPx: "0.0", isPositionTpsl: false, reduceOnly: false, orderType: "Limit", origSz: "1.0" }]) }));
+    twapReader.read.mockResolvedValueOnce({ sourceTime: 1_790_000_000_000, coverage: 'provider_snapshot', observedAt: Date.now(), history: [
       { time: 1_790_000_000, twapId: 7, status: { status: "activated" },
         state: { coin: "ETH", side: "B", sz: "10", executedSz: "0.0", executedNtl: "0.0", minutes: 60, reduceOnly: false, randomize: true, timestamp: 1_790_000_000_000 } },
-    ]);
+    ] });
     info.userTwapSliceFills.mockResolvedValueOnce([
       { twapId: 7, fill: { coin: "ETH", px: "2500", sz: "2.5", side: "B", time: 1_790_000_100_000, tid: 99, closedPnl: "0", fee: "0.1", dir: "Open Long", hash: "0x0", oid: 5, crossed: true } },
     ]);
@@ -149,83 +183,89 @@ describe("public discovery routes over HTTP", () => {
     expect(orders.body.data.dexes).toEqual(["", "xyz", "flx"]);
     expect(orders.body.data.orders.map((o: { oid: string; triggerPx: number | null }) => [o.oid, o.triggerPx])).toEqual([["1", null], ["2", 105]]);
     await request(app.getHttpServer()).get(`/traders/${D}/orders`).expect(200);
-    expect(info.frontendOpenOrders).toHaveBeenCalledTimes(3); // the second read is cached
+    expect(orderReader.read).toHaveBeenCalledTimes(1); // the second complete snapshot is cached
+    expect(info.frontendOpenOrders).not.toHaveBeenCalled();
 
     const twap = await request(app.getHttpServer()).get(`/traders/${D}/twap`).set("x-api-contract", "1").expect(200);
     expect(twap.body.data.twaps).toEqual([expect.objectContaining({ twapId: 7, coin: "ETH", side: "buy", size: 10, filledSize: 2.5, filledFraction: 0.25, minutes: 60 })]);
+    expect(info.twapHistory).not.toHaveBeenCalled();
 
     const transfers = await request(app.getHttpServer()).get(`/traders/${D}/transfers`).set("x-api-contract", "1").expect(200);
     expect(transfers.body.data.transfers.map((t: { kind: string; direction: string; amount: number }) => [t.kind, t.direction, t.amount]))
       .toEqual([["deposit", "in", 1000], ["sent", "out", 200]]);
     expect(transfers.body.data.truncated).toBe(false);
     expect((await request(app.getHttpServer()).get("/traders/0x12/orders")).status).toBe(400);
-    app.get(TradersService).dexCache.set("dexes", [""]);
+    app.get(TradersService).ordersDexCache.set("dexes", [""]);
   });
 
-  it("asks a standard account's orders only on dexes where it holds margin or a position", async () => {
-    const E = `0x${"e5".repeat(20)}`;
-    app.get(TradersService).dexCache.set("dexes", ["", "xyz", "flx"]);
-    info.userAbstraction.mockResolvedValueOnce("default");
-    info.clearinghouseState.mockImplementation(async (_user: string, dex?: string) =>
-      dex === "xyz" ? { ...emptyState, marginSummary: { ...emptyState.marginSummary, accountValue: "50" } } : emptyState);
-    info.frontendOpenOrders.mockClear();
-    info.frontendOpenOrders.mockResolvedValue([]);
+  it("reads every venue even when an account has no position or margin there", async () => {
+    const address = `0x${"e5".repeat(20)}`, service = app.get(TradersService);
+    const dexes = ["", "xyz", "flx"];
+    service.ordersDexCache.set("dexes", dexes);
+    orderReader.read.mockClear();
+    orderReader.read.mockImplementation(async (_user, supplied) => ({ dexes: [...supplied], orders: supplied.map(() => []), observedAt: Date.now() }));
+    info.frontendOpenOrders.mockClear(); info.clearinghouseState.mockClear(); info.userAbstraction.mockClear();
     try {
-      const res = await request(app.getHttpServer()).get(`/traders/${E}/orders`).expect(200);
-      expect(res.body.data.dexes).toEqual(["", "xyz"]);
-      expect(info.frontendOpenOrders.mock.calls.map((c) => c[1])).toEqual([undefined, "xyz"]);
-    } finally {
-      info.clearinghouseState.mockImplementation(async () => emptyState);
-      app.get(TradersService).dexCache.set("dexes", [""]);
-    }
+      const res = await request(app.getHttpServer()).get(`/traders/${address}/orders`).expect(200);
+      expect(res.body.data.dexes).toEqual(dexes);
+      expect(orderReader.read).toHaveBeenCalledWith(address, dexes);
+      expect(info.frontendOpenOrders).not.toHaveBeenCalled();
+      expect(info.clearinghouseState).not.toHaveBeenCalled(); expect(info.userAbstraction).not.toHaveBeenCalled();
+    } finally { service.ordersDexCache.set("dexes", [""]); }
   });
 
-  it("retains completed dex order reads when a later dex times out, so retries make progress", async () => {
-    const address = `0x${"37".repeat(20)}`;
-    const service = app.get(TradersService);
-    service.dexCache.set("dexes", ["", "xyz", "flx"]);
-    info.frontendOpenOrders.mockClear();
-    let interrupted = false;
-    info.frontendOpenOrders.mockImplementation(async (_user: string, dex?: string) => {
-      if (dex === "flx" && !interrupted) {
-        interrupted = true;
-        throw new DOMException("Request deadline", "AbortError");
-      }
-      return [];
-    });
+  it('returns retryable capacity failure rather than an empty TWAP history and then recovers the full snapshot', async () => {
+    const address = `0x${'f1'.repeat(20)}`;
+    twapReader.read.mockClear();
+    twapReader.read.mockRejectedValueOnce(new LiveBoundaryError('hyperliquid_quota_connections'));
+    const denied = await request(app.getHttpServer()).get(`/traders/${address}/twap`).set('x-api-contract', '1').expect(503);
+    expect(denied.headers['retry-after']).toBe('5'); expect(denied.body.error.code).toBe('busy');
+    const observedAt = Date.now() - 500;
+    twapReader.read.mockResolvedValueOnce({ history: [], coverage: 'provider_snapshot', sourceTime: null, observedAt });
+    const recovered = await request(app.getHttpServer()).get(`/traders/${address}/twap`).expect(200);
+    expect(recovered.body.data.twaps).toEqual([]); expect(new Date(recovered.body.data.fetchedAt).getTime()).toBe(observedAt);
+    expect(twapReader.read).toHaveBeenCalledTimes(2); expect(info.twapHistory).not.toHaveBeenCalled();
+  });
+
+  it("retains no partial order result after a failed complete scan and retries the whole coverage", async () => {
+    const address = `0x${"37".repeat(20)}`, service = app.get(TradersService);
+    service.ordersDexCache.set("dexes", ["", "xyz", "flx"]);
+    orderReader.read.mockClear();
+    orderReader.read.mockRejectedValueOnce(new DOMException("Request deadline", "AbortError"));
+    orderReader.read.mockImplementation(async (_user, dexes) => ({ dexes: [...dexes], orders: dexes.map(() => []), observedAt: Date.now() }));
     try {
       await request(app.getHttpServer()).get(`/traders/${address}/orders`).expect(503);
       const retry = await request(app.getHttpServer()).get(`/traders/${address}/orders`).expect(200);
       expect(retry.body.data.dexes).toEqual(["", "xyz", "flx"]);
-      expect(info.frontendOpenOrders.mock.calls.map((call) => call[1])).toEqual([undefined, "xyz", "flx", "flx"]);
-    } finally {
-      info.frontendOpenOrders.mockResolvedValue([]);
-      service.dexCache.set("dexes", [""]);
-    }
+      expect(orderReader.read).toHaveBeenCalledTimes(2);
+    } finally { service.ordersDexCache.set("dexes", [""]); }
   });
 
-  it("keeps the oldest dex observation time and expires the combined order snapshot with it", async () => {
-    const address = `0x${"38".repeat(20)}`;
-    const service = app.get(TradersService);
-    const observedAt = Date.now();
-    const clock = vi.spyOn(Date, "now").mockReturnValue(observedAt);
-    service.dexCache.set("dexes", ["", "xyz"]);
-    service.dexOrdersCache.set(`${address}:`, { orders: [], observedAt });
-    info.frontendOpenOrders.mockClear();
-    info.frontendOpenOrders.mockResolvedValue([]);
+  it("keeps the original oldest venue time and expires the aggregate cache with it", async () => {
+    const address = `0x${"38".repeat(20)}`, service = app.get(TradersService);
+    const observedAt = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(observedAt + 4000);
+    service.ordersDexCache.set("dexes", ["", "xyz"]); orderReader.read.mockClear();
+    orderReader.read.mockResolvedValueOnce({ dexes: ["", "xyz"], orders: [[], []], observedAt });
+    orderReader.read.mockImplementation(async (_user, dexes) => ({ dexes: [...dexes], orders: dexes.map(() => []), observedAt: Date.now() }));
     try {
-      clock.mockReturnValue(observedAt + 29_000);
-      const first = await service.orders(address);
-      expect(first.fetchedAt.getTime()).toBe(observedAt);
-      expect(info.frontendOpenOrders.mock.calls.map((call) => call[1])).toEqual(["xyz"]);
-      clock.mockReturnValue(observedAt + 30_001);
-      const next = await service.orders(address);
-      expect(next.fetchedAt.getTime()).toBe(observedAt + 29_000);
-      expect(info.frontendOpenOrders.mock.calls.map((call) => call[1])).toEqual(["xyz", undefined]);
-    } finally {
-      clock.mockRestore();
-      service.dexCache.set("dexes", [""]);
-    }
+      expect((await service.orders(address)).fetchedAt.getTime()).toBe(observedAt);
+      clock.mockReturnValue(observedAt + 29999); await service.orders(address);
+      expect(orderReader.read).toHaveBeenCalledTimes(1);
+      clock.mockReturnValue(observedAt + 30001);
+      expect((await service.orders(address)).fetchedAt.getTime()).toBe(observedAt + 30001);
+      expect(orderReader.read).toHaveBeenCalledTimes(2);
+    } finally { clock.mockRestore(); service.ordersDexCache.set("dexes", [""]); }
+  });
+
+  it("includes listed venues with no streaming markets in the order coverage", async () => {
+    const address = `0x${"39".repeat(20)}`, service = app.get(TradersService);
+    service.ordersDexCache.clear();
+    info.perpDexs.mockResolvedValueOnce([null, { name: "xyz", assetToStreamingOiCap: [] }]);
+    orderReader.read.mockImplementation(async (_user, dexes) => ({ dexes: [...dexes], orders: dexes.map(() => []), observedAt: Date.now() }));
+    try {
+      const res = await request(app.getHttpServer()).get(`/traders/${address}/orders`).expect(200);
+      expect(res.body.data.dexes).toEqual(["", "xyz"]);
+    } finally { service.ordersDexCache.set("dexes", [""]); }
   });
 
   it("sends the profile's total, its parts and the spot balances through the wire contract", async () => {
@@ -326,8 +366,8 @@ describe("public discovery routes over HTTP", () => {
     try {
       const C = `0x${"c3".repeat(20)}`;
       // Hyperliquid (or the budget queue in front of it) is slow.
-      let releaseState!: (v: typeof emptyState) => void;
-      info.clearinghouseState.mockReturnValueOnce(new Promise((r) => (releaseState = r)));
+      let releaseState!: (v: Awaited<ReturnType<TraderAccountReader['read']>>) => void;
+      accountReader.read.mockReturnValueOnce(new Promise((r) => (releaseState = r)));
       let releaseTwap!: (v: unknown[]) => void;
       info.userTwapSliceFills.mockReturnValueOnce(new Promise((r) => (releaseTwap = r)));
 
@@ -344,13 +384,13 @@ describe("public discovery routes over HTTP", () => {
       expect(versioned.headers["retry-after"]).toBe("5");
       expect(versioned.body).toMatchObject({ success: false, error: { code: "busy", details: { retryAfterSeconds: 5 } } });
 
-      releaseState(emptyState);
+      releaseState({ states: new Map([['', emptyState]]), missingDexes: [], observedAt: Date.now() });
       releaseTwap([]);
       await new Promise((r) => setTimeout(r, 20));
-      const calls = info.clearinghouseState.mock.calls.length;
+      const calls = accountReader.read.mock.calls.length;
       expect((await request(app.getHttpServer()).get(`/traders/${C}`)).status).toBe(200);
       expect((await request(app.getHttpServer()).get(`/traders/${C}/activity`)).status).toBe(200);
-      expect(info.clearinghouseState.mock.calls.length).toBe(calls); // served from the cache
+      expect(accountReader.read.mock.calls.length).toBe(calls); // served from the cache
 
       // Other upstream failures stay 502, without Retry-After.
       info.portfolio.mockRejectedValueOnce(new Error("Hyperliquid info request failed: 500"));

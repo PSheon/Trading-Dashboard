@@ -57,6 +57,8 @@ import { HyperliquidLiveAccountObserver } from "./live/live-account-observer.js"
 import { CopyLiveMandateController } from "./copy-live-mandate.controller.js";
 import { CopyLiveMandateRepository } from "./copy-live-mandate.repository.js";
 import { CopyLiveMandateService } from "./copy-live-mandate.service.js";
+import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
+import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.js';
 
 /**
  * Paper copy trading (Stage 4 step 3): /me/copy for the signed-in user, the
@@ -73,32 +75,34 @@ import { CopyLiveMandateService } from "./copy-live-mandate.service.js";
     CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyWorkerService, CopyAdoptionRepairService, CopyPerformanceService,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
-    { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, RequestBudgeterService],
-      useFactory: (config: AppConfig, budget: RequestBudgeterService) => new HyperliquidAgentApprovalVerifier(
-        config.value.hyperliquid.wallet.network, (weight) => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) })) },
+    { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport],
+      useFactory: (config: AppConfig, budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) => new HyperliquidAgentApprovalVerifier(
+        config.value.hyperliquid.wallet.network, (weight) => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo) },
     { provide: WalletAuthorizationService, inject: [PostgresWalletAuthorizationSource, HyperliquidAgentApprovalVerifier],
       useFactory: (source: PostgresWalletAuthorizationSource, exchange: HyperliquidAgentApprovalVerifier) => new WalletAuthorizationService(source, exchange) },
     CopyWalletService, CopyWalletRepository, { provide: USER_WALLET_PROVISIONER, useClass: PrivyUserWalletProvisioner },
-    CopyFundingRepository, CopyFundingService, CopyFundingExchangeClient, CopyFundingMonitor,
+    CopyFundingRepository, CopyFundingService, {provide:CopyFundingExchangeClient,inject:[RequestBudgeterService,HyperliquidGlobalTransport],useFactory:(budget:RequestBudgeterService,transport:HyperliquidGlobalTransport)=>new CopyFundingExchangeClient(budget,transport)}, CopyFundingMonitor,
     CopyAgentRepository, CopyAgentService,
     CopyAccountModeRepository, CopyAccountModeService,
-    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, RequestBudgeterService], useFactory: (config: AppConfig, budget: RequestBudgeterService) =>
-      new PrivyAccountModeClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) })) },
-    { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [RequestBudgeterService], useFactory: (budget: RequestBudgeterService) =>
-      new HyperliquidAccountModeAbsenceReader(weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) })) },
+    { provide: ACCOUNT_MODE_CLIENT, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (config: AppConfig, budget: RequestBudgeterService, transport:HyperliquidGlobalTransport) =>
+      new PrivyAccountModeClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }),undefined,Date.now,transport) },
+    { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
+      new HyperliquidAccountModeAbsenceReader(weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo, Date.now,
+        new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport)) },
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerMonitor, CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
     CopyFollowerSnapshotRepository, CopyFollowerSnapshotService, CopyFollowerSnapshotCollector,
     CopyLiveMandateRepository, CopyLiveMandateService,
-    { provide: FOLLOWER_SNAPSHOT_READER, inject: [RequestBudgeterService], useFactory: (budget: RequestBudgeterService) =>
-      new HyperliquidLiveAccountObserver('testnet', weight => budget.acquire(weight, 'background', undefined, { signal: AbortSignal.timeout(5000) })) },
-    { provide: HyperliquidFollowerReceiptReader, inject: [RequestBudgeterService], useFactory: (budget: RequestBudgeterService) =>
-      new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) })) },
+    { provide: FOLLOWER_SNAPSHOT_READER, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
+      new HyperliquidLiveAccountObserver('testnet', weight => budget.acquire(weight, 'background', undefined, { signal: AbortSignal.timeout(5000) }), transport.fetchInfo, Date.now, 5000,
+        new HyperliquidAllDexsAccountSource(Date.now, undefined, 'testnet', transport)) },
+    { provide: HyperliquidFollowerReceiptReader, inject: [RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (budget: RequestBudgeterService, transport: HyperliquidGlobalTransport) =>
+      new HyperliquidFollowerReceiptReader("testnet", weight => budget.acquire(weight, "background", undefined, { signal: AbortSignal.timeout(5_000) }), transport.fetchInfo) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
       authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey }) },
-    { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, RequestBudgeterService], useFactory: (config: AppConfig, budget: RequestBudgeterService) =>
-      new PrivyAgentApprovalClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) })) },
+    { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, RequestBudgeterService, HyperliquidGlobalTransport], useFactory: (config: AppConfig, budget: RequestBudgeterService, transport:HyperliquidGlobalTransport) =>
+      new PrivyAgentApprovalClient(config.value.auth, weight => budget.acquire(weight, "live", 0, { signal: AbortSignal.timeout(5_000) }),undefined,Date.now,transport) },
   ],
   exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource],
 })

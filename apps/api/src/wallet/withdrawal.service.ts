@@ -88,10 +88,16 @@ export class WithdrawalService {
       await this.repository.restoreUnsent(userId, id);
       throw new BusyException(BUSY_RETRY_AFTER_MS);
     }
+    const identityCheckedAt = Date.now();
     const claimed = await this.repository.beginSubmit(userId, id);
     if (!claimed) return wire(await this.repository.find(userId, id));
     let reply: unknown;
-    try { reply = await this.exchange.send(claimed, signature); }
+    try { reply = await this.exchange.send(claimed, signature, () => {
+      const now = Date.now();
+      if (!Number.isSafeInteger(identityCheckedAt) || now < identityCheckedAt || now - identityCheckedAt > 5000 ||
+        claimed.network !== this.network || claimed.address !== operation.address || claimed.destination !== operation.destination ||
+        claimed.amount !== operation.amount || claimed.nonce !== operation.nonce) throw new ConflictException('withdrawal_identity_evidence_expired');
+    }); }
     catch { return wire(await this.repository.find(userId, id)); }
     if (reply && typeof reply === "object" && Object.keys(reply).length === 2 && "status" in reply && "response" in reply) {
       if (reply.status === "ok" && reply.response && typeof reply.response === "object" && "type" in reply.response && reply.response.type === "default" && Object.keys(reply.response).length === 1) {

@@ -27,8 +27,10 @@ const referrerState = z.discriminatedUnion("stage", [
 // Documentation shows a single pair; captured live fixtures contain an array of pairs.
 const rewardPair = z.tuple([integer, rewards]);
 const tokenRewards = z.union([list(rewardPair), rewardPair.transform(pair => [pair])]);
+const perpMeta = z.object({ universe: list(z.object({ name, szDecimals: integer, maxLeverage: z.number().finite().positive() }).passthrough()) }).passthrough();
 const schemas = {
-  meta: z.object({ universe: list(z.object({ name, szDecimals: integer, maxLeverage: z.number().finite().positive() }).passthrough()) }).passthrough(),
+  meta: perpMeta,
+  allPerpMetas: list(perpMeta.nullable(), 1000),
   metaAndAssetCtxs: z.tuple([
     z.object({ universe: list(z.object({ name, szDecimals: integer, maxLeverage: z.number().finite().positive() }).passthrough()) }).passthrough(),
     list(z.object({ funding: decimal, markPx: decimal, midPx: decimal.nullable().optional(), oraclePx: decimal, openInterest: decimal, dayNtlVlm: decimal.optional() }).passthrough()),

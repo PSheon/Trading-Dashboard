@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { HyperliquidLiveAccountObserver, HyperliquidAllDexsAccountSource } from '../src/copy/live/live-account-observer.js';
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
+import {offlineGlobalTransport} from './hyperliquid-global-test-utils.js';
+import type {HyperliquidSocketQuota} from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 
 const account = `0x${'22'.repeat(20)}`;
 const now = 1_790_000_000_000;
@@ -509,7 +511,7 @@ describe('official all-dex snapshot transport (offline)', () => {
     const socket = new OfflineSocket();
     const create = vi.fn((url: string, options: WebSocket.ClientOptions) => {
       expect(url).toBe('wss://api.hyperliquid-testnet.xyz/ws');
-      expect(options).toMatchObject({ maxPayload: 8 * 1024 * 1024, followRedirects: false });
+      expect(options).toMatchObject({ maxPayload: 8 * 1024 * 1024, followRedirects: false, autoPong: false });
       return socket as unknown as WebSocket;
     });
     const source = new HyperliquidAllDexsAccountSource(() => now, create);
@@ -547,4 +549,29 @@ describe('official all-dex snapshot transport (offline)', () => {
       expect(socket.terminate.mock.calls.length).toBeGreaterThanOrEqual(1);
     } finally { source.close(); vi.useRealTimers(); }
   });
+  it('rejects unexpected native ping without sending an unmetered automatic pong',async()=>{
+    const socket=new OfflineSocket();socket.readyState=WebSocket.OPEN;
+    const source=new HyperliquidAllDexsAccountSource(()=>now,(_url,options)=>{expect(options.autoPong).toBe(false);return socket as unknown as WebSocket;});
+    const pending=source.read(account,5000);socket.emit('ping',Buffer.from('probe'));
+    await expect(pending).rejects.toThrow('live_account_aggregate_unavailable');expect(socket.send).toHaveBeenCalledTimes(1);source.close();
+  });
+
+  it('renews and sends a metered ping for idle unscoped reuse, then stops background work at shutdown',async()=>{
+    vi.useFakeTimers();try{
+      const global=offlineGlobalTransport(vi.fn()),socket=new OfflineSocket();socket.readyState=WebSocket.OPEN;
+      const quota:HyperliquidSocketQuota={cancelBeforeConnect:vi.fn(async()=>{}),attach:vi.fn(),subscribe:vi.fn<HyperliquidSocketQuota['subscribe']>(async subs=>{
+        const expected=subs.flatMap(sub=>[{method:'subscribe',subscription:sub.subscription},{method:'unsubscribe',subscription:sub.subscription}]);
+        return {dispatch:(body,work)=>{const i=expected.findIndex(c=>JSON.stringify(c)===JSON.stringify(body));if(i<0)throw Error();return work(expected.splice(i,1)[0]!);}};
+      }),unsubscribe:vi.fn(),renew:vi.fn(async()=>{}),ping:vi.fn<HyperliquidSocketQuota['ping']>(async()=>({assertFresh:()=>{},dispatch:work=>work()})),uncertain:vi.fn(async()=>{}),whenIdle:vi.fn(async()=>{}),close:vi.fn(async()=>{socket.readyState=WebSocket.CLOSED;socket.emit('close',1000);})};
+      vi.spyOn(global.transport,'currentQuota').mockReturnValue({acquireRest:vi.fn(),reserveSocket:vi.fn(async()=>({connect:{assertFresh:()=>{},dispatch:<T>(work:()=>T):T=>work()},connection:quota}))});
+      socket.send.mockImplementation(body=>{const command=JSON.parse(body);if(command.method==='ping')return;queueMicrotask(()=>{
+        socket.emit('message',Buffer.from(JSON.stringify({channel:'subscriptionResponse',data:command})));if(command.method==='subscribe')socket.emit('message',Buffer.from(JSON.stringify({channel:'allDexsClearinghouseState',data:{user:account,clearinghouseStates:[]}})));
+      });});
+      const source=new HyperliquidAllDexsAccountSource(Date.now,()=>socket as unknown as WebSocket,'testnet',global.transport);
+      await source.read(account,5000);await vi.advanceTimersByTimeAsync(20001);
+      expect(quota.renew).toHaveBeenCalledOnce();expect(quota.ping).toHaveBeenCalledOnce();expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toEqual({method:'ping'});
+      await source.close();await vi.advanceTimersByTimeAsync(20001);expect(quota.ping).toHaveBeenCalledOnce();
+    }finally{vi.useRealTimers();}
+  });
+
 });

@@ -121,13 +121,13 @@ describe('original local operation recovery HTTP', () => {
     const created = liveCopyStrategySchema.parse((await post(`${root}/strategies`, draft).expect(200)).body.data), c = await prepare();
     const read = (path: string) => request(app.getHttpServer()).get(path).set('Authorization', 'Bearer alice').expect(200).expect('Cache-Control', 'no-store');
     expect(liveCopyStrategySchema.parse((await read(`${root}/strategies/by-key/${draft.idempotencyKey}`)).body.data)).toEqual(created);
-    expect(liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/by-key/route-generation-key-0001`)).body.data)).toEqual(c);
-    expect(liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/${c.mandate.id}/challenge`)).body.data)).toEqual(c);
+    expect(liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/by-key/route-generation-key-0001`)).body.data)).toMatchObject({ mandate: c.mandate, intent: c.intent });
+    expect(liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/${c.mandate.id}/challenge`)).body.data)).toMatchObject({ mandate: c.mandate, intent: c.intent });
     await db.update(copyLiveMandates).set({ state: 'revoked', revision: 2 });
     const before = await db.select().from(copyLiveMandates);
     const archived = liveCopyMandateChallengeSchema.parse((await read(`${root}/mandates/${c.mandate.id}/challenge`)).body.data);
     expect(archived.intent).toEqual(c.intent); expect(archived.mandate.state).toBe('revoked');
-    expect((await read(`${root}/mandates/by-key/route-generation-key-0001`)).body.data).toEqual(archived);
+    expect((await read(`${root}/mandates/by-key/route-generation-key-0001`)).body.data).toMatchObject({ mandate: archived.mandate, intent: archived.intent });
     expect(await db.select().from(copyLiveMandates)).toEqual(before);
   });
   it('enforces auth/cross-owner/key shape/current DID on every recovery path', async () => {
@@ -146,4 +146,27 @@ describe('original local operation recovery HTTP', () => {
     for (const path of paths) await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer successor').expect(401);
     expect((await db.select().from(copyLiveMandates))[0].state).toBe('prepared');
   });
+});
+
+
+it('returns server-checked expired-original renewal over authenticated readonly GET even after old agent revocation', async () => {
+  const c = await prepare(), expired = Date.now() - 1, nonce = expired - 300000;
+  const { createHash } = await import('node:crypto');
+  const intent = (await import('@trading-dashboard/shared/contracts')).liveCopyMandateIntentSchema.parse({ ...c.intent, nonce, consentExpiresAt: expired });
+  await db.update(copyLiveMandates).set({ nonce, consentExpiresAt: new Date(expired), intent, intentDigest: createHash('sha256').update(JSON.stringify(intent)).digest('hex') });
+  await db.update(copyWalletAuthorizations).set({ revokedAt: new Date() });
+  const before = await db.select().from(copyLiveMandates), started = Date.now();
+  for (const path of [`${root}/mandates/${c.mandate.id}/challenge`, `${root}/mandates/by-key/route-generation-key-0001`]) {
+    const response = await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer alice').expect(200).expect('Cache-Control', 'no-store');
+    const recovered = liveCopyMandateChallengeSchema.parse(response.body.data), renewal = Reflect.get(recovered, 'renewal');
+    expect(recovered.intent).toEqual(intent);
+    expect(renewal).toMatchObject({ eligible: true, reason: 'prepared_consent_expired', mandateId: c.mandate.id, revision: 1, nonce });
+    if (!renewal) throw new Error('Missing server renewal evidence');
+    expect(Date.parse(renewal.checkedAt)).toBeGreaterThanOrEqual(started); expect(Date.parse(renewal.checkedAt)).toBeLessThanOrEqual(Date.now());
+    await request(app.getHttpServer()).get(path).set('Authorization', 'Bearer bob').expect(404);
+  }
+  await post(preparation, { idempotencyKey: 'renewal-distinct-key-0001' }).expect(409);
+  expect(await db.select().from(copyLiveMandates)).toEqual(before);
+  await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, uid));
+  await request(app.getHttpServer()).get(`${root}/mandates/${c.mandate.id}/challenge`).set('Authorization', 'Bearer alice').expect(401);
 });

@@ -3,6 +3,7 @@ import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrde
 import { isDeepStrictEqual } from "node:util";
 import { LiveBoundaryError, WalletAuthorizationService, assertSameAuthorization, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
 import type { LiveMarketIdentity } from './live-market-resolver.js';
+import type { LiveUnattemptedReleaseCertificate } from './live-unattempted-release.js';
 
 export type LiveExecutionState = "prepared" | "submitting" | "unknown" | "resting" | "filled" | "partial" | "cancelled" | "rejected";
 export interface ExchangeOutcome {
@@ -26,6 +27,8 @@ export interface LiveExecutionRecord {
   outcome?: ExchangeOutcome;
   /** Codes only, never SDK errors containing authorization material. */
   errorCode?: string;
+  /** Retained local zero-effect expiry proof; never exchange terminal evidence. */
+  unattemptedRelease?: Readonly<LiveUnattemptedReleaseCertificate>;
 }
 
 export interface LiveExecutionJournal {

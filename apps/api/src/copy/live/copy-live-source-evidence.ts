@@ -100,3 +100,21 @@ export function liveSourceLegId(mandateId: string, fillId: string, leg: 'open' |
   if (typeof mandateId !== 'string' || mandateId.length < 1 || mandateId.length > 128 || typeof fillId !== 'string' || fillId.length < 1 || fillId.length > 160 || !['open', 'close'].includes(leg)) fail();
   return `leg:${liveSourceDigest({ mandateId, fillId, leg })}`;
 }
+
+/** A channel wrapper is transport evidence, not a second economic fill.
+ * Acquisition may learn a missing TWAP id only from an actual matching wrapper.
+ * Stored identity may never change its already claimed trade key. */
+export function reconcileLiveSourceFills(left: LiveSourceFillEvidence, right: LiveSourceFillEvidence, mode: 'acquisition' | 'stored'): LiveSourceFillEvidence {
+  const certified=(fill:LiveSourceFillEvidence)=>decodeLiveSourceFill({...fill,normalized:{...fill.normalized},providerTime:new Date(fill.providerTime),receivedAt:new Date(fill.receivedAt)});
+  const a=certified(left),b=certified(right);
+  if(a.id!==b.id||!['acquisition','stored'].includes(mode))fail();
+  if(a.sourceDigest===b.sourceDigest)return a;
+  if(a.normalized.kind===b.normalized.kind)throw new LiveBoundaryError('live_source_duplicate_conflict');
+  const ordinary=a.normalized.kind==='fills'?a:b,twap=a.normalized.kind==='twap'?a:b;
+  if(!twap.normalized.twapId||(ordinary.normalized.twapId!==null&&ordinary.normalized.twapId!==twap.normalized.twapId)||
+    (mode==='stored'&&(ordinary.normalized.twapId===null||ordinary.tradeKey!==twap.tradeKey)))throw new LiveBoundaryError('live_source_duplicate_conflict');
+  const economics=(fill:LiveSourceFillEvidence)=>{const {kind:_kind,twapId:_twapId,tradeKey:_tradeKey,...values}=fill.normalized;return values;};
+  const inner=(value:Record<string,unknown>)=>{const {twapId:_twapId,...values}=value;return values;};
+  if(liveSourceDigest(economics(ordinary))!==liveSourceDigest(economics(twap))||liveSourceDigest(inner(ordinary.raw))!==liveSourceDigest(inner(object(twap.raw.fill))))throw new LiveBoundaryError('live_source_duplicate_conflict');
+  return mode==='stored'?a:twap;
+}

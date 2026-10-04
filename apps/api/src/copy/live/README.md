@@ -67,6 +67,58 @@ attempt precede the principal POST. An accepted response and supported current
 mode are separate states; disabled/null legacy evidence remains unproven.
 No workflow activates live copying; the live worker remains unimplemented.
 
+Atomic source preparation now captures the generation baseline, canonical source
+leg, immutable sizing envelope, journal, provenance and nonce on the original
+owner/account/source PostgreSQL session. `LiveProviderReadEpoch` shares one
+unchanged five-second set of concrete provider observations across preparation,
+reservation, signing and submission. Reuse rereads current SQL authority; it
+cannot restamp expired evidence or move it to another session. Actual terminal
+settlement retains the complete canonical proof and digest, records follower
+receipts and cash movements, releases reservations and advances proportional
+reduction carry atomically. A placement acknowledgment is not that settlement.
+
+`TestnetLiveExecutionRuntime` now composes those concrete dependencies for one
+immutable routing request. It shares the original PostgreSQL session and private
+provider epoch from preparation through reservation, signing and submission.
+Historical attempted keys reconcile without new admission, signatures or nonces.
+The factory is unregistered while worker recovery and stop handling remain
+incomplete. Its offline integration tests do not establish an actual
+owner-funded testnet order.
+
+Fixed opening sizes include the worst admitted buy limit in the signed USD
+budget and floor at the exchange lot. A lower sell limit cannot enlarge the
+mid-price quantity. A lot below the exchange minimum is denied; the system never
+rounds upward or silently increases the owner's per-trade amount.
+
+Registered public and wallet clients now share durable outbound REST and WS
+admission through `HyperliquidGlobalTransport` and `PostgresHyperliquidQuota`.
+Every service/replica using the same provider egress must use the same explicit
+`HYPERLIQUID_EGRESS_KEY` and quota database. Financial POST admission happens
+before final synchronous proof checks; a private finite permit is rechecked
+after costly validation immediately before native transport. Missing global
+configuration fails closed. Minute charges are never refunded for an uncertain
+send. Private cancellation can release a socket reservation only before its
+connect permit has ever been dispatched. Unknown native closure cannot be
+reclaimed by inventing a clean close or changing an egress alias.
+The installed provider also closes without a WebSocket close frame. An original
+private socket can release transport capacity after matching durable unsubscribe
+ACKs and an authenticated remote TLS EOF followed by an error-free native close,
+with no local reset or termination. The actual diagnostic remains 1006; retained
+transport proof never releases financial reservations or refunds minute charges.
+
+Public profiles, orders and TWAP use bounded real WS snapshots. Persistent public
+connections renew their leases and meter heartbeats, preserve original snapshot
+times and require matching unsubscribe acknowledgments. Missing profile venues
+remain unknown, so aggregate equity is nullable. Public reporting evidence is
+not a dedicated-account risk permit. The actual market watcher loads the full
+indexed metadata in two REST requests and meters its socket subscriptions.
+
+These concrete boundaries do not complete the mainnet product. The financial
+worker, durable cancel/stop/flat/sweep operations, generation-renewal execution,
+HIP-3 effective-fee admission, collected-fee allocation and treasury payouts still
+require implementation and separate actual owner-funded acceptance. Runtime
+configuration continues to reject `COPY_TRADING_MODE=testnet|live`.
+
 The state flow is `prepared -> submitting -> resting | filled | partial |
 cancelled | rejected`. Exceptions after the POST begins produce `unknown`.
 Recovered `submitting`, `unknown`, and `resting` rows only query `orderStatus`
@@ -132,12 +184,11 @@ Before connecting a live worker, implement and verify all of these dependencies:
    recheck its age after the computation. `PostgresLiveRiskScope` holds matching
    policy/platform shared locks, the existing user writer lock and an account
    session lock, with original-scope callbacks invalidated before unlock. A
-   concrete DB proof producer and durable live reservation are still needed: load the strategy and owner/platform controls,
-   current policy and revision, exclusive reservation, funded execution-account
-   collateral and positions, and fresh quote/market metadata on every final
-   gate call. Enforce pause/reduce-only/stop, limits, direction and exact reduction
-   ownership. Reject stale revisions or unavailable reads. Persist the approval
-   and reservation linkage so a restarted worker can verify the same intent.
+   concrete DB proof producer and durable live reservation are implemented and
+   composed by the unregistered testnet factory. They load current ownership,
+   controls, policy, immutable consent, collateral, all-venue positions, orders
+   and fresh market observations; uncertain coverage or stale evidence denies
+   execution. Connect only after restart and stop handling are complete.
 2. **Wallet/grant lifecycle:** connect the implemented master, agent and mode
    workflows to the live admission path. All identity, revocation, retirement
    and quarantine writers must follow its serialization protocol. Verified

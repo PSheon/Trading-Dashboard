@@ -2,7 +2,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { createLiveCopyStrategySchema, copyExecutionWalletsSchema, copyExecutionAccountSchema, copyStrategySettingsSchema, liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyMandateOwnerTypedData, approveLiveCopyMandateSchema, type CreateLiveCopyStrategy, type LiveCopyStrategy, type LiveCopyMandate, type CopyExecutionAccount, type CopyAgentSetup, type CopyWalletGrant } from '@trading-dashboard/shared/contracts';
+import { createLiveCopyStrategySchema, copyExecutionWalletsSchema, copyExecutionAccountSchema, copyAgentSetupSchema, copyWalletGrantSchema, liveCopyMandateRenewalSchema, copyStrategySettingsSchema, liveCopyOverviewSchema, liveCopyStrategySchema, liveCopyMandateChallengeSchema, liveCopyMandateSchema, liveCopyMandateOwnerTypedData, approveLiveCopyMandateSchema, type CreateLiveCopyStrategy, type LiveCopyStrategy, type LiveCopyMandate, type CopyExecutionAccount, type CopyAgentSetup, type CopyWalletGrant } from '@trading-dashboard/shared/contracts';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
 import { queryKeys } from './query-keys';
@@ -15,21 +15,40 @@ const draftSchema = z.object({ request: createLiveCopyStrategySchema, strategyId
 const walletPreparationSchema = z.object({ strategyId: z.number().int().positive(), strategyVersion: z.number().int().positive(), leaderAddress: z.string(), network: z.literal('testnet'), accountId: z.string().nullable() }).strict();
 const barrierSchema = z.object({ id: z.string(), command: z.enum(['pause', 'revoke']) }).strict();
 const journalSchema = z.object({ barriers: z.array(barrierSchema).max(100).default([]), wallets: z.array(walletPreparationSchema).max(100).default([]), drafts: z.array(draftSchema).max(100), preparations: z.array(preparationSchema).max(100), approvals: z.array(z.string()).max(100) }).strict();
-type JournalData = z.infer<typeof journalSchema>;
+const renewalAttemptSchema = preparationSchema.extend({
+  predecessor: z.object({ id: z.string().min(1).max(128), revision: z.number().int().positive(), nonce: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict(),
+  evidence: liveCopyMandateRenewalSchema,
+  settingsDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  binding: z.object({ account: copyExecutionAccountSchema, strategy: liveCopyStrategySchema, setup: copyAgentSetupSchema, grant: copyWalletGrantSchema }).strict(),
+}).strict();
+const renewalsSchema = z.object({ generations: z.array(renewalAttemptSchema).max(100) }).strict().refine(v => new Set(v.generations.map(g => g.key)).size === v.generations.length);
+type RenewalAttempt = z.infer<typeof renewalAttemptSchema>;
+type LegacyJournalData = z.infer<typeof journalSchema>;
+type JournalData = LegacyJournalData & { renewals: RenewalAttempt[] };
 /** Recovery requests/IDs only. No JWT, consent signature or wallet key is stored. */
 export function createLiveCopyJournal(scope: string, storage: Pick<Storage, 'getItem' | 'setItem'>) {
   const key = `copy-live-recovery:v1:${encodeURIComponent(scope)}`;
-  const read = (): JournalData => { const raw = storage.getItem(key); return raw ? journalSchema.parse(JSON.parse(raw)) : { barriers: [], wallets: [], drafts: [], preparations: [], approvals: [] }; };
-  const write = (v: JournalData) => { const raw = JSON.stringify(journalSchema.parse(v)); storage.setItem(key, raw); if (storage.getItem(key) !== raw) throw new Error('live_recovery_storage_unavailable'); };
+  const renewalKey = `copy-live-renewals:v1:${encodeURIComponent(scope)}`;
+  const readLegacy = (): LegacyJournalData => { const raw = storage.getItem(key); return raw ? journalSchema.parse(JSON.parse(raw)) : { barriers: [], wallets: [], drafts: [], preparations: [], approvals: [] }; };
+  const readRenewals = () => { const raw = storage.getItem(renewalKey); if (raw && new TextEncoder().encode(raw).byteLength > 524288) throw new Error('live_recovery_storage_full'); return raw ? renewalsSchema.parse(JSON.parse(raw)).generations : []; };
+  const read = (): JournalData => ({ ...readLegacy(), renewals: readRenewals() });
+  const write = (v: LegacyJournalData) => { const raw = JSON.stringify(journalSchema.parse(v)); storage.setItem(key, raw); if (storage.getItem(key) !== raw) throw new Error('live_recovery_storage_unavailable'); };
   return { read,
-    markBarrier(id: string, command: 'pause' | 'revoke') { const data = read(); if (data.barriers.some(b => b.id === id)) throw new Error('live_barrier_uncertain'); data.barriers.push({ id, command }); write(data); },
-    observedBarrier(m: LiveCopyMandate) { const data = read(); data.barriers = data.barriers.filter(b => b.id !== m.id || !(b.command === 'pause' && m.state === 'paused' || b.command === 'revoke' && m.state === 'revoked')); write(data); },
-    wallet(v: JournalData['wallets'][number]) { const data = read(); data.wallets = [...data.wallets.filter(w => w.strategyId !== v.strategyId), v]; write(data); },
-    draft(v: JournalData['drafts'][number]) { const data = read(); data.drafts = [...data.drafts.filter(d => d.request.idempotencyKey !== v.request.idempotencyKey), v]; write(data); },
-    preparation(v: JournalData['preparations'][number]) { const data = read(); data.preparations = [...data.preparations.filter(p => p.accountId !== v.accountId), v]; write(data); },
+    renewal(v: RenewalAttempt) {
+      const generations = readRenewals(), previous = generations.find(g => g.key === v.key);
+      if (previous && (JSON.stringify({ ...previous, mandateId: null }) !== JSON.stringify({ ...v, mandateId: null }) || previous.mandateId !== null && previous.mandateId !== v.mandateId)) throw new Error('live_renewal_changed');
+      const raw = JSON.stringify(renewalsSchema.parse({ generations: previous ? generations.map(g => g.key === v.key ? v : g) : [...generations, v] }));
+      if (new TextEncoder().encode(raw).byteLength > 524288) throw new Error('live_recovery_storage_full');
+      storage.setItem(renewalKey, raw); if (storage.getItem(renewalKey) !== raw) throw new Error('live_recovery_storage_unavailable');
+    },
+    markBarrier(id: string, command: 'pause' | 'revoke') { const data = readLegacy(); if (data.barriers.some(b => b.id === id)) throw new Error('live_barrier_uncertain'); data.barriers.push({ id, command }); write(data); },
+    observedBarrier(m: LiveCopyMandate) { const data = readLegacy(); data.barriers = data.barriers.filter(b => b.id !== m.id || !(b.command === 'pause' && m.state === 'paused' || b.command === 'revoke' && m.state === 'revoked')); write(data); },
+    wallet(v: JournalData['wallets'][number]) { const data = readLegacy(); data.wallets = [...data.wallets.filter(w => w.strategyId !== v.strategyId), v]; write(data); },
+    draft(v: JournalData['drafts'][number]) { const data = readLegacy(); data.drafts = [...data.drafts.filter(d => d.request.idempotencyKey !== v.request.idempotencyKey), v]; write(data); },
+    preparation(v: JournalData['preparations'][number]) { const data = readLegacy(); data.preparations = [...data.preparations.filter(p => p.accountId !== v.accountId), v]; write(data); },
     uncertain(id: string) { return read().approvals.includes(id); },
-    mark(id: string) { const data = read(); if (!data.approvals.includes(id)) data.approvals.push(id); write(data); },
-    resolve(id: string) { const data = read(); data.approvals = data.approvals.filter(v => v !== id); write(data); },
+    mark(id: string) { const data = readLegacy(); if (!data.approvals.includes(id)) data.approvals.push(id); write(data); },
+    resolve(id: string) { const data = readLegacy(); data.approvals = data.approvals.filter(v => v !== id); write(data); },
   };
 }
 export interface LiveBindingContext { account: CopyExecutionAccount; strategy: LiveCopyStrategy; setup: CopyAgentSetup; grant?: CopyWalletGrant }
@@ -37,6 +56,7 @@ export interface LiveConsentContext extends LiveBindingContext { mandate: LiveCo
 interface OwnerDeps { snapshot(): AgentOwnerSnapshot; journal: ReturnType<typeof createLiveCopyJournal> }
 interface DraftDeps extends OwnerDeps { newKey(): string; create(body: CreateLiveCopyStrategy, guard: () => void): Promise<unknown>; findStrategy(key: string): Promise<unknown> }
 interface PrepareDeps extends OwnerDeps { newKey(): string; current(): LiveBindingContext | null; now(): number; prepare(id: string, body: { idempotencyKey: string }, guard: () => void): Promise<unknown>; findMandate(key: string): Promise<unknown> }
+interface RenewDeps extends PrepareDeps { current(): LiveConsentContext | null; challenge(id: string): Promise<unknown> }
 interface ApproveDeps extends OwnerDeps { current(): LiveConsentContext | null; now(): number; challenge(id: string): Promise<unknown>; sign(data: Eip712TypedData): Promise<string>; approve(id: string, body: { consentSignature: string }, guard: () => void): Promise<unknown> }
 function ownerGuard(deps: OwnerDeps, wallet: boolean) {
   const initial = { ...deps.snapshot() };
@@ -66,7 +86,7 @@ function sameContext(original: LiveBindingContext, value: LiveBindingContext | n
 }
 function ready(context: LiveBindingContext, now: number) {
   const { account: a, strategy: s, setup, grant } = context;
-  if (a.state !== 'ready' || a.network !== 'testnet' || s.id !== a.strategyId || s.sourceNetwork !== 'testnet' || s.status !== 'paused' || !s.pauseNewRisk || s.reduceOnly || setup.state !== 'active' || setup.accountId !== a.id || setup.strategyId !== s.id || setup.network !== a.network || setup.accountAddress !== a.address || !setup.authorizationId || Date.parse(setup.expiresAt) <= now || grant && (grant.id !== setup.authorizationId || grant.status !== 'active' || grant.strategyId !== s.id || grant.network !== a.network || grant.accountAddress !== a.address || grant.signerAddress !== setup.agentAddress || grant.revokedAt !== null || Date.parse(grant.expiresAt) <= now || !grant.scopes.includes('copy:trade') || !grant.scopes.includes('copy:reduce'))) throw new Error('live_binding_unavailable');
+  if (a.state !== 'ready' || a.network !== 'testnet' || s.id !== a.strategyId || s.mode !== 'actual' || s.network !== 'testnet' || s.sourceNetwork !== 'testnet' || s.settings.copyStartMode !== 'delta' || s.status !== 'paused' || !s.pauseNewRisk || s.reduceOnly || setup.state !== 'active' || setup.accountId !== a.id || setup.strategyId !== s.id || setup.network !== a.network || setup.accountAddress !== a.address || !setup.authorizationId || Date.parse(setup.expiresAt) <= now || grant && (grant.id !== setup.authorizationId || grant.status !== 'active' || grant.strategyId !== s.id || grant.network !== a.network || grant.accountAddress !== a.address || grant.signerAddress !== setup.agentAddress || grant.revokedAt !== null || Date.parse(grant.expiresAt) <= now || !grant.scopes.includes('copy:trade') || !grant.scopes.includes('copy:reduce'))) throw new Error('live_binding_unavailable');
 }
 function sameMandate(original: LiveCopyMandate, result: LiveCopyMandate) {
   for (const k of ['id', 'accountId', 'strategyId', 'mode', 'network', 'accountAddress', 'sourceNetwork', 'leaderAddress', 'budgetUsd', 'strategyVersion', 'expiresAt', 'createdAt'] as const) if (original[k] !== result[k]) throw new Error('live_mandate_changed');
@@ -89,6 +109,50 @@ export async function prepareLiveCopyConsent(input: LiveBindingContext, deps: Pr
   const result = challengeMatches(context, raw, deps.snapshot().walletAddress);
   if (attempt.mandateId && attempt.mandateId !== result.mandate.id) throw new Error('live_preparation_changed');
   deps.journal.preparation({ ...attempt, mandateId: result.mandate.id }); return result;
+}
+export type LiveCopyChallenge = z.infer<typeof liveCopyMandateChallengeSchema>;
+/** Optional rolling response evidence is never replaced with a browser deadline. */
+export function liveCopyRenewalEligible(value: LiveCopyChallenge, now: number): boolean {
+  const parsed = liveCopyMandateChallengeSchema.safeParse(value);
+  if (!parsed.success) return false;
+  const { mandate: m, intent: i, renewal: r } = parsed.data;
+  if (!r || !r.eligible || !Number.isSafeInteger(now) || m.state === 'stopped') return false;
+  if (r.mandateId !== m.id || r.revision !== m.revision || r.nonce !== i.nonce || i.mandateId !== m.id) return false;
+  const checked = Date.parse(r.checkedAt);
+  if (!Number.isSafeInteger(checked) || checked < i.nonce || checked > now || now - checked > 5000) return false;
+  if (r.reason === 'revoked') return m.state === 'revoked';
+  if (r.reason === 'generation_expired') return m.state !== 'revoked' && checked >= i.expiresAt;
+  return r.reason === 'prepared_consent_expired' && (m.state === 'prepared' || m.state === 'expired') && checked >= i.consentExpiresAt && checked < i.expiresAt;
+}
+export async function renewLiveCopyConsent(input: LiveConsentContext, reviewed: LiveCopyChallenge, deps: RenewDeps) {
+  const context = structuredClone(input), original = liveCopyMandateChallengeSchema.parse(structuredClone(reviewed)), owner = ownerGuard(deps, true), started = deps.now();
+  const guard = () => { owner(); sameContext(context, deps.current()); if (!Number.isSafeInteger(deps.now()) || deps.now() < started) throw new Error('live_renewal_clock_changed'); };
+  guard(); sameMandate(context.mandate, original.mandate);
+  if (JSON.stringify(context.mandate) !== JSON.stringify(original.mandate) || original.intent.ownerAddress !== deps.snapshot().walletAddress) throw new Error('live_mandate_changed');
+  const previous = deps.journal.read().renewals.find(g => g.accountId === context.account.id && g.predecessor.id === original.mandate.id);
+  const validate = (raw: unknown, attempt: RenewalAttempt) => {
+    const result = challengeMatches(attempt.binding, raw, deps.snapshot().walletAddress);
+    if (result.mandate.id === attempt.predecessor.id || result.intent.nonce <= attempt.predecessor.nonce || attempt.mandateId && result.mandate.id !== attempt.mandateId || result.intent.settingsDigest !== attempt.settingsDigest) throw new Error('live_renewal_changed');
+    return result;
+  };
+  if (previous) {
+    const result = validate(await deps.findMandate(previous.key), previous); guard();
+    deps.journal.renewal({ ...previous, mandateId: result.mandate.id }); return result;
+  }
+  const renewable = (value: LiveCopyChallenge) => { guard(); ready(context, deps.now()); if (!context.grant || !liveCopyRenewalEligible(value, deps.now()) || deps.journal.read().barriers.some(b => b.id === original.mandate.id)) throw new Error('live_renewal_unavailable'); };
+  renewable(original);
+  const fresh = liveCopyMandateChallengeSchema.parse(await deps.challenge(original.mandate.id)); guard();
+  if (JSON.stringify(fresh.mandate) !== JSON.stringify(original.mandate) || JSON.stringify(fresh.intent) !== JSON.stringify(original.intent)) throw new Error('live_mandate_changed');
+  renewable(fresh);
+  const currentSettings = await settingsDigest(context.strategy.settings); renewable(fresh);
+  const attempt: RenewalAttempt = renewalAttemptSchema.parse({ accountId: context.account.id, strategyId: context.strategy.id, accountAddress: context.account.address,
+    strategyVersion: context.strategy.version, key: deps.newKey(), mandateId: null, predecessor: { id: original.mandate.id, revision: original.mandate.revision, nonce: original.intent.nonce }, evidence: fresh.renewal, settingsDigest: currentSettings,
+    binding: { account: context.account, strategy: context.strategy, setup: context.setup, grant: context.grant } });
+  deps.journal.renewal(attempt); renewable(fresh);
+  const response = await deps.prepare(context.account.id, { idempotencyKey: attempt.key }, () => renewable(fresh)); guard();
+  const result = validate(response, attempt);
+  if (result.mandate.state !== 'prepared' || result.intent.nonce > deps.now() || result.intent.consentExpiresAt <= deps.now() || result.intent.expiresAt <= deps.now()) throw new Error('live_renewal_changed');
+  deps.journal.renewal({ ...attempt, mandateId: result.mandate.id }); return result;
 }
 async function settingsDigest(settings: LiveCopyStrategy['settings']) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(copyStrategySettingsSchema.strict().parse(settings))));
@@ -142,6 +206,11 @@ export function useLiveCopyActions(accounts: readonly CopyExecutionAccount[], ov
     guardDraft(); return createLiveCopyDraft(request, { snapshot, journal: journal(), newKey: () => crypto.randomUUID(), findStrategy: value => api.get(`${ROOT}/strategies/by-key/${encodeURIComponent(value)}`), create: (body, guard) => api.post(`${ROOT}/strategies`, body, { beforeSend: () => { guardDraft(); guard(); } }) });
   }), onSettled: settled });
   const prepare = useMutation({ retry: false, mutationFn: () => exclusive(() => { const b = binding(); if (!b || !state.current.overview?.capabilities.strategyPreparation) throw new Error('live_binding_unavailable'); return prepareLiveCopyConsent(b, { snapshot, journal: journal(), current: binding, now: Date.now, newKey: () => crypto.randomUUID(), prepare: (id, body, beforeSend) => api.post(`${ROOT}/execution-wallets/${encodeURIComponent(id)}/mandates`, body, { beforeSend }), findMandate: value => api.get(`${ROOT}/mandates/by-key/${encodeURIComponent(value)}`) }); }), onSettled: settled });
+  const renew = useMutation({ retry: false, mutationFn: (review: LiveCopyChallenge) => exclusive(() => {
+    const c = context(review.mandate.id); if (!c || !state.current.overview?.capabilities.strategyPreparation) throw new Error('live_binding_unavailable');
+    return renewLiveCopyConsent(c, review, { snapshot, journal: journal(), current: () => context(review.mandate.id), now: Date.now, newKey: () => crypto.randomUUID(), challenge: id => api.get(`${ROOT}/mandates/${encodeURIComponent(id)}/challenge`),
+      prepare: (id, body, beforeSend) => api.post(`${ROOT}/execution-wallets/${encodeURIComponent(id)}/mandates`, body, { beforeSend }), findMandate: value => api.get(`${ROOT}/mandates/by-key/${encodeURIComponent(value)}`) });
+  }), onSettled: settled });
   const read = useMutation({ retry: false, mutationFn: (mandate: LiveCopyMandate) => exclusive(async () => {
     const saved = journal(), guard = ownerGuard({ snapshot, journal: saved }, false), selectedAccount = structuredClone(state.current.accounts.find(a => a.id === state.current.selected));
     const check = () => { guard(); const a = state.current.accounts.find(a => a.id === state.current.selected); if (!selectedAccount || !a || a.id !== mandate.accountId || a.strategyId !== mandate.strategyId || a.address !== mandate.accountAddress || a.network !== mandate.network || JSON.stringify(selectedAccount) !== JSON.stringify(a)) throw new Error('live_binding_changed'); }; check();
@@ -151,13 +220,19 @@ export function useLiveCopyActions(accounts: readonly CopyExecutionAccount[], ov
     const c = context(review.mandate.id); if (!c || !state.current.overview?.capabilities.strategyPreparation) throw new Error('live_binding_unavailable');
     return approveLiveCopyConsent({ ...c, reviewedIntent: review.intent }, { snapshot, journal: journal(), current: () => context(review.mandate.id), now: Date.now, challenge: id => api.get(`${ROOT}/mandates/${encodeURIComponent(id)}/challenge`), sign: typed => { const wallet = state.current.auth.wallet; if (!wallet) throw new Error('live_owner_unavailable'); return wallet.signTypedData(typed); }, approve: (id, body, beforeSend) => api.post(`${ROOT}/mandates/${encodeURIComponent(id)}/approve`, body, { beforeSend }) });
   }), onSettled: settled });
-  const recover = useMutation({ retry: false, mutationFn: (item: { kind: 'draft'; value: JournalData['drafts'][number] } | { kind: 'preparation'; value: JournalData['preparations'][number] }) => exclusive(async () => {
+  const recover = useMutation({ retry: false, mutationFn: (item: { kind: 'draft'; value: JournalData['drafts'][number] } | { kind: 'preparation'; value: JournalData['preparations'][number] } | { kind: 'renewal'; value: RenewalAttempt }) => exclusive(async () => {
     const saved = journal(), guard = ownerGuard({ snapshot, journal: saved }, false); guard();
     if (item.kind === 'draft') { const result = liveCopyStrategySchema.parse(await api.get(`${ROOT}/strategies/by-key/${encodeURIComponent(item.value.request.idempotencyKey)}`)); guard(); requestMatches(item.value.request, result); saved.draft({ ...item.value, strategyId: result.id }); return; }
     const original = structuredClone(state.current.accounts.find(a => a.id === state.current.selected));
     const check = () => { guard(); const a = state.current.accounts.find(a => a.id === state.current.selected); if (!a || !original || JSON.stringify(a) !== JSON.stringify(original) || a.id !== item.value.accountId || a.strategyId !== item.value.strategyId || a.address !== item.value.accountAddress) throw new Error('live_binding_changed'); }; check();
     const result = liveCopyMandateChallengeSchema.parse(await api.get(`${ROOT}/mandates/by-key/${encodeURIComponent(item.value.key)}`)); check();
-    if (result.mandate.accountId !== item.value.accountId || result.mandate.accountAddress !== item.value.accountAddress || result.mandate.strategyId !== item.value.strategyId || result.mandate.strategyVersion !== item.value.strategyVersion || item.value.mandateId && result.mandate.id !== item.value.mandateId) throw new Error('live_preparation_changed'); saved.preparation({ ...item.value, mandateId: result.mandate.id });
+    if (result.mandate.accountId !== item.value.accountId || result.mandate.accountAddress !== item.value.accountAddress || result.mandate.strategyId !== item.value.strategyId || result.mandate.strategyVersion !== item.value.strategyVersion || item.value.mandateId && result.mandate.id !== item.value.mandateId) throw new Error('live_preparation_changed');
+    if (item.kind === 'renewal') {
+      challengeMatches(item.value.binding, result, snapshot().walletAddress);
+      if (result.mandate.id === item.value.predecessor.id || result.intent.nonce <= item.value.predecessor.nonce || result.intent.settingsDigest !== item.value.settingsDigest) throw new Error('live_renewal_changed');
+      saved.renewal({ ...item.value, mandateId: result.mandate.id });
+    } else saved.preparation({ ...item.value, mandateId: result.mandate.id });
+    return result;
   }), onSettled: settled });
   const barrier = useMutation({ retry: false, mutationFn: ({ mandate, command }: { mandate: LiveCopyMandate; command: 'pause' | 'revoke' }) => exclusive(async () => {
     const saved = journal(), owner = ownerGuard({ snapshot, journal: saved }, false), originalAccount = structuredClone(state.current.accounts.find(a => a.id === state.current.selected));
@@ -166,7 +241,7 @@ export function useLiveCopyActions(accounts: readonly CopyExecutionAccount[], ov
     saved.markBarrier(mandate.id, command); guard();
     const raw = await api.post(`${ROOT}/mandates/${encodeURIComponent(mandate.id)}/${command}`, {}, { beforeSend: guard }); owner(); const result = liveCopyMandateSchema.parse(raw); sameMandate(mandate, result); saved.observedBarrier(result); return result;
   }), onSettled: settled });
-  return { create, prepare, approve, read, recover, barrier, recovery, ownerReady: auth.status === 'signedIn' && auth.mode === 'privy' && Boolean(auth.identity && auth.wallet?.address) };
+  return { create, prepare, renew, approve, read, recover, barrier, recovery, ownerReady: auth.status === 'signedIn' && auth.mode === 'privy' && Boolean(auth.identity && auth.wallet?.address) };
 }
 interface WalletDeps extends OwnerDeps { currentStrategy(): LiveCopyStrategy | null; createWallet(id: number, body: { network: 'testnet' }, guard: () => void): Promise<unknown>; readWallets(): Promise<unknown> }
 export async function prepareActualCopyWallet(input: LiveCopyStrategy, deps: WalletDeps): Promise<CopyExecutionAccount> {

@@ -16,26 +16,22 @@ import { address, assertSameAuthorization, assertWalletAuthorization, LiveBounda
 
 export function riskSourceRequire(value: unknown, code: string): asserts value { if (!value) throw new LiveBoundaryError(code); }
 export const riskSourceDigest = (value: unknown) => liveSourceDigest(JSON.parse(JSON.stringify(value)) as unknown);
-/** Only invoked inside the original session's read-only transaction. */
-export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db: DbExecutor, binding: {accountId:string;key:string}, now:number) {
-  const read = async <T>(work:PromiseLike<T>):Promise<T> => { const result=await work;await session.scope.assertHeld();return result; };
-  const [p] = await read(db.select().from(copyLiveIntentProvenance).where(eq(copyLiveIntentProvenance.key,binding.key)));
-  riskSourceRequire(p,'live_risk_provenance_missing');
-  riskSourceRequire(JSON.stringify(p.intent).length<=16384&&JSON.stringify(p.sizingBasis).length<=16384,'live_risk_source_unbounded');
-  const [row] = await read(db.select({account:copyExecutionAccounts,owner:users,strategy:copyStrategies,config:copyLiveStrategyConfigs,version:copyStrategyVersions,
-    mandate:copyLiveMandates,setup:copyAgentSetups,wallet:copyExecutionWallets,grant:copyWalletAuthorizations,leg:copyLiveSignalLegs,fill:copyLiveSourceFills,stream:copyLiveSourceStreams,journal:copyLiveExecutions})
-    .from(copyLiveIntentProvenance).innerJoin(copyExecutionAccounts,eq(copyExecutionAccounts.id,binding.accountId))
-    .innerJoin(users,eq(users.id,copyExecutionAccounts.userId)).innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
+/** Shared current authority, before an execution journal/provenance exists.
+ * Requires the original source/account lock and performs only SQL reads. */
+export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSession,db:DbExecutor,raw:{accountId:string;mandateId:string},now:number) {
+  const binding=structuredClone(raw); session.scope.assertFresh();
+  const read=async<T>(work:PromiseLike<T>):Promise<T>=>{const result=await work;await session.scope.assertHeld();return result;};
+  const [row]=await read(db.select({account:copyExecutionAccounts,owner:users,strategy:copyStrategies,config:copyLiveStrategyConfigs,version:copyStrategyVersions,
+    mandate:copyLiveMandates,setup:copyAgentSetups,wallet:copyExecutionWallets,grant:copyWalletAuthorizations})
+    .from(copyExecutionAccounts).innerJoin(users,eq(users.id,copyExecutionAccounts.userId))
+    .innerJoin(copyStrategies,eq(copyStrategies.id,copyExecutionAccounts.strategyId))
     .innerJoin(copyLiveStrategyConfigs,eq(copyLiveStrategyConfigs.strategyId,copyStrategies.id))
     .innerJoin(copyStrategyVersions,and(eq(copyStrategyVersions.strategyId,copyStrategies.id),eq(copyStrategyVersions.version,copyStrategies.version)))
-    .innerJoin(copyLiveMandates,eq(copyLiveMandates.id,copyLiveIntentProvenance.mandateId)).innerJoin(copyAgentSetups,eq(copyAgentSetups.id,copyLiveMandates.setupId))
+    .innerJoin(copyLiveMandates,eq(copyLiveMandates.id,binding.mandateId)).innerJoin(copyAgentSetups,eq(copyAgentSetups.id,copyLiveMandates.setupId))
     .innerJoin(copyExecutionWallets,eq(copyExecutionWallets.id,copyLiveMandates.executionWalletId)).innerJoin(copyWalletAuthorizations,eq(copyWalletAuthorizations.id,copyLiveMandates.authorizationId))
-    .innerJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId)).innerJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId))
-    .innerJoin(copyLiveSourceStreams,eq(copyLiveSourceStreams.id,copyLiveSourceFills.streamId)).innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveIntentProvenance.key))
-    .where(eq(copyLiveIntentProvenance.key,binding.key)));
+    .where(eq(copyExecutionAccounts.id,binding.accountId)));
   riskSourceRequire(row,'live_risk_authority_missing');
-  riskSourceRequire(JSON.stringify(row.journal.record).length<=16384&&JSON.stringify(row.fill.raw).length<=262144,'live_risk_source_unbounded');
-  const {account:a,owner:o,strategy:s,config:c,version:v,mandate:m,setup,wallet:w,grant:g,leg,stream,journal:j}=row;
+  const {account:a,owner:o,strategy:s,config:c,version:v,mandate:m,setup,wallet:w,grant:g}=row;
   const scope=session.scope.identity;
   riskSourceRequire(a.id===binding.accountId&&a.userId===scope.userId&&a.network==='testnet'&&scope.network==='testnet'&&a.address===scope.accountAddress&&a.state==='ready'&&
     a.privyWalletId&&a.ownerQuorumId&&a.privyUserId===o.privyUserId&&o.disabledAt===null,'live_risk_identity');
@@ -45,29 +41,15 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
     consent.accountId===a.id&&consent.userId===a.userId&&consent.strategyId===s.id&&consent.accountRevision===a.revision&&consent.accountAddress===a.address&&
     consent.ownerPrivyUserId===o.privyUserId&&consent.ownerAddress===o.embeddedWalletAddress&&consent.strategyVersion===s.version&&
     c.strategyVersion===s.version&&c.userId===a.userId&&c.sourceNetwork==='testnet'&&consent.sourceNetwork===c.sourceNetwork&&c.budgetUsd===consent.budgetUsd&&
-    consent.leaderAddress===s.leaderAddress&&consent.settingsDigest===liveCopySettingsDigest(settings)&&p.settingsDigest===consent.settingsDigest&&p.mandateRevision===m.revision&&
-    p.plannerVersion===1&&consent.plannerVersion===1,'live_risk_mandate_changed');
+    consent.leaderAddress===s.leaderAddress&&consent.settingsDigest===liveCopySettingsDigest(settings)&&consent.plannerVersion===1,'live_risk_mandate_changed');
   riskSourceRequire(setup.state==='active'&&setup.revision===consent.setupRevision&&setup.userId===a.userId&&setup.strategyId===s.id&&setup.accountId===a.id&&setup.network===a.network&&
     setup.accountAddress===a.address&&setup.accountWalletId===a.privyWalletId&&setup.accountOwnerQuorumId===a.ownerQuorumId&&setup.agentWalletId===w.privyWalletId&&setup.agentAddress===w.signerAddress&&
     setup.agentOwnerQuorumId===w.privyOwnerId&&setup.authorizationId===g.id&&setup.policyId===consent.policyId&&setup.policyFingerprint===consent.policyFingerprint&&setup.workerQuorumId===consent.workerQuorumId&&
     w.userId===a.userId&&w.strategyId===s.id&&w.network===a.network&&w.accountAddress===a.address&&w.privyOwnerId===a.ownerQuorumId&&w.retiredAt===null&&
     w.privyWalletId===consent.agentWalletId&&w.signerAddress===consent.agentAddress&&g.walletId===w.id&&g.version===consent.authorizationVersion&&setup.expiresAt.getTime()===g.expiresAt.getTime(),'live_risk_grant_changed');
-  const intent=structuredClone(p.intent) as unknown as LiveOrderIntent,record=structuredClone(j.record) as unknown as LiveExecutionRecord;
-  const action=buildOrderAction(intent),fingerprint=intentFingerprint(intent,action);
-  riskSourceRequire(intent.network===a.network&&intent.userId===a.userId&&intent.strategyId===s.id&&intent.accountAddress===a.address&&intent.walletId===w.privyWalletId&&intent.authorizationId===g.id&&
-    executionKey(intent)===binding.key&&p.fingerprint===fingerprint&&record.key===j.key&&record.fingerprint===fingerprint&&isDeepStrictEqual(action,record.action)&&isDeepStrictEqual(intent.market,record.market)&&
-    j.userId===a.userId&&j.strategyId===s.id&&j.network===a.network&&j.accountAddress===a.address&&j.signerAddress===w.signerAddress&&j.cloid===intent.cloid&&j.nonce===record.nonce&&
-    j.state===record.state&&j.updatedAt.getTime()===record.updatedAt&&['prepared','submitting'].includes(j.state)&&Number.isSafeInteger(record.nonce)&&record.nonce>=record.createdAt&&
-    record.createdAt<=now&&record.updatedAt>=record.createdAt&&record.expiresAfter>now&&record.expiresAfter<=record.createdAt+60000&&p.admittedAt.getTime()<=record.createdAt,'live_risk_record_mismatch');
   const current={id:g.id,version:g.version,userId:a.userId,strategyId:s.id,walletId:w.privyWalletId,privyOwnerId:w.privyOwnerId,signerAddress:address(w.signerAddress),
-    accountAddress:a.address,network:a.network,scopes:g.scopes,validFrom:g.validFrom.getTime(),expiresAt:g.expiresAt.getTime(),revokedAt:g.revokedAt?.getTime()??null,exchangeApprovedAt:g.exchangeApprovedAt?.getTime()??null};
-  assertSameAuthorization(record.authorization,assertWalletAuthorization(current,intent,now));
-  const fill=decodeLiveSourceFill(row.fill),canonical=canonicalLiveSourceLegs(fill).find(l=>l.leg===leg.leg);
-  riskSourceRequire(canonical&&leg.id===liveSourceLegId(m.id,fill.id,leg.leg)&&leg.mandateId===m.id&&leg.executionKey===binding.key&&leg.state==='prepared'&&
-    leg.sign===canonical.sign&&leg.size===canonical.size&&leg.fraction===canonical.fraction&&leg.tradeKey===canonical.tradeKey&&p.sourceDigest===fill.sourceDigest&&
-    fill.network==='testnet'&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.receivedAt<=p.admittedAt.getTime()&&
-    stream.state==='ready'&&stream.network===fill.network&&stream.leaderAddress===fill.leaderAddress&&stream.coverageFrom&&stream.coverageThrough&&stream.coverageDigest&&
-    stream.coverageFrom.getTime()<=m.activationCursor!.getTime()&&stream.coverageThrough.getTime()>=fill.providerTime,'live_risk_source_changed');
+    accountAddress:address(a.address),network:a.network,scopes:g.scopes,validFrom:g.validFrom.getTime(),expiresAt:g.expiresAt.getTime(),revokedAt:g.revokedAt?.getTime()??null,exchangeApprovedAt:g.exchangeApprovedAt?.getTime()??null};
+  const currentAuthorization=assertWalletAuthorization(current,{authorizationId:g.id,userId:a.userId,strategyId:s.id,walletId:w.privyWalletId,network:a.network,accountAddress:address(a.address),reduceOnly:false},now);
   riskSourceRequire(settings.copyStartMode==='delta','live_risk_adoption_unproven');
   const [policy]=await read(db.select().from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1));
   riskSourceRequire(policy&&Object.keys(copyRiskLimitsSchema.innerType().shape).every(k=>Object.hasOwn(policy.limits,k)),'live_risk_policy_missing');
@@ -79,8 +61,7 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
   riskSourceRequire(general.length===1&&(general[0]!.value as {copyTradingEnabled?:unknown}).copyTradingEnabled===true,'live_risk_platform_disabled');
   const [revenue]=await read(db.select().from(appSettings).where(eq(appSettings.key,'revenue')));
   const builder=revenue?adminSettingsSchema.shape.revenue.parse(revenue.value):{builderAddress:null,builderFeeTenthsBps:0};
-  riskSourceRequire((builder.builderAddress?.toLowerCase()??null)===consent.builderAddress&&builder.builderFeeTenthsBps===consent.builderMaxFeeTenthsOfBps&&
-    (intent.builder?intent.builder.address===consent.builderAddress&&intent.builder.feeTenthsBps<=consent.builderMaxFeeTenthsOfBps:consent.builderAddress===null&&consent.builderMaxFeeTenthsOfBps===0),'live_risk_builder_changed');
+  riskSourceRequire((builder.builderAddress?.toLowerCase()??null)===consent.builderAddress&&builder.builderFeeTenthsBps===consent.builderMaxFeeTenthsOfBps,'live_risk_builder_changed');
   const accounts=await read(db.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.userId,a.userId)).orderBy(copyExecutionAccounts.id).limit(9));
   riskSourceRequire(accounts.length<=8&&accounts.every(account=>account.network==='testnet'&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
   const states=await read(db.select().from(copyFollowerAccountState).where(sql`${copyFollowerAccountState.accountId} in (select id from copy_execution_accounts where user_id=${a.userId})`));
@@ -90,6 +71,49 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
   riskSourceRequire(pending.length===0&&withdrawals.length===0,'live_risk_transfer_pending');
   const modes=await read(db.select({id:copyAccountModeOperations.id}).from(copyAccountModeOperations).where(and(eq(copyAccountModeOperations.userId,a.userId),sql`${copyAccountModeOperations.submissionState} in ('signing','unknown') or (${copyAccountModeOperations.submissionState}='accepted' and ${copyAccountModeOperations.targetState}<>'supported')`)).limit(1));
   riskSourceRequire(modes.length===0,'live_risk_mode_pending');
+  const [sourceStream]=await read(db.select().from(copyLiveSourceStreams).where(and(eq(copyLiveSourceStreams.network,consent.sourceNetwork),eq(copyLiveSourceStreams.leaderAddress,consent.leaderAddress))));
+  riskSourceRequire(sourceStream&&sourceStream.state==='ready'&&sourceStream.coverageFrom&&sourceStream.coverageThrough&&sourceStream.coverageDigest&&sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
+  const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
+    authorizationId:g.id,walletId:w.privyWalletId,network:'testnet' as const,accountAddress:a.address,dedicated:true as const};
+  return {...row,consent,settings,currentAuthorization,identity,policy:{version:policy.version,limits},limits,builder,platform,user,
+    controls:{platform:{pauseNewRisk:platform.pauseNewRisk,reduceOnly:platform.reduceOnly},user:{pauseNewRisk:user.pauseNewRisk,reduceOnly:user.reduceOnly},strategy:{pauseNewRisk:s.pauseNewRisk,reduceOnly:s.reduceOnly}},
+    sourceStream,accounts,states,general,revenue,controlsRows:controls};
+}
+export type LivePreparationAuthority=Awaited<ReturnType<typeof loadLivePreparationAuthority>>;
+
+/** Only invoked inside the original session's read-only transaction. */
+export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db: DbExecutor, binding: {accountId:string;key:string}, now:number) {
+  const read = async <T>(work:PromiseLike<T>):Promise<T> => { const result=await work;await session.scope.assertHeld();return result; };
+  const [p] = await read(db.select().from(copyLiveIntentProvenance).where(eq(copyLiveIntentProvenance.key,binding.key)));
+  riskSourceRequire(p,'live_risk_provenance_missing');
+  riskSourceRequire(JSON.stringify(p.intent).length<=16384&&Buffer.byteLength(JSON.stringify(p.sizingBasis))<=2*1024*1024,'live_risk_source_unbounded');
+  const prep=await loadLivePreparationAuthority(session,db,{accountId:binding.accountId,mandateId:p.mandateId},now);
+  const [execution]=await read(db.select({leg:copyLiveSignalLegs,fill:copyLiveSourceFills,stream:copyLiveSourceStreams,journal:copyLiveExecutions})
+    .from(copyLiveIntentProvenance).innerJoin(copyLiveSignalLegs,eq(copyLiveSignalLegs.id,copyLiveIntentProvenance.legId))
+    .innerJoin(copyLiveSourceFills,eq(copyLiveSourceFills.id,copyLiveSignalLegs.sourceFillId)).innerJoin(copyLiveSourceStreams,eq(copyLiveSourceStreams.id,copyLiveSourceFills.streamId))
+    .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveIntentProvenance.key)).where(eq(copyLiveIntentProvenance.key,binding.key)));
+  riskSourceRequire(execution,'live_risk_authority_missing');
+  const row={account:prep.account,owner:prep.owner,strategy:prep.strategy,config:prep.config,version:prep.version,mandate:prep.mandate,setup:prep.setup,wallet:prep.wallet,grant:prep.grant,...execution};
+  riskSourceRequire(JSON.stringify(row.journal.record).length<=16384&&JSON.stringify(row.fill.raw).length<=262144,'live_risk_source_unbounded');
+  const {account:a,strategy:s,mandate:m,wallet:w,grant:g,leg,stream,journal:j}=row;
+  const {consent,settings}=prep;
+  riskSourceRequire(p.settingsDigest===consent.settingsDigest&&p.mandateRevision===m.revision&&p.plannerVersion===1,'live_risk_mandate_changed');
+  const intent=structuredClone(p.intent) as unknown as LiveOrderIntent,record=structuredClone(j.record) as unknown as LiveExecutionRecord;
+  const action=buildOrderAction(intent),fingerprint=intentFingerprint(intent,action);
+  riskSourceRequire(intent.network===a.network&&intent.userId===a.userId&&intent.strategyId===s.id&&intent.accountAddress===a.address&&intent.walletId===w.privyWalletId&&intent.authorizationId===g.id&&
+    executionKey(intent)===binding.key&&p.fingerprint===fingerprint&&record.key===j.key&&record.fingerprint===fingerprint&&isDeepStrictEqual(action,record.action)&&isDeepStrictEqual(intent.market,record.market)&&
+    j.userId===a.userId&&j.strategyId===s.id&&j.network===a.network&&j.accountAddress===a.address&&j.signerAddress===w.signerAddress&&j.cloid===intent.cloid&&j.nonce===record.nonce&&
+    j.state===record.state&&j.updatedAt.getTime()===record.updatedAt&&['prepared','submitting'].includes(j.state)&&Number.isSafeInteger(record.nonce)&&record.nonce>=record.createdAt&&
+    record.createdAt<=now&&record.updatedAt>=record.createdAt&&record.expiresAfter>now&&record.expiresAfter<=record.createdAt+60000&&p.admittedAt.getTime()<=record.createdAt,'live_risk_record_mismatch');
+  assertSameAuthorization(record.authorization,assertWalletAuthorization(prep.currentAuthorization,intent,now));
+  const fill=decodeLiveSourceFill(row.fill),canonical=canonicalLiveSourceLegs(fill).find(l=>l.leg===leg.leg);
+  riskSourceRequire(canonical&&leg.id===liveSourceLegId(m.id,fill.id,leg.leg)&&leg.mandateId===m.id&&leg.executionKey===binding.key&&leg.state==='prepared'&&
+    leg.sign===canonical.sign&&leg.size===canonical.size&&leg.fraction===canonical.fraction&&leg.tradeKey===canonical.tradeKey&&p.sourceDigest===fill.sourceDigest&&
+    fill.network==='testnet'&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.receivedAt<=p.admittedAt.getTime()&&
+    stream.state==='ready'&&stream.network===fill.network&&stream.leaderAddress===fill.leaderAddress&&stream.coverageFrom&&stream.coverageThrough&&stream.coverageDigest&&
+    stream.coverageFrom.getTime()<=m.activationCursor!.getTime()&&stream.coverageThrough.getTime()>=fill.providerTime,'live_risk_source_changed');
+  const {policy,limits,platform,user,accounts,states,general,revenue,controlsRows:controls}=prep;
+  riskSourceRequire(intent.builder?intent.builder.address===consent.builderAddress&&intent.builder.feeTenthsBps<=consent.builderMaxFeeTenthsOfBps:consent.builderAddress===null&&consent.builderMaxFeeTenthsOfBps===0,'live_risk_builder_changed');
   const liabilities=await read(db.select({reservation:copyLiveRiskReservations,journal:copyLiveExecutions,historicalGrant:copyWalletAuthorizations,historicalWallet:copyExecutionWallets}).from(copyLiveRiskReservations)
     .innerJoin(copyLiveExecutions,eq(copyLiveExecutions.key,copyLiveRiskReservations.key))
     .leftJoin(copyWalletAuthorizations,eq(copyWalletAuthorizations.id,copyLiveRiskReservations.authorizationId))
@@ -111,9 +135,8 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
     riskSourceRequire(first&&first.provenance.mandateId===m.id&&first.journal.network===a.network&&first.journal.accountAddress===a.address&&first.journal.userId===a.userId&&first.journal.strategyId===s.id&&
       firstRecord.key===baseline.firstExecutionKey&&firstRecord.createdAt>=baseline.createdAt&&first.provenance.admittedAt.getTime()>=baseline.createdAt,'live_risk_baseline_unproven');
   }
-  const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
-    authorizationId:g.id,walletId:w.privyWalletId,network:'testnet' as const,accountAddress:a.address,dedicated:true as const};
-  return {binding,row,provenance:p,consent,fill,intent,record,action,settings,policy:{version:policy.version,limits},identity,
+  const identity=prep.identity;
+  return {binding,row,preparation:prep,provenance:p,consent,fill,intent,record,action,settings,policy:{version:policy.version,limits},identity,
     controls:{platform:{pauseNewRisk:platform.pauseNewRisk,reduceOnly:platform.reduceOnly},user:{pauseNewRisk:user.pauseNewRisk,reduceOnly:user.reduceOnly},strategy:{pauseNewRisk:s.pauseNewRisk,reduceOnly:s.reduceOnly}},
     baseline,accounts,liabilities,recent,states,general,revenue,controlsRows:controls};
 }

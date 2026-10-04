@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { beforeAll,beforeEach,afterAll,describe,it,expect,vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
-import { copyExecutionAccounts,copyStrategies,copyLiveExecutions,copyAgentSetups,copyExecutionWallets,copyWalletAuthorizations,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceStreams,copyLiveSourceFills,copyLivePositionBaselines,copyRiskPolicies,copyControls,users,appSettings,copyFundingOperations } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts,copyStrategies,copyLiveExecutions,copyAgentSetups,copyExecutionWallets,copyWalletAuthorizations,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceStreams,copyLiveSourceFills,copyLivePositionBaselines,copyLiveReductionCarry,copyRiskPolicies,copyControls,users,appSettings,copyFundingOperations } from '@trading-dashboard/shared/database';
 import { PostgresLiveRiskSource } from '../src/copy/live/postgres-live-risk-source.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
@@ -10,6 +10,16 @@ import { HyperliquidLiveMarketResolver } from '../src/copy/live/live-market-reso
 import { HyperliquidLiveRiskProvider } from '../src/copy/live/live-risk-provider.js';
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
 import { captureLivePositionBaseline } from '../src/copy/live/live-position-baseline.js';
+import * as authority from '../src/copy/live/postgres-live-risk-authority.js';
+import { loadLiveGenerationManifest } from '../src/copy/live/postgres-live-generation-manifest.js';
+import { liveSourceDigest } from '../src/copy/live/copy-live-source-evidence.js';
+import { followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
+import { planLiveSourceOrder } from '../src/copy/live/copy-live-source-planner.js';
+import { canonicalLiveSourceLegs,decodeLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
+import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
+import { assessLiveAccountRisk } from '../src/copy/live/live-account-risk.js';
+import { AccountRiskExecutionGate } from '../src/copy/live/account-risk-execution-gate.js';
+import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js';
 import { digest as mandateDigest } from '../src/copy/copy-live-mandate-evidence.js';
 import { parseLiveSourceFill,liveSourceLegId } from '../src/copy/live/copy-live-source-evidence.js';
@@ -31,6 +41,34 @@ beforeEach(async()=>{
 });
 afterAll(async()=>{await pool?.end();await closeTestDb();});
 const id=()=>({userId:f.identity.userId,network:'testnet' as const,accountAddress:f.identity.accountAddress,source:{network:'testnet' as const,leaderAddress:`0x${'44'.repeat(20)}`}});
+async function genuineSizing(clock=()=>now) {
+  const [mandate]=await db.select().from(copyLiveMandates),[provenance]=await db.select().from(copyLiveIntentProvenance),[fillRow]=await db.select().from(copyLiveSourceFills),[version]=await db.select().from(copyStrategyVersions);
+  const intent={...f.intent,timeInForce:'Ioc' as const};f={...f,intent,action:buildOrderAction(intent)};const fingerprint=intentFingerprint(f.intent,f.action);
+  const [journal]=await db.select().from(copyLiveExecutions);
+  await db.update(copyLiveExecutions).set({record:{...journal!.record,action:f.action,fingerprint}});
+  const baseline=captureLivePositionBaseline({mandateId:'mandate',accountId:'account',strategyId:9,firstExecutionKey:f.reservations.own.key,network:'testnet',accountAddress:f.identity.accountAddress},f.accountSource.snapshot,now);
+  await db.insert(copyLivePositionBaselines).values({...baseline,record:baseline as never,observedAt:new Date(baseline.observedAt),completedAt:new Date(baseline.completedAt),createdAt:new Date(baseline.createdAt)});
+  await db.insert(copyLiveReductionCarry).values({mandateId:'mandate',coin:'BTC',carry:'0',revision:1,updatedAt:new Date(now)});
+  const follower=f.accountSource.snapshot,leader=structuredClone({...follower,accountAddress:mandate!.leaderAddress}),fill=decodeLiveSourceFill(fillRow!);
+  const envelope:LiveSourceSizingEnvelopeV1={version:1,basis:{version:1,mandateId:'mandate',mandateRevision:2,settingsDigest:mandate!.settingsDigest,sourceFillId:fill.id,sourceDigest:fill.sourceDigest,network:'testnet',accountAddress:f.identity.accountAddress,coin:'BTC',leg:'open',direction:'same',sizingMode:'ratio',budgetUsd:'100',perTradeUsd:null,market:f.market,
+    quote:{midPrice:'100',slippageBps:'0',observedAt:now,completedAt:now,sourceDigest:f.quote.sourceDigest},
+    follower:{network:'testnet',accountAddress:follower.accountAddress,equity:follower.perpEquity,positionSize:'0',observedAt:now,completedAt:now,sourceDigest:follower.sourceDigest,snapshotDigest:followerReceiptDigestV1(follower),positionsDigest:liveSourceDigest({})},
+    leader:{network:'testnet',accountAddress:leader.accountAddress,equity:leader.perpEquity,observedAt:now,completedAt:now,sourceDigest:leader.sourceDigest,snapshotDigest:followerReceiptDigestV1(leader)},
+    generation:{mandateId:'mandate',baselineDigest:baseline.baselineDigest,receiptManifestDigest:liveSourceDigest({receipts:[],ledger:[]}),positionsDigest:liveSourceDigest({}),positionSize:'0'},carry:{amount:'0',revision:1},fixedTradeClaim:false,settledDependency:null},
+    observations:{follower,leader,quote:{network:'testnet',accountAddress:follower.accountAddress,coin:'BTC',dex:'',asset:0,market:f.market,earliestObservedAt:now,completedAt:now,sourceDigest:'a'.repeat(64),accountModeProof:{network:'testnet',accountAddress:follower.accountAddress,role:'user',accountAbstraction:'disabled',dexAbstraction:false,portfolioMargin:false,observedAt:now,completedAt:now,sourceDigest:'a'.repeat(64)},quote:f.quote,leverageProofs:f.leverageProofs,fees:{...f.fees,scope:'validator_perp',calculation:'documented_fee_formula'}},
+      generationManifest:{version:1,accountId:'account',mandateId:'mandate',checkedAt:now,baseline,journals:[],receipts:[],ledger:[],scan:null,conflicts:[],accountState:null,carry:[{mandateId:'mandate',coin:'BTC',carry:'0',revision:1,updatedAt:new Date(now).toISOString()}]}}};
+  const planned=planLiveSourceOrder({mandate:mandate!,settings:version!.settings as never,fill,leg:canonicalLiveSourceLegs(fill)[0]!,sizingBasis:envelope,now,limits:f.policy.limits,currentExecutionKey:f.reservations.own.key});
+  expect(planned.order).toMatchObject({size:'1',limitPrice:'100',timeInForce:'Ioc'});
+  await db.update(copyLiveIntentProvenance).set({intent:f.intent as never,fingerprint,sizingBasis:envelope as never}).where(eq(copyLiveIntentProvenance.key,provenance!.key));
+  const acquire=async(_weight:number)=>{};
+  const meta={collateralToken:7,universe:[{name:'BTC',szDecimals:2,maxLeverage:20}]};
+  fetcher=vi.fn<typeof fetch>(async(url,options)=>{expect(url).toBe('https://api.hyperliquid-testnet.xyz/info');const body=JSON.parse(String(options?.body));const values:Record<string,unknown>={userRole:{role:'user'},userAbstraction:'disabled',userDexAbstraction:false,spotClearinghouseState:{portfolioMarginEnabled:false,balances:[]},perpDexs:[null],spotMeta:{tokens:[{index:7,name:'USDC',isCanonical:true}]},meta,allPerpMetas:[meta],metaAndAssetCtxs:[meta,[{midPx:'100',markPx:'100'}]],activeAssetData:{user:body.user,coin:'BTC',leverage:{type:'cross',value:10},maxTradeSzs:['1','1'],availableToTrade:['100','100'],markPx:'100'},userFees:{userAddRate:'-0.0001',userCrossRate:'0.0005',activeReferralDiscount:'0',trial:null}};if(!(body.type in values))throw Error('unexpected fixed info read');return new Response(JSON.stringify(values[body.type]));});
+  const state={marginSummary:{accountValue:'100',totalNtlPos:'0',totalRawUsd:'100',totalMarginUsed:'0'},crossMarginSummary:{accountValue:'100',totalNtlPos:'0',totalRawUsd:'100',totalMarginUsed:'0'},crossMaintenanceMarginUsed:'0',withdrawable:'100',time:now,assetPositions:[] as unknown[]};
+  const observer=new HyperliquidLiveAccountObserver('testnet',acquire,fetcher,clock,5000,{read:async(user)=>({network:'testnet',accountAddress:user,observedAt:clock(),data:{user,clearinghouseStates:[['',state]]}}),readOrders:async(user,dexes)=>({network:'testnet',accountAddress:user,observedAt:clock(),completedAt:clock(),requestedDexes:[...dexes],venues:dexes.map(dex=>({dex,user,observedAt:clock(),receivedAt:clock(),orders:[]}))})});
+  const reservations=new PostgresLiveReservations(clock);
+  source=new PostgresLiveRiskSource(observer,new HyperliquidLiveMarketResolver('testnet',acquire,fetcher,clock),new HyperliquidLiveRiskProvider('testnet',acquire,fetcher,clock),reservations,{extraRiskBufferBps:'0',restingOrderBuilderFeeCapTenthsBps:100},clock);
+  return {reservations,state};
+}
 async function fullAuthority() {
   const ownerAddress=`0x${'55'.repeat(20)}`,settings={...f.strategy.settings,copyStartMode:'delta' as const};
   await db.update(users).set({embeddedWalletAddress:ownerAddress});
@@ -78,6 +116,96 @@ describe('unregistered original-session trusted risk producer',()=>{
 
 describe('durable local actual source authority before remote reads',()=>{
   beforeEach(fullAuthority);
+  it('produces an assessable actual forHold candidate from persisted genuine sizing and fresh concrete reads',async()=>{
+    await genuineSizing();await scopes.run(id(),async(_scope,session)=>{
+      const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();
+      expect(assessLiveAccountRisk(proof)).toMatchObject({ok:true});expect(proof.strategy.allocatedUsd).toBe('100');expect(proof.intent.timeInForce).toBe('Ioc');
+    });expect(fetcher).toHaveBeenCalled();
+  });
+  it('holds a fresh independently observed market while preserving the original prepared market timestamp',async()=>{
+    let clock=now;const {reservations}=await genuineSizing(()=>clock);clock++;
+    await scopes.run(id(),async(_scope,session)=>{
+      const proof=await source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold();expect(proof.market.observedAt).toBe(now+1);
+      const held=await reservations.hold(session,proof);expect(held.payload.intent.market!.observedAt).toBe(now);
+      expect(held.payload.fingerprint).toBe(intentFingerprint(f.intent,f.action));
+    });
+  });
+  it('keeps held sign/submit risk bound to the same original session and refuses a successor exemption',async()=>{
+    const {reservations}=await genuineSizing();let permit!:Awaited<ReturnType<AccountRiskExecutionGate['assertReady']>>;
+    await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key}),proof=await bound.forHold();
+      const providerCalls=fetcher.mock.calls.length;
+      expect(await reservations.hold(session,proof)).toMatchObject({state:'held',revision:1,attemptedAt:null});
+      let [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      const gate=new AccountRiskExecutionGate(bound.proofSource,()=>now);
+      permit=await gate.assertReady({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord});expect(()=>permit.assertFresh()).not.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(providerCalls);
+      await session.transaction(async tx=>{await tx.update(copyLiveExecutions).set({state:'submitting',record:{...row!.record,state:'submitting'}});await session.scope.assertHeld();});
+      [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      permit=await gate.assertReady({phase:'submit',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord});expect(()=>permit.assertFresh()).not.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(providerCalls);
+    });
+    expect(()=>permit.assertFresh()).toThrow('live_risk_serialization_lost');
+    await scopes.run(id(),async(_scope,session)=>{const [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));
+      await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).proofSource.read({phase:'submit',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord})).rejects.toThrow();
+    });
+  });
+  it('denies substitution of retained original sizing equity rather than granting a larger canonical order',async()=>{
+    await genuineSizing();const [p]=await db.select().from(copyLiveIntentProvenance),envelope=structuredClone(p!.sizingBasis) as unknown as {basis:{follower:{equity:string}}};envelope.basis.follower.equity='99999';
+    await db.update(copyLiveIntentProvenance).set({sizingBasis:envelope as never});await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_generation_unproven');});expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('refuses actual current holdings not reconstructed by the original generation receipt chain',async()=>{
+    const {state}=await genuineSizing();state.marginSummary.totalNtlPos='100';state.marginSummary.totalMarginUsed='10';state.crossMarginSummary.totalNtlPos='100';state.crossMarginSummary.totalMarginUsed='10';state.withdrawable='90';
+    state.assetPositions.push({type:'oneWay',position:{coin:'BTC',szi:'1',entryPx:'100',positionValue:'100',unrealizedPnl:'0',marginUsed:'10',maxLeverage:20,leverage:{type:'cross',value:10},cumFunding:{allTime:'0',sinceOpen:'0',sinceChange:'0'}}});
+    await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_generation_unproven');});
+  });
+  it('retains the oldest all-venue provider time through the captured source callback after signing reads',async()=>{
+    let clock=now;const {reservations,state}=await genuineSizing(()=>clock);state.time=now-5000;
+    await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});await reservations.hold(session,await bound.forHold());
+      const [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));const evidence=await bound.proofSource.read({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord});
+      expect(()=>evidence.assertHeld()).not.toThrow();clock++;expect(()=>evidence.assertHeld()).toThrow('live_risk_stale');
+    });
+  });
+  it('does not reuse retained frames to bypass a newly changed SQL control',async()=>{
+    const {reservations}=await genuineSizing();await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});await reservations.hold(session,await bound.forHold());
+      const calls=fetcher.mock.calls.length;await session.transaction(async tx=>{await tx.update(copyControls).set({pauseNewRisk:true}).where(eq(copyControls.scope,'user'));await session.scope.assertHeld();});
+      const [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));await expect(bound.proofSource.read({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord})).rejects.toThrow('live_risk_local_changed');
+      expect(fetcher).toHaveBeenCalledTimes(calls);
+    });
+  });
+  it('refuses an expired private epoch without repeating reads or restamping provider clocks',async()=>{
+    let clock=now;const {reservations}=await genuineSizing(()=>clock);await scopes.run(id(),async(_scope,session)=>{
+      const bound=source.bind(session,{accountId:'account',key:f.reservations.own.key});await reservations.hold(session,await bound.forHold());
+      const calls=fetcher.mock.calls.length;clock+=5001;
+      const [row]=await session.read(sql=>sql.select().from(copyLiveExecutions));await expect(bound.proofSource.read({phase:'sign',intent:f.intent,record:row!.record as unknown as LiveExecutionRecord})).rejects.toThrow('live_risk_stale');
+      expect(fetcher).toHaveBeenCalledTimes(calls);
+    });
+  });
+  it('collects the genuine account generation SQL manifest without recursive historical sizing observations',async()=>{
+    const baseline=captureLivePositionBaseline({mandateId:'mandate',accountId:'account',strategyId:9,firstExecutionKey:f.reservations.own.key,network:'testnet',accountAddress:f.identity.accountAddress},f.accountSource.snapshot,now);
+    await db.insert(copyLivePositionBaselines).values({...baseline,record:baseline as never,observedAt:new Date(baseline.observedAt),completedAt:new Date(baseline.completedAt),createdAt:new Date(baseline.createdAt)});
+    await scopes.run(id(),async(_scope,session)=>{
+      const manifest=await session.read(async sql=>{const prep=await authority.loadLivePreparationAuthority(session,sql,{accountId:'account',mandateId:'mandate'},now);return loadLiveGenerationManifest(session,sql,prep,{currentExecutionKey:f.reservations.own.key,now});});
+      expect(manifest.baseline).toEqual(baseline);expect(manifest.journals).toHaveLength(1);
+      expect(manifest.journals[0]!.provenance).toMatchObject({sizingBasisDigest:liveSourceDigest({})});
+      expect(manifest.journals[0]!.provenance).not.toHaveProperty('sizingBasis');
+      expect(manifest.journals[0]!.journal.updatedAt).toBe(new Date(now).toISOString());expect(manifest.journals[0]!.reservation).toBeNull();
+      expect(manifest.receipts).toEqual([]);expect(manifest.scan).toBeNull();expect(manifest.checkedAt).toBe(now);
+    });
+  });
+  it('loads the same current preparation authority before immutable journal provenance exists',async()=>{
+    await db.delete(copyLiveIntentProvenance);
+    const read=(authority as unknown as {loadLivePreparationAuthority?: (...args:unknown[])=>Promise<{identity:unknown;currentAuthorization:unknown;builder:unknown}>}).loadLivePreparationAuthority;
+    expect(read).toBeTypeOf('function');
+    await scopes.run(id(),async(_scope,session)=>{
+      const prepared=await session.read(sql=>read!(session,sql,{accountId:'account',mandateId:'mandate'},now));
+      expect(prepared.identity).toMatchObject({accountId:'account',userId:1,strategyId:9,network:'testnet',strategyVersion:2,authorizationVersion:4});
+      expect(prepared.currentAuthorization).toMatchObject({id:'grant',walletId:'agent',network:'testnet',accountAddress:f.identity.accountAddress});
+      expect(prepared.builder).toMatchObject({builderAddress:null,builderFeeTenthsBps:0});
+    });expect(fetcher).not.toHaveBeenCalled();
+  });
   it('rejects a legacy account-only lock even for valid source provenance',async()=>{
     await scopes.run({userId:1,network:'testnet',accountAddress:f.identity.accountAddress},async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_source_scope_missing');});expect(fetcher).not.toHaveBeenCalled();
   });

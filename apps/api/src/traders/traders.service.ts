@@ -23,7 +23,11 @@ import { AnalysisHistoryService } from "./analysis-history.service.js";
 import { TradersRepository } from "./traders.repository.js";
 import { HyperliquidInfoClient, LEDGER_MAX_ITEMS, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
 import { budgetConsumer, PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
-import type { HlFrontendOpenOrder, HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
+import type { HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
+import { TraderOrdersReader } from './trader-orders-reader.js';
+import { TraderTwapReader } from './trader-twap-reader.js';
+import { TraderAccountReader } from './trader-account-reader.js';
+import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { activeTwaps, mergeOrders, toTraderTransfer } from "./trader-tabs.mappers.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
@@ -131,9 +135,8 @@ export class TradersService {
   /** Staked HYPE per address, in HYPE; valued with the live price book. */
   readonly stakingCache = new TtlCache<number>(STAKING_TTL_MS);
   readonly ordersCache = new TtlCache<TraderOrdersResponse>(ORDERS_TTL_MS);
-  /** Preserve completed dex reads across page deadlines. Without this, a
-   * unified account's 200-weight scan restarts on every 12-second retry. */
-  readonly dexOrdersCache = new TtlCache<{ orders: HlFrontendOpenOrder[]; observedAt: number }>(ORDERS_TTL_MS);
+  /** Order coverage includes every named venue, even without streaming OI. */
+  readonly ordersDexCache = new TtlCache<string[]>(60_000, 1);
   readonly twapCache = new TtlCache<TraderTwapsResponse>(TWAP_TTL_MS);
   readonly transfersCache = new TtlCache<TraderTransfersResponse>(TRANSFERS_TTL_MS);
   readonly spotPrices: SpotPriceService;
@@ -149,6 +152,9 @@ export class TradersService {
     @Optional() spotPrices?: SpotPriceService,
     @Optional() private readonly kols?: KolAvatarRepository,
     @Optional() private readonly history?: AnalysisHistoryService,
+    @Optional() private readonly orderReader?: TraderOrdersReader,
+    @Optional() private readonly twapReader?: TraderTwapReader,
+    @Optional() private readonly accountReader?: TraderAccountReader,
   ) {
     this.spotPrices = spotPrices ?? new SpotPriceService(info);
   }
@@ -211,7 +217,7 @@ export class TradersService {
    * A parent vault's clearinghouse state holds only its own perp equity,
    * not what it has in its child vaults (HLP: $43.5M against a $183M TVL,
    * 2026-10-02), so the sum above is wrong for vaults. Costs, per cold
-   * profile: 2 per dex and 2 for spot; the account mode and staking (20
+   * profile: one all-venue state subscription and 2 for spot; account mode and staking (20
    * each) are kept 10 min, the spot price book (22) 30 s app-wide; a
    * vault's `portfolio` (20) is the chart's own 60 s copy.
    */
@@ -238,12 +244,28 @@ export class TradersService {
     };
     // Identity/tracking, the dex universe, spot valuation and account mode are
     // required. Without them the accounting scope itself would be a guess.
-    const [dexes, tracked, vault] = await Promise.all([this.perpDexes(), this.isTracked(address), this.isVault(address)]);
-    sources.dexes = { status: "available", asOf: new Date(this.dexCache.observedAt("dexes") ?? Date.now()).toISOString(), stale: false, maxAgeMs: DEX_LIST_TTL_MS };
+    const [dexes, tracked, vault] = await Promise.all([this.accountReader ? this.allDexes() : this.perpDexes(), this.isTracked(address), this.isVault(address)]);
+    sources.dexes = { status: "available", asOf: new Date((this.accountReader ? this.ordersDexCache : this.dexCache).observedAt("dexes") ?? Date.now()).toISOString(), stale: false,
+      maxAgeMs: this.accountReader ? 60000 : DEX_LIST_TTL_MS };
+    const statesWork = this.accountReader ? (async () => {
+      let receivedAt: number | null = null;
+      const snapshot = await read('perps', async () => {
+        const result = await this.accountReader!.read(address, dexes);
+        receivedAt = result.observedAt;
+        return result;
+      }, PROFILE_TTL_MS, true, () => receivedAt);
+      return dexes.map(dex => {
+        const state = snapshot?.states.get(dex) ?? null;
+        const at = state ? state.time > 0 ? state.time : snapshot!.observedAt : null;
+        sources[`perp:${dex || 'main'}`] = { status: state ? 'available' : 'unavailable', asOf: at === null ? null : new Date(at).toISOString(),
+          stale: at !== null && Date.now() - at > PROFILE_TTL_MS, maxAgeMs: PROFILE_TTL_MS };
+        return state;
+      });
+    })() : Promise.all(dexes.map(dex => read(`perp:${dex || 'main'}`,
+      () => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile), PROFILE_TTL_MS, true)));
     let statsMaxAgeMs = PROFILE_TTL_MS;
     const [states, spot, abstraction, staked, book, statsRows, analytics, vaultPortfolio] = await Promise.all([
-      Promise.all(dexes.map(dex => read(`perp:${dex || "main"}`,
-        () => this.info.clearinghouseState(address, dex || undefined, LANE, PAGE_RANK.profile), PROFILE_TTL_MS, true))),
+      statesWork,
       read("spot", () => this.info.spotClearinghouseState(address, LANE, PAGE_RANK.profile), PROFILE_TTL_MS),
       read("accountMode", () => this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.profile), ACCOUNT_MODE_TTL_MS, PAGE_RANK.profile),
         ACCOUNT_MODE_TTL_MS, false, () => this.abstractionCache.observedAt(address)),
@@ -579,65 +601,39 @@ export class TradersService {
   // --- GET /traders/:address/orders ----------------------------------------
 
   /**
-   * Resting orders, CopyDog's 訂單 tab. `frontendOpenOrders` names one dex
-   * (the main one carries spot orders too), 20 weight each, so it asks the
-   * main dex and, for a standard account, only the HIP-3 dexes where the
-   * account holds a position or margin (orders there need collateral on
-   * that dex; found with `clearinghouseState`, 2 each). A unified or
-   * portfolio-margin account's collateral serves every dex, so all are
-   * asked. Loaded when the tab opens, at the page's fills rank, and kept 30 s.
+   * Resting and trigger orders across every named venue, sampled through
+   * official WebSocket snapshots with complete cleanup acknowledgements.
+   * Collateral/account mode cannot prove another venue has no orders.
    */
   orders(address: string): Promise<TraderOrdersResponse> {
     return this.ordersCache.get(address, async () => {
-      const dexes = await this.orderDexes(address);
-      const lists = await Promise.all(
-        dexes.map((dex) => this.dexOrdersCache.get(`${address}:${dex}`, async () => ({
-          orders: await this.info.frontendOpenOrders(address, dex || undefined, LANE, PAGE_RANK.fills),
-          observedAt: Date.now(),
-        }), ORDERS_TTL_MS, PAGE_RANK.fills)),
-      );
-      // Retrying must not relabel an earlier dex snapshot as freshly fetched
-      // or extend its 30-second cache lifetime by another aggregate TTL.
-      const observedAt = Math.min(...lists.map((list) => list.observedAt));
-      return { orders: mergeOrders(lists.map((list) => list.orders)), dexes, fetchedAt: new Date(observedAt) };
+      if (!this.orderReader) throw new LiveBoundaryError('trader_orders_unavailable');
+      const dexes = await this.allDexes();
+      const snapshot = await this.orderReader.read(address, dexes);
+      return { orders: mergeOrders(snapshot.orders), dexes: snapshot.dexes, fetchedAt: new Date(snapshot.observedAt) };
     }, (value) => Math.max(0, value.fetchedAt.getTime() + ORDERS_TTL_MS - Date.now()), PAGE_RANK.fills);
   }
-
-  private async orderDexes(address: string): Promise<string[]> {
-    const [all, abstraction] = await Promise.all([
-      this.perpDexes(),
-      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE, PAGE_RANK.fills), ACCOUNT_MODE_TTL_MS, PAGE_RANK.fills),
-    ]);
-    const hip3 = all.filter((dex) => dex !== "");
-    if (toAccountMode(abstraction) !== "standard" || abstraction === "dexAbstraction") return ["", ...hip3];
-    const states = await Promise.all(
-      hip3.map((dex) => this.info.clearinghouseState(address, dex, LANE, PAGE_RANK.fills).catch(() => null)),
-    );
-    // A dex whose state couldn't be read is asked anyway rather than skipped.
-    const active = hip3.filter((dex, i) => {
-      const state = states[i];
-      if (state === null) return true;
-      return Number(state.marginSummary?.accountValue) > 0 || (state.assetPositions ?? []).some((p) => Number(p.position.szi) !== 0);
-    });
-    return ["", ...active];
+  private allDexes(): Promise<string[]> {
+    return this.ordersDexCache.get('dexes', async () => ['', ...(await this.info.perpDexs(LANE, PAGE_RANK.fills)).flatMap(d => d ? [d.name] : [])]);
   }
 
   // --- GET /traders/:address/twap -------------------------------------------
 
   /**
-   * Running TWAP orders, CopyDog's TWAP tab: `twapHistory` (every TWAP the
-   * address ran, one entry per status change) reduced to those whose latest
+   * Running TWAP orders, CopyDog's TWAP tab: the official retained
+   * userTwapHistory WebSocket snapshot reduced to those whose latest
    * status is "activated". Their progress comes from the latest TWAP slice
    * fills, the list the fills tab already caches, read only when a TWAP is
    * running. Kept 60 s.
    */
   twaps(address: string): Promise<TraderTwapsResponse> {
     return this.twapCache.get(address, async () => {
-      const history = await this.info.twapHistory(address, LANE, PAGE_RANK.fills);
+      if (!this.twapReader) throw new LiveBoundaryError('trader_twaps_unavailable');
+      const snapshot = await this.twapReader.read(address), history = snapshot.history;
       const running = activeTwaps(history, []);
       const slices = running.length === 0 ? [] : (await this.latestFills(address))[1];
-      return { twaps: running.length === 0 ? [] : activeTwaps(history, slices), fetchedAt: new Date() };
-    });
+      return { twaps: running.length === 0 ? [] : activeTwaps(history, slices), fetchedAt: new Date(snapshot.observedAt) };
+    }, (value) => Math.max(0, value.fetchedAt.getTime() + TWAP_TTL_MS - Date.now()), PAGE_RANK.fills);
   }
 
   // --- GET /traders/:address/transfers ----------------------------------------

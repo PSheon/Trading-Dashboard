@@ -69,4 +69,29 @@ describe('immutable actual-network source storage', () => {
     expect((await apply(2, await read())).stream).toMatchObject({ state: 'quarantined', lastIssue: 'invalid_fill' });
     expect((await db.select().from(copyLiveSourceStreams))[0].state).toBe('quarantined');
   });
+  async function channels(ordinary:unknown[],twap:unknown[]){
+    return new HyperliquidLiveSourceClient('testnet',async()=>undefined,(async(_url,init)=>Response.json(JSON.parse(String(init?.body)).type==='userFillsByTime'?ordinary:twap)) as typeof fetch,()=>now)
+      .read({leaderAddress:leader,from:1000,to:2000,maxRequests:6});
+  }
+  it('preserves immutable first evidence when a later channel proves the same already-known TWAP trade',async()=>{
+    const stream=await ensure(),ordinary={...raw(),twapId:9,hash:`0x${'00'.repeat(32)}`,fee:'0.1',unknown:{value:'same'}};
+    await apply(stream.revision,await channels([ordinary],[]));const before=await db.select().from(copyLiveSourceFills);
+    expect((await apply(2,await channels([],[{twapId:9,fill:ordinary}]))).stream.state).toBe('ready');
+    expect(await db.select().from(copyLiveSourceFills)).toEqual(before);expect(before[0].tradeKey).toBe('twap:9');
+  });
+  it.each(['economic','raw','trade'])('quarantines cross-channel %s contradiction without rewriting the first record',async kind=>{
+    const stream=await ensure(),ordinary={...raw(),twapId:9,fee:'0.1'};await apply(stream.revision,await channels([ordinary],[]));
+    const before=await db.select().from(copyLiveSourceFills),incoming={...ordinary,...(kind==='economic'?{sz:'2'}:kind==='raw'?{fee:'0.2'}:{twapId:10})};
+    const result=await apply(2,await channels([],[{twapId:kind==='trade'?10:9,fill:incoming}]));
+    expect(result).toMatchObject({kind:'quarantined',stream:{lastIssue:'duplicate_conflict'}});expect(await db.select().from(copyLiveSourceFills)).toEqual(before);
+  });
+  it('never reclassifies an already-persisted oid trade as a different TWAP identity',async()=>{
+    const stream=await ensure();await apply(stream.revision,await channels([raw()],[]));
+    expect((await apply(2,await channels([],[{twapId:9,fill:raw()}]))).kind).toBe('quarantined');
+    expect((await db.select().from(copyLiveSourceFills))[0].tradeKey).toBe('oid:7');
+  });
+  it('persists no invented oid identity for an uncorrelated zero-hash TWAP fill',async()=>{
+    const stream=await ensure();expect((await apply(stream.revision,await channels([{...raw(),hash:`0x${'00'.repeat(32)}`}],[]))).stream.state).toBe('gap');
+    expect(await db.select().from(copyLiveSourceFills)).toEqual([]);
+  });
 });

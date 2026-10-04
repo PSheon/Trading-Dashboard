@@ -19,6 +19,7 @@ import { CurrentUser, userIdOf, type RequestUser } from "../common/auth/current-
 import { Public } from "../common/auth/public.decorator.js";
 import { BusyException, BusyFilter } from "./busy.js";
 import { TradersService } from "./traders.service.js";
+import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
 export const DEFAULT_FILLS_LIMIT = 50;
 /** CopyDog's 成交 tab reads up to 2,000 fills (one `userFills` page). */
@@ -38,7 +39,9 @@ export const ANONYMOUS_SPARKLINE_MAX = 25;
  * answered or abandoned. */
 export function isBusyError(error: unknown): boolean {
   const name = (error as Error | undefined)?.name;
-  return name === "PageBusyError" || name === "AbortError" || name === "TimeoutError";
+  return name === "PageBusyError" || name === "AbortError" || name === "TimeoutError" ||
+    error instanceof LiveBoundaryError && ['hyperliquid_quota_exhausted', 'hyperliquid_quota_connections',
+      'hyperliquid_quota_subscriptions', 'hyperliquid_quota_users', 'hyperliquid_quota_queue_full', 'hyperliquid_quota_expired'].includes(error.code);
 }
 
 /**

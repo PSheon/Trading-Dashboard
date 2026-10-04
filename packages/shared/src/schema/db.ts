@@ -1639,6 +1639,7 @@ export const copyLiveExecutionEvidence = pgTable("copy_live_execution_evidence",
   acknowledgement: jsonb("acknowledgement").$type<Record<string, unknown>>(), acknowledgementDigest: text("acknowledgement_digest"),
   statusObservation: jsonb("status_observation").$type<Record<string, unknown>>(), statusDigest: text("status_digest"),
   settlementCertificate: jsonb("settlement_certificate").$type<Record<string, unknown>>(), settlementDigest: text("settlement_digest"),
+  settlementProof: jsonb("settlement_proof").$type<Record<string, unknown>>(), settlementProofDigest: text("settlement_proof_digest"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 }, (t) => [
   uniqueIndex("copy_live_evidence_cloid_uq").on(t.network, t.accountAddress, t.cloid),
@@ -1648,6 +1649,7 @@ export const copyLiveExecutionEvidence = pgTable("copy_live_execution_evidence",
   check("copy_live_evidence_ack_check", sql`(${t.acknowledgement} is null and ${t.acknowledgementDigest} is null) or (${t.acknowledgement} is not null and ${t.acknowledgementDigest} is not null and jsonb_typeof(${t.acknowledgement}) = 'object' and ${t.acknowledgementDigest} ~ '^[0-9a-f]{64}$' and ${t.exchangeOrderId} is not null)`),
   check("copy_live_evidence_status_check", sql`(${t.statusObservation} is null and ${t.statusDigest} is null) or (${t.statusObservation} is not null and ${t.statusDigest} is not null and jsonb_typeof(${t.statusObservation}) = 'object' and ${t.statusDigest} ~ '^[0-9a-f]{64}$')`),
   check("copy_live_evidence_settlement_check", sql`(${t.settlementCertificate} is null and ${t.settlementDigest} is null) or (${t.settlementCertificate} is not null and ${t.settlementDigest} is not null and jsonb_typeof(${t.settlementCertificate}) = 'object' and ${t.settlementDigest} ~ '^[0-9a-f]{64}$' and ${t.exchangeOrderId} is not null)`),
+  check("copy_live_evidence_settlement_proof_check", sql`(${t.settlementProof} is null and ${t.settlementProofDigest} is null) or (${t.settlementProof} is not null and ${t.settlementProofDigest} is not null and jsonb_typeof(${t.settlementProof}) = 'object' and ${t.settlementProofDigest} ~ '^[0-9a-f]{64}$' and ${t.settlementCertificate} is not null and ${t.settlementDigest} is not null)`),
   check("copy_live_evidence_time_check", sql`${t.updatedAt} >= ${t.createdAt}`),
 ]);
 
@@ -1745,6 +1747,87 @@ export const copyLivePositionBaselines = pgTable("copy_live_position_baselines",
   check("copy_live_baseline_evidence_check", sql`${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.snapshotDigest} ~ '^[0-9a-f]{64}$' and ${t.baselineDigest} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.record}) = 'object'`),
   check("copy_live_baseline_time_check", sql`extract(epoch from ${t.observedAt}) > 0 and ${t.completedAt} >= ${t.observedAt} and ${t.createdAt} >= ${t.completedAt} and ${t.createdAt} <= ${t.observedAt} + interval '5 seconds'`),
 ]);
+
+/** Shared outbound provider capacity. Reservations are never refunded merely
+ * because the process cannot determine whether a request was delivered. */
+export const hyperliquidEgressQuota = pgTable("hyperliquid_egress_quota", {
+  egressKey: text("egress_key").primaryKey(), revision: integer("revision").notNull().default(1),
+  events: jsonb("events").$type<Array<{ id: string; kind: "rest" | "ws_message" | "ws_connect"; units: number; reservedAt: number; expiresAt: number }>>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [check("hyperliquid_quota_value_check", sql`length(${t.egressKey}) between 1 and 160 and ${t.revision} > 0 and jsonb_typeof(${t.events}) = 'array' and jsonb_array_length(${t.events}) <= 4096`)]);
+
+/** Expiry is uncertainty, not proof of a provider disconnect. Nonclosed
+ * leases continue reserving capacity until their original socket is closed. */
+export const hyperliquidWsLeases = pgTable("hyperliquid_ws_leases", {
+  id: text("id").primaryKey(), egressKey: text("egress_key").notNull().references(() => hyperliquidEgressQuota.egressKey, { onDelete: "restrict" }),
+  socketId: text("socket_id").notNull(), fenceToken: text("fence_token").notNull(), ownerId: text("owner_id").notNull(),
+  state: text("state").$type<"reserved" | "open" | "closing" | "uncertain" | "closed">().notNull(), revision: integer("revision").notNull().default(1),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }).notNull(), latestAllowedSendAt: timestamp("latest_allowed_send_at", { withTimezone: true }).notNull(),
+  subscriptions: jsonb("subscriptions").$type<Array<{ id: string; network: "testnet" | "mainnet"; user: string | null; subscription: Record<string, unknown> }>>().notNull().default([]),
+  cleanupEvidence: jsonb("cleanup_evidence").$type<Record<string, unknown>>(), cleanupEvidenceDigest: text("cleanup_evidence_digest"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(), closedAt: timestamp("closed_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("hyperliquid_ws_socket_uq").on(t.egressKey, t.socketId), index("hyperliquid_ws_capacity_idx").on(t.egressKey, t.state),
+  check("hyperliquid_ws_cleanup_evidence_check", sql`(${t.cleanupEvidence} is null and ${t.cleanupEvidenceDigest} is null) or (${t.cleanupEvidence} is not null and ${t.cleanupEvidenceDigest} is not null and jsonb_typeof(${t.cleanupEvidence}) = 'object' and pg_column_size(${t.cleanupEvidence}) <= 524288 and ${t.cleanupEvidenceDigest} ~ '^[0-9a-f]{64}$')`),
+  check("hyperliquid_ws_lease_check", sql`length(${t.id}) between 1 and 160 and length(${t.socketId}) between 1 and 160 and length(${t.ownerId}) between 1 and 160 and ${t.fenceToken} ~ '^[0-9a-f]{64}$' and ${t.revision} > 0 and ${t.state} in ('reserved','open','closing','uncertain','closed') and jsonb_typeof(${t.subscriptions}) = 'array' and jsonb_array_length(${t.subscriptions}) <= 1000 and ${t.leaseUntil} >= ${t.createdAt} and ${t.latestAllowedSendAt} >= ${t.createdAt} and ${t.updatedAt} >= ${t.createdAt} and ((${t.state} = 'closed' and ${t.closedAt} is not null and ${t.closedAt} >= ${t.createdAt} and jsonb_array_length(${t.subscriptions}) = 0) or (${t.state} <> 'closed' and ${t.closedAt} is null))`),
+]);
+
+/** Immutable commercial policy; unknown rates keep payout disabled. */
+export const referralPolicies = pgTable("referral_policies", {
+  version: text("version").primaryKey(), enabled: boolean("enabled").notNull().default(false),
+  rewardBps: integer("reward_bps"), minClaimUnits: text("min_claim_units"),
+  network: text("network").$type<"mainnet">().notNull().default("mainnet"), token: text("token").$type<"USDC">().notNull().default("USDC"),
+  treasuryAddress: text("treasury_address"), bindWindowSeconds: integer("bind_window_seconds").notNull().default(1800),
+  effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(), effectiveUntil: timestamp("effective_until", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check("referral_policy_value_check", sql`length(${t.version}) between 1 and 100 and ${t.network} = 'mainnet' and ${t.token} = 'USDC' and (${t.rewardBps} is null or ${t.rewardBps} between 0 and 10000) and (${t.minClaimUnits} is null or (${t.minClaimUnits} ~ '^[1-9][0-9]{0,38}$')) and (${t.treasuryAddress} is null or (${t.treasuryAddress} ~ '^0x[0-9a-f]{40}$' and ${t.treasuryAddress} <> '0x0000000000000000000000000000000000000000')) and ${t.bindWindowSeconds} between 1 and 2592000 and (${t.effectiveUntil} is null or ${t.effectiveUntil} > ${t.effectiveFrom}) and (not ${t.enabled} or (${t.rewardBps} is not null and ${t.minClaimUnits} is not null and ${t.treasuryAddress} is not null))`),
+]);
+
+/** Historical aliases remain assigned to their original owner. Changing the
+ * current display code never reassigns an old referral link. */
+export const referralCodes = pgTable("referral_codes", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  code: text("code").notNull(), kind: text("kind").$type<"default" | "custom">().notNull(), isCurrent: boolean("is_current").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("referral_code_uq").on(t.code), uniqueIndex("referral_current_code_uq").on(t.userId).where(sql`${t.isCurrent}`),
+  check("referral_code_value_check", sql`${t.code} ~ '^[A-Z0-9]{3,16}$' and ${t.kind} in ('default','custom')`),
+]);
+
+export const referralAttributions = pgTable("referral_attributions", {
+  id: text("id").primaryKey(), referredUserId: integer("referred_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  referrerUserId: integer("referrer_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  codeId: text("code_id").notNull().references(() => referralCodes.id, { onDelete: "restrict" }),
+  policyVersion: text("policy_version").notNull().references(() => referralPolicies.version, { onDelete: "restrict" }),
+  boundAt: timestamp("bound_at", { withTimezone: true }).notNull(),
+}, (t) => [uniqueIndex("referral_referred_user_uq").on(t.referredUserId), index("referral_friends_idx").on(t.referrerUserId, t.boundAt),
+  check("referral_no_self_check", sql`${t.referredUserId} <> ${t.referrerUserId}`)]);
+
+export const referralClaims = pgTable("referral_claims", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  key: text("key").notNull(), requestHash: text("request_hash").notNull(),
+  policyVersion: text("policy_version").notNull().references(() => referralPolicies.version, { onDelete: "restrict" }),
+  network: text("network").$type<"mainnet">().notNull(), token: text("token").$type<"USDC">().notNull(),
+  destination: text("destination").notNull(), amountUnits: text("amount_units").notNull(),
+  status: text("status").$type<"requested" | "approved" | "sending" | "unknown" | "paid" | "rejected" | "failed">().notNull(),
+  attemptId: text("attempt_id"), settlementHash: text("settlement_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("referral_claim_owner_key_uq").on(t.userId, t.key), index("referral_claim_history_idx").on(t.userId, t.createdAt),
+  uniqueIndex("referral_claim_open_uq").on(t.userId, t.network, t.token).where(sql`${t.status} in ('requested','approved','sending','unknown')`),
+  check("referral_claim_value_check", sql`length(${t.key}) between 8 and 120 and ${t.requestHash} ~ '^[0-9a-f]{64}$' and ${t.network} = 'mainnet' and ${t.token} = 'USDC' and ${t.destination} ~ '^0x[0-9a-f]{40}$' and ${t.destination} <> '0x0000000000000000000000000000000000000000' and ${t.amountUnits} ~ '^[1-9][0-9]{0,38}$' and ${t.status} in ('requested','approved','sending','unknown','paid','rejected','failed') and (${t.attemptId} is null or length(${t.attemptId}) between 1 and 120) and (${t.settlementHash} is null or ${t.settlementHash} ~ '^[0-9a-f]{64}$') and ${t.updatedAt} >= ${t.createdAt} and (${t.status} not in ('sending','unknown','paid') or ${t.attemptId} is not null) and (${t.status} <> 'paid' or ${t.settlementHash} is not null)`),
+]);
+
+/** Balanced movements share an economic event identifier. This ledger is
+ * user entitlement, separate from aggregate platform revenue snapshots. */
+export const referralLedger = pgTable("referral_ledger", {
+  id: text("id").primaryKey(), userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  eventId: text("event_id").notNull(), bucket: text("bucket").$type<"earned" | "available" | "pending" | "claimed">().notNull(),
+  amountUnits: text("amount_units").notNull(), claimId: text("claim_id").references(() => referralClaims.id, { onDelete: "restrict" }), receiptId: text("receipt_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+}, (t) => [uniqueIndex("referral_ledger_event_bucket_uq").on(t.eventId, t.bucket, t.userId), index("referral_ledger_owner_idx").on(t.userId, t.createdAt),
+  check("referral_ledger_value_check", sql`length(${t.eventId}) between 1 and 200 and ${t.bucket} in ('earned','available','pending','claimed') and ${t.amountUnits} ~ '^-?(0|[1-9][0-9]{0,38})$' and ${t.amountUnits} <> '-0'`)]);
 
 /** Actual follower receipts remain separate from simulated paper accounting. */
 export const copyFollowerReceipts = pgTable("copy_follower_receipts", {

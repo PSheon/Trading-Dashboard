@@ -12,6 +12,7 @@ describe("the browser suite's route warm-up", () => {
     expect(found).toContain("/admin/copy/users");
     expect(found).toContain("/trader/0x89da4baec446f35a1cbe17a9d1ee5c70b05ee43f");
     expect(found).toContain("/coins/BTC");
+    expect(found).toContain("/r/REFERRAL");
     expect(found).toContain("/admin/copy/strategies/2");
     expect(found).toContain("/dev");
     expect(found.filter((path) => /[\[\]]/.test(path))).toEqual([]);

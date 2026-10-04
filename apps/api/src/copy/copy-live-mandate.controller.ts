@@ -14,9 +14,9 @@ export class CopyLiveMandateController {
   overview(@CurrentUser() user: RequestUser | null) { return this.mandates.overview(requireUserId(user)); }
   @Get('strategies/by-key/:key') @Header('Cache-Control', 'no-store') @ApiDoc('Recover my original dedicated strategy by its local operation key')
   strategyByKey(@CurrentUser() user: RequestUser | null, @Param() params: LiveCopyOperationKeyDto) { return this.mandates.strategyByKey(requireUserId(user), params.key); }
-  @Get('mandates/by-key/:key') @Header('Cache-Control', 'no-store') @ApiDoc('Recover my exact original local mandate challenge by key', 'Returns archived expired/revoked evidence without changing its nonce, expiry or state.')
+  @Get('mandates/by-key/:key') @Header('Cache-Control', 'no-store') @ApiDoc('Recover my exact original local mandate challenge by key', 'Returns archived evidence and server-checked renewal eligibility without changing its intent, nonce, expiry or state.')
   mandateByKey(@CurrentUser() user: RequestUser | null, @Param() params: LiveCopyOperationKeyDto) { return this.mandates.mandateByKey(requireUserId(user), params.key); }
-  @Get('mandates/:id/challenge') @Header('Cache-Control', 'no-store') @ApiDoc('Read the exact original local mandate challenge', 'Recovery does not refresh consent or activate trading.')
+  @Get('mandates/:id/challenge') @Header('Cache-Control', 'no-store') @ApiDoc('Read the exact original local mandate challenge', 'Includes server-checked renewal eligibility. Recovery does not refresh consent or activate trading.')
   originalChallenge(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto) { return this.mandates.originalChallenge(requireUserId(user), params.id); }
   @Post('strategies') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Prepare a fresh paused testnet copy strategy', 'Creates local configuration only. Does not allocate simulated funds or start execution.')
   create(@CurrentUser() user: RequestUser | null, @Body() body: CreateLiveCopyStrategyDto) { return this.mandates.create(requireUserId(user), body); }

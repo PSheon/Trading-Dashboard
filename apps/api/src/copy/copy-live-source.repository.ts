@@ -35,7 +35,10 @@ export class CopyLiveSourceRepository {
     for (const window of result.observations) if (!['fills','twap'].includes(window.kind) || ![window.from,window.to,window.depth,window.observedAt,window.completedAt,window.count].every(Number.isSafeInteger) ||
       window.from < result.from || window.to > result.to || window.from > window.to || window.depth < 0 || window.depth > 48 || window.observedAt < result.observedAt || window.completedAt < window.observedAt || window.completedAt > result.completedAt ||
       window.count < 0 || window.count > 2000 || window.saturated !== (window.count >= 500) || !/^[a-f0-9]{64}$/.test(window.responseDigest)) throw new LiveBoundaryError('invalid_live_source_evidence');
-    if (result.complete) for (const kind of ['fills','twap']) {
+    const kinds = result.kinds ?? ['fills', 'twap'];
+    if (!Array.isArray(kinds) || kinds.length < 1 || kinds.length > 2 || new Set(kinds).size !== kinds.length || kinds.some(kind => !['fills','twap'].includes(kind)) ||
+      result.observations.some(window => !kinds.includes(window.kind))) throw new LiveBoundaryError('invalid_live_source_evidence');
+    if (result.complete) for (const kind of kinds) {
       const leaves = result.observations.filter(window => window.kind === kind && !window.saturated).sort((a,b) => a.from - b.from);
       let next = result.from;
       for (const leaf of leaves) { if (leaf.from !== next) throw new LiveBoundaryError('invalid_live_source_evidence'); next = leaf.to + 1; }
@@ -71,6 +74,20 @@ export class CopyLiveSourceRepository {
     if (stream.state === 'quarantined') return { kind: 'quarantined', stream };
     if (stream.revision !== expectedRevision) return { kind: 'stale', stream };
     return this.change(tx, stream, ['invalid_fill','duplicate_conflict'].includes(issue) ? 'quarantined' : 'gap', issue, now);
+  }
+  /** Starts a stream's coverage afresh, so the next read can begin at a new
+   * activation cursor. Only for a span no current consent generation needs:
+   * the caller checks that every active cursor lies after `coverageThrough`.
+   * Stored fills stay; a quarantined stream is never reset here. */
+  async restart(tx: DbTransaction, leader: string, network: LiveSourceNetwork, expectedRevision: number, now: number): Promise<SourceApplyResult> {
+    const stream = await this.ensure(tx, leader, network);
+    if (stream.state === 'quarantined') return { kind: 'quarantined', stream };
+    if (stream.revision !== expectedRevision) return { kind: 'stale', stream };
+    const [next] = await tx.update(copyLiveSourceStreams).set({ state: 'unproven', coverageFrom: null, coverageThrough: null, coverageDigest: null, lastIssue: null,
+      revision: stream.revision + 1, updatedAt: new Date(now) })
+      .where(and(eq(copyLiveSourceStreams.id, stream.id), eq(copyLiveSourceStreams.revision, stream.revision))).returning();
+    if (!next) throw new LiveBoundaryError('live_source_cas_lost');
+    return { kind: 'recorded', stream: next };
   }
   private async change(tx: DbTransaction, stream: LiveSourceStream, state: 'gap' | 'quarantined', issue: NonNullable<LiveSourceStream['lastIssue']>, now: number): Promise<SourceApplyResult> {
     const [next] = await tx.update(copyLiveSourceStreams).set({ state, lastIssue: issue, revision: stream.revision + 1, updatedAt: new Date(now) })

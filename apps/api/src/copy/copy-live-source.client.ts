@@ -8,6 +8,10 @@ export interface LiveSourceWindowObservation extends LiveSourceWindow { observed
 export interface LiveSourceReadResult {
   network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; observedAt: number; completedAt: number; fresh: boolean;
   complete: boolean; historicalCompleteness: 'unproven'; requestsUsed: number; fills: LiveSourceFillEvidence[];
+  /** Which provider streams the windows cover; absent means both ordinary
+   * fills and TWAP slices (this REST reader). The watched mainnet source has
+   * ordinary fills only. */
+  kinds?: ('fills' | 'twap')[];
   observations: LiveSourceWindowObservation[]; unresolved: (LiveSourceWindow & { reason: 'same_ms_cap' | 'depth_limit' | 'request_budget' | 'fill_budget' | 'read_unavailable' | 'evidence_expired' | 'twap_identity_unproven' })[];
   sourceDigest: string;
 }

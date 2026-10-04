@@ -1,3 +1,4 @@
+import { watchLeader } from '../watcher/leader-watch.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
@@ -79,6 +80,9 @@ export class CopyLiveMandateRepository {
     const [row] = await tx.insert(copyStrategies).values({ userId, leaderAddress: input.leader, mode: 'testnet', status: 'paused', pauseNewRisk: true, allocated: '0', cash: '0', activatedAt: new Date(now) }).returning();
     await tx.insert(copyStrategyVersions).values({ strategyId: row.id, version: 1, settings: input.settings, createdByUserId: userId });
     await tx.insert(copyLiveStrategyConfigs).values({ strategyId: row.id, userId, idempotencyKey: input.idempotencyKey, sourceNetwork: input.sourceNetwork, budgetUsd: input.budgetUsd, strategyVersion: 1 });
+    // A mainnet leader's fills reach testnet copies through the market
+    // watcher (REST-confirmed, with proven coverage): make sure it is watched.
+    if (input.sourceNetwork === 'mainnet') await watchLeader(tx, input.leader, 'copy');
     return this.strategyWire(row.id, tx);
   }
   async context(tx: DbTransaction, userId: number, accountId: string, now: number) {

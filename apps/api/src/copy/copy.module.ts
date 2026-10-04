@@ -108,6 +108,8 @@ import { HyperliquidAllDexsAccountSource } from './live/live-account-ws-source.j
   ],
   exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     // For CopyWorkerModule's loops (the worker process only).
-    CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository],
+    CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
+    // For the testnet execution engine (CopyWorkerModule).
+    CopyMarketService, CopyFollowerLedger],
 })
 export class CopyModule {}

@@ -1780,6 +1780,42 @@ export const copyLivePositionBaselines = pgTable("copy_live_position_baselines",
   check("copy_live_baseline_time_check", sql`extract(epoch from ${t.observedAt}) > 0 and ${t.completedAt} >= ${t.observedAt} and ${t.createdAt} >= ${t.completedAt} and ${t.createdAt} <= ${t.observedAt} + interval '5 seconds'`),
 ]);
 
+/** The live worker's work list: one row per (mandate, leader fill, leg) it
+ * picked up, with its outcome and the timings of signal latency (B18):
+ * leader fill time → signal received → first attempt → order POST → exchange
+ * answer → settlement. A refused row keeps its reason; it is never retried. */
+export const copyLiveDispatches = pgTable("copy_live_dispatches", {
+  id: text("id").primaryKey(),
+  mandateId: text("mandate_id").notNull().references(() => copyLiveMandates.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  sourceFillId: text("source_fill_id").notNull().references(() => copyLiveSourceFills.id, { onDelete: "restrict" }),
+  leg: text("leg").$type<"open" | "close">().notNull(), coin: text("coin").notNull(),
+  state: text("state").$type<"pending" | "submitted" | "settled" | "refused">().notNull().default("pending"),
+  reason: text("reason"), attempts: integer("attempts").notNull().default(0),
+  executionKey: text("execution_key").references(() => copyLiveExecutions.key, { onDelete: "restrict" }),
+  leaderTime: timestamp("leader_time", { withTimezone: true }).notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+  firstAttemptAt: timestamp("first_attempt_at", { withTimezone: true }), sentAt: timestamp("sent_at", { withTimezone: true }),
+  ackedAt: timestamp("acked_at", { withTimezone: true }), settledAt: timestamp("settled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("copy_live_dispatch_leg_uq").on(t.mandateId, t.sourceFillId, t.leg),
+  uniqueIndex("copy_live_dispatch_execution_uq").on(t.executionKey).where(sql`${t.executionKey} is not null`),
+  index("copy_live_dispatch_work_idx").on(t.state, t.updatedAt), index("copy_live_dispatch_owner_idx").on(t.userId, t.createdAt),
+  check("copy_live_dispatch_state_check", sql`${oneOf(t.state, ["pending", "submitted", "settled", "refused"])} and ${t.leg} in ('open','close') and ${t.attempts} >= 0 and (${t.state} <> 'refused' or ${t.reason} is not null) and (${t.state} not in ('submitted','settled') or ${t.executionKey} is not null) and (${t.reason} is null or ${t.reason} ~ '^[a-z][a-z0-9_]{0,79}$')`),
+]);
+
+/** A consent generation the worker started trading, once it was funded:
+ * its strategy went from paused to active. Never repeated for a generation. */
+export const copyLiveActivations = pgTable("copy_live_activations", {
+  mandateId: text("mandate_id").primaryKey().references(() => copyLiveMandates.id, { onDelete: "restrict" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  strategyId: integer("strategy_id").notNull().references(() => copyStrategies.id, { onDelete: "restrict" }),
+  accountId: text("account_id").notNull().references(() => copyExecutionAccounts.id, { onDelete: "restrict" }),
+  activatedAt: timestamp("activated_at", { withTimezone: true }).notNull(),
+});
+
 /** Shared outbound provider capacity. Reservations are never refunded merely
  * because the process cannot determine whether a request was delivered. */
 export const hyperliquidEgressQuota = pgTable("hyperliquid_egress_quota", {

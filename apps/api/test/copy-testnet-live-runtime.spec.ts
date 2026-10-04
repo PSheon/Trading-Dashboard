@@ -178,9 +178,13 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/rpc'))).toHaveLength(1);
     const [lease] = await db.select().from(schema.hyperliquidWsLeases); expect(lease?.state).toBe('closed');
     const [quota] = await db.select().from(schema.hyperliquidEgressQuota); expect(quota!.egressKey).toBe(config.value.hyperliquid.egressKey);
-    const [reservation] = await db.select().from(schema.copyLiveRiskReservations); expect(reservation?.state).toBe('held');
-    // Filled journal acknowledgement alone grants no settlement release.
+    // The exchange's own IOC answer is kept as settlement evidence at once and
+    // marks the liability attempted; it alone grants no settlement release.
+    const [reservation] = await db.select().from(schema.copyLiveRiskReservations); expect(reservation?.state).toBe('unknown');
     expect(reservation?.releaseEvidenceDigest).toBeNull();
+    const [evidence] = await db.select().from(schema.copyLiveExecutionEvidence);
+    expect(evidence).toMatchObject({ exchangeOrderId: '77', statusObservation: null, settlementCertificate: null });
+    expect(evidence!.acknowledgement).toMatchObject({ oid: '77', totalSz: '0.1' });
   });
   it('reconciles an unknown original key after revocation and strategy stop without another signature or nonce', async () => {
     await actualClockFixture();

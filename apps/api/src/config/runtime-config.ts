@@ -38,10 +38,13 @@ function walletNetwork(source: Environment) {
 
 /**
  * COPY_TRADING_MODE is the deployment's copy capability (review #11):
- * `paper` (default: virtual balances, simulated fills) or `disabled`.
- * `testnet` and `live` need signing, nonces and reconciliation that this
- * build doesn't have, so they are refused at startup rather than silently
- * running as paper; no admin setting can switch a deployment to live.
+ * `paper` (default: virtual balances, simulated fills), `disabled`, or
+ * `testnet`: paper keeps working and, in addition, dedicated testnet copies
+ * execute real orders on Hyperliquid TESTNET (leader fills from mainnet or
+ * testnet). Testnet execution needs the wallet network on testnet, the
+ * worker's Privy signing key and quorum, and a shared egress key; a missing
+ * one refuses startup rather than running as paper. `live` (mainnet funds)
+ * is refused: it needs the owner's explicit approval, never an env switch.
  */
 interface AgentSigningConfig { authorizationPrivateKey: string; authorizationPublicKey: string; workerQuorumId: string }
 function agentSigning(source: Environment): AgentSigningConfig | undefined {
@@ -59,14 +62,45 @@ function agentSigning(source: Environment): AgentSigningConfig | undefined {
     return { authorizationPrivateKey, workerQuorumId, authorizationPublicKey: createPublicKey(key).export({ format: "der", type: "spki" }).toString("base64") };
   } catch { throw new Error("PRIVY_AGENT_AUTHORIZATION_KEY must be a canonical base64 P256 PKCS8 private key"); }
 }
-function copyTrading(source: Environment): { mode: "paper" | "disabled"; workerIntervalMs: number; agent?: AgentSigningConfig } {
+export interface LiveCopyConfig {
+  /** Largest testnet/mainnet mid difference at which a mainnet leader's open
+   * is still mirrored on testnet (COPY_TESTNET_MAX_PRICE_DEVIATION_BPS). */
+  maxSourceDeviationBps: number;
+  /** IOC limit distance from the testnet mid (COPY_LIVE_SLIPPAGE_BPS). */
+  slippageBps: number;
+  /** One live worker pass every this many ms (COPY_LIVE_INTERVAL_MS). */
+  intervalMs: number;
+  /** Testnet REST weight per minute for execution reads
+   * (COPY_LIVE_WEIGHT_PER_MIN). Testnet is a separate host with its own
+   * per-IP limit, so these reads take their own budget and shared egress
+   * key (`<HYPERLIQUID_EGRESS_KEY>:testnet`), never the mainnet watcher's.
+   * The burst is the rest of the 1200/min limit: one order's fresh evidence
+   * reads weigh about 770 and its settlement about 400, so a low rate with
+   * a large burst (default 300/min, burst 900) lets one order go at once. */
+  weightPerMin: number;
+}
+function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressKey: string | undefined):
+  { mode: "paper" | "disabled" | "testnet"; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig } {
   const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
-  if (mode === "testnet" || mode === "live") throw new Error(`COPY_TRADING_MODE=${mode} is not available in this build (paper only)`);
-  if (mode !== "paper" && mode !== "disabled") throw new Error("COPY_TRADING_MODE must be paper or disabled");
+  if (mode === "live") throw new Error("COPY_TRADING_MODE=live (mainnet funds) is not available: it needs the owner's explicit approval");
+  if (mode !== "paper" && mode !== "disabled" && mode !== "testnet") throw new Error("COPY_TRADING_MODE must be paper, testnet or disabled");
+  const agent = agentSigning(source);
+  let live: LiveCopyConfig | undefined;
+  if (mode === "testnet") {
+    if (wallet !== "testnet") throw new Error("COPY_TRADING_MODE=testnet requires HYPERLIQUID_NETWORK=testnet");
+    if (!agent) throw new Error("COPY_TRADING_MODE=testnet requires PRIVY_AGENT_AUTHORIZATION_KEY and PRIVY_AGENT_WORKER_QUORUM_ID");
+    if (!egressKey) throw new Error("COPY_TRADING_MODE=testnet requires HYPERLIQUID_EGRESS_KEY (shared by the api and the worker)");
+    live = {
+      maxSourceDeviationBps: integerValue("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS", source.COPY_TESTNET_MAX_PRICE_DEVIATION_BPS, 500, 0, 10_000),
+      slippageBps: integerValue("COPY_LIVE_SLIPPAGE_BPS", source.COPY_LIVE_SLIPPAGE_BPS, 30, 0, 500),
+      intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),
+      weightPerMin: integerValue("COPY_LIVE_WEIGHT_PER_MIN", source.COPY_LIVE_WEIGHT_PER_MIN, 300, 100, 400),
+    };
+  }
   return {
-    mode: mode as "paper" | "disabled",
+    mode: mode as "paper" | "disabled" | "testnet",
     workerIntervalMs: integerValue("COPY_WORKER_INTERVAL_MS", source.COPY_WORKER_INTERVAL_MS, 2000, 250, 60_000),
-    agent: agentSigning(source),
+    agent, ...(live ? { live } : {}),
   };
 }
 
@@ -245,6 +279,6 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source), archive: archive(source) };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source) };
 }
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

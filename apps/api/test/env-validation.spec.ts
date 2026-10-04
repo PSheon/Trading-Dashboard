@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { validateEnvironment } from "../src/config/runtime-config.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env, getBoolEnv, getIntEnv } from "../src/config/env.js";
@@ -53,12 +54,20 @@ describe("startup environment", () => {
   ])("rejects invalid %s without echoing its value", (key, value) => {
     expect(() => validateEnvironment({ ...base, [key]: value })).toThrow(key);
   });
-  it("copy trading is paper by default; testnet and live are refused in this build", () => {
+  it("copy trading is paper by default; testnet needs its signing prerequisites; live is refused", () => {
     expect(validateEnvironment(base).copy).toEqual({ mode: "paper", workerIntervalMs: 2000 });
     expect(validateEnvironment({ ...base, COPY_TRADING_MODE: "disabled" }).copy.mode).toBe("disabled");
-    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "live" })).toThrow("not available in this build");
-    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "testnet" })).toThrow("not available in this build");
-    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "yolo" })).toThrow("paper or disabled");
+    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "live" })).toThrow("owner's explicit approval");
+    expect(() => validateEnvironment({ ...base, COPY_TRADING_MODE: "yolo" })).toThrow("paper, testnet or disabled");
+    const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
+    const testnet = { ...base, COPY_TRADING_MODE: "testnet", HYPERLIQUID_NETWORK: "testnet", HYPERLIQUID_EGRESS_KEY: "shared-egress",
+      PRIVY_APP_ID: "app", PRIVY_APP_SECRET: "secret", PRIVY_AGENT_AUTHORIZATION_KEY: key, PRIVY_AGENT_WORKER_QUORUM_ID: "worker" };
+    expect(validateEnvironment(testnet).copy).toMatchObject({ mode: "testnet", live: { maxSourceDeviationBps: 500, slippageBps: 30, intervalMs: 3000, weightPerMin: 300 } });
+    expect(validateEnvironment({ ...testnet, COPY_TESTNET_MAX_PRICE_DEVIATION_BPS: "1000" }).copy.live?.maxSourceDeviationBps).toBe(1000);
+    expect(() => validateEnvironment({ ...testnet, HYPERLIQUID_NETWORK: "mainnet" })).toThrow("HYPERLIQUID_NETWORK=testnet");
+    expect(() => validateEnvironment({ ...testnet, HYPERLIQUID_EGRESS_KEY: undefined })).toThrow("HYPERLIQUID_EGRESS_KEY");
+    expect(() => validateEnvironment({ ...testnet, PRIVY_AGENT_AUTHORIZATION_KEY: undefined, PRIVY_AGENT_WORKER_QUORUM_ID: undefined })).toThrow("PRIVY_AGENT_AUTHORIZATION_KEY");
+    expect(() => validateEnvironment({ ...testnet, COPY_TESTNET_MAX_PRICE_DEVIATION_BPS: "10001" })).toThrow("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS");
   });
 
   it("requires a database explicitly", () => {

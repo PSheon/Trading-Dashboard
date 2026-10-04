@@ -40,7 +40,7 @@ export class CopyLiveMandateService {
   }
   async overview(userId: number) {
     const data = await this.repository.overview(userId);
-    return liveCopyOverviewSchema.parse({ mode: 'actual', network: 'testnet', capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled', automaticExecution: false, sourceNetworks: ['mainnet', 'testnet'] }, ...data });
+    return liveCopyOverviewSchema.parse({ mode: 'actual', network: 'testnet', capabilities: { strategyPreparation: this.config.value.copy.mode !== 'disabled', automaticExecution: this.config.value.copy.mode === 'testnet', sourceNetworks: ['mainnet', 'testnet'] }, ...data });
   }
   async strategyByKey(userId: number, value: unknown) {
     const key = input(copyIdempotencyKeySchema, value);

@@ -37,6 +37,8 @@ import { decodeLiveExecutionRow } from './postgres-live-journal.js';
 import { decodeLiveSourceSizingEnvelope } from './copy-live-source-planner.js';
 import { PostgresLiveUnattemptedRecovery } from './postgres-live-unattempted-recovery.js';
 import type { LiveSourceReferenceReader } from './live-source-reference.js';
+import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-order-evidence.js';
+import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 
 const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
@@ -134,7 +136,8 @@ export class TestnetLiveExecutionRuntime {
           this.signingConfiguration(authority.consent.workerQuorumId);
           return { authorization_context: { authorization_private_keys: [app.copy.agent!.authorizationPrivateKey] } };
         }, gate, this.now);
-        const transport = new HyperliquidLiveTransport('testnet', signer, gate, this.timedFetch(), 5000, this.now,
+        const exchange: { raw?: unknown; at?: number } = {};
+        const transport = new HyperliquidLiveTransport('testnet', signer, gate, this.timedFetch(exchange), 5000, this.now,
           { marketResolver: resolver, acquire, globalTransport: this.global });
         const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now);
         if (existing && existing.record.state !== 'prepared') {
@@ -150,6 +153,16 @@ export class TestnetLiveExecutionRuntime {
         await reservations.hold(session, input);
         await session.scope.assertHeld();
         const result = await executor.execute(prepared.intent);
+        // Keep the exchange's own IOC answer as settlement evidence right away:
+        // for a partial fill it is the only proof of the filled quantity
+        // (orderStatus then reads "canceled"). Losing it only delays settlement.
+        if (exchange.raw !== undefined && exchange.at !== undefined && result.market && result.outcome?.exchangeOrderId &&
+          (result.state === 'filled' || result.state === 'partial')) {
+          try {
+            const acknowledgement = parseLiveIocAcknowledgement({ identity: captureLiveOrderIdentity(result, result.market), raw: exchange.raw, checkedAt: exchange.at });
+            await new PostgresLiveSettlement(this.now).acknowledge(session, { accountId: request.accountId, key, acknowledgement });
+          } catch { /* settlement reads orderStatus and receipts later */ }
+        }
         await sockets.close();
         session.scope.assertFresh();
         // The concrete source binds checkedAt to its oldest original sizing,
@@ -166,15 +179,22 @@ export class TestnetLiveExecutionRuntime {
       }
     }));
   }
-  /** The global fetch, reporting the exchange POST's start and answer times. */
-  private timedFetch(): typeof fetch {
+  /** The global fetch, reporting the exchange POST's start and answer times
+   * and keeping a copy of the exchange's JSON answer. */
+  private timedFetch(capture: { raw?: unknown; at?: number }): typeof fetch {
     const report = this.hooks.onExchange;
-    if (!report) return fetch;
-    const emit = (phase: 'request' | 'response') => { try { report({ phase, at: this.now() }); } catch { /* observation only */ } };
+    const emit = (phase: 'request' | 'response') => { try { report?.({ phase, at: this.now() }); } catch { /* observation only */ } };
     return async (input, init) => {
       const exchange = String(input instanceof Request ? input.url : input).endsWith('/exchange');
       if (exchange) emit('request');
-      try { return await fetch(input, init); } finally { if (exchange) emit('response'); }
+      try {
+        const response = await fetch(input, init);
+        if (exchange && response.ok) {
+          const at = this.now();
+          try { capture.raw = await response.clone().json(); capture.at = at; } catch { /* the transport reports the failure */ }
+        }
+        return response;
+      } finally { if (exchange) emit('response'); }
     };
   }
   private signingConfiguration(workerQuorumId: string): void {

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { actions, copyStrategies, fillCoverage, fills, leaders, type FillCoverageBreak } from "@trading-dashboard/shared/database";
+import { actions, copyLiveStrategyConfigs, copyStrategies, fillCoverage, fills, leaders, type FillCoverageBreak } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
@@ -24,10 +24,12 @@ export class FillSyncRepository {
   /** Fills per page of a full continuity check; settable for tests. */
   spanPageFills = SPAN_PAGE_FILLS;
 
-  /** Whether a live copy follows `address`: its stored fills become copy signals. */
+  /** Whether a live copy follows `address`: its stored fills become copy
+   * signals (paper), or the source of a testnet copy of a mainnet leader. */
   async isCopied(address: string): Promise<boolean> {
     const [row] = await this.db.select({ id: copyStrategies.id }).from(copyStrategies)
-      .where(and(eq(copyStrategies.mode, "paper"), eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]))).limit(1);
+      .where(and(eq(copyStrategies.chain, CHAIN_DEFAULT), eq(copyStrategies.leaderAddress, address), inArray(copyStrategies.status, [...LIVE_STRATEGY_STATUSES]),
+        sql`(${copyStrategies.mode} = 'paper' or exists (select 1 from ${copyLiveStrategyConfigs} c where c.strategy_id = ${copyStrategies.id} and c.source_network = 'mainnet'))`)).limit(1);
     return row !== undefined;
   }
 

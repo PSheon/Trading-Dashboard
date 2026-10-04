@@ -148,7 +148,7 @@ export function AlertBotRow({ className }: { className?: string }) {
     action = <Skeleton className="h-9 w-16 rounded-full" />;
   } else if (!data.bot) {
     action = (
-      <Button size="sm" className="bg-foreground text-background hover:bg-foreground/85" disabled title={t("settings.unavailable")}>
+      <Button size="sm" className="h-10 px-5" disabled title={t("settings.unavailable")}>
         {t("settings.connect")}
       </Button>
     );
@@ -184,7 +184,7 @@ export function AlertBotRow({ className }: { className?: string }) {
     action = (
       <Button
         size="sm"
-        className="bg-foreground text-background hover:bg-foreground/85"
+        className="h-10 px-5"
         onClick={connect}
         disabled={create.isPending}
       >

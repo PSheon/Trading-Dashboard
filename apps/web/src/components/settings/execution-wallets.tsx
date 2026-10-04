@@ -39,7 +39,7 @@ export function ExecutionWalletSettings() {
   const error = create.isError || actualWallet.isError || reconcile.isError || revoke.isError;
 
   return (
-    <section className="mt-6 rounded-2xl border border-border p-4" aria-label={t("executionWallets.title")}>
+    <section className="orbit-card px-6 py-5" aria-label={t("executionWallets.title")}>
       <h3 className="text-[0.9375rem] font-bold">{t("executionWallets.title")}</h3>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{t("executionWallets.setupHint")}</p>
       <CopyLiveStrategySettings accounts={wallets.isError ? [] : data?.accounts ?? []} authorizations={wallets.isError ? [] : data?.authorizations ?? []}/>

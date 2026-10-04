@@ -46,7 +46,7 @@ function StatementView({ accounts }: { accounts: readonly CopyExecutionAccount[]
         {(['realizedPnl', 'exchangeFee', 'builderFee', 'funding', 'tradingCashDelta'] as const).map((key) => <div key={key} className={key === 'tradingCashDelta' ? 'border-t-2 border-dotted border-border pt-2 sm:col-span-2' : ''}><dt className="text-muted-foreground">{t(`copyFollowerStatement.${key}`)}</dt><dd className="mt-1 break-all font-mono font-semibold tabular-nums">{formatFollowerAmount(data.actual[key])}</dd></div>)}
       </dl>
       <p className="text-xs text-muted-foreground">{t('copyFollowerStatement.count', { count: data.receiptCount })}</p>
-      <details className="rounded-xl border border-border p-3">
+      <details className="rounded-xl bg-inset p-3.5">
         <summary className="cursor-pointer text-xs font-semibold focus-visible:outline-2 focus-visible:outline-ring">{t('copyFollowerStatement.receipts')}</summary>
         {data.latestReceipts.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><caption className="sr-only">{t('copyFollowerStatement.receipts')}</caption>
           <thead><tr>{(['receiptTime', 'receiptCoin', 'receiptType', 'receiptAttribution'] as const).map((key) => <th key={key} scope="col" className="px-2 py-2 font-semibold text-muted-foreground">{t(`copyFollowerStatement.${key}`)}</th>)}</tr></thead>

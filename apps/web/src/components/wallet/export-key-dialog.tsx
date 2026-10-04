@@ -60,7 +60,7 @@ export function ExportKeyDialog({ open, onOpenChange, target = null }: { open: b
       <h2 className="mt-5 text-2xl font-extrabold" aria-hidden>{target ? t("funds.exportCopyTitle", { id: target.strategyId }) : t("wallet.exportTitle")}</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{target ? t("funds.exportCopyBody", { id: target.strategyId }) : t("wallet.exportBody")}</p>
       {ready ? (
-        <div className="mt-4 rounded-xl border border-border bg-raised/50 p-3">
+        <div className="mt-4 rounded-xl bg-inset p-3.5">
           <p className="text-xs font-semibold text-muted-foreground">{t("wallet.exportAddress")}</p>
           <p className="mt-2 break-all font-mono text-xs leading-5">{target ? target.address : wallet?.address}</p>
         </div>

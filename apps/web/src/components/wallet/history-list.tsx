@@ -44,14 +44,14 @@ export function WithdrawalNotices() {
   const accepted = recovery.data?.status === "accepted" ? recovery.data : null;
   return <>
     {pending ? (
-      <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
+      <div role="status" className="mb-3 rounded-xl bg-raised p-3.5">
         <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {pending.amount} USDC</p>
         <p className="mt-1 text-xs text-muted-foreground">{t(pending.status === "prepared" || pending.canCancel ? "wallet.withdrawPrepared" : "wallet.withdrawRecovery")}</p>
         <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{pending.destination}</p>
         <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={openWithdraw}>{t("wallet.checkWithdrawal")}</Button>
       </div>
     ) : null}
-    {accepted ? <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
+    {accepted ? <div role="status" className="mb-3 rounded-xl bg-raised p-3.5">
       <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {accepted.amount} USDC</p>
       <p className="mt-1 text-xs text-muted-foreground">{t("wallet.withdrawSent")}</p>
       <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{accepted.destination}</p>
@@ -70,14 +70,14 @@ export function WalletHistoryList({ className }: { className?: string }) {
   const pending = recovery.data?.status === "prepared" || recovery.data?.status === "unknown" ? recovery.data : null;
   const accepted = recovery.data?.status === "accepted" ? recovery.data : null;
   const pendingNotice = pending ? (
-    <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
+    <div role="status" className="mb-3 rounded-xl bg-raised p-3.5">
       <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {pending.amount} USDC</p>
       <p className="mt-1 text-xs text-muted-foreground">{t(pending.status === "prepared" || pending.canCancel ? "wallet.withdrawPrepared" : "wallet.withdrawRecovery")}</p>
       <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{pending.destination}</p>
       <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={openWithdraw}>{t("wallet.checkWithdrawal")}</Button>
     </div>
   ) : null;
-  const acceptedNotice = accepted ? <div role="status" className="mb-3 rounded-xl border border-border bg-raised p-3">
+  const acceptedNotice = accepted ? <div role="status" className="mb-3 rounded-xl bg-raised p-3.5">
     <p className="num text-sm font-semibold">{t("wallet.withdrawTitle")} · {accepted.amount} USDC</p>
     <p className="mt-1 text-xs text-muted-foreground">{t("wallet.withdrawSent")}</p>
     <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{accepted.destination}</p>

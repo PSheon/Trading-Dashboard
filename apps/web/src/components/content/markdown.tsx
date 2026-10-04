@@ -90,7 +90,7 @@ export function MarkdownBlocks({ blocks, className }: { blocks: Block[]; classNa
           }
           case "table":
             return (
-              <div key={i} className="my-4 overflow-x-auto rounded-xl border border-border">
+              <div key={i} className="my-4 overflow-x-auto rounded-xl">
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="bg-raised/60">

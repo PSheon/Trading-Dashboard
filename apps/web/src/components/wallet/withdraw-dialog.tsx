@@ -163,7 +163,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         autoComplete="off"
         spellCheck={false}
         aria-invalid={problem === "address"}
-        className="mt-2.5 h-12 rounded-xl border border-border-strong bg-raised px-4 font-mono text-sm outline-none placeholder:font-sans placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-negative"
+        className="mt-2.5 h-12 rounded-xl border-2 border-transparent bg-inset px-4 font-bold focus-visible:border-primary font-mono text-sm outline-none placeholder:font-sans placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-negative"
       />
 
       <label htmlFor={amountId} className="mt-6 text-sm font-semibold">
@@ -178,7 +178,7 @@ function WithdrawForm({ summary, onDone }: { summary: WalletSummary; onDone: () 
         inputMode="decimal"
         autoComplete="off"
         aria-invalid={problem === "belowMin" || problem === "overAvailable"}
-        className="num mt-2.5 h-12 rounded-xl border border-border-strong bg-raised px-4 text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-negative"
+        className="num mt-2.5 h-12 rounded-xl border-2 border-transparent bg-inset px-4 font-bold focus-visible:border-primary text-sm outline-none placeholder:text-subtle-foreground focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-negative"
       />
       <div className="mt-1.5 flex items-center justify-between text-xs">
         <span className="num text-muted-foreground">{t("wallet.available", { amount: format.usd(withdrawable, { digits: 2 }) })}</span>

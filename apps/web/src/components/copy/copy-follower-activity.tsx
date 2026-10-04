@@ -31,7 +31,7 @@ function ActivityView({ account }: { account: CopyExecutionAccount }) {
         {page.coverage.issue !== null ? <p role="alert" className="text-warning">{t('copyFollowerStatement.scanIssue')}</p> : null}
         {page.quarantine.blocked ? <p role="alert" className="text-warning">{t('copyFollowerActivity.quarantine')}</p> : null}
       </div>
-      {!page.items.length ? <p className="text-xs text-muted-foreground">{t('copyFollowerStatement.emptyReceipts')}</p> : <ol className="space-y-3">{page.items.map(item => <li key={item.key} className="rounded-xl border border-border p-3 text-xs">
+      {!page.items.length ? <p className="text-xs text-muted-foreground">{t('copyFollowerStatement.emptyReceipts')}</p> : <ol className="space-y-3">{page.items.map(item => <li key={item.key} className="rounded-xl bg-inset p-3.5 text-xs">
         <div className="flex flex-wrap justify-between gap-2"><span className="font-semibold">{item.coin} · {t(`copyFollowerStatement.${item.kind}`)}</span><time dateTime={item.time} className="text-muted-foreground">{format.dateTime(item.time)}</time></div>
         <p className="mt-2 break-all font-mono font-semibold tabular-nums">{formatFollowerAmount(item.tradingCashDelta)}</p>
         <p className="mt-1 text-muted-foreground">{t('copyFollowerStatement.tradingCashDelta')} · {t(`copyFollowerStatement.${item.attribution}`)}</p>

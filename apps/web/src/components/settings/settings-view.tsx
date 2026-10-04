@@ -25,6 +25,8 @@ import { useIsDesktop } from "@/lib/use-is-desktop";
 import { useModalFocus } from "@/lib/use-modal-focus";
 import { cn } from "cn";
 
+import { ThemeChoiceControl } from "@/components/shell/theme-toggle";
+
 import { Wordmark } from "@/components/brand/logo";
 import { Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -91,9 +93,9 @@ function SignedOut() {
     // CopyDog's settings shell spans the rail edge to 28px short of the
     // window (centre x=744 at 1440), narrower on the right than the page frame.
     <div className="flex flex-col items-center px-6 pt-10 text-center md:-ml-8 md:mr-3 md:pt-8">
-      <Settings className="size-12 text-subtle-foreground" strokeWidth={1.5} aria-hidden />
-      <h1 className="mt-4 text-xl leading-[30px] font-bold">{t("settings.signInTitle")}</h1>
-      <p className="mt-2 text-sm leading-5 text-muted-foreground">{t("settings.signInBody")}</p>
+      <span className="flex size-24 items-center justify-center rounded-full bg-raised"><Settings className="size-11 text-primary-text" strokeWidth={2} aria-hidden /></span>
+      <h1 className="mt-4 font-display text-[2rem] leading-tight">{t("settings.signInTitle")}</h1>
+      <p className="mt-2 text-sm leading-5 font-bold text-muted-foreground">{t("settings.signInBody")}</p>
       <Button size="xl" className="mt-6 w-[200px] font-semibold" onClick={login} disabled={status === "disabled"}>
         {t("common.signIn")}
       </Button>
@@ -125,7 +127,7 @@ function SettingsSkeleton() {
 function Avatar({ initial, size = 44 }: { initial: string; size?: number }) {
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-raised font-semibold text-foreground"
+      className="flex shrink-0 items-center justify-center rounded-full bg-tag-alert font-display text-tag-alert-foreground"
       style={{ width: size, height: size, fontSize: size * 0.36 }}
       aria-hidden
     >
@@ -135,15 +137,20 @@ function Avatar({ initial, size = 44 }: { initial: string; size?: number }) {
 }
 
 function SectionTitle({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <h3 className={cn("pt-6 pb-1 text-[0.9375rem] font-bold", className)}>{children}</h3>;
+  return <h3 className={cn("pb-1 font-display text-xl", className)}>{children}</h3>;
+}
+
+/** One white settings card (C-Settings). */
+function SettingsCard({ children, className, danger = false }: { children: React.ReactNode; className?: string; danger?: boolean }) {
+  return <div className={cn("orbit-card px-6 py-5", danger && "shadow-[0_0_0_2px_var(--tag-loss)]", className)}>{children}</div>;
 }
 
 function Row({ label, value, action, className }: { label: string; value?: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
     <div className={cn("flex items-center gap-4 py-3.5", className)}>
       <div className="min-w-0 flex-1">
-        <p className="text-[0.8125rem] font-semibold">{label}</p>
-        {value !== undefined ? <div className="mt-1 truncate text-xs text-muted-foreground">{value}</div> : null}
+        <p className="text-[0.875rem] font-extrabold">{label}</p>
+        {value !== undefined ? <div className="mt-1 truncate text-xs font-bold text-muted-foreground">{value}</div> : null}
       </div>
       {action}
     </div>
@@ -159,7 +166,7 @@ function LanguageSelect() {
         <button
           type="button"
           aria-label={t("settings.language")}
-          className="flex h-9 w-[150px] items-center justify-between gap-2 rounded-full bg-raised pr-3 pl-3.5 text-[0.8125rem] font-semibold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-11 w-[160px] items-center justify-between gap-2 rounded-full bg-inset pr-3.5 pl-4 text-sm font-extrabold outline-none transition-colors hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring"
         >
           {LOCALE_NAMES[locale]}
           <ChevronDown className="size-4 text-muted-foreground" />
@@ -187,7 +194,7 @@ function ProfileAndWallet() {
   const { openExport } = useWalletModals();
   return (
     <>
-      <SectionTitle>{t("settings.profile")}</SectionTitle>
+      <SectionTitle className="pt-3">{t("settings.profile")}</SectionTitle>
       <Row label={t("settings.email")} value={email ?? t("settings.noEmail")} className="border-b-2 border-dotted border-border" />
       <Row
         label={t("settings.wallet")}
@@ -201,7 +208,7 @@ function ProfileAndWallet() {
           )
         }
         action={
-          <Button variant="secondary" size="sm" className="h-9 px-3.5 text-muted-foreground" onClick={() => openExport()} disabled={!address}>
+          <Button variant="secondary" className="h-11 bg-inset px-5" onClick={() => openExport()} disabled={!address}>
             {t("settings.exportKey")}
           </Button>
         }
@@ -219,7 +226,7 @@ function FundsSummary() {
       <div>
         <p className="text-xs text-muted-foreground">{t("portfolio.totalValue")}</p>
         {wallet.data ? (
-          <p className="num mt-1 text-3xl font-extrabold">{format.usd(wallet.data.totalValue, { digits: 2 })}</p>
+          <p className="num mt-1 font-display text-[2.125rem]">{format.usd(wallet.data.totalValue, { digits: 2 })}</p>
         ) : (
           <Skeleton className="mt-2 h-8 w-32" />
         )}
@@ -263,13 +270,13 @@ function MenuItem({ icon: Icon, label, active, onClick }: { icon: LucideIcon; la
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-[62px] w-full items-center gap-3.5 px-6 text-left text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        active ? "bg-raised" : "hover:bg-raised/60",
+        "orbit-press flex h-12 w-full items-center gap-3 rounded-full px-[18px] text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active ? "bg-primary font-extrabold text-primary-foreground" : "font-bold text-muted-foreground hover:bg-raised-hover hover:text-foreground",
       )}
     >
-      <Icon className="size-5" strokeWidth={1.75} />
+      <Icon className="size-[18px]" strokeWidth={2.4} />
       <span className="flex-1">{label}</span>
-      <ChevronRight className="size-4 text-muted-foreground" />
+      <ChevronRight className="size-4 opacity-70" strokeWidth={2.4} />
     </button>
   );
 }
@@ -281,36 +288,45 @@ function DesktopSettings() {
   const { name, initial } = useAccountName();
 
   return (
-    // Flush against the icon rail, as on CopyDog (the menu starts at the rail).
-    <div className="-mt-2 -ml-8">
-      <h1 className="pb-6 pl-4 text-xl font-bold">{t("settings.title")}</h1>
-      <div className="grid min-h-[calc(100dvh-200px)] grid-cols-[300px_1fr] border-t-2 border-dotted border-border lg:grid-cols-[360px_1fr]">
-        <nav aria-label={t("settings.title")} className="border-r border-border">
+    <div className="flex flex-col gap-5">
+      <h1 className="font-display text-[2.5rem] leading-[1.1]">{t("settings.title")}</h1>
+      <div className="grid grid-cols-[220px_minmax(0,1fr)] items-start gap-4 lg:grid-cols-[240px_minmax(0,760px)]">
+        <nav aria-label={t("settings.title")} className="flex flex-col gap-1 rounded-2xl bg-raised p-2.5">
           <MenuItem icon={User} label={t("settings.menu.account")} active={tab === "account"} onClick={() => setTab("account")} />
           <MenuItem icon={ReceiptText} label={t("settings.menu.funds")} active={tab === "funds"} onClick={() => setTab("funds")} />
           {mode === "privy" ? <MenuItem icon={Gift} label={t("referral.title")} active={tab === "referral"} onClick={() => setTab("referral")} /> : null}
         </nav>
-        <section className="min-w-0 pl-7" aria-label={tab === "account" ? t("settings.menu.account") : tab === "referral" ? t("referral.title") : t("settings.menu.funds")}>
+        <section className="flex min-w-0 flex-col gap-4" aria-label={tab === "account" ? t("settings.menu.account") : tab === "referral" ? t("referral.title") : t("settings.menu.funds")}>
           {tab === "account" ? (
             <>
-              <div className="flex items-center gap-3.5 pt-5 pb-1">
-                <Avatar initial={initial} />
-                <h2 className="truncate text-xl font-bold">{name}</h2>
-              </div>
-              <ProfileAndWallet />
+              <SettingsCard>
+                <div className="flex items-center gap-3.5 pb-2">
+                  <Avatar initial={initial} />
+                  <h2 className="truncate font-display text-[1.375rem]">{name}</h2>
+                </div>
+                <ProfileAndWallet />
+              </SettingsCard>
               <ExecutionWalletSettings />
-              <SectionTitle className="pt-8">{t("settings.language")}</SectionTitle>
-              <Row label={t("settings.language")} value={t("settings.languageHint")} action={<LanguageSelect />} />
-              <SectionTitle className="pt-8">{t("settings.notifications")}</SectionTitle>
-              <TradingBotRow className="border-b-2 border-dotted border-border" />
-              <AlertBotRow />
+              <SettingsCard>
+                <SectionTitle>{t("settings.language")}</SectionTitle>
+                <Row label={t("settings.language")} value={t("settings.languageHint")} action={<LanguageSelect />} />
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-dotted border-border pt-3.5 pb-1">
+                  <p className="text-[0.875rem] font-extrabold">{t("theme.label")}</p>
+                  <ThemeChoiceControl className="w-full max-w-[420px] [&_button]:bg-inset [&_button[aria-checked=true]]:bg-primary" />
+                </div>
+              </SettingsCard>
+              <SettingsCard>
+                <SectionTitle>{t("settings.notifications")}</SectionTitle>
+                <TradingBotRow className="border-b-2 border-dotted border-border" />
+                <AlertBotRow />
+              </SettingsCard>
               <DesktopDeleteRow />
             </>
           ) : tab === "referral" ? <ReferralSettings /> : (
-            <div className="flex flex-col gap-5 pt-5">
+            <div className="flex flex-col gap-4">
               <FundsSummary />
               <div>
-                <h2 className="text-[0.9375rem] font-bold">{t("wallet.historyTitle")}</h2>
+                <h2 className="mb-1 font-display text-xl">{t("wallet.historyTitle")}</h2>
                 <FundsHistory className="mt-2" />
               </div>
             </div>
@@ -327,19 +343,19 @@ function DesktopDeleteRow() {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
-    <>
-      <SectionTitle className="pt-8">{t("deleteAccount.title")}</SectionTitle>
+    <SettingsCard danger>
+      <SectionTitle>{t("deleteAccount.title")}</SectionTitle>
       <Row
         label={t("deleteAccount.cta")}
         value={t("deleteAccount.rowHint")}
         action={
-          <Button variant="destructive" size="sm" className="h-9 px-3.5" onClick={() => setOpen(true)}>
+          <Button variant="destructive" className="h-11 px-5" onClick={() => setOpen(true)}>
             {t("deleteAccount.cta")}
           </Button>
         }
       />
       <DeleteAccountDialog open={open} onOpenChange={setOpen} />
-    </>
+    </SettingsCard>
   );
 }
 
@@ -350,11 +366,11 @@ function PhoneRow({ icon: Icon, label, value, onClick }: { icon: LucideIcon; lab
     <button
       type="button"
       onClick={onClick}
-      className="flex h-[54px] w-full items-center gap-4 border-b-2 border-dotted border-border text-left outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-[56px] w-full items-center gap-4 border-b-2 border-dotted border-border text-left outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Icon className="size-6" strokeWidth={1.75} />
-      <span className="flex-1 text-base font-semibold">{label}</span>
-      {value ? <span className="text-[15px] text-muted-foreground">{value}</span> : null}
+      <Icon className="size-5" strokeWidth={2.4} />
+      <span className="flex-1 text-base font-extrabold">{label}</span>
+      {value ? <span className="text-[15px] font-bold text-muted-foreground">{value}</span> : null}
       <ChevronRight className="size-4 text-muted-foreground" />
     </button>
   );
@@ -434,17 +450,20 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
             </>
           )}
 
-          <p className="mt-[22px] text-xs leading-[18px] font-semibold text-muted-foreground">{t("settings.general")}</p>
-          <div className="mt-1">
+          <p className="mt-[22px] text-xs leading-[18px] font-bold text-muted-foreground">{t("settings.general")}</p>
+          <div className="mt-1 orbit-card px-4">
             {signedIn ? <PhoneRow icon={Bell} label={t("settings.notifications")} onClick={() => open("notifications")} /> : null}
             <PhoneRow icon={Globe} label={t("settings.language")} value={LOCALE_NAMES[locale]} onClick={() => open("language")} />
             {signedIn ? <PhoneRow icon={History} label={t("settings.history")} onClick={() => open("history")} /> : null}
             {signedIn && mode === "privy" ? <PhoneRow icon={Gift} label={t("referral.title")} onClick={() => open("referral")} /> : null}
           </div>
 
-          <div className="mt-6 flex items-center gap-4 rounded-[20px] bg-card p-5">
+          <p className="mt-[22px] mb-2 text-xs leading-[18px] font-bold text-muted-foreground">{t("theme.label")}</p>
+          <ThemeChoiceControl />
+
+          <div className="mt-6 flex items-center gap-4 orbit-card p-5">
             <div className="min-w-0 flex-1">
-              <p className="text-xl leading-6 font-bold">{t("settings.feedbackTitle")}</p>
+              <p className="font-display text-xl leading-6">{t("settings.feedbackTitle")}</p>
               <p className="mt-2 text-sm leading-[21px] text-muted-foreground">{t("settings.feedbackBody")}</p>
               <Button asChild size="sm" className="mt-4 h-[37px] px-3.5 text-sm font-semibold">
                 <a href="https://t.me/orbie_fun_bot" target="_blank" rel="noreferrer">
@@ -459,7 +478,7 @@ function PhoneSettings({ signedIn }: { signedIn: boolean }) {
           <button
             type="button"
             onClick={() => void logout()}
-            className="mt-6 h-[52px] w-full rounded-xl bg-card text-[0.9375rem] font-semibold text-negative outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="orbit-press mt-6 h-[52px] w-full rounded-full bg-tag-loss text-[0.9375rem] font-extrabold text-tag-loss-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("settings.logout")}
           </button>

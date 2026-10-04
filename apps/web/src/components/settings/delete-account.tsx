@@ -148,7 +148,7 @@ export function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onO
         autoComplete="off"
         spellCheck={false}
         placeholder={CONFIRM_WORD}
-        className="mt-2 h-11 w-full rounded-xl border border-border bg-raised px-3.5 font-mono text-sm outline-none placeholder:text-subtle-foreground focus-visible:border-negative/60"
+        className="mt-2 h-11 w-full rounded-xl border-2 border-transparent bg-inset px-4 font-bold focus-visible:border-primary font-mono text-sm outline-none placeholder:text-subtle-foreground focus-visible:border-negative/60"
       />
 
       {error ? (

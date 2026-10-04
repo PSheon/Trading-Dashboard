@@ -145,7 +145,7 @@ export function AdminLists() {
             <p className="text-xs text-muted-foreground">
               {t("admin.parsed", { count: rows.length, file: fileName ?? "" })}
             </p>
-            <div className="overflow-hidden rounded-xl border border-border">
+            <div className="overflow-hidden rounded-xl">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">

@@ -166,7 +166,7 @@ function FillsRow({ actionId, colSpan }: { actionId: string; colSpan: number }) 
           <span className="text-xs text-muted-foreground">{t("actions.noFills")}</span>
         ) : null}
         {data && data.length > 0 ? (
-          <div className="overflow-x-auto rounded-xl border border-border">
+          <div className="overflow-x-auto rounded-xl">
             <table className="num w-full text-xs">
               <thead>
                 <tr className="text-left text-subtle-foreground">
